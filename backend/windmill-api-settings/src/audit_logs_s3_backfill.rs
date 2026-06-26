@@ -22,7 +22,9 @@
 //! re-emits them under a different key; consumers dedupe by `id`.
 //!
 //! Scope: like the steady-state export, this reads only `audit_partitioned`. The
-//! pre-partitioning `audit` table is intentionally not exported or backfilled.
+//! pre-partitioning `audit` table is intentionally not exported; a window that
+//! starts before the earliest partitioned row is rejected (see [`try_start`]) so a
+//! backfill never silently reports success while omitting those legacy rows.
 //!
 //! Progress is persisted in `background_task_state` (name [`TASK_NAME`]) so any
 //! API replica can serve the status endpoint, mirroring `log_cleanup`.
@@ -197,6 +199,28 @@ pub async fn try_start(db: &DB, from: DateTime<Utc>, to: DateTime<Utc>) -> error
              pg_read_all_stats to the windmill DB user tightens this cutoff from a 7-day margin to \
              the live oldest-transaction boundary.)"
         )));
+    }
+    // The backfill (like the steady-state export) reads only `audit_partitioned`. Audit
+    // history from before partitioning was introduced lives in the legacy `audit` table
+    // and is intentionally not exported. Reject a window that reaches before the earliest
+    // partitioned row, so a backfill can't report success while silently omitting those
+    // legacy rows (every legacy row predates the partition cutover, so a `from` at or
+    // after the earliest partitioned timestamp can never overlap them). Non-macro query:
+    // no compile-time-checked entry needed.
+    let partition_floor: Option<DateTime<Utc>> = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+        "SELECT min(timestamp) FROM audit_partitioned",
+    )
+    .fetch_one(db)
+    .await?;
+    if let Some(floor) = partition_floor {
+        if from < floor {
+            return Err(error::Error::BadRequest(format!(
+                "audit backfill: `from` ({from}) is before the earliest partitioned audit row \
+                 ({floor}). Audit logs from before audit-log partitioning was introduced live in \
+                 the legacy `audit` table and are not exported to object storage; set `from` >= \
+                 {floor}."
+            )));
+        }
     }
     let claimed = background_task::try_claim(
         db,
@@ -387,9 +411,19 @@ mod tests {
         store
     }
 
-    async fn clear_store() {
-        let mut settings = OBJECT_STORE_SETTINGS.write().await;
-        *settings = None;
+    /// Resets the test-only process globals on drop so a failing assertion can't
+    /// leak `PAGE_ROWS_OVERRIDE` or the in-memory object store into other tests
+    /// running in the same process. Best-effort store reset (`try_write`) is enough
+    /// here: it is uncontended at drop time, and the next store-using test installs a
+    /// fresh one regardless.
+    struct ResetGlobals;
+    impl Drop for ResetGlobals {
+        fn drop(&mut self) {
+            PAGE_ROWS_OVERRIDE.store(0, Ordering::Relaxed);
+            if let Ok(mut s) = OBJECT_STORE_SETTINGS.try_write() {
+                *s = None;
+            }
+        }
     }
 
     /// Insert an audit row `days` days in the past (creating the daily partition if
@@ -466,10 +500,13 @@ mod tests {
     // than one object, and re-running is idempotent (same keys overwritten, no dupes).
     #[sqlx::test(migrations = "../migrations")]
     async fn backfill_exports_window_in_pages(db: DB) -> anyhow::Result<()> {
+        let _reset = ResetGlobals; // restores globals even if an assertion panics
         let store = install_in_memory_store().await;
         let dyn_store = windmill_object_store::get_object_store()
             .await
             .expect("store configured");
+        // Force multi-page / page-spanning-day keyset behaviour with a handful of rows.
+        PAGE_ROWS_OVERRIDE.store(2, Ordering::Relaxed);
 
         // In window [now-6d, now-2d): days 5, 4, 3 ago.
         let mut want = Vec::new();
@@ -490,10 +527,8 @@ mod tests {
         let from = Utc::now() - chrono::Duration::days(6);
         let to = Utc::now() - chrono::Duration::days(2);
 
-        PAGE_ROWS_OVERRIDE.store(2, Ordering::Relaxed);
         let s = session(&db, from, to);
         run_backfill(&s, &db, &dyn_store, from, to).await?;
-        PAGE_ROWS_OVERRIDE.store(0, Ordering::Relaxed);
 
         let (ids, paths) = backfilled(&store).await;
         assert_eq!(ids, want, "exactly the in-window rows, each once: {ids:?}");
@@ -517,14 +552,11 @@ mod tests {
         }
 
         // Idempotent re-run: deterministic keys are overwritten, never duplicated.
-        PAGE_ROWS_OVERRIDE.store(2, Ordering::Relaxed);
         let s2 = session(&db, from, to);
         run_backfill(&s2, &db, &dyn_store, from, to).await?;
-        PAGE_ROWS_OVERRIDE.store(0, Ordering::Relaxed);
         let (ids2, _) = backfilled(&store).await;
         assert_eq!(ids2, want, "re-run stays exactly once per row: {ids2:?}");
 
-        clear_store().await;
         Ok(())
     }
 
@@ -547,6 +579,32 @@ mod tests {
         try_start(&db, from, to)
             .await
             .expect("a settled past window is accepted");
+        Ok(())
+    }
+
+    // A window reaching before the earliest partitioned row is rejected: those
+    // pre-partitioning rows live in the legacy `audit` table and are not exported,
+    // so the backfill must not report success while silently omitting them.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn backfill_rejects_pre_partition_window(db: DB) -> anyhow::Result<()> {
+        // Earliest partitioned row ~3 days ago.
+        insert_audit_days_ago(&db, "boundary", 3).await;
+
+        // `from` before the boundary -> rejected.
+        let from = Utc::now() - chrono::Duration::days(10);
+        let to = Utc::now() - chrono::Duration::days(2);
+        let err = try_start(&db, from, to).await.unwrap_err();
+        assert!(
+            matches!(err, error::Error::BadRequest(_)),
+            "a window starting before the earliest partitioned row must be rejected, got {err:?}"
+        );
+
+        // `from` within the partitioned era (after the boundary) -> accepted.
+        let from_ok = Utc::now() - chrono::Duration::hours(60); // ~2.5d ago, > boundary
+        let to_ok = Utc::now() - chrono::Duration::days(2);
+        try_start(&db, from_ok, to_ok)
+            .await
+            .expect("a window within the partitioned era is accepted");
         Ok(())
     }
 }
