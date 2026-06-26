@@ -12,6 +12,9 @@ export type GraphDraft = {
 	script: { content: string }
 	outputAsset?: { kind: AssetKind; path: string }
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
+	/** Draft staged by the AI chat, awaiting Accept/Reject — drives an accent
+	 * highlight on the node, distinct from a plain unsaved (manual) draft. */
+	aiPending?: boolean
 }
 
 export type ResolveGraphInput = {
@@ -240,7 +243,8 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				tag: parsed.tag,
 				retry: parsed.retry,
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
-				unsaved: true
+				unsaved: true,
+				aiPending: d.aiPending
 			})
 		} else {
 			// Refresh annotation-derived badges from the live parse too, so
@@ -249,7 +253,8 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 			runnables[baseIdx] = {
 				...runnables[baseIdx],
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
-				unsaved: true
+				unsaved: true,
+				aiPending: d.aiPending
 			}
 		}
 		// Output asset(s): three-tier resolution.

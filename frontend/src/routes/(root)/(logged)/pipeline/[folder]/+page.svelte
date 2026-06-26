@@ -60,15 +60,22 @@
 	import {
 		generatePipelineDraft,
 		autoOutputAsset,
+		assetUri,
 		type PipelineOutputKind,
 		type DraftTriggerSource
 	} from '$lib/components/assets/AssetGraph/pipelineTemplates'
+	import type {
+		PipelineAIChatHelpers,
+		PipelineContext,
+		PipelineNodeSummary
+	} from '$lib/components/copilot/chat/pipeline/core'
 	import { decodeState, encodeState } from '$lib/utils'
 	import { DraftService } from '$lib/gen'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import GlobalReviewButtons from '$lib/components/copilot/chat/GlobalReviewButtons.svelte'
 	import {
 		AlertTriangle,
 		ArrowLeft,
@@ -188,6 +195,11 @@
 		// outputs after they've clicked away. Falls back to outputAsset
 		// when undefined (initial state or parser miss).
 		outputAssets?: Array<{ kind: AssetKind; path: string }>
+		// Staged by the AI chat this turn and awaiting the user's Accept/Reject
+		// (the pipeline analogue of the flow editor's pending diff). Rendered
+		// with an accent highlight on the canvas; cleared on Accept, reverted on
+		// Reject. A plain unsaved draft (manual edit) leaves this undefined.
+		aiPending?: boolean
 	}
 	let drafts = $state<Map<string, Draft>>(new Map())
 
@@ -699,6 +711,286 @@
 		aiChatManager.openChat()
 		aiChatManager.sendRequest({ instructions })
 	}
+
+	// ===================== AI chat pipeline integration =====================
+	// The global AI chat (dev-gated) gains pipeline-building tools while this
+	// editor is mounted, via the helpers registered below. AI mutations don't
+	// deploy — they stage drafts flagged `aiPending`, rendered with an accent
+	// highlight, that the user Accepts (keep) or Rejects (revert), mirroring the
+	// flow editor's diff/approval loop.
+
+	// True while any AI-staged proposal awaits review. Drives the Accept/Reject
+	// overlay on the canvas.
+	let hasAiPending = $derived([...drafts.values()].some((d) => d.aiPending))
+
+	// Pre-proposal snapshot of each path the AI touched this review cycle, so
+	// Reject restores exactly what was there before (a prior draft, or absence).
+	// `undefined` value = the path had no draft before the AI staged it, so
+	// rejecting removes it entirely. Non-reactive: pure bookkeeping for revert.
+	const aiSnapshots = new Map<string, Draft | undefined>()
+
+	function aiSnapshotPath(path: string) {
+		// Only capture the first time a path enters the current review cycle so a
+		// multi-edit turn still reverts to the pre-AI baseline, not an interim one.
+		if (!aiSnapshots.has(path)) {
+			aiSnapshots.set(path, drafts.get(path))
+		}
+	}
+
+	function aiClearReviewCycle() {
+		aiSnapshots.clear()
+	}
+
+	function buildPipelineAiContext(): PipelineContext {
+		const graph = graphWithDraft
+		const nodes: PipelineNodeSummary[] = graph.runnables
+			.filter((r) => r.usage_kind === 'script')
+			.map((r) => {
+				const draft = drafts.get(r.path)
+				const writes = graph.edges
+					.filter(
+						(e) =>
+							e.runnable_kind === 'script' &&
+							e.runnable_path === r.path &&
+							(e.access_type === 'w' || e.access_type === 'rw')
+					)
+					.map((e) => assetUri({ kind: e.asset_kind, path: e.asset_path }))
+				const reads = graph.edges
+					.filter(
+						(e) =>
+							e.runnable_kind === 'script' &&
+							e.runnable_path === r.path &&
+							(e.access_type === 'r' || e.access_type === 'rw')
+					)
+					.map((e) => assetUri({ kind: e.asset_kind, path: e.asset_path }))
+				const triggers = graph.triggers
+					.filter((t) => t.runnable_kind === 'script' && t.runnable_path === r.path)
+					.map((t) =>
+						t.trigger_kind === 'asset'
+							? assetUri({ kind: t.asset_kind, path: t.asset_path })
+							: t.trigger_kind
+					)
+				return {
+					path: r.path,
+					language: draft?.script.language,
+					unsaved: r.unsaved ?? false,
+					aiPending: draft?.aiPending ?? false,
+					summary: draft?.script.summary || undefined,
+					writes: [...new Set(writes)],
+					reads: [...new Set(reads)],
+					triggers: [...new Set(triggers)]
+				}
+			})
+		return {
+			folder,
+			mode,
+			nodes,
+			assets: graph.assets.map((a) => assetUri({ kind: a.kind, path: a.path })),
+			pendingProposals: nodes.filter((n) => n.aiPending).length
+		}
+	}
+
+	async function aiInferOutputAssets(
+		language: ScriptLang,
+		content: string
+	): Promise<Array<{ kind: AssetKind; path: string }>> {
+		try {
+			const inferred = await inferAssets(language, content)
+			if (inferred?.status === 'error') return []
+			return extractWrites((inferred?.assets ?? []) as AssetWithAltAccessType[])
+		} catch {
+			return []
+		}
+	}
+
+	function assertEditable() {
+		if (isOperator || mode !== 'edit') {
+			// Auto-enter edit so AI changes are visible/actionable, unless the user
+			// is an operator (no edit permission) — then refuse with a clear error.
+			if (isOperator) {
+				throw new Error('This pipeline is read-only for your role; AI edits are disabled.')
+			}
+			setMode('edit')
+		}
+	}
+
+	async function aiProposeNode(input: {
+		path: string
+		language: ScriptLang
+		content: string
+		outputKind?: PipelineOutputKind
+	}): Promise<{ path: string }> {
+		assertEditable()
+		if (drafts.has(input.path) && !drafts.get(input.path)?.aiPending) {
+			throw new Error(
+				`A draft already exists at '${input.path}'. Use edit_pipeline_node to change it instead.`
+			)
+		}
+		aiSnapshotPath(input.path)
+		const outputAssets = await aiInferOutputAssets(input.language, input.content)
+		const seededOutput =
+			outputAssets[0] ??
+			(input.outputKind ? autoOutputAsset(input.outputKind, folder, input.language) : undefined)
+		const script = {
+			...buildDraft(
+				input.language,
+				input.path,
+				[],
+				input.outputKind ?? 'none',
+				seededOutput,
+				undefined
+			),
+			content: input.content
+		} as Script
+		const prev = drafts.get(input.path)
+		const next = new Map(drafts)
+		next.set(input.path, {
+			localId: prev?.localId ?? newDraftLocalId(),
+			script,
+			outputAsset: seededOutput,
+			outputAssets: outputAssets.length > 0 ? outputAssets : undefined,
+			aiPending: true
+		})
+		drafts = next
+		includeDrafts = true
+		focusPipelineNode(`script:${input.path}`)
+		return { path: input.path }
+	}
+
+	async function aiEditNode(path: string, content: string): Promise<void> {
+		assertEditable()
+		const existing = drafts.get(path)
+		let language: ScriptLang
+		if (existing) {
+			language = existing.script.language
+		} else {
+			// Promote a deployed script to a draft so the edit is reviewable.
+			const deployed = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore ?? '',
+				path
+			})
+			language = deployed.language
+		}
+		aiSnapshotPath(path)
+		const outputAssets = await aiInferOutputAssets(language, content)
+		const baseScript =
+			existing?.script ?? buildDraft(language, path, [], 'none', undefined, undefined)
+		const script = { ...baseScript, content } as Script
+		const next = new Map(drafts)
+		next.set(path, {
+			localId: existing?.localId ?? newDraftLocalId(),
+			script,
+			outputAsset: outputAssets[0] ?? existing?.outputAsset,
+			outputAssets: outputAssets.length > 0 ? outputAssets : existing?.outputAssets,
+			aiPending: true
+		})
+		drafts = next
+		includeDrafts = true
+		focusPipelineNode(`script:${path}`)
+	}
+
+	function aiRevertPath(path: string) {
+		const snap = aiSnapshots.get(path)
+		const next = new Map(drafts)
+		if (snap === undefined) {
+			next.delete(path)
+			forgetPath(path)
+		} else {
+			next.set(path, snap)
+		}
+		drafts = next
+		aiSnapshots.delete(path)
+	}
+
+	async function aiRemoveProposedNode(path: string): Promise<void> {
+		const draft = drafts.get(path)
+		if (!draft?.aiPending) {
+			throw new Error(`'${path}' is not an AI-pending node, so it cannot be removed here.`)
+		}
+		aiRevertPath(path)
+	}
+
+	function aiAcceptAllProposals() {
+		const next = new Map(drafts)
+		for (const [path, d] of next) {
+			if (d.aiPending) next.set(path, { ...d, aiPending: false })
+		}
+		drafts = next
+		aiClearReviewCycle()
+	}
+
+	function aiRejectAllProposals() {
+		// Iterate the snapshot set: it covers every path the AI created or edited
+		// this cycle (a created path's snapshot is `undefined` → removed).
+		for (const path of [...aiSnapshots.keys()]) {
+			aiRevertPath(path)
+		}
+		aiClearReviewCycle()
+	}
+
+	async function aiTestNode(path: string, args?: Record<string, any>): Promise<string | undefined> {
+		if (!$workspaceStore) return undefined
+		const draft = drafts.get(path)
+		activeRunnables.arm(`script:${path}`)
+		try {
+			let jobId: string
+			if (draft) {
+				// Un-deployed (or edited) body: preview-run the draft content so the
+				// user can test before deploying.
+				jobId = await JobService.runScriptPreview({
+					workspace: $workspaceStore,
+					requestBody: {
+						path,
+						content: draft.script.content,
+						language: draft.script.language,
+						args: args ?? {}
+					}
+				})
+			} else {
+				jobId = await JobService.runScriptByPath({
+					workspace: $workspaceStore,
+					path,
+					requestBody: { ...(args ?? {}) }
+				})
+			}
+			runsPendingJobId = jobId
+			runsRefreshKey++
+			activeRunnable = { kind: 'script', path }
+			activeRunnableJobId = jobId
+			return jobId
+		} catch (e: any) {
+			sendUserToast(`Run failed: ${e?.body ?? e?.message ?? e}`, true)
+			return undefined
+		}
+	}
+
+	const pipelineAiHelpers: PipelineAIChatHelpers = {
+		getPipelineContext: buildPipelineAiContext,
+		getNodeBody: async (path) => {
+			const draft = drafts.get(path)
+			if (draft) {
+				return { language: draft.script.language, content: draft.script.content }
+			}
+			try {
+				const deployed = await ScriptService.getScriptByPath({
+					workspace: $workspaceStore ?? '',
+					path
+				})
+				return { language: deployed.language, content: deployed.content }
+			} catch {
+				return undefined
+			}
+		},
+		proposeNode: aiProposeNode,
+		editNode: aiEditNode,
+		removeProposedNode: aiRemoveProposedNode,
+		hasPendingProposals: () => [...drafts.values()].some((d) => d.aiPending),
+		acceptAllProposals: aiAcceptAllProposals,
+		rejectAllProposals: aiRejectAllProposals,
+		testNode: aiTestNode
+	}
+
+	onMount(() => aiChatManager.setPipelineHelpers(pipelineAiHelpers))
 
 	// Navigation guard state. `pendingNavigationUrl` holds the URL the user
 	// tried to leave to so we can complete the navigation after they pick
@@ -2469,6 +2761,16 @@
 									Run selection
 								</Button>
 							</div>
+						{/if}
+						{#if hasAiPending}
+							<!-- AI staged one or more pipeline nodes as drafts. Mirror
+							     the flow editor's diff/approval: Accept keeps the staged
+							     drafts (the user can then deploy them), Reject reverts to
+							     the pre-AI baseline. -->
+							<GlobalReviewButtons
+								onAcceptAll={aiAcceptAllProposals}
+								onRejectAll={aiRejectAllProposals}
+							/>
 						{/if}
 						{#if mode === 'edit'}
 							<!-- View mode surfaces activity as a full right pane

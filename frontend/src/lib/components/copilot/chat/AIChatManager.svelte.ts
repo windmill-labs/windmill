@@ -85,6 +85,11 @@ import {
 	type GlobalToolHelpers
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
+import {
+	pipelineTools,
+	getPipelinePromptSection,
+	type PipelineAIChatHelpers
+} from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
@@ -251,6 +256,8 @@ export class AIChatManager {
 	skipResponsesApi = false
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
+	// Declared ahead of the autoAcceptEdits derived below, which reads it.
+	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -280,7 +287,10 @@ export class AIChatManager {
 	// "Compacting conversation" label on the processing indicator.
 	compacting = $state(false)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
-	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
+	autoAcceptEditsAvailable = $derived(
+		supportsAutoAcceptEdits(this.mode) ||
+			(this.mode === AIMode.GLOBAL && this.pipelineAiChatHelpers !== undefined)
+	)
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
 			(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
@@ -646,18 +656,11 @@ export class AIChatManager {
 			)
 			switch (result) {
 				case 'ok':
-					await this.historyManager.saveChat(
-						this.displayMessages,
-						this.messages,
-						this.contextUsage
-					)
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 					sendUserToast('Conversation compacted.')
 					break
 				case 'empty':
-					sendUserToast(
-						'Compaction produced an empty summary — conversation left unchanged.',
-						true
-					)
+					sendUserToast('Compaction produced an empty summary — conversation left unchanged.', true)
 					break
 				case 'error':
 					sendUserToast('Failed to compact the conversation.', true)
@@ -727,6 +730,20 @@ export class AIChatManager {
 		}
 	}
 
+	private acceptPendingPipelineEdits = (pipelineHelpers = this.pipelineAiChatHelpers) => {
+		if (pipelineHelpers?.hasPendingProposals()) {
+			pipelineHelpers.acceptAllProposals()
+		}
+	}
+
+	// Accept whatever pending edits the active mode has staged. Flow and pipeline
+	// each surface their own diff/approval; this is the single hook the autonomy
+	// and end-of-turn paths call so neither has to know which editor is open.
+	private acceptPendingEdits = () => {
+		this.acceptPendingFlowEdits()
+		this.acceptPendingPipelineEdits()
+	}
+
 	setAutonomyMode = (mode: AIAutonomyMode) => {
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
@@ -735,7 +752,7 @@ export class AIChatManager {
 			this.acceptPendingToolConfirmations()
 		}
 		if (this.autoAcceptEditsActive) {
-			this.acceptPendingFlowEdits()
+			this.acceptPendingEdits()
 		}
 	}
 
@@ -955,18 +972,7 @@ export class AIChatManager {
 			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
-			const customPrompt = getCombinedCustomPrompt(mode)
-			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
-				previewTools: this.isSessionChat,
-				skills: this.globalSkills
-			})
-			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
-			this.helpers = {
-				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args),
-				attachedFiles: this.attachedFiles
-			} satisfies GlobalToolHelpers
+			this.configureGlobalMode()
 			void this.refreshGlobalSkills()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -979,6 +985,32 @@ export class AIChatManager {
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
 	// the system message so the next chat-loop iteration advertises them. Ignore
 	// stale resolves so workspace changes cannot overwrite newer skills.
+	// Build the global-mode system message, tools, and helpers, layering on the
+	// pipeline surface when a /pipeline editor has registered helpers. Centralized
+	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
+	// each rebuild would otherwise drop the pipeline augmentation the others added.
+	private configureGlobalMode = () => {
+		const systemMessage = prepareGlobalSystemMessage(getCombinedCustomPrompt(AIMode.GLOBAL), {
+			previewTools: this.isSessionChat,
+			skills: this.globalSkills
+		})
+		const baseHelpers: GlobalToolHelpers = {
+			...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
+			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
+			attachedFiles: this.attachedFiles
+		}
+		const pipeline = this.pipelineAiChatHelpers
+		if (pipeline) {
+			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
+			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...pipelineTools]
+			this.helpers = { ...baseHelpers, pipeline }
+		} else {
+			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
+			this.helpers = baseHelpers
+		}
+		this.systemMessage = systemMessage
+	}
+
 	refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
 		const refreshId = ++this.globalSkillsRefreshId
 		const skills = await loadWorkspaceSkills(workspace)
@@ -987,10 +1019,7 @@ export class AIChatManager {
 		}
 		this.globalSkills = skills
 		if (this.mode === AIMode.GLOBAL) {
-			this.systemMessage = prepareGlobalSystemMessage(getCombinedCustomPrompt(AIMode.GLOBAL), {
-				previewTools: this.isSessionChat,
-				skills
-			})
+			this.configureGlobalMode()
 		}
 	}
 
@@ -1735,7 +1764,7 @@ export class AIChatManager {
 				// "continue" picks up from there.
 				this.commitInterruptedTurn(collectedMessages, partialReply)
 				if (this.autoAcceptEditsActive) {
-					this.acceptPendingFlowEdits()
+					this.acceptPendingEdits()
 				}
 				// The report from the last completed iteration still describes the
 				// stored history it was sent with (the kept partial tail is a small
@@ -1791,7 +1820,7 @@ export class AIChatManager {
 					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
 					: undefined
 				if (this.autoAcceptEditsActive) {
-					this.acceptPendingFlowEdits()
+					this.acceptPendingEdits()
 				}
 				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 				// Only this branch is a clean send: the queued-message flush below
@@ -2106,7 +2135,7 @@ export class AIChatManager {
 						moduleState && !moduleState.previewSuccess
 							? getStringError(moduleState.previewResult)
 							: undefined,
-					getCode: () => module.value.type === 'rawscript' ? module.value.content : '',
+					getCode: () => (module.value.type === 'rawscript' ? module.value.content : ''),
 					lang: module.value.language,
 					path: module.id,
 					...editorRelated
@@ -2147,6 +2176,31 @@ export class AIChatManager {
 
 		return () => {
 			this.flowAiChatHelpers = undefined
+		}
+	}
+
+	// Registered by the /pipeline editor while it is mounted. Rebuilds the global
+	// tool set so the pipeline tools appear (and disappear on unregister) and
+	// auto-accepts any staged proposals if the user is in an edit-accepting
+	// autonomy mode. Returns a cleanup that tears the registration back down.
+	setPipelineHelpers = (pipelineHelpers: PipelineAIChatHelpers) => {
+		this.pipelineAiChatHelpers = pipelineHelpers
+		untrack(() => {
+			if (this.mode === AIMode.GLOBAL) {
+				this.configureGlobalMode()
+			}
+			if (this.autoAcceptEditsActive) {
+				this.acceptPendingPipelineEdits(pipelineHelpers)
+			}
+		})
+
+		return () => {
+			this.pipelineAiChatHelpers = undefined
+			untrack(() => {
+				if (this.mode === AIMode.GLOBAL) {
+					this.configureGlobalMode()
+				}
+			})
 		}
 	}
 

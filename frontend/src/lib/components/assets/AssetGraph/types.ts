@@ -37,6 +37,10 @@ export interface AssetGraphRunnableNode {
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.
 	unsaved?: boolean
+	// Draft staged by the AI chat and awaiting the user's Accept/Reject.
+	// Rendered with an accent ring so AI proposals read as distinct from a
+	// plain unsaved (manual) draft, mirroring the flow editor's pending diff.
+	aiPending?: boolean
 }
 
 // Lineage edge from parsed r/w usages — informational only, not the
