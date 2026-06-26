@@ -551,10 +551,41 @@ pub fn materialize_result_sql(
             String::new(),
         )
     };
+    // Capture the materialized output schema (gap #2a) in the same summary row —
+    // no extra round-trip. `DESCRIBE SELECT * FROM <target>` yields one row per
+    // column (`column_name`, `column_type`); fold them into a list-of-struct the
+    // worker reads back and persists as asset metadata. The write just
+    // committed, so the latest snapshot (no `AT (VERSION)` needed) is exactly the
+    // slice recorded in `snapshot_id`.
+    //
+    // Two correctness details:
+    // - `_wm_ord` (a `row_number()` over the DESCRIBE) is captured so the
+    //   list-of-struct is ordered *explicitly* (`list(... ORDER BY _wm_ord)`).
+    //   DESCRIBE returns columns in physical order; without the explicit ORDER
+    //   the `list()` aggregate could reorder them and spuriously bump the schema
+    //   version on a re-materialize.
+    // - For a `// partitioned` asset the physical table carries the synthetic
+    //   `_wm_partition` column; it must be filtered out so the recorded schema is
+    //   the producer's logical output, not Windmill's storage detail (this is the
+    //   grain #2b contract enforcement reads back).
+    let partition_filter = if partitioned {
+        format!(
+            " WHERE column_name <> '{}'",
+            partition_col.replace('\'', "''")
+        )
+    } else {
+        String::new()
+    };
+    let schema_capture = format!(
+        "(SELECT list({{'name': column_name, 'type': column_type}} ORDER BY _wm_ord) \
+         FROM (SELECT column_name, column_type, row_number() OVER () AS _wm_ord \
+               FROM (DESCRIBE SELECT * FROM {target_qualified}){partition_filter})) AS output_schema"
+    );
     let base_cols = format!(
         "'ducklake://{asset_path}' AS materialized, \
          {partition_sel}{count_expr} AS rows, \
-         (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id"
+         (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id, \
+         {schema_capture}"
     );
     if checks.is_empty() {
         return format!("SELECT {base_cols};");
@@ -1366,5 +1397,33 @@ mod tests {
         );
         assert!(plain.starts_with("SELECT 'ducklake://analytics/orders' AS materialized"));
         assert!(!plain.contains("data_tests"));
+        // Schema capture (gap #2a) is in every summary, tests or not. Unpartitioned
+        // → explicit ordering, no partition-column filter.
+        for s in [&sql, &plain] {
+            assert!(s.contains(
+                "(SELECT list({'name': column_name, 'type': column_type} ORDER BY _wm_ord) \
+                 FROM (SELECT column_name, column_type, row_number() OVER () AS _wm_ord \
+                 FROM (DESCRIBE SELECT * FROM _wm_target.orders))) AS output_schema"
+            ));
+            assert!(!s.contains("WHERE column_name <>"));
+        }
+    }
+
+    #[test]
+    fn materialize_result_sql_schema_excludes_partition_column() {
+        // Partitioned → the synthetic `_wm_partition` column is filtered out so
+        // the captured schema is the producer's logical output only.
+        let sql = materialize_result_sql(
+            "_wm_target.orders_daily",
+            "analytics/orders_daily",
+            "_wm_partition",
+            "'2026-06-19'",
+            true,
+            &[],
+        );
+        assert!(sql.contains(
+            "FROM (DESCRIBE SELECT * FROM _wm_target.orders_daily) \
+             WHERE column_name <> '_wm_partition')) AS output_schema"
+        ));
     }
 }
