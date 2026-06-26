@@ -643,11 +643,13 @@ const deleteAppRunnableSchema = z.object({
 
 const openPreviewSchema = z.object({
 	kind: z
-		.enum(['script', 'flow', 'raw_app'])
+		.enum(['script', 'flow', 'raw_app', 'pipeline'])
 		.describe(
-			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). Use "pipeline" to show the data-pipeline graph for a folder — here `path` is the folder name, not an item path. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
 		),
-	path: z.string().describe('Workspace path of the item to preview.')
+	path: z
+		.string()
+		.describe('Workspace path of the item to preview, or the folder name when kind is "pipeline".')
 })
 
 const getPreviewStatusSchema = z.object({})
@@ -785,6 +787,7 @@ Rules:
 		previewTools
 			? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- When building a data pipeline, show its graph with open_preview(kind="pipeline", path="<folder>") (path is the folder, not an item). The preview registers the pipeline tools (build_pipeline_node / edit_pipeline_node), so prefer those for pipeline nodes once it is open — they stage reviewable, canvas-highlighted proposals the user Accepts or Rejects.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
 			: ''
@@ -2330,7 +2333,7 @@ function activeFlowTestFromCtx(
 
 export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
-	kind: 'script' | 'flow' | 'raw_app'
+	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
 	path: string
 }) => string
 
@@ -2341,7 +2344,7 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 }
 
 function openSessionPreview(
-	args: { kind: 'script' | 'flow' | 'raw_app'; path: string },
+	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
 ) {
 	if (!openPreviewHandler) {
