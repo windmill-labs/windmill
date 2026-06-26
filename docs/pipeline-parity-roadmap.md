@@ -54,44 +54,64 @@ trigger UI/CLI — `graphTraversal.ts`, `resolveGraph.ts`, `cascadeOrchestrator.
 
 | # | Gap | Surface | Round | Branch / PR | Status |
 |---|---|---|---|---|---|
-| 1 | Data tests (+ extensibility pattern #6) | A | 1 | `pipeline-data-tests` | 🟡 in progress |
-| 3 | Snapshot pinning | B | 1 | `pipeline-snapshot-pinning` | 🟡 in progress |
-| 4 | Selective execution grammar | — | 1 | `pipeline-selective-execution` | 🟡 in progress |
-| 2 | Schema contracts / drift | B | 2 | — | ⏸ blocked on #3 |
-| 5 | Column lineage + docs surface | A | 2 | — | ⏸ blocked on #1 |
-| 6 | Annotation extensibility | A | — | folded into #1 | n/a |
+| 1 | Data tests (+ extensibility pattern #6) | A | 1 | **#9708** | ✅ merged |
+| 3 | Snapshot pinning | B | 1 | **#9709** | ✅ partial — time-travel reads shipped; auto cascade-pin deferred |
+| 4 | Selective execution grammar | — | 1 | #9695 + `pipeline-selective-execution` | 🟡 base merged; `+asset`/`asset+`, `tag:`, `state:modified+` still open |
+| 2a | Schema **capture** (DESCRIBE → asset metadata) | B | 2 | — | ▶ ready (off `main`) |
+| 2b | Schema **contract enforcement** (save-time, cross-node) | B | 2 | — | ⏸ blocked on #5 |
+| 5 | Column lineage + docs surface | A | 2 | — | ▶ ready (off `main`) |
+| 6 | Annotation extensibility | A | — | folded into #1 (✅ shipped in #9708) | n/a |
 | 7 | Semantic layer / metrics | — | later | — | 🔵 deferred |
 | — | SCD2 snapshots (dbt `{% snapshot %}`) | — | — | — | ⛔ won't build (DuckLake time-travel supersedes) |
 
-Legend: 🟡 in progress · ⏸ blocked · 🔵 deferred · ✅ merged · ⛔ won't build
+Legend: ▶ ready · 🟡 in progress · ⏸ blocked · 🔵 deferred · ✅ merged · ⛔ won't build
+
+> **Status sync (round 1 merged).** #1 landed as **#9708** (full annotation→verifier
+> seam across both parsers + `duckdb_executor.rs`). #3 landed as **#9709** but only
+> the *explicit* time-travel read UX (`query_builders.rs` `DESCRIBE … AT (VERSION => n)`
+> + history panels) — it did **not** add a post-run schema-capture seam and did **not**
+> touch `asset_dispatch.rs`, so automatic cascade pinning (`$WM_UPSTREAM_SNAPSHOT`)
+> stays deferred. Consequence below.
+>
+> **#2 was wrong to assume it "bases off #3's capture path".** #9709 added no capture
+> seam, so #2's schema capture is **greenfield** (it can reuse #9709's
+> `DESCRIBE … AT (VERSION => n)` helper, but builds its own post-materialize capture).
+> #2 is therefore split:
+> - **#2a schema capture** — DESCRIBE the materialized output, persist as asset
+>   metadata. Surface B, independent → **ready now off `main`**, parallel-safe with #5
+>   (A vs B; only shared touch-point is `windmill-api-assets/src/lib.rs` — keep edits
+>   to distinct fns).
+> - **#2b contract enforcement** — save-time validation of *consumer* `// on
+>   datatable://…` refs + type/shape + `on_schema_change`. This needs to know which
+>   columns each consumer **reads**, i.e. it depends on **#5 column lineage** → base
+>   #2b off merged #5, not `main`.
+>
+> **#2 must NOT re-implement value-level checks already shipped by #1 (#9708):**
+> `not_null`, `accepted_values`, `unique`, `relationships` are data-quality probes that
+> already exist. Contracts = the part `data_test` structurally can't be: *save-time*
+> (not post-run), *cross-node* (producer→consumer edge, not single asset), and
+> *type/shape* (not row values). The producer's own "output matches declared schema"
+> self-check should ride #1's verifier seam, not a new mechanism.
 
 ## Dependency graph
 
 ```
-Round 1 (parallel — disjoint surfaces):
-  #1 data tests ........ Surface A
-  #3 snapshot pinning .. Surface B
-  #4 selective exec .... independent
+Round 1 (MERGED): #1 (#9708, Surface A) · #3 (#9709, Surface B, partial) · #4 (#9695 base)
 
-Round 2 (each unblocks when its round-1 sibling on the SAME surface merges):
-  #1 ──merges──▶ #5 column lineage   (same parser pair; follows #1's extensibility convention)
-  #3 ──merges──▶ #2 schema contracts (same capture path; reuses #3's snapshot/DESCRIBE capture)
+Round 2 — now that #1 + #3 are in `main`:
+  #5 column lineage ...... Surface A, ready off `main`  (reuses #9708's annotation→verifier seam)
+  #2a schema capture ..... Surface B, ready off `main`  (greenfield; reuses #9709's DESCRIBE helper)
+        │
+        └─#5 merges─▶ #2b contract enforcement  (needs #5's per-consumer column reads → base off merged #5)
 ```
 
-**Why round 2 is not parallel with round 1:**
+#5 and #2a sit on different surfaces (A vs B) and both base off `main`, so they
+run **in parallel now**. #2b is the one true sequential edge: its save-time
+consumer-ref validation can't be written until #5 tells it which columns each
+consumer reads.
 
-- **#2 schema contracts** extends the same post-run capture in `materialization.rs` /
-  `duckdb_executor.rs` that #3 modifies, and wants to persist post-run `DESCRIBE`
-  output as asset metadata — naturally built on #3's capture extension. Running
-  concurrently = conflicts in Surface B + duplicated capture work.
-- **#5 column lineage** adds a `// column` annotation to the same parser pair #1
-  touches, and should follow the test-as-annotation extensibility convention #1
-  establishes (#6) rather than re-deriving it. Running concurrently = conflicts
-  in Surface A.
-
-**Base round-2 branches off the merged round-1 branch, not bare `main`**, so they
-inherit the groundwork (capture extension / annotation pattern) instead of
-rebasing onto it later.
+**Base #2b off the merged #5 branch, not bare `main`**, so it inherits the
+column-read lineage instead of stubbing it.
 
 ## Round 1 — scope per session
 
@@ -119,31 +139,41 @@ state. CLI (`wmill`) + asset-graph UI. **Read-only over tags — must not modify
 either parser.** If a CLI command changes, run `python system_prompts/generate.py`.
 Ref: `pipelines-vs-dbt.md` §5.
 
-## Round 2 — queued (not yet started)
+## Round 2 — ready (off `main`)
 
-### #2 schema contracts / drift (Surface B, base off #3)
-Capture output schemas after a run (substrate-specific `DESCRIBE`), persist as
-asset metadata, validate consumer `// on datatable://…` references at save time.
-Closes the thinnest seam in the abstraction (a bare ref string today → silent
-runtime break on upstream rename). Also absorbs dbt's `on_schema_change`
-(schema-drift handling applies to full-refresh too). Design-open: where schemas
-live (asset row vs. sidecar), when captured (post-run vs. edit-time),
-versioning. Ref: `pipelines-vs-dbt.md` §6 + §"Partitioning vs. incremental"
-closing note.
-
-### #5 column lineage + docs surface (Surface A, base off #1)
+### #5 column lineage + docs surface (Surface A, base off `main`)
 `// column` annotation + column-level lineage view; `SqlQueryDetails` already
-carries a column map (`asset_parser.rs:44`). Follow #1's extensibility
-convention. Ref: `pipelines-vs-dbt.md` §3.
+carries a column map (`asset_parser.rs:44`). Follow #1's (#9708) extensible
+test-as-annotation convention — wire each new field in **both** parsers + the
+parity test. Ref: `pipelines-vs-dbt.md` §3.
 
-## Merge checklist (run when a round-1 PR merges)
+### #2a schema capture (Surface B, base off `main`)
+Capture the materialized output schema (substrate-specific `DESCRIBE`; reuse the
+`DESCRIBE … AT (VERSION => n)` helper #9709 added to `query_builders.rs`) and
+persist as asset metadata. Greenfield — #9709 added no capture seam. Design-open:
+where schemas live (asset row vs. sidecar), when captured (post-run vs.
+edit-time), versioning. Parallel-safe with #5 (A vs B); only shared file is
+`windmill-api-assets/src/lib.rs` — keep edits to distinct fns. Ref:
+`pipelines-vs-dbt.md` §6.
+
+### #2b contract enforcement (Surface B, base off merged #5)
+Validate consumer `// on datatable://…` references against captured producer
+schemas at **save time** (a bare ref string today → silent runtime break on
+upstream rename); add type/shape checks and absorb dbt's `on_schema_change`. The
+producer's own "output matches declared schema" check rides #1's verifier seam —
+do **not** rebuild a run-time probe mechanism, and do **not** re-implement #1's
+value-level checks (`not_null`/`accepted_values`/`unique`/`relationships`).
+Needs #5's per-consumer column reads → sequence after #5. Ref:
+`pipelines-vs-dbt.md` §6 + §"Partitioning vs. incremental" closing note.
+
+## Merge checklist (run when a round-2 PR merges)
 
 1. Flip its row to ✅ in the status board; record the PR number.
-2. Unblock its round-2 dependent (⏸ → ready) per the dependency graph.
-3. Spawn the round-2 session **based off the just-merged branch**, e.g.
-   `webmux add pipeline-schema-contracts --base <merged-#3-branch> --detach --prompt …`.
-4. If both round-1 surface-owners (#1 and #3) have merged, round 2 (#2 + #5) can
-   itself run in parallel — they sit on different surfaces again.
+2. When **#5** merges, unblock **#2b** (⏸ → ready) and spawn it **based off the
+   merged #5 branch**, e.g.
+   `webmux add pipeline-contract-enforce --base <merged-#5-branch> --detach --prompt …`.
+3. `+asset`/`asset+`, `tag:`, `state:modified+` remain open under **#4** — land
+   them on `pipeline-selective-execution` (independent surface), not a new cut.
 
 ## Deferred / won't-build
 
