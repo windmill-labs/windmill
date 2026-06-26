@@ -191,6 +191,43 @@ const askUserQuestionSchema = z.object({
 		.describe('Two to ten mutually exclusive proposed answer strings.')
 })
 
+// Matches the per-mode cap enforced by the prompt-settings UI (AIPromptsModal) and
+// the backend workspace prompt (MAX_CUSTOM_PROMPT_LENGTH).
+export const MAX_USER_INSTRUCTIONS_LENGTH = 5000
+
+const updateUserInstructionsSchema = z.object({
+	operation: z
+		.enum(['append', 'replace'])
+		.describe(
+			'What to do with your personal Global instructions. \'append\' adds a new instruction to the end (use for "remember this" / "always do X"). \'replace\' performs an exact find-and-replace to edit or remove existing text (use for "change X" / "stop doing Y"); set new_string to "" to remove.'
+		),
+	text: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Required when operation is 'append': the instruction to add. Ignored for 'replace'."),
+	old_string: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			"Required when operation is 'replace': exact text to find in your current personal instructions. Ignored for 'append'."
+		),
+	new_string: z
+		.string()
+		.optional()
+		.describe(
+			"Required when operation is 'replace': replacement text. Use an empty string to delete the matched text. Ignored for 'append'."
+		),
+	replace_all: z
+		.boolean()
+		.optional()
+		.default(false)
+		.describe(
+			"For operation 'replace': when true, replace every exact match; when false, old_string must match exactly once."
+		)
+})
+
 const listWorkspaceItemsSchema = z.object({
 	types: z
 		.array(itemTypeSchema)
@@ -777,6 +814,7 @@ Rules:
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
+- When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
 		previewTools
 			? `
@@ -1691,6 +1729,79 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			updateUserInstructionsSchema,
+			'update_user_instructions',
+			'Modify your own persistent personal instructions for the Global assistant. Use when the user asks you to remember a preference, always/never do something, or change/stop a behavior. Edits only the user-level instructions (the USER INSTRUCTIONS block, not workspace-level); changes persist in this browser and take effect on your next message.'
+		),
+		showDetails: true,
+		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
+			const parsed = updateUserInstructionsSchema.parse(args)
+			const h = helpers as GlobalToolHelpers
+			if (!h?.getUserInstructions || !h?.setUserInstructions) {
+				const message = 'This chat context cannot modify user instructions.'
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return message
+			}
+
+			const current = h.getUserInstructions()
+			let next: string
+			if (parsed.operation === 'append') {
+				const text = parsed.text?.trim()
+				if (!text) {
+					const message = "operation 'append' requires a non-empty text."
+					toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+					return message
+				}
+				next = current.trim() ? `${current.trim()}\n\n${text}` : text
+			} else {
+				if (parsed.old_string === undefined || parsed.new_string === undefined) {
+					const message = "operation 'replace' requires old_string and new_string."
+					toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+					return message
+				}
+				try {
+					next = findAndReplace(
+						current,
+						parsed.old_string,
+						parsed.new_string,
+						parsed.replace_all ?? false,
+						'personal instructions'
+					).trim()
+				} catch (e) {
+					const detail = e instanceof Error ? e.message : String(e)
+					// Echo the current text on this rare recovery path so the model can rebuild a
+					// correct old_string. The system prompt's USER INSTRUCTIONS block can be stale
+					// within a turn that already made a successful edit, but `current` is always live.
+					const hint = current.trim()
+						? `Your current personal instructions are:\n${current.trim()}`
+						: "You have no personal instructions yet; use operation 'append' to add one."
+					const message = `${detail} ${hint}`
+					toolCallbacks.setToolStatus(toolId, { content: detail, error: detail })
+					return message
+				}
+			}
+
+			if (next.length > MAX_USER_INSTRUCTIONS_LENGTH) {
+				const message = `Resulting instructions would be ${next.length} characters, over the ${MAX_USER_INSTRUCTIONS_LENGTH} limit. Make them more concise.`
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return message
+			}
+
+			h.setUserInstructions(next)
+
+			const summary = next
+				? parsed.operation === 'append'
+					? 'Added a personal instruction'
+					: 'Updated your personal instructions'
+				: 'Cleared your personal instructions'
+			toolCallbacks.setToolStatus(toolId, { content: summary, result: summary })
+			// Return only a short confirmation. The updated text is re-injected into the system
+			// prompt on the next iteration, so echoing it back here would waste context.
+			return `${summary}. It takes effect from your next message and is editable in the Global chat settings.`
+		}
+	},
+	{
+		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
 			'List workspace items and drafts. Returns metadata only.'
@@ -2301,6 +2412,11 @@ export type SessionToolHelpers = { sessionId?: string }
 export type GlobalToolHelpers = SessionToolHelpers & {
 	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
 	attachedFiles?: AttachedFilesStore
+	// Read/write the user-level Global instructions. `setUserInstructions` persists the
+	// value and rebuilds the system message so the change applies on the next chat-loop
+	// iteration. Backed by the update_user_instructions tool.
+	getUserInstructions?: () => string
+	setUserInstructions?: (instructions: string) => void
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
@@ -4381,7 +4497,7 @@ async function deleteWorkspaceItem(
 }
 
 export function prepareGlobalSystemMessage(
-	customPrompt?: string,
+	instructions?: { workspace?: string; user?: string },
 	opts?: {
 		previewTools?: boolean
 		// Identity the path-convention guidance is built from. Production omits it
@@ -4406,8 +4522,11 @@ export function prepareGlobalSystemMessage(
 		folderCtx,
 		opts?.skills ?? []
 	)
-	if (customPrompt?.trim()) {
-		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+	if (instructions?.workspace?.trim()) {
+		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`
+	}
+	if (instructions?.user?.trim()) {
+		content = `${content}\n\nUSER INSTRUCTIONS (this user's personal instructions — update them with the update_user_instructions tool when the user asks you to remember, change, or stop something):\n${instructions.user.trim()}`
 	}
 
 	return {
