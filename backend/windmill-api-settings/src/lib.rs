@@ -14,6 +14,8 @@ use std::{
 #[cfg(feature = "parquet")]
 mod audit_logs_s3;
 #[cfg(feature = "parquet")]
+mod audit_logs_s3_backfill;
+#[cfg(feature = "parquet")]
 mod background_task;
 #[cfg(feature = "private")]
 mod ee;
@@ -204,7 +206,12 @@ pub fn global_service() -> Router {
             )
             .route("/run_log_cleanup", post(run_log_cleanup))
             .route("/log_cleanup_status", get(log_cleanup_status))
-            .route("/audit_logs_s3_status", get(audit_logs_s3_status));
+            .route("/audit_logs_s3_status", get(audit_logs_s3_status))
+            .route("/audit_logs_s3_backfill", post(run_audit_logs_s3_backfill))
+            .route(
+                "/audit_logs_s3_backfill_status",
+                get(audit_logs_s3_backfill_status),
+            );
     }
 
     #[cfg(not(feature = "parquet"))]
@@ -599,6 +606,32 @@ async fn audit_logs_s3_status(
 ) -> error::JsonResult<Option<audit_logs_s3::AuditLogsS3ExportStatus>> {
     require_super_admin(&db, &authed.email).await?;
     Ok(Json(audit_logs_s3::get_status(&db).await?))
+}
+
+#[cfg(feature = "parquet")]
+async fn run_audit_logs_s3_backfill(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<audit_logs_s3_backfill::BackfillRequest>,
+) -> error::Result<axum::http::StatusCode> {
+    require_super_admin(&db, &authed.email).await?;
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return Err(error::Error::BadRequest(
+            "Audit log export to object storage is an Enterprise feature".to_string(),
+        ));
+    }
+    audit_logs_s3_backfill::try_start(&db, req.from, req.to).await?;
+    audit_logs_s3_backfill::spawn_backfill(db.clone(), req.from, req.to);
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
+#[cfg(feature = "parquet")]
+async fn audit_logs_s3_backfill_status(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<Option<audit_logs_s3_backfill::AuditBackfillProgress>> {
+    require_super_admin(&db, &authed.email).await?;
+    Ok(Json(audit_logs_s3_backfill::get_status(&db).await?))
 }
 
 #[derive(Deserialize)]
