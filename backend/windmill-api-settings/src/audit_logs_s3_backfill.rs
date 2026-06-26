@@ -44,6 +44,25 @@ pub const TASK_NAME: &str = "audit_logs_s3_backfill";
 /// page of ndjson is buffered before the day-grouped PUTs).
 const PAGE_ROWS: i64 = 10_000;
 
+/// Test-only override for [`PAGE_ROWS`] (0 = use the default), so a test can force
+/// multi-page / page-spanning-day keyset behaviour with only a handful of rows.
+#[cfg(test)]
+static PAGE_ROWS_OVERRIDE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+fn page_rows() -> i64 {
+    #[cfg(test)]
+    {
+        match PAGE_ROWS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => PAGE_ROWS,
+            n => n,
+        }
+    }
+    #[cfg(not(test))]
+    {
+        PAGE_ROWS
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AuditBackfillProgress {
     pub running: bool,
@@ -266,6 +285,7 @@ async fn run_backfill(
     // first page includes rows at exactly `from`.
     let mut cursor_ts = from;
     let mut cursor_id: i64 = -1;
+    let page_rows = page_rows();
 
     loop {
         let rows = sqlx::query!(
@@ -287,7 +307,7 @@ async fn run_backfill(
             to,
             cursor_ts,
             cursor_id,
-            PAGE_ROWS
+            page_rows
         )
         .fetch_all(db)
         .await?;
@@ -340,10 +360,190 @@ async fn run_backfill(
         session.update(|p| p.last_ts = Some(new_last_ts)).await;
 
         // A short page means the window is exhausted.
-        if (rows.len() as i64) < PAGE_ROWS {
+        if (rows.len() as i64) < page_rows {
             break;
         }
     }
 
     Ok(())
+}
+
+#[cfg(all(test, feature = "parquet"))]
+mod tests {
+    use super::*;
+    use futures::stream::StreamExt;
+    use std::sync::atomic::Ordering;
+    use windmill_object_store::object_store_reexports::{InMemory, ObjectStore, Path as OsPath};
+    use windmill_object_store::{ExpirableObjectStore, OBJECT_STORE_SETTINGS};
+
+    async fn install_in_memory_store() -> std::sync::Arc<InMemory> {
+        let store = std::sync::Arc::new(InMemory::new());
+        let dynstore: std::sync::Arc<dyn ObjectStore> = store.clone();
+        let mut settings = OBJECT_STORE_SETTINGS.write().await;
+        *settings = Some(ExpirableObjectStore::from(dynstore));
+        store
+    }
+
+    async fn clear_store() {
+        let mut settings = OBJECT_STORE_SETTINGS.write().await;
+        *settings = None;
+    }
+
+    /// Insert an audit row `days` days in the past (creating the daily partition if
+    /// needed). The row's `timestamp` defaults to that point, landing it in the
+    /// matching partition.
+    async fn insert_audit_days_ago(db: &DB, operation: &str, days: i64) -> i64 {
+        sqlx::query(&format!(
+            "DO $$ DECLARE d date := current_date - {days}; BEGIN \
+             EXECUTE format('CREATE TABLE IF NOT EXISTS %I PARTITION OF audit_partitioned \
+             FOR VALUES FROM (%L) TO (%L)', 'audit_'||to_char(d,'YYYYMMDD'), d, d + 1); END $$;"
+        ))
+        .execute(db)
+        .await
+        .ok();
+        sqlx::query_scalar::<_, i64>(&format!(
+            "INSERT INTO audit_partitioned
+                 (workspace_id, username, operation, action_kind, parameters, timestamp)
+             VALUES ('test-ws','tester',$1,'create'::action_kind,'{{}}'::jsonb,
+                     now() - interval '{days} days')
+             RETURNING id"
+        ))
+        .bind(operation)
+        .fetch_one(db)
+        .await
+        .expect("insert audit row")
+    }
+
+    /// All ids across every `audit_backfill_*.ndjson` object, and the set of object
+    /// paths (to assert pagination/day keying).
+    async fn backfilled(store: &InMemory) -> (Vec<i64>, Vec<String>) {
+        let prefix = OsPath::from("logs/audit");
+        let metas = store
+            .list(Some(&prefix))
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .map(|m| m.expect("list object"))
+            .collect::<Vec<_>>();
+        let mut ids = Vec::new();
+        let mut paths = Vec::new();
+        for meta in metas {
+            paths.push(meta.location.to_string());
+            let bytes = store
+                .get(&meta.location)
+                .await
+                .expect("get object")
+                .bytes()
+                .await
+                .expect("read bytes");
+            for line in std::str::from_utf8(&bytes).unwrap().lines() {
+                if line.is_empty() {
+                    continue;
+                }
+                let v: serde_json::Value = serde_json::from_str(line).expect("valid ndjson");
+                ids.push(v.get("id").and_then(|x| x.as_i64()).expect("row has id"));
+            }
+        }
+        ids.sort();
+        paths.sort();
+        (ids, paths)
+    }
+
+    fn session(db: &DB, from: DateTime<Utc>, to: DateTime<Utc>) -> Session {
+        Session {
+            db: db.clone(),
+            owner: INSTANCE_NAME.clone(),
+            progress: RwLock::new(AuditBackfillProgress::new_running(from, to)),
+        }
+    }
+
+    // End-to-end backfill: a settled multi-day window is exported in bounded keyset
+    // pages (forced to 2 rows/page) — every in-window row lands exactly once, rows
+    // outside [from,to) are excluded, a day that spans a page boundary produces more
+    // than one object, and re-running is idempotent (same keys overwritten, no dupes).
+    #[sqlx::test(migrations = "../migrations")]
+    async fn backfill_exports_window_in_pages(db: DB) -> anyhow::Result<()> {
+        let store = install_in_memory_store().await;
+        let dyn_store = windmill_object_store::get_object_store()
+            .await
+            .expect("store configured");
+
+        // In window [now-6d, now-2d): days 5, 4, 3 ago.
+        let mut want = Vec::new();
+        for i in 0..3 {
+            want.push(insert_audit_days_ago(&db, &format!("bf.d5.{i}"), 5).await);
+        }
+        for i in 0..2 {
+            want.push(insert_audit_days_ago(&db, &format!("bf.d4.{i}"), 4).await);
+        }
+        for i in 0..2 {
+            want.push(insert_audit_days_ago(&db, &format!("bf.d3.{i}"), 3).await);
+        }
+        want.sort();
+        // Out of window: before `from` and at/after `to`.
+        let before = insert_audit_days_ago(&db, "bf.before", 7).await;
+        let after = insert_audit_days_ago(&db, "bf.after", 1).await;
+
+        let from = Utc::now() - chrono::Duration::days(6);
+        let to = Utc::now() - chrono::Duration::days(2);
+
+        PAGE_ROWS_OVERRIDE.store(2, Ordering::Relaxed);
+        let s = session(&db, from, to);
+        run_backfill(&s, &db, &dyn_store, from, to).await?;
+        PAGE_ROWS_OVERRIDE.store(0, Ordering::Relaxed);
+
+        let (ids, paths) = backfilled(&store).await;
+        assert_eq!(ids, want, "exactly the in-window rows, each once: {ids:?}");
+        assert!(
+            !ids.contains(&before) && !ids.contains(&after),
+            "rows outside [from,to) must not be exported"
+        );
+        // 3 rows on the day-5 partition at a 2-row page size => that day spans pages,
+        // so it yields >1 object — proving keyset paging across a day boundary.
+        let day5_objects = paths
+            .iter()
+            .filter(|p| p.contains("audit_backfill_"))
+            .count();
+        assert!(
+            day5_objects >= 4,
+            "expected multiple paged objects (incl. a split day), got {paths:?}"
+        );
+        {
+            let p = s.progress.read().await;
+            assert_eq!(p.rows_written, want.len() as u64, "progress row count");
+        }
+
+        // Idempotent re-run: deterministic keys are overwritten, never duplicated.
+        PAGE_ROWS_OVERRIDE.store(2, Ordering::Relaxed);
+        let s2 = session(&db, from, to);
+        run_backfill(&s2, &db, &dyn_store, from, to).await?;
+        PAGE_ROWS_OVERRIDE.store(0, Ordering::Relaxed);
+        let (ids2, _) = backfilled(&store).await;
+        assert_eq!(ids2, want, "re-run stays exactly once per row: {ids2:?}");
+
+        clear_store().await;
+        Ok(())
+    }
+
+    // The endpoint rejects a window whose upper bound is not yet settled (a row's
+    // timestamp is its txn's xact_start, so a future/live `to` could miss late
+    // commits), but accepts a window safely in the past.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn backfill_rejects_unstable_window(db: DB) -> anyhow::Result<()> {
+        let future = Utc::now() + chrono::Duration::days(1);
+        let past_from = Utc::now() - chrono::Duration::days(2);
+        let err = try_start(&db, past_from, future).await.unwrap_err();
+        assert!(
+            matches!(err, error::Error::BadRequest(_)),
+            "a future `to` must be rejected as unstable, got {err:?}"
+        );
+
+        // A window fully in the settled past is accepted.
+        let from = Utc::now() - chrono::Duration::days(3);
+        let to = Utc::now() - chrono::Duration::days(2);
+        try_start(&db, from, to)
+            .await
+            .expect("a settled past window is accepted");
+        Ok(())
+    }
 }
