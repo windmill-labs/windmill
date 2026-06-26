@@ -108,22 +108,36 @@ only ever navigates between items) doesn't grow a Pages section.
 		)
 	}
 
+	function pageLeaf(p: (typeof PREVIEW_PAGES)[number]): DrillLeaf<PreviewTarget> {
+		return {
+			type: 'leaf',
+			key: pageKey(p.path),
+			label: p.label,
+			icon: p.icon,
+			data: { type: 'page', href: pageHref(p.path), label: p.label }
+		}
+	}
+
+	// Home is pulled up as a root quick-access leaf (first entry, one click) and
+	// dropped from the Pages branch so it isn't listed twice.
+	const homeLeaf = $derived<DrillLeaf<PreviewTarget> | undefined>(
+		(() => {
+			const home = PREVIEW_PAGES.find((p) => p.path === '/')
+			return home ? pageLeaf(home) : undefined
+		})()
+	)
+
 	const pagesBranch = $derived<DrillBranch<PreviewTarget>>({
 		type: 'branch',
 		key: 'pages',
 		label: 'Pages',
 		icon: Compass,
 		searchGroup: true,
-		children: PREVIEW_PAGES.map((p) => ({
-			type: 'leaf' as const,
-			key: pageKey(p.path),
-			label: p.label,
-			icon: p.icon,
-			data: { type: 'page' as const, href: pageHref(p.path), label: p.label }
-		}))
+		children: PREVIEW_PAGES.filter((p) => p.path !== '/').map(pageLeaf)
 	})
 
 	const tree = $derived<DrillNode<PreviewTarget>[]>([
+		...(homeLeaf ? [homeLeaf] : []),
 		pagesBranch,
 		...tagItems(
 			buildWorkspaceTree({

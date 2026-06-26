@@ -7,11 +7,15 @@
 		Minimize2,
 		ExternalLink,
 		PanelRightClose,
-		PanelRightOpen
+		PanelRightOpen,
+		X
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { slide } from 'svelte/transition'
 	import { Button } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import PreviewRouterPicker from '$lib/components/sessions/PreviewRouterPicker.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 	import { goto } from '$lib/navigation'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import {
@@ -135,20 +139,49 @@
 		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
 	}
 
-	// Preview panel: iframe the active session's view (captured page / target).
-	// `previewUrl` stays clean for the breadcrumb + "open full page" link;
-	// `iframeSrc` hides the previewed page's own sidebar (the sessions page
-	// already provides navigation).
+	// Preview panel: a tiny tabbed browser over Windmill. Every tab stays mounted
+	// (stacked, visibility-toggled, like the warm chat sessions) so switching
+	// preserves each previewed page's scroll/edit state.
 	const previewUrl = $derived(sessionPreviewUrl(activeSession))
-	// Lets the breadcrumb picker steer the preview to another item without
-	// leaving the sessions page. Cleared whenever the active session changes so
-	// each session re-opens on its own captured/target view.
-	let previewOverrideUrl = $state<string | undefined>(undefined)
+
+	// Each tab tracks two URLs: `url` is what we *command* the iframe to load
+	// (changes only on an explicit navigate — breadcrumb pick / new tab), `loc`
+	// is the *observed* location reported back on load. Keeping them separate is
+	// what lets a tab stay mounted: navigating inside the iframe updates `loc`
+	// only, so the `src`-bound `url` doesn't change and the frame never reloads.
+	type PreviewTab = { id: string; url: string; loc: string; pinned?: boolean }
+	let tabs = $state<PreviewTab[]>([])
+	let activeTabId = $state('session')
+	const activeTab = $derived(tabs.find((t) => t.id === activeTabId) ?? tabs[0])
+	// The first tab is pinned to the session's own view; reset on session change.
 	$effect(() => {
 		void activeSession?.id
-		untrack(() => (previewOverrideUrl = undefined))
+		untrack(() => {
+			tabs = [{ id: 'session', url: previewUrl, loc: previewUrl, pinned: true }]
+			activeTabId = 'session'
+		})
 	})
-	const iframeSrc = $derived(withMenuHidden(previewOverrideUrl ?? previewUrl))
+
+	function targetUrl(target: PreviewTarget): string {
+		return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
+	}
+	function selectTab(id: string) {
+		activeTabId = id
+	}
+	function openInNewTab(target: PreviewTarget) {
+		const id = randomUUID()
+		const url = targetUrl(target)
+		tabs.push({ id, url, loc: url })
+		activeTabId = id
+	}
+	function closeTab(id: string) {
+		const idx = tabs.findIndex((t) => t.id === id)
+		if (idx < 0 || tabs[idx].pinned) return
+		tabs.splice(idx, 1)
+		if (activeTabId === id) activeTabId = (tabs[idx] ?? tabs[idx - 1] ?? tabs[0])?.id ?? 'session'
+	}
+	let newTabOpen = $state(false)
+
 	let fullscreen = $state(false)
 	// Collapse the preview panel to give the chat the full width.
 	let previewCollapsed = $state(false)
@@ -180,22 +213,17 @@
 		activeSession?.pending_fork?.name ?? (sessionIsFork ? sessionWs?.name : 'main')
 	)
 
-	// Page path shown after the workspace breadcrumb. Seeded from the preview URL,
-	// then refreshed from the iframe on navigation (same-origin) so it tracks where
-	// the user browses inside the preview.
-	let displayPath = $state('')
-	$effect(() => {
-		displayPath = previewUrl
-	})
-	let previewFrame: HTMLIFrameElement | undefined = $state()
-	function onPreviewLoad() {
+	// Page path shown after the workspace breadcrumb — the active tab's observed
+	// location, so the breadcrumb tracks where the user browses inside the tab.
+	const displayPath = $derived(activeTab?.loc ?? activeTab?.url ?? previewUrl)
+	function onTabLoad(tab: PreviewTab, frame: HTMLIFrameElement) {
 		try {
-			const loc = previewFrame?.contentWindow?.location
+			const loc = frame.contentWindow?.location
 			if (!loc) return
 			// Drop the injected `nomenubar` flag so the breadcrumb stays readable.
 			const u = new URL(loc.href)
 			u.searchParams.delete('nomenubar')
-			displayPath = u.pathname + u.search
+			tab.loc = u.pathname + u.search
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.
@@ -251,8 +279,23 @@
 	// highlights it.
 	const currentPage = $derived(parsedRoute ? undefined : matchPreviewPage(displayPath))
 
+	// Breadcrumb picks steer the *active* tab; the "+" picker opens new ones.
+	// Set `loc` too so the breadcrumb updates immediately, before the reload.
 	function navigatePreviewTo(target: PreviewTarget) {
-		previewOverrideUrl = target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
+		const t = tabs.find((x) => x.id === activeTabId)
+		if (!t) return
+		const url = targetUrl(target)
+		t.url = url
+		t.loc = url
+	}
+
+	// Short tab label: a known page's name, else the item's leaf name, else path.
+	function tabLabel(url: string): string {
+		const page = matchPreviewPage(url)
+		if (page) return page.label
+		const parsed = parseItemRoute(url)
+		if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
+		return stripBase(url)
 	}
 </script>
 
@@ -312,7 +355,68 @@
 									? ''
 									: 'rounded-md border border-light'}"
 							>
-								<!-- Workspace breadcrumb: the session's family · fork. -->
+								<!-- Tab strip: open preview pages. The first tab is pinned to the
+								     session's own view; "+" opens the router picker to add more. -->
+								<div
+									class="flex items-center gap-1 px-1.5 h-8 border-b border-light shrink-0 bg-surface-secondary overflow-x-auto"
+								>
+									{#each tabs as tab (tab.id)}
+										<div
+											class="group/tab flex items-center gap-1 shrink-0 max-w-[12rem] h-6 pl-2 pr-1 rounded-md text-xs border transition-colors {tab.id ===
+											activeTabId
+												? 'bg-surface text-primary border-light'
+												: 'text-secondary border-transparent hover:bg-surface-hover'}"
+										>
+											<button
+												type="button"
+												class="flex items-center gap-1.5 min-w-0"
+												onclick={() => selectTab(tab.id)}
+												title={tabLabel(tab.loc)}
+											>
+												{#if tab.pinned}
+													<span class="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0"
+													></span>
+												{/if}
+												<span class="truncate">{tabLabel(tab.loc)}</span>
+											</button>
+											{#if !tab.pinned}
+												<button
+													type="button"
+													onclick={() => closeTab(tab.id)}
+													title="Close tab"
+													aria-label="Close tab"
+													class="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded text-tertiary hover:text-primary hover:bg-surface-hover opacity-0 group-hover/tab:opacity-100"
+												>
+													<X size={11} />
+												</button>
+											{/if}
+										</div>
+									{/each}
+									<Popover
+										placement="bottom-start"
+										usePointerDownOutside
+										excludeSelectors=".drawer"
+										disableFocusTrap
+										closeOnOtherPopoverOpen
+										bind:isOpen={newTabOpen}
+										openFocus="[data-workspace-picker-search]"
+										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
+									>
+										{#snippet trigger()}
+											<Plus size={14} />
+										{/snippet}
+										{#snippet content()}
+											<PreviewRouterPicker
+												onPick={(t) => {
+													newTabOpen = false
+													openInNewTab(t)
+												}}
+											/>
+										{/snippet}
+									</Popover>
+								</div>
+
+								<!-- Workspace breadcrumb: the session's family · fork + active tab path. -->
 								<div
 									class="pl-1 pr-3 h-8 flex items-center gap-1.5 border-b border-light shrink-0 text-xs text-secondary"
 								>
@@ -398,7 +502,7 @@
 										</nav>
 									{/if}
 									<a
-										href={previewUrl}
+										href={activeTab?.url ?? previewUrl}
 										title="Open full page"
 										aria-label="Open full page"
 										class="ml-auto shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
@@ -419,13 +523,21 @@
 										{/if}
 									</button>
 								</div>
-								<iframe
-									bind:this={previewFrame}
-									src={iframeSrc}
-									onload={onPreviewLoad}
-									title="Session preview"
-									class="flex-1 min-h-0 w-full border-0 bg-surface"
-								></iframe>
+								<!-- One iframe per tab, stacked and visibility-toggled so every
+								     tab stays mounted (switching never reloads). -->
+								<div class="relative flex-1 min-h-0">
+									{#each tabs as tab (tab.id)}
+										<iframe
+											src={withMenuHidden(tab.url)}
+											onload={(e) => onTabLoad(tab, e.currentTarget as HTMLIFrameElement)}
+											title="Session preview: {tabLabel(tab.loc)}"
+											class="absolute inset-0 w-full h-full border-0 bg-surface {tab.id ===
+											activeTabId
+												? 'z-10 opacity-100 pointer-events-auto'
+												: 'z-0 opacity-0 pointer-events-none'}"
+										></iframe>
+									{/each}
+								</div>
 							</div>
 						</div>
 					</Pane>
