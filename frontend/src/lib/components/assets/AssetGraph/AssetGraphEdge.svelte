@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/svelte'
 	import { NODE } from '$lib/components/graph/util'
-	import { FlaskConical } from 'lucide-svelte'
-	import type { DataTest } from './parsePipelineAnnotations'
+	import { FlaskConical, Columns3 } from 'lucide-svelte'
+	import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
 
 	let {
 		sourceX,
@@ -55,6 +55,26 @@
 				}:\n${tests.map((t) => `• ${fmtTest(t)}`).join('\n')}`
 			: ''
 	)
+
+	// Column-lineage badge on the same write-edge: a `// column` declaration
+	// maps each output column to its upstream source columns. Count = declared
+	// output columns; the title lists each mapping.
+	let columnLineage = $derived(
+		(data as { column_lineage?: ColumnLineage[] } | undefined)?.column_lineage
+	)
+	let columnsBadgeTitle = $derived(
+		columnLineage && columnLineage.length > 0
+			? `${columnLineage.length} column${columnLineage.length > 1 ? 's' : ''} mapped:\n${columnLineage
+					.map(
+						(c) =>
+							`• ${c.column} ← ${c.inputs.map((i) => `${i.from_path}.${i.from_column}`).join(', ')}`
+					)
+					.join('\n')}`
+			: ''
+	)
+	// Stack the columns badge below the data-test badge when both are present so
+	// they don't overlap on the link.
+	let columnsBadgeY = $derived(tests && tests.length > 0 ? labelY + 12 : labelY)
 
 	// An edge that skips at least one full layer (source-bottom → target-top
 	// gap larger than gap + node row) while staying near-vertical runs
@@ -163,6 +183,32 @@
 			>
 				<FlaskConical size={10} />
 				<span>×{tests.length}</span>
+			</div>
+		</div>
+	</foreignObject>
+{/if}
+
+{#if columnLineage && columnLineage.length > 0}
+	<!-- Column-lineage badge, stacked below the data-test badge when both exist. -->
+	<foreignObject
+		x={labelX - 28}
+		y={columnsBadgeY - 9}
+		width="56"
+		height="18"
+		class="overflow-visible"
+	>
+		<div
+			xmlns="http://www.w3.org/1999/xhtml"
+			class="w-full h-full flex items-center justify-center"
+			style="pointer-events: none;"
+		>
+			<div
+				class="flex items-center gap-0.5 px-1 py-0.5 rounded-sm border shadow-sm text-3xs leading-none font-mono cursor-default bg-surface border-blue-300 dark:border-blue-900/60 text-blue-700 dark:text-blue-300"
+				style="pointer-events: all;"
+				title={columnsBadgeTitle}
+			>
+				<Columns3 size={10} />
+				<span>×{columnLineage.length}</span>
 			</div>
 		</div>
 	</foreignObject>

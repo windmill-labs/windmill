@@ -1,5 +1,5 @@
 import type { AssetKind } from '$lib/gen'
-import type { DataTest } from './parsePipelineAnnotations'
+import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
 
 export type GraphUsageKind = 'script' | 'flow'
 
@@ -33,6 +33,10 @@ export interface AssetGraphRunnableNode {
 	// asset. Surfaced as a count badge (with a per-test breakdown in the title)
 	// so test coverage is visible on the node without opening the pane.
 	data_tests?: DataTest[]
+	// `// column <out> <- <src>.<col>` declared column-level lineage for this
+	// script's materialized output. Surfaced as a count badge on the write-edge
+	// and as a column-to-column diagram in the asset details pane.
+	column_lineage?: ColumnLineage[]
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.

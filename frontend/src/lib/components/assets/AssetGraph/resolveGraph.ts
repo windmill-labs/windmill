@@ -240,15 +240,18 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				tag: parsed.tag,
 				retry: parsed.retry,
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
+				column_lineage: parsed.columnLineage.length > 0 ? parsed.columnLineage : undefined,
 				unsaved: true
 			})
 		} else {
 			// Refresh annotation-derived badges from the live parse too, so
-			// adding/removing `// data_test` lines on an already-deployed script
-			// updates the badge immediately (not only after redeploy/refetch).
+			// adding/removing `// data_test` / `// column` lines on an
+			// already-deployed script updates the badge immediately (not only
+			// after redeploy/refetch).
 			runnables[baseIdx] = {
 				...runnables[baseIdx],
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
+				column_lineage: parsed.columnLineage.length > 0 ? parsed.columnLineage : undefined,
 				unsaved: true
 			}
 		}

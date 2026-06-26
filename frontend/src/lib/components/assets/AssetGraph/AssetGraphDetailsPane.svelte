@@ -25,7 +25,12 @@
 	import type { Schema } from '$lib/common'
 	import type { AssetGraphSelection, PipelineMode } from './types'
 	import PipelineScriptView from './PipelineScriptView.svelte'
-	import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
+	import {
+		parsePipelineAnnotations,
+		type ColumnLineage,
+		type PipelineAnnotations
+	} from './parsePipelineAnnotations'
+	import ColumnLineageView from './ColumnLineageView.svelte'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
@@ -114,6 +119,10 @@
 			path: string
 			unsaved?: boolean
 		}>
+		// Declared `// column` lineage for the selected asset, merged across its
+		// producers by the parent page (same provenance as selectionProducers).
+		// Drives the column-lineage diagram shown for a materialized asset.
+		selectionColumnLineage?: ColumnLineage[]
 		// Bumped by the parent after dispatching a run so the runs panel
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
@@ -214,6 +223,7 @@
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
+		selectionColumnLineage = [],
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
@@ -536,7 +546,8 @@
 					inPipeline: false,
 					triggerAssets: [],
 					nativeTriggers: [],
-					dataTests: []
+					dataTests: [],
+					columnLineage: []
 				}
 	)
 	$effect(() => {
@@ -994,7 +1005,19 @@
 								<!-- Key on path so switching ducklake assets resets the panel's
 								     selected snapshot / tab instead of carrying state across. -->
 								{#key selection.path}
-									<DucklakeAssetPanel path={selection.path} {workspace} />
+									<div class="flex flex-col h-full overflow-auto">
+										{#if selectionColumnLineage.length > 0}
+											<div class="border-b shrink-0">
+												<ColumnLineageView
+													lineage={selectionColumnLineage}
+													targetLabel={selection.path}
+												/>
+											</div>
+										{/if}
+										<div class="flex-1 min-h-0">
+											<DucklakeAssetPanel path={selection.path} {workspace} />
+										</div>
+									</div>
 								{/key}
 							{:else}
 								<div class="p-3 text-xs text-secondary">

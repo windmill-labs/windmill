@@ -42,6 +42,11 @@ struct Expected {
     // compared against `serde_json::to_value(got.data_tests)`. Absent === [].
     #[serde(default)]
     data_tests: Vec<serde_json::Value>,
+    // Snake_case `ColumnLineage` serde shape (e.g. {"column":"x","inputs":
+    // [{"from_kind":"datatable","from_path":"p","from_column":"c"}]}), compared
+    // against `to_value(got.column_lineage)`. Absent === [].
+    #[serde(default)]
+    column_lineage: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -199,6 +204,14 @@ fn pipeline_annotation_fixtures_match() {
             got_tests,
             serde_json::Value::Array(f.expected.data_tests.clone()),
             "{ctx}: data tests"
+        );
+
+        let got_lineage =
+            serde_json::to_value(&got.column_lineage).expect("column_lineage serialize");
+        assert_eq!(
+            got_lineage,
+            serde_json::Value::Array(f.expected.column_lineage.clone()),
+            "{ctx}: column lineage"
         );
     }
 }

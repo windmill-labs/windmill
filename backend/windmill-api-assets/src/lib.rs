@@ -464,6 +464,11 @@ struct GraphRunnableNode {
     retry: Option<windmill_common::assets::RetrySpec>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     data_tests: Vec<windmill_common::assets::DataTest>,
+    // `// column <out> <- <src>.<col>` declared column-level lineage, surfaced
+    // so the canvas can draw the column-lineage view on deployed nodes (not
+    // only live drafts). Lockstep with TS `AssetGraphRunnableNode.column_lineage`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    column_lineage: Vec<windmill_common::assets::ColumnLineage>,
 }
 
 // The partition's kind word for the node badge (the full PartitionSpec carries
@@ -868,6 +873,7 @@ async fn asset_graph(
                 tag: ann.and_then(|a| a.tag.clone()),
                 retry: ann.and_then(|a| a.retry.clone()),
                 data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),
+                column_lineage: ann.map(|a| a.column_lineage.clone()).unwrap_or_default(),
                 path,
                 usage_kind,
             }

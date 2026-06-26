@@ -5,8 +5,8 @@ use sqlx::{PgExecutor, Postgres, Transaction};
 use crate::{error, scripts::ScriptHash};
 
 pub use windmill_parser::asset_parser::{
-    parse_pipeline_annotations, DataTest, PartitionKind, PipelineAnnotations, RetrySpec,
-    TriggerSpec, PARTITION_TOKEN,
+    parse_pipeline_annotations, ColumnLineage, ColumnRef, DataTest, PartitionKind,
+    PipelineAnnotations, RetrySpec, TriggerSpec, PARTITION_TOKEN,
 };
 pub use windmill_types::assets::*;
 

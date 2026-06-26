@@ -472,7 +472,8 @@
 			inPipeline: false,
 			triggerAssets: [],
 			nativeTriggers: [],
-			dataTests: []
+			dataTests: [],
+			columnLineage: []
 		}
 	})
 
@@ -502,7 +503,13 @@
 	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
 	const EMPTY_LIVE_ANNOTATIONS = {
 		scriptPath: undefined,
-		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [], dataTests: [] }
+		annotations: {
+			inPipeline: false,
+			triggerAssets: [],
+			nativeTriggers: [],
+			dataTests: [],
+			columnLineage: []
+		}
 	}
 
 	// Reset every live editor overlay (annotations / body assets / content)
@@ -1958,6 +1965,20 @@
 			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
 	})
 
+	// Declared `// column` lineage for the selected asset: the column lineage of
+	// every script that writes to it, concatenated. The annotations describe the
+	// producing script's materialized output, so a producer of this asset owns
+	// this asset's column lineage. Same provenance as `selectionProducers`.
+	let selectionColumnLineage = $derived.by(() => {
+		const producers = selectionProducers
+		if (producers.length === 0) return []
+		return producers.flatMap(
+			(p) =>
+				graphWithDraft.runnables.find((r) => r.usage_kind === p.kind && r.path === p.path)
+					?.column_lineage ?? []
+		)
+	})
+
 	// Downstream subscriber count for the currently-edited script. Drives
 	// the Test button's cascade UX: when > 0, ScriptEditor renders a split
 	// button exposing "just this step" (default, with `_wmill_skip_asset_dispatch`)
@@ -2531,6 +2552,7 @@
 								onRunByPath={runByPathLegit}
 								selection={activeDraft ? undefined : selection}
 								selectionProducers={activeDraft ? [] : selectionProducers}
+								selectionColumnLineage={activeDraft ? [] : selectionColumnLineage}
 								{runsRefreshKey}
 								{runsPendingJobId}
 								{activeRunnable}
