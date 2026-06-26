@@ -2984,7 +2984,7 @@ pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
 
 #[cfg(feature = "private")]
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
-    use windmill_common::workspaces::{AutoPullMode, AutoPullStatus, WorkspaceGitSyncSettings};
+    use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
 
     let rows = sqlx::query!(
         r#"SELECT workspace_id, git_sync
@@ -3026,69 +3026,28 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
             .await
             {
                 Ok(Some((git_ref, sha))) => {
-                    if !auto_pull.should_pull(&git_ref, &sha) {
-                        continue;
-                    }
-                    let use_promotion_overrides = repo.use_individual_branch.unwrap_or(false);
-                    match windmill_git_sync::enqueue_git_pull_job(
+                    // Shared reconcile (also used by the webhook receiver):
+                    // checks should_pull, enqueues, and records status/failure.
+                    if let Err(e) = windmill_git_sync::reconcile_and_enqueue_pull(
                         db,
                         &row.workspace_id,
                         repo,
-                        None,
-                        use_promotion_overrides,
+                        &git_ref,
+                        &sha,
                     )
                     .await
                     {
-                        Ok(job_id) => {
-                            // Optimistically advance the synced sha so the next
-                            // tick doesn't re-enqueue the same commit; the job id
-                            // lets the user inspect the actual pull outcome.
-                            let mut synced = auto_pull.last_synced_sha.clone();
-                            synced.insert(git_ref.clone(), sha.clone());
-                            let status = AutoPullStatus {
-                                synced_sha: Some(sha.clone()),
-                                at: chrono::Utc::now().timestamp(),
-                                job_id: Some(job_id),
-                                success: true,
-                                error: None,
-                            };
-                            if let Err(e) = persist_auto_pull_state(
-                                db,
-                                &row.workspace_id,
-                                &repo.git_repo_resource_path,
-                                &synced,
-                                &status,
-                            )
-                            .await
-                            {
-                                tracing::error!(
-                                    "git auto-pull: failed to persist state for {}/{}: {e:#}",
-                                    row.workspace_id,
-                                    repo.git_repo_resource_path
-                                );
-                            }
-                            tracing::info!(
-                                "git auto-pull: enqueued pull {job_id} for {}/{} at {sha}",
-                                row.workspace_id,
-                                repo.git_repo_resource_path
-                            );
-                        }
-                        Err(e) => {
-                            record_auto_pull_failure(
-                                db,
-                                &row.workspace_id,
-                                &repo.git_repo_resource_path,
-                                &auto_pull.last_synced_sha,
-                                format!("failed to enqueue pull: {e}"),
-                            )
-                            .await;
-                        }
+                        tracing::warn!(
+                            "git auto-pull: reconcile failed for {}/{}: {e:#}",
+                            row.workspace_id,
+                            repo.git_repo_resource_path
+                        );
                     }
                 }
                 // GitHub-App repo: synced via webhook (phase 2), nothing to poll.
                 Ok(None) => {}
                 Err(e) => {
-                    record_auto_pull_failure(
+                    windmill_git_sync::record_auto_pull_failure(
                         db,
                         &row.workspace_id,
                         &repo.git_repo_resource_path,
@@ -3102,75 +3061,6 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
     }
 
     Ok(())
-}
-
-/// Update the `auto_pull.last_synced_sha` and `auto_pull.last_pull_status` of a
-/// single repository in `workspace_settings.git_sync`, leaving every other
-/// field (and the other repositories) untouched so concurrent settings edits
-/// are not clobbered.
-#[cfg(feature = "private")]
-async fn persist_auto_pull_state(
-    db: &Pool<Postgres>,
-    w_id: &str,
-    repo_resource_path: &str,
-    last_synced_sha: &std::collections::HashMap<String, String>,
-    status: &windmill_common::workspaces::AutoPullStatus,
-) -> error::Result<()> {
-    let synced_json = serde_json::to_value(last_synced_sha)
-        .map_err(|e| error::Error::internal_err(e.to_string()))?;
-    let status_json =
-        serde_json::to_value(status).map_err(|e| error::Error::internal_err(e.to_string()))?;
-    sqlx::query!(
-        r#"
-        UPDATE workspace_settings
-        SET git_sync = jsonb_set(
-            git_sync,
-            '{repositories}',
-            (SELECT jsonb_agg(
-                CASE WHEN elem->>'git_repo_resource_path' = $2
-                    THEN jsonb_set(
-                            jsonb_set(elem, '{auto_pull,last_synced_sha}', $3, true),
-                            '{auto_pull,last_pull_status}', $4, true)
-                    ELSE elem END)
-             FROM jsonb_array_elements(git_sync->'repositories') AS elem)
-        )
-        WHERE workspace_id = $1
-        "#,
-        w_id,
-        repo_resource_path,
-        synced_json,
-        status_json,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Record a failed auto-pull attempt in the repository's status without
-/// advancing the synced sha, so the failure is visible and the next tick retries.
-#[cfg(feature = "private")]
-async fn record_auto_pull_failure(
-    db: &Pool<Postgres>,
-    w_id: &str,
-    repo_resource_path: &str,
-    last_synced_sha: &std::collections::HashMap<String, String>,
-    error_msg: String,
-) {
-    tracing::warn!("git auto-pull: {error_msg} for {w_id}/{repo_resource_path}");
-    let status = windmill_common::workspaces::AutoPullStatus {
-        synced_sha: None,
-        at: chrono::Utc::now().timestamp(),
-        job_id: None,
-        success: false,
-        error: Some(error_msg),
-    };
-    if let Err(e) =
-        persist_auto_pull_state(db, w_id, repo_resource_path, last_synced_sha, &status).await
-    {
-        tracing::error!(
-            "git auto-pull: failed to record failure for {w_id}/{repo_resource_path}: {e:#}"
-        );
-    }
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {

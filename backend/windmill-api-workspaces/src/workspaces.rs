@@ -2719,6 +2719,23 @@ async fn edit_git_sync_repository(
         git_sync_settings.repositories.push(new_config.repository);
     }
 
+    // Create or remove the repo's GitHub webhook to match its auto-pull config
+    // (phase 2). Best-effort: a failure falls back to polling and never fails the
+    // settings save. The hook id/secret it writes are persisted by the UPDATE below.
+    #[cfg(feature = "enterprise")]
+    {
+        if let Some(repo) = git_sync_settings
+            .repositories
+            .iter_mut()
+            .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
+        {
+            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
+            {
+                tracing::warn!("git auto-pull: webhook sync error: {}", e);
+            }
+        }
+    }
+
     // Clean up legacy workspace-level settings if all repos are migrated
     cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
