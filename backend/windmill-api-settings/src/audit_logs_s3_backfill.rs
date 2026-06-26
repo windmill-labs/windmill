@@ -148,6 +148,34 @@ pub async fn try_start(db: &DB, from: DateTime<Utc>, to: DateTime<Utc>) -> error
             "audit backfill: `from` must be strictly before `to`".to_string(),
         ));
     }
+    // The backfill keyset-pages by `(timestamp, id)` over rows visible at scan time and
+    // declares completion once the scan runs dry. But a row's `timestamp` is its
+    // inserting transaction's `xact_start`, so a transaction that started inside
+    // `[from, to)` yet commits after the scan has passed that timestamp — or any row
+    // committed when `to` is in the future — would be silently omitted from a
+    // "completed" backfill. Require `to` to be at or before the oldest in-flight
+    // `xact_start`: everything strictly older than the oldest running transaction is
+    // already committed and stable. Same trustworthy gating as the exporter's floor
+    // (a restricted stats role or a prepared 2PC txn makes the value unsafe); fall back
+    // to a 7-day-old cutoff then.
+    let settled_cutoff: Option<DateTime<Utc>> = sqlx::query_scalar!(
+        r#"SELECT CASE WHEN (current_setting('is_superuser') = 'on'
+                              OR pg_has_role(current_user, 'pg_read_all_stats', 'USAGE'))
+                          AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts)
+                     THEN (SELECT min(xact_start) FROM pg_stat_activity WHERE xact_start IS NOT NULL)
+                     ELSE NULL END AS "cutoff?""#
+    )
+    .fetch_one(db)
+    .await?;
+    let settled_cutoff = settled_cutoff.unwrap_or_else(|| Utc::now() - chrono::Duration::days(7));
+    if to > settled_cutoff {
+        return Err(error::Error::BadRequest(format!(
+            "audit backfill: `to` ({to}) must be at or before {settled_cutoff}, the point up to \
+             which audit rows are guaranteed settled; choose an earlier upper bound. (Granting \
+             pg_read_all_stats to the windmill DB user tightens this cutoff from a 7-day margin to \
+             the live oldest-transaction boundary.)"
+        )));
+    }
     let claimed = background_task::try_claim(
         db,
         TASK_NAME,
