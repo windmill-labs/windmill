@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
+	import { SvelteSet } from 'svelte/reactivity'
 	import { page } from '$app/state'
 	import {
 		Plus,
@@ -155,6 +156,10 @@
 	let tabs = $state<PreviewTab[]>([])
 	let activeTabId = $state('session')
 	const activeTab = $derived(tabs.find((t) => t.id === activeTabId) ?? tabs[0])
+	// Lazy-mount: a tab's iframe only renders once its id lands here (on first
+	// activation), then stays — so restoring a session with N saved tabs boots
+	// just the active one instead of N full Windmill apps at once.
+	const mountedTabIds = new SvelteSet<string>()
 	// On session change, restore the session's saved tabs from IndexedDB; if it
 	// has none yet, seed a single pinned tab on the session's own view.
 	$effect(() => {
@@ -168,6 +173,8 @@
 				tabs = [{ id: 'session', url: previewUrl, loc: previewUrl, pinned: true }]
 				activeTabId = 'session'
 			}
+			mountedTabIds.clear()
+			mountedTabIds.add(activeTabId)
 		})
 	})
 
@@ -189,6 +196,7 @@
 	}
 	function selectTab(id: string) {
 		activeTabId = id
+		mountedTabIds.add(id)
 		persistTabs()
 	}
 	function openInNewTab(target: PreviewTarget) {
@@ -196,13 +204,18 @@
 		const url = targetUrl(target)
 		tabs.push({ id, url, loc: url })
 		activeTabId = id
+		mountedTabIds.add(id)
 		persistTabs()
 	}
 	function closeTab(id: string) {
 		const idx = tabs.findIndex((t) => t.id === id)
 		if (idx < 0 || tabs[idx].pinned) return
 		tabs.splice(idx, 1)
-		if (activeTabId === id) activeTabId = (tabs[idx] ?? tabs[idx - 1] ?? tabs[0])?.id ?? 'session'
+		mountedTabIds.delete(id)
+		if (activeTabId === id) {
+			activeTabId = (tabs[idx] ?? tabs[idx - 1] ?? tabs[0])?.id ?? 'session'
+			mountedTabIds.add(activeTabId)
+		}
 		persistTabs()
 	}
 	let newTabOpen = $state(false)
@@ -554,15 +567,17 @@
 								     tab stays mounted (switching never reloads). -->
 								<div class="relative flex-1 min-h-0">
 									{#each tabs as tab (tab.id)}
-										<iframe
-											src={withMenuHidden(tab.url)}
-											onload={(e) => onTabLoad(tab, e.currentTarget as HTMLIFrameElement)}
-											title="Session preview: {tabLabel(tab.loc)}"
-											class="absolute inset-0 w-full h-full border-0 bg-surface {tab.id ===
-											activeTabId
-												? 'z-10 opacity-100 pointer-events-auto'
-												: 'z-0 opacity-0 pointer-events-none'}"
-										></iframe>
+										{#if mountedTabIds.has(tab.id)}
+											<iframe
+												src={withMenuHidden(tab.url)}
+												onload={(e) => onTabLoad(tab, e.currentTarget as HTMLIFrameElement)}
+												title="Session preview: {tabLabel(tab.loc)}"
+												class="absolute inset-0 w-full h-full border-0 bg-surface {tab.id ===
+												activeTabId
+													? 'z-10 opacity-100 pointer-events-auto'
+													: 'z-0 opacity-0 pointer-events-none'}"
+											></iframe>
+										{/if}
 									{/each}
 								</div>
 							</div>
