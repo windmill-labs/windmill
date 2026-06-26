@@ -88,7 +88,7 @@
 			<Button
 				variant="default"
 				unifiedSize="sm"
-				title={isFork ? `Fork: ${forkName}` : 'Workspace: root'}
+				title={isFork ? `Fork: ${forkName}` : 'Workspace root'}
 				startIcon={isFork || isCollapsed ? { icon: GitFork } : undefined}
 				endIcon={!isCollapsed ? { icon: ChevronDown } : undefined}
 				wrapperClasses="w-full"
@@ -99,7 +99,7 @@
 				{#if !isCollapsed}
 					<span class="truncate min-w-0 flex-1 text-left">
 						<span class="{isFork ? 'text-accent/80' : 'text-tertiary'} font-normal"
-							>{isFork ? 'Fork:' : 'Workspace:'}</span
+							>{isFork ? 'Fork:' : 'Workspace'}</span
 						>
 						{isFork ? forkName : 'root'}
 					</span>
