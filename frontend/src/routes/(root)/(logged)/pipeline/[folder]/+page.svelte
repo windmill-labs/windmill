@@ -4,7 +4,7 @@
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
+	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import {
 		useActiveRunnableIds,
 		isActiveEvent
@@ -15,9 +15,7 @@
 		RunStatus
 	} from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
 	import { usePipelineHistory } from '$lib/components/assets/AssetGraph/pipelineHistory.svelte'
-	import PipelineEventLog from '$lib/components/assets/AssetGraph/PipelineEventLog.svelte'
 	import PipelineActivityPanel from '$lib/components/assets/AssetGraph/PipelineActivityPanel.svelte'
-	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
 	import {
 		extractWrites,
@@ -71,7 +69,6 @@
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import GlobalReviewButtons from '$lib/components/copilot/chat/GlobalReviewButtons.svelte'
 	import {
 		AlertTriangle,
 		ArrowLeft,
@@ -96,14 +93,12 @@
 		type ScriptLang
 	} from '$lib/gen'
 	import { resource } from 'runed'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
 
@@ -173,31 +168,11 @@
 	// annotations keep working.
 	type Draft = PipelineDraft
 
-	// Splitpanes sizes: bound so user-resized widths persist when the
-	// details pane is hidden + re-shown, or when switching between draft
-	// and persisted selections (previously the panes were sized inline,
-	// which made the right pane jump width when activeDraft was set
-	// since the left was hardcoded to 100%). When the right pane
-	// unmounts, svelte-splitpanes does NOT auto-stretch the remaining
-	// pane — the bound `leftPaneSize` stays at its last value and the
-	// other 40% renders as blank space. We explicitly set leftPaneSize
-	// to 100 in that state via a $derived effect below, and restore the
-	// stored split when the pane comes back.
-	let leftPaneSize = $state(60)
-	let rightPaneSize = $state(40)
-	let storedRightPaneSize = $state(40)
+	// Splitpane sizing + details-pane-open derivation live inside PipelineGraphEditor.
 	// Explicit hide flag — keeps `selection` / `activeDraftPath` intact
 	// so re-opening the pane re-uses them. Mirrors AppEditor's
 	// hideRightPanel/showRightPanel pattern.
 	let panelHidden = $state(false)
-	// Edit mode opens the pane only for a selection/draft; view mode
-	// keeps it open permanently — it shows the activity panel when nothing
-	// is selected and swaps to the details pane on node select.
-	let detailsPaneOpen = $derived(
-		mode === 'edit'
-			? (pe.selection != undefined || pe.activeDraftPath != undefined) && !panelHidden
-			: !panelHidden
-	)
 	// View mode's idle pane is the activity feed; once a node is selected
 	// (or the pane hidden) the only ways back were the pane's X and the
 	// floating hide toggle — neither is named. The top-bar Activity toggle
@@ -218,27 +193,6 @@
 			pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
 		}
 	}
-
-	$effect(() => {
-		if (detailsPaneOpen) {
-			// Pane visible: reapply the stored split. We don't depend on
-			// rightPaneSize here (only stored) so user resizes via the
-			// splitter handle aren't immediately overridden.
-			const restore = storedRightPaneSize
-			untrack(() => {
-				rightPaneSize = restore
-				leftPaneSize = 100 - restore
-			})
-		} else {
-			// About to hide. Stash the current right size so the next show
-			// restores it, then expand the left pane to fill — splitpanes
-			// won't do this automatically when a Pane unmounts.
-			untrack(() => {
-				if (rightPaneSize > 0) storedRightPaneSize = rightPaneSize
-				leftPaneSize = 100
-			})
-		}
-	})
 
 	// All of this folder's in-flight drafts live in ONE per-user DB draft
 	// (typ `data_pipeline`) keyed at the folder, so they sync across devices
@@ -1423,14 +1377,6 @@
 		}
 	})
 
-	// Selection highlights the active draft (if any) or the user's picked
-	// node. Non-active drafts render without selection highlight but are
-	// still clickable to re-enter their edit pane.
-	let effectiveSelection = $derived<AssetGraphSelection | undefined>(
-		pe.activeDraftPath
-			? { kind: 'runnable', runnable_kind: 'script', path: pe.activeDraftPath }
-			: pe.selection
-	)
 
 	// Bumped after every successful run dispatch so AssetRunsPanel re-fetches
 	// the listing immediately — the new (preview or script) job appears in
@@ -2310,265 +2256,152 @@
 				Failed to load pipeline: {graphRes.error.message}
 			</div>
 		{:else}
-			<Splitpanes class="!h-full">
-				<Pane bind:size={leftPaneSize}>
-					<div class="relative h-full">
-						<AssetGraphCanvas
-							graph={displayGraph}
-							selection={effectiveSelection}
-							hoveredPaths={activityHoverPaths}
-							selectedRunPaths={activitySelectPaths}
-							{activeRunnable}
-							activeRunnableIds={activeRunnables.ids}
-							runStates={mergedRunStates}
-							{pathPrefix}
-							defaultPathSuffix={DEFAULT_PATH_SUFFIX}
-							onCreateMissingTrigger={mode === 'edit' ? openMissingTriggerDrawer : undefined}
-							onEditTrigger={mode === 'edit' ? openEditTriggerDrawer : undefined}
-							onDeleteTrigger={mode === 'edit' ? deleteAttachedTrigger : undefined}
-							onOpenWebhook={openWebhookDrawer}
-							onOpenDataUpload={openDataUploadRun}
-							onselect={handleCanvasSelect}
-							onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
-							onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
-							onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
-							onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
-							validStartPaths={isOperator ? undefined : validStartPaths}
-							onStartBoundedRun={isOperator ? undefined : startBoundedRun}
-							{boundPick}
-							onPickEnd={pickBoundEnd}
-							{panToNodeId}
-						/>
-						{#if boundPick}
-							<!-- Bounded-run control bar: overlays the canvas while the
-							     user is picking end node(s). Anchored bottom-center so it
-							     doesn't collide with the top status chip / hide button. -->
-							<div
-								class="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-3 py-2 rounded-lg bg-surface shadow-lg border border-gray-200 dark:border-gray-700"
-							>
-								<Target size={15} class="text-blue-500 shrink-0" />
-								<div class="flex flex-col leading-tight">
-									<span class="text-xs font-semibold text-emphasis">
-										{boundPickEnds.size === 0
-											? 'Click end node(s) to bound the run'
-											: `${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} up to ${boundPickEnds.size} end${boundPickEnds.size === 1 ? '' : 's'}`}
-									</span>
-									<span class="text-2xs text-tertiary">
-										from {boundPickStart ? shortPath(boundPickStart) : ''}
-									</span>
-								</div>
-								<Button variant="subtle" unifiedSize="sm" onclick={cancelBoundedRun}>Cancel</Button>
-								<Button
-									variant="accent"
-									unifiedSize="sm"
-									startIcon={{ icon: Play }}
-									disabled={boundPickEnds.size === 0 || boundScripts.length === 0}
-									onclick={confirmBoundedRun}
-								>
-									Run selection
-								</Button>
+			<PipelineGraphEditor
+				editor={pe}
+				{displayGraph}
+				{mode}
+				{isOperator}
+				workspace={$workspaceStore}
+				{pathPrefix}
+				defaultPathSuffix={DEFAULT_PATH_SUFFIX}
+				{panelHidden}
+				onTogglePanelHidden={() => (panelHidden = !panelHidden)}
+				{prefetchingAssets}
+				{hasAiPending}
+				onAcceptAllProposals={aiAcceptAllProposals}
+				onRejectAllProposals={aiRejectAllProposals}
+				hoveredPaths={activityHoverPaths}
+				selectedRunPaths={activitySelectPaths}
+				{activeRunnable}
+				activeRunnableIds={activeRunnables.ids}
+				runStates={mergedRunStates}
+				eventLogEvents={activeRunnables.events}
+				{runsRefreshKey}
+				{runsPendingJobId}
+				{boundPick}
+				validStartPaths={isOperator ? undefined : validStartPaths}
+				onStartBoundedRun={isOperator ? undefined : startBoundedRun}
+				onPickEnd={pickBoundEnd}
+				{panToNodeId}
+				onCreateMissingTrigger={mode === 'edit' ? openMissingTriggerDrawer : undefined}
+				onEditTrigger={mode === 'edit' ? openEditTriggerDrawer : undefined}
+				onDeleteTrigger={mode === 'edit' ? deleteAttachedTrigger : undefined}
+				onOpenWebhook={openWebhookDrawer}
+				onOpenDataUpload={openDataUploadRun}
+				onSelect={handleCanvasSelect}
+				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
+				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
+				onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
+				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
+				onRequestEdit={isOperator ? undefined : () => setMode('edit')}
+				canRunByPath={openScriptHasDataUpload}
+				onRunByPath={runByPathLegit}
+				{selectionProducers}
+				downstreamSubscribers={editedScriptDownstreamCount}
+				onStartBoundedRunForOpen={startBoundedRun}
+				canBoundedRunOpenScript={!!openScriptPath &&
+					validStartPaths.has(openScriptPath) &&
+					lineageDownstreamPaths.has(openScriptPath)}
+				onRunCompleted={() => {
+					activeRunnable = undefined
+					activeRunnableJobId = undefined
+				}}
+				onTestStateChange={(running) => {
+					const openPath = openScriptPath
+					if (running && openPath) {
+						activeRunnable = { kind: 'script', path: openPath }
+						activeRunnables.arm(`script:${openPath}`)
+						activeRunnableJobId = undefined
+					} else if (!running && activeRunnable?.path === openPath) {
+						activeRunnable = undefined
+						activeRunnableJobId = undefined
+					}
+				}}
+				{requestRemoveSignal}
+				{requestRunSignal}
+				{requestRunCascadeSignal}
+				focusUploadSignal={focusDataUploadSignal}
+				onDraftPathChange={renameDraft}
+				onClose={() => {
+					pe.selection = undefined
+					pe.activeDraftPath = undefined
+					pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+				}}
+				onDiscard={() => {
+					if (pe.activeDraftPath) discardDraft(pe.activeDraftPath)
+				}}
+				onDraftSaved={async (savedPath) => {
+					const predicted = predictCascadeFacts([savedPath])
+					const nextDrafts = new Map(pe.drafts)
+					nextDrafts.delete(savedPath)
+					pe.drafts = nextDrafts
+					if (pe.activeDraftPath === savedPath) {
+						pe.selection = { kind: 'runnable', runnable_kind: 'script', path: savedPath }
+						pe.activeDraftPath = undefined
+					}
+					clearSaveError(savedPath)
+					await graphRes.refetch()
+					reportDeployDrift(predicted)
+				}}
+				onPersistedSaved={async (savedPath) => {
+					const predicted = predictCascadeFacts([savedPath])
+					await graphRes.refetch()
+					reportDeployDrift(predicted)
+				}}
+				onScriptRenamed={async (oldPath, newPath) => {
+					if (pe.selection?.kind === 'runnable' && pe.selection.path === oldPath) {
+						pe.selection = { ...pe.selection, path: newPath }
+					}
+					await graphRes.refetch()
+				}}
+				onScriptRemoved={async (removedPath) => {
+					forgetPath(removedPath)
+					await graphRes.refetch()
+				}}
+			>
+				{#snippet boundBar()}
+					{#if boundPick}
+						<div
+							class="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-3 py-2 rounded-lg bg-surface shadow-lg border border-gray-200 dark:border-gray-700"
+						>
+							<Target size={15} class="text-blue-500 shrink-0" />
+							<div class="flex flex-col leading-tight">
+								<span class="text-xs font-semibold text-emphasis">
+									{boundPickEnds.size === 0
+										? 'Click end node(s) to bound the run'
+										: `${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} up to ${boundPickEnds.size} end${boundPickEnds.size === 1 ? '' : 's'}`}
+								</span>
+								<span class="text-2xs text-tertiary">
+									from {boundPickStart ? shortPath(boundPickStart) : ''}
+								</span>
 							</div>
-						{/if}
-						{#if hasAiPending}
-							<!-- AI staged one or more pipeline nodes as drafts. Mirror
-							     the flow editor's diff/approval: Accept keeps the staged
-							     drafts (the user can then deploy them), Reject reverts to
-							     the pre-AI baseline. -->
-							<GlobalReviewButtons
-								onAcceptAll={aiAcceptAllProposals}
-								onRejectAll={aiRejectAllProposals}
-							/>
-						{/if}
-						{#if mode === 'edit'}
-							<!-- View mode surfaces activity as a full right pane
-							     instead — the overlay would double up. -->
-							<PipelineEventLog events={activeRunnables.events} />
-						{/if}
-						{#if prefetchingAssets}
-							<div
-								class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
-								title="Inferring assets for every script in this folder so the graph is complete"
+							<Button variant="subtle" unifiedSize="sm" onclick={cancelBoundedRun}>Cancel</Button>
+							<Button
+								variant="accent"
+								unifiedSize="sm"
+								startIcon={{ icon: Play }}
+								disabled={boundPickEnds.size === 0 || boundScripts.length === 0}
+								onclick={confirmBoundedRun}
 							>
-								<Loader2 size={11} class="animate-spin" />
-								Parsing assets…
-							</div>
-						{/if}
-						{#if mode !== 'edit' || pe.selection != undefined || pe.activeDraftPath != undefined}
-							<!-- Floating panel toggle, mirrors the app builder's
-							     hide-bar pattern. Anchored to the canvas (not the
-							     toolbar) so it stays adjacent to the splitter
-							     handle. z-50 + bg-surface keep it visible above
-							     the SvelteFlow internals (panels, edges, controls
-							     all render at z>10) and against the canvas
-							     background — the bare HideButton uses
-							     bg-transparent which disappears on light themes. -->
-							<div
-								class="absolute top-2 right-2 z-50 rounded-md bg-surface shadow-sm border border-gray-200 dark:border-gray-700"
-							>
-								<HideButton
-									hidden={panelHidden}
-									direction="right"
-									on:click={() => (panelHidden = !panelHidden)}
-								/>
-							</div>
-						{/if}
-					</div></Pane
-				>
-				{#if detailsPaneOpen && $workspaceStore}
-					<Pane bind:size={rightPaneSize} minSize={25}>
-						{#if mode !== 'edit' && pe.selection == undefined && pe.activeDraftPath == undefined}
-							<!-- Idle view mode: the pane is the pipeline's activity
-							     feed (preloaded history + live runs). Selecting a node
-							     swaps in the details pane below; closing it lands back
-							     here. -->
-							<PipelineActivityPanel
-								events={activityEvents}
-								edges={pipelineHistory.edges}
-								loading={pipelineHistory.loading}
-								truncated={pipelineHistory.truncated}
-								error={pipelineHistory.error}
-								days={activityDays}
-								onDaysChange={setActivityDays}
-								onHoverRun={(p) => (activityHoverPaths = p ?? [])}
-								onSelectRun={(p) => (activitySelectPaths = p ?? [])}
-							/>
-						{:else}
-							<AssetGraphDetailsPane
-								{mode}
-								onRequestEdit={isOperator ? undefined : () => setMode('edit')}
-								canRunByPath={openScriptHasDataUpload}
-								onRunByPath={runByPathLegit}
-								selection={activeDraft ? undefined : pe.selection}
-								selectionProducers={activeDraft ? [] : selectionProducers}
-								{runsRefreshKey}
-								{runsPendingJobId}
-								{activeRunnable}
-								downstreamSubscribers={editedScriptDownstreamCount}
-								onStartBoundedRun={openScriptPath &&
-								validStartPaths.has(openScriptPath) &&
-								lineageDownstreamPaths.has(openScriptPath)
-									? () => startBoundedRun(openScriptPath!)
-									: undefined}
-								onRunCompleted={() => {
-									activeRunnable = undefined
-									activeRunnableJobId = undefined
-								}}
-								onTestStateChange={(running) => {
-									// Bridge: ScriptEditor's Test button triggers the
-									// same canvas-level "is running" hint as the
-									// per-node Run button. The currently-edited script
-									// is whichever path is open in the pane (active
-									// draft, or the persisted-script selection).
-									const openPath = openScriptPath
-									if (running && openPath) {
-										activeRunnable = { kind: 'script', path: openPath }
-										// Mark the tested runnable as launched-from-here so the
-										// folder poll's catch-up pulse won't re-flash its edge a
-										// poll-interval after a fast job already finished (the
-										// edge is animated zero-latency by `activeRunnable`, and
-										// the test loader clears that the instant it completes).
-										// Also upgrades to the fast poll so the badge lands sooner.
-										activeRunnables.arm(`script:${openPath}`)
-										// Editor Test path clears via its own callbacks, not
-										// the job-id effect — drop any stale tracked id so a
-										// prior canvas run's completion can't clear this hint.
-										activeRunnableJobId = undefined
-									} else if (!running && activeRunnable?.path === openPath) {
-										activeRunnable = undefined
-										activeRunnableJobId = undefined
-									}
-								}}
-								{requestRemoveSignal}
-								{requestRunSignal}
-								{requestRunCascadeSignal}
-								focusUploadSignal={focusDataUploadSignal}
-								draftScript={activeDraft?.script}
-								{pathPrefix}
-								onDraftPathChange={renameDraft}
-								workspace={$workspaceStore}
-								onAnnotationsChange={pe.handleAnnotationsChange}
-								onAssetsChange={pe.handleAssetsChange}
-								onContentChange={pe.handleContentChange}
-								onDraftPersist={pe.handleDraftPersist}
-								onclose={() => {
-									// Close dismisses the pane but preserves drafts so
-									// the user can come back to them. Discarding is
-									// via the explicit "Discard" button in the pane.
-									pe.selection = undefined
-									pe.activeDraftPath = undefined
-									pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
-								}}
-								onHide={() => (panelHidden = true)}
-								onDiscard={() => {
-									if (pe.activeDraftPath) discardDraft(pe.activeDraftPath)
-								}}
-								onDraftSaved={async (savedPath) => {
-									// Snapshot the preview's promise while the draft
-									// overlay still exists (dropped from `drafts` below).
-									const predicted = predictCascadeFacts([savedPath])
-									// Drop the now-deployed draft and hand focus to its
-									// persisted runnable so the pane stays open on the
-									// same script. `discardDraft` would clear
-									// activeDraftPath without setting selection — the
-									// canvas would deselect and the view reset on the
-									// next refetch.
-									const nextDrafts = new Map(pe.drafts)
-									nextDrafts.delete(savedPath)
-									pe.drafts = nextDrafts
-									if (pe.activeDraftPath === savedPath) {
-										pe.selection = {
-											kind: 'runnable',
-											runnable_kind: 'script',
-											path: savedPath
-										}
-										pe.activeDraftPath = undefined
-									}
-									clearSaveError(savedPath)
-									await graphRes.refetch()
-									reportDeployDrift(predicted)
-								}}
-								onPersistedSaved={async (savedPath) => {
-									// Snapshot before the refetch replaces the base graph
-									// — the live editor overlay is the prediction here.
-									const predicted = predictCascadeFacts([savedPath])
-									// Refresh the asset graph so the rows the deploy
-									// just inserted (from the body-asset write list we
-									// pass at save time) make it into base.edges. The
-									// in-memory `inferredWritesByPath` overlay
-									// dedupes against base, so the edge stays put
-									// instead of flickering when the ScriptEditor
-									// remounts on the new hash.
-									await graphRes.refetch()
-									reportDeployDrift(predicted)
-								}}
-								onScriptRenamed={async (oldPath, newPath) => {
-									// Repoint the selection at the new path before the
-									// graph refetches so the pane stays focused on the
-									// same script. Order matters: update selection
-									// first, then refetch — otherwise the resource
-									// driving the pane would briefly resolve to nothing.
-									if (pe.selection?.kind === 'runnable' && pe.selection.path === oldPath) {
-										pe.selection = { ...pe.selection, path: newPath }
-									}
-									await graphRes.refetch()
-								}}
-								onScriptRemoved={async (removedPath) => {
-									// Drop every path-keyed overlay / cache entry
-									// pointing at the now-archived runnable so
-									// resolveGraph doesn't keep emitting lineage
-									// edges or missing-trigger placeholders against
-									// a script that no longer exists. Without this
-									// the inferred writes / annotation maps would
-									// keep dragging phantom nodes onto the canvas
-									// until the next folder change.
-									forgetPath(removedPath)
-									await graphRes.refetch()
-								}}
-							/>
-						{/if}
-					</Pane>
-				{/if}
-			</Splitpanes>
+								Run selection
+							</Button>
+						</div>
+					{/if}
+				{/snippet}
+				{#snippet idlePane()}
+					<PipelineActivityPanel
+						events={activityEvents}
+						edges={pipelineHistory.edges}
+						loading={pipelineHistory.loading}
+						truncated={pipelineHistory.truncated}
+						error={pipelineHistory.error}
+						days={activityDays}
+						onDaysChange={setActivityDays}
+						onHoverRun={(p) => (activityHoverPaths = p ?? [])}
+						onSelectRun={(p) => (activitySelectPaths = p ?? [])}
+					/>
+				{/snippet}
+			</PipelineGraphEditor>
 		{/if}
 	</div>
 </div>

@@ -123,4 +123,21 @@ export class PipelineEditorState {
 			this.drafts = next
 		})
 	}
+
+	/** The draft open in the pane, if any. */
+	get activeDraft(): PipelineDraft | undefined {
+		return this.activeDraftPath ? this.drafts.get(this.activeDraftPath) : undefined
+	}
+
+	/** Whichever script is open — the active draft, or a selected persisted script. */
+	get openScriptPath(): string | undefined {
+		if (this.activeDraftPath) return this.activeDraftPath
+		if (this.selection?.kind === 'runnable' && this.selection.runnable_kind === 'script')
+			return this.selection.path
+		return undefined
+	}
+
+	get hasAiPending(): boolean {
+		return [...this.drafts.values()].some((d) => d.aiPending)
+	}
 }
