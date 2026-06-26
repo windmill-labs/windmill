@@ -150,6 +150,8 @@ function collectStepPaths(flowValue: any): string[] {
       walk(v.modules);
       walk(v.default);
       for (const b of v.branches ?? []) walk(b?.modules);
+      // AI-agent tools are step-like and can carry script paths too.
+      walk(v.tools);
     }
   };
   walk(flowValue?.modules);
