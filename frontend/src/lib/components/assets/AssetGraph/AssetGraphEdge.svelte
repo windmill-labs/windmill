@@ -73,8 +73,8 @@
 			: ''
 	)
 	// Stack the columns badge below the data-test badge when both are present so
-	// they don't overlap on the link.
-	let columnsBadgeY = $derived(tests && tests.length > 0 ? labelY + 12 : labelY)
+	// they don't overlap on the link (each badge is 18px tall; +18 clears it).
+	let columnsBadgeY = $derived(tests && tests.length > 0 ? labelY + 18 : labelY)
 
 	// An edge that skips at least one full layer (source-bottom → target-top
 	// gap larger than gap + node row) while staying near-vertical runs

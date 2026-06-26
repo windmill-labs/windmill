@@ -78,6 +78,28 @@ describe('buildColumnGraph', () => {
 		expect(g.down.get(STAGING_AMT)).toEqual(new Set([DAILY_TOTAL]))
 	})
 
+	it('anchors deterministically to the first ducklake write when a producer has several', () => {
+		const graph = chainGraph()
+		// s1 gains a second ducklake write-edge (after its real output).
+		graph.edges.push({
+			runnable_path: 's1',
+			runnable_kind: 'script',
+			asset_kind: 'ducklake',
+			asset_path: 'wh/other',
+			access_type: 'w'
+		})
+		const g = buildColumnGraph(graph)
+		// `amt` stays on the first output (wh/staging), not the later wh/other.
+		expect(g.nodes.has(STAGING_AMT)).toBe(true)
+		expect(g.nodes.has(colNodeId('ducklake', 'wh/other', 'amt'))).toBe(false)
+	})
+
+	it('node ids are collision-proof across `#` / `:` in paths and columns', () => {
+		// A delimiter-concatenated id would merge these; the JSON-encoded id must not.
+		expect(colNodeId('ducklake', 'a#b', 'c')).not.toBe(colNodeId('ducklake', 'a', 'b#c'))
+		expect(colNodeId('ducklake', 'a:b', 'c')).not.toBe(colNodeId('ducklake', 'a', 'b:c'))
+	})
+
 	it('skips producers with no ducklake output asset (columns unanchorable)', () => {
 		const graph = chainGraph()
 		graph.edges = graph.edges.filter((e) => e.runnable_path !== 's1') // s1 loses its output edge

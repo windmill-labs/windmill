@@ -734,26 +734,30 @@ async fn asset_graph(
             )
         })
         .collect();
-    // Column-level lineage per member. For DuckDB scripts we run the full SQL
-    // asset parser, which infers output→input column edges from the AST and
-    // merges them with `// column` annotations (annotation wins); other
-    // languages have no AST column-lineage inference yet, so they fall back to
-    // the annotation-only lineage already parsed above.
+    // Column-level lineage per member. The annotation-only lineage (already
+    // parsed above) is the baseline. For DuckDB scripts we additionally run the
+    // full SQL asset parser to infer output→input column edges from the AST; it
+    // merges them with the `// column` annotations (annotation wins). If the SQL
+    // can't be parsed (DuckDB accepts grammar `sqlparser` rejects), we fall back
+    // to the annotation-only baseline rather than dropping explicit annotations.
     let column_lineage_by_path: std::collections::HashMap<
         String,
         Vec<windmill_common::assets::ColumnLineage>,
     > = pipeline_member_paths
         .iter()
         .map(|r| {
-            let lineage = if r.language == windmill_common::scripts::ScriptLang::DuckDb {
-                windmill_parser_sql_asset::parse_assets(&r.content)
-                    .map(|o| o.column_lineage)
-                    .unwrap_or_default()
-            } else {
+            let annotated = || {
                 annotations_by_path
                     .get(&r.path)
                     .map(|a| a.column_lineage.clone())
                     .unwrap_or_default()
+            };
+            let lineage = if r.language == windmill_common::scripts::ScriptLang::DuckDb {
+                windmill_parser_sql_asset::parse_assets(&r.content)
+                    .map(|o| o.column_lineage)
+                    .unwrap_or_else(|_| annotated())
+            } else {
+                annotated()
             };
             (r.path.clone(), lineage)
         })

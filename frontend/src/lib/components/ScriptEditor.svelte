@@ -592,7 +592,13 @@
 	watch(
 		() => inferAssetsRes.current,
 		() => {
-			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') return
+			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') {
+				// Clear stale lineage on parse error / unset, so a script switch
+				// whose new body fails to parse can't leave the previous script's
+				// inferred column lineage bound to the new path.
+				if (inferredColumnLineage !== undefined) inferredColumnLineage = undefined
+				return
+			}
 			let newAssets = inferAssetsRes.current.assets as AssetWithAltAccessType[]
 			for (const asset of newAssets) {
 				const old = assets?.find((a) => assetEq(a, asset))

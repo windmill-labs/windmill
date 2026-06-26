@@ -1975,18 +1975,25 @@
 			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
 	})
 
-	// Pipeline-wide column-lineage graph, stitched across every producer's
-	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
-	// the transitive column trace in the details pane. Built from the resolved
-	// graph (incl. live draft overlays), so the trace is live-aware.
-	let columnGraph = $derived(buildColumnGraph(graphWithDraft))
-	// Passed to the pane while a draft is actively edited, mirroring how the
-	// other selection overlays blank out (the trace re-appears on plain select).
+	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
+	// or a draft is actively edited) so the pane blanks out like the other
+	// selection overlays and `buildColumnGraph` doesn't run.
 	const EMPTY_COLUMN_GRAPH: ColumnLineageGraph = {
 		nodes: new Map(),
 		up: new Map(),
 		down: new Map()
 	}
+	// Pipeline-wide column-lineage graph, stitched across every producer's
+	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
+	// the transitive column trace in the details pane. Built from the resolved
+	// graph (incl. live draft overlays), so the trace is live-aware. Gated to a
+	// ducklake-asset selection so it isn't rebuilt on every editor keystroke when
+	// the trace UI isn't even shown.
+	let columnGraph = $derived(
+		selection?.kind === 'asset' && selection.asset_kind === 'ducklake'
+			? buildColumnGraph(graphWithDraft)
+			: EMPTY_COLUMN_GRAPH
+	)
 
 	// Downstream subscriber count for the currently-edited script. Drives
 	// the Test button's cascade UX: when > 0, ScriptEditor renders a split

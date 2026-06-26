@@ -5,8 +5,10 @@ import type { AssetGraphResponse } from './types'
 export type ColumnNode = { kind: AssetKind; path: string; column: string }
 export type ColumnNodeId = string
 
+// Collision-proof node id — JSON-encoded tuple, so a `#`/`:` inside a path or
+// (quoted) column name can't merge two distinct columns into one node.
 export function colNodeId(kind: AssetKind, path: string, column: string): ColumnNodeId {
-	return `${kind}:${path}#${column}`
+	return JSON.stringify([kind, path, column])
 }
 
 // The pipeline-wide column-lineage graph, stitched across every producer. Each
@@ -42,15 +44,20 @@ export function buildColumnGraph(graph: AssetGraphResponse): ColumnLineageGraph 
 		;(down.get(src) ?? down.set(src, new Set()).get(src)!).add(out)
 	}
 
-	// Each runnable's materialized output asset (ducklake write target).
+	// Each runnable's materialized output asset (ducklake write target). A
+	// producer's `column_lineage` describes its single materialize target (v1);
+	// if it somehow has multiple ducklake writes we keep the FIRST in edge order
+	// deterministically rather than letting a later edge silently overwrite it.
 	const outputAsset = new Map<string, { kind: AssetKind; path: string }>()
 	for (const e of graph.edges ?? []) {
 		const access = e.access_type ?? 'r'
-		if ((access === 'w' || access === 'rw') && e.asset_kind === 'ducklake') {
-			outputAsset.set(`${e.runnable_kind}:${e.runnable_path}`, {
-				kind: e.asset_kind,
-				path: e.asset_path
-			})
+		const key = `${e.runnable_kind}:${e.runnable_path}`
+		if (
+			(access === 'w' || access === 'rw') &&
+			e.asset_kind === 'ducklake' &&
+			!outputAsset.has(key)
+		) {
+			outputAsset.set(key, { kind: e.asset_kind, path: e.asset_path })
 		}
 	}
 
