@@ -1123,6 +1123,8 @@ paths:
                   type: boolean
                 lock_prod_forking:
                   type: boolean
+                copy_members:
+                  type: boolean
               required:
                 - dev_workspace_id
       responses:
@@ -27473,6 +27475,9 @@ components:
         lock_prod_forking:
           type: boolean
           description: "When creating a dev workspace, prevent forking the parent (prod)"
+        copy_members:
+          type: boolean
+          description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
       required:
         - id
         - name

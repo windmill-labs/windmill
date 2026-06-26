@@ -19,6 +19,7 @@
 	let selectedDevId = $state<string | undefined>(undefined)
 	let lockProdDeploy = $state(true)
 	let lockProdForking = $state(true)
+	let copyMembers = $state(true)
 	let busy = $state(false)
 
 	// Only standalone root workspaces (not already a fork/dev of something) can be attached.
@@ -41,7 +42,8 @@
 				requestBody: {
 					dev_workspace_id: selectedDevId,
 					lock_prod_deploy: lockProdDeploy,
-					lock_prod_forking: lockProdForking
+					lock_prod_forking: lockProdForking,
+					copy_members: copyMembers
 				}
 			})
 			sendUserToast(`Attached ${selectedDevId} as dev workspace`)
@@ -75,7 +77,7 @@
 {#if isDev && parentId}
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm">
-			This is a <b>dev workspace</b> paired with prod workspace <b>{parentId}</b>. Promote changes
+			This is a <b>dev workspace</b> paired with root workspace <b>{parentId}</b>. Promote changes
 			from the home page banner or the Compare &amp; Deploy page.
 		</p>
 		<div>
@@ -84,7 +86,7 @@
 				startIcon={{ icon: ExternalLink }}
 				onclick={() => switchWorkspace(parentId)}
 			>
-				Go to prod workspace
+				Go to root workspace
 			</Button>
 		</div>
 	</div>
@@ -92,7 +94,7 @@
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm">
 			This workspace's dev workspace is <b>{canonicalDev.name}</b> ({canonicalDev.id}). Edits to
-			this (prod) workspace are redirected there.
+			this workspace are redirected there.
 		</p>
 		<div class="flex gap-2">
 			<Button
@@ -108,8 +110,8 @@
 {:else}
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm text-secondary">
-			Pair this workspace (as prod) with a dev workspace: the same code with a different environment
-			(resource and variable values). Edits are made in the dev workspace and promoted here.
+			Pair this workspace with a dev workspace: the same code with a different environment (resource
+			and variable values). Edits are made in the dev workspace and promoted here.
 		</p>
 		<div class="flex flex-col gap-1">
 			<span class="text-xs font-semibold text-emphasis">Attach an existing workspace as dev</span>
@@ -123,12 +125,13 @@
 		<Toggle
 			bind:checked={lockProdDeploy}
 			options={{
-				right: 'Block direct edits in this (prod) workspace (deploy via the dev workspace)'
+				right: 'Block direct edits in this workspace (deploy via the dev workspace)'
 			}}
 		/>
+		<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking this workspace' }} />
 		<Toggle
-			bind:checked={lockProdForking}
-			options={{ right: 'Prevent forking this (prod) workspace' }}
+			bind:checked={copyMembers}
+			options={{ right: "Add this workspace's members to the dev workspace" }}
 		/>
 		<div class="flex gap-2">
 			<Button variant="accent" disabled={busy || !selectedDevId} onclick={attach}>

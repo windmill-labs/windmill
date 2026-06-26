@@ -45,8 +45,8 @@
 			<div class="flex flex-col gap-2">
 				{#if canonicalDev}
 					<p>
-						This is a prod workspace. Make your changes in its dev workspace
-						<b>{canonicalDev.name}</b> ({canonicalDev.id}) and promote them here.
+						Edits to this workspace are made in its dev workspace
+						<b>{canonicalDev.name}</b> ({canonicalDev.id}) and promoted here.
 					</p>
 					<div>
 						<Button

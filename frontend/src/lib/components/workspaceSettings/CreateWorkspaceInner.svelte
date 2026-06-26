@@ -49,6 +49,12 @@
 	let createAsDevWorkspace = $state(false)
 	let lockProdDeploy = $state(true)
 	let lockProdForking = $state(true)
+	// Bring the parent's members into the fork (a shared env). Defaults on for a
+	// dev workspace, off for a throwaway fork; flipping the dev toggle resets it.
+	let copyMembers = $state(false)
+	$effect(() => {
+		copyMembers = createAsDevWorkspace
+	})
 
 	// The dev-workspace option is only offered when forking a root workspace that doesn't already
 	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
@@ -57,6 +63,11 @@
 		!$userWorkspaces.find((w) => w.id === $workspaceStore)?.parent_workspace_id
 	)
 	let canDesignateDevWorkspace = $derived(currentIsRoot && !existingDevWorkspace)
+	let currentWorkspaceName = $derived(
+		$userWorkspaces.find((w) => w.id === $workspaceStore)?.name ??
+			$workspaceStore ??
+			'the root workspace'
+	)
 
 	let id = $state('')
 	let name = $state('')
@@ -203,7 +214,8 @@
 				id: prefixed_id,
 				name,
 				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-				is_dev_workspace: createAsDevWorkspace
+				is_dev_workspace: createAsDevWorkspace,
+				copy_members: copyMembers
 			}
 		})
 
@@ -259,7 +271,8 @@
 					forked_datatables: forkedDatatables,
 					is_dev_workspace: createAsDevWorkspace,
 					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-					lock_prod_forking: createAsDevWorkspace && lockProdForking
+					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					copy_members: copyMembers
 				}
 			})
 		} catch (e) {
@@ -500,18 +513,40 @@
 			{#if isFork && canDesignateDevWorkspace}
 				<Label label="Persistent dev workspace">
 					<span class="text-xs text-secondary">
-						Create a standing dev workspace (no <code>wm-fork-</code> prefix) paired with this workspace
-						as prod, instead of a throwaway fork.
+						Create a standing dev workspace (no <code>wm-fork-</code> prefix) paired with this workspace,
+						instead of a throwaway fork.
 					</span>
 					<div class="flex flex-col gap-2 pt-1">
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
-							<Toggle
-								bind:checked={lockProdDeploy}
-								options={{ right: 'Block direct edits in prod (deploy via this dev workspace)' }}
-							/>
-							<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking prod' }} />
+							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
+								<div class="flex flex-col gap-0.5">
+									<span class="text-xs font-semibold text-emphasis"
+										>Protect {currentWorkspaceName}</span
+									>
+									<span class="text-2xs text-secondary">
+										Adds protection rules to this (root) workspace so changes are made in the new
+										dev workspace and promoted here.
+									</span>
+								</div>
+								<Toggle
+									bind:checked={lockProdDeploy}
+									options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+								/>
+								<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+							</div>
 						{/if}
+					</div>
+				</Label>
+			{/if}
+			{#if isFork}
+				<Label label="Members">
+					<span class="text-xs text-secondary">
+						Copy this workspace's members (and their group memberships) into the fork so the team
+						can work in it.
+					</span>
+					<div class="pt-1">
+						<Toggle bind:checked={copyMembers} options={{ right: 'Copy members' }} />
 					</div>
 				</Label>
 			{/if}

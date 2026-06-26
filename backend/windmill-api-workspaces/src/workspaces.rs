@@ -454,6 +454,10 @@ struct CreateWorkspaceFork {
     lock_prod_deploy: bool,
     #[serde(default)]
     lock_prod_forking: bool,
+    /// Copy the parent's members (usr rows + group memberships) into the fork so
+    /// the team can work in it. Defaults off; the dev-workspace UI defaults it on.
+    #[serde(default)]
+    copy_members: bool,
 }
 
 #[derive(Deserialize)]
@@ -4352,6 +4356,28 @@ async fn clone_groups(
     Ok(())
 }
 
+/// Copy the source workspace's members into the target so a fork/dev can be a
+/// shared environment, carrying each member's role. Group memberships are
+/// already cloned by `clone_groups`; this just adds the `usr` rows. Idempotent —
+/// skips the creator, who already has a row.
+async fn copy_workspace_members(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role)
+         SELECT $1, username, email, is_admin, created_at, operator, disabled, role
+         FROM usr WHERE workspace_id = $2
+         ON CONFLICT DO NOTHING",
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn clone_resource_types(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5134,6 +5160,11 @@ async fn create_workspace_fork(
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
 
+    // Optionally bring the parent's members into the fork (a shared dev env).
+    if nw.copy_members {
+        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id).await?;
+    }
+
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
     // attaches, no cron fires) so this is safe by construction. The user
@@ -5183,6 +5214,9 @@ struct AttachDevWorkspace {
     lock_prod_deploy: bool,
     #[serde(default)]
     lock_prod_forking: bool,
+    /// Add the prod workspace's members to the dev so the team can work in it.
+    #[serde(default)]
+    copy_members: bool,
 }
 
 #[derive(Deserialize)]
@@ -5285,6 +5319,11 @@ async fn attach_dev_workspace(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Optionally add prod's members to the dev so the team can work in it.
+    if req.copy_members {
+        copy_workspace_members(&mut tx, &prod_w_id, &dev_w_id).await?;
+    }
 
     if req.lock_prod_deploy || req.lock_prod_forking {
         lock_prod_workspace(
