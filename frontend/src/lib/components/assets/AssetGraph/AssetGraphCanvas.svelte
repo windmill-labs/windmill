@@ -350,9 +350,19 @@
 			string,
 			NonNullable<AssetGraphResponse['runnables'][number]['column_lineage']>
 		>()
+		// The `// materialize` target the lineage describes, so the badge lands
+		// only on that write-edge (a multi-output script writes several ducklake
+		// tables) — mirrors the anchor logic in `buildColumnGraph`.
+		const producerMaterializeTarget = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['materialize_target']>
+		>()
 		for (const r of g.runnables) {
 			if (r.column_lineage && r.column_lineage.length > 0) {
 				producerColumnLineage.set(`${r.usage_kind}:${r.path}`, r.column_lineage)
+			}
+			if (r.materialize_target) {
+				producerMaterializeTarget.set(`${r.usage_kind}:${r.path}`, r.materialize_target)
 			}
 		}
 		for (const r of g.runnables) {
@@ -428,11 +438,15 @@
 				// write-edge carries the badge / custom-test nodes — a producer's
 				// other (e.g. S3/datatable) outputs must not show them.
 				const edgeTests = e.asset_kind === 'ducklake' ? producerTests.get(runnableId) : undefined
-				// Column lineage describes the materialized output's columns, so it
-				// rides the same ducklake write-edge as the data-test badge (v1
-				// materialize target is always ducklake).
-				const edgeColumnLineage =
-					e.asset_kind === 'ducklake' ? producerColumnLineage.get(runnableId) : undefined
+				// Column lineage describes one materialized output, so the badge
+				// lands only on that asset's write-edge: the declared `// materialize`
+				// target when known (a multi-output script writes several ducklake
+				// tables), else the ducklake write-edge as the unambiguous fallback.
+				const matTarget = producerMaterializeTarget.get(runnableId)
+				const isOutputEdge = matTarget
+					? e.asset_kind === matTarget.kind && e.asset_path === matTarget.path
+					: e.asset_kind === 'ducklake'
+				const edgeColumnLineage = isOutputEdge ? producerColumnLineage.get(runnableId) : undefined
 				edges.push({
 					id: `prod:${runnableId}->${assetId}`,
 					source: runnableId,
