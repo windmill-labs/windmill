@@ -57,6 +57,12 @@
 
 	const globalEnabled = isGlobalAiEnabled()
 
+	// The sessions page hosts preview iframes that load Windmill pages. If one of
+	// those iframes navigates back to /sessions, mounting the full UI again would
+	// nest another sessions page (with its own iframes) endlessly. Detect the
+	// iframe context and refuse to mount when embedded.
+	const embedded = typeof window !== 'undefined' && window.self !== window.top
+
 	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
 
 	// Unfiltered resolution by name — used to drive workspace switching
@@ -362,7 +368,23 @@
 </script>
 
 <div class="h-full flex flex-col min-h-0">
-	{#if !globalEnabled}
+	{#if embedded}
+		<!-- Rendered inside a preview iframe — opening the sessions UI here would
+		     recurse. Offer to break out to the top-level window instead. -->
+		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+			<p class="text-primary font-medium">Sessions can't open inside a preview</p>
+			<p>This page is being previewed in a session panel. Open it at the top level instead.</p>
+			<Button
+				size="xs"
+				startIcon={{ icon: ExternalLink }}
+				onclick={() => {
+					const u = new URL(window.location.href)
+					u.searchParams.delete('nomenubar')
+					window.top?.location.assign(u.pathname + u.search)
+				}}>Open sessions</Button
+			>
+		</div>
+	{:else if !globalEnabled}
 		<div class="p-8 text-secondary text-sm">
 			Sessions are gated on the global-AI dev flag. Enable with
 			<code class="text-2xs font-mono">localStorage.setItem('wm_dev_global_ai', '1')</code> and reload.
