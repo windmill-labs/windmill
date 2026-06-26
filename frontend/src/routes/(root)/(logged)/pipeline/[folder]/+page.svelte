@@ -63,9 +63,6 @@
 		type PipelineDraft
 	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
-	import { decodeState, encodeState } from '$lib/utils'
-	import { DraftService } from '$lib/gen'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -194,201 +191,9 @@
 		}
 	}
 
-	// All of this folder's in-flight drafts live in ONE per-user DB draft
-	// (typ `data_pipeline`) keyed at the folder, so they sync across devices
-	// and surface in the global drafts list — replacing the prior
-	// browser-only blob. The `f/<folder>/...` path drives the backend's
-	// folder-write access check. localStorage is kept as a synchronous crash
-	// mirror (no size cap, survives a hard close inside the debounce window)
-	// but is only ever READ for the one-time import below; the DB is the
-	// source of truth on load.
-	const PIPELINE_DRAFT_KIND = 'data_pipeline' as const
+	// Draft autosave (the data_pipeline DraftService bundle) lives inside
+	// PipelineGraphEditor now; the route just supplies its path to the indicator.
 	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
-	let storageKey = $derived(`pipeline-${folder}`)
-	type PipelineDraftBundle = { drafts: Array<[string, Draft]>; activeDraftPath?: string }
-
-	// Gate the persist effect until the initial DB load resolves so empty
-	// pre-hydration state can't clobber the server copy. `lastPersistedBundle`
-	// holds the last value we pushed so an unchanged re-render (and the
-	// just-loaded value itself) isn't re-POSTed.
-	let draftsHydrated = $state(false)
-	let lastPersistedBundle: string | undefined = undefined
-	// True once a bundle was restored from the DB on load — drives the
-	// AutosaveIndicator's one-shot "Loaded from draft" hint.
-	let loadedFromDbDraft = $state(false)
-
-	function restoreBundle(bundle: PipelineDraftBundle) {
-		if (Array.isArray(bundle.drafts)) {
-			const loaded = new Map<string, Draft>()
-			for (const entry of bundle.drafts) {
-				if (entry && typeof entry[0] === 'string' && entry[1]?.script) {
-					const d = entry[1] as Draft
-					// Backfill localId for state persisted by older builds.
-					if (typeof d.localId !== 'string' || d.localId === '') {
-						d.localId = pe.newDraftLocalId()
-					}
-					loaded.set(entry[0], d)
-				}
-			}
-			if (loaded.size > 0) pe.drafts = loaded
-		}
-		if (typeof bundle.activeDraftPath === 'string') {
-			pe.activeDraftPath = bundle.activeDraftPath
-		}
-	}
-
-	// The pre-DB localStorage blob, for the one-time migration when the user
-	// has no DB draft yet.
-	function readLocalBundle(): PipelineDraftBundle | undefined {
-		if (typeof localStorage === 'undefined') return undefined
-		const raw = localStorage.getItem(`pipeline-${folder}`)
-		if (!raw) return undefined
-		try {
-			const state = decodeState(raw)
-			if (state && (Array.isArray(state.drafts) || typeof state.activeDraftPath === 'string')) {
-				return {
-					drafts: Array.isArray(state.drafts) ? state.drafts : [],
-					activeDraftPath:
-						typeof state.activeDraftPath === 'string' ? state.activeDraftPath : undefined
-				}
-			}
-		} catch (e) {
-			console.warn('failed to read local pipeline state', e)
-		}
-		return undefined
-	}
-
-	onMount(() => {
-		void hydrateDrafts()
-	})
-
-	async function hydrateDrafts() {
-		const ws = $workspaceStore
-		const path = pipelineDraftPath
-		try {
-			let bundle: PipelineDraftBundle | undefined
-			let serverSavedAt: string | undefined
-			if (ws) {
-				const row = await DraftService.getOwnDraft({
-					workspace: ws,
-					kind: PIPELINE_DRAFT_KIND,
-					path
-				})
-				if (row?.value) {
-					bundle = row.value as PipelineDraftBundle
-					serverSavedAt = row.created_at
-					loadedFromDbDraft = true
-				}
-			}
-			// One-time migration: no DB draft yet, but an older build left a
-			// localStorage blob — adopt it and let the persist effect push it up.
-			let migratedFromLocal = false
-			if (!bundle) {
-				const local = readLocalBundle()
-				if (local) {
-					bundle = local
-					migratedFromLocal = true
-				}
-			}
-			if (bundle) restoreBundle(bundle)
-			// Seed the conflict baseline: server timestamp when loaded from the
-			// DB, none otherwise (first save omits last_sync → backend first-push
-			// branch). A local migration counts as "nothing server-side yet".
-			UserDraftDbSyncer.recordRemoteSync(
-				{ workspace: ws ?? '', itemKind: PIPELINE_DRAFT_KIND, path },
-				migratedFromLocal ? undefined : serverSavedAt
-			)
-			// Record what we loaded so the first persist run is a no-op — UNLESS
-			// we migrated from localStorage, which must push to the DB once.
-			if (!migratedFromLocal) {
-				lastPersistedBundle = bundle ? JSON.stringify(bundle) : undefined
-			}
-		} catch (e) {
-			console.warn('failed to load pipeline drafts', e)
-		} finally {
-			draftsHydrated = true
-		}
-	}
-
-	// Persist on change: debounced DB sync (UserDraftDbSyncer handles the
-	// debounce + optimistic-concurrency) plus a synchronous localStorage
-	// mirror for crash recovery before the first DB confirm.
-	$effect(() => {
-		// Track deps explicitly so Svelte 5 re-runs on mutation.
-		// For the active draft, also snapshot the latest live body writes
-		// at serialize time. Without this, edits made since the last
-		// pane-transition (the cleanup that calls onDraftPersist) are
-		// lost on reload — the draft restores with stale `outputAssets`
-		// and the graph drops the corresponding edges until the user
-		// re-opens the draft and types something new.
-		const liveWritesSnapshot =
-			pe.liveBodyAssets.scriptPath != undefined && pe.drafts.has(pe.liveBodyAssets.scriptPath)
-				? extractWrites(pe.liveBodyAssets.assets)
-				: undefined
-		const liveWritesPath = pe.liveBodyAssets.scriptPath
-		// Live editor buffer for the open draft. `onDraftPersist` only commits
-		// content into the Map on pane teardown, so without this overlay the
-		// autosave (and a crash reload) would lag a whole editing session behind.
-		const liveContentPath =
-			pe.liveContent.scriptPath != undefined && pe.drafts.has(pe.liveContent.scriptPath)
-				? pe.liveContent.scriptPath
-				: undefined
-		const liveContentValue = pe.liveContent.content
-		const serialized = Array.from(pe.drafts.entries()).map(([p, d]) => {
-			const outputAssets =
-				liveWritesSnapshot != undefined && liveWritesPath === p
-					? liveWritesSnapshot.length > 0
-						? liveWritesSnapshot
-						: undefined
-					: d.outputAssets
-			const script =
-				liveContentPath === p && d.script.content !== liveContentValue
-					? { ...d.script, content: liveContentValue }
-					: d.script
-			if (script === d.script && outputAssets === d.outputAssets) {
-				return [p, d] as [string, Draft]
-			}
-			return [p, { ...d, script, outputAssets }] as [string, Draft]
-		})
-		const activePath = pe.activeDraftPath
-		const key = storageKey
-		const ws = $workspaceStore
-		const path = pipelineDraftPath
-		const hydrated = draftsHydrated
-		untrack(() => {
-			// Don't touch storage until the initial load settled.
-			if (!hydrated) return
-			const isEmpty = serialized.length === 0 && !activePath
-			const bundle: PipelineDraftBundle | undefined = isEmpty
-				? undefined
-				: { drafts: serialized, activeDraftPath: activePath }
-			// localStorage crash mirror — synchronous, no debounce, no size cap.
-			try {
-				if (typeof localStorage !== 'undefined') {
-					if (isEmpty) localStorage.removeItem(key)
-					else
-						localStorage.setItem(
-							key,
-							encodeState({ drafts: serialized, activeDraftPath: activePath })
-						)
-				}
-			} catch (e) {
-				console.warn('failed to mirror pipeline state', e)
-			}
-			const serializedBundle = bundle ? JSON.stringify(bundle) : undefined
-			if (serializedBundle === lastPersistedBundle) return
-			lastPersistedBundle = serializedBundle
-			if (!ws) return
-			void UserDraftDbSyncer.save({
-				workspace: ws,
-				itemKind: PIPELINE_DRAFT_KIND,
-				path,
-				// `null` deletes the bundle once the last draft is gone.
-				value: bundle ?? null,
-				auto: true
-			})
-		})
-	})
 
 	// The live editor overlays (annotations / body assets / content for the open
 	// script) now live in `pe`. The canonical "empty" literals stay here — they
@@ -1377,7 +1182,6 @@
 		}
 	})
 
-
 	// Bumped after every successful run dispatch so AssetRunsPanel re-fetches
 	// the listing immediately — the new (preview or script) job appears in
 	// the history popover without waiting on its 3 s poll tick.
@@ -2206,7 +2010,7 @@
 						itemKind="data_pipeline"
 						path={pipelineDraftPath}
 						draftOnly
-						loadedFromDraft={loadedFromDbDraft}
+						loadedFromDraft={pe.loadedFromDbDraft}
 					/>
 				{/if}
 				<Button
@@ -2258,6 +2062,8 @@
 		{:else}
 			<PipelineGraphEditor
 				editor={pe}
+				{folder}
+				persistDrafts={true}
 				{displayGraph}
 				{mode}
 				{isOperator}

@@ -41,6 +41,11 @@ export class PipelineEditorState {
 	/** The open draft's live editor buffer. */
 	liveContent = $state<LiveContent>({ scriptPath: undefined, content: '' })
 
+	/** Set true once a draft bundle was restored from the DB on load — drives the
+	 * route toolbar's one-shot "Loaded from draft" hint. Written by the editor's
+	 * autosave hydrate when persistence is enabled. */
+	loadedFromDbDraft = $state(false)
+
 	#nextDraftLocalId = 0
 	// Arrow fields so `pe.method` can be passed straight as a callback (the
 	// details pane takes onDraftPersist / onAnnotationsChange / … by reference).
