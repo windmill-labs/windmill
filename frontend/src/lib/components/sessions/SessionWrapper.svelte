@@ -55,11 +55,19 @@
 	// instead, so the wrapper contributes only its chat column.
 	// onExit (when provided): a collapse-pane button on the header's top-right that
 	// dismisses the session layout. Lives here so it sits in the chat header.
+	// headerInset: extra left padding on the chat header so it clears a floating
+	// control (the collapsed-rail launcher) sitting at the screen's top-left.
 	let {
 		sessionId,
 		hideEditor = false,
-		onExit
-	}: { sessionId: string; hideEditor?: boolean; onExit?: () => void } = $props()
+		onExit,
+		headerInset = false
+	}: {
+		sessionId: string
+		hideEditor?: boolean
+		onExit?: () => void
+		headerInset?: boolean
+	} = $props()
 
 	// LRU-warm sessions get their editor pane mounted; others render
 	// chat-only. Reading from the reactive Set keeps SessionWrapper in
@@ -327,7 +335,9 @@
 	     and a wrong split. -->
 	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 		<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
-			<header class="flex flex-row items-center gap-1 pl-4 pr-4 py-2 shrink-0">
+			<header
+				class="flex flex-row items-center gap-1 {headerInset ? 'pl-11' : 'pl-4'} pr-4 py-2 shrink-0"
+			>
 				<EditableInput
 					bind:this={summaryInput}
 					value={session.summary ?? ''}

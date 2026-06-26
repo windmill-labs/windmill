@@ -4,10 +4,12 @@
 	import {
 		Archive,
 		ArchiveRestore,
+		Building,
 		ChevronDown,
 		ChevronRight,
 		EllipsisVertical,
 		Filter,
+		GitFork,
 		MessageSquare,
 		Pencil,
 		PencilLine,
@@ -42,6 +44,7 @@
 	} from './sessionRuntime.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
+	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 	import SessionFilterMenu from './SessionFilterMenu.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
@@ -96,9 +99,25 @@
 		// When false, the section is always expanded (no collapse chevron) — used
 		// where the picker is the whole rail rather than one sidebar section.
 		collapsible?: boolean
+		// Render the full workspace tree (every workspace, not just ones with
+		// sessions) with clickable workspace rows on top of the nested sessions.
+		workspaceTree?: boolean
+		// The workspace currently being browsed (highlighted) in tree mode.
+		browsedWorkspaceId?: string
+		// Clicking a workspace row → browse it (preview its home, no chat).
+		onBrowseWorkspace?: (workspaceId: string) => void
+		// Clicking a session row → leave browse mode (bring the chat back).
+		onSelectSession?: () => void
 	}
 
-	let { isCollapsed = false, collapsible = true }: Props = $props()
+	let {
+		isCollapsed = false,
+		collapsible = true,
+		workspaceTree = false,
+		browsedWorkspaceId = undefined,
+		onBrowseWorkspace = undefined,
+		onSelectSession = undefined
+	}: Props = $props()
 
 	const sectionCollapsed = useLocalStorageValue(
 		'windmill_sessions_section_collapsed',
@@ -106,14 +125,6 @@
 		'boolean'
 	)
 	const showArchived = useLocalStorageValue('windmill_sessions_show_archived', false, 'boolean')
-	// On by default: list sessions from every workspace (grouped by family), so the
-	// picker is a global session switcher. Turn off to scope to the current family.
-	const showAllWorkspaces = useLocalStorageValue(
-		'windmill_sessions_show_all_workspaces',
-		true,
-		'boolean'
-	)
-
 	let listRoot: HTMLDivElement | undefined = $state()
 
 	// A session's family root: the stored grouping id, else derived live.
@@ -133,10 +144,9 @@
 			// The open session always stays in the list, ignoring both filters.
 			if (s.id === sessionState.currentSessionId) return true
 			if (s.archived && !showArchived.val) return false
-			if (!showAllWorkspaces.val) {
-				const currentRoot = $currentWorkspaceRootId
-				if (currentRoot && sessionRootOf(s) !== currentRoot) return false
-			}
+			// Scope to the current workspace family only.
+			const currentRoot = $currentWorkspaceRootId
+			if (currentRoot && sessionRootOf(s) !== currentRoot) return false
 			return true
 		})
 	)
@@ -166,16 +176,69 @@
 		return groups
 	})
 
-	// Family labels are redundant when scoped to the current workspace (a single
-	// family) — show them when including all workspaces, and also if the
-	// active-session override surfaces a second family while scoped (avoids
-	// ambiguity).
-	const showGroupHeaders = $derived(showAllWorkspaces.val || sessionGroups.length > 1)
+	// Workspace tree scoped to the current family (root + its forks), so the rail
+	// only shows the workspaces in the family we're in — not every workspace.
+	const workspaceTreeItems = $derived.by(() => {
+		const all = buildWorkspaceHierarchy($userWorkspaces)
+		const currentRoot = $currentWorkspaceRootId
+		if (!currentRoot) return all
+		return all.filter((i) => workspaceRootId(i.workspace.id, $userWorkspaces) === currentRoot)
+	})
+
+	// Sessions keyed by their exact workspace, newest-first — nested under each
+	// workspace node in tree mode.
+	const sessionsByWorkspace = $derived.by(() => {
+		const map = new Map<string, Session[]>()
+		for (const s of visibleSessions) {
+			const wsId = s.workspace_id ?? s.pending_workspace_id
+			if (!wsId) continue
+			const arr = map.get(wsId)
+			if (arr) arr.push(s)
+			else map.set(wsId, [s])
+		}
+		for (const arr of map.values()) arr.sort((a, b) => b.createdAt - a.createdAt)
+		return map
+	})
+
+	// Collapsed workspaces in the tree, persisted to localStorage so the state is
+	// shared between the rail and the collapsed popover (separate picker instances)
+	// and survives reloads. A collapsed workspace hides its sessions + fork subtree.
+	const collapsedWorkspaces = useLocalStorageValue<string[]>(
+		'windmill_sessions_collapsed_workspaces',
+		[]
+	)
+	function isWorkspaceCollapsed(id: string): boolean {
+		return collapsedWorkspaces.val.includes(id)
+	}
+	function toggleWorkspaceCollapsed(id: string) {
+		collapsedWorkspaces.val = isWorkspaceCollapsed(id)
+			? collapsedWorkspaces.val.filter((x) => x !== id)
+			: [...collapsedWorkspaces.val, id]
+	}
+
+	// Ids of tree items hidden because an ancestor workspace is collapsed. Computed
+	// in pre-order: once a collapsed node is seen, everything deeper is hidden until
+	// the depth returns to its level or shallower.
+	const hiddenWorkspaceIds = $derived.by(() => {
+		const hidden = new Set<string>()
+		let collapseDepth = Infinity
+		for (const item of workspaceTreeItems) {
+			if (item.depth > collapseDepth) {
+				hidden.add(item.workspace.id)
+				continue
+			}
+			collapseDepth = isWorkspaceCollapsed(item.workspace.id) ? item.depth : Infinity
+		}
+		return hidden
+	})
+
+	// Family labels are redundant when scoped to a single family — only show them
+	// if the active-session override surfaces a second family.
+	const showGroupHeaders = $derived(sessionGroups.length > 1)
 
 	const archivedCount = $derived(
 		sessionState.sessions.filter((s) => {
 			if (!s.archived || s.transient) return false
-			if (showAllWorkspaces.val) return true
 			const currentRoot = $currentWorkspaceRootId
 			return (
 				!currentRoot || sessionRootOf(s) === currentRoot || s.id === sessionState.currentSessionId
@@ -234,6 +297,8 @@
 	}
 
 	async function activate(session: Session, restoreFocus: boolean = false) {
+		// Picking a session leaves browse mode so the chat comes back.
+		onSelectSession?.()
 		selectSession(session.id)
 		// If the session has a committed workspace different from the
 		// active one, switch globally so the editor/forks resolve correctly.
@@ -411,7 +476,6 @@
 								<SessionFilterMenu
 									{builders}
 									bind:showArchived={showArchived.val}
-									bind:showAllWorkspaces={showAllWorkspaces.val}
 									{archivedCount}
 								/>
 							</div>
@@ -517,8 +581,7 @@
 							type="button"
 							title="Filter sessions"
 							aria-label="Filter sessions"
-							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {showArchived.val ||
-							showAllWorkspaces.val
+							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {showArchived.val
 								? 'text-emphasis'
 								: ''}"
 						>
@@ -529,16 +592,6 @@
 						<div
 							class="w-56 p-2 bg-surface-tertiary dark:border rounded-md shadow-lg flex flex-col gap-2"
 						>
-							<div class="flex flex-col gap-0.5">
-								<Toggle
-									bind:checked={showAllWorkspaces.val}
-									size="xs"
-									options={{ right: 'Show all workspaces' }}
-								/>
-								<span class="text-2xs text-tertiary pl-1">
-									Include sessions from every workspace.
-								</span>
-							</div>
 							<div class="flex flex-col gap-0.5">
 								<Toggle
 									bind:checked={showArchived.val}
@@ -568,152 +621,236 @@
 			<div
 				bind:this={listRoot}
 				transition:slide={{ duration: 180 }}
-				class="flex flex-col gap-0.5 max-h-[40vh] overflow-y-auto"
+				class={twMerge(
+					'flex flex-col gap-0.5 overflow-y-auto',
+					// In the rail the picker is the whole list and the rail scrolls;
+					// only cap height when it's one section among others (normal sidebar).
+					collapsible ? 'max-h-[40vh]' : ''
+				)}
 				onkeydown={handleListKeydown}
 				role="listbox"
 				tabindex="-1"
 			>
-				{#each sessionGroups as group, groupIdx (group.rootId)}
-					{#if showGroupHeaders}
-						{@const groupWs = $userWorkspaces.find((w) => w.id === group.rootId)}
-						<div
-							class={twMerge(
-								'flex items-center gap-2 px-2 pt-2 pb-1 min-w-0',
-								// Space families apart so group boundaries read clearly.
-								groupIdx > 0 ? 'mt-4' : ''
-							)}
-							title={group.name}
-						>
-							<WorkspaceIcon workspaceColor={groupWs?.color} size={12} />
-							<span class="text-xs font-medium text-secondary truncate">{group.name}</span>
-						</div>
-					{/if}
-					{#each group.sessions as session (session.id)}
-						{@const runtime = getRuntime(session.id)}
-						{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
-						{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
-						{@const isEditing = editingId === session.id}
-						{@const unread = unreadFor(session)}
-						{@const draft = hasDraft(session)}
-						<div
-							class={twMerge(
-								'flex flex-row items-center group rounded',
-								isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
-								session.archived ? 'opacity-60' : '',
-								// Indent rows under their family header so the session name lines up
-								// with the (wider) workspace-icon header name above.
-								showGroupHeaders ? 'pl-5' : ''
-							)}
-						>
-							{#if isEditing}
-								<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
+				{#snippet vline()}
+					<span class="relative w-3.5 shrink-0 self-stretch">
+						<span class="absolute inset-y-0 left-1/2 w-px bg-gray-200 dark:bg-gray-700"></span>
+					</span>
+				{/snippet}
+				{#snippet sessionRow(session, indented, treeDepth)}
+					{@const runtime = getRuntime(session.id)}
+					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+					{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
+					{@const isEditing = editingId === session.id}
+					{@const unread = unreadFor(session)}
+					{@const draft = hasDraft(session)}
+					<div
+						class={twMerge(
+							'flex flex-row group rounded',
+							treeDepth === undefined ? 'items-center' : 'items-stretch',
+							isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
+							session.archived ? 'opacity-60' : '',
+							// Family mode indents under the header; tree mode uses guide columns.
+							treeDepth === undefined && indented ? 'pl-5' : ''
+						)}
+					>
+						{#if treeDepth !== undefined}
+							{#each Array(treeDepth) as _}{@render vline()}{/each}
+						{/if}
+						{#if isEditing}
+							<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
+								{#if treeDepth === undefined}
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}
 										forkStatus={forkStatusFor(session)}
 									/>
-									<!-- svelte-ignore a11y_autofocus -->
-									<input
-										type="text"
-										bind:value={renameDraft}
-										onkeydown={(e) => {
-											if (e.key === 'Enter') commitRename()
-											else if (e.key === 'Escape') cancelRename()
-										}}
-										onblur={commitRename}
-										placeholder="Untitled session"
-										autofocus
-										spellcheck="false"
-										class="flex-1 min-w-0 bg-transparent border-0 outline-none text-xs font-normal text-primary"
-									/>
-								</span>
-							{:else}
-								<button
-									type="button"
-									data-session-button
-									role="option"
-									aria-selected={isSelected}
-									onclick={() => activate(session)}
-									class={twMerge(
-										'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
-										isSelected ? sidebarClasses.selectedText : 'text-secondary'
-									)}
-								>
+								{/if}
+								<!-- svelte-ignore a11y_autofocus -->
+								<input
+									type="text"
+									bind:value={renameDraft}
+									onkeydown={(e) => {
+										if (e.key === 'Enter') commitRename()
+										else if (e.key === 'Escape') cancelRename()
+									}}
+									onblur={commitRename}
+									placeholder="Untitled session"
+									autofocus
+									spellcheck="false"
+									class="flex-1 min-w-0 bg-transparent border-0 outline-none text-xs font-normal text-primary"
+								/>
+							</span>
+						{:else}
+							<button
+								type="button"
+								data-session-button
+								role="option"
+								aria-selected={isSelected}
+								onclick={() => activate(session)}
+								class={twMerge(
+									'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
+									isSelected ? sidebarClasses.selectedText : 'text-secondary'
+								)}
+							>
+								{#if treeDepth === undefined}
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}
 										forkStatus={forkStatusFor(session)}
 									/>
-									<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
-									{#if draft || unread > 0}
-										<span class="shrink-0 inline-flex items-center gap-1">
-											{#if draft}
-												<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-											{/if}
-											{#if unread > 0}
-												<span
-													class="inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-													aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-												>
-													{unread > 9 ? '9+' : unread}
-												</span>
-											{/if}
-										</span>
-									{/if}
-								</button>
-								<div
-									class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity pr-0.5"
-								>
-									<DropdownV2
-										fixedHeight={false}
-										placement="bottom-end"
-										items={[
-											{
-												displayName: 'Rename',
-												icon: Pencil,
-												action: () => startRename(session)
-											},
-											...(session.archived
-												? // No Unarchive when the workspace is gone — it can't persist
-													// (putSession guard) and reconcile would re-archive it.
-													isUnavailableFork(session)
-													? []
-													: [
-															{
-																displayName: 'Unarchive',
-																icon: ArchiveRestore,
-																action: () => setSessionArchived(session.id, false)
-															}
-														]
+								{/if}
+								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
+								{#if draft || unread > 0}
+									<span class="shrink-0 inline-flex items-center gap-1">
+										{#if draft}
+											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
+										{/if}
+										{#if unread > 0}
+											<span
+												class="inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+												aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
+											>
+												{unread > 9 ? '9+' : unread}
+											</span>
+										{/if}
+									</span>
+								{/if}
+							</button>
+							<div
+								class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity pr-0.5"
+							>
+								<DropdownV2
+									fixedHeight={false}
+									placement="bottom-end"
+									items={[
+										{
+											displayName: 'Rename',
+											icon: Pencil,
+											action: () => startRename(session)
+										},
+										...(session.archived
+											? // No Unarchive when the workspace is gone — it can't persist
+												// (putSession guard) and reconcile would re-archive it.
+												isUnavailableFork(session)
+												? []
 												: [
 														{
-															displayName: 'Archive',
-															icon: Archive,
-															action: () => setSessionArchived(session.id, true)
+															displayName: 'Unarchive',
+															icon: ArchiveRestore,
+															action: () => setSessionArchived(session.id, false)
 														}
-													]),
-											{
-												displayName: 'Delete',
-												icon: Trash2,
-												type: 'delete',
-												action: () => (pendingDelete = session)
-											}
-										]}
+													]
+											: [
+													{
+														displayName: 'Archive',
+														icon: Archive,
+														action: () => setSessionArchived(session.id, true)
+													}
+												]),
+										{
+											displayName: 'Delete',
+											icon: Trash2,
+											type: 'delete',
+											action: () => (pendingDelete = session)
+										}
+									]}
+								>
+									{#snippet buttonReplacement()}
+										<span
+											class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+											title="More"
+										>
+											<EllipsisVertical size={14} />
+										</span>
+									{/snippet}
+								</DropdownV2>
+							</div>
+						{/if}
+					</div>
+				{/snippet}
+				{#if workspaceTree}
+					{#each workspaceTreeItems as item, wi (item.workspace.id)}
+						{#if !hiddenWorkspaceIds.has(item.workspace.id)}
+							{@const wsSessions = sessionsByWorkspace.get(item.workspace.id) ?? []}
+							{@const collapsed = isWorkspaceCollapsed(item.workspace.id)}
+							{@const collapsible = item.hasChildren || wsSessions.length > 0}
+							<!-- Workspace = folder. Stroke-colored building/fork glyph; the guide
+							     columns render the workspace tree (fork nesting). A chevron
+							     collapses the workspace (hides its sessions + fork subtree). -->
+							<div
+								class={twMerge(
+									'flex items-stretch w-full rounded',
+									wi > 0 && item.depth === 0 ? 'mt-3' : '',
+									browsedWorkspaceId === item.workspace.id
+										? sidebarClasses.selectedBg
+										: 'hover:bg-surface-hover'
+								)}
+							>
+								{#each Array(item.depth) as _}{@render vline()}{/each}
+								<button
+									type="button"
+									onclick={() => onBrowseWorkspace?.(item.workspace.id)}
+									title={item.workspace.name}
+									class="flex items-center gap-1.5 py-1 pl-1 pr-2 min-w-0 flex-1 text-left"
+								>
+									{#if item.isForked}
+										<GitFork size={14} class="shrink-0" style="color: {item.workspace.color}" />
+									{:else}
+										<Building size={14} class="shrink-0" style="color: {item.workspace.color}" />
+									{/if}
+									<span
+										class={twMerge(
+											'text-xs truncate font-normal',
+											browsedWorkspaceId === item.workspace.id
+												? 'text-emphasis font-medium'
+												: 'text-primary'
+										)}>{item.workspace.name}</span
 									>
-										{#snippet buttonReplacement()}
-											<span
-												class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-												title="More"
-											>
-												<EllipsisVertical size={14} />
-											</span>
-										{/snippet}
-									</DropdownV2>
-								</div>
+								</button>
+								{#if collapsible}
+									<button
+										type="button"
+										onclick={() => toggleWorkspaceCollapsed(item.workspace.id)}
+										title={collapsed ? 'Expand' : 'Collapse'}
+										aria-label={collapsed ? 'Expand workspace' : 'Collapse workspace'}
+										class="shrink-0 flex items-center justify-center w-6 text-tertiary hover:text-primary"
+									>
+										{#if collapsed}
+											<ChevronRight size={12} />
+										{:else}
+											<ChevronDown size={12} />
+										{/if}
+									</button>
+								{/if}
+							</div>
+							{#if !collapsed}
+								{#each wsSessions as session (session.id)}
+									{@render sessionRow(session, true, item.depth + 1)}
+								{/each}
 							{/if}
-						</div>
+						{/if}
 					{/each}
-				{/each}
+				{:else}
+					{#each sessionGroups as group, groupIdx (group.rootId)}
+						{#if showGroupHeaders}
+							{@const groupWs = $userWorkspaces.find((w) => w.id === group.rootId)}
+							<div
+								class={twMerge(
+									'flex items-center gap-2 px-2 pt-2 pb-1 min-w-0',
+									// Space families apart so group boundaries read clearly.
+									groupIdx > 0 ? 'mt-4' : ''
+								)}
+								title={group.name}
+							>
+								<WorkspaceIcon workspaceColor={groupWs?.color} size={12} />
+								<span class="text-xs font-medium text-secondary truncate">{group.name}</span>
+							</div>
+						{/if}
+						{#each group.sessions as session (session.id)}
+							{@render sessionRow(session, showGroupHeaders, undefined)}
+						{/each}
+					{/each}
+				{/if}
 			</div>
 		{/if}
 	</div>
