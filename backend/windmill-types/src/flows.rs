@@ -1315,17 +1315,17 @@ mod tests {
     #[test]
     fn flow_rejects_absolute_path_in_failure_and_preprocessor_modules() {
         for slot in ["failure_module", "preprocessor_module"] {
-            let bad = json!({
-                "path": "f/test/flow",
-                "summary": "",
-                "value": {
-                    "modules": [],
-                    slot: {
-                        "id": slot,
-                        "value": {"type": "script", "path": "/abs/path", "input_transforms": {}}
-                    }
-                }
-            });
+            // Build the value with the slot as an explicit (interpolated) key.
+            let mut value = serde_json::Map::new();
+            value.insert("modules".to_string(), json!([]));
+            value.insert(
+                slot.to_string(),
+                json!({
+                    "id": slot,
+                    "value": {"type": "script", "path": "/abs/path", "input_transforms": {}}
+                }),
+            );
+            let bad = json!({ "path": "f/test/flow", "summary": "", "value": value });
             let err = serde_json::from_value::<NewFlow>(bad)
                 .unwrap_err()
                 .to_string();
