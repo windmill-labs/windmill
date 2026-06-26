@@ -33,6 +33,11 @@ export interface AssetGraphRunnableNode {
 	// asset. Surfaced as a count badge (with a per-test breakdown in the title)
 	// so test coverage is visible on the node without opening the pane.
 	data_tests?: DataTest[]
+	// Managed `// materialize` write strategy. Absent for non-materializing or
+	// `manual` scripts. Used (with `partition_kind`) to decide whether a
+	// produced asset's schema can evolve: only whole-table `replace` can, since
+	// `append`/`merge`/partitioned writes INSERT into a fixed-schema table.
+	materialize_strategy?: 'replace' | 'append' | 'merge'
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.

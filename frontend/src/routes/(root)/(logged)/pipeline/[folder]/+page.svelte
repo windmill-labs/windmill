@@ -1958,6 +1958,22 @@
 			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
 	})
 
+	// Whether the selected ducklake asset's captured schema can *evolve* (drives
+	// the asset panel's Schema tab: version history vs. a single fixed schema).
+	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
+	// columns run-to-run; `append`/`merge`/partitioned writes INSERT into a
+	// fixed-schema table, so their schema is pinned at first materialize. Unknown
+	// (no producer node, e.g. a draft) defaults to evolvable so we never hide
+	// real history.
+	let schemaCanEvolve = $derived.by(() => {
+		const sel = selection
+		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return true
+		const producerPaths = new Set(selectionProducers.map((p) => p.path))
+		const producers = graphWithDraft.runnables.filter((r) => producerPaths.has(r.path))
+		if (producers.length === 0) return true
+		return producers.some((r) => r.materialize_strategy === 'replace' && !r.partition_kind)
+	})
+
 	// Downstream subscriber count for the currently-edited script. Drives
 	// the Test button's cascade UX: when > 0, ScriptEditor renders a split
 	// button exposing "just this step" (default, with `_wmill_skip_asset_dispatch`)
@@ -2531,6 +2547,7 @@
 								onRunByPath={runByPathLegit}
 								selection={activeDraft ? undefined : selection}
 								selectionProducers={activeDraft ? [] : selectionProducers}
+								{schemaCanEvolve}
 								{runsRefreshKey}
 								{runsPendingJobId}
 								{activeRunnable}

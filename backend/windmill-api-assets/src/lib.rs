@@ -519,6 +519,13 @@ struct GraphRunnableNode {
     retry: Option<windmill_common::assets::RetrySpec>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     data_tests: Vec<windmill_common::assets::DataTest>,
+    // Managed `// materialize` write strategy (`replace` | `append` | `merge`),
+    // absent for non-materializing or `manual` scripts. Surfaced so the asset
+    // panel can tell whether the captured schema can evolve: only whole-table
+    // `replace` (CREATE OR REPLACE) can change columns run-to-run; `append` /
+    // `merge` / any partitioned write INSERTs into a fixed-schema table.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_strategy: Option<String>,
 }
 
 // The partition's kind word for the node badge (the full PartitionSpec carries
@@ -923,6 +930,17 @@ async fn asset_graph(
                 tag: ann.and_then(|a| a.tag.clone()),
                 retry: ann.and_then(|a| a.retry.clone()),
                 data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),
+                materialize_strategy: ann.and_then(|a| a.materialize.as_ref()).and_then(|m| {
+                    if m.manual {
+                        None
+                    } else if m.append {
+                        Some("append".to_string())
+                    } else if m.unique_key.is_some() {
+                        Some("merge".to_string())
+                    } else {
+                        Some("replace".to_string())
+                    }
+                }),
                 path,
                 usage_kind,
             }

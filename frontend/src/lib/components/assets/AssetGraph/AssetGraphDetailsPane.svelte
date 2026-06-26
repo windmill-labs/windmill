@@ -114,6 +114,10 @@
 			path: string
 			unsaved?: boolean
 		}>
+		// Whether the selected ducklake asset's schema can evolve (whole-table
+		// `replace` producer). Forwarded to the Schema tab: version history when
+		// true, a single fixed-schema view when false. Defaults to true (unknown).
+		schemaCanEvolve?: boolean
 		// Bumped by the parent after dispatching a run so the runs panel
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
@@ -214,6 +218,7 @@
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
+		schemaCanEvolve = true,
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
@@ -994,7 +999,7 @@
 								<!-- Key on path so switching ducklake assets resets the panel's
 								     selected snapshot / tab instead of carrying state across. -->
 								{#key selection.path}
-									<DucklakeAssetPanel path={selection.path} {workspace} />
+									<DucklakeAssetPanel path={selection.path} {workspace} {schemaCanEvolve} />
 								{/key}
 							{:else}
 								<div class="p-3 text-xs text-secondary">

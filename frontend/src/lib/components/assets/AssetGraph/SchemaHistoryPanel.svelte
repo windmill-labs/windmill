@@ -1,22 +1,30 @@
 <script lang="ts">
-	// Captured output-schema history of a managed `// materialize` ducklake asset
-	// (parity gap #2a). Master-detail: the version list on the left (newest first,
-	// newest auto-selected) selects the column set shown on the right. A new
-	// version is recorded only when the producer's columns actually change, so the
-	// list is the asset's schema-evolution timeline. Read-only — schema is
-	// captured automatically after each materialize.
+	// Captured output schema of a managed `// materialize` ducklake asset (parity
+	// gap #2a). Read-only — schema is captured automatically after each
+	// materialize.
+	//
+	// Two shapes, driven by `canEvolve`:
+	// - Whole-table `replace` producer → the schema can change run-to-run, so this
+	//   is a master-detail evolution history: version list (newest first, newest
+	//   auto-selected) on the left, the selected version's columns on the right.
+	// - `append` / `merge` / partitioned producer → the write INSERTs into a
+	//   fixed-schema table, so the schema is pinned at first materialize; there's
+	//   only ever one version, shown as a single current-schema table.
 	import { resource } from 'runed'
 	import { OpenAPI } from '$lib/gen'
 	import { Button } from '$lib/components/common'
-	import { Loader2, RefreshCw } from 'lucide-svelte'
+	import { Loader2, RefreshCw, Lock } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	interface Props {
 		// The materialized ducklake asset path (`<ducklake>/<table>`).
 		path: string
 		workspace: string
+		// Whether the producer's strategy lets the schema evolve (whole-table
+		// `replace`). False → single fixed-schema view. Defaults to true.
+		canEvolve?: boolean
 	}
-	let { path, workspace }: Props = $props()
+	let { path, workspace, canEvolve = true }: Props = $props()
 
 	type SchemaColumn = { name: string; type: string }
 	type AssetSchemaVersion = {
@@ -54,6 +62,25 @@
 	)
 </script>
 
+{#snippet columnsTable(cols: SchemaColumn[])}
+	<table class="w-full text-xs">
+		<thead class="text-tertiary text-left">
+			<tr>
+				<th class="font-medium pb-1 pr-2">Column</th>
+				<th class="font-medium pb-1">Type</th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each cols as col (col.name)}
+				<tr class="border-t">
+					<td class="py-1 pr-2 font-mono">{col.name}</td>
+					<td class="py-1 font-mono text-tertiary">{col.type}</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+{/snippet}
+
 <div class="flex flex-col h-full">
 	<div class="flex items-center justify-between gap-2 px-3 py-2 border-b shrink-0">
 		<span class="text-xs font-semibold text-secondary">Captured schema</span>
@@ -80,6 +107,23 @@
 					class="font-mono">// materialize</span
 				> run.
 			</p>
+		{:else if !canEvolve}
+			<!-- Fixed-schema producer (append / merge / partitioned): one schema,
+			     no evolution. Show the current columns + why it can't change. -->
+			<div class="h-full overflow-auto p-3">
+				<div
+					class="flex items-start gap-2 text-3xs text-tertiary mb-3 p-2 rounded bg-surface-secondary"
+				>
+					<Lock size={12} class="mt-0.5 shrink-0" />
+					<span
+						>This asset's schema is fixed — an append / merge / partitioned materialize INSERTs into
+						a fixed-schema table, so the columns can't change run-to-run.</span
+					>
+				</div>
+				{#if selected}
+					{@render columnsTable(selected.columns)}
+				{/if}
+			</div>
 		{:else}
 			<div class="h-full" bind:clientWidth={paneWidth}>
 				<Splitpanes class="!h-full">
@@ -116,22 +160,7 @@
 					<Pane size={100 - listSize} minSize={30}>
 						<div class="h-full overflow-auto p-3">
 							{#if selected}
-								<table class="w-full text-xs">
-									<thead class="text-tertiary text-left">
-										<tr>
-											<th class="font-medium pb-1 pr-2">Column</th>
-											<th class="font-medium pb-1">Type</th>
-										</tr>
-									</thead>
-									<tbody>
-										{#each selected.columns as col (col.name)}
-											<tr class="border-t">
-												<td class="py-1 pr-2 font-mono">{col.name}</td>
-												<td class="py-1 font-mono text-tertiary">{col.type}</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
+								{@render columnsTable(selected.columns)}
 							{/if}
 						</div>
 					</Pane>

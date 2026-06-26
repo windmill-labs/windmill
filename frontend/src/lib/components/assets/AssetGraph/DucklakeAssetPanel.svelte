@@ -25,8 +25,11 @@
 		// The materialized ducklake asset path (`<ducklake>/<table>`).
 		path: string
 		workspace: string
+		// Whether this asset's schema can evolve (whole-table `replace` producer);
+		// drives the Schema tab between version history and a single fixed schema.
+		schemaCanEvolve?: boolean
 	}
-	let { path, workspace }: Props = $props()
+	let { path, workspace, schemaCanEvolve = true }: Props = $props()
 
 	let tab = $state<'partitions' | 'history' | 'schema'>('partitions')
 	// The user's explicit snapshot pick (undefined until they click a row).
@@ -89,7 +92,7 @@
 			{#if tab === 'partitions'}
 				<PartitionStatusGrid {path} {workspace} />
 			{:else if tab === 'schema'}
-				<SchemaHistoryPanel {path} {workspace} />
+				<SchemaHistoryPanel {path} {workspace} canEvolve={schemaCanEvolve} />
 			{:else}
 				<div class="h-full" bind:clientWidth={paneWidth}>
 					<Splitpanes class="!h-full">
