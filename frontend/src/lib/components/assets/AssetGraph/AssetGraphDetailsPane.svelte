@@ -77,7 +77,11 @@
 		// edges + synthesize asset nodes for drafts whose body has been
 		// edited past the seeded template. Fires on every keystroke that
 		// changes the inferred set.
-		onAssetsChange?: (scriptPath: string | undefined, assets: AssetWithAltAccessType[]) => void
+		onAssetsChange?: (
+			scriptPath: string | undefined,
+			assets: AssetWithAltAccessType[],
+			columnLineage?: ColumnLineage[]
+		) => void
 		// Emits the live editor buffer on every keystroke so the parent can
 		// autosave the in-flight content WITHOUT waiting for the pane teardown
 		// (`onDraftPersist`). `onDraftPersist` stays the authoritative commit on
@@ -365,6 +369,10 @@
 	// edges as the user edits the body (e.g. renaming a CREATE TABLE
 	// target updates the output asset node in real time).
 	let liveBodyAssets = $state<AssetWithAltAccessType[] | undefined>(undefined)
+	// Body-inferred column lineage (DuckDB SQL AST), bound out of ScriptEditor
+	// alongside `liveBodyAssets` and forwarded so the live graph can show
+	// inferred column lineage on the edited script before it deploys.
+	let liveColumnLineage = $state<ColumnLineage[] | undefined>(undefined)
 
 	// Bumped when the runs panel reports a watched job has reached a
 	// terminal state. Drives S3FilePreview's refreshKey so the preview
@@ -560,7 +568,7 @@
 	})
 	$effect(() => {
 		if (readOnly) return
-		onAssetsChange?.(script?.path, liveBodyAssets ?? [])
+		onAssetsChange?.(script?.path, liveBodyAssets ?? [], liveColumnLineage)
 	})
 	$effect(() => {
 		if (readOnly) return
@@ -1127,6 +1135,7 @@
 					bind:code={script.content}
 					bind:schema={script.schema}
 					bind:assets={liveBodyAssets}
+					bind:inferredColumnLineage={liveColumnLineage}
 					{onTestStateChange}
 					{args}
 				/>

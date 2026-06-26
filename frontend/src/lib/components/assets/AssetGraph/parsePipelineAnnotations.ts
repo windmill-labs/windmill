@@ -131,6 +131,26 @@ export type ColumnLineage = {
 	inputs: ColumnRef[]
 }
 
+// Combine body-inferred column lineage with `// column` annotations, the
+// annotation winning per output column. Mirrors the Rust `merge_column_lineage`
+// (`asset_parser.rs`) so the live-draft preview matches what deploys: the
+// backend already merges inferred + annotated server-side, and the live graph
+// must apply the same precedence to the WASM-inferred lineage.
+export function mergeColumnLineage(
+	inferred: ColumnLineage[],
+	annotated: ColumnLineage[]
+): ColumnLineage[] {
+	const seen = new Set(annotated.map((c) => c.column))
+	const out = [...annotated]
+	for (const c of inferred) {
+		if (!seen.has(c.column)) {
+			seen.add(c.column)
+			out.push(c)
+		}
+	}
+	return out
+}
+
 export type PipelineAnnotations = {
 	inPipeline: boolean
 	triggerAssets: PipelineTriggerAsset[]

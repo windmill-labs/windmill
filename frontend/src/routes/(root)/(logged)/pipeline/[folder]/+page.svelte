@@ -33,6 +33,7 @@
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
 	import {
 		parsePipelineAnnotations,
+		type ColumnLineage,
 		type PipelineAnnotations
 	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
@@ -486,6 +487,7 @@
 	let liveBodyAssets = $state<{
 		scriptPath: string | undefined
 		assets: AssetWithAltAccessType[]
+		columnLineage?: ColumnLineage[]
 	}>({ scriptPath: undefined, assets: [] })
 
 	// The open draft's live editor buffer, emitted by the pane on every
@@ -1197,14 +1199,18 @@
 	) {
 		liveAnnotations = { scriptPath, annotations }
 	}
-	function handleAssetsChange(scriptPath: string | undefined, assets: AssetWithAltAccessType[]) {
+	function handleAssetsChange(
+		scriptPath: string | undefined,
+		assets: AssetWithAltAccessType[],
+		columnLineage?: ColumnLineage[]
+	) {
 		// Single update site for the live overlay. `inferredWritesByPath`
 		// / `inferredReadsByPath` are now derived from `liveBodyAssets`
 		// (for the open script) + `inferredAssetsByPath` (prefetched
 		// snapshot for every other script), so we don't have to write
 		// into those caches here — the derive picks up our update on the
 		// next reactive tick.
-		liveBodyAssets = { scriptPath, assets }
+		liveBodyAssets = { scriptPath, assets, columnLineage }
 	}
 	function handleContentChange(scriptPath: string | undefined, content: string) {
 		liveContent = { scriptPath, content }
