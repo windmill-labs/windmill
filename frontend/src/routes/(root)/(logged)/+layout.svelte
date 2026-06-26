@@ -123,15 +123,26 @@
 		}
 
 		// When this window is an iframe (e.g. the sessions preview), keep the menu
-		// hidden once `nomenubar` has been requested: client-side navigations inside
-		// the preview drop the query param, and we don't want the global nav to pop
-		// back in. The top window is unaffected, so the oauth-callback case still
-		// toggles normally.
+		// hidden once `nomenubar` has been requested: navigating inside the preview
+		// drops the query param (both client-side routing and full-document loads),
+		// and we don't want the global nav to pop back in. Stickiness is stored in
+		// sessionStorage so it survives full reloads within the iframe's browsing
+		// context. The top window is unaffected (embedded is false there), so the
+		// oauth-callback case and ordinary navigation still toggle normally.
 		const embedded = typeof window !== 'undefined' && window.self !== window.top
-		menuHidden =
-			page.url.searchParams.get('nomenubar') === 'true' ||
-			page.url.pathname.startsWith('/oauth/callback/') ||
-			(embedded && menuHidden)
+		const requested = page.url.searchParams.get('nomenubar') === 'true'
+		if (embedded && requested) {
+			try {
+				sessionStorage.setItem('nomenubar_embedded', 'true')
+			} catch {}
+		}
+		let stickyEmbedded = false
+		if (embedded) {
+			try {
+				stickyEmbedded = sessionStorage.getItem('nomenubar_embedded') === 'true'
+			} catch {}
+		}
+		menuHidden = requested || page.url.pathname.startsWith('/oauth/callback/') || stickyEmbedded
 	}
 
 	async function updateUserStore(workspace: string | undefined) {
