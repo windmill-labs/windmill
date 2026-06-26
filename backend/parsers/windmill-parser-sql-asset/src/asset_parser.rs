@@ -316,11 +316,47 @@ impl AssetCollector {
         }
     }
 
+    // The alias-map entry (key → asset) for one FROM/JOIN table factor, or
+    // `None` if it isn't an asset-backed table. The key is its alias, else the
+    // bare table name; S3 table-functions and string-literal tables are only
+    // keyed when aliased (an unaliased one is ambiguous). Returns the asset with
+    // a single matched relation so the caller can attribute qualified columns.
+    fn table_alias_entry(&self, relation: &TableFactor) -> Option<(String, ParseAssetsResult)> {
+        let TableFactor::Table { name, alias, args, .. } = relation else {
+            return None;
+        };
+        let has_args = args.as_ref().map_or(false, |a| !a.args.is_empty());
+        if has_args {
+            let alias = alias.as_ref()?;
+            let asset = self.get_s3_asset_from_table_function(relation)?;
+            return Some((alias.name.value.clone(), asset));
+        }
+        let asset = self
+            .get_associated_asset_from_obj_name(name, Some(R))
+            .or_else(|| self.get_s3_asset_from_str_literal_table(relation))?;
+        if get_str_lit_from_obj_name(name).is_some() {
+            // String-literal S3 table: only unambiguous when aliased.
+            let alias = alias.as_ref()?;
+            return Some((alias.name.value.clone(), asset));
+        }
+        let key = match alias {
+            Some(a) => a.name.value.clone(),
+            None => name
+                .0
+                .last()
+                .and_then(|id| id.as_ident())
+                .map(|id| id.value.clone())
+                .unwrap_or_default(),
+        };
+        Some((key, asset))
+    }
+
     // Resolve a query's FROM clause into (single-table asset, alias→asset map).
-    // `single_table` is `Some` only for an unambiguous one-table FROM (so bare
-    // column refs can be attributed); `table_to_asset` keys by alias/table name
-    // for qualified refs. Shared by `extract_column_assets` (read columns) and
-    // `infer_column_lineage` (output→input edges) so both resolve identically.
+    // `single_table` is `Some` only for an unambiguous one-table FROM with no
+    // joins (so bare column refs can be attributed); `table_to_asset` keys by
+    // alias/table name for qualified refs and includes every JOINed table.
+    // Shared by `extract_column_assets` (read columns) and `infer_column_lineage`
+    // (output→input edges) so both resolve identically.
     fn build_from_maps(
         &self,
         from_tables: &[sqlparser::ast::TableWithJoins],
@@ -328,10 +364,9 @@ impl AssetCollector {
         Option<ParseAssetsResult>,
         BTreeMap<String, ParseAssetsResult>,
     ) {
-        // Check if this is a single-table SELECT (to avoid ambiguity).
-        // For S3 table functions (read_parquet/read_csv/read_json), detect the asset even
-        // though args are present, since we know the file path from the string literal arg.
-        let single_table = if from_tables.len() == 1 {
+        // Single unambiguous table only when there's exactly one FROM entry AND
+        // it has no joins — otherwise a bare column could belong to any side.
+        let single_table = if from_tables.len() == 1 && from_tables[0].joins.is_empty() {
             let relation = &from_tables[0].relation;
             if let TableFactor::Table { name, args, .. } = relation {
                 let has_args = args.as_ref().map_or(false, |a| !a.args.is_empty());
@@ -348,48 +383,16 @@ impl AssetCollector {
             None
         };
 
-        // Build a map of table aliases/names to assets for multi-table queries.
-        // For S3 table functions, only aliased references are unambiguous
-        // (e.g. SELECT t.col1 FROM read_parquet('s3://...') AS t).
+        // Alias → asset for qualified column refs, across every FROM entry AND
+        // its JOINed tables (so `c.col` in `FROM a JOIN c` resolves).
         let mut table_to_asset: BTreeMap<String, ParseAssetsResult> = BTreeMap::new();
         for table_with_joins in from_tables {
-            if let TableFactor::Table { name, alias, args, .. } = &table_with_joins.relation {
-                let has_args = args.as_ref().map_or(false, |a| !a.args.is_empty());
-                if has_args {
-                    // For table functions, only add to the alias map when an alias is present
-                    if let Some(alias) = alias {
-                        if let Some(asset) =
-                            self.get_s3_asset_from_table_function(&table_with_joins.relation)
-                        {
-                            table_to_asset.insert(alias.name.value.clone(), asset);
-                        }
-                    }
-                } else if let Some(asset) = self
-                    .get_associated_asset_from_obj_name(name, Some(R))
-                    .or_else(|| {
-                        self.get_s3_asset_from_str_literal_table(&table_with_joins.relation)
-                    })
-                {
-                    // For string literal S3 tables (e.g. FROM 's3:///file.parquet'), only add to
-                    // the alias map when an alias is present (to avoid false positives).
-                    // For regular named tables, use alias or table name as key.
-                    let is_str_literal = get_str_lit_from_obj_name(name).is_some();
-                    if is_str_literal {
-                        if let Some(alias) = alias {
-                            table_to_asset.insert(alias.name.value.clone(), asset);
-                        }
-                    } else {
-                        let table_key = if let Some(alias) = alias {
-                            alias.name.value.clone()
-                        } else {
-                            name.0
-                                .last()
-                                .and_then(|id| id.as_ident())
-                                .map(|id| id.value.clone())
-                                .unwrap_or_default()
-                        };
-                        table_to_asset.insert(table_key, asset);
-                    }
+            if let Some((k, a)) = self.table_alias_entry(&table_with_joins.relation) {
+                table_to_asset.insert(k, a);
+            }
+            for join in &table_with_joins.joins {
+                if let Some((k, a)) = self.table_alias_entry(&join.relation) {
+                    table_to_asset.insert(k, a);
                 }
             }
         }
@@ -2198,6 +2201,57 @@ mod ctas_read_tests {
             CREATE TABLE dl.orders_daily AS SELECT * FROM dl.orders;
         "#;
         assert!(lineage(input).is_empty());
+    }
+
+    #[test]
+    fn test_infer_lineage_resolves_joined_inputs() {
+        // Columns from BOTH sides of an explicit JOIN must resolve, incl. a
+        // computed column mixing the two. A bare column is dropped (ambiguous
+        // across the join) rather than misattributed to the first table.
+        let input = r#"
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TABLE dl.orders_daily AS
+            SELECT o.id, c.region AS cust_region, o.amount + c.discount AS net
+            FROM dl.orders o
+            JOIN dl.customers c ON c.id = o.customer_id;
+        "#;
+        let got = lineage(input);
+        assert_eq!(
+            got,
+            vec![
+                ColumnLineage {
+                    column: "id".to_string(),
+                    inputs: vec![ColumnRef {
+                        from_kind: AssetKind::Ducklake,
+                        from_path: "warehouse/orders".to_string(),
+                        from_column: "id".to_string(),
+                    }],
+                },
+                ColumnLineage {
+                    column: "cust_region".to_string(),
+                    inputs: vec![ColumnRef {
+                        from_kind: AssetKind::Ducklake,
+                        from_path: "warehouse/customers".to_string(),
+                        from_column: "region".to_string(),
+                    }],
+                },
+                ColumnLineage {
+                    column: "net".to_string(),
+                    inputs: vec![
+                        ColumnRef {
+                            from_kind: AssetKind::Ducklake,
+                            from_path: "warehouse/orders".to_string(),
+                            from_column: "amount".to_string(),
+                        },
+                        ColumnRef {
+                            from_kind: AssetKind::Ducklake,
+                            from_path: "warehouse/customers".to_string(),
+                            from_column: "discount".to_string(),
+                        },
+                    ],
+                },
+            ]
+        );
     }
 
     #[test]

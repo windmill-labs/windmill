@@ -240,6 +240,11 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		const inferredCL =
 			path === liveBodyAssets.scriptPath ? (liveBodyAssets.columnLineage ?? []) : []
 		const mergedCL = mergeColumnLineage(inferredCL, parsed.columnLineage)
+		// The `// materialize` target this draft's column lineage describes, so
+		// the column graph anchors to it rather than guessing a write-edge.
+		const materializeTarget = parsed.materialize
+			? { kind: parsed.materialize.targetKind, path: parsed.materialize.targetPath }
+			: undefined
 		// A draft can coexist with a base entry — during save the refetch
 		// lands before drafts cleanup, and a user re-editing a deployed
 		// script also produces both. In that case we mutate the existing
@@ -259,6 +264,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				retry: parsed.retry,
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
 				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
+				materialize_target: materializeTarget,
 				unsaved: true
 			})
 		} else {
@@ -270,6 +276,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				...runnables[baseIdx],
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
 				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
+				materialize_target: materializeTarget,
 				unsaved: true
 			}
 		}

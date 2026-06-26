@@ -469,6 +469,20 @@ struct GraphRunnableNode {
     // only live drafts). Lockstep with TS `AssetGraphRunnableNode.column_lineage`.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     column_lineage: Vec<windmill_common::assets::ColumnLineage>,
+    // `// materialize <asset>` target — the asset this script's `column_lineage`
+    // describes. Lets the column-graph anchor lineage to the exact output asset
+    // instead of guessing a ducklake write-edge (a multi-output script writes
+    // several). Absent for scripts with no `// materialize` annotation.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_target: Option<MaterializeTargetNode>,
+}
+
+// The output asset a producer's column lineage belongs to (the `// materialize`
+// target). Kept minimal — the column graph only needs (kind, path) to anchor.
+#[derive(Serialize, Debug)]
+struct MaterializeTargetNode {
+    kind: windmill_common::assets::AssetKind,
+    path: String,
 }
 
 // The partition's kind word for the node badge (the full PartitionSpec carries
@@ -909,6 +923,12 @@ async fn asset_graph(
                     .flatten()
                     .cloned()
                     .unwrap_or_default(),
+                materialize_target: ann.and_then(|a| a.materialize.as_ref()).map(|m| {
+                    MaterializeTargetNode {
+                        kind: windmill_common::assets::asset_kind_from_parser(m.target_kind),
+                        path: m.target_path.clone(),
+                    }
+                }),
                 path,
                 usage_kind,
             }

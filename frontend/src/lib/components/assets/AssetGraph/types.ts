@@ -37,6 +37,10 @@ export interface AssetGraphRunnableNode {
 	// script's materialized output. Surfaced as a count badge on the write-edge
 	// and as a column-to-column diagram in the asset details pane.
 	column_lineage?: ColumnLineage[]
+	// `// materialize <asset>` target — the asset `column_lineage` describes.
+	// Lets the column graph anchor lineage to the exact output instead of
+	// guessing a ducklake write-edge (a multi-output script writes several).
+	materialize_target?: { kind: AssetKind; path: string }
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.

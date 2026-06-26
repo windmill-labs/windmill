@@ -78,10 +78,13 @@ describe('buildColumnGraph', () => {
 		expect(g.down.get(STAGING_AMT)).toEqual(new Set([DAILY_TOTAL]))
 	})
 
-	it('anchors deterministically to the first ducklake write when a producer has several', () => {
+	it('anchors to the // materialize target, not a guessed write-edge', () => {
 		const graph = chainGraph()
-		// s1 gains a second ducklake write-edge (after its real output).
-		graph.edges.push({
+		// s1 declares its materialize target and also has unordered extra
+		// ducklake writes; the lineage must anchor to the declared target.
+		const s1 = graph.runnables.find((r) => r.path === 's1')!
+		s1.materialize_target = { kind: 'ducklake', path: 'wh/staging' }
+		graph.edges.unshift({
 			runnable_path: 's1',
 			runnable_kind: 'script',
 			asset_kind: 'ducklake',
@@ -89,9 +92,15 @@ describe('buildColumnGraph', () => {
 			access_type: 'w'
 		})
 		const g = buildColumnGraph(graph)
-		// `amt` stays on the first output (wh/staging), not the later wh/other.
-		expect(g.nodes.has(STAGING_AMT)).toBe(true)
+		expect(g.nodes.has(STAGING_AMT)).toBe(true) // anchored to the declared target
 		expect(g.nodes.has(colNodeId('ducklake', 'wh/other', 'amt'))).toBe(false)
+	})
+
+	it('falls back to a ducklake write-edge when there is no materialize target', () => {
+		// chainGraph's runnables carry no materialize_target, so s1's lineage is
+		// anchored via its (single) ducklake write-edge.
+		const g = buildColumnGraph(chainGraph())
+		expect(g.nodes.has(STAGING_AMT)).toBe(true)
 	})
 
 	it('node ids are collision-proof across `#` / `:` in paths and columns', () => {

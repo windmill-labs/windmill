@@ -44,11 +44,18 @@ export function buildColumnGraph(graph: AssetGraphResponse): ColumnLineageGraph 
 		;(down.get(src) ?? down.set(src, new Set()).get(src)!).add(out)
 	}
 
-	// Each runnable's materialized output asset (ducklake write target). A
-	// producer's `column_lineage` describes its single materialize target (v1);
-	// if it somehow has multiple ducklake writes we keep the FIRST in edge order
-	// deterministically rather than letting a later edge silently overwrite it.
+	// The output asset a runnable's `column_lineage` describes. The declared
+	// `// materialize` target is authoritative (a multi-output script writes
+	// several ducklake tables, and the deployed write-edges are unordered, so
+	// picking "a" write-edge can anchor to the wrong asset). Fall back to a
+	// ducklake write-edge only for producers with no materialize annotation
+	// (e.g. a literal single-output CTAS).
 	const outputAsset = new Map<string, { kind: AssetKind; path: string }>()
+	for (const r of graph.runnables ?? []) {
+		if (r.materialize_target) {
+			outputAsset.set(`${r.usage_kind}:${r.path}`, r.materialize_target)
+		}
+	}
 	for (const e of graph.edges ?? []) {
 		const access = e.access_type ?? 'r'
 		const key = `${e.runnable_kind}:${e.runnable_path}`
