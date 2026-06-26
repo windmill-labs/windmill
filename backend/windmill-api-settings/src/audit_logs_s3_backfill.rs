@@ -21,6 +21,9 @@
 //! duplicating. A window that overlaps already-exported steady-state rows simply
 //! re-emits them under a different key; consumers dedupe by `id`.
 //!
+//! Scope: like the steady-state export, this reads only `audit_partitioned`. The
+//! pre-partitioning `audit` table is intentionally not exported or backfilled.
+//!
 //! Progress is persisted in `background_task_state` (name [`TASK_NAME`]) so any
 //! API replica can serve the status endpoint, mirroring `log_cleanup`.
 
