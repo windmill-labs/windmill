@@ -2,9 +2,14 @@
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 	import { getKnownModelContextWindow } from '../modelConfig'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { AIMode } from './AIChatManager.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	const aiChatManager = getAiChatManager()
+
+	// The `/compact` slash command is only wired up in session-chat GLOBAL mode,
+	// so only advertise it where it actually works.
+	let canCompact = $derived(aiChatManager.isSessionChat && aiChatManager.mode === AIMode.GLOBAL)
 
 	let providerModel = $derived(
 		$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
@@ -74,6 +79,11 @@
 				</p>
 				{#if ratio !== undefined && ratio >= COMPACTION_TRIGGER_RATIO}
 					<p class="mt-1 text-tertiary">History will be compacted soon to free up space.</p>
+				{/if}
+				{#if canCompact}
+					<p class="mt-1 text-tertiary">
+						Type <span class="font-mono">/compact</span> to summarize and free up space now.
+					</p>
 				{/if}
 			</div>
 		{/snippet}
