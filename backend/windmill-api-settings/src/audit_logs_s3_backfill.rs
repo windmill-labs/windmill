@@ -15,8 +15,10 @@
 //! It does not touch the xmin cursor / checkpoint at all.
 //!
 //! Objects are written next to the steady-state ones under `logs/audit/dt=<day>/`
-//! as `audit_backfill_<min_id>.ndjson`, with the exact same row shape, so a
-//! consumer reads them uniformly. Re-running the same window is deterministic
+//! as `audit_backfill_<window>_<min_id>.ndjson`, with the exact same row shape, so
+//! a consumer reads them uniformly. The key includes the requested window so two
+//! different backfill ranges never overwrite each other (a per-page `min_id` alone
+//! is not unique across windows). Re-running the *same* window is deterministic
 //! (audit history is append-only), so it overwrites the same objects rather than
 //! duplicating. A window that overlaps already-exported steady-state rows simply
 //! re-emits them under a different key; consumers dedupe by `id`.
@@ -173,15 +175,20 @@ pub async fn try_start(db: &DB, from: DateTime<Utc>, to: DateTime<Utc>) -> error
         ));
     }
     // The backfill keyset-pages by `(timestamp, id)` over rows visible at scan time and
-    // declares completion once the scan runs dry. But a row's `timestamp` is its
-    // inserting transaction's `xact_start`, so a transaction that started inside
+    // declares the window fully exported once the scan runs dry. But a row's `timestamp`
+    // is its inserting transaction's `xact_start`, so a transaction that started inside
     // `[from, to)` yet commits after the scan has passed that timestamp — or any row
-    // committed when `to` is in the future — would be silently omitted from a
-    // "completed" backfill. Require `to` to be at or before the oldest in-flight
-    // `xact_start`: everything strictly older than the oldest running transaction is
-    // already committed and stable. Same trustworthy gating as the exporter's floor
-    // (a restricted stats role or a prepared 2PC txn makes the value unsafe); fall back
-    // to a 7-day-old cutoff then.
+    // committed when `to` is in the future — would be silently omitted. Require `to` to
+    // be at or before the oldest in-flight `xact_start`: everything strictly older than
+    // the oldest running transaction is already committed and stable.
+    //
+    // That bound is only sound when we can see every xmin-holding transaction. A role
+    // without pg_read_all_stats/superuser sees only its own sessions, and a prepared
+    // (2PC) transaction is invisible to pg_stat_activity — in either case an old
+    // transaction could still commit rows inside an accepted window after our scan ends.
+    // Since a backfill asserts completeness, we REJECT in those cases rather than fall
+    // back to a best-effort margin (NULL below). (The continuous exporter, which only
+    // claims bounded lag, keeps the 7-day fallback instead.)
     let settled_cutoff: Option<DateTime<Utc>> = sqlx::query_scalar!(
         r#"SELECT CASE WHEN (current_setting('is_superuser') = 'on'
                               OR pg_has_role(current_user, 'pg_read_all_stats', 'USAGE'))
@@ -191,13 +198,22 @@ pub async fn try_start(db: &DB, from: DateTime<Utc>, to: DateTime<Utc>) -> error
     )
     .fetch_one(db)
     .await?;
-    let settled_cutoff = settled_cutoff.unwrap_or_else(|| Utc::now() - chrono::Duration::days(7));
+    let Some(settled_cutoff) = settled_cutoff else {
+        return Err(error::Error::BadRequest(
+            "audit backfill: cannot determine a trustworthy settled-time boundary, so completeness \
+             can't be guaranteed. The windmill DB role needs pg_read_all_stats (or superuser) and \
+             there must be no prepared (2PC) transactions in progress — otherwise an old or \
+             invisible transaction could later commit audit rows inside the requested window and \
+             the backfill would miss them. Grant the privilege / resolve prepared transactions and \
+             retry."
+                .to_string(),
+        ));
+    };
     if to > settled_cutoff {
         return Err(error::Error::BadRequest(format!(
-            "audit backfill: `to` ({to}) must be at or before {settled_cutoff}, the point up to \
-             which audit rows are guaranteed settled; choose an earlier upper bound. (Granting \
-             pg_read_all_stats to the windmill DB user tightens this cutoff from a 7-day margin to \
-             the live oldest-transaction boundary.)"
+            "audit backfill: `to` ({to}) must be at or before {settled_cutoff}, the newest point \
+             guaranteed settled (the oldest in-flight transaction's start); choose an earlier \
+             upper bound."
         )));
     }
     // The backfill (like the steady-state export) reads only `audit_partitioned`. Audit
@@ -313,6 +329,13 @@ async fn run_backfill(
     let mut cursor_ts = from;
     let mut cursor_id: i64 = -1;
     let page_rows = page_rows();
+    // Namespace object keys by the requested window. The per-page `min_id` alone is not
+    // unique across runs: a narrower, overlapping backfill can start a day's page at the
+    // same first row (same `min_id`) but contain fewer rows, and `put` would overwrite a
+    // broader run's object — silently dropping the rows only that object held. Including
+    // the window makes different ranges write disjoint keys (same window re-runs stay
+    // idempotent); consumers already dedupe overlapping rows by `id`.
+    let window_key = format!("{}_{}", from.timestamp_millis(), to.timestamp_millis());
 
     loop {
         let rows = sqlx::query!(
@@ -358,7 +381,7 @@ async fn run_backfill(
 
         for (day, min_id, ndjson) in &by_day {
             let object_path = ObjectPath::from(format!(
-                "{LOGS_AUDIT}dt={day}/audit_backfill_{min_id}.ndjson"
+                "{LOGS_AUDIT}dt={day}/audit_backfill_{window_key}_{min_id}.ndjson"
             ));
             store
                 .put(&object_path, ndjson.clone().into_bytes().into())
@@ -400,29 +423,29 @@ mod tests {
     use super::*;
     use futures::stream::StreamExt;
     use std::sync::atomic::Ordering;
+    use std::sync::Arc;
     use windmill_object_store::object_store_reexports::{InMemory, ObjectStore, Path as OsPath};
-    use windmill_object_store::{ExpirableObjectStore, OBJECT_STORE_SETTINGS};
 
-    async fn install_in_memory_store() -> std::sync::Arc<InMemory> {
-        let store = std::sync::Arc::new(InMemory::new());
-        let dynstore: std::sync::Arc<dyn ObjectStore> = store.clone();
-        let mut settings = OBJECT_STORE_SETTINGS.write().await;
-        *settings = Some(ExpirableObjectStore::from(dynstore));
-        store
+    /// A private, per-test object store. `run_backfill` takes the store as a parameter,
+    /// so tests use a local one and never touch the process-global `OBJECT_STORE_SETTINGS`
+    /// (which would otherwise race across the parallel test runner).
+    fn local_store() -> (Arc<InMemory>, Arc<dyn ObjectStore>) {
+        let store = Arc::new(InMemory::new());
+        let dynstore: Arc<dyn ObjectStore> = store.clone();
+        (store, dynstore)
     }
 
-    /// Resets the test-only process globals on drop so a failing assertion can't
-    /// leak `PAGE_ROWS_OVERRIDE` or the in-memory object store into other tests
-    /// running in the same process. Best-effort store reset (`try_write`) is enough
-    /// here: it is uncontended at drop time, and the next store-using test installs a
-    /// fresh one regardless.
-    struct ResetGlobals;
-    impl Drop for ResetGlobals {
+    /// Serializes the tests that touch the `PAGE_ROWS_OVERRIDE` process global (read
+    /// inside `run_backfill`) so they can't observe each other's value under the parallel
+    /// runner.
+    static PAGE_OVERRIDE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Resets `PAGE_ROWS_OVERRIDE` on drop so a failing assertion can't leak a non-default
+    /// page size into another test.
+    struct ResetPageOverride;
+    impl Drop for ResetPageOverride {
         fn drop(&mut self) {
             PAGE_ROWS_OVERRIDE.store(0, Ordering::Relaxed);
-            if let Ok(mut s) = OBJECT_STORE_SETTINGS.try_write() {
-                *s = None;
-            }
         }
     }
 
@@ -446,6 +469,31 @@ mod tests {
              RETURNING id"
         ))
         .bind(operation)
+        .fetch_one(db)
+        .await
+        .expect("insert audit row")
+    }
+
+    /// Insert an audit row at an exact timestamp (creating the daily partition if
+    /// needed), for tests that need distinct in-day timestamps.
+    async fn insert_audit_at(db: &DB, operation: &str, ts: DateTime<Utc>) -> i64 {
+        sqlx::query(&format!(
+            "DO $$ DECLARE d date := '{}'; BEGIN \
+             EXECUTE format('CREATE TABLE IF NOT EXISTS %I PARTITION OF audit_partitioned \
+             FOR VALUES FROM (%L) TO (%L)', 'audit_'||to_char(d,'YYYYMMDD'), d, d + 1); END $$;",
+            ts.format("%Y-%m-%d")
+        ))
+        .execute(db)
+        .await
+        .ok();
+        sqlx::query_scalar::<_, i64>(
+            "INSERT INTO audit_partitioned
+                 (workspace_id, username, operation, action_kind, parameters, timestamp)
+             VALUES ('test-ws','tester',$1,'create'::action_kind,'{}'::jsonb,$2)
+             RETURNING id",
+        )
+        .bind(operation)
+        .bind(ts)
         .fetch_one(db)
         .await
         .expect("insert audit row")
@@ -500,11 +548,9 @@ mod tests {
     // than one object, and re-running is idempotent (same keys overwritten, no dupes).
     #[sqlx::test(migrations = "../migrations")]
     async fn backfill_exports_window_in_pages(db: DB) -> anyhow::Result<()> {
-        let _reset = ResetGlobals; // restores globals even if an assertion panics
-        let store = install_in_memory_store().await;
-        let dyn_store = windmill_object_store::get_object_store()
-            .await
-            .expect("store configured");
+        let _serial = PAGE_OVERRIDE_LOCK.lock().await;
+        let _reset = ResetPageOverride; // restores the page override even on panic
+        let (store, dyn_store) = local_store();
         // Force multi-page / page-spanning-day keyset behaviour with a handful of rows.
         PAGE_ROWS_OVERRIDE.store(2, Ordering::Relaxed);
 
@@ -557,6 +603,45 @@ mod tests {
         let (ids2, _) = backfilled(&store).await;
         assert_eq!(ids2, want, "re-run stays exactly once per row: {ids2:?}");
 
+        Ok(())
+    }
+
+    // A narrower backfill overlapping a broader one must not overwrite (and drop rows
+    // from) the broader run's object: the object key includes the window. The two
+    // windows share a day and the same first row (so the same `min_id`), but the
+    // narrower one holds fewer rows.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn backfill_window_in_key_prevents_overwrite(db: DB) -> anyhow::Result<()> {
+        // Hold the lock so no concurrent test's PAGE_ROWS_OVERRIDE is observed; this test
+        // wants the default (large) page size so each day is one object per window.
+        let _serial = PAGE_OVERRIDE_LOCK.lock().await;
+        let (store, dyn_store) = local_store();
+
+        // Four rows on the same day at distinct times.
+        let base = Utc::now() - chrono::Duration::days(5);
+        let r0 = insert_audit_at(&db, "ov.0", base).await;
+        let r1 = insert_audit_at(&db, "ov.1", base + chrono::Duration::seconds(10)).await;
+        let r2 = insert_audit_at(&db, "ov.2", base + chrono::Duration::seconds(20)).await;
+        let r3 = insert_audit_at(&db, "ov.3", base + chrono::Duration::seconds(30)).await;
+
+        // Broad run covers all four (one object for the day, keyed by r0).
+        let a_from = base - chrono::Duration::seconds(1);
+        let a_to = base + chrono::Duration::seconds(31);
+        run_backfill(&session(&db, a_from, a_to), &db, &dyn_store, a_from, a_to).await?;
+
+        // Narrow run starts at the same first row (same min_id) but holds only r0, r1.
+        let b_from = base - chrono::Duration::seconds(1);
+        let b_to = base + chrono::Duration::seconds(15);
+        run_backfill(&session(&db, b_from, b_to), &db, &dyn_store, b_from, b_to).await?;
+
+        let (ids, _) = backfilled(&store).await;
+        for id in [r0, r1, r2, r3] {
+            assert!(
+                ids.contains(&id),
+                "row {id} lost — a narrower overlapping window overwrote the broader run's \
+                 object: {ids:?}"
+            );
+        }
         Ok(())
     }
 
