@@ -7,13 +7,17 @@
 		workspaceStore,
 		type UserWorkspace
 	} from '$lib/stores'
-	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
+	import {
+		findWorkspaceDescendants,
+		findCanonicalDevWorkspace
+	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { Badge } from '$lib/components/common'
 	import { Building, Check, GitFork, Plus } from 'lucide-svelte'
 
 	type PendingFork = { id: string; name: string }
@@ -62,6 +66,19 @@
 	const root = $derived(findRoot(effectiveId, $userWorkspaces))
 	const forks = $derived(root ? findWorkspaceDescendants(root.id, $userWorkspaces) : [])
 
+	// New forks derive from the editable dev workspace when the family has one:
+	// the root (prod) is typically forking-locked, so a non-admin can't fork it,
+	// and dev holds the current code anyway. Falls back to the root otherwise.
+	const devOfRoot = $derived(root ? findCanonicalDevWorkspace(root.id, $userWorkspaces) : undefined)
+	const forkSource = $derived(devOfRoot ?? root)
+	const createForkLabel = $derived(devOfRoot ? `Fork from ${devOfRoot.name}` : 'Create new fork…')
+
+	// A non-admin can't deploy into a locked prod root, so when the family has a
+	// dev workspace, disable picking the root for a session (sessions default to
+	// dev instead). Admins keep it — they can bypass the lock.
+	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+	const rootDisabled = $derived(!isAdmin && !!devOfRoot)
+
 	// Structural gate, same as the sidebar WorkspaceMenu / SessionWorkspaceBar:
 	// when closed (cloud / DisableWorkspaceForking rule / admins workspace) the
 	// fork affordance is hidden entirely.
@@ -108,7 +125,9 @@
 	function activateRow(row: NavRow) {
 		if (row.kind === 'create') {
 			void enterCreateMode()
-		} else if (row.kind === 'root' || row.kind === 'fork') {
+		} else if (row.kind === 'root') {
+			if (!rootDisabled) void pick(row.id)
+		} else if (row.kind === 'fork') {
 			void pick(row.id)
 		}
 	}
@@ -167,7 +186,7 @@
 
 	async function stageNewFork() {
 		const name = newForkName.trim()
-		if (!root || !name || forkNameError || !onCreateFork) return
+		if (!forkSource || !name || forkNameError || !onCreateFork) return
 		const baseId = slugForkBaseId(name)
 		if (!baseId) return
 		const prefixed = `${WM_FORK_PREFIX}${baseId}`
@@ -175,7 +194,7 @@
 		creatingFork = false
 		newForkName = ''
 		dropdownOpen = false
-		await onCreateFork({ parent_workspace_id: root.id, id: prefixed, name })
+		await onCreateFork({ parent_workspace_id: forkSource.id, id: prefixed, name })
 	}
 
 	function isSelected(id: string): boolean {
@@ -291,7 +310,7 @@
 						onclick={() => enterCreateMode()}
 					>
 						<Plus size={14} class="shrink-0 text-tertiary" />
-						<span>Create new fork…</span>
+						<span>{createForkLabel}</span>
 					</button>
 				{/if}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
@@ -303,7 +322,7 @@
 						1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks."
 				>
 					<Plus size={14} class="shrink-0 text-tertiary" />
-					<span>Create new fork…</span>
+					<span>{createForkLabel}</span>
 					<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
 				</div>
 				<div class="my-1 border-t border-border-light shrink-0"></div>
@@ -313,13 +332,17 @@
 				{@const rootIdx = showCreateFork ? 1 : 0}
 				<button
 					type="button"
-					class={`${rowBase} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${keyArrowPos === rootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-					onmouseenter={() => (keyArrowPos = rootIdx)}
-					onclick={() => void pick(root.id)}
+					disabled={rootDisabled}
+					title={rootDisabled ? `${root.name} is locked — run in the dev workspace` : undefined}
+					class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
+					onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
+					onclick={() => !rootDisabled && void pick(root.id)}
 				>
 					<Building size={14} class="shrink-0 text-tertiary" />
 					<span class="truncate">{root.name}</span>
-					<span class="text-2xs text-tertiary shrink-0 ml-auto">root</span>
+					<span class="text-2xs text-tertiary shrink-0 ml-auto"
+						>{rootDisabled ? 'locked' : 'root'}</span
+					>
 				</button>
 			{/if}
 			{#each forks as f, fi (f.id)}
@@ -332,6 +355,9 @@
 				>
 					<GitFork size={14} class="shrink-0 text-tertiary" />
 					<span class="truncate">{f.name}</span>
+					{#if f.is_dev_workspace}
+						<Badge color="indigo" small>dev</Badge>
+					{/if}
 				</button>
 			{/each}
 			{#if pendingFork && !creatingFork}

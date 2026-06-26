@@ -10,6 +10,7 @@ import {
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
+import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { userScopedDb } from '$lib/userScopedDb'
 import type { DBSchema, IDBPDatabase } from 'idb'
@@ -327,12 +328,14 @@ export function createSession(): Session {
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
 	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
-	// Default to the family root rather than wherever the user happens
-	// to be — sessions usually start from "the canonical workspace" and
-	// the picker lets them switch to a fork later.
+	// Start from the family's canonical editable workspace, not wherever the
+	// user happens to be: the dev workspace if the family has one (the prod
+	// root is typically locked, so a session there can't deploy), else the
+	// root. The picker lets them switch later.
 	const currentWs = get(workspaceStore)
 	const root = familyRootId(currentWs ?? undefined, get(userWorkspaces))
-	const pending = root ?? currentWs
+	const dev = root ? findCanonicalDevWorkspace(root, get(userWorkspaces))?.id : undefined
+	const pending = dev ?? root ?? currentWs
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).
