@@ -56,6 +56,16 @@
 		runTestWithStepArgs()
 	}
 
+	// A step's timeout is an InputTransform. Only a static numeric value can be applied
+	// to a single-step preview; dynamic expressions are evaluated server-side and only
+	// take effect when running the full flow.
+	function staticTimeout(timeout: FlowModule['timeout']): number | undefined {
+		if (timeout?.type === 'static' && typeof timeout.value === 'number') {
+			return timeout.value
+		}
+		return undefined
+	}
+
 	export async function runTest(args: any) {
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
@@ -68,6 +78,7 @@
 		}
 
 		const val = mod.value
+		const timeout = staticTimeout(mod.timeout)
 		// let jobId: string | undefined = undefined
 		let callbacks: Callbacks = {
 			done: (x) => {
@@ -86,7 +97,8 @@
 				callbacks,
 				$pathStore,
 				undefined,
-				devTempScriptRefs?.()
+				devTempScriptRefs?.(),
+				timeout
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
@@ -101,7 +113,10 @@
 				script.lock,
 				val.hash ?? script.hash,
 				callbacks,
-				$pathStore
+				$pathStore,
+				undefined,
+				undefined,
+				timeout
 			)
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
