@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.739.0
+  version: 1.740.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -2727,6 +2727,90 @@ paths:
                   - bootstrapping
                   - last_run_exported
                   - updated_at
+  /settings/audit_logs_s3_backfill:
+    post:
+      summary: start an opt-in historical backfill of audit logs to object storage
+      operationId: runAuditLogsS3Backfill
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                  description: inclusive lower bound of the window to export
+                to:
+                  type: string
+                  format: date-time
+                  description: exclusive upper bound of the window to export
+              required:
+                - from
+                - to
+      responses:
+        '202':
+          description: backfill started
+  /settings/audit_logs_s3_backfill_status:
+    get:
+      summary: get status of the audit-log object-store historical backfill
+      operationId: getAuditLogsS3BackfillStatus
+      tags:
+        - setting
+      responses:
+        '200':
+          description: current backfill status (null if never run)
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  phase:
+                    type: string
+                  from:
+                    type: string
+                    format: date-time
+                  to:
+                    type: string
+                    format: date-time
+                  rows_written:
+                    type: integer
+                    format: int64
+                  objects_written:
+                    type: integer
+                    format: int64
+                  last_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  errors:
+                    type: integer
+                    format: int64
+                  last_error:
+                    type: string
+                    nullable: true
+                required:
+                  - running
+                  - started_at
+                  - phase
+                  - from
+                  - to
+                  - rows_written
+                  - objects_written
+                  - errors
   /settings/send_stats:
     post:
       summary: send stats
@@ -18747,6 +18831,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: timeout
+          description: custom timeout in seconds for this preview run
+          in: query
+          schema:
+            type: integer
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -21710,6 +21799,73 @@ paths:
             text/plain:
               schema:
                 type: string
+  /w/{workspace}/jobs_u/get_flow_all_logs_structured/{id}:
+    get:
+      summary: get all logs for a flow job in a structured format
+      operationId: getFlowAllLogsStructured
+      tags:
+        - job
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_4
+        - name: id
+          in: path
+          required: true
+          schema: *ref_178
+      responses:
+        '200':
+          description: structured logs of all flow steps, one entry per job
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    job_id:
+                      type: string
+                    label:
+                      type: string
+                      description: >-
+                        human-readable label describing the job's position in
+                        the flow tree
+                    kind:
+                      type: string
+                      description: job kind (script, flow, forloopflow, ...)
+                    flow_step_id:
+                      type: string
+                      nullable: true
+                    step_path:
+                      type: string
+                      nullable: true
+                      description: materialized step path (e.g. "a/b")
+                    depth:
+                      type: integer
+                      description: depth in the flow tree (0 for the root flow job)
+                    parent_module_type:
+                      type: string
+                      nullable: true
+                      description: parent module type (forloopflow, branchall, ...)
+                    sibling_index:
+                      type: integer
+                      description: >-
+                        1-based index of this job among siblings sharing the
+                        same step
+                    sibling_count:
+                      type: integer
+                      description: total number of siblings sharing the same step
+                    logs:
+                      type: string
+                  required:
+                    - job_id
+                    - label
+                    - kind
+                    - depth
+                    - sibling_index
+                    - sibling_count
+                    - logs
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
       summary: get completed job logs tail

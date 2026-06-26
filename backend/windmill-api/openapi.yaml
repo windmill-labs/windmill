@@ -1812,6 +1812,92 @@ paths:
                   - last_run_exported
                   - updated_at
 
+  /settings/audit_logs_s3_backfill:
+    post:
+      summary: start an opt-in historical backfill of audit logs to object storage
+      operationId: runAuditLogsS3Backfill
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                  description: inclusive lower bound of the window to export
+                to:
+                  type: string
+                  format: date-time
+                  description: exclusive upper bound of the window to export
+              required:
+                - from
+                - to
+      responses:
+        "202":
+          description: backfill started
+
+  /settings/audit_logs_s3_backfill_status:
+    get:
+      summary: get status of the audit-log object-store historical backfill
+      operationId: getAuditLogsS3BackfillStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: current backfill status (null if never run)
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  phase:
+                    type: string
+                  from:
+                    type: string
+                    format: date-time
+                  to:
+                    type: string
+                    format: date-time
+                  rows_written:
+                    type: integer
+                    format: int64
+                  objects_written:
+                    type: integer
+                    format: int64
+                  last_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  errors:
+                    type: integer
+                    format: int64
+                  last_error:
+                    type: string
+                    nullable: true
+                required:
+                  - running
+                  - started_at
+                  - phase
+                  - from
+                  - to
+                  - rows_written
+                  - objects_written
+                  - errors
+
   /settings/send_stats:
     post:
       summary: send stats
