@@ -6125,6 +6125,42 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/workspaces/set_ws_specific:
+    post:
+      summary: mark or unmark an item as workspace-specific
+      operationId: setWsSpecific
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_kind:
+                  type: string
+                  enum:
+                    - resource
+                    - variable
+                path:
+                  type: string
+                value:
+                  type: boolean
+              required:
+                - item_kind
+                - path
+                - value
+      responses:
+        "200":
+          description: workspace-specific flag updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace

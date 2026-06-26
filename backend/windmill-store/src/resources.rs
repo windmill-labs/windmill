@@ -1385,7 +1385,7 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
-async fn mark_linked_variables_ws_specific(
+pub async fn mark_linked_variables_ws_specific(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
     w_id: &str,

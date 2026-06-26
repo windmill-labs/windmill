@@ -97,6 +97,73 @@
 		onChanged
 	}: Props = $props()
 
+	// Workspace-specific ("pinned") resources/variables. They keep their own
+	// value per environment and are suppressed from the diff, so the page fetches
+	// them separately to keep them visible and un-pinnable.
+	type PinnedItem = { item_kind: string; path: string }
+	let pinnedItems = $state<PinnedItem[]>([])
+	let pinBusy = $state<Record<string, boolean>>({})
+
+	// A workspace-specific item missing on one side still shows as a create
+	// (create-if-missing); don't offer to pin it again when it's already pinned.
+	const isPinned = (kind: string, path: string) =>
+		pinnedItems.some((it) => it.item_kind === kind && it.path === path)
+
+	async function loadPinned() {
+		try {
+			const [cur, par] = await Promise.all([
+				WorkspaceService.listWsSpecific({ workspace: currentWorkspaceId }),
+				WorkspaceService.listWsSpecific({ workspace: parentWorkspaceId })
+			])
+			const map = new Map<string, PinnedItem>()
+			for (const it of [...cur, ...par]) map.set(`${it.item_kind}:${it.path}`, it)
+			pinnedItems = [...map.values()].sort((a, b) =>
+				`${a.item_kind}:${a.path}`.localeCompare(`${b.item_kind}:${b.path}`)
+			)
+		} catch (e) {
+			console.error('Failed to load workspace-specific items', e)
+		}
+	}
+
+	$effect(() => {
+		// Re-fetch whenever the compared pair changes.
+		currentWorkspaceId
+		parentWorkspaceId
+		loadPinned()
+	})
+
+	// Flag both environments so each side marks the item workspace-specific, not
+	// only the workspace the compare is viewed from. `value=false` makes it
+	// shared again.
+	async function setPinned(kind: 'resource' | 'variable', path: string, value: boolean) {
+		const k = `${kind}:${path}`
+		pinBusy[k] = true
+		try {
+			const targets = [currentWorkspaceId, parentWorkspaceId]
+			const results = await Promise.allSettled(
+				targets.map((ws) =>
+					WorkspaceService.setWsSpecific({
+						workspace: ws,
+						requestBody: { item_kind: kind, path, value }
+					})
+				)
+			)
+			const verb = value ? 'workspace specific' : 'shared'
+			const failed = results.filter((r) => r.status === 'rejected').length
+			if (failed === targets.length) {
+				sendUserToast(`Failed to update workspace-specific for ${path}`, true)
+			} else if (failed > 0) {
+				sendUserToast(`Made ${path} ${verb} in one environment only (no access to the other)`)
+			} else {
+				sendUserToast(`Made ${path} ${verb}`)
+			}
+			await loadPinned()
+			onChanged?.()
+		} finally {
+			pinBusy[k] = false
+		}
+	}
+
 	// A fork row has a pending draft when its key is in the page-provided set.
 	function hasDraft(diff: WorkspaceItemDiff): boolean {
 		return draftKeys.has(getItemKey(diff))
@@ -1016,6 +1083,27 @@
 								Show diff
 							</Button>
 						</div>
+						{#if diff.kind === 'resource' || diff.kind === 'variable'}
+							{#if isPinned(diff.kind, diff.path)}
+								<Badge
+									color="gray"
+									size="xs"
+									title="Deploying creates the initial copy here; later promotes keep each environment's own value."
+								>
+									workspace-specific
+								</Badge>
+							{:else}
+								<Button
+									unifiedSize="xs"
+									variant="subtle"
+									disabled={pinBusy[key]}
+									title="Keep this item's value per environment: promoting can create a missing copy but never overwrites an existing one"
+									onClick={() => setPinned(diff.kind as 'resource' | 'variable', diff.path, true)}
+								>
+									Make workspace specific
+								</Button>
+							{/if}
+						{/if}
 					{/if}
 				{/snippet}
 
@@ -1097,6 +1185,34 @@
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
 		</div>
+
+		{#if pinnedItems.length > 0}
+			<div class="bg-surface-tertiary p-4 rounded-md border flex flex-col gap-2">
+				<div class="flex items-center gap-1.5 font-semibold text-secondary text-sm">
+					Workspace-specific items
+				</div>
+				<p class="text-xs text-tertiary">
+					These resources and variables keep their own value in each environment. Promoting can
+					create a missing copy but never overwrites an existing one.
+				</p>
+				<div class="flex flex-col gap-1">
+					{#each pinnedItems as it (`${it.item_kind}:${it.path}`)}
+						<div class="flex items-center gap-2 text-sm">
+							<Badge color="transparent" small>{it.item_kind}</Badge>
+							<span class="text-secondary font-mono text-xs flex-1 truncate">{it.path}</span>
+							<Button
+								unifiedSize="xs"
+								variant="subtle"
+								disabled={pinBusy[`${it.item_kind}:${it.path}`]}
+								onClick={() => setPinned(it.item_kind as 'resource' | 'variable', it.path, false)}
+							>
+								Make shared
+							</Button>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />

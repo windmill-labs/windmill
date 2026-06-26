@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
+use windmill_api_auth::{check_scopes, require_devops_role, require_super_admin, ApiAuthed};
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
@@ -40,9 +40,9 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked, validate_dev_workspace_id,
-    validate_fork_workspace_id, DataTable, DataTableCatalogResourceType, DataTableForkBehavior,
-    ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
+    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
+    validate_dev_workspace_id, validate_fork_workspace_id, DataTable, DataTableCatalogResourceType,
+    DataTableForkBehavior, ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
     WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
@@ -194,6 +194,7 @@ pub fn workspaced_service() -> Router {
         .route("/prune_versions", post(prune_versions))
         .route("/list_ws_specific", get(list_ws_specific))
         .route("/list_ws_specific_versions", get(list_ws_specific_versions))
+        .route("/set_ws_specific", post(set_ws_specific))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -6781,10 +6782,27 @@ async fn compare_workspaces(
         }));
     }
 
+    // Honor ws_specific at read time: a workspace-specific resource/variable
+    // keeps its own value per environment, so an OVERWRITE (it exists on both
+    // sides) must never appear in the diff. The per-item compare suppresses it,
+    // but a cached `has_changes=true` row is trusted without re-running that
+    // compare, so filter those here too. A ws_specific item missing on one side
+    // is a CREATE (seed the initial copy), not an overwrite — keep it visible.
+    // The row is left intact, so unpinning resurfaces it without a re-tally.
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
         "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
-        WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+        WHERE source_workspace_id = $1 AND fork_workspace_id = $2
+        AND NOT (
+            COALESCE(workspace_diff.exists_in_source, false)
+            AND COALESCE(workspace_diff.exists_in_fork, false)
+            AND EXISTS (
+                SELECT 1 FROM ws_specific ws
+                WHERE ws.path = workspace_diff.path
+                  AND ws.item_kind = workspace_diff.kind
+                  AND ws.workspace_id IN (workspace_diff.source_workspace_id, workspace_diff.fork_workspace_id)
+            )
+        )",
         source_workspace_id,
         fork_workspace_id,
     )
@@ -7512,7 +7530,6 @@ async fn compare_two_resources(
     .fetch_optional(db)
     .await?;
 
-    // If either side is ws_specific, consider unchanged
     let source_ws_specific = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
         source_workspace_id,
@@ -7531,7 +7548,14 @@ async fn compare_two_resources(
     .await?
     .unwrap_or(false);
 
-    if source_ws_specific || target_ws_specific {
+    // A workspace-specific resource keeps its own value per environment, so
+    // suppress it only when it exists on both sides (an overwrite). When it is
+    // missing on one side, fall through so it shows as a create — the initial
+    // copy can be seeded, but later promotes never override it.
+    if (source_ws_specific || target_ws_specific)
+        && source_resource.is_some()
+        && target_resource.is_some()
+    {
         return Ok(ItemComparison {
             has_changes: false,
             exists_in_source: source_resource.is_some(),
@@ -7587,8 +7611,10 @@ async fn compare_two_variables(
     .fetch_one(db)
     .await?;
 
-    // If either side is ws_specific, consider unchanged
-    if presence.src_ws || presence.tgt_ws {
+    // Suppress a workspace-specific variable only when it exists on both sides
+    // (an overwrite); a variable missing on one side falls through to show as a
+    // create so the initial copy can be seeded without later overrides.
+    if (presence.src_ws || presence.tgt_ws) && presence.src_var && presence.tgt_var {
         return Ok(ItemComparison {
             has_changes: false,
             exists_in_source: presence.src_var,
@@ -8134,4 +8160,113 @@ async fn list_ws_specific_versions(
     .await?;
 
     Ok(Json(versions))
+}
+
+#[derive(Deserialize)]
+struct SetWsSpecificBody {
+    item_kind: String,
+    path: String,
+    value: bool,
+}
+
+/// Mark (or unmark) a single resource/variable as workspace-specific. Pinning
+/// excludes it from the deploy diff so each environment keeps its own value
+/// (see `compare_two_resources`/`compare_two_variables`). Set per-workspace, so
+/// the compare page calls this once per side to flag both environments.
+async fn set_ws_specific(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(body): Json<SetWsSpecificBody>,
+) -> Result<String> {
+    if body.item_kind != "resource" && body.item_kind != "variable" {
+        return Err(Error::BadRequest(format!(
+            "Invalid kind '{}'. Must be 'resource' or 'variable'",
+            body.item_kind
+        )));
+    }
+
+    // Authorize like the resource/variable editors' own ws_specific toggle:
+    // write scope on the item + the workspace deploy rules. This lets a
+    // non-admin who can edit the item pin it, while a locked workspace (prod)
+    // still blocks non-deployers — so a non-admin pins on the dev side only.
+    check_scopes(&authed, || {
+        format!("{}s:write:{}", body.item_kind, body.path)
+    })?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        &authed.username,
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    if body.value {
+        // Existence guard keeps a dangling marker from being created for a
+        // path absent in this workspace.
+        if body.item_kind == "resource" {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path)
+                 SELECT $1::varchar, 'resource', $2::varchar
+                 WHERE EXISTS (SELECT 1 FROM resource WHERE workspace_id = $1::varchar AND path = $2::varchar)
+                 ON CONFLICT DO NOTHING",
+                w_id,
+                body.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+            // A resource owns its `$var:` secrets, so pin those too.
+            windmill_store::resources::mark_linked_variables_ws_specific(
+                &mut tx, &authed, &w_id, &body.path,
+            )
+            .await?;
+        } else {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path)
+                 SELECT $1::varchar, 'variable', $2::varchar
+                 WHERE EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1::varchar AND path = $2::varchar)
+                 ON CONFLICT DO NOTHING",
+                w_id,
+                body.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    } else {
+        // Unmark only this item; linked variables stay flagged (they may be
+        // referenced by other resources) — mirrors the resource-form toggle.
+        sqlx::query!(
+            "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = $2 AND path = $3",
+            w_id,
+            body.item_kind,
+            body.path,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    let value_str = body.value.to_string();
+    audit_log(
+        &mut *tx,
+        &authed,
+        &format!("{}s.set_ws_specific", body.item_kind),
+        ActionKind::Update,
+        &w_id,
+        Some(&body.path),
+        Some([("value", value_str.as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!(
+        "Set workspace-specific={} for {} {}",
+        body.value, body.item_kind, body.path
+    ))
 }
