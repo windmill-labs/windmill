@@ -281,8 +281,6 @@ async fn run_backfill(
             }
         }
 
-        let mut page_rows: u64 = 0;
-        let mut page_objects: u64 = 0;
         for (day, min_id, ndjson) in &by_day {
             let object_path = ObjectPath::from(format!(
                 "{LOGS_AUDIT}dt={day}/audit_backfill_{min_id}.ndjson"
@@ -291,8 +289,18 @@ async fn run_backfill(
                 .put(&object_path, ndjson.clone().into_bytes().into())
                 .await
                 .map_err(|e| error::Error::internal_err(format!("upload {object_path}: {e:#}")))?;
-            page_rows += ndjson.lines().count() as u64;
-            page_objects += 1;
+            let n = ndjson.lines().count() as u64;
+            // Persist progress (and refresh the lease heartbeat) after every object,
+            // not just once the page completes: a stale heartbeat lets another replica
+            // re-claim the lease and run a concurrent backfill, so the gap between
+            // heartbeats must stay well under STALE_HEARTBEAT_SECS even if a page's
+            // uploads are slow.
+            session
+                .update(|p| {
+                    p.rows_written = p.rows_written.saturating_add(n);
+                    p.objects_written = p.objects_written.saturating_add(1);
+                })
+                .await;
         }
 
         // Advance the keyset cursor past the last row of this page.
@@ -301,13 +309,7 @@ async fn run_backfill(
         cursor_id = last.id;
 
         let new_last_ts = last.ts;
-        session
-            .update(|p| {
-                p.rows_written = p.rows_written.saturating_add(page_rows);
-                p.objects_written = p.objects_written.saturating_add(page_objects);
-                p.last_ts = Some(new_last_ts);
-            })
-            .await;
+        session.update(|p| p.last_ts = Some(new_last_ts)).await;
 
         // A short page means the window is exhausted.
         if (rows.len() as i64) < PAGE_ROWS {
