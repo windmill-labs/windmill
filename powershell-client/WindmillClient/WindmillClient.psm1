@@ -599,6 +599,12 @@ class Windmill {
         return $result
     }
 
+    # Preserve the original 4-arg arity (PowerShell class dispatch is by exact
+    # argument count, so existing direct callers would otherwise break).
+    [PSCustomObject] RunScriptAsync([string] $Path, [string] $Hash, [Hashtable] $Arguments, [int] $ScheduledInSecs) {
+        return $this.RunScriptAsync($Path, $Hash, $Arguments, $ScheduledInSecs, $null)
+    }
+
     [PSCustomObject] RunScriptAsync([string] $Path, [string] $Hash, [Hashtable] $Arguments, [int] $ScheduledInSecs, [string] $Tag) {
         $params = @{}
 
@@ -636,6 +642,12 @@ class Windmill {
         }
 
         return $this.Post($endpoint, $Arguments, $true).Content
+    }
+
+    # Preserve the original 3-arg arity (PowerShell class dispatch is by exact
+    # argument count, so existing direct callers would otherwise break).
+    [string] RunFlowAsync([string] $Path, [Hashtable] $Arguments, [int] $ScheduledInSecs) {
+        return $this.RunFlowAsync($Path, $Arguments, $ScheduledInSecs, $null)
     }
 
     [string] RunFlowAsync([string] $Path, [Hashtable] $Arguments, [int] $ScheduledInSecs, [string] $Tag) {
