@@ -12,6 +12,12 @@
 		findCanonicalDevWorkspace
 	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
+	import {
+		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets,
+		canUserBypassRuleKindInRulesets
+	} from '$lib/workspaceProtectionRules.svelte'
+	import { resource } from 'runed'
 	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -73,11 +79,24 @@
 	const forkSource = $derived(devOfRoot ?? root)
 	const createForkLabel = $derived(devOfRoot ? `Fork from ${devOfRoot.name}` : 'Create new fork…')
 
-	// A non-admin can't deploy into a locked prod root, so when the family has a
-	// dev workspace, disable picking the root for a session (sessions default to
-	// dev instead). Admins keep it — they can bypass the lock.
-	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
-	const rootDisabled = $derived(!isAdmin && !!devOfRoot)
+	// Judge the prod root off its OWN protection rules (fetched), not the active
+	// workspace's — so it reads correctly from a dev/fork too, the same way
+	// ParentWorkspaceProtectionAlert checks the parent. It's selectable when you
+	// can deploy to it, and "Fork from prod" shows when you can fork it.
+	const rootRulesetsResource = resource(
+		() => root?.id,
+		async (id) => (id ? await fetchProtectionRulesForWorkspace(id) : [])
+	)
+	const rootRulesets = $derived(rootRulesetsResource.current ?? [])
+	const canDeployRoot = $derived(
+		!isRuleActiveInRulesets(rootRulesets, 'DisableDirectDeployment') ||
+			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableDirectDeployment', $userStore)
+	)
+	const canForkRoot = $derived(
+		!isRuleActiveInRulesets(rootRulesets, 'DisableWorkspaceForking') ||
+			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', $userStore)
+	)
+	const rootDisabled = $derived(!!devOfRoot && !canDeployRoot)
 
 	// Structural gate: hidden on cloud, in the admins workspace, or when the user
 	// can't fork. DisableWorkspaceForking on the active workspace (a locked prod)
@@ -320,7 +339,7 @@
 						<Plus size={14} class="shrink-0 text-tertiary" />
 						<span>{createForkLabel}</span>
 					</button>
-					{#if isAdmin && devOfRoot}
+					{#if canForkRoot && devOfRoot}
 						<button
 							type="button"
 							class={`${rowBase} hover:bg-surface-hover`}

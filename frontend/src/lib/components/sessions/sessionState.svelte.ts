@@ -4,6 +4,7 @@ import { createLongHash } from '$lib/editorLangUtils'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
 	enterpriseLicense,
+	userStore,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
@@ -11,6 +12,7 @@ import {
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+import { isRuleActive, canUserBypassRuleKind } from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { userScopedDb } from '$lib/userScopedDb'
 import type { DBSchema, IDBPDatabase } from 'idb'
@@ -302,19 +304,6 @@ export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
 }
 
-// Walk up parent_workspace_id to the family root, given a starting
-// workspace id. Returns the input id if no parent chain is visible.
-function familyRootId(id: string | undefined, all: UserWorkspace[]): string | undefined {
-	if (!id) return undefined
-	let cur = all.find((w) => w.id === id)
-	while (cur?.parent_workspace_id) {
-		const parent = all.find((w) => w.id === cur!.parent_workspace_id)
-		if (!parent) break
-		cur = parent
-	}
-	return cur?.id ?? id
-}
-
 export function createSession(): Session {
 	// Reuse the existing transient session (if any) so the user can hit
 	// the "+" button repeatedly without piling drafts. The transient
@@ -328,14 +317,17 @@ export function createSession(): Session {
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
 	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
-	// Start from the family's canonical editable workspace, not wherever the
-	// user happens to be: the dev workspace if the family has one (the prod
-	// root is typically locked, so a session there can't deploy), else the
-	// root. The picker lets them switch later.
+	// Start in the workspace you're in. The one exception: a prod root you can't
+	// deploy to (locked, no bypass) steers to its dev, since a session there
+	// couldn't edit anything. The picker lets you switch.
 	const currentWs = get(workspaceStore)
-	const root = familyRootId(currentWs ?? undefined, get(userWorkspaces))
-	const dev = root ? findCanonicalDevWorkspace(root, get(userWorkspaces))?.id : undefined
-	const pending = dev ?? root ?? currentWs
+	const devOfCurrent = currentWs
+		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
+		: undefined
+	const canDeployHere =
+		!isRuleActive('DisableDirectDeployment') ||
+		canUserBypassRuleKind('DisableDirectDeployment', get(userStore))
+	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).
