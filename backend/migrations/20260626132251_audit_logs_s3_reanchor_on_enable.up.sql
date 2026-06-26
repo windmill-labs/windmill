@@ -54,15 +54,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- One-time fixup for an instance upgrading while a legacy epoch sentinel cursor
--- is still in place (enabled on the old version but never drained, e.g. object
--- store down): stamp a recent floor so the next run prunes to recent partitions
--- instead of scanning all history. The xid cursor is left untouched (the drain
--- continues); only rows older than the new floor — possible solely via a
--- transaction open longer than the 7-day window — fall outside it.
+-- One-time recovery for an instance upgrading while a legacy epoch-sentinel
+-- checkpoint is still in place (enabled on the old code but never drained — e.g.
+-- the very full-table scan this migration removes left it stuck). Such a
+-- checkpoint cannot be safely resumed: its un-drained backlog can be arbitrarily
+-- old, so stamping a recent floor over the old xmin would prune the older rows
+-- while the cursor advanced past them (silent loss), and keeping the epoch floor
+-- would reintroduce the full scan. Instead re-anchor it to now, exactly like a
+-- fresh enable — the export resumes cleanly from ~now, and the pre-upgrade window
+-- (which was never successfully exported) is recovered with the opt-in historical
+-- backfill rather than silently dropped.
 UPDATE background_task_state
-SET value = value || jsonb_build_object(
+SET value = jsonb_build_object(
+        'last_xmin', txid_snapshot_xmin(txid_current_snapshot())::bigint,
         'last_ts', to_jsonb(now()),
-        'last_oldest_inflight_ts', to_jsonb(now() - interval '7 days'))
+        'last_oldest_inflight_ts', to_jsonb(COALESCE(
+            CASE WHEN (current_setting('is_superuser') = 'on'
+                        OR pg_has_role(current_user, 'pg_read_all_stats', 'USAGE'))
+                      AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts)
+                 THEN (SELECT min(xact_start) FROM pg_stat_activity WHERE xact_start IS NOT NULL)
+                 ELSE NULL END,
+            now() - interval '7 days')))
 WHERE name = 'audit_logs_s3_export'
   AND (value->>'last_ts')::timestamptz <= 'epoch'::timestamptz;
