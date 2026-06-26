@@ -1962,16 +1962,21 @@
 	// the asset panel's Schema tab: version history vs. a single fixed schema).
 	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
 	// columns run-to-run; `append`/`merge`/partitioned writes INSERT into a
-	// fixed-schema table, so their schema is pinned at first materialize. Unknown
-	// (no producer node, e.g. a draft) defaults to evolvable so we never hide
-	// real history.
+	// fixed-schema table, so their schema is pinned at first materialize.
+	//
+	// Fail open: show the fixed view only when we're *sure* — every producer is a
+	// known insert-style write. A producer with no `materialize_strategy`
+	// metadata (e.g. a draft-overlay runnable, which the graph synthesizes
+	// without it) is treated as unknown → evolvable, so captured history is never
+	// hidden behind a stale "fixed" verdict.
 	let schemaCanEvolve = $derived.by(() => {
 		const sel = selection
 		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return true
 		const producerPaths = new Set(selectionProducers.map((p) => p.path))
 		const producers = graphWithDraft.runnables.filter((r) => producerPaths.has(r.path))
-		if (producers.length === 0) return true
-		return producers.some((r) => r.materialize_strategy === 'replace' && !r.partition_kind)
+		const knownFixed = (r: (typeof producers)[number]) =>
+			!!r.materialize_strategy && !(r.materialize_strategy === 'replace' && !r.partition_kind)
+		return producers.length === 0 || !producers.every(knownFixed)
 	})
 
 	// Downstream subscriber count for the currently-edited script. Drives
