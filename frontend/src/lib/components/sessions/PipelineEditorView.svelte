@@ -11,16 +11,9 @@
 		AssetGraphResponse,
 		AssetGraphSelection
 	} from '$lib/components/assets/AssetGraph/types'
-	import { AssetService, type AssetKind, type Script } from '$lib/gen'
-	import {
-		parsePipelineAnnotations,
-		type PipelineAnnotations
-	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
-	import { type AssetWithAltAccessType } from '$lib/components/assets/lib'
-	import {
-		createPipelineAiHelpers,
-		type PipelineDraft
-	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
+	import { AssetService, type AssetKind } from '$lib/gen'
+	import { createPipelineAiHelpers } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
+	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 
 	let {
 		path,
@@ -37,34 +30,8 @@
 	// The session's scoped chat manager (falls back to the singleton off-session).
 	const aiChatManager = getAiChatManager()
 
-	let drafts = $state<Map<string, PipelineDraft>>(new Map())
-	let selection = $state<AssetGraphSelection | undefined>(undefined)
-	let activeDraftPath = $state<string | undefined>(undefined)
-
-	let draftLocalIdCounter = 0
-	function newDraftLocalId(): string {
-		draftLocalIdCounter += 1
-		return `sess-${draftLocalIdCounter}`
-	}
-
-	// Live editor overlays for the node open in the details pane, so the canvas
-	// updates as the user (or AI) edits — same overlay inputs resolveGraph takes
-	// in the full-page editor.
-	const EMPTY_ANNOTATIONS: PipelineAnnotations = parsePipelineAnnotations('')
-	let liveAnnotations = $state<{
-		scriptPath: string | undefined
-		annotations: PipelineAnnotations
-	}>({ scriptPath: undefined, annotations: EMPTY_ANNOTATIONS })
-	let liveBodyAssets = $state<{ scriptPath: string | undefined; assets: AssetWithAltAccessType[] }>(
-		{
-			scriptPath: undefined,
-			assets: []
-		}
-	)
-	let liveContent = $state<{ scriptPath: string | undefined; content: string }>({
-		scriptPath: undefined,
-		content: ''
-	})
+	// Externalized editor state, shared with the route page's editor.
+	const pe = new PipelineEditorState()
 
 	const EMPTY_GRAPH: AssetGraphResponse = { assets: [], runnables: [], edges: [], triggers: [] }
 	const EMPTY_PATH_MAP = new Map<string, Array<{ kind: AssetKind; path: string }>>()
@@ -77,106 +44,60 @@
 	)
 
 	// Deployed graph + the in-flight draft overlay (AI proposals render dashed +
-	// accent-ringed via the shared resolveGraph aiPending threading).
+	// accent-ringed via the shared resolveGraph aiPending threading). The session
+	// skips the route page's folder-wide asset prefetch (empty inferred maps); the
+	// open script's live overlays still feed the graph.
 	let resolvedGraph = $derived.by<AssetGraphResponse>(() =>
 		resolveGraph({
 			base: graphRes.current ?? EMPTY_GRAPH,
-			drafts,
-			liveBodyAssets,
-			liveAnnotations,
+			drafts: pe.drafts,
+			liveBodyAssets: pe.liveBodyAssets,
+			liveAnnotations: pe.liveAnnotations,
 			inferredWritesByPath: EMPTY_PATH_MAP,
 			inferredReadsByPath: EMPTY_PATH_MAP,
 			annotatedNativeKindsByPath: EMPTY_NATIVE_MAP
 		})
 	)
 
-	let hasAiPending = $derived([...drafts.values()].some((d) => d.aiPending))
-	let activeDraft = $derived(activeDraftPath ? drafts.get(activeDraftPath) : undefined)
+	let hasAiPending = $derived([...pe.drafts.values()].some((d) => d.aiPending))
+	let activeDraft = $derived(pe.activeDraftPath ? pe.drafts.get(pe.activeDraftPath) : undefined)
 	let detailsOpen = $derived(
-		activeDraftPath != undefined ||
-			(selection?.kind === 'runnable' && selection.runnable_kind === 'script')
+		pe.activeDraftPath != undefined ||
+			(pe.selection?.kind === 'runnable' && pe.selection.runnable_kind === 'script')
 	)
 
 	const { helpers, acceptAll, rejectAll } = createPipelineAiHelpers({
 		getFolder: () => path,
 		getWorkspace: () => workspaceId,
 		getResolvedGraph: () => resolvedGraph,
-		getDrafts: () => drafts,
-		setDrafts: (next) => (drafts = next),
-		newDraftLocalId,
-		onForgetPath: forgetPath,
+		getDrafts: () => pe.drafts,
+		setDrafts: (next) => (pe.drafts = next),
+		newDraftLocalId: pe.newDraftLocalId,
+		onForgetPath: pe.forgetPath,
 		// Open the staged node in the details pane so its code is visible.
 		onProposeNode: (p) => {
-			activeDraftPath = p
-			selection = undefined
+			pe.activeDraftPath = p
+			pe.selection = undefined
 		}
 	})
 
-	function forgetPath(p: string) {
-		if (activeDraftPath === p) activeDraftPath = undefined
-		if (selection?.kind === 'runnable' && selection.path === p) selection = undefined
-		if (liveAnnotations.scriptPath === p)
-			liveAnnotations = { scriptPath: undefined, annotations: EMPTY_ANNOTATIONS }
-		if (liveBodyAssets.scriptPath === p) liveBodyAssets = { scriptPath: undefined, assets: [] }
-		if (liveContent.scriptPath === p) liveContent = { scriptPath: undefined, content: '' }
-	}
-
 	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
-		if (s && s.kind === 'runnable' && s.runnable_kind === 'script' && drafts.has(s.path)) {
-			activeDraftPath = s.path
-			selection = undefined
+		if (s && s.kind === 'runnable' && s.runnable_kind === 'script' && pe.drafts.has(s.path)) {
+			pe.activeDraftPath = s.path
+			pe.selection = undefined
 		} else {
-			activeDraftPath = undefined
-			selection = s
+			pe.activeDraftPath = undefined
+			pe.selection = s
 		}
 	}
 
-	function handleDraftPersist(
-		p: string,
-		snapshot: { content: string; writes: { kind: AssetKind; path: string }[]; script?: Script }
-	) {
-		// Mirror the full-page editor: commit the editor buffer + inferred outputs
-		// back into the drafts Map on pane teardown, deferred a microtask so a
-		// discard in the same batch doesn't resurrect the entry.
-		queueMicrotask(() => {
-			const d = drafts.get(p)
-			if (!d) {
-				if (!snapshot.script) return
-				const next = new Map(drafts)
-				next.set(p, {
-					localId: newDraftLocalId(),
-					script: snapshot.script,
-					outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
-				})
-				drafts = next
-				return
-			}
-			const next = new Map(drafts)
-			next.set(p, {
-				...d,
-				script: { ...d.script, content: snapshot.content },
-				outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
-			})
-			drafts = next
-		})
-	}
-
-	function discardActiveDraft() {
-		const p = activeDraftPath
-		if (!p || !drafts.has(p)) return
-		const next = new Map(drafts)
-		next.delete(p)
-		drafts = next
-		forgetPath(p)
-	}
-
 	async function afterSaved(savedPath: string) {
-		const next = new Map(drafts)
+		const next = new Map(pe.drafts)
 		next.delete(savedPath)
-		drafts = next
-		if (activeDraftPath === savedPath) {
-			selection = { kind: 'runnable', runnable_kind: 'script', path: savedPath }
-			activeDraftPath = undefined
+		pe.drafts = next
+		if (pe.activeDraftPath === savedPath) {
+			pe.selection = { kind: 'runnable', runnable_kind: 'script', path: savedPath }
+			pe.activeDraftPath = undefined
 		}
 		await graphRes.refetch()
 	}
@@ -214,7 +135,7 @@
 					<div class="relative h-full">
 						<AssetGraphCanvas
 							graph={resolvedGraph}
-							{selection}
+							selection={pe.selection}
 							pathPrefix={`f/${path}/`}
 							onselect={handleCanvasSelect}
 						/>
@@ -228,25 +149,26 @@
 						<AssetGraphDetailsPane
 							mode="edit"
 							workspace={workspaceId}
-							selection={activeDraft ? undefined : selection}
+							selection={activeDraft ? undefined : pe.selection}
 							draftScript={activeDraft?.script}
 							pathPrefix={`f/${path}/`}
-							onAnnotationsChange={(scriptPath, annotations) =>
-								(liveAnnotations = { scriptPath, annotations })}
-							onAssetsChange={(scriptPath, assets) => (liveBodyAssets = { scriptPath, assets })}
-							onContentChange={(scriptPath, content) => (liveContent = { scriptPath, content })}
-							onDraftPersist={handleDraftPersist}
-							onDiscard={discardActiveDraft}
+							onAnnotationsChange={pe.handleAnnotationsChange}
+							onAssetsChange={pe.handleAssetsChange}
+							onContentChange={pe.handleContentChange}
+							onDraftPersist={pe.handleDraftPersist}
+							onDiscard={() => {
+								if (pe.activeDraftPath) pe.discardDraft(pe.activeDraftPath)
+							}}
 							onDraftSaved={afterSaved}
 							onPersistedSaved={afterSaved}
 							onScriptRemoved={async (removedPath) => {
-								forgetPath(removedPath)
+								pe.forgetPath(removedPath)
 								await graphRes.refetch()
 							}}
 							onclose={() => {
-								selection = undefined
-								activeDraftPath = undefined
-								liveAnnotations = { scriptPath: undefined, annotations: EMPTY_ANNOTATIONS }
+								pe.selection = undefined
+								pe.activeDraftPath = undefined
+								pe.clearLiveOverlays()
 							}}
 						/>
 					</Pane>
