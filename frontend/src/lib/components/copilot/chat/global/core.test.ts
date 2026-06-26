@@ -166,6 +166,9 @@ vi.mock('$lib/gen', async () => {
 			createVariable: vi.fn(async () => 'created'),
 			updateVariable: vi.fn(async () => 'updated')
 		}),
+		FolderService: wrapService(actual.FolderService, {
+			createFolder: vi.fn(async () => 'created')
+		}),
 		DraftService: wrapService(actual.DraftService, {
 			updateDraft: vi.fn(async ({ kind, path, requestBody }: any) => {
 				const key = `${kind}:${path}`
@@ -249,6 +252,7 @@ import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
 	FlowService,
+	FolderService,
 	HttpTriggerService,
 	JobService,
 	ResourceService,
@@ -256,6 +260,8 @@ import {
 	ScriptService,
 	VariableService
 } from '$lib/gen'
+import { userStore } from '$lib/stores'
+import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
@@ -3042,6 +3048,54 @@ describe('global AI tools', () => {
 	})
 })
 
+describe('folder tools', () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		userStore.set(undefined)
+	})
+	afterEach(() => {
+		userStore.set(undefined)
+	})
+
+	it('create_folder requires confirmation', () => {
+		const tool = getGlobalTool('create_folder')
+		expect(tool.requiresConfirmation).toBe(true)
+		expect(tool.confirmationMessage).toBe('Create folder')
+	})
+
+	it('create_folder creates the folder and reflects it in the path context', async () => {
+		userStore.set({ username: 'bob', is_admin: false, folders: ['existing'] } as any)
+		const raw = await callGlobalTool('create_folder', { name: 'analytics', summary: 'team data' })
+
+		expect(vi.mocked(FolderService.createFolder)).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: { name: 'analytics', summary: 'team data' }
+		})
+		const parsed = JSON.parse(raw)
+		expect(parsed.success).toBe(true)
+		expect(parsed.message).toContain('f/analytics')
+		expect((get(userStore) as any)?.folders).toContain('analytics')
+	})
+
+	it('create_folder rejects an invalid name without calling the API', async () => {
+		const raw = await callGlobalTool('create_folder', { name: 'bad name!' })
+		expect(vi.mocked(FolderService.createFolder)).not.toHaveBeenCalled()
+		const parsed = JSON.parse(raw)
+		expect(parsed.success).toBe(false)
+		expect(parsed.error).toContain('alphanumeric')
+	})
+
+	it('create_folder surfaces a backend error (e.g. name conflict)', async () => {
+		vi.mocked(FolderService.createFolder).mockRejectedValueOnce(
+			new Error('Folder already exists')
+		)
+		const raw = await callGlobalTool('create_folder', { name: 'taken' })
+		const parsed = JSON.parse(raw)
+		expect(parsed.success).toBe(false)
+		expect(parsed.error).toContain('Folder already exists')
+	})
+})
+
 describe('prepareGlobalSystemMessage', () => {
 	it('keeps global chat draft instructions concise and user-facing', () => {
 		const message = prepareGlobalSystemMessage()
@@ -3071,6 +3125,13 @@ describe('prepareGlobalSystemMessage', () => {
 		)
 		expect(content).toContain('Do not ask for folder confirmation')
 		expect(content).toContain('substitute a `u/admin/...` path unless a tool rejects it')
+	})
+
+	it('tells the model to create a folder only when the user explicitly asks', () => {
+		const content = prepareGlobalSystemMessage().content as string
+		expect(content).toContain(
+			'create one with `create_folder` only when the user explicitly asks for a new folder'
+		)
 	})
 
 	describe('folder guidance', () => {
@@ -3124,14 +3185,16 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(content).toContain(
 				'Folders here include `f/marketing`, `f/data_engineering` (you can also write to others not listed).'
 			)
-			expect(content).toContain('If the user names a folder, use it; otherwise ask them.')
+			expect(content).toContain(
+				'If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.'
+			)
 			expect(content).not.toContain('Folders you can write to in this workspace')
 		})
 
 		it('omits the folder hint for an admin with no associated folders', () => {
 			const content = guidanceOf({ username: 'admin', is_admin: true, folders: [] })
 			expect(content).toContain(
-				'- As a workspace admin you can write to any existing folder. If the user names a folder, use it; otherwise ask them.'
+				'- As a workspace admin you can write to any existing folder. If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.'
 			)
 			expect(content).not.toContain('Folders here include')
 		})
