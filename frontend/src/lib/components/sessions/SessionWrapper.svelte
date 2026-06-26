@@ -16,11 +16,11 @@
 		Archive,
 		ArchiveRestore,
 		EllipsisVertical,
-		PanelLeftClose,
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
-		Trash2
+		Trash2,
+		X
 	} from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -53,8 +53,8 @@
 	// hideEditor: never mount the inline editor pane. Used by the sessions page,
 	// where the edited item is shown in a live page preview (iframe) beside the
 	// chat instead, so the wrapper contributes only its chat column.
-	// onExit (when provided): a collapse-pane button on the header's top-right that
-	// dismisses the session layout. Lives here so it sits in the chat header.
+	// onExit (when provided): a close (X) button on the header's top-right that
+	// leaves the sessions page. Lives here so it sits in the chat header.
 	// headerInset: extra left padding on the chat header so it clears a floating
 	// control (the collapsed-rail launcher) sitting at the screen's top-left.
 	let {
@@ -443,11 +443,11 @@
 					<button
 						type="button"
 						onclick={onExit}
-						title="Exit session mode"
-						aria-label="Exit session mode"
+						title="Exit sessions"
+						aria-label="Exit sessions"
 						class="ml-auto inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 					>
-						<PanelLeftClose size={16} />
+						<X size={16} />
 					</button>
 				{/if}
 			</header>

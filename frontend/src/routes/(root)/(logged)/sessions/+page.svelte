@@ -176,7 +176,11 @@
 									: 'z-0 opacity-0 pointer-events-none'}"
 								aria-hidden={s.id !== activeSession?.id}
 							>
-								<SessionWrapper sessionId={s.id} hideEditor />
+								<SessionWrapper
+									sessionId={s.id}
+									hideEditor
+									onExit={() => goto(sessionPreviewUrl(s))}
+								/>
 							</div>
 						{/each}
 					</div>
