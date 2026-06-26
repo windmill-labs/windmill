@@ -122,9 +122,16 @@
 			$workspaceStore = queryWorkspace
 		}
 
+		// When this window is an iframe (e.g. the sessions preview), keep the menu
+		// hidden once `nomenubar` has been requested: client-side navigations inside
+		// the preview drop the query param, and we don't want the global nav to pop
+		// back in. The top window is unaffected, so the oauth-callback case still
+		// toggles normally.
+		const embedded = typeof window !== 'undefined' && window.self !== window.top
 		menuHidden =
 			page.url.searchParams.get('nomenubar') === 'true' ||
-			page.url.pathname.startsWith('/oauth/callback/')
+			page.url.pathname.startsWith('/oauth/callback/') ||
+			(embedded && menuHidden)
 	}
 
 	async function updateUserStore(workspace: string | undefined) {
