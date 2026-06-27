@@ -36,6 +36,9 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import AgentResourceBar from './AgentResourceBar.svelte'
+	import AgentEvalsPanel from './AgentEvalsPanel.svelte'
+	import { flowLocalAgentSchema } from '../agentResourceUtils'
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
@@ -164,6 +167,9 @@
 			flowModule.value.type === 'aiagent'
 	)
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
+	let agentLinked = $derived(
+		flowModule.value.type === 'aiagent' && Boolean((flowModule.value as any).agent)
+	)
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -1028,12 +1034,43 @@
 												label="Chat"
 											/>
 										{/if}
+										{#if flowModule.value.type === 'aiagent' && !isAgentTool}
+											<Tab value="evals" label="Evals" active={agentLinked} />
+										{/if}
 										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced" label="Advanced" />
 										{/if}
 									</Tabs>
 									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
+											{#if flowModule.value.type === 'aiagent'}
+												<AgentResourceBar
+													bind:agent={
+														() => (flowModule.value as any).agent,
+														(v) => {
+															if (flowModule.value.type === 'aiagent') {
+																;(flowModule.value as any).agent = v
+															}
+														}
+													}
+													bind:inputTransforms={
+														() => (flowModule.value as any).input_transforms,
+														(v) => {
+															if (flowModule.value.type === 'aiagent') {
+																;(flowModule.value as any).input_transforms = v
+															}
+														}
+													}
+													bind:tools={
+														() => (flowModule.value as any).tools ?? [],
+														(v) => {
+															if (flowModule.value.type === 'aiagent') {
+																;(flowModule.value as any).tools = v
+															}
+														}
+													}
+												/>
+											{/if}
 											<PropPickerWrapper
 												pickableProperties={stepPropPicker.pickableProperties}
 												error={failureModule}
@@ -1049,7 +1086,9 @@
 													class="px-2 xl:px-4 pb-8"
 													bind:this={inputTransformSchemaForm}
 													pickableProperties={stepPropPicker.pickableProperties}
-													schema={flowStateStore.val[selectedId]?.schema ?? {}}
+													schema={agentLinked
+														? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
+														: (flowStateStore.val[selectedId]?.schema ?? {})}
 													previousModuleId={previousModule?.id}
 													bind:args={
 														() => {
@@ -1126,6 +1165,17 @@
 													}}
 												/>
 											</Section>
+										</div>
+									{:else if visibleSelected === 'evals' && flowModule.value.type === 'aiagent'}
+										<div class="flex-1 overflow-auto">
+											{#if agentLinked && (flowModule.value as any).agent}
+												<AgentEvalsPanel agent={(flowModule.value as any).agent} />
+											{:else}
+												<div class="p-4 text-xs text-secondary">
+													Save this step as a reusable agent (in the Step Input tab) to author and
+													run evals against it.
+												</div>
+											{/if}
 										</div>
 									{:else if visibleSelected === 'advanced'}
 										<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">

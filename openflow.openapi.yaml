@@ -1085,6 +1085,13 @@ components:
           type: boolean
           default: false
           description: If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled.
+        agent:
+          type: string
+          description: |
+            Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
+            config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
+            that resource; the module's input_transforms then only carry the flow-local inputs
+            (user_message/user_attachments).
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
