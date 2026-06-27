@@ -128,12 +128,20 @@ impl AssetCollector {
         }
     }
 
-    /// If the name resolves to an attached asset, record it. Otherwise, register it as a local
-    /// table/view so that subsequent references are not mistakenly attributed to the active asset.
-    fn track_table_definition(&mut self, name: &ObjectName) {
-        if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
-            self.assets.push(asset);
-        } else if let Some(simple_name) = get_trivial_obj_name(name) {
+    /// Record a `CREATE TABLE`/`VIEW` target. A *temporary* table/view is always
+    /// local — even a one-part name under an active `USE dl`, which would
+    /// otherwise resolve to an asset (`ducklake://…/tmp`) and then leak as a
+    /// column source for later references. A non-temp name that resolves to an
+    /// attached asset is recorded as that asset; anything else is registered
+    /// local so subsequent references aren't attributed to the active asset.
+    fn track_table_definition(&mut self, name: &ObjectName, is_temporary: bool) {
+        if !is_temporary {
+            if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
+                self.assets.push(asset);
+                return;
+            }
+        }
+        if let Some(simple_name) = get_trivial_obj_name(name) {
             self.local_table_names.insert(simple_name.to_lowercase());
         }
     }
@@ -887,7 +895,7 @@ impl Visitor for AssetCollector {
             }
 
             sqlparser::ast::Statement::CreateTable(create_table) => {
-                self.track_table_definition(&create_table.name);
+                self.track_table_definition(&create_table.name, create_table.temporary);
                 // `CREATE TABLE x AS SELECT … FROM y` reads y. The AS-query
                 // isn't a `Statement::Query`, so its FROM tables are only
                 // caught here. Only infer output lineage when `x` is a real
@@ -907,8 +915,8 @@ impl Visitor for AssetCollector {
                 }
             }
 
-            sqlparser::ast::Statement::CreateView { name, query, .. } => {
-                self.track_table_definition(name);
+            sqlparser::ast::Statement::CreateView { name, query, temporary, .. } => {
+                self.track_table_definition(name, *temporary);
                 self.handle_query_reads(query);
                 if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
                     self.infer_query_output(query, Some((asset.kind, asset.path)));
@@ -930,7 +938,9 @@ impl Visitor for AssetCollector {
                         | sqlparser::ast::ObjectType::MaterializedView
                 ) {
                     for name in names {
-                        self.track_table_definition(name);
+                        // DROP is a write to the named object; resolve it as an
+                        // asset if it is one (not a temp-creation context).
+                        self.track_table_definition(name, false);
                     }
                 }
             }
@@ -2309,6 +2319,33 @@ mod ctas_read_tests {
                     from_column: "amount".to_string(),
                 }],
             }]
+        );
+    }
+
+    #[test]
+    fn test_infer_lineage_temp_table_under_use_is_local() {
+        // A one-part TEMP table name under an active `USE dl` must NOT resolve to
+        // an asset (`warehouse/tmp`); it's local, so the final SELECT reading it
+        // can't invent `warehouse/tmp.amt` as a column source for the output.
+        let input = r#"
+            -- materialize ducklake://warehouse/final
+            ATTACH 'ducklake://warehouse' AS dl;
+            USE dl;
+            CREATE TEMP TABLE tmp AS SELECT amount AS amt FROM orders;
+            SELECT amt AS total FROM tmp;
+        "#;
+        let got = lineage(input);
+        assert!(
+            got.is_empty(),
+            "temp staging under USE must not leak warehouse/tmp as a source; got {:?}",
+            got
+        );
+        // And no phantom `warehouse/tmp` asset is recorded.
+        let assets = parse_assets(input).unwrap().assets;
+        assert!(
+            !assets.iter().any(|a| a.path == "warehouse/tmp"),
+            "temp table must not be recorded as an asset; got {:?}",
+            assets
         );
     }
 
