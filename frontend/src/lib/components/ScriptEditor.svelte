@@ -104,6 +104,7 @@
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { canHavePreprocessor } from '$lib/script_helpers'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
+	import type { ColumnLineage } from './assets/AssetGraph/parsePipelineAnnotations'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 	import GitRepoViewer from './GitRepoViewer.svelte'
@@ -171,6 +172,11 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
+		// Body-inferred column lineage (DuckDB SQL AST), surfaced alongside
+		// `assets` so the pipeline editor can render inferred column lineage on
+		// the live graph. Empty/undefined for non-DuckDB or when the parser
+		// build predates the inference.
+		inferredColumnLineage?: ColumnLineage[]
 		modules?: { [key: string]: ScriptModule } | null
 		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
@@ -229,6 +235,7 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
+		inferredColumnLineage = $bindable(),
 		modules = $bindable(undefined),
 		editorBarRight,
 		enablePreprocessorSnippet = false,
@@ -585,7 +592,13 @@
 	watch(
 		() => inferAssetsRes.current,
 		() => {
-			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') return
+			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') {
+				// Clear stale lineage on parse error / unset, so a script switch
+				// whose new body fails to parse can't leave the previous script's
+				// inferred column lineage bound to the new path.
+				if (inferredColumnLineage !== undefined) inferredColumnLineage = undefined
+				return
+			}
 			let newAssets = inferAssetsRes.current.assets as AssetWithAltAccessType[]
 			for (const asset of newAssets) {
 				const old = assets?.find((a) => assetEq(a, asset))
@@ -593,6 +606,11 @@
 			}
 			const normalizedAssets = newAssets.length > 0 ? newAssets : undefined
 			if (!deepEqual(assets, normalizedAssets)) assets = normalizedAssets
+
+			const newLineage = inferAssetsRes.current.column_lineage
+			const normalizedLineage = newLineage && newLineage.length > 0 ? newLineage : undefined
+			if (!deepEqual(inferredColumnLineage, normalizedLineage))
+				inferredColumnLineage = normalizedLineage
 		}
 	)
 

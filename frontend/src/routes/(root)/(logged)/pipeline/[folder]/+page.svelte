@@ -33,8 +33,13 @@
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
 	import {
 		parsePipelineAnnotations,
+		type ColumnLineage,
 		type PipelineAnnotations
 	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
+	import {
+		buildColumnGraph,
+		type ColumnLineageGraph
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import {
 		computeDownstreamClosure,
@@ -472,7 +477,8 @@
 			inPipeline: false,
 			triggerAssets: [],
 			nativeTriggers: [],
-			dataTests: []
+			dataTests: [],
+			columnLineage: []
 		}
 	})
 
@@ -485,6 +491,7 @@
 	let liveBodyAssets = $state<{
 		scriptPath: string | undefined
 		assets: AssetWithAltAccessType[]
+		columnLineage?: ColumnLineage[]
 	}>({ scriptPath: undefined, assets: [] })
 
 	// The open draft's live editor buffer, emitted by the pane on every
@@ -502,7 +509,13 @@
 	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
 	const EMPTY_LIVE_ANNOTATIONS = {
 		scriptPath: undefined,
-		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [], dataTests: [] }
+		annotations: {
+			inPipeline: false,
+			triggerAssets: [],
+			nativeTriggers: [],
+			dataTests: [],
+			columnLineage: []
+		}
 	}
 
 	// Reset every live editor overlay (annotations / body assets / content)
@@ -1190,14 +1203,18 @@
 	) {
 		liveAnnotations = { scriptPath, annotations }
 	}
-	function handleAssetsChange(scriptPath: string | undefined, assets: AssetWithAltAccessType[]) {
+	function handleAssetsChange(
+		scriptPath: string | undefined,
+		assets: AssetWithAltAccessType[],
+		columnLineage?: ColumnLineage[]
+	) {
 		// Single update site for the live overlay. `inferredWritesByPath`
 		// / `inferredReadsByPath` are now derived from `liveBodyAssets`
 		// (for the open script) + `inferredAssetsByPath` (prefetched
 		// snapshot for every other script), so we don't have to write
 		// into those caches here — the derive picks up our update on the
 		// next reactive tick.
-		liveBodyAssets = { scriptPath, assets }
+		liveBodyAssets = { scriptPath, assets, columnLineage }
 	}
 	function handleContentChange(scriptPath: string | undefined, content: string) {
 		liveContent = { scriptPath, content }
@@ -1958,6 +1975,27 @@
 			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
 	})
 
+	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
+	// or a draft is actively edited) so the pane blanks out like the other
+	// selection overlays and `buildColumnGraph` doesn't run.
+	const EMPTY_COLUMN_GRAPH: ColumnLineageGraph = {
+		nodes: new Map(),
+		up: new Map(),
+		down: new Map()
+	}
+	// Pipeline-wide column-lineage graph, stitched across every producer's
+	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
+	// the transitive column trace in the details pane. Built from `displayGraph`
+	// — the exact graph the canvas renders — so the trace matches it: draft
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
+	// ducklake-asset selection so it isn't rebuilt on every editor keystroke when
+	// the trace UI isn't even shown.
+	let columnGraph = $derived(
+		selection?.kind === 'asset' && selection.asset_kind === 'ducklake'
+			? buildColumnGraph(displayGraph)
+			: EMPTY_COLUMN_GRAPH
+	)
+
 	// Whether the selected ducklake asset's captured schema can *evolve* (drives
 	// the asset panel's Schema tab: version history vs. a single fixed schema).
 	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
@@ -2552,6 +2590,7 @@
 								onRunByPath={runByPathLegit}
 								selection={activeDraft ? undefined : selection}
 								selectionProducers={activeDraft ? [] : selectionProducers}
+								selectionColumnGraph={activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 								{schemaCanEvolve}
 								{runsRefreshKey}
 								{runsPendingJobId}

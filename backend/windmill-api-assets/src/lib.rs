@@ -519,6 +519,17 @@ struct GraphRunnableNode {
     retry: Option<windmill_common::assets::RetrySpec>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     data_tests: Vec<windmill_common::assets::DataTest>,
+    // `// column <out> <- <src>.<col>` declared column-level lineage, surfaced
+    // so the canvas can draw the column-lineage view on deployed nodes (not
+    // only live drafts). Lockstep with TS `AssetGraphRunnableNode.column_lineage`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    column_lineage: Vec<windmill_common::assets::ColumnLineage>,
+    // `// materialize <asset>` target — the asset this script's `column_lineage`
+    // describes. Lets the column-graph anchor lineage to the exact output asset
+    // instead of guessing a ducklake write-edge (a multi-output script writes
+    // several). Absent for scripts with no `// materialize` annotation.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_target: Option<MaterializeTargetNode>,
     // Managed `// materialize` write strategy (`replace` | `append` | `merge`),
     // absent for non-materializing or `manual` scripts. Surfaced so the asset
     // panel can tell whether the captured schema can evolve: only whole-table
@@ -526,6 +537,14 @@ struct GraphRunnableNode {
     // `merge` / any partitioned write INSERTs into a fixed-schema table.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     materialize_strategy: Option<String>,
+}
+
+// The output asset a producer's column lineage belongs to (the `// materialize`
+// target). Kept minimal — the column graph only needs (kind, path) to anchor.
+#[derive(Serialize, Debug)]
+struct MaterializeTargetNode {
+    kind: windmill_common::assets::AssetKind,
+    path: String,
 }
 
 // The partition's kind word for the node badge (the full PartitionSpec carries
@@ -738,7 +757,8 @@ async fn asset_graph(
     // defensive against transient overlaps).
     let pipeline_member_paths = sqlx::query!(
         r#"
-        SELECT DISTINCT ON (path) path AS "path!", content AS "content!"
+        SELECT DISTINCT ON (path) path AS "path!", content AS "content!",
+               language AS "language!: windmill_common::scripts::ScriptLang"
         FROM script
         WHERE workspace_id = $1
           AND auto_kind = 'pipeline'
@@ -788,6 +808,34 @@ async fn asset_graph(
                 r.path.clone(),
                 windmill_common::assets::parse_pipeline_annotations(&r.content),
             )
+        })
+        .collect();
+    // Column-level lineage per member. The annotation-only lineage (already
+    // parsed above) is the baseline. For DuckDB scripts we additionally run the
+    // full SQL asset parser to infer output→input column edges from the AST; it
+    // merges them with the `// column` annotations (annotation wins). If the SQL
+    // can't be parsed (DuckDB accepts grammar `sqlparser` rejects), we fall back
+    // to the annotation-only baseline rather than dropping explicit annotations.
+    let column_lineage_by_path: std::collections::HashMap<
+        String,
+        Vec<windmill_common::assets::ColumnLineage>,
+    > = pipeline_member_paths
+        .iter()
+        .map(|r| {
+            let annotated = || {
+                annotations_by_path
+                    .get(&r.path)
+                    .map(|a| a.column_lineage.clone())
+                    .unwrap_or_default()
+            };
+            let lineage = if r.language == windmill_common::scripts::ScriptLang::DuckDb {
+                windmill_parser_sql_asset::parse_assets(&r.content)
+                    .map(|o| o.column_lineage)
+                    .unwrap_or_else(|_| annotated())
+            } else {
+                annotated()
+            };
+            (r.path.clone(), lineage)
         })
         .collect();
     let pipeline_member_script_paths: std::collections::HashSet<String> =
@@ -930,6 +978,19 @@ async fn asset_graph(
                 tag: ann.and_then(|a| a.tag.clone()),
                 retry: ann.and_then(|a| a.retry.clone()),
                 data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),
+                // Inferred (DuckDB AST) + annotation column lineage, gated to
+                // scripts like the badges above.
+                column_lineage: (usage_kind == AssetUsageKind::Script)
+                    .then(|| column_lineage_by_path.get(&path))
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default(),
+                materialize_target: ann.and_then(|a| a.materialize.as_ref()).map(|m| {
+                    MaterializeTargetNode {
+                        kind: windmill_common::assets::asset_kind_from_parser(m.target_kind),
+                        path: m.target_path.clone(),
+                    }
+                }),
                 materialize_strategy: ann.and_then(|a| a.materialize.as_ref()).and_then(|m| {
                     if m.manual {
                         None

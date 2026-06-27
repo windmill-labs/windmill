@@ -14033,6 +14033,7 @@ dependencies = [
  "tracing",
  "windmill-api-auth",
  "windmill-common",
+ "windmill-parser-sql-asset",
 ]
 
 [[package]]
