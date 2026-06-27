@@ -2,6 +2,7 @@ import {
 	AppService,
 	AzureTriggerService,
 	FlowService,
+	FolderService,
 	GcpTriggerService,
 	HttpTriggerService,
 	JobService,
@@ -192,6 +193,43 @@ const askUserQuestionSchema = z.object({
 		.min(2)
 		.max(10)
 		.describe('Two to ten mutually exclusive proposed answer strings.')
+})
+
+// Matches the per-mode cap enforced by the prompt-settings UI (AIPromptsModal) and
+// the backend workspace prompt (MAX_CUSTOM_PROMPT_LENGTH).
+export const MAX_USER_INSTRUCTIONS_LENGTH = 5000
+
+const updateUserInstructionsSchema = z.object({
+	operation: z
+		.enum(['append', 'replace'])
+		.describe(
+			'What to do with your personal Global instructions. \'append\' adds a new instruction to the end (use for "remember this" / "always do X"). \'replace\' performs an exact find-and-replace to edit or remove existing text (use for "change X" / "stop doing Y"); set new_string to "" to remove.'
+		),
+	text: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Required when operation is 'append': the instruction to add. Ignored for 'replace'."),
+	old_string: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			"Required when operation is 'replace': exact text to find in your current personal instructions. Ignored for 'append'."
+		),
+	new_string: z
+		.string()
+		.optional()
+		.describe(
+			"Required when operation is 'replace': replacement text. Use an empty string to delete the matched text. Ignored for 'append'."
+		),
+	replace_all: z
+		.boolean()
+		.optional()
+		.default(false)
+		.describe(
+			"For operation 'replace': when true, replace every exact match; when false, old_string must match exactly once."
+		)
 })
 
 const listWorkspaceItemsSchema = z.object({
@@ -701,6 +739,19 @@ const initAppSchema = z.object({
 		)
 })
 
+// Mirrors the backend VALID_FOLDER_NAME check so an invalid name fails before the
+// network round-trip (the server enforces the same rule).
+const VALID_FOLDER_NAME = /^[a-zA-Z_0-9-]+$/
+
+const createFolderSchema = z.object({
+	name: z
+		.string()
+		.describe(
+			'Folder name — letters, digits, underscores or hyphens only. The folder becomes addressable as `f/<name>/<item>`.'
+		),
+	summary: z.string().optional().describe('Optional human-readable description of the folder.')
+})
+
 type FolderPromptContext = { folders: string[]; foldersRead: string[]; isAdmin: boolean }
 
 // Renders the folders the current user can act on into the system prompt so the
@@ -728,17 +779,17 @@ function buildFolderGuidance(username: string, ctx?: FolderPromptContext): strin
 			writable.length > 0
 				? ` Folders here include ${fmt(writable)} (you can also write to others not listed).`
 				: ''
-		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it; otherwise ask them.`
+		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it; if they explicitly ask for a new folder, create it with \`create_folder\`; otherwise ask them which folder to use rather than guessing or creating one unprompted.`
 	}
 	const readOnly = (ctx.foldersRead ?? []).filter((f) => !writable.includes(f))
 	const lines: string[] = []
 	if (writable.length > 0) {
 		lines.push(
-			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use (askUserQuestion) rather than inventing one.`
+			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use (askUserQuestion) rather than inventing a path. Use \`create_folder\` only when the user explicitly asks for a new folder.`
 		)
 	} else {
 		lines.push(
-			`- You have no shared folders you can write to in this workspace, so use \`u/${username}/<name>\`. If shared placement is needed, ask the user to create or grant access to a folder first.`
+			`- You have no shared folders you can write to in this workspace, so use \`u/${username}/<name>\`. If the user explicitly asks for a shared folder, create one with \`create_folder\` (you become an owner); otherwise ask before placing shared work rather than inventing an \`f/<folder>/...\` path.`
 		)
 	}
 	if (readOnly.length > 0) {
@@ -768,7 +819,7 @@ Path conventions:
   - \`u/${username}/<name>\` — your personal scope. Default for ad-hoc, exploratory, or scratch work.
   - \`f/<folder>/<name>\` — a shared folder scope; the <folder> must already exist (a bare \`f/<name>\` with no folder segment is INVALID and will fail).
 - If the user supplies a fully qualified \`f/<folder>/...\` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a \`u/${username}/...\` path unless a tool rejects it.
-- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist.${folderGuidanceBlock}
+- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist; create one with \`create_folder\` only when the user explicitly asks for a new folder.${folderGuidanceBlock}
 
 Rules:
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
@@ -783,6 +834,7 @@ Rules:
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
+- When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
 		previewTools
 			? `
@@ -1704,6 +1756,79 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			updateUserInstructionsSchema,
+			'update_user_instructions',
+			'Modify your own persistent personal instructions for the Global assistant. Use when the user asks you to remember a preference, always/never do something, or change/stop a behavior. Edits only the user-level instructions (the USER INSTRUCTIONS block, not workspace-level); changes persist in this browser and take effect on your next message.'
+		),
+		showDetails: true,
+		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
+			const parsed = updateUserInstructionsSchema.parse(args)
+			const h = helpers as GlobalToolHelpers
+			if (!h?.getUserInstructions || !h?.setUserInstructions) {
+				const message = 'This chat context cannot modify user instructions.'
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return message
+			}
+
+			const current = h.getUserInstructions()
+			let next: string
+			if (parsed.operation === 'append') {
+				const text = parsed.text?.trim()
+				if (!text) {
+					const message = "operation 'append' requires a non-empty text."
+					toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+					return message
+				}
+				next = current.trim() ? `${current.trim()}\n\n${text}` : text
+			} else {
+				if (parsed.old_string === undefined || parsed.new_string === undefined) {
+					const message = "operation 'replace' requires old_string and new_string."
+					toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+					return message
+				}
+				try {
+					next = findAndReplace(
+						current,
+						parsed.old_string,
+						parsed.new_string,
+						parsed.replace_all ?? false,
+						'personal instructions'
+					).trim()
+				} catch (e) {
+					const detail = e instanceof Error ? e.message : String(e)
+					// Echo the current text on this rare recovery path so the model can rebuild a
+					// correct old_string. The system prompt's USER INSTRUCTIONS block can be stale
+					// within a turn that already made a successful edit, but `current` is always live.
+					const hint = current.trim()
+						? `Your current personal instructions are:\n${current.trim()}`
+						: "You have no personal instructions yet; use operation 'append' to add one."
+					const message = `${detail} ${hint}`
+					toolCallbacks.setToolStatus(toolId, { content: detail, error: detail })
+					return message
+				}
+			}
+
+			if (next.length > MAX_USER_INSTRUCTIONS_LENGTH) {
+				const message = `Resulting instructions would be ${next.length} characters, over the ${MAX_USER_INSTRUCTIONS_LENGTH} limit. Make them more concise.`
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return message
+			}
+
+			h.setUserInstructions(next)
+
+			const summary = next
+				? parsed.operation === 'append'
+					? 'Added a personal instruction'
+					: 'Updated your personal instructions'
+				: 'Cleared your personal instructions'
+			toolCallbacks.setToolStatus(toolId, { content: summary, result: summary })
+			// Return only a short confirmation. The updated text is re-injected into the system
+			// prompt on the next iteration, so echoing it back here would waste context.
+			return `${summary}. It takes effect from your next message and is editable in the Global chat settings.`
+		}
+	},
+	{
+		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
 			'List workspace items and drafts. Returns metadata only.'
@@ -1771,6 +1896,46 @@ export const globalTools: Tool<{}>[] = [
 			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
+		}
+	},
+	{
+		def: createToolDef(
+			createFolderSchema,
+			'create_folder',
+			'Create a new shared folder (addressable as f/<name>/) in the workspace. The current user is added as an owner.'
+		),
+		requiresConfirmation: true,
+		confirmationMessage: 'Create folder',
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = createFolderSchema.parse(args)
+			if (!VALID_FOLDER_NAME.test(parsed.name)) {
+				const error =
+					'Folder name can only contain alphanumeric characters, underscores, and hyphens.'
+				toolCallbacks.setToolStatus(toolId, { content: error, error })
+				return JSON.stringify({ success: false, error })
+			}
+			toolCallbacks.setToolStatus(toolId, { content: `Creating folder \`f/${parsed.name}\`...` })
+			try {
+				await FolderService.createFolder({
+					workspace,
+					requestBody: { name: parsed.name, summary: parsed.summary }
+				})
+				// Reflect the new folder in the path-convention context for the rest of this
+				// session, matching FolderPicker's local update (avoids userStore.set()).
+				const user = get(userStore)
+				if (user) {
+					if (!user.folders) user.folders = []
+					if (!user.folders.includes(parsed.name)) user.folders.push(parsed.name)
+				}
+				const message = `Created folder \`f/${parsed.name}\`. You can now write items to \`f/${parsed.name}/<name>\`.`
+				toolCallbacks.setToolStatus(toolId, { content: message })
+				return JSON.stringify({ success: true, message })
+			} catch (e) {
+				const error = e instanceof Error ? e.message : String(e)
+				toolCallbacks.setToolStatus(toolId, { content: `Error: ${error}`, error })
+				return JSON.stringify({ success: false, error })
+			}
 		}
 	},
 	{
@@ -2314,6 +2479,11 @@ export type SessionToolHelpers = { sessionId?: string }
 export type GlobalToolHelpers = SessionToolHelpers & {
 	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
 	attachedFiles?: AttachedFilesStore
+	// Read/write the user-level Global instructions. `setUserInstructions` persists the
+	// value and rebuilds the system message so the change applies on the next chat-loop
+	// iteration. Backed by the update_user_instructions tool.
+	getUserInstructions?: () => string
+	setUserInstructions?: (instructions: string) => void
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
@@ -4394,7 +4564,7 @@ async function deleteWorkspaceItem(
 }
 
 export function prepareGlobalSystemMessage(
-	customPrompt?: string,
+	instructions?: { workspace?: string; user?: string },
 	opts?: {
 		previewTools?: boolean
 		// Identity the path-convention guidance is built from. Production omits it
@@ -4419,8 +4589,11 @@ export function prepareGlobalSystemMessage(
 		folderCtx,
 		opts?.skills ?? []
 	)
-	if (customPrompt?.trim()) {
-		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+	if (instructions?.workspace?.trim()) {
+		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`
+	}
+	if (instructions?.user?.trim()) {
+		content = `${content}\n\nUSER INSTRUCTIONS (this user's personal instructions — update them with the update_user_instructions tool when the user asks you to remember, change, or stop something):\n${instructions.user.trim()}`
 	}
 
 	return {
@@ -4446,7 +4619,10 @@ export function prepareGlobalUserMessage(
 	options: GlobalUserMessageOptions = {}
 ): ChatCompletionUserMessageParam {
 	const selectedWorkspaceItems = selectedContext.filter(
-		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
+		(context) =>
+			context.type === 'workspace_script' ||
+			context.type === 'workspace_flow' ||
+			context.type === 'workspace_app'
 	)
 	const activeEditor =
 		options.activeEditor ??
@@ -4463,7 +4639,13 @@ export function prepareGlobalUserMessage(
 	if (selectedWorkspaceItems.length > 0) {
 		content += '## SELECTED CONTEXT\n'
 		for (const context of selectedWorkspaceItems) {
-			content += `- type: ${context.type === 'workspace_script' ? 'script' : 'flow'}, path: ${context.path}\n`
+			const itemType =
+				context.type === 'workspace_script'
+					? 'script'
+					: context.type === 'workspace_flow'
+						? 'flow'
+						: 'raw_app'
+			content += `- type: ${itemType}, path: ${context.path}\n`
 		}
 		content += '\n'
 	}

@@ -219,6 +219,9 @@
 		// Producer's `// data_test` checks, on the write-edge to the
 		// materialized asset — rendered as a flask badge on the link.
 		data_tests?: NonNullable<AssetGraphResponse['runnables'][number]['data_tests']>
+		// Producer's `// column` declared lineage, on the same write-edge —
+		// rendered as a columns badge on the link.
+		column_lineage?: NonNullable<AssetGraphResponse['runnables'][number]['column_lineage']>
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -340,6 +343,28 @@
 				producerTests.set(`${r.usage_kind}:${r.path}`, r.data_tests)
 			}
 		}
+		// Producer → its `// column` declared lineage, keyed by runnable id, so
+		// the write-edge to the materialized asset can carry the columns badge —
+		// the edge *is* the transformation, and the lineage describes its output.
+		const producerColumnLineage = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['column_lineage']>
+		>()
+		// The `// materialize` target the lineage describes, so the badge lands
+		// only on that write-edge (a multi-output script writes several ducklake
+		// tables) — mirrors the anchor logic in `buildColumnGraph`.
+		const producerMaterializeTarget = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['materialize_target']>
+		>()
+		for (const r of g.runnables) {
+			if (r.column_lineage && r.column_lineage.length > 0) {
+				producerColumnLineage.set(`${r.usage_kind}:${r.path}`, r.column_lineage)
+			}
+			if (r.materialize_target) {
+				producerMaterializeTarget.set(`${r.usage_kind}:${r.path}`, r.materialize_target)
+			}
+		}
 		for (const r of g.runnables) {
 			const rid = `${r.usage_kind}:${r.path}`
 			// Optimistic badge: the moment a run is launched from this view
@@ -414,13 +439,23 @@
 				// write-edge carries the badge / custom-test nodes — a producer's
 				// other (e.g. S3/datatable) outputs must not show them.
 				const edgeTests = e.asset_kind === 'ducklake' ? producerTests.get(runnableId) : undefined
+				// Column lineage describes one materialized output, so the badge
+				// lands only on that asset's write-edge: the declared `// materialize`
+				// target when known (a multi-output script writes several ducklake
+				// tables), else the ducklake write-edge as the unambiguous fallback.
+				const matTarget = producerMaterializeTarget.get(runnableId)
+				const isOutputEdge = matTarget
+					? e.asset_kind === matTarget.kind && e.asset_path === matTarget.path
+					: e.asset_kind === 'ducklake'
+				const edgeColumnLineage = isOutputEdge ? producerColumnLineage.get(runnableId) : undefined
 				edges.push({
 					id: `prod:${runnableId}->${assetId}`,
 					source: runnableId,
 					target: assetId,
 					kind: 'lineage-write',
 					unsaved: e.unsaved,
-					data_tests: edgeTests
+					data_tests: edgeTests,
+					column_lineage: edgeColumnLineage
 				})
 				// Each custom (`// data_test <script_path>`) test → its own node
 				// below the asset it validates, with a dashed "tests" edge.
@@ -899,7 +934,10 @@
 						// producer's last-run status (the script fails if any test
 						// fails) tints it green/red; neutral until it has run.
 						data_tests: e.data_tests,
-						testsRunStatus: e.data_tests?.length ? runStates?.get(e.source)?.status : undefined
+						testsRunStatus: e.data_tests?.length ? runStates?.get(e.source)?.status : undefined,
+						// Column-lineage badge on the same write-edge (the link is the
+						// transformation whose output columns the lineage describes).
+						column_lineage: e.column_lineage
 					},
 					animated,
 					label,

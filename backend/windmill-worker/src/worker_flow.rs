@@ -6211,8 +6211,15 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
         return None;
     }
 
-    if let &FlowStatusModule::Success { job, .. } = status.modules.get(prev)? {
-        Some((suspend.unwrap(), job))
+    if let &FlowStatusModule::Success { job, skipped, .. } = status.modules.get(prev)? {
+        // A step skipped via skip_if never ran, so its suspend/approval was never
+        // armed and no resume event will ever arrive. Gating the next step on it
+        // would park the flow forever.
+        if skipped {
+            None
+        } else {
+            Some((suspend.unwrap(), job))
+        }
     } else {
         None
     }

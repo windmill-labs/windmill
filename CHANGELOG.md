@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.741.0](https://github.com/windmill-labs/windmill/compare/v1.740.0...v1.741.0) (2026-06-26)
+
+
+### Features
+
+* **ai-chat:** add create_folder tool to global chat ([#9819](https://github.com/windmill-labs/windmill/issues/9819)) ([44c25de](https://github.com/windmill-labs/windmill/commit/44c25de418612ab98341adb15d5671222b54367e))
+* **ai-chat:** hint /compact in context usage tooltip ([#9777](https://github.com/windmill-labs/windmill/issues/9777)) ([aadfb62](https://github.com/windmill-labs/windmill/commit/aadfb620c0b7dcd7e94367b761875e14ef9abe69))
+* **ai-chat:** let global chat edit the user's personal instructions ([#9771](https://github.com/windmill-labs/windmill/issues/9771)) ([3be2752](https://github.com/windmill-labs/windmill/commit/3be27521b05de33e48582e80c6651071f889f048))
+* **ai-chat:** surface raw apps in the @-mention context picker ([#9800](https://github.com/windmill-labs/windmill/issues/9800)) ([1602244](https://github.com/windmill-labs/windmill/commit/16022447c7b445be753b9545b10b4c67da0893d5))
+* capture managed-materialize output schema as asset metadata ([#2](https://github.com/windmill-labs/windmill/issues/2)a) ([#9812](https://github.com/windmill-labs/windmill/issues/9812)) ([ade74b2](https://github.com/windmill-labs/windmill/commit/ade74b297f6a03441e700a20ffc2d7291c8a85fd))
+* **sdk:** allow overriding worker tag when running jobs (WIN-2105) ([#9807](https://github.com/windmill-labs/windmill/issues/9807)) ([52fc7bf](https://github.com/windmill-labs/windmill/commit/52fc7bf94cf3f87f68d9dba9884944d87e7d5d57))
+
+
+### Bug Fixes
+
+* apply step timeout to 'Test this step' preview ([#9810](https://github.com/windmill-labs/windmill/issues/9810)) ([d04062b](https://github.com/windmill-labs/windmill/commit/d04062bff58c9c4c79ce542a4321e71bcbcf0e98))
+* **flows:** reject corrupt step paths at deploy + atomic cache writes ([#9751](https://github.com/windmill-labs/windmill/issues/9751)) ([#9813](https://github.com/windmill-labs/windmill/issues/9813)) ([3cda447](https://github.com/windmill-labs/windmill/commit/3cda44762148bcd2ee5c0ea821db884950376ead))
+* **frontend:** clarify instance data table unavailable on cloud ([#9806](https://github.com/windmill-labs/windmill/issues/9806)) ([c3e8c78](https://github.com/windmill-labs/windmill/commit/c3e8c789ac05c9c28991d9ab6f2358f61fa87971))
+* hide GCS service account key behind a reveal in object storage settings ([#9815](https://github.com/windmill-labs/windmill/issues/9815)) ([0ec5061](https://github.com/windmill-labs/windmill/commit/0ec5061270749ed078e01f5a4bc7397a1755ca32))
+* ping job during volume setup to prevent false zombie restarts ([#9803](https://github.com/windmill-labs/windmill/issues/9803)) ([43bb676](https://github.com/windmill-labs/windmill/commit/43bb676dc5652cb06fe1414b8d3aacf295bae36b))
+* skipped suspend step no longer parks the flow forever ([#9821](https://github.com/windmill-labs/windmill/issues/9821)) ([40110bc](https://github.com/windmill-labs/windmill/commit/40110bc7158bc42c3d84bd4637a12b82fcd72a9a))
+
+
+### Performance Improvements
+
+* **audit:** re-anchor S3 audit export on enable + opt-in backfill ([#9818](https://github.com/windmill-labs/windmill/issues/9818)) ([577ceee](https://github.com/windmill-labs/windmill/commit/577ceeee8679f054c6898d1a7889df30ab830f8f))
+
 ## [1.740.0](https://github.com/windmill-labs/windmill/compare/v1.739.0...v1.740.0) (2026-06-25)
 
 

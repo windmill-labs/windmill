@@ -415,5 +415,96 @@
 			"retry": null,
 			"data_tests": [{ "type": "unique", "column": "id" }]
 		}
+	},
+	{
+		"name": "column lineage maps output columns to upstream sources",
+		"code": "// column order_total <- ducklake://warehouse/orders.amount, ducklake://warehouse/orders.tax\n// column user_name <- datatable://prod/users.name\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "order_total",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						},
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "tax"
+						}
+					]
+				},
+				{
+					"column": "user_name",
+					"inputs": [
+						{ "from_kind": "datatable", "from_path": "prod/users", "from_column": "name" }
+					]
+				}
+			]
+		}
+	},
+	{
+		"name": "column lineage keeps duplicate input refs (dedup is a view concern)",
+		"code": "// column total <- ducklake://warehouse/orders.amount, ducklake://warehouse/orders.amount\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "total",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						},
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						}
+					]
+				}
+			]
+		}
+	},
+	{
+		"name": "column lineage keeps schema-qualified table, drops malformed refs",
+		"code": "// column sku <- ducklake://warehouse/main.dim_products.sku, bad_no_dot\n// column no_arrow datatable://prod/x.y\n// column total <- bad_no_dot\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "sku",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/main.dim_products",
+							"from_column": "sku"
+						}
+					]
+				}
+			]
+		}
 	}
 ]

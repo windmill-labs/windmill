@@ -1,7 +1,11 @@
 import type { AssetKind, Script } from '$lib/gen'
 import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
 import type { AssetGraphSelection } from './types'
-import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
+import {
+	parsePipelineAnnotations,
+	type ColumnLineage,
+	type PipelineAnnotations
+} from './parsePipelineAnnotations'
 import type { PipelineDraft } from './pipelineAiHelpers'
 
 // ============================================================================
@@ -20,7 +24,11 @@ import type { PipelineDraft } from './pipelineAiHelpers'
 const EMPTY_ANNOTATIONS: PipelineAnnotations = parsePipelineAnnotations('')
 
 export type LiveAnnotations = { scriptPath: string | undefined; annotations: PipelineAnnotations }
-export type LiveBodyAssets = { scriptPath: string | undefined; assets: AssetWithAltAccessType[] }
+export type LiveBodyAssets = {
+	scriptPath: string | undefined
+	assets: AssetWithAltAccessType[]
+	columnLineage?: ColumnLineage[]
+}
 export type LiveContent = { scriptPath: string | undefined; content: string }
 
 export class PipelineEditorState {
@@ -57,8 +65,12 @@ export class PipelineEditorState {
 	handleAnnotationsChange = (scriptPath: string | undefined, annotations: PipelineAnnotations) => {
 		this.liveAnnotations = { scriptPath, annotations }
 	}
-	handleAssetsChange = (scriptPath: string | undefined, assets: AssetWithAltAccessType[]) => {
-		this.liveBodyAssets = { scriptPath, assets }
+	handleAssetsChange = (
+		scriptPath: string | undefined,
+		assets: AssetWithAltAccessType[],
+		columnLineage?: ColumnLineage[]
+	) => {
+		this.liveBodyAssets = { scriptPath, assets, columnLineage }
 	}
 	handleContentChange = (scriptPath: string | undefined, content: string) => {
 		this.liveContent = { scriptPath, content }

@@ -7,6 +7,7 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { extractWrites } from '$lib/components/assets/lib'
 	import type { PipelineDraft } from './pipelineAiHelpers'
+	import type { ColumnLineageGraph } from './columnLineageGraph'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import AssetGraphCanvas from './AssetGraphCanvas.svelte'
 	import AssetGraphDetailsPane from './AssetGraphDetailsPane.svelte'
@@ -69,6 +70,8 @@
 		canRunByPath = false,
 		onRunByPath,
 		selectionProducers = [],
+		selectionColumnGraph,
+		schemaCanEvolve = true,
 		downstreamSubscribers = 0,
 		onStartBoundedRunForOpen,
 		canBoundedRunOpenScript = false,
@@ -144,6 +147,9 @@
 		canRunByPath?: boolean
 		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
 		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
+		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
+		selectionColumnGraph?: ColumnLineageGraph
+		schemaCanEvolve?: boolean
 		downstreamSubscribers?: number
 		onStartBoundedRunForOpen?: (path: string) => void
 		canBoundedRunOpenScript?: boolean
@@ -431,6 +437,8 @@
 					{onRunByPath}
 					selection={activeDraft ? undefined : editor.selection}
 					selectionProducers={activeDraft ? [] : selectionProducers}
+					{selectionColumnGraph}
+					{schemaCanEvolve}
 					{runsRefreshKey}
 					{runsPendingJobId}
 					{activeRunnable}

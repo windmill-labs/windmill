@@ -73,6 +73,9 @@ import {
 	getCurrentModel,
 	tryGetCurrentModel,
 	getCombinedCustomPrompt,
+	getCustomPromptParts,
+	getUserCustomPrompts,
+	setUserCustomPrompts,
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
@@ -990,14 +993,25 @@ export class AIChatManager {
 	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
 	// each rebuild would otherwise drop the pipeline augmentation the others added.
 	private configureGlobalMode = () => {
-		const systemMessage = prepareGlobalSystemMessage(getCombinedCustomPrompt(AIMode.GLOBAL), {
+		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills
 		})
 		const baseHelpers: GlobalToolHelpers = {
 			...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
 			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
-			attachedFiles: this.attachedFiles
+			attachedFiles: this.attachedFiles,
+			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
+			setUserInstructions: (instructions: string) => {
+				const prompts = getUserCustomPrompts()
+				if (instructions.trim()) {
+					prompts[AIMode.GLOBAL] = instructions
+				} else {
+					delete prompts[AIMode.GLOBAL]
+				}
+				setUserCustomPrompts(prompts)
+				this.rebuildGlobalSystemMessage()
+			}
 		}
 		const pipeline = this.pipelineAiChatHelpers
 		if (pipeline) {
@@ -1021,6 +1035,19 @@ export class AIChatManager {
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
+	}
+
+	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
+	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
+	// re-reads this.systemMessage via a getter.
+	rebuildGlobalSystemMessage = () => {
+		if (this.mode !== AIMode.GLOBAL) {
+			return
+		}
+		this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+			previewTools: this.isSessionChat,
+			skills: this.globalSkills
+		})
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {

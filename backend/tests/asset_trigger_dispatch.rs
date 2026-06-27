@@ -54,6 +54,14 @@ async fn seed_script(
     .bind(language)
     .execute(db)
     .await?;
+    // These tests use #[sqlx::test] isolated DBs that share one workspace id and
+    // reuse script paths, while the same path is seeded with different content
+    // (hence different hashes) across tests. The process-global deployed-script
+    // caches are keyed by (workspace, path)/(workspace, hash), so a concurrent
+    // test resolves a path to a hash that lives in another test's DB and the
+    // dispatch 404s. Disable them so every resolution reads the test's own DB.
+    windmill_common::DEPLOYED_SCRIPT_CACHE_DISABLED
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(h)
 }
 

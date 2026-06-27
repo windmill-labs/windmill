@@ -1,5 +1,5 @@
 import type { AssetKind } from '$lib/gen'
-import type { DataTest } from './parsePipelineAnnotations'
+import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
 
 export type GraphUsageKind = 'script' | 'flow'
 
@@ -33,6 +33,19 @@ export interface AssetGraphRunnableNode {
 	// asset. Surfaced as a count badge (with a per-test breakdown in the title)
 	// so test coverage is visible on the node without opening the pane.
 	data_tests?: DataTest[]
+	// `// column <out> <- <src>.<col>` declared column-level lineage for this
+	// script's materialized output. Surfaced as a count badge on the write-edge
+	// and as a column-to-column diagram in the asset details pane.
+	column_lineage?: ColumnLineage[]
+	// `// materialize <asset>` target — the asset `column_lineage` describes.
+	// Lets the column graph anchor lineage to the exact output instead of
+	// guessing a ducklake write-edge (a multi-output script writes several).
+	materialize_target?: { kind: AssetKind; path: string }
+	// Managed `// materialize` write strategy. Absent for non-materializing or
+	// `manual` scripts. Used (with `partition_kind`) to decide whether a
+	// produced asset's schema can evolve: only whole-table `replace` can, since
+	// `append`/`merge`/partitioned writes INSERT into a fixed-schema table.
+	materialize_strategy?: 'replace' | 'append' | 'merge'
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.

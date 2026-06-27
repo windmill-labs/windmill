@@ -19,7 +19,8 @@ const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
 	tag: true,
 	retry: true,
 	materialize: true,
-	dataTests: true
+	dataTests: true,
+	columnLineage: true
 }
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
@@ -71,6 +72,9 @@ type Fixture = {
 		// corpus drives both sides. The TS parser emits this shape verbatim
 		// (snake_case fields), so the comparison is 1:1. Absent === [].
 		data_tests?: Array<Record<string, unknown>>
+		// Snake_case `ColumnLineage` serde shape — TS parser emits it verbatim,
+		// so the comparison is 1:1. Absent === [].
+		column_lineage?: Array<Record<string, unknown>>
 	}
 }
 
@@ -161,6 +165,8 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 			}
 
 			expect(got.dataTests, 'data tests').toEqual(f.expected.data_tests ?? [])
+
+			expect(got.columnLineage, 'column lineage').toEqual(f.expected.column_lineage ?? [])
 		})
 	}
 })

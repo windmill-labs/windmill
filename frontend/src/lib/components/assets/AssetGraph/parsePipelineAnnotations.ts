@@ -113,6 +113,44 @@ export type DataTest =
 	  }
 	| { type: 'custom'; path: string }
 
+// `// column <out_col> <- <asset-uri>.<col>[, …]` — declared column-level
+// lineage: one output column and the upstream source columns it derives from.
+// See backend `ColumnLineage`. A sibling of `DataTest` in the extensible
+// annotation family — same parse shape, accumulating (one line per output
+// column) — but pure metadata: drives the column-lineage graph view, runs no
+// probe. Field names are snake_case to match the Rust `ColumnLineage` serde
+// output verbatim, so the live-draft parse and the backend graph endpoint
+// (deployed nodes) produce wire-identical shapes.
+export type ColumnRef = {
+	from_kind: AssetKind
+	from_path: string
+	from_column: string
+}
+export type ColumnLineage = {
+	column: string
+	inputs: ColumnRef[]
+}
+
+// Combine body-inferred column lineage with `// column` annotations, the
+// annotation winning per output column. Mirrors the Rust `merge_column_lineage`
+// (`asset_parser.rs`) so the live-draft preview matches what deploys: the
+// backend already merges inferred + annotated server-side, and the live graph
+// must apply the same precedence to the WASM-inferred lineage.
+export function mergeColumnLineage(
+	inferred: ColumnLineage[],
+	annotated: ColumnLineage[]
+): ColumnLineage[] {
+	const seen = new Set(annotated.map((c) => c.column))
+	const out = [...annotated]
+	for (const c of inferred) {
+		if (!seen.has(c.column)) {
+			seen.add(c.column)
+			out.push(c)
+		}
+	}
+	return out
+}
+
 export type PipelineAnnotations = {
 	inPipeline: boolean
 	triggerAssets: PipelineTriggerAsset[]
@@ -125,6 +163,8 @@ export type PipelineAnnotations = {
 	materialize?: MaterializeSpec
 	// `// data_test <kind> …` — accumulating data-quality checks (multiple lines).
 	dataTests: DataTest[]
+	// `// column <out> <- <src>.<col>[, …]` — accumulating column lineage.
+	columnLineage: ColumnLineage[]
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -259,6 +299,37 @@ function parseRelationships(s: string): DataTest | undefined {
 		to_path: asset.path,
 		to_column: toColumn
 	}
+}
+
+// `<asset-uri>.<col>` upstream reference. The column is the segment after the
+// final `.`; the rest is the asset URI (default-syntax shorthands enabled).
+// Mirrors Rust `parse_column_ref`.
+function parseColumnRef(s: string): ColumnRef | undefined {
+	const dot = s.lastIndexOf('.')
+	if (dot < 0) return undefined
+	const fromColumn = singleIdent(s.slice(dot + 1))
+	if (!fromColumn) return undefined
+	const asset = parseAssetSyntaxDefault(s.slice(0, dot).trim())
+	if (!asset || asset.path === '') return undefined
+	return { from_kind: asset.kind, from_path: asset.path, from_column: fromColumn }
+}
+
+// `<out_col> <- <ref>[, <ref> …]`. Individually malformed refs are dropped; the
+// line is kept iff ≥1 ref parses (mirrors `parseAcceptedValues`). A missing
+// `<-`, a non-ident output column, or zero valid refs drops the line.
+// Mirrors Rust `parse_column_lineage_spec`.
+function parseColumnLineageSpec(s: string): ColumnLineage | undefined {
+	const arrow = s.indexOf('<-')
+	if (arrow < 0) return undefined
+	const column = singleIdent(s.slice(0, arrow))
+	if (!column) return undefined
+	const inputs = s
+		.slice(arrow + 2)
+		.split(',')
+		.map((r) => parseColumnRef(r.trim()))
+		.filter((r): r is ColumnRef => r !== undefined)
+	if (inputs.length === 0) return undefined
+	return { column, inputs }
 }
 
 // Parse a `// data_test <kind> …` right-hand side into one `DataTest`. The
@@ -398,7 +469,8 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		inPipeline: false,
 		triggerAssets: [],
 		nativeTriggers: [],
-		dataTests: []
+		dataTests: [],
+		columnLineage: []
 	}
 
 	for (const rawLine of code.split('\n')) {
@@ -472,6 +544,15 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		if (afterDataTest !== undefined) {
 			const spec = parseDataTestSpec(afterDataTest.trim())
 			if (spec) out.dataTests.push(spec)
+			continue
+		}
+
+		// `column` is a complete word; a body comment that merely starts with
+		// `column` has no `<-` and is dropped fail-safe. Accumulates.
+		const afterColumn = consumeKeyword(inner, 'column')
+		if (afterColumn !== undefined) {
+			const spec = parseColumnLineageSpec(afterColumn.trim())
+			if (spec) out.columnLineage.push(spec)
 			continue
 		}
 

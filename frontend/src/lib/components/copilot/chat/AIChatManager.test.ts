@@ -61,6 +61,9 @@ vi.mock('$lib/aiStore', () => ({
 	getCurrentModel: mocks.getCurrentModel,
 	tryGetCurrentModel: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
+	getCustomPromptParts: () => ({}),
+	getUserCustomPrompts: () => ({}),
+	setUserCustomPrompts: () => {},
 	isWebSearchEnabledForProvider: mocks.isWebSearchEnabledForProvider
 }))
 

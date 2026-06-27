@@ -1179,7 +1179,7 @@
     when a new hire joins. Keep it as a draft.
   initial: ai_evals/fixtures/frontend/global/initial/user_admin_folders.json
   runtime:
-    maxTurns: 6
+    maxTurns: 8
   validate:
     draftCountExactly: 0
   toolExpect:
@@ -1282,3 +1282,29 @@
     - the first ingests orders into a DuckLake table
     - the second reads that same table and writes a daily rollup, wired to the first step's output asset
     - leaves both as AI drafts without deploying
+
+- id: global-path5-create-folder-then-draft
+  prompt: |-
+    Create a new shared folder called "analytics" for our data work, then draft a
+    script in it that returns the current timestamp as an ISO string. Keep the
+    script as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        pathStartsWith: f/analytics/
+  toolExpect:
+    requiredToolsUsed:
+      - create_folder
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - creates a new shared folder named "analytics" via create_folder
+    - drafts a script placed in that folder (f/analytics/...) returning an ISO timestamp
+    - leaves the script as a draft only

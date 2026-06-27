@@ -30,6 +30,10 @@
 	} from '$lib/components/assets/AssetGraph/types'
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
 	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
+	import {
+		buildColumnGraph,
+		type ColumnLineageGraph
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import {
 		computeDownstreamClosure,
@@ -201,7 +205,13 @@
 	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
 	const EMPTY_LIVE_ANNOTATIONS = {
 		scriptPath: undefined,
-		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [], dataTests: [] }
+		annotations: {
+			inPipeline: false,
+			triggerAssets: [],
+			nativeTriggers: [],
+			dataTests: [],
+			columnLineage: []
+		}
 	}
 
 	// Only-add cache of (script_path → body content) populated lazily by
@@ -1607,6 +1617,48 @@
 			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
 	})
 
+	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
+	// or a draft is actively edited) so the pane blanks out like the other
+	// selection overlays and `buildColumnGraph` doesn't run.
+	const EMPTY_COLUMN_GRAPH: ColumnLineageGraph = {
+		nodes: new Map(),
+		up: new Map(),
+		down: new Map()
+	}
+	// Pipeline-wide column-lineage graph, stitched across every producer's
+	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
+	// the transitive column trace in the details pane. Built from `displayGraph`
+	// — the exact graph the canvas renders — so the trace matches it: draft
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
+	// ducklake-asset selection so it isn't rebuilt on every editor keystroke when
+	// the trace UI isn't even shown.
+	let columnGraph = $derived(
+		pe.selection?.kind === 'asset' && pe.selection.asset_kind === 'ducklake'
+			? buildColumnGraph(displayGraph)
+			: EMPTY_COLUMN_GRAPH
+	)
+
+	// Whether the selected ducklake asset's captured schema can *evolve* (drives
+	// the asset panel's Schema tab: version history vs. a single fixed schema).
+	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
+	// columns run-to-run; `append`/`merge`/partitioned writes INSERT into a
+	// fixed-schema table, so their schema is pinned at first materialize.
+	//
+	// Fail open: show the fixed view only when we're *sure* — every producer is a
+	// known insert-style write. A producer with no `materialize_strategy`
+	// metadata (e.g. a draft-overlay runnable, which the graph synthesizes
+	// without it) is treated as unknown → evolvable, so captured history is never
+	// hidden behind a stale "fixed" verdict.
+	let schemaCanEvolve = $derived.by(() => {
+		const sel = pe.selection
+		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return true
+		const producerPaths = new Set(selectionProducers.map((p) => p.path))
+		const producers = graphWithDraft.runnables.filter((r) => producerPaths.has(r.path))
+		const knownFixed = (r: (typeof producers)[number]) =>
+			!!r.materialize_strategy && !(r.materialize_strategy === 'replace' && !r.partition_kind)
+		return producers.length === 0 || !producers.every(knownFixed)
+	})
+
 	// Downstream subscriber count for the currently-edited script. Drives
 	// the Test button's cascade UX: when > 0, ScriptEditor renders a split
 	// button exposing "just this step" (default, with `_wmill_skip_asset_dispatch`)
@@ -2102,6 +2154,8 @@
 				canRunByPath={openScriptHasDataUpload}
 				onRunByPath={runByPathLegit}
 				{selectionProducers}
+				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
+				{schemaCanEvolve}
 				downstreamSubscribers={editedScriptDownstreamCount}
 				onStartBoundedRunForOpen={startBoundedRun}
 				canBoundedRunOpenScript={!!openScriptPath &&

@@ -117,6 +117,11 @@ pub struct ParseAssetsOutput {
     // lines allowed). Drives the worker's post-materialize verifier probes.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub data_tests: Vec<DataTest>,
+    // `// column <out> <- <src>.<col>[, …]` — declared column-level lineage,
+    // one entry per output column. Accumulating. Pure metadata: drives the
+    // column-lineage graph view, executes nothing.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub column_lineage: Vec<ColumnLineage>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -275,6 +280,39 @@ pub enum DataTest {
     Custom { path: String },
 }
 
+// `// column <out_col> <- <asset-uri>.<col>[, …]` — declared column-level
+// lineage: one output column of this script's produced asset and the upstream
+// source columns it derives from. A sibling of `DataTest` in the extensible
+// annotation family (`docs/pipelines-vs-dbt.md` §3): same parse shape — a head
+// token (the output column) then a per-variant tail — but accumulating, one
+// line per output column. Unlike `data_test` these are pure metadata: they
+// drive the column-lineage graph view, never a runtime probe.
+//
+// dbt derives column lineage from SQL-AST parsing; Windmill is polyglot
+// (Python/TS/Bash/SQL in one DAG), so a uniform AST is not available. The
+// annotation is the explicit, language-agnostic declaration — the same
+// "annotations are real comments parsed strictly" stance as the rest of the
+// pipeline grammar. Body-inferred per-asset column *sets* (`columns` on
+// `ParseAssetsResult`) complement it but cannot express column→column edges.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct ColumnLineage {
+    // The produced asset's output column this line describes.
+    pub column: String,
+    // Upstream source columns it derives from (≥1; malformed refs dropped).
+    pub inputs: Vec<ColumnRef>,
+}
+
+// One `<asset-uri>.<col>` upstream reference inside a `// column` line. The
+// asset URI accepts the default-syntax shorthands (like `// materialize` /
+// `// data_test relationships`); the column is the segment after the final
+// `.` (so a schema-qualified `warehouse/main.orders.amount` keeps `amount`).
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct ColumnRef {
+    pub from_kind: AssetKind,
+    pub from_path: String,
+    pub from_column: String,
+}
+
 // `// trigger any` (default) vs `// trigger all`. `Any` = OR: any trigger
 // firing runs the script (current behaviour). `All` = AND: the script
 // runs only once every partition-bearing input has materialized at the
@@ -307,6 +345,7 @@ pub struct PipelineAnnotations {
     pub retry: Option<RetrySpec>,
     pub materialize: Option<MaterializeSpec>,
     pub data_tests: Vec<DataTest>,
+    pub column_lineage: Vec<ColumnLineage>,
 }
 
 impl ParseAssetsOutput {
@@ -332,8 +371,31 @@ impl ParseAssetsOutput {
             retry: pipeline.retry,
             materialize: pipeline.materialize,
             data_tests: pipeline.data_tests,
+            column_lineage: pipeline.column_lineage,
         }
     }
+}
+
+// Combine column lineage inferred from the body (SQL AST) with lineage declared
+// via `// column` annotations. The annotation is the *override*: where both
+// describe the same output column, the explicit declaration wins and the
+// inferred entry is dropped. Inferred entries are also deduped by output column
+// among themselves (first wins). Used by the language asset-parsers so a
+// `// column` line can correct a mis-inferred edge without disabling inference
+// for the rest of the columns.
+pub fn merge_column_lineage(
+    inferred: Vec<ColumnLineage>,
+    annotated: Vec<ColumnLineage>,
+) -> Vec<ColumnLineage> {
+    let mut seen: std::collections::HashSet<String> =
+        annotated.iter().map(|c| c.column.clone()).collect();
+    let mut out = annotated;
+    for c in inferred {
+        if seen.insert(c.column.clone()) {
+            out.push(c);
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -680,6 +742,17 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        // `// column <out> <- <src>.<col>[, …]` — accumulating column lineage.
+        // A complete word, so it never swallows a body comment that happens to
+        // start with `column` followed by non-lineage prose (that has no `<-`
+        // and is dropped fail-safe). Checked before `on`/asset shorthands.
+        if let Some(after_kw) = consume_keyword(rest, "column") {
+            if let Some(spec) = parse_column_lineage_spec(after_kw.trim()) {
+                out.column_lineage.push(spec);
+            }
+            continue;
+        }
+
         if let Some(after_kw) = consume_keyword(rest, "on") {
             let spec_text = after_kw.trim();
             if spec_text.is_empty() {
@@ -839,6 +912,38 @@ fn parse_relationships(s: &str) -> Option<DataTest> {
         return None;
     }
     Some(DataTest::Relationships { column, to_kind, to_path: to_path.to_string(), to_column })
+}
+
+// Parse a `// column <out_col> <- <ref>[, <ref> …]` right-hand side. The head
+// (before `<-`) is the output column; the tail is a comma-separated list of
+// `<asset-uri>.<col>` upstream references. Mirrors `parse_accepted_values`'
+// "drop empties, require ≥1" stance: individually malformed refs are dropped
+// and the line is kept iff at least one ref parses; a missing `<-`, a non-ident
+// output column, or zero valid refs drops the whole line (fail-safe).
+fn parse_column_lineage_spec(s: &str) -> Option<ColumnLineage> {
+    let (out_col, refs) = s.split_once("<-")?;
+    let column = single_ident(out_col)?;
+    let inputs: Vec<ColumnRef> = refs
+        .split(',')
+        .filter_map(|r| parse_column_ref(r.trim()))
+        .collect();
+    if inputs.is_empty() {
+        return None;
+    }
+    Some(ColumnLineage { column, inputs })
+}
+
+// `<asset-uri>.<col>` — the referenced column is the segment after the final
+// `.`; everything before it is the asset URI (default-syntax shorthands
+// enabled, like `// materialize`). Same shape as `parse_relationships`' target.
+fn parse_column_ref(s: &str) -> Option<ColumnRef> {
+    let (asset_uri, ref_col) = s.rsplit_once('.')?;
+    let from_column = single_ident(ref_col)?;
+    let (from_kind, from_path) = parse_asset_syntax(asset_uri.trim(), true)?;
+    if from_path.is_empty() {
+        return None;
+    }
+    Some(ColumnRef { from_kind, from_path: from_path.to_string(), from_column })
 }
 
 // Parse a `// partitioned <kind> [opts]` right-hand side. Recognized kinds:
@@ -1544,5 +1649,133 @@ mod pipeline_annotation_tests {
             out.data_tests,
             vec![DataTest::Unique { column: "id".to_string() }]
         );
+    }
+
+    #[test]
+    fn column_lineage_basic() {
+        let code = concat!(
+            "// column order_total <- ducklake://warehouse/orders.amount, ducklake://warehouse/orders.tax\n",
+            "// column user_name <- datatable://prod/users.name\n",
+        );
+        let out = parse_pipeline_annotations(code);
+        assert_eq!(
+            out.column_lineage,
+            vec![
+                ColumnLineage {
+                    column: "order_total".to_string(),
+                    inputs: vec![
+                        ColumnRef {
+                            from_kind: AssetKind::Ducklake,
+                            from_path: "warehouse/orders".to_string(),
+                            from_column: "amount".to_string(),
+                        },
+                        ColumnRef {
+                            from_kind: AssetKind::Ducklake,
+                            from_path: "warehouse/orders".to_string(),
+                            from_column: "tax".to_string(),
+                        },
+                    ],
+                },
+                ColumnLineage {
+                    column: "user_name".to_string(),
+                    inputs: vec![ColumnRef {
+                        from_kind: AssetKind::DataTable,
+                        from_path: "prod/users".to_string(),
+                        from_column: "name".to_string(),
+                    }],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn column_lineage_schema_qualified_keeps_last_dot_as_column() {
+        // The column is the segment after the FINAL dot, so a schema-qualified
+        // ducklake table (`main.dim_products`) survives intact.
+        let out = parse_pipeline_annotations(
+            "// column sku <- ducklake://warehouse/main.dim_products.sku",
+        );
+        assert_eq!(
+            out.column_lineage,
+            vec![ColumnLineage {
+                column: "sku".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "warehouse/main.dim_products".to_string(),
+                    from_column: "sku".to_string(),
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn column_lineage_drops_malformed_refs_keeps_valid() {
+        // `bad_no_dot` has no `.col` and is dropped; the line survives on its
+        // one valid ref. Mirrors accepted_values' drop-empties-keep-≥1 stance.
+        let out = parse_pipeline_annotations(
+            "// column total <- bad_no_dot, datatable://prod/orders.amount",
+        );
+        assert_eq!(
+            out.column_lineage,
+            vec![ColumnLineage {
+                column: "total".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::DataTable,
+                    from_path: "prod/orders".to_string(),
+                    from_column: "amount".to_string(),
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn merge_column_lineage_annotation_overrides_inferred() {
+        let inferred = vec![
+            ColumnLineage {
+                column: "total".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "w/o".to_string(),
+                    from_column: "amount".to_string(),
+                }],
+            },
+            ColumnLineage {
+                column: "qty".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "w/o".to_string(),
+                    from_column: "qty".to_string(),
+                }],
+            },
+        ];
+        // Annotation redefines `total` (wins) and leaves `qty` to inference.
+        let annotated = vec![ColumnLineage {
+            column: "total".to_string(),
+            inputs: vec![ColumnRef {
+                from_kind: AssetKind::DataTable,
+                from_path: "prod/x".to_string(),
+                from_column: "grand_total".to_string(),
+            }],
+        }];
+        let merged = merge_column_lineage(inferred, annotated);
+        assert_eq!(merged.len(), 2);
+        // Annotation entry kept first and authoritative.
+        assert_eq!(merged[0].column, "total");
+        assert_eq!(merged[0].inputs[0].from_column, "grand_total");
+        // Inferred `qty` survives (no annotation for it); inferred `total` dropped.
+        assert_eq!(merged[1].column, "qty");
+    }
+
+    #[test]
+    fn column_lineage_malformed_lines_dropped_fail_safe() {
+        // No arrow, a multi-token output column, and a line whose every ref is
+        // malformed are all dropped entirely.
+        let out = parse_pipeline_annotations(concat!(
+            "// column no_arrow datatable://prod/x.y\n", // missing `<-`
+            "// column a b <- datatable://prod/x.y\n",   // output not a single ident
+            "// column total <- bad_no_dot\n",           // no valid ref
+            "// column\n",                               // bare keyword
+        ));
+        assert!(out.column_lineage.is_empty());
     }
 }

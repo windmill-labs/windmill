@@ -341,6 +341,43 @@ fn extract_data_tests(result: &RawValue) -> Vec<DataTestOutcome> {
     out
 }
 
+// Pull the captured output schema out of the materialize summary's
+// `output_schema` column (gap #2a): a list-of-struct `[{name, type}, …]` the
+// codegen built from a `DESCRIBE`. Like `data_tests`, the FFI may surface it as
+// a nested JSON array or a JSON string — accept both. Returns `None` when the
+// column is absent (literal mode, manual mode, or capture failed) so the worker
+// records the run without a schema rather than an empty one.
+fn extract_schema(
+    result: &RawValue,
+) -> Option<Vec<windmill_common::materialization::SchemaColumn>> {
+    use windmill_common::materialization::SchemaColumn;
+    fn collect(v: &Value) -> Option<Vec<SchemaColumn>> {
+        let Value::Array(arr) = v else { return None };
+        let mut out = Vec::with_capacity(arr.len());
+        for item in arr {
+            let o = item.as_object()?;
+            let name = o.get("name")?.as_str()?.to_string();
+            let data_type = o.get("type")?.as_str()?.to_string();
+            out.push(SchemaColumn { name, data_type });
+        }
+        Some(out)
+    }
+    fn find_field(v: &Value) -> Option<&Value> {
+        match v {
+            Value::Object(o) => o.get("output_schema"),
+            Value::Array(a) => a.iter().find_map(find_field),
+            _ => None,
+        }
+    }
+    let root = serde_json::from_str::<Value>(result.get()).ok()?;
+    match find_field(&root)? {
+        arr @ Value::Array(_) => collect(arr),
+        // FFI serialized the list-of-struct as a JSON string — parse it.
+        Value::String(s) => collect(&serde_json::from_str::<Value>(s).ok()?),
+        _ => None,
+    }
+}
+
 // Render the full pass/fail breakdown for a failed data-test run — every test,
 // not just the first failure, so the user sees the whole picture in one place.
 fn format_data_test_breakdown(asset_path: &str, tests: &[DataTestOutcome]) -> String {
@@ -371,6 +408,9 @@ async fn record_mat(
     status: windmill_common::materialization::MaterializationStatus,
     snapshot_id: Option<i64>,
     row_count: Option<i64>,
+    // Captured output schema (gap #2a). Only set on a successful materialize;
+    // when present, also upserts a `materialized_asset_schema` version.
+    schema: Option<Vec<windmill_common::materialization::SchemaColumn>>,
     error: Option<&str>,
 ) {
     let req = windmill_common::materialization::RecordMaterializationRequest {
@@ -382,22 +422,44 @@ async fn record_mat(
         row_count,
         job_id: Some(job_id),
         error: error.map(|e| e.to_string()),
+        schema: schema.clone(),
     };
     let res: anyhow::Result<()> = match conn {
-        Connection::Sql(db) => windmill_common::materialization::record_materialization(
-            db,
-            w_id,
-            req.asset_kind,
-            &req.asset_path,
-            &req.partition,
-            req.status,
-            req.snapshot_id,
-            req.row_count,
-            req.job_id,
-            req.error.as_deref(),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("{e:#}")),
+        Connection::Sql(db) => {
+            let partition_res = windmill_common::materialization::record_materialization(
+                db,
+                w_id,
+                req.asset_kind,
+                &req.asset_path,
+                &req.partition,
+                req.status,
+                req.snapshot_id,
+                req.row_count,
+                req.job_id,
+                req.error.as_deref(),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("{e:#}"));
+            // Schema capture is a separate, independently best-effort write (its
+            // own transaction for the per-asset advisory lock); a failure here
+            // must not lose the partition row above.
+            if let Some(cols) = schema.as_ref() {
+                if let Err(e) = record_asset_schema_best_effort(
+                    db,
+                    w_id,
+                    meta.asset_kind,
+                    &meta.asset_path,
+                    cols,
+                    snapshot_id,
+                    job_id,
+                )
+                .await
+                {
+                    tracing::warn!("failed to record captured asset schema: {e:#}");
+                }
+            }
+            partition_res
+        }
         Connection::Http(client) => {
             crate::agent_workers::record_materialization_from_agent_http(client, w_id, &req).await
         }
@@ -405,6 +467,33 @@ async fn record_mat(
     if let Err(e) = res {
         tracing::warn!("failed to record materialization state: {e:#}");
     }
+}
+
+// Open a short transaction (needed for the per-asset advisory lock) and upsert
+// the captured schema version. Isolated so its tx lifetime doesn't entangle the
+// partition write.
+async fn record_asset_schema_best_effort(
+    db: &windmill_common::DB,
+    w_id: &str,
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: &str,
+    columns: &[windmill_common::materialization::SchemaColumn],
+    snapshot_id: Option<i64>,
+    job_id: Uuid,
+) -> anyhow::Result<()> {
+    let mut tx = db.begin().await?;
+    windmill_common::materialization::record_asset_schema(
+        &mut tx,
+        w_id,
+        asset_kind,
+        asset_path,
+        columns,
+        snapshot_id,
+        Some(job_id),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn do_duckdb(
@@ -630,6 +719,7 @@ pub async fn do_duckdb(
                         windmill_common::materialization::MaterializationStatus::Failed,
                         None,
                         None,
+                        None,
                         Some(&e.to_string()),
                     )
                     .await;
@@ -656,6 +746,19 @@ pub async fn do_duckdb(
             // cascade stops. The error lists *every* test so the user sees the
             // whole picture, not just the first failure.
             let tests = extract_data_tests(&result);
+            // Captured output schema (gap #2a) — recorded only on the successful
+            // path below, not on the failure paths (a failed run shouldn't
+            // advance the asset's recorded schema version). Managed mode ONLY:
+            // in `// materialize manual` the result is the user's own query
+            // output (we generate no summary), so an `output_schema` field there
+            // is caller-shaped and must not be trusted — `materialize` is
+            // `Some((Some(_), _))` for managed, `Some((None, _))` for manual.
+            let is_managed = matches!(&materialize, Some((Some(_), _)));
+            let schema = if is_managed {
+                extract_schema(&result)
+            } else {
+                None
+            };
             // Defense-in-depth: codegen embedded `n_data_tests` checks, so the
             // summary row must carry that many outcomes. Recovering fewer means
             // the `data_tests` column was dropped/reshaped before we read it —
@@ -676,6 +779,7 @@ pub async fn do_duckdb(
                     windmill_common::materialization::MaterializationStatus::Failed,
                     snapshot_id,
                     row_count,
+                    None,
                     Some(&msg),
                 )
                 .await;
@@ -691,6 +795,7 @@ pub async fn do_duckdb(
                     windmill_common::materialization::MaterializationStatus::Failed,
                     snapshot_id,
                     row_count,
+                    None,
                     Some(&breakdown),
                 )
                 .await;
@@ -704,6 +809,7 @@ pub async fn do_duckdb(
                 windmill_common::materialization::MaterializationStatus::Materialized,
                 snapshot_id,
                 row_count,
+                schema,
                 None,
             )
             .await;
@@ -1804,6 +1910,31 @@ mod tests {
         assert_eq!(out[0].violating, 1);
         // Absent column (no tests) -> empty, no panic.
         assert!(extract_data_tests(&raw(r#"[{"rows":3}]"#)).is_empty());
+    }
+
+    #[test]
+    fn extract_schema_parses_nested_and_string_encoded() {
+        // Real shape: the summary row carries a nested `output_schema`
+        // list-of-struct from the DESCRIBE fold.
+        let r = raw(
+            r#"[{"materialized":"ducklake://a/b","rows":3,"snapshot_id":17,
+                "output_schema":[{"name":"order_id","type":"BIGINT"},
+                                 {"name":"status","type":"VARCHAR"}]}]"#,
+        );
+        let cols = extract_schema(&r).expect("schema present");
+        assert_eq!(cols.len(), 2);
+        assert_eq!(cols[0].name, "order_id");
+        assert_eq!(cols[0].data_type, "BIGINT");
+        assert_eq!(cols[1].name, "status");
+        assert_eq!(cols[1].data_type, "VARCHAR");
+        // Fallback: FFI serialised the list-of-struct as a JSON string.
+        let s = raw(r#"{"output_schema":"[{\"name\":\"x\",\"type\":\"INTEGER\"}]"}"#);
+        let cols = extract_schema(&s).expect("schema present");
+        assert_eq!(cols.len(), 1);
+        assert_eq!(cols[0].name, "x");
+        assert_eq!(cols[0].data_type, "INTEGER");
+        // Absent column (literal/manual mode) -> None, no panic.
+        assert!(extract_schema(&raw(r#"[{"rows":3}]"#)).is_none());
     }
 
     #[test]
