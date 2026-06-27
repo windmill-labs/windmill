@@ -388,9 +388,9 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	function onRestore(ev: any) {
+	function onRestore(restoredApp: any) {
 		sendUserToast('App restored from previous deployment')
-		app = ev.detail
+		app = restoredApp
 		// Re-pin the stale-draft fork base to the current head. A restored value
 		// carries the `parent_version` baked in when that older version was deployed,
 		// which would make the deploy guard (`compareVersions`) falsely report "not on
@@ -470,7 +470,7 @@
 						app.path = url
 					}
 				}}
-				on:restore={onRestore}
+				{onRestore}
 				summary={app.summary}
 				app={app.value}
 				{deployedBaseline}

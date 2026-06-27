@@ -151,6 +151,10 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
 	}
 
 	let {
@@ -184,7 +188,8 @@
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		onRestore
 	}: Props = $props()
 
 	// Set by the on-behalf-of selector when the publisher picks a user other than
@@ -688,7 +693,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {appPath} />
+		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} {appPath} />
 	</DrawerContent>
 </Drawer>
 

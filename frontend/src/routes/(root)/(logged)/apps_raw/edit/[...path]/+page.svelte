@@ -449,9 +449,9 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 
-	function onRestore(ev: any) {
+	function onRestore(restoredApp: any) {
 		sendUserToast('App restored from previous deployment')
-		let prev = ev.detail
+		let prev = restoredApp
 		extractRawApp(prev)
 		savedApp = {
 			summary: prev.summary,
@@ -541,7 +541,7 @@
 					goto(`/apps_raw/edit/${event.detail}`)
 					newPath = event.detail
 				}}
-				on:restore={onRestore}
+				{onRestore}
 				bind:files
 				bind:runnables
 				bind:data

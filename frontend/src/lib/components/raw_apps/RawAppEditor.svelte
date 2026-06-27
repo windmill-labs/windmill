@@ -121,6 +121,10 @@
 		onOpenOthersDrafts?: () => void
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
 		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
 	}
 
 	let {
@@ -148,7 +152,8 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
 		onRuntimeLogRequester = undefined,
-		onRunsProvider = undefined
+		onRunsProvider = undefined,
+		onRestore
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -1596,7 +1601,7 @@
 		bind:savedApp
 		bind:summary
 		bind:pendingDraftPath
-		on:restore
+		{onRestore}
 		on:savedNewAppPath
 		{policy}
 		{diffDrawer}
