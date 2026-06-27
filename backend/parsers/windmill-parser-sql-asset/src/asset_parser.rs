@@ -35,10 +35,54 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     }
 
     let mut pipeline = parse_pipeline_annotations(input);
+    // Scope inferred lineage to a single output asset so columns from an
+    // auxiliary CTAS aren't attributed to the materialized one (the flat list
+    // has no per-entry output on the wire). The `// materialize` target, when
+    // declared, IS the output: keep entries tagged with it plus untagged
+    // top-level-SELECT entries (which describe that target). Without a declared
+    // target, keep inference only when every tagged entry shares one output
+    // asset — otherwise it's ambiguous which asset the flat list describes, so
+    // drop it rather than show false dependencies.
+    let target = pipeline
+        .materialize
+        .as_ref()
+        .map(|m| (m.target_kind, m.target_path.clone()));
+    let inferred: Vec<ColumnLineage> = match &target {
+        Some(t) => collector
+            .column_lineage
+            .into_iter()
+            .filter(|(out, _)| out.as_ref().map_or(true, |o| o == t))
+            .map(|(_, cl)| cl)
+            .collect(),
+        None => {
+            let mut first: Option<&(AssetKind, String)> = None;
+            let mut ambiguous = false;
+            for (out, _) in &collector.column_lineage {
+                if let Some(o) = out {
+                    match first {
+                        None => first = Some(o),
+                        Some(f) if f != o => {
+                            ambiguous = true;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if ambiguous {
+                Vec::new()
+            } else {
+                collector
+                    .column_lineage
+                    .into_iter()
+                    .map(|(_, cl)| cl)
+                    .collect()
+            }
+        }
+    };
     // Body-inferred column lineage, with `// column` annotations taking
     // precedence per output column (explicit declaration overrides inference).
-    pipeline.column_lineage =
-        merge_column_lineage(collector.column_lineage, pipeline.column_lineage);
+    pipeline.column_lineage = merge_column_lineage(inferred, pipeline.column_lineage);
     Ok(ParseAssetsOutput::new(
         merge_assets(collector.assets),
         Vec::new(),
@@ -60,12 +104,15 @@ struct AssetCollector {
     // Locally created tables (not attached to an asset)
     local_table_names: HashSet<String>,
     // Inferred column-level lineage: one entry per output column of an
-    // output-producing query (CTAS / CREATE VIEW / top-level SELECT — the
-    // managed-materialize form), mapping it to the upstream source columns its
-    // expression reads. Merged with `// column` annotations (annotation wins) in
-    // `parse_assets`. Best-effort: dynamic/raw SQL and non-projection forms
-    // (INSERT … SELECT positional mapping, wildcards) are left to annotations.
-    column_lineage: Vec<ColumnLineage>,
+    // output-producing query, mapping it to the upstream source columns its
+    // expression reads. Each is tagged with the *output asset* it belongs to —
+    // `Some((kind, path))` for a CTAS / CREATE VIEW into a real asset, `None`
+    // for a top-level managed-materialize SELECT (its output is the `//
+    // materialize` target, known only in `parse_assets`). `parse_assets` uses
+    // the tag to scope the flat list to a single output asset so columns from an
+    // auxiliary output don't get attributed to the materialized one. Best-effort:
+    // dynamic/raw SQL, INSERT…SELECT, and wildcards are left to annotations.
+    column_lineage: Vec<(Option<(AssetKind, String)>, ColumnLineage)>,
 }
 
 impl AssetCollector {
@@ -283,23 +330,29 @@ impl AssetCollector {
     // arms — the generic table-factor visitor picks up read-functions and
     // string literals, not plain `FROM <table>` references. Called for both
     // standalone SELECTs and the `AS SELECT` of CTAS / CREATE VIEW.
-    //
-    // `infer_output` gates column-lineage inference: it is the *output* columns
-    // of the materialized asset, so it must only run when this query produces
-    // that output — a top-level managed-materialize SELECT, or a CTAS/CREATE
-    // VIEW into a real asset. A CTAS into a local/temp staging table is NOT the
-    // output; inferring it would report the staging columns as the final
-    // asset's (they get anchored to the script's `// materialize` target).
-    fn handle_query_reads(&mut self, query: &sqlparser::ast::Query, infer_output: bool) {
+    fn handle_query_reads(&mut self, query: &sqlparser::ast::Query) {
         self.cte_name_stack.push(collect_cte_names(query));
         if let Some(select) = query.body.as_select() {
             for t in &select.from {
                 self.handle_table_with_joins(t, Some(R));
             }
             self.extract_column_assets(&select.projection, &select.from);
-            if infer_output {
-                self.infer_column_lineage(&select.projection, &select.from);
-            }
+        }
+    }
+
+    // Infer the output-column lineage of a query that produces an asset, tagging
+    // each entry with its `output` asset. Called only for an output-producing
+    // query — a top-level managed-materialize SELECT (`output: None`, resolved
+    // to the `// materialize` target later) or a CTAS / CREATE VIEW into a real
+    // asset (`output: Some`). A CTAS into a local/temp staging table is never
+    // an output, so it's simply not passed here.
+    fn infer_query_output(
+        &mut self,
+        query: &sqlparser::ast::Query,
+        output: Option<(AssetKind, String)>,
+    ) {
+        if let Some(select) = query.body.as_select() {
+            self.infer_column_lineage(&select.projection, &select.from, output);
         }
     }
 
@@ -508,6 +561,7 @@ impl AssetCollector {
         &mut self,
         projection: &[SelectItem],
         from_tables: &[sqlparser::ast::TableWithJoins],
+        output: Option<(AssetKind, String)>,
     ) {
         let (single_table, table_to_asset) = self.build_from_maps(from_tables);
         for item in projection {
@@ -534,7 +588,7 @@ impl AssetCollector {
             }
             if !inputs.is_empty() {
                 self.column_lineage
-                    .push(ColumnLineage { column: out_col, inputs });
+                    .push((output.clone(), ColumnLineage { column: out_col, inputs }));
             }
         }
     }
@@ -677,8 +731,10 @@ impl Visitor for AssetCollector {
         match statement {
             sqlparser::ast::Statement::Query(q) => {
                 // A top-level SELECT is the managed-materialize output, so its
-                // columns ARE the materialized asset's columns.
-                self.handle_query_reads(q, true);
+                // columns ARE the materialized asset's columns (output resolved
+                // to the `// materialize` target in `parse_assets`).
+                self.handle_query_reads(q);
+                self.infer_query_output(q, None);
             }
 
             sqlparser::ast::Statement::Insert(insert) => {
@@ -838,19 +894,25 @@ impl Visitor for AssetCollector {
                 // asset — a CTAS into a local/temp staging table is not the
                 // materialized output (its columns aren't the asset's).
                 if let Some(query) = &create_table.query {
-                    let is_asset_output = self
-                        .get_associated_asset_from_obj_name(&create_table.name, Some(W))
-                        .is_some();
-                    self.handle_query_reads(query, is_asset_output);
+                    self.handle_query_reads(query);
+                    // Infer only when `x` is a real asset (its output columns
+                    // ARE that asset's), tagged with it so `parse_assets` can
+                    // scope lineage per output. A local/temp staging table is
+                    // not an asset → not inferred.
+                    if let Some(asset) =
+                        self.get_associated_asset_from_obj_name(&create_table.name, Some(W))
+                    {
+                        self.infer_query_output(query, Some((asset.kind, asset.path)));
+                    }
                 }
             }
 
             sqlparser::ast::Statement::CreateView { name, query, .. } => {
                 self.track_table_definition(name);
-                let is_asset_output = self
-                    .get_associated_asset_from_obj_name(name, Some(W))
-                    .is_some();
-                self.handle_query_reads(query, is_asset_output);
+                self.handle_query_reads(query);
+                if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
+                    self.infer_query_output(query, Some((asset.kind, asset.path)));
+                }
             }
 
             // DROP TABLE/VIEW is a write to the dropped object — the
@@ -2247,6 +2309,47 @@ mod ctas_read_tests {
                     from_column: "amount".to_string(),
                 }],
             }]
+        );
+    }
+
+    #[test]
+    fn test_infer_lineage_scopes_to_materialize_target() {
+        // A script with a `// materialize` target plus an AUXILIARY CTAS into a
+        // different asset: only the materialized target's columns are reported;
+        // the auxiliary output's columns must not be attributed to it.
+        let input = r#"
+            -- materialize ducklake://warehouse/final
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TABLE dl.audit AS SELECT dl.orders.id AS aid FROM dl.orders;
+            SELECT dl.orders.amount AS total FROM dl.orders;
+        "#;
+        assert_eq!(
+            lineage(input),
+            vec![ColumnLineage {
+                column: "total".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "warehouse/orders".to_string(),
+                    from_column: "amount".to_string(),
+                }],
+            }],
+            "auxiliary `audit` columns must not appear on the materialized target"
+        );
+    }
+
+    #[test]
+    fn test_infer_lineage_drops_ambiguous_multi_output() {
+        // No `// materialize` target and two real CTAS outputs: which asset the
+        // flat lineage describes is ambiguous, so inference is dropped rather
+        // than attributed to an arbitrary one.
+        let input = r#"
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TABLE dl.a AS SELECT dl.orders.id AS x FROM dl.orders;
+            CREATE TABLE dl.b AS SELECT dl.orders.amount AS y FROM dl.orders;
+        "#;
+        assert!(
+            lineage(input).is_empty(),
+            "ambiguous multi-output must drop inference"
         );
     }
 
