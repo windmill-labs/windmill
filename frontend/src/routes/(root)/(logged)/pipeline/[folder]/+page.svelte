@@ -1995,6 +1995,27 @@
 			: EMPTY_COLUMN_GRAPH
 	)
 
+	// Whether the selected ducklake asset's captured schema can *evolve* (drives
+	// the asset panel's Schema tab: version history vs. a single fixed schema).
+	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
+	// columns run-to-run; `append`/`merge`/partitioned writes INSERT into a
+	// fixed-schema table, so their schema is pinned at first materialize.
+	//
+	// Fail open: show the fixed view only when we're *sure* — every producer is a
+	// known insert-style write. A producer with no `materialize_strategy`
+	// metadata (e.g. a draft-overlay runnable, which the graph synthesizes
+	// without it) is treated as unknown → evolvable, so captured history is never
+	// hidden behind a stale "fixed" verdict.
+	let schemaCanEvolve = $derived.by(() => {
+		const sel = selection
+		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return true
+		const producerPaths = new Set(selectionProducers.map((p) => p.path))
+		const producers = graphWithDraft.runnables.filter((r) => producerPaths.has(r.path))
+		const knownFixed = (r: (typeof producers)[number]) =>
+			!!r.materialize_strategy && !(r.materialize_strategy === 'replace' && !r.partition_kind)
+		return producers.length === 0 || !producers.every(knownFixed)
+	})
+
 	// Downstream subscriber count for the currently-edited script. Drives
 	// the Test button's cascade UX: when > 0, ScriptEditor renders a split
 	// button exposing "just this step" (default, with `_wmill_skip_asset_dispatch`)
@@ -2569,6 +2590,7 @@
 								selection={activeDraft ? undefined : selection}
 								selectionProducers={activeDraft ? [] : selectionProducers}
 								selectionColumnGraph={activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
+								{schemaCanEvolve}
 								{runsRefreshKey}
 								{runsPendingJobId}
 								{activeRunnable}

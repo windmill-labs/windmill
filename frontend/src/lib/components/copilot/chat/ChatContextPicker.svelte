@@ -4,17 +4,19 @@ AI chat `@`-mention dropdown. Mounts the generic `DrillPicker` with a
 unified tree:
 
   Diffs / Modules / Databases / Workspace
-                                     ├── All / Flows / Scripts
+                                     ├── All / Flows / Scripts / Apps
                                      │       └── f/scope/sub/leaf …
 
 The Diffs / Modules / Databases branches are synthesized from the chat's
 in-memory `availableContext`. The Workspace branch delegates to
 `buildWorkspaceTree` so the picker shares the workspace caching machinery
-with the standalone picker used by `EditorHeader`.
+with the standalone picker used by `EditorHeader`. The Apps branch only
+appears in GLOBAL chat and lists raw (code-based) apps; visual apps are
+excluded.
 
 On a workspace-leaf pick, emits a reference-only `WorkspaceScriptElement` /
-`WorkspaceFlowElement` (path + title + summary). Content is materialized
-at message-prep time by `AIChatManager` — see PR #9216.
+`WorkspaceFlowElement` / `WorkspaceAppElement` (path + title + summary).
+Content is materialized at message-prep time by `AIChatManager` — see PR #9216.
 -->
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
@@ -35,6 +37,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	import {
 		ContextIconMap,
 		type ContextElement,
+		type WorkspaceAppElement,
 		type WorkspaceFlowElement,
 		type WorkspaceScriptElement
 	} from './context'
@@ -90,13 +93,25 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	}
 
 	// Workspace state shared with WorkspaceItemDrillPicker via the loader.
-	// Chat surfaces flows and scripts only — apps aren't useful as @-mention
-	// context because they're frontends, not callable units.
-	const WORKSPACE_KINDS: WorkspaceItemKind[] = ['flow', 'script']
+	// Flows and scripts everywhere; raw apps only in GLOBAL chat, where the
+	// raw-app tool surface lets the model act on the reference. Visual apps stay
+	// excluded — they're frontends, not code units (filtered out below, where the
+	// 'app' kind is narrowed to raw apps before tree-building).
+	const WORKSPACE_KINDS = $derived<WorkspaceItemKind[]>(
+		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app'] : ['flow', 'script']
+	)
 	const loader = useWorkspaceItemsLoader(
 		() => $workspaceStore,
 		() => WORKSPACE_KINDS
 	)
+
+	// The 'app' listing returns visual and raw apps together; keep only raw apps
+	// so the picker never surfaces a frontend-only app that the chat can't use.
+	const loadedForTree = $derived.by(() => {
+		const loaded = loader.loaded
+		if (!loaded.app) return loaded
+		return { ...loaded, app: loaded.app.filter((a) => a.raw_app) }
+	})
 
 	function contextLeaf(c: ContextElement): DrillLeaf<ChatLeafData> {
 		const displayLabel =
@@ -246,7 +261,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 			if (modules) branches.push(modules)
 			if (dbs) branches.push(dbs)
 			const wsChildren = buildWorkspaceTree({
-				loaded: loader.loaded,
+				loaded: loadedForTree,
 				kinds: WORKSPACE_KINDS,
 				loadingKind: loader.loadingKind
 			}) as DrillNode<ChatLeafData>[]
@@ -292,8 +307,17 @@ at message-prep time by `AIChatManager` — see PR #9216.
 					deletable: true
 				}
 				onSelectWorkspaceItem(element)
+			} else if (d.kind === 'app') {
+				// Only raw apps reach here (the tree is narrowed in `loadedForTree`).
+				const element: WorkspaceAppElement & { deletable: boolean } = {
+					type: 'workspace_app',
+					path: d.path,
+					title: d.path,
+					summary: d.summary,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
 			}
-			// Apps are filtered out via kinds=['flow','script']; ignore.
 		} else {
 			// Runtime context element — added directly.
 			onSelect(d)

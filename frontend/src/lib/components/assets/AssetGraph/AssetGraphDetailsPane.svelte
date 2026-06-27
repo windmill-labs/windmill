@@ -128,6 +128,10 @@
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
 		selectionColumnGraph?: ColumnLineageGraph
+		// Whether the selected ducklake asset's schema can evolve (whole-table
+		// `replace` producer). Forwarded to the Schema tab: version history when
+		// true, a single fixed-schema view when false. Defaults to true (unknown).
+		schemaCanEvolve?: boolean
 		// Bumped by the parent after dispatching a run so the runs panel
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
@@ -229,6 +233,7 @@
 		onScriptRemoved,
 		selectionProducers = [],
 		selectionColumnGraph,
+		schemaCanEvolve = true,
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
@@ -1026,7 +1031,7 @@
 											</div>
 										{/if}
 										<div class="flex-1 min-h-0">
-											<DucklakeAssetPanel path={selection.path} {workspace} />
+											<DucklakeAssetPanel path={selection.path} {workspace} {schemaCanEvolve} />
 										</div>
 									</div>
 								{/key}

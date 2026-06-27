@@ -11,7 +11,7 @@
 	// can't be read), so a selectable version always exists in the table.
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { Table2, History } from 'lucide-svelte'
+	import { Table2, History, Columns3 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { resource } from 'runed'
 	import { fetchDucklakeSnapshots } from '$lib/components/dbOps'
@@ -19,15 +19,19 @@
 	import PartitionStatusGrid from './PartitionStatusGrid.svelte'
 	import DucklakeSnapshotHistory from './DucklakeSnapshotHistory.svelte'
 	import DucklakeVersionPreview from './DucklakeVersionPreview.svelte'
+	import SchemaHistoryPanel from './SchemaHistoryPanel.svelte'
 
 	interface Props {
 		// The materialized ducklake asset path (`<ducklake>/<table>`).
 		path: string
 		workspace: string
+		// Whether this asset's schema can evolve (whole-table `replace` producer);
+		// drives the Schema tab between version history and a single fixed schema.
+		schemaCanEvolve?: boolean
 	}
-	let { path, workspace }: Props = $props()
+	let { path, workspace, schemaCanEvolve = true }: Props = $props()
 
-	let tab = $state<'partitions' | 'history'>('partitions')
+	let tab = $state<'partitions' | 'history' | 'schema'>('partitions')
 	// The user's explicit snapshot pick (undefined until they click a row).
 	let selectedVersion = $state<number | undefined>(undefined)
 
@@ -78,6 +82,7 @@
 			<ToggleButtonGroup selected={tab} on:selected={(e) => (tab = e.detail)}>
 				{#snippet children({ item })}
 					<ToggleButton size="sm" value="partitions" label="Partitions" icon={Table2} {item} />
+					<ToggleButton size="sm" value="schema" label="Schema" icon={Columns3} {item} />
 					<ToggleButton size="sm" value="history" label="History" icon={History} {item} />
 				{/snippet}
 			</ToggleButtonGroup>
@@ -86,31 +91,33 @@
 		<div class="flex-1 min-h-0">
 			{#if tab === 'partitions'}
 				<PartitionStatusGrid {path} {workspace} />
+			{:else if tab === 'schema'}
+				<SchemaHistoryPanel {path} {workspace} canEvolve={schemaCanEvolve} />
 			{:else}
-			<div class="h-full" bind:clientWidth={paneWidth}>
-				<Splitpanes class="!h-full">
-					<Pane size={listSize} minSize={20}>
-						<DucklakeSnapshotHistory
-							items={snapshots.current ?? []}
-							loading={snapshots.loading}
-							error={snapshots.error?.message}
-							onRefresh={() => snapshots.refetch()}
-							selectedVersion={effectiveVersion}
-							onSelect={(v) => (selectedVersion = v)}
-						/>
-					</Pane>
-					<Pane size={100 - listSize} minSize={30}>
-						<div class="h-full p-3 overflow-auto">
-							<DucklakeVersionPreview
-								assetUri={`ducklake://${path}`}
-								version={effectiveVersion}
-								class="h-full"
+				<div class="h-full" bind:clientWidth={paneWidth}>
+					<Splitpanes class="!h-full">
+						<Pane size={listSize} minSize={20}>
+							<DucklakeSnapshotHistory
+								items={snapshots.current ?? []}
+								loading={snapshots.loading}
+								error={snapshots.error?.message}
+								onRefresh={() => snapshots.refetch()}
+								selectedVersion={effectiveVersion}
+								onSelect={(v) => (selectedVersion = v)}
 							/>
-						</div>
-					</Pane>
-				</Splitpanes>
-			</div>
-		{/if}
-	</div>
+						</Pane>
+						<Pane size={100 - listSize} minSize={30}>
+							<div class="h-full p-3 overflow-auto">
+								<DucklakeVersionPreview
+									assetUri={`ducklake://${path}`}
+									version={effectiveVersion}
+									class="h-full"
+								/>
+							</div>
+						</Pane>
+					</Splitpanes>
+				</div>
+			{/if}
+		</div>
 	{/if}
 </div>
