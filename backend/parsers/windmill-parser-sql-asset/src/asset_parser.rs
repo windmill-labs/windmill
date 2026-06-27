@@ -283,14 +283,23 @@ impl AssetCollector {
     // arms — the generic table-factor visitor picks up read-functions and
     // string literals, not plain `FROM <table>` references. Called for both
     // standalone SELECTs and the `AS SELECT` of CTAS / CREATE VIEW.
-    fn handle_query_reads(&mut self, query: &sqlparser::ast::Query) {
+    //
+    // `infer_output` gates column-lineage inference: it is the *output* columns
+    // of the materialized asset, so it must only run when this query produces
+    // that output — a top-level managed-materialize SELECT, or a CTAS/CREATE
+    // VIEW into a real asset. A CTAS into a local/temp staging table is NOT the
+    // output; inferring it would report the staging columns as the final
+    // asset's (they get anchored to the script's `// materialize` target).
+    fn handle_query_reads(&mut self, query: &sqlparser::ast::Query, infer_output: bool) {
         self.cte_name_stack.push(collect_cte_names(query));
         if let Some(select) = query.body.as_select() {
             for t in &select.from {
                 self.handle_table_with_joins(t, Some(R));
             }
             self.extract_column_assets(&select.projection, &select.from);
-            self.infer_column_lineage(&select.projection, &select.from);
+            if infer_output {
+                self.infer_column_lineage(&select.projection, &select.from);
+            }
         }
     }
 
@@ -667,7 +676,9 @@ impl Visitor for AssetCollector {
     ) -> std::ops::ControlFlow<Self::Break> {
         match statement {
             sqlparser::ast::Statement::Query(q) => {
-                self.handle_query_reads(q);
+                // A top-level SELECT is the managed-materialize output, so its
+                // columns ARE the materialized asset's columns.
+                self.handle_query_reads(q, true);
             }
 
             sqlparser::ast::Statement::Insert(insert) => {
@@ -823,15 +834,23 @@ impl Visitor for AssetCollector {
                 self.track_table_definition(&create_table.name);
                 // `CREATE TABLE x AS SELECT … FROM y` reads y. The AS-query
                 // isn't a `Statement::Query`, so its FROM tables are only
-                // caught here.
+                // caught here. Only infer output lineage when `x` is a real
+                // asset — a CTAS into a local/temp staging table is not the
+                // materialized output (its columns aren't the asset's).
                 if let Some(query) = &create_table.query {
-                    self.handle_query_reads(query);
+                    let is_asset_output = self
+                        .get_associated_asset_from_obj_name(&create_table.name, Some(W))
+                        .is_some();
+                    self.handle_query_reads(query, is_asset_output);
                 }
             }
 
             sqlparser::ast::Statement::CreateView { name, query, .. } => {
                 self.track_table_definition(name);
-                self.handle_query_reads(query);
+                let is_asset_output = self
+                    .get_associated_asset_from_obj_name(name, Some(W))
+                    .is_some();
+                self.handle_query_reads(query, is_asset_output);
             }
 
             // DROP TABLE/VIEW is a write to the dropped object — the
@@ -2191,6 +2210,44 @@ mod ctas_read_tests {
         // Inferred `id` survives; inferred `order_total` dropped (no dup).
         assert!(got.iter().any(|c| c.column == "id"));
         assert_eq!(got.iter().filter(|c| c.column == "order_total").count(), 1);
+    }
+
+    #[test]
+    fn test_infer_lineage_skips_local_staging_ctas() {
+        // A CTAS into a TEMP/local table is NOT the materialized output, so its
+        // columns must not be reported (they'd be anchored to the script's
+        // `// materialize` target as if they were the final asset's columns).
+        // The final SELECT reads the local staging table → unresolved → empty.
+        let input = r#"
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TEMP TABLE tmp AS SELECT dl.orders.amount AS amt FROM dl.orders;
+            SELECT amt AS total FROM tmp;
+        "#;
+        assert!(
+            lineage(input).is_empty(),
+            "staging columns must not be reported as final output; got {:?}",
+            lineage(input)
+        );
+    }
+
+    #[test]
+    fn test_infer_lineage_ctas_into_asset_still_inferred() {
+        // A CTAS whose target IS an asset is the output, so it's still inferred.
+        let input = r#"
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TABLE dl.orders_daily AS SELECT dl.orders.amount AS amt FROM dl.orders;
+        "#;
+        assert_eq!(
+            lineage(input),
+            vec![ColumnLineage {
+                column: "amt".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "warehouse/orders".to_string(),
+                    from_column: "amount".to_string(),
+                }],
+            }]
+        );
     }
 
     #[test]
