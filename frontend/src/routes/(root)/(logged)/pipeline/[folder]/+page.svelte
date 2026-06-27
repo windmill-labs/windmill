@@ -1985,13 +1985,14 @@
 	}
 	// Pipeline-wide column-lineage graph, stitched across every producer's
 	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
-	// the transitive column trace in the details pane. Built from the resolved
-	// graph (incl. live draft overlays), so the trace is live-aware. Gated to a
+	// the transitive column trace in the details pane. Built from `displayGraph`
+	// — the exact graph the canvas renders — so the trace matches it: draft
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to a
 	// ducklake-asset selection so it isn't rebuilt on every editor keystroke when
 	// the trace UI isn't even shown.
 	let columnGraph = $derived(
 		selection?.kind === 'asset' && selection.asset_kind === 'ducklake'
-			? buildColumnGraph(graphWithDraft)
+			? buildColumnGraph(displayGraph)
 			: EMPTY_COLUMN_GRAPH
 	)
 
