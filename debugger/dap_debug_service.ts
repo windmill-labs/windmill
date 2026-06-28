@@ -149,6 +149,22 @@ const logger = {
 const WINDMILL_BASE_URL = process.env.WINDMILL_BASE_URL || process.env.BASE_INTERNAL_URL // e.g., http://localhost:8000
 const REQUIRE_SIGNED_REQUESTS = process.env.REQUIRE_SIGNED_DEBUG_REQUESTS !== 'false'
 
+// Opt-in cross-origin protection (CSWSH defense-in-depth). When
+// DEBUG_ALLOWED_ORIGINS is set (comma-separated list of origins), browser
+// requests carrying a non-matching Origin header are rejected at the
+// handshake. Non-browser clients send no Origin and are unaffected; code
+// execution is independently gated by signed-token verification on launch.
+const ALLOWED_ORIGINS = (process.env.DEBUG_ALLOWED_ORIGINS || '')
+	.split(',')
+	.map(o => o.trim())
+	.filter(Boolean)
+
+function isOriginRejected(req: Request): boolean {
+	const origin = req.headers.get('origin')
+	if (!origin || ALLOWED_ORIGINS.length === 0) return false
+	return !ALLOWED_ORIGINS.includes(origin)
+}
+
 interface JWK {
 	kty: string
 	crv: string
@@ -897,9 +913,18 @@ class PythonDebugSession extends BaseDebugSession {
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
 
-		// Verify JWT token if code is provided (signed debug request)
-		// The token is passed in the launch arguments
-		if (code && REQUIRE_SIGNED_REQUESTS) {
+		// Enforce signing on every launch. The token is passed in the launch
+		// arguments and is verified against the inline `code` (see windmill-api-debug).
+		if (REQUIRE_SIGNED_REQUESTS) {
+			// The backend only signs inline `code`; a `program`-mode launch names an
+			// arbitrary server-side file path that gets read and executed and is never
+			// signed. Refuse it so it cannot bypass token verification entirely.
+			if (this.scriptPath) {
+				logger.error('Rejected program-mode launch: only signed inline code is permitted')
+				this.sendResponse(request, false, {}, 'program-mode launch is not permitted; submit signed code instead')
+				return
+			}
+
 			const token = args.token as string | undefined
 			if (!token) {
 				logger.error('No debug token provided but signed requests are required')
@@ -907,7 +932,7 @@ class PythonDebugSession extends BaseDebugSession {
 				return
 			}
 
-			const verificationError = await verifyDebugToken(token, code)
+			const verificationError = await verifyDebugToken(token, code ?? '')
 			if (verificationError) {
 				logger.error(`Token verification failed: ${verificationError}`)
 				this.sendResponse(request, false, {}, `Token verification failed: ${verificationError}`)
@@ -1066,6 +1091,11 @@ const server = Bun.serve({
 	fetch(req, server) {
 		const url = new URL(req.url)
 		const path = url.pathname
+
+		if (isOriginRejected(req)) {
+			logger.warn(`Rejected request from disallowed origin: ${req.headers.get('origin')}`)
+			return new Response('Forbidden origin', { status: 403 })
+		}
 
 		// Handle WebSocket upgrade with path-based routing
 		if (server.upgrade(req, { data: { path } })) {
