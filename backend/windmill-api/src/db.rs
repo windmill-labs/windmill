@@ -294,6 +294,12 @@ pub async fn migrate(
         // idempotent, so re-applying on an already-migrated DB is a no-op.
         20260423050000,
         20260523055641,
+        // Reworked to stop reading pg_authid (via pg_has_role) from an elevated
+        // context, which managed providers (e.g. Cloud SQL) forbid — the original
+        // aborted startup. The new file is idempotent (CREATE OR REPLACE + an
+        // epoch-guarded UPDATE that no-ops once anchored), so re-applying on an
+        // already-migrated DB is safe.
+        20260626132251,
     ];
     for m in migrator.migrations.iter() {
         if m.migration_type.is_down_migration() {
