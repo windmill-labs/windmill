@@ -6,7 +6,15 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
-	import { Plus, Code2, LayoutDashboard, ChevronRight, Loader2, Workflow } from 'lucide-svelte'
+	import {
+		Plus,
+		Code2,
+		LayoutDashboard,
+		ChevronRight,
+		Loader2,
+		Workflow,
+		Import
+	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
@@ -343,7 +351,12 @@
 							{#if active.extras}
 								<div class="flex flex-row flex-wrap gap-2">
 									{#each active.extras as extra (extra.label)}
-										<Button unifiedSize="sm" variant="subtle" onClick={() => extra.onSelect()}>
+										<Button
+											unifiedSize="sm"
+											variant="default"
+											startIcon={{ icon: Import }}
+											onClick={() => extra.onSelect()}
+										>
 											{extra.label}
 										</Button>
 									{/each}
@@ -355,9 +368,12 @@
 
 				<!-- option list -->
 				<div class="flex flex-col gap-0.5 p-2 w-[21rem] shrink-0">
-					{#each allOptions as option (option.key)}
+					{#each allOptions as option, i (option.key)}
 						{@const ac = accentClasses[option.accent]}
 						{@const isActive = option.key === activeKey}
+						{#if option.badge && !allOptions[i - 1]?.badge}
+							<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+						{/if}
 						<button
 							class="flex flex-row items-center gap-3 rounded-md border px-2 py-2 text-left cursor-pointer transition-colors {isActive
 								? `${ac.activeBg} ${ac.activeBorder}`
