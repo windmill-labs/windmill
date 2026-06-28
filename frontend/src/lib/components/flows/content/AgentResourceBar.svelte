@@ -5,7 +5,7 @@
 	import { ResourceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, Save, Unlink, Pencil } from 'lucide-svelte'
+	import { Bot, Save, Unlink, Pencil, TriangleAlert } from 'lucide-svelte'
 	import {
 		AGENT_FLOW_LOCAL_KEYS,
 		agentConfigToInputTransforms,
@@ -14,6 +14,7 @@
 		type AIAgentConfig,
 		type AgentTool
 	} from '../agentResourceUtils'
+	import { resource } from 'runed'
 
 	let {
 		agent = $bindable(),
@@ -34,12 +35,52 @@
 	let saving = $state(false)
 	let pickerValue: string | undefined = $state(undefined)
 
-	// Link the step as soon as a saved agent is picked.
+	type LinkedInfo = { tools: AgentTool[]; providerPath?: string; providerOk: boolean }
+
+	// A linked agent is rigid and read-only: its brain, tools and evals come from the resource. We
+	// load them here for display, and probe the provider resource so we can warn when it isn't
+	// accessible in this workspace (the user then needs to unlink/fork or gain access).
+	let linkedResource = resource(
+		() => ({ ws: $workspaceStore, path: agent }),
+		async ({ ws, path }): Promise<LinkedInfo> => {
+			if (!ws || !path) {
+				return { tools: [], providerOk: true }
+			}
+			const res = await ResourceService.getResource({ workspace: ws, path })
+			const cfg = (res.value ?? {}) as AIAgentConfig & { provider?: { resource?: string } }
+			const tools = (cfg.tools ?? []) as AgentTool[]
+			const providerRef = cfg.provider?.resource
+			const providerPath =
+				typeof providerRef === 'string' && providerRef
+					? providerRef.replace(/^\$res:/, '').replace(/^res:\/\//, '')
+					: undefined
+			let providerOk = true
+			if (providerPath) {
+				try {
+					await ResourceService.getResource({ workspace: ws, path: providerPath })
+				} catch {
+					providerOk = false
+				}
+			}
+			return { tools, providerPath, providerOk }
+		}
+	)
+	let inheritedTools = $derived(linkedResource.current?.tools ?? [])
+	let providerPath = $derived(linkedResource.current?.providerPath)
+	let providerOk = $derived(linkedResource.current?.providerOk ?? true)
+
+	// Link the step as soon as a saved agent is picked. Linking is rigid, so the step keeps no tools
+	// of its own — they come from the resource.
 	$effect(() => {
 		if (pickerValue && pickerValue !== agent) {
 			agent = pickerValue
+			tools = []
 		}
 	})
+
+	function toolLabel(tool: AgentTool): string {
+		return tool.summary || tool.value?.tool_type || tool.id
+	}
 
 	function openSave() {
 		newPath = ''
@@ -73,6 +114,8 @@
 				}
 			})
 			agent = newPath
+			// The tools now live in the resource; a linked step keeps none of its own.
+			tools = []
 			saveDrawer?.closeDrawer()
 			sendUserToast(`Saved reusable agent ${newPath}`)
 		} catch (e) {
@@ -82,6 +125,8 @@
 		}
 	}
 
+	// Unlink forks the agent: the resource's brain + tools are copied into the step, which becomes a
+	// standalone, editable agent again. This is the only way to diverge from a saved agent.
 	async function unlink() {
 		if (!$workspaceStore || !agent) {
 			return
@@ -101,7 +146,7 @@
 			tools = cfg.tools ?? []
 			agent = undefined
 			pickerValue = undefined
-			sendUserToast('Unlinked agent — config copied into the step')
+			sendUserToast('Forked agent — its configuration was copied into this step')
 		} catch (e) {
 			sendUserToast(`Failed to unlink agent: ${e}`, true)
 		}
@@ -128,9 +173,35 @@
 			</div>
 		</div>
 		<p class="text-2xs text-tertiary mt-1">
-			The agent brain and tools come from this resource. Only the message/inputs below are set in
-			this flow.
+			The brain, tools and evals come from this resource and can't be edited here. Only the
+			message/inputs below are set in this flow. Unlink to fork it into an editable step.
 		</p>
+		{#if inheritedTools.length > 0}
+			<div class="mt-1 flex flex-wrap items-center gap-1">
+				<span class="text-2xs text-tertiary">Tools:</span>
+				{#each inheritedTools as tool (tool.id)}
+					<span
+						class="inline-flex items-center rounded border border-border bg-surface px-1.5 py-0.5 text-2xs text-secondary"
+						title={tool.id}
+					>
+						{toolLabel(tool)}
+					</span>
+				{/each}
+			</div>
+		{/if}
+		{#if !providerOk}
+			<div
+				class="mt-1 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-2xs text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300"
+			>
+				<TriangleAlert size={14} class="mt-0.5 shrink-0" />
+				<span>
+					This agent's model provider{#if providerPath}
+						(<span class="font-medium">{providerPath}</span>){/if} isn't accessible in this workspace.
+					Unlink to fork the agent, or gain access to the provider resource{#if providerPath}
+						at <span class="font-medium">{providerPath}</span>{/if}.
+				</span>
+			</div>
+		{/if}
 	{:else}
 		<div class="flex items-center gap-2">
 			<div class="grow min-w-0">
@@ -160,11 +231,7 @@
 			/>
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="text-secondary">Description</span>
-				<input
-					class="text-xs"
-					bind:value={description}
-					placeholder="What this agent does"
-				/>
+				<input class="text-xs" bind:value={description} placeholder="What this agent does" />
 			</label>
 		</div>
 		{#snippet actions()}

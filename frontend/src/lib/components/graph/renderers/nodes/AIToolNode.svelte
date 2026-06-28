@@ -200,7 +200,10 @@
 			allToolEdges.push(...(toolEdges ?? []))
 			allToolNodes.push(...(toolNodes ?? []))
 
-			if (insertable) {
+			// A linked agent is rigid: its tools come from the resource and can't be edited here, so
+			// don't offer the "add tool" node (unlink/fork the step to change tools).
+			const isLinkedAgent = !!(node.data.module.value as { agent?: string }).agent
+			if (insertable && !isLinkedAgent) {
 				allToolNodes.push({
 					type: 'newAiTool',
 					data: { eventHandlers, agentModuleId: node.data.module.id },

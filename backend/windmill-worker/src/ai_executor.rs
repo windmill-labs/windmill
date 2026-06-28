@@ -255,8 +255,9 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
-    let FlowModuleValue::AIAgent { tools: module_tools, omit_output_from_conversation, agent, .. } =
-        module.get_value()?
+    let FlowModuleValue::AIAgent {
+        tools: module_tools, omit_output_from_conversation, agent, ..
+    } = module.get_value()?
     else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
@@ -280,7 +281,9 @@ pub async fn handle_ai_agent_job(
             )
             .await
             .map_err(|e| {
-                Error::internal_err(format!("failed to load ai_agent resource {agent_path}: {e}"))
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
             })?;
         let mut config = match resource_value {
             serde_json::Value::Object(map) => map,
@@ -299,9 +302,13 @@ pub async fn handle_ai_agent_job(
                 );
             }
         }
+        // A linked agent is rigid: brain and tools come wholly from the resource. To diverge, the
+        // step must be unlinked (forked), at which point the config is copied into the step.
         let tools = match config.remove("tools") {
             Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
-                Error::internal_err(format!("invalid tools in ai_agent resource {agent_path}: {e}"))
+                Error::internal_err(format!(
+                    "invalid tools in ai_agent resource {agent_path}: {e}"
+                ))
             })?,
             None => Vec::new(),
         };
