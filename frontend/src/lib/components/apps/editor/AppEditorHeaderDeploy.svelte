@@ -16,6 +16,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
@@ -38,6 +39,7 @@
 		newPath,
 		hideSecretUrl = false,
 		preserveOnBehalfOf = $bindable(false),
+		labels = $bindable(),
 		rawApp = false,
 		newApp = false
 	}: {
@@ -55,6 +57,7 @@
 		newPath: string
 		hideSecretUrl?: boolean
 		preserveOnBehalfOf?: boolean
+		labels?: string[] | undefined
 		// Raw apps need cross-origin isolation (wm_coep) to be embeddable. Classic
 		// (low-code) apps must NOT get the flag — it would force COEP on the
 		// document and break no-CORP cross-origin subresources (external images,
@@ -201,6 +204,8 @@
 		bind:value={summary}
 	/>
 </div>
+<div class="pt-3"></div>
+<LabelsInput bind:labels class="-mt-4" />
 <div class="py-6"></div>
 <label for="deploymentMsg" class="text-emphasis text-xs font-semibold">Deployment message</label>
 <div class="w-full pt-1">

@@ -88,6 +88,7 @@
 					summary: string
 					policy: any
 					custom_path?: string
+					labels?: string[]
 			  }
 			| undefined
 		version?: number | undefined
@@ -96,6 +97,8 @@
 		bottomPanelHidden?: boolean
 		newApp: boolean
 		newPath?: string
+		/** Initial labels for the app, threaded from the loaded app data via AppEditor. */
+		labels?: string[]
 		/** URL path the draft is keyed under; empty on `/apps/add` (no draft yet). */
 		userDraftPath?: string
 		onSavedNewAppPath?: (path: string) => void
@@ -125,6 +128,7 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
+		labels: initialLabels = undefined,
 		userDraftPath = '',
 		onSavedNewAppPath,
 		onShowLeftPanel,
@@ -256,7 +260,8 @@
 					policy,
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
-					preserve_on_behalf_of: preserveOnBehalfOf || undefined
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+					labels
 				}
 			})
 			// New path now exists server-side — drop the autocomplete cache so
@@ -267,7 +272,8 @@
 				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
-				custom_path: customPath
+				custom_path: customPath,
+				labels: $state.snapshot(labels)
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -310,7 +316,8 @@
 							value: $app,
 							path: newEditedPath || savedApp.path,
 							policy,
-							custom_path: customPath
+							custom_path: customPath,
+							labels
 						})
 					)
 			) {
@@ -361,7 +368,8 @@
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
 					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
-				preserve_on_behalf_of: preserveOnBehalfOf || undefined
+				preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+				labels
 			}
 		})
 		invalidateWorkspacePaths($workspaceStore!)
@@ -370,7 +378,8 @@
 			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			labels: $state.snapshot(labels)
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
 			workspace: $workspaceStore!,
@@ -624,7 +633,8 @@
 						value: $app,
 						path: newEditedPath || savedApp.path,
 						policy,
-						custom_path: customPath
+						custom_path: customPath,
+						labels
 					}
 				})
 			},
@@ -723,6 +733,7 @@
 	})
 
 	let customPath = $state(savedApp?.custom_path)
+	let labels = $state(untrack(() => initialLabels))
 
 	$effect(() => {
 		if ($openDebugRun == undefined) {
@@ -752,7 +763,8 @@
 		value: $app,
 		path: newEditedPath || savedApp?.path,
 		policy,
-		custom_path: customPath
+		custom_path: customPath,
+		labels
 	}}
 />
 
@@ -849,6 +861,7 @@
 			bind:pathError
 			bind:newEditedPath
 			bind:preserveOnBehalfOf
+			bind:labels
 			hideSecretUrl={false}
 		/>
 	</DrawerContent>
