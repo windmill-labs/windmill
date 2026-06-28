@@ -2,14 +2,30 @@
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { Button } from '$lib/components/common'
-	import { Plus, Code2, LayoutDashboard, ChevronRight } from 'lucide-svelte'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import { Plus, Code2, LayoutDashboard, ChevronRight, Loader2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
+	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
+	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
+	import { importStore } from '$lib/components/apps/store'
+	import YAML from 'yaml'
 
 	type Variant = {
 		label: string
 		icon: typeof PythonIcon
+		onSelect: () => void
+	}
+
+	/** an importable artifact kind handled by the shared YAML/JSON import drawer */
+	type ImportKind = 'flow' | 'wac' | 'app-lowcode' | 'app-fullcode'
+
+	type Extra = {
+		label: string
 		onSelect: () => void
 	}
 
@@ -27,6 +43,8 @@
 		variants?: Variant[]
 		/** optional pill shown next to the label; class is the full static tailwind tone */
 		badge?: { label: string; class: string }
+		/** secondary actions (import from YAML/JSON, pipeline, …) shown in the detail panel */
+		extras?: Extra[]
 	}
 
 	// kept static so tailwind doesn't purge the badge tones
@@ -64,7 +82,11 @@
 							'Branches, loops & error handling',
 							'Suspend / approval steps'
 						],
-						onSelect: () => goto(`${base}/flows/add`)
+						onSelect: () => goto(`${base}/flows/add`),
+						extras: [
+							{ label: 'Import flow', onSelect: () => openImport('flow') },
+							{ label: 'Pipeline (alpha)', onSelect: () => goto(`${base}/pipeline`) }
+						]
 					}
 				] as Option[])
 			: []),
@@ -79,7 +101,8 @@
 						description:
 							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
 						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
-						onSelect: () => goto(`${base}/apps_raw/add`)
+						onSelect: () => goto(`${base}/apps_raw/add`),
+						extras: [{ label: 'Import full-code app', onSelect: () => openImport('app-fullcode') }]
 					}
 				] as Option[])
 			: []),
@@ -111,7 +134,8 @@
 								icon: PythonIcon,
 								onSelect: () => goto(`${base}/scripts/add?wac=python`)
 							}
-						]
+						],
+						extras: [{ label: 'Import Workflow-as-Code', onSelect: () => openImport('wac') }]
 					}
 				] as Option[])
 			: []),
@@ -127,7 +151,8 @@
 							'Assemble an internal UI from 60+ components wired to your scripts and flows. Best for simple apps or apps that need minimal customization.',
 						bullets: ['60+ ready-made components', 'No code required', 'Backed by scripts & flows'],
 						onSelect: () => goto(`${base}/apps/add`),
-						badge: { label: 'Legacy', class: badgeLegacy }
+						badge: { label: 'Legacy', class: badgeLegacy },
+						extras: [{ label: 'Import low-code app', onSelect: () => openImport('app-lowcode') }]
 					}
 				] as Option[])
 			: [])
@@ -177,6 +202,47 @@
 	function scheduleClose() {
 		if (closeTimeout) clearTimeout(closeTimeout)
 		closeTimeout = setTimeout(() => (open = false), 120)
+	}
+
+	// shared YAML/JSON import drawer, reused by every "Import …" extra
+	let importDrawer: Drawer | undefined = $state(undefined)
+	let importKind: ImportKind = $state('flow')
+	let importType: 'yaml' | 'json' = $state('yaml')
+	let importRaw: string = $state('')
+
+	const importTitles: Record<ImportKind, string> = {
+		flow: 'Import flow',
+		wac: 'Import Workflow-as-Code',
+		'app-lowcode': 'Import low-code app',
+		'app-fullcode': 'Import full-code app'
+	}
+
+	function openImport(kind: ImportKind) {
+		importKind = kind
+		importType = 'yaml'
+		importRaw = ''
+		open = false
+		importDrawer?.openDrawer?.()
+	}
+
+	async function runImport() {
+		const parsed = importType === 'yaml' ? YAML.parse(importRaw) : JSON.parse(importRaw)
+		if (importKind === 'flow') {
+			importFlowStore.set(parsed)
+			await goto(`${base}/flows/add`)
+		} else if (importKind === 'wac') {
+			importScriptStore.set(parsed)
+			await goto(`${base}/scripts/add?import=true`)
+		} else if (importKind === 'app-fullcode') {
+			// /apps_raw/add does a full reload (cross-origin isolation), so the in-memory
+			// store would be lost — hand the payload over via sessionStorage instead.
+			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
+			await goto(`${base}/apps_raw/add`)
+		} else {
+			importStore.set(parsed)
+			await goto(`${base}/apps/add`)
+		}
+		importDrawer?.closeDrawer?.()
 	}
 </script>
 
@@ -241,15 +307,28 @@
 						{/each}
 					</ul>
 
-					{#if active.variants}
-						<div class="mt-auto flex flex-row gap-2 pt-2">
-							{#each active.variants as variant (variant.label)}
-								{@const VariantIcon = variant.icon}
-								<Button unifiedSize="sm" variant="accent" onClick={() => variant.onSelect()}>
-									<VariantIcon width={16} height={16} />
-									{variant.label}
-								</Button>
-							{/each}
+					{#if active.variants || active.extras}
+						<div class="mt-auto flex flex-col gap-2 pt-2">
+							{#if active.variants}
+								<div class="flex flex-row flex-wrap gap-2">
+									{#each active.variants as variant (variant.label)}
+										{@const VariantIcon = variant.icon}
+										<Button unifiedSize="sm" variant="accent" onClick={() => variant.onSelect()}>
+											<VariantIcon width={16} height={16} />
+											{variant.label}
+										</Button>
+									{/each}
+								</div>
+							{/if}
+							{#if active.extras}
+								<div class="flex flex-row flex-wrap gap-2">
+									{#each active.extras as extra (extra.label)}
+										<Button unifiedSize="sm" variant="subtle" onClick={() => extra.onSelect()}>
+											{extra.label}
+										</Button>
+									{/each}
+								</div>
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -295,3 +374,32 @@
 		</div>
 	{/if}
 </div>
+
+<!-- shared import drawer (YAML / JSON) for the detail-panel "Import …" actions -->
+<Drawer bind:this={importDrawer} size="800px">
+	<DrawerContent title={importTitles[importKind]} on:close={() => importDrawer?.closeDrawer?.()}>
+		<Tabs bind:selected={importType}>
+			<Tab value="yaml" label="YAML" />
+			<Tab value="json" label="JSON" />
+			{#snippet content()}
+				<div class="relative pt-2 h-full">
+					{#key importType}
+						{#await import('$lib/components/SimpleEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								bind:code={importRaw}
+								lang={importType}
+								class="h-full"
+								fixedOverflowWidgets={false}
+							/>
+						{/await}
+					{/key}
+				</div>
+			{/snippet}
+		</Tabs>
+		{#snippet actions()}
+			<Button size="sm" onClick={runImport}>Import</Button>
+		{/snippet}
+	</DrawerContent>
+</Drawer>
