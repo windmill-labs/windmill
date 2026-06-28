@@ -25,7 +25,13 @@
 		onSelect: () => void
 		/** optional sub-choices shown in place of the single create button */
 		variants?: Variant[]
+		/** optional pill shown next to the label; class is the full static tailwind tone */
+		badge?: { label: string; class: string }
 	}
+
+	// kept static so tailwind doesn't purge the badge tones
+	const badgeAdvanced = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+	const badgeLegacy = 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
 
 	const allOptions: Option[] = [
 		{
@@ -74,6 +80,7 @@
 							'Versioned as a regular script'
 						],
 						onSelect: () => goto(`${base}/scripts/add?wac=typescript`),
+						badge: { label: 'Advanced', class: badgeAdvanced },
 						variants: [
 							{
 								label: 'TypeScript',
@@ -100,7 +107,8 @@
 						description:
 							'Assemble an internal UI from 60+ components wired to your scripts and flows. Best for simple apps or apps that need minimal customization.',
 						bullets: ['60+ ready-made components', 'No code required', 'Backed by scripts & flows'],
-						onSelect: () => goto(`${base}/apps/add`)
+						onSelect: () => goto(`${base}/apps/add`),
+						badge: { label: 'Legacy', class: badgeLegacy }
 					},
 					{
 						key: 'app-fullcode',
@@ -188,7 +196,7 @@
 		<div class="absolute right-0 top-full z-50 pt-2" role="menu" tabindex="-1">
 			<div
 				class="flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl overflow-hidden"
-				style="width: 720px;"
+				style="width: 780px;"
 			>
 				<!-- explanation of the highlighted editor -->
 				<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
@@ -199,7 +207,17 @@
 							<active.icon size={26} class={activeAc.iconText} />
 						</div>
 						<div class="min-w-0">
-							<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
+							<div class="flex flex-row items-center gap-2">
+								<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
+								{#if active.badge}
+									<span
+										class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {active
+											.badge.class}"
+									>
+										{active.badge.label}
+									</span>
+								{/if}
+							</div>
 							<p class="text-xs text-tertiary">{active.tagline}</p>
 						</div>
 					</div>
@@ -229,7 +247,7 @@
 				</div>
 
 				<!-- option list -->
-				<div class="flex flex-col gap-0.5 p-2 w-72 shrink-0">
+				<div class="flex flex-col gap-0.5 p-2 w-[21rem] shrink-0">
 					{#each allOptions as option (option.key)}
 						{@const ac = accentClasses[option.accent]}
 						{@const isActive = option.key === activeKey}
@@ -248,6 +266,14 @@
 							<span class="text-sm font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
 								{option.label}
 							</span>
+							{#if option.badge}
+								<span
+									class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {option
+										.badge.class}"
+								>
+									{option.badge.label}
+								</span>
+							{/if}
 							<ChevronRight
 								size={16}
 								class="transition-opacity {isActive
