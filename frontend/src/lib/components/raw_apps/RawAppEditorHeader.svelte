@@ -102,6 +102,7 @@
 					summary: string
 					policy: any
 					custom_path?: string
+					labels?: string[]
 					/** No deployed counterpart exists (draft-only); disables Diff. */
 					no_deployed?: boolean
 			  }
@@ -109,6 +110,8 @@
 		version?: number | undefined
 		newApp: boolean
 		newPath?: string
+		/** Initial labels for the app, threaded from the loaded app data. */
+		labels?: string[]
 		appPath: string
 		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
@@ -169,6 +172,7 @@
 		version = $bindable(undefined),
 		newApp,
 		newPath = '',
+		labels: initialLabels = undefined,
 		appPath,
 		runnables,
 		data,
@@ -331,7 +335,8 @@
 						policy,
 						deployment_message: deploymentMsg,
 						custom_path: customPath,
-						preserve_on_behalf_of: preserveOnBehalfOf || undefined
+						preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+						labels
 					},
 					js,
 					css
@@ -345,7 +350,8 @@
 				value: structuredClone(stateSnapshot(app)),
 				path: path,
 				policy: policy,
-				custom_path: customPath
+				custom_path: customPath,
+				labels: $state.snapshot(labels)
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -454,7 +460,8 @@
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
-						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
+						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+					labels
 				},
 				js,
 				css
@@ -466,7 +473,8 @@
 			value: structuredClone(stateSnapshot(app)),
 			path: npath,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			labels: $state.snapshot(labels)
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
 			workspace: $workspaceStore!,
@@ -587,6 +595,7 @@
 
 	let customPath = $state(savedApp?.custom_path)
 	let customPathError = $state('')
+	let labels = $state(untrack(() => initialLabels))
 
 	let jobsDrawerOpen = $state(false)
 
@@ -600,7 +609,8 @@
 			value: app,
 			path: newEditedPath || savedApp?.path,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			labels
 		})
 	)
 
@@ -690,6 +700,7 @@
 			bind:pathError
 			bind:newEditedPath
 			bind:preserveOnBehalfOf
+			bind:labels
 		/>
 	</DrawerContent>
 </Drawer>

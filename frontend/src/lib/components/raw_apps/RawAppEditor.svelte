@@ -71,6 +71,8 @@
 		summary?: string
 		path: string
 		newPath?: string | undefined
+		/** Initial labels for the app, threaded from the loaded app data. */
+		labels?: string[]
 		savedApp?:
 			| {
 					value: any
@@ -82,6 +84,7 @@
 					/** No deployed counterpart exists (draft-only); disables Diff. */
 					no_deployed?: boolean
 					custom_path?: string
+					labels?: string[]
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
@@ -140,6 +143,7 @@
 		summary = $bindable(''),
 		path,
 		newPath = undefined,
+		labels = undefined,
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
 		onNavigate,
@@ -1612,6 +1616,7 @@
 		{diffDrawer}
 		{newApp}
 		{newPath}
+		{labels}
 		appPath={path}
 		{liveEditorDraftStoragePath}
 		{autosaveWorkspace}

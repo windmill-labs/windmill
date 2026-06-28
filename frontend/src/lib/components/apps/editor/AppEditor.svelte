@@ -69,6 +69,7 @@
 		path,
 		policy,
 		summary,
+		labels,
 		deployedBaseline = undefined,
 		fromHub = false,
 		diffDrawer = undefined,
@@ -886,6 +887,7 @@
 		<AppEditorHeader
 			{newPath}
 			{newApp}
+			{labels}
 			userDraftPath={appDraftPath}
 			{onResetToDeployed}
 			{loadedFromDraft}
