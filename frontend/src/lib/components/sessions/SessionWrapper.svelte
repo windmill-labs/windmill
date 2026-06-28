@@ -473,6 +473,7 @@
 						/>
 					{:else if session.target.kind === 'pipeline'}
 						<PipelineEditorView
+							{runtime}
 							path={session.target.path}
 							workspaceId={effectiveWorkspaceId}
 							isActiveSession={sessionState.currentSessionId === sessionId}

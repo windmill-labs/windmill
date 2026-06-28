@@ -54,6 +54,21 @@ export class PipelineEditorState {
 	 * autosave hydrate when persistence is enabled. */
 	loadedFromDbDraft = $state(false)
 
+	/** Folder this state is scoped to. Used by the in-session preview (where one
+	 * instance is reused across editor hide/show) to detect a retarget to a
+	 * different folder and reset, so stale drafts don't bleed across folders. */
+	folder = $state<string | undefined>(undefined)
+
+	/** Clear all in-flight state. Used when the session preview retargets a
+	 * different pipeline folder (a same-folder remount keeps the drafts). */
+	reset = () => {
+		this.drafts = new Map()
+		this.activeDraftPath = undefined
+		this.selection = undefined
+		this.clearLiveOverlays()
+		this.loadedFromDbDraft = false
+	}
+
 	#nextDraftLocalId = 0
 	// Arrow fields so `pe.method` can be passed straight as a callback (the
 	// details pane takes onDraftPersist / onAnnotationsChange / … by reference).

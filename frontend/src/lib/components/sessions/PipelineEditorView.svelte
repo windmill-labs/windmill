@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
+	import { untrack } from 'svelte'
 	import { Loader2, Workflow } from 'lucide-svelte'
 	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
@@ -10,13 +11,17 @@
 	} from '$lib/components/assets/AssetGraph/types'
 	import { AssetService, type AssetKind } from '$lib/gen'
 	import { createPipelineAiHelpers } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
-	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+	import type { SessionRuntime } from './sessionRuntime.svelte'
 
 	let {
+		runtime,
 		path,
 		workspaceId,
 		isActiveSession = true
 	}: {
+		/** Per-session runtime; owns the pipeline editor state so it survives the
+		 * editor pane unmounting on hide/show. */
+		runtime: SessionRuntime
 		/** Folder name the pipeline graph is scoped to (not a workspace item path). */
 		path: string
 		workspaceId: string
@@ -27,8 +32,22 @@
 	// The session's scoped chat manager (falls back to the singleton off-session).
 	const aiChatManager = getAiChatManager()
 
-	// Externalized editor state — the same store the route page editor uses.
-	const pe = new PipelineEditorState()
+	// Externalized editor state — lives on the runtime so the drafts persist across
+	// hide/show of the preview pane (the pane unmounts on hide).
+	const pe = runtime.pipelineEditorState
+
+	// The reused `pe` is scoped to a folder. A same-folder remount (hide→show)
+	// keeps the drafts; a retarget to a different folder resets so stale drafts
+	// don't bleed across folders. untrack the writes so this can't self-loop.
+	$effect(() => {
+		const folder = path
+		untrack(() => {
+			if (pe.folder !== folder) {
+				if (pe.folder !== undefined) pe.reset()
+				pe.folder = folder
+			}
+		})
+	})
 
 	const EMPTY_GRAPH: AssetGraphResponse = { assets: [], runnables: [], edges: [], triggers: [] }
 	const EMPTY_PATH_MAP = new Map<string, Array<{ kind: AssetKind; path: string }>>()
