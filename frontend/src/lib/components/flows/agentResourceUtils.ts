@@ -100,6 +100,46 @@ export function flowLocalAgentSchema(schema: any): any {
 	}
 }
 
+const AGENT_BRAIN_LABELS: Record<string, string> = {
+	provider: 'Model',
+	output_type: 'Output type',
+	system_prompt: 'System prompt',
+	streaming: 'Streaming',
+	memory: 'Memory',
+	output_schema: 'Output schema',
+	max_completion_tokens: 'Max tokens',
+	temperature: 'Temperature',
+	max_iterations: 'Max iterations'
+}
+
+/** Flatten a saved agent's brain config into human-readable label/value rows for a read-only
+ * display on a linked step. Only set fields are returned, in the canonical brain-key order. */
+export function summarizeAgentBrain(
+	config: AIAgentConfig | undefined
+): { label: string; value: string }[] {
+	const rows: { label: string; value: string }[] = []
+	for (const key of AGENT_BRAIN_KEYS) {
+		const v = (config as any)?.[key]
+		if (v === undefined || v === null || v === '') continue
+		let value: string
+		if (key === 'provider') {
+			value = [v.kind, v.model].filter(Boolean).join(' · ') || 'configured'
+		} else if (key === 'memory') {
+			value = typeof v === 'object' ? (v.type ?? 'configured') : String(v)
+		} else if (key === 'output_schema') {
+			value = 'configured'
+		} else if (typeof v === 'boolean') {
+			value = v ? 'on' : 'off'
+		} else if (typeof v === 'object') {
+			value = JSON.stringify(v)
+		} else {
+			value = String(v)
+		}
+		rows.push({ label: AGENT_BRAIN_LABELS[key] ?? key, value })
+	}
+	return rows
+}
+
 /** Inverse: wrap brain config values as static input_transforms (used when unlinking a step). */
 export function agentConfigToInputTransforms(
 	config: AIAgentConfig

@@ -11,6 +11,7 @@
 		agentConfigToInputTransforms,
 		inputTransformsToAgentConfig,
 		nonStaticBrainKeys,
+		summarizeAgentBrain,
 		type AIAgentConfig,
 		type AgentTool
 	} from '../agentResourceUtils'
@@ -35,7 +36,12 @@
 	let saving = $state(false)
 	let pickerValue: string | undefined = $state(undefined)
 
-	type LinkedInfo = { tools: AgentTool[]; providerPath?: string; providerOk: boolean }
+	type LinkedInfo = {
+		config: AIAgentConfig
+		tools: AgentTool[]
+		providerPath?: string
+		providerOk: boolean
+	}
 
 	// A linked agent is rigid and read-only: its brain, tools and evals come from the resource. We
 	// load them here for display, and probe the provider resource so we can warn when it isn't
@@ -44,7 +50,7 @@
 		() => ({ ws: $workspaceStore, path: agent }),
 		async ({ ws, path }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
-				return { tools: [], providerOk: true }
+				return { config: {}, tools: [], providerOk: true }
 			}
 			const res = await ResourceService.getResource({ workspace: ws, path })
 			const cfg = (res.value ?? {}) as AIAgentConfig & { provider?: { resource?: string } }
@@ -62,10 +68,11 @@
 					providerOk = false
 				}
 			}
-			return { tools, providerPath, providerOk }
+			return { config: cfg, tools, providerPath, providerOk }
 		}
 	)
 	let inheritedTools = $derived(linkedResource.current?.tools ?? [])
+	let brainParams = $derived(summarizeAgentBrain(linkedResource.current?.config))
 	let providerPath = $derived(linkedResource.current?.providerPath)
 	let providerOk = $derived(linkedResource.current?.providerOk ?? true)
 
@@ -173,20 +180,37 @@
 			</div>
 		</div>
 		<p class="text-2xs text-tertiary mt-1">
-			The brain, tools and evals come from this resource and can't be edited here. Only the
-			message/inputs below are set in this flow. Unlink to fork it into an editable step.
+			The configuration below comes from this saved agent and is read-only. Only the message/inputs
+			are set in this flow. Unlink to fork it into an editable step.
 		</p>
-		{#if inheritedTools.length > 0}
-			<div class="mt-1 flex flex-wrap items-center gap-1">
-				<span class="text-2xs text-tertiary">Tools:</span>
-				{#each inheritedTools as tool (tool.id)}
-					<span
-						class="inline-flex items-center rounded border border-border bg-surface px-1.5 py-0.5 text-2xs text-secondary"
-						title={tool.id}
-					>
-						{toolLabel(tool)}
-					</span>
-				{/each}
+		{#if brainParams.length > 0 || inheritedTools.length > 0}
+			<div class="mt-1 rounded-md border border-border bg-surface-secondary px-3 py-2">
+				<div class="text-2xs font-medium text-tertiary uppercase tracking-wide">
+					From saved agent · read-only
+				</div>
+				<dl class="mt-1 flex flex-col gap-1">
+					{#each brainParams as param (param.label)}
+						<div class="flex items-baseline gap-2 text-2xs">
+							<dt class="text-tertiary shrink-0 w-28">{param.label}</dt>
+							<dd class="text-secondary truncate" title={param.value}>{param.value}</dd>
+						</div>
+					{/each}
+					{#if inheritedTools.length > 0}
+						<div class="flex items-baseline gap-2 text-2xs">
+							<dt class="text-tertiary shrink-0 w-28">Tools</dt>
+							<dd class="flex flex-wrap gap-1">
+								{#each inheritedTools as tool (tool.id)}
+									<span
+										class="inline-flex items-center rounded border border-border bg-surface px-1.5 py-0.5 text-secondary"
+										title={tool.id}
+									>
+										{toolLabel(tool)}
+									</span>
+								{/each}
+							</dd>
+						</div>
+					{/if}
+				</dl>
 			</div>
 		{/if}
 		{#if !providerOk}
