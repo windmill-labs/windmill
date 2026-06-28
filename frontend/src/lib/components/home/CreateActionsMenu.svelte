@@ -229,9 +229,7 @@
 				</div>
 
 				<!-- option list -->
-				<div
-					class="flex flex-col gap-0.5 p-2 w-72 shrink-0 border-l border-gray-200 dark:border-gray-700"
-				>
+				<div class="flex flex-col gap-0.5 p-2 w-72 shrink-0">
 					{#each allOptions as option (option.key)}
 						{@const ac = accentClasses[option.accent]}
 						{@const isActive = option.key === activeKey}
