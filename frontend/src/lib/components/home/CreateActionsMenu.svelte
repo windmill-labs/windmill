@@ -16,7 +16,7 @@
 	type Option = {
 		key: string
 		label: string
-		icon: typeof Code2
+		icon: typeof Code2 | typeof BarsStaggered
 		/** tailwind accent token used for the icon tile / hover border */
 		accent: string
 		tagline: string
@@ -65,7 +65,26 @@
 							'Suspend / approval steps'
 						],
 						onSelect: () => goto(`${base}/flows/add`)
-					},
+					}
+				] as Option[])
+			: []),
+		...(HOME_SHOW_CREATE_APP
+			? ([
+					{
+						key: 'app-fullcode',
+						label: 'App (full-code)',
+						icon: LayoutDashboard,
+						accent: 'purple',
+						tagline: 'Build with React or Svelte',
+						description:
+							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
+						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
+						onSelect: () => goto(`${base}/apps_raw/add`)
+					}
+				] as Option[])
+			: []),
+		...(HOME_SHOW_CREATE_FLOW
+			? ([
 					{
 						key: 'wac',
 						label: 'Workflow-as-Code',
@@ -109,17 +128,6 @@
 						bullets: ['60+ ready-made components', 'No code required', 'Backed by scripts & flows'],
 						onSelect: () => goto(`${base}/apps/add`),
 						badge: { label: 'Legacy', class: badgeLegacy }
-					},
-					{
-						key: 'app-fullcode',
-						label: 'App (full-code)',
-						icon: Code2,
-						accent: 'purple',
-						tagline: 'Build with React or Svelte',
-						description:
-							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
-						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
-						onSelect: () => goto(`${base}/apps_raw/add`)
 					}
 				] as Option[])
 			: [])
