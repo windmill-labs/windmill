@@ -145,7 +145,7 @@
 					},
 					{
 						key: 'pipeline',
-						label: 'Data pipelines editor',
+						label: 'Data pipelines',
 						icon: Workflow,
 						accent: 'indigo',
 						tagline: 'Compose data ingestion & transforms',
