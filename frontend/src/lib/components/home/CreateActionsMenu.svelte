@@ -174,10 +174,9 @@
 >
 	<Button
 		id="create-new-button"
-		btnClasses="text-base"
 		aiId="home-create-new"
 		aiDescription="Create a new script, flow or app"
-		unifiedSize="lg"
+		unifiedSize="md"
 		variant="accent"
 		startIcon={{ icon: Plus }}
 		onClick={() => active?.onSelect()}
@@ -253,7 +252,9 @@
 							</span>
 							<ChevronRight
 								size={16}
-								class="transition-opacity {isActive ? `opacity-100 ${ac.iconText}` : 'opacity-0 text-tertiary'}"
+								class="transition-opacity {isActive
+									? `opacity-100 ${ac.iconText}`
+									: 'opacity-0 text-tertiary'}"
 							/>
 						</button>
 					{/each}

@@ -285,11 +285,11 @@
 			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
 				Home
 			</h1>
-			<div class="ml-auto flex flex-row gap-2 items-start">
+			<div class="ml-auto flex flex-row gap-2 items-center">
 				{#if !$userStore?.operator && HOME_SHOW_HUB}
 					<Button
 						variant="default"
-						unifiedSize="sm"
+						unifiedSize="md"
 						startIcon={{ icon: Globe2 }}
 						endIcon={{ icon: ExternalLink }}
 						href={$hubBaseUrlStore}
@@ -301,7 +301,7 @@
 				{/if}
 				<Button
 					variant="default"
-					unifiedSize="sm"
+					unifiedSize="md"
 					startIcon={{ icon: PlugZap }}
 					btnClasses="whitespace-nowrap"
 					onClick={() => homeConnectDrawer?.openDrawer?.()}
@@ -309,7 +309,7 @@
 					CLI / MCP
 				</Button>
 				{#if !$userStore?.operator && showCreateButtons}
-					<div class="ml-4">
+					<div class="ml-2">
 						<CreateActionsMenu />
 					</div>
 				{/if}
