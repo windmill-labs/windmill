@@ -282,14 +282,10 @@
 			</Alert>
 		{/if}
 		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
-			{#if !$userStore?.operator && showCreateButtons}
-				<CreateActionsMenu />
-			{:else}
-				<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
-					Home
-				</h1>
-			{/if}
-			<div class="ml-auto flex flex-row gap-2 items-center">
+			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
+				Home
+			</h1>
+			<div class="ml-auto flex flex-row gap-2 items-start">
 				{#if !$userStore?.operator && HOME_SHOW_HUB}
 					<Button
 						variant="default"
@@ -312,6 +308,11 @@
 				>
 					CLI / MCP
 				</Button>
+				{#if !$userStore?.operator && showCreateButtons}
+					<div class="ml-4">
+						<CreateActionsMenu />
+					</div>
+				{/if}
 			</div>
 		</div>
 

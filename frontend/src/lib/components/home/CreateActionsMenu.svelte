@@ -186,42 +186,12 @@
 	</Button>
 
 	{#if open && active}
-		<div class="absolute left-0 top-full z-50 pt-2" role="menu" tabindex="-1">
+		<div class="absolute right-0 top-full z-50 pt-2" role="menu" tabindex="-1">
 			<div
 				class="flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl overflow-hidden"
 				style="width: 720px;"
 			>
-				<!-- Left: option list -->
-				<div
-					class="flex flex-col gap-0.5 p-2 w-72 shrink-0 border-r border-gray-200 dark:border-gray-700"
-				>
-					{#each allOptions as option (option.key)}
-						{@const ac = accentClasses[option.accent]}
-						{@const isActive = option.key === activeKey}
-						<button
-							class="flex flex-row items-center gap-3 rounded-md border px-2 py-2 text-left cursor-pointer transition-colors {isActive
-								? `${ac.activeBg} ${ac.activeBorder}`
-								: 'border-transparent hover:bg-surface-hover'}"
-							onmouseenter={() => (activeKey = option.key)}
-							onfocus={() => (activeKey = option.key)}
-							onclick={() => option.onSelect()}
-							role="menuitem"
-						>
-							<div class="w-8 h-8 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
-								<option.icon size={18} class={ac.iconText} />
-							</div>
-							<span class="text-sm font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
-								{option.label}
-							</span>
-							<ChevronRight
-								size={16}
-								class="transition-opacity {isActive ? `opacity-100 ${ac.iconText}` : 'opacity-0 text-tertiary'}"
-							/>
-						</button>
-					{/each}
-				</div>
-
-				<!-- Right: explanation of the highlighted editor -->
+				<!-- explanation of the highlighted editor -->
 				<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
 					<div class="flex flex-row items-center gap-3">
 						<div
@@ -257,6 +227,36 @@
 							{/each}
 						</div>
 					{/if}
+				</div>
+
+				<!-- option list -->
+				<div
+					class="flex flex-col gap-0.5 p-2 w-72 shrink-0 border-l border-gray-200 dark:border-gray-700"
+				>
+					{#each allOptions as option (option.key)}
+						{@const ac = accentClasses[option.accent]}
+						{@const isActive = option.key === activeKey}
+						<button
+							class="flex flex-row items-center gap-3 rounded-md border px-2 py-2 text-left cursor-pointer transition-colors {isActive
+								? `${ac.activeBg} ${ac.activeBorder}`
+								: 'border-transparent hover:bg-surface-hover'}"
+							onmouseenter={() => (activeKey = option.key)}
+							onfocus={() => (activeKey = option.key)}
+							onclick={() => option.onSelect()}
+							role="menuitem"
+						>
+							<div class="w-8 h-8 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
+								<option.icon size={18} class={ac.iconText} />
+							</div>
+							<span class="text-sm font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+								{option.label}
+							</span>
+							<ChevronRight
+								size={16}
+								class="transition-opacity {isActive ? `opacity-100 ${ac.iconText}` : 'opacity-0 text-tertiary'}"
+							/>
+						</button>
+					{/each}
 				</div>
 			</div>
 		</div>
