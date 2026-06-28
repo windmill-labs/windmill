@@ -125,6 +125,10 @@
 		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
 		// event up through these runes-mode components silently drops it.
 		onRestore?: (restoredApp: any) => void
+		// Deploy created the app at a new path; the page navigates to it. Callback
+		// prop for the same reason as `onRestore` — `on:savedNewAppPath` forwarding
+		// through these runes-mode components is dropped.
+		onSavedNewAppPath?: (path: string) => void
 	}
 
 	let {
@@ -153,7 +157,8 @@
 		onOpenOthersDrafts,
 		onRuntimeLogRequester = undefined,
 		onRunsProvider = undefined,
-		onRestore
+		onRestore,
+		onSavedNewAppPath
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -1602,7 +1607,7 @@
 		bind:summary
 		bind:pendingDraftPath
 		{onRestore}
-		on:savedNewAppPath
+		{onSavedNewAppPath}
 		{policy}
 		{diffDrawer}
 		{newApp}

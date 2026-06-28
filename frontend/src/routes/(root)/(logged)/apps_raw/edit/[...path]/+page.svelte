@@ -536,10 +536,10 @@
 	{#key redraw}
 		<div class="h-screen">
 			<RawAppEditor
-				on:savedNewAppPath={(event) => {
+				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
-					goto(`/apps_raw/edit/${event.detail}`)
-					newPath = event.detail
+					goto(`/apps_raw/edit/${savedPath}`)
+					newPath = savedPath
 				}}
 				{onRestore}
 				bind:files
