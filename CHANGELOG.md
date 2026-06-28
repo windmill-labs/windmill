@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.742.0](https://github.com/windmill-labs/windmill/compare/v1.741.0...v1.742.0) (2026-06-28)
+
+
+### Features
+
+* **apps:** add labels input to app editor deploy drawer ([#9828](https://github.com/windmill-labs/windmill/issues/9828)) ([da45e69](https://github.com/windmill-labs/windmill/commit/da45e699c8aefeede172c90769ef4f4b182fec0c))
+* column-level lineage for DuckLake pipelines (SQL-AST inferred + traceable) ([#9814](https://github.com/windmill-labs/windmill/issues/9814)) ([003a262](https://github.com/windmill-labs/windmill/commit/003a262a4e9d6c2a63ada01aa8429aea1fbb6031))
+
+
+### Bug Fixes
+
+* **audit:** don't read pg_authid from an elevated context in S3 export migration ([#9832](https://github.com/windmill-labs/windmill/issues/9832)) ([75ba81b](https://github.com/windmill-labs/windmill/commit/75ba81b2d27fb0722095780312064cb93d20287e))
+* close unauthenticated DAP debugger program-mode launch bypass ([#9829](https://github.com/windmill-labs/windmill/issues/9829)) ([c0768de](https://github.com/windmill-labs/windmill/commit/c0768de0acdf63eaba5fb97d04bfc64f2f03b93d))
+* redeploy older app version from deployment history ([#9826](https://github.com/windmill-labs/windmill/issues/9826)) ([c479afa](https://github.com/windmill-labs/windmill/commit/c479afab8ebceccbee050e923dc5c27a6712ea62))
+
 ## [1.741.0](https://github.com/windmill-labs/windmill/compare/v1.740.0...v1.741.0) (2026-06-26)
 
 
