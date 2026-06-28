@@ -407,7 +407,7 @@
 			path: app_.path,
 			policy: app_.policy,
 			custom_path: app_.custom_path,
-			labels: (app_ as { labels?: string[] }).labels
+			labels: app_.labels
 		}
 		redraw++
 	}
