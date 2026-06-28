@@ -176,6 +176,10 @@ export interface AppEditorProps {
 	loadedFromDraft?: boolean
 	othersDraftsCount?: number
 	onOpenOthersDrafts?: () => void
+	// Restoring an older deployment from the history drawer. Threaded through
+	// AppEditorHeader as a callback prop rather than `on:restore` forwarding,
+	// which does not propagate through these runes-mode components.
+	onRestore?: (restoredApp: any) => void
 }
 
 export type App = {

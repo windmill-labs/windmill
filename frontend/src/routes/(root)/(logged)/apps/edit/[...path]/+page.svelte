@@ -388,9 +388,14 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	function onRestore(ev: any) {
+	function onRestore(restoredApp: any) {
 		sendUserToast('App restored from previous deployment')
-		app = ev.detail
+		// Drop the stale pre-restore autosave. The remounted AppEditor seeds its
+		// state from `appDraftHandle.draft ?? app`, so without this it keeps showing
+		// the old draft instead of the restored version. Same reason `reloadDeployed`
+		// removes the draft before remounting.
+		UserDraft.remove('app', path)
+		app = restoredApp
 		// Re-pin the stale-draft fork base to the current head. A restored value
 		// carries the `parent_version` baked in when that older version was deployed,
 		// which would make the deploy guard (`compareVersions`) falsely report "not on
@@ -470,7 +475,7 @@
 						app.path = url
 					}
 				}}
-				on:restore={onRestore}
+				{onRestore}
 				summary={app.summary}
 				app={app.value}
 				{deployedBaseline}

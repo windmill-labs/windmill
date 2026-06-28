@@ -112,6 +112,10 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
 	}
 
 	let {
@@ -137,7 +141,8 @@
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		onRestore
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -862,7 +867,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore appPath={$appPath} />
+		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} appPath={$appPath} />
 	</DrawerContent>
 </Drawer>
 

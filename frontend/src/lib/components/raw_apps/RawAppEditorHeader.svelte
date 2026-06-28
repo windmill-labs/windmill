@@ -26,7 +26,7 @@
 		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
@@ -151,6 +151,14 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
+		// Deploy created the app at a new path; the page navigates to it. Callback
+		// prop for the same reason as `onRestore` — `on:savedNewAppPath` forwarding
+		// through these runes-mode components is dropped.
+		onSavedNewAppPath?: (path: string) => void
 	}
 
 	let {
@@ -184,7 +192,9 @@
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		onRestore,
+		onSavedNewAppPath
 	}: Props = $props()
 
 	// Set by the on-behalf-of selector when the publisher picks a user other than
@@ -352,7 +362,7 @@
 					path: appPath
 				})
 			}
-			dispatch('savedNewAppPath', path)
+			onSavedNewAppPath?.(path)
 			onDeploy?.({ path })
 		} catch (e) {
 			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
@@ -475,7 +485,7 @@
 			})
 		}
 		if (appPath !== npath) {
-			dispatch('savedNewAppPath', npath)
+			onSavedNewAppPath?.(npath)
 		}
 		onDeploy?.({ path: npath })
 	}
@@ -574,8 +584,6 @@
 			}
 		}
 	])
-
-	const dispatch = createEventDispatcher()
 
 	let customPath = $state(savedApp?.custom_path)
 	let customPathError = $state('')
@@ -688,7 +696,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {appPath} />
+		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} {appPath} />
 	</DrawerContent>
 </Drawer>
 
