@@ -808,7 +808,8 @@
 								value: $app,
 								path: newEditedPath || savedApp.path,
 								policy,
-								custom_path: customPath
+								custom_path: customPath,
+								labels
 							},
 							button: {
 								text: 'Looks good, deploy',
