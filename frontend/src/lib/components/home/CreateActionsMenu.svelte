@@ -372,7 +372,7 @@
 						{@const ac = accentClasses[option.accent]}
 						{@const isActive = option.key === activeKey}
 						{#if option.badge && !allOptions[i - 1]?.badge}
-							<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+							<div class="mx-1 mt-3 mb-3 border-t border-gray-200 dark:border-gray-700"></div>
 						{/if}
 						<button
 							class="flex flex-row items-center gap-3 rounded-md border px-2 py-2 text-left cursor-pointer transition-colors {isActive
