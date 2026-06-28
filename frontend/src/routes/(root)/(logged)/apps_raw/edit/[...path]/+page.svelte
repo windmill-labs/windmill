@@ -182,6 +182,10 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// `labels` is route-level state; reset it too so a fresh draft doesn't
+			// inherit (and then deploy) the previously-opened app's labels. The
+			// import branch re-seeds it via extractRawApp below.
+			labels = undefined
 			// Brand-new raw app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
