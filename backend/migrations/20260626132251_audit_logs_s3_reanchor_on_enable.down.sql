@@ -17,3 +17,5 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_logs_s3_oldest_inflight_ts();
