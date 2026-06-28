@@ -6,7 +6,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
-	import { Plus, Code2, LayoutDashboard, ChevronRight, Loader2 } from 'lucide-svelte'
+	import { Plus, Code2, LayoutDashboard, ChevronRight, Loader2, Workflow } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
@@ -50,6 +50,7 @@
 	// kept static so tailwind doesn't purge the badge tones
 	const badgeAdvanced = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
 	const badgeLegacy = 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+	const badgeAlpha = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
 
 	const allOptions: Option[] = [
 		{
@@ -83,10 +84,7 @@
 							'Suspend / approval steps'
 						],
 						onSelect: () => goto(`${base}/flows/add`),
-						extras: [
-							{ label: 'Import flow', onSelect: () => openImport('flow') },
-							{ label: 'Pipeline (alpha)', onSelect: () => goto(`${base}/pipeline`) }
-						]
+						extras: [{ label: 'Import flow', onSelect: () => openImport('flow') }]
 					}
 				] as Option[])
 			: []),
@@ -136,6 +134,22 @@
 							}
 						],
 						extras: [{ label: 'Import Workflow-as-Code', onSelect: () => openImport('wac') }]
+					},
+					{
+						key: 'pipeline',
+						label: 'Data pipelines editor',
+						icon: Workflow,
+						accent: 'indigo',
+						tagline: 'Compose data ingestion & transforms',
+						description:
+							'Visual editor for data pipelines — chain ingestion, transformation and materialization steps with partitions and incremental processing.',
+						bullets: [
+							'Ingest, transform & materialize',
+							'Partitioned & incremental',
+							'Asset-aware lineage'
+						],
+						onSelect: () => goto(`${base}/pipeline`),
+						badge: { label: 'Alpha', class: badgeAlpha }
 					}
 				] as Option[])
 			: []),
@@ -186,6 +200,12 @@
 			iconText: 'text-orange-600 dark:text-orange-400',
 			activeBg: 'bg-orange-50 dark:bg-orange-900/20',
 			activeBorder: 'border-orange-500 dark:border-orange-400'
+		},
+		indigo: {
+			tile: 'bg-indigo-100 dark:bg-indigo-900/40',
+			iconText: 'text-indigo-600 dark:text-indigo-400',
+			activeBg: 'bg-indigo-50 dark:bg-indigo-900/20',
+			activeBorder: 'border-indigo-500 dark:border-indigo-400'
 		}
 	}
 
