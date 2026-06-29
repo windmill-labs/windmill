@@ -20,7 +20,6 @@
 	let selectedDevId = $state<string | undefined>(undefined)
 	let lockProdDeploy = $state(true)
 	let lockProdForking = $state(true)
-	let copyMembers = $state(true)
 	let busy = $state(false)
 
 	// Only standalone root workspaces (not already a fork/dev of something) can be attached.
@@ -48,8 +47,7 @@
 				requestBody: {
 					dev_workspace_id: selectedDevId,
 					lock_prod_deploy: lockProdDeploy,
-					lock_prod_forking: lockProdForking,
-					copy_members: copyMembers
+					lock_prod_forking: lockProdForking
 				}
 			})
 			sendUserToast(`Attached ${selectedDevId} as dev workspace`)
@@ -140,10 +138,6 @@
 			}}
 		/>
 		<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking this workspace' }} />
-		<Toggle
-			bind:checked={copyMembers}
-			options={{ right: "Add this workspace's members to the dev workspace" }}
-		/>
 		<div class="flex gap-2">
 			<Button variant="accent" disabled={busy || !selectedDevId} onclick={attach}>
 				Attach dev workspace

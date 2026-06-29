@@ -4402,12 +4402,8 @@ async fn clone_groups(
 
 /// Copy the source workspace's members (the `usr` rows, carrying each member's role) into the
 /// target so a fork/dev can be a shared environment. Idempotent — skips members the target already
-/// has.
-///
-/// Group membership is handled by the caller, because the two callers differ: the create-fork path
-/// runs `clone_groups` (which copies the source's full group structure, including `all` membership);
-/// the attach path adds the copied members to the target's `all` group itself (its groups are an
-/// independent namespace, so the source's can't be cloned in).
+/// has. Group memberships are not handled here: the sole caller is the create-fork path, where
+/// `clone_groups` already copies the source's full group structure (including `all` membership).
 async fn copy_workspace_members(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5276,9 +5272,6 @@ struct AttachDevWorkspace {
     lock_prod_deploy: bool,
     #[serde(default)]
     lock_prod_forking: bool,
-    /// Add the prod workspace's members to the dev so the team can work in it.
-    #[serde(default)]
-    copy_members: bool,
 }
 
 #[derive(Deserialize)]
@@ -5390,22 +5383,6 @@ async fn attach_dev_workspace(
     )
     .execute(&mut *tx)
     .await?;
-
-    // Optionally add prod's members to the dev so the team can work in it.
-    if req.copy_members {
-        copy_workspace_members(&mut tx, &prod_w_id, &dev_w_id).await?;
-        // Attach doesn't clone groups (the dev has its own group namespace), so put the copied
-        // members in the dev's `all` group — the baseline every workspace member belongs to (mirrors
-        // add_user). The create-fork path covers this via clone_groups instead.
-        sqlx::query!(
-            "INSERT INTO usr_to_group (workspace_id, usr, group_)
-             SELECT $1::varchar, username, 'all' FROM usr WHERE workspace_id = $1::varchar
-             ON CONFLICT DO NOTHING",
-            &dev_w_id,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
 
     if req.lock_prod_deploy || req.lock_prod_forking {
         lock_prod_workspace(

@@ -1205,8 +1205,6 @@ paths:
                   type: boolean
                 lock_prod_forking:
                   type: boolean
-                copy_members:
-                  type: boolean
               required:
                 - dev_workspace_id
       responses:
