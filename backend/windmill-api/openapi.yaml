@@ -29123,6 +29123,7 @@ components:
         - folders_changed
         - schedules_changed
         - triggers_changed
+        - datatable_migrations_changed
         - conflicts
       properties:
         total_diffs:
@@ -29161,6 +29162,9 @@ components:
         triggers_changed:
           type: integer
           description: Number of triggers with differences (sum across all trigger kinds)
+        datatable_migrations_changed:
+          type: integer
+          description: Number of data table migrations with differences
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)

@@ -50,6 +50,7 @@
 			| 'azure_trigger'
 			| 'email_trigger'
 			| 'data_pipeline'
+			| 'datatable_migration'
 		triggerKind?: string | undefined
 		summary?: string | undefined
 		path: string

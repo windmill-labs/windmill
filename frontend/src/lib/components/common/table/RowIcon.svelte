@@ -53,6 +53,7 @@
 			| 'azure_trigger'
 			| 'email_trigger'
 			| 'data_pipeline'
+			| 'datatable_migration'
 		/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
 		triggerKind?: string | undefined
 		size?: number
@@ -121,6 +122,8 @@
 		<Calendar {size} class="text-gray-400" />
 	{:else if effectiveKind === 'data_pipeline'}
 		<Workflow {size} class="text-indigo-500" />
+	{:else if effectiveKind === 'datatable_migration'}
+		<Database {size} class="text-violet-500" />
 	{:else}
 		<div style="width: {size}px;"></div>
 	{/if}

@@ -40,6 +40,8 @@ export type Kind =
 	| 'gcp_trigger'
 	| 'azure_trigger'
 	| 'email_trigger'
+	// Data table migration, diffed per `<datatable>/<timestamp>_<name>` path.
+	| 'datatable_migration'
 	// Legacy generic kind used by the cross-workspace `DeployWorkspace` UI,
 	// which carries the trigger sub-kind in `additionalInformation`.
 	| 'trigger'
