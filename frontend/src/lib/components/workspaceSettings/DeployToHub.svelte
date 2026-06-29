@@ -163,6 +163,11 @@
 	let workspaceTriggers = $state<WorkspaceTrigger[]>([])
 	let triggersLoading = $state(false)
 	let workspaceLoadSeq = 0
+	// Per-invocation token for loadTriggers: a license-late reload reuses the same
+	// workspaceLoadSeq as the original license-less load, so the workspace guard
+	// alone can't stop a slow earlier request from overwriting a newer one. Only
+	// the latest trigger load (highest token) is allowed to assign.
+	let triggerLoadSeq = 0
 	// Guards the reset+reload effect so a spurious same-value workspace-store emit
 	// (e.g. a layout re-render) doesn't wipe state or close an open drawer.
 	let lastLoadedKey = ''
@@ -338,6 +343,7 @@
 	}
 
 	async function loadTriggers(workspace: string, seq: number) {
+		const tok = ++triggerLoadSeq
 		triggersLoading = true
 		try {
 			// Kafka, NATS, SQS, GCP and Azure triggers are EE-only — calling them on CE
@@ -367,7 +373,7 @@
 					safeList(PostgresTriggerService.listPostgresTriggers({ workspace })),
 					safeList(EmailTriggerService.listEmailTriggers({ workspace }))
 				])
-			if (seq !== workspaceLoadSeq) return
+			if (seq !== workspaceLoadSeq || tok !== triggerLoadSeq) return
 			const normalize = (
 				kind: TriggerKindLabel,
 				rows: Array<Record<string, any>>
@@ -394,7 +400,7 @@
 				...normalize('email', email)
 			]
 		} finally {
-			if (seq === workspaceLoadSeq) triggersLoading = false
+			if (seq === workspaceLoadSeq && tok === triggerLoadSeq) triggersLoading = false
 		}
 	}
 
