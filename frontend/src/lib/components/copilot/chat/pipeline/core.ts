@@ -10,11 +10,10 @@ import type { PipelineOutputKind } from '$lib/components/assets/AssetGraph/pipel
 // These tools extend the GLOBAL chat mode when the user is on a /pipeline/<folder>
 // editor (the page registers `PipelineAIChatHelpers` on the AIChatManager). They
 // let the model read the live pipeline graph and BUILD/EDIT pipeline nodes
-// (scripts annotated with `// pipeline`). Mutations don't deploy: they stage an
-// AI-pending DRAFT on the canvas — rendered as a distinct, dashed node — that the
-// user reviews and Accepts (keep) or Rejects (discard), mirroring the flow
-// editor's diff/approval loop. This is the "ask permission to build a node"
-// surface: the diff IS the staged draft, the approval is Accept/Reject.
+// (scripts annotated with `// pipeline`). Mutations don't deploy: they apply
+// directly as an unsaved DRAFT on the canvas — the same way the flow/script
+// editor applies AI edits — which the user then deploys. There is no separate
+// approve/reject step: the draft IS the change.
 //
 // The pipeline tools are added on top of the full global tool set, so docs
 // search, datatable SQL, and workspace-item tools are already available
@@ -25,10 +24,8 @@ import type { PipelineOutputKind } from '$lib/components/assets/AssetGraph/pipel
 export type PipelineNodeSummary = {
 	path: string
 	language?: ScriptLang
-	/** Has a local edit not yet deployed (covers both AI-pending and manual drafts). */
+	/** Has an unsaved local edit (draft) not yet deployed. */
 	unsaved: boolean
-	/** Staged by the AI this turn and awaiting the user's Accept/Reject. */
-	aiPending: boolean
 	summary?: string
 	/** Asset URIs this node writes (its outputs). */
 	writes: string[]
@@ -45,34 +42,28 @@ export type PipelineContext = {
 	nodes: PipelineNodeSummary[]
 	/** All storage assets referenced by the graph, as URIs. */
 	assets: string[]
-	/** Number of AI-staged proposals currently awaiting review. */
-	pendingProposals: number
 }
 
 /**
  * Bridge the pipeline page registers on the AIChatManager. Reads expose the live
- * graph; writes stage AI-pending drafts (never deploy) and feed the Accept/Reject
- * review loop. Kept intentionally small — the page owns the draft Map, snapshots,
- * and canvas rendering.
+ * graph; writes apply directly as unsaved drafts (never deploy). Kept intentionally
+ * small — the page owns the draft Map and canvas rendering.
  */
 export interface PipelineAIChatHelpers {
 	getPipelineContext: () => PipelineContext
 	/** Read a node's source (the in-flight draft body if one exists, else deployed). */
 	getNodeBody: (path: string) => Promise<{ language: ScriptLang; content: string } | undefined>
-	/** Stage a brand-new pipeline node as an AI-pending draft. */
+	/** Create a brand-new pipeline node as an unsaved draft on the canvas. */
 	proposeNode: (input: {
 		path: string
 		language: ScriptLang
 		content: string
 		outputKind?: PipelineOutputKind
 	}) => Promise<{ path: string }>
-	/** Replace an existing node's body, staging it as an AI-pending draft. */
+	/** Replace an existing node's body, applied as an unsaved draft. */
 	editNode: (path: string, content: string) => Promise<void>
-	/** Drop an AI-pending node from the staged set. Only AI-pending nodes are removable here. */
+	/** Discard the unsaved draft at a path (undo a build_pipeline_node). */
 	removeProposedNode: (path: string) => Promise<void>
-	hasPendingProposals: () => boolean
-	acceptAllProposals: () => void
-	rejectAllProposals: () => void
 	/** Preview-run a node (draft body preferred). Returns the started job id. */
 	testNode: (path: string, args?: Record<string, any>) => Promise<string | undefined>
 }
@@ -106,7 +97,7 @@ const getPipelineGraphSchema = z.object({})
 const getPipelineGraphToolDef = createToolDef(
 	getPipelineGraphSchema,
 	'get_pipeline_graph',
-	"Read the live pipeline graph for the open /pipeline/<folder> editor: its nodes (scripts), each node's language, asset reads/writes, declared triggers, and whether it is unsaved or an AI-pending proposal. Call this before building or editing nodes so you reuse existing assets/paths and understand the current DAG."
+	"Read the live pipeline graph for the open /pipeline/<folder> editor: its nodes (scripts), each node's language, asset reads/writes, declared triggers, and whether it has an unsaved draft edit. Call this before building or editing nodes so you reuse existing assets/paths and understand the current DAG."
 )
 
 const readPipelineNodeSchema = z.object({
@@ -120,7 +111,7 @@ const readPipelineNodeToolDef = createToolDef(
 )
 
 // ----------------------------------------------------------------------------
-// Mutation tools (stage AI-pending drafts → diff/approval)
+// Mutation tools (apply directly as unsaved drafts; never deploy)
 // ----------------------------------------------------------------------------
 
 const buildPipelineNodeSchema = z.object({
@@ -143,7 +134,7 @@ const buildPipelineNodeSchema = z.object({
 const buildPipelineNodeToolDef = createToolDef(
 	buildPipelineNodeSchema,
 	'build_pipeline_node',
-	'Build a NEW pipeline node and stage it as an AI-pending draft on the canvas for the user to review (Accept keeps it, Reject discards it). Does NOT deploy. The node shows up immediately as a dashed, AI-highlighted node wired by its parsed asset reads/writes. Prefer this over editing for new scripts.',
+	'Build a NEW pipeline node. It is applied directly as an unsaved draft on the canvas (a dashed node wired by its parsed asset reads/writes) — it does NOT deploy; the user deploys it. Prefer this over editing for new scripts.',
 	{ strict: false }
 )
 
@@ -163,18 +154,18 @@ const editPipelineNodeSchema = z.object({
 const editPipelineNodeToolDef = createToolDef(
 	editPipelineNodeSchema,
 	'edit_pipeline_node',
-	'Edit an existing pipeline node by exact find/replace, staging the result as an AI-pending draft for review (Accept/Reject). Does NOT deploy. Call read_pipeline_node first to get the exact current text.',
+	'Edit an existing pipeline node by exact find/replace. The result is applied directly as an unsaved draft (does NOT deploy). Call read_pipeline_node first to get the exact current text.',
 	{ strict: false }
 )
 
 const removePipelineNodeSchema = z.object({
-	path: z.string().describe('Workspace path of the AI-pending node to drop from the staged set.')
+	path: z.string().describe('Workspace path of the node whose unsaved draft should be discarded.')
 })
 
 const removePipelineNodeToolDef = createToolDef(
 	removePipelineNodeSchema,
 	'remove_pipeline_node',
-	'Remove an AI-pending node you previously staged this turn (undo a build_pipeline_node). Only AI-pending proposals can be removed — to delete a deployed or manually-drafted node, ask the user to do it on the canvas.'
+	'Discard the unsaved draft at a path (undo a build_pipeline_node). Only affects the in-flight draft — to delete a deployed node, ask the user to do it on the canvas.'
 )
 
 const testPipelineNodeSchema = z.object({
@@ -241,10 +232,10 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 				outputKind: output_kind as PipelineOutputKind | undefined
 			})
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Staged node '${path}' for review`,
+				content: `Added draft node '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' staged as an AI-pending draft. It is shown on the canvas for the user to Accept or Reject; it is not deployed.`
+			return `Pipeline node '${path}' added as an unsaved draft on the canvas. It is not deployed — the user deploys it.`
 		}
 	},
 	{
@@ -269,10 +260,10 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 			)
 			await pipeline.editNode(path, updated)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Staged edit to '${path}' for review`,
+				content: `Edited draft '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' updated and staged as an AI-pending draft for the user to Accept or Reject.`
+			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).`
 		}
 	},
 	{
@@ -280,13 +271,13 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const pipeline = requirePipeline(helpers)
 			const { path } = removePipelineNodeSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, { content: `Removing staged node '${path}'...` })
+			toolCallbacks.setToolStatus(toolId, { content: `Discarding draft '${path}'...` })
 			await pipeline.removeProposedNode(path)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Removed staged node '${path}'`,
+				content: `Discarded draft '${path}'`,
 				result: 'Success'
 			})
-			return `Removed AI-pending node '${path}' from the staged set.`
+			return `Discarded the unsaved draft at '${path}'.`
 		}
 	},
 	{
@@ -318,9 +309,9 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 
 /**
  * Pipeline-specific guidance appended to the global system prompt when a
- * /pipeline editor is open. Describes the annotation model and the
- * build-with-diff/approval workflow so the model uses the staging tools rather
- * than the generic write_script draft tools.
+ * /pipeline editor is open. Describes the annotation model and the direct-draft
+ * workflow so the model uses the pipeline tools rather than the generic
+ * write_script draft tools.
  */
 export function getPipelinePromptSection(ctx: PipelineContext): string {
 	return `
@@ -329,7 +320,7 @@ Data Pipeline editor (ACTIVE):
 - The user has the /pipeline/${ctx.folder} editor open. A pipeline is a DAG of scripts (nodes) connected by storage assets (DuckLake tables, data tables, S3 objects, volumes, resources) and execution triggers.
 - A script becomes a pipeline node when its source starts with the \`// pipeline\` annotation. Declare execution-DAG inputs with \`// on <asset-uri | schedule | webhook | email | kafka | mqtt | nats | postgres | sqs | gcp | data_upload>\` (e.g. \`// on ducklake://main/orders\`). Outputs are inferred from what the body writes (wmill SDK calls / SQL CREATE TABLE / writeS3File); declare a managed output with \`// materialize <asset-uri>\`. Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\`, \`// tag <name>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\`.
 - Use get_pipeline_graph to see the current nodes/assets/triggers, and read_pipeline_node before editing one.
-- Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. These DO NOT deploy — they stage an AI-pending draft that appears on the canvas highlighted for the user to Accept (keep) or Reject (discard), like the flow editor's diff review. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.
+- Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. These apply directly as unsaved drafts on the canvas (like the flow/script editor applies AI edits) — they DO NOT deploy. There is no separate Accept/Reject step. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.
 - Reuse existing asset paths from the graph when wiring a downstream node to an upstream one (read the upstream's write asset, then \`// on\` that same URI).
-- Only deploy when the user explicitly asks; the user deploys staged drafts from the canvas.`
+- Only deploy when the user explicitly asks; the user deploys drafts from the canvas.`
 }

@@ -733,18 +733,11 @@ export class AIChatManager {
 		}
 	}
 
-	private acceptPendingPipelineEdits = (pipelineHelpers = this.pipelineAiChatHelpers) => {
-		if (pipelineHelpers?.hasPendingProposals()) {
-			pipelineHelpers.acceptAllProposals()
-		}
-	}
-
-	// Accept whatever pending edits the active mode has staged. Flow and pipeline
-	// each surface their own diff/approval; this is the single hook the autonomy
-	// and end-of-turn paths call so neither has to know which editor is open.
+	// Accept whatever pending edits the active mode has staged. Only the flow
+	// editor has a pending-changes/approval step; pipeline AI edits apply directly
+	// as drafts, so there is nothing to accept there.
 	private acceptPendingEdits = () => {
 		this.acceptPendingFlowEdits()
-		this.acceptPendingPipelineEdits()
 	}
 
 	setAutonomyMode = (mode: AIAutonomyMode) => {
@@ -2207,17 +2200,14 @@ export class AIChatManager {
 	}
 
 	// Registered by the /pipeline editor while it is mounted. Rebuilds the global
-	// tool set so the pipeline tools appear (and disappear on unregister) and
-	// auto-accepts any staged proposals if the user is in an edit-accepting
-	// autonomy mode. Returns a cleanup that tears the registration back down.
+	// tool set so the pipeline tools appear (and disappear on unregister). Pipeline
+	// AI edits apply directly as drafts, so there is nothing to auto-accept.
+	// Returns a cleanup that tears the registration back down.
 	setPipelineHelpers = (pipelineHelpers: PipelineAIChatHelpers) => {
 		this.pipelineAiChatHelpers = pipelineHelpers
 		untrack(() => {
 			if (this.mode === AIMode.GLOBAL) {
 				this.configureGlobalMode()
-			}
-			if (this.autoAcceptEditsActive) {
-				this.acceptPendingPipelineEdits(pipelineHelpers)
 			}
 		})
 

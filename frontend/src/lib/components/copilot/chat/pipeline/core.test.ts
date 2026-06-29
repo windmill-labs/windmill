@@ -30,14 +30,12 @@ const sampleContext: PipelineContext = {
 			path: 'f/analytics/orders',
 			language: 'bun',
 			unsaved: true,
-			aiPending: true,
 			writes: ['ducklake://main/orders'],
 			reads: [],
 			triggers: ['schedule']
 		}
 	],
-	assets: ['ducklake://main/orders'],
-	pendingProposals: 1
+	assets: ['ducklake://main/orders']
 }
 
 function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
@@ -65,9 +63,6 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 			calls.editNode = [...(calls.editNode ?? []), [path, content]]
 		},
 		removeProposedNode: record('removeProposedNode'),
-		hasPendingProposals: () => true,
-		acceptAllProposals: record('acceptAllProposals'),
-		rejectAllProposals: record('rejectAllProposals'),
 		testNode: async () => 'job-123',
 		...overrides
 	}
@@ -95,7 +90,7 @@ describe('pipeline tools', () => {
 			toolCallbacks: noopCallbacks(),
 			toolId: 't'
 		})
-		expect(JSON.parse(out)).toMatchObject({ folder: 'analytics', pendingProposals: 1 })
+		expect(JSON.parse(out)).toMatchObject({ folder: 'analytics' })
 	})
 
 	it('build_pipeline_node forwards to proposeNode and does not deploy', async () => {
@@ -167,10 +162,10 @@ describe('pipeline tools', () => {
 })
 
 describe('getPipelinePromptSection', () => {
-	it('names the active folder and the staging workflow', () => {
+	it('names the active folder and the direct-draft workflow', () => {
 		const section = getPipelinePromptSection(sampleContext)
 		expect(section).toContain('/pipeline/analytics')
 		expect(section).toContain('build_pipeline_node')
-		expect(section).toContain('Accept')
+		expect(section).toContain('directly as unsaved drafts')
 	})
 })

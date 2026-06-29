@@ -15,24 +15,22 @@ import type {
 //
 // Both the full-page editor (/pipeline/[folder]) and the in-session preview
 // (PipelineEditorView) drive the AI chat's pipeline tools through this factory,
-// so the "stage a draft → diff/approval" logic lives in exactly one place. Each
-// caller injects accessors for its own draft Map and graph; this module owns the
-// AI behaviour (propose/edit/remove/accept/reject/test) and the per-turn
-// snapshot bookkeeping that powers Reject.
+// so the build/edit logic lives in exactly one place. Each caller injects
+// accessors for its own draft Map and graph; this module owns the AI behaviour
+// (build/edit/discard/test). AI edits apply directly as unsaved drafts — there
+// is no separate approve/reject step.
 // ============================================================================
 
 /**
- * A staged pipeline node. `localId` is a stable per-draft id preserved across
- * renames (the page uses it to dedupe concurrent deploys). `aiPending` marks a
- * draft staged by the AI chat and awaiting Accept/Reject — it renders with an
- * accent ring, distinct from a plain unsaved draft.
+ * An unsaved pipeline node draft. `localId` is a stable per-draft id preserved
+ * across renames (the page uses it to dedupe concurrent deploys). AI-built nodes
+ * and manually-created drafts are the same thing — an unsaved node on the canvas.
  */
 export type PipelineDraft = {
 	localId: string
 	script: Script
 	outputAsset?: { kind: AssetKind; path: string }
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
-	aiPending?: boolean
 }
 
 export type PipelineAiHelperDeps = {
@@ -98,62 +96,9 @@ async function inferOutputAssets(
 
 export type PipelineAiHelpersHandle = {
 	helpers: PipelineAIChatHelpers
-	hasPending: () => boolean
-	acceptAll: () => void
-	rejectAll: () => void
 }
 
 export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiHelpersHandle {
-	// Pre-proposal snapshot of every path the AI touched this review cycle, so
-	// Reject restores exactly what was there before (a prior draft, or absence).
-	// `undefined` = the path had no draft before the AI staged it → Reject removes
-	// it entirely. Plain Map, not reactive: pure revert bookkeeping.
-	const aiSnapshots = new Map<string, PipelineDraft | undefined>()
-
-	function snapshotPath(path: string) {
-		// Capture only the first time a path enters the cycle so a multi-edit turn
-		// still reverts to the pre-AI baseline, not an interim one.
-		if (!aiSnapshots.has(path)) aiSnapshots.set(path, deps.getDrafts().get(path))
-	}
-
-	function revertPath(path: string) {
-		const snap = aiSnapshots.get(path)
-		const next = new Map(deps.getDrafts())
-		if (snap === undefined) {
-			next.delete(path)
-			deps.onForgetPath?.(path)
-		} else {
-			next.set(path, snap)
-		}
-		deps.setDrafts(next)
-		aiSnapshots.delete(path)
-	}
-
-	function hasPending(): boolean {
-		return [...deps.getDrafts().values()].some((d) => d.aiPending)
-	}
-
-	function acceptAll() {
-		const next = new Map(deps.getDrafts())
-		for (const [path, d] of next) if (d.aiPending) next.set(path, { ...d, aiPending: false })
-		deps.setDrafts(next)
-		aiSnapshots.clear()
-	}
-
-	function rejectAll() {
-		// Snapshots cover every path the AI created or edited THIS in-memory cycle
-		// (a created path's snapshot is `undefined` → removed). But proposals
-		// rehydrated from the persisted draft after a reload have no snapshot, so
-		// also sweep any still-pending draft: without a baseline to restore, the
-		// safe revert is to discard it (revertPath deletes paths with no snapshot —
-		// which, for an edit of a deployed node, falls back to the deployed body).
-		const pendingPaths = [...deps.getDrafts().entries()]
-			.filter(([, d]) => d.aiPending)
-			.map(([p]) => p)
-		for (const path of new Set([...aiSnapshots.keys(), ...pendingPaths])) revertPath(path)
-		aiSnapshots.clear()
-	}
-
 	function buildContext(): PipelineContext {
 		const graph = deps.getResolvedGraph()
 		const drafts = deps.getDrafts()
@@ -188,7 +133,6 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 					path: r.path,
 					language: draft?.script.language,
 					unsaved: r.unsaved ?? false,
-					aiPending: draft?.aiPending ?? false,
 					summary: draft?.script.summary || undefined,
 					writes: [...new Set(writes)],
 					reads: [...new Set(reads)],
@@ -199,8 +143,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 			folder: deps.getFolder(),
 			mode: 'edit',
 			nodes,
-			assets: graph.assets.map((a) => assetUri({ kind: a.kind, path: a.path })),
-			pendingProposals: nodes.filter((n) => n.aiPending).length
+			assets: graph.assets.map((a) => assetUri({ kind: a.kind, path: a.path }))
 		}
 	}
 
@@ -221,26 +164,23 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 		proposeNode: async ({ path, language, content, outputKind }) => {
 			deps.ensureEditable?.()
 			const drafts = deps.getDrafts()
-			if (drafts.has(path) && !drafts.get(path)?.aiPending) {
+			if (drafts.has(path)) {
 				throw new Error(
 					`A draft already exists at '${path}'. Use edit_pipeline_node to change it instead.`
 				)
 			}
-			snapshotPath(path)
 			const outputAssets = await inferOutputAssets(language, content)
 			const seededOutput =
 				outputAssets[0] ??
 				(outputKind
 					? autoOutputAsset(outputKind as PipelineOutputKind, deps.getFolder(), language)
 					: undefined)
-			const prev = drafts.get(path)
 			const next = new Map(drafts)
 			next.set(path, {
-				localId: prev?.localId ?? deps.newDraftLocalId(),
+				localId: deps.newDraftLocalId(),
 				script: makePipelineScript(language, path, content, isoNow()),
 				outputAsset: seededOutput,
-				outputAssets: outputAssets.length > 0 ? outputAssets : undefined,
-				aiPending: true
+				outputAssets: outputAssets.length > 0 ? outputAssets : undefined
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
@@ -260,29 +200,27 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 				const deployed = await ScriptService.getScriptByPath({ workspace, path })
 				language = deployed.language
 			}
-			snapshotPath(path)
 			const outputAssets = await inferOutputAssets(language, content)
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: existing?.localId ?? deps.newDraftLocalId(),
 				script: makePipelineScript(language, path, content, isoNow()),
 				outputAsset: outputAssets[0] ?? existing?.outputAsset,
-				outputAssets: outputAssets.length > 0 ? outputAssets : existing?.outputAssets,
-				aiPending: true
+				outputAssets: outputAssets.length > 0 ? outputAssets : existing?.outputAssets
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
 		},
 		removeProposedNode: async (path) => {
-			if (!deps.getDrafts().get(path)?.aiPending) {
-				throw new Error(`'${path}' is not an AI-pending node, so it cannot be removed here.`)
+			if (!deps.getDrafts().has(path)) {
+				throw new Error(`No unsaved draft at '${path}' to discard.`)
 			}
-			revertPath(path)
+			const next = new Map(deps.getDrafts())
+			next.delete(path)
+			deps.setDrafts(next)
+			deps.onForgetPath?.(path)
 		},
-		hasPendingProposals: hasPending,
-		acceptAllProposals: acceptAll,
-		rejectAllProposals: rejectAll,
 		testNode: async (path, args) => {
 			const workspace = deps.getWorkspace()
 			if (!workspace) return undefined
@@ -317,7 +255,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 		}
 	}
 
-	return { helpers, hasPending, acceptAll, rejectAll }
+	return { helpers }
 }
 
 // `new Date()` is unavailable in some sandboxes but fine in the browser, where

@@ -184,8 +184,4 @@ export class PipelineEditorState {
 			return this.selection.path
 		return undefined
 	}
-
-	get hasAiPending(): boolean {
-		return [...this.drafts.values()].some((d) => d.aiPending)
-	}
 }

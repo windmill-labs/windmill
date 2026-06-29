@@ -59,8 +59,8 @@
 			workspace && folder ? await AssetService.getAssetsGraph({ workspace, folder }) : EMPTY_GRAPH
 	)
 
-	// Deployed graph + the in-flight draft overlay (AI proposals render dashed +
-	// accent-ringed via the shared resolveGraph aiPending threading). The session
+	// Deployed graph + the in-flight draft overlay (AI-built nodes render as plain
+	// dashed unsaved drafts, same as manual drafts). The session
 	// skips the route page's folder-wide asset prefetch (empty inferred maps); the
 	// open script's live overlays still feed the graph. (resolveGraph's base is the
 	// pipeline runnables subset; the 'job' usage_kind of the wire type never appears.)
@@ -76,7 +76,7 @@
 		})
 	)
 
-	const { helpers, acceptAll, rejectAll } = createPipelineAiHelpers({
+	const { helpers } = createPipelineAiHelpers({
 		getFolder: () => path,
 		getWorkspace: () => workspaceId,
 		getResolvedGraph: () => resolvedGraph,
@@ -160,9 +160,6 @@
 				mode="edit"
 				workspace={workspaceId}
 				pathPrefix={`f/${path}/`}
-				hasAiPending={pe.hasAiPending}
-				onAcceptAllProposals={acceptAll}
-				onRejectAllProposals={rejectAll}
 				onSelect={handleCanvasSelect}
 				onDraftSaved={afterSaved}
 				onPersistedSaved={afterSaved}

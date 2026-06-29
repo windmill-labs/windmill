@@ -17,9 +17,6 @@ export type GraphDraft = {
 	script: { content: string }
 	outputAsset?: { kind: AssetKind; path: string }
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
-	/** Draft staged by the AI chat, awaiting Accept/Reject — drives an accent
-	 * highlight on the node, distinct from a plain unsaved (manual) draft. */
-	aiPending?: boolean
 }
 
 export type ResolveGraphInput = {
@@ -268,10 +265,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
 				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
 				materialize_target: materializeTarget,
-				unsaved: true,
-				aiPending: d.aiPending,
-				// No deployed runnable for this path → the proposal is a new node.
-				aiPendingKind: d.aiPending ? 'added' : undefined
+				unsaved: true
 			})
 		} else {
 			// Refresh annotation-derived badges from the live parse too, so
@@ -283,11 +277,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
 				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
 				materialize_target: materializeTarget,
-				unsaved: true,
-				aiPending: d.aiPending,
-				// A deployed runnable already exists at this path → the proposal
-				// edits it (re-edit of a deployed script, or the save→refetch race).
-				aiPendingKind: d.aiPending ? 'modified' : undefined
+				unsaved: true
 			}
 		}
 		// Output asset(s): three-tier resolution.

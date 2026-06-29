@@ -404,20 +404,12 @@
 	// ===================== AI chat pipeline integration =====================
 	// The global AI chat (dev-gated) gains pipeline-building tools while this
 	// editor is mounted, via the helpers registered below. AI mutations don't
-	// deploy — they stage drafts flagged `aiPending`, rendered with an accent
-	// highlight, that the user Accepts (keep) or Rejects (revert), mirroring the
-	// flow editor's diff/approval loop. The staging logic is shared verbatim with
-	// the in-session preview (PipelineEditorView) via createPipelineAiHelpers.
+	// deploy — they apply directly as unsaved drafts on the canvas (the same way
+	// the flow/script editor applies AI edits), which the user then deploys. The
+	// build/edit logic is shared verbatim with the in-session preview
+	// (PipelineEditorView) via createPipelineAiHelpers.
 
-	// True while any AI-staged proposal awaits review. Drives the Accept/Reject
-	// overlay on the canvas.
-	let hasAiPending = $derived([...pe.drafts.values()].some((d) => d.aiPending))
-
-	const {
-		helpers: pipelineAiHelpers,
-		acceptAll: aiAcceptAllProposals,
-		rejectAll: aiRejectAllProposals
-	} = createPipelineAiHelpers({
+	const { helpers: pipelineAiHelpers } = createPipelineAiHelpers({
 		getFolder: () => folder,
 		getWorkspace: () => $workspaceStore,
 		getResolvedGraph: () => graphWithDraft,
@@ -2124,9 +2116,6 @@
 				{panelHidden}
 				onTogglePanelHidden={() => (panelHidden = !panelHidden)}
 				{prefetchingAssets}
-				{hasAiPending}
-				onAcceptAllProposals={aiAcceptAllProposals}
-				onRejectAllProposals={aiRejectAllProposals}
 				hoveredPaths={activityHoverPaths}
 				selectedRunPaths={activitySelectPaths}
 				{activeRunnable}

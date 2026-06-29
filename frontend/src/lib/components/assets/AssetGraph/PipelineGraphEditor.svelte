@@ -12,7 +12,6 @@
 	import AssetGraphCanvas from './AssetGraphCanvas.svelte'
 	import AssetGraphDetailsPane from './AssetGraphDetailsPane.svelte'
 	import PipelineEventLog from './PipelineEventLog.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection,
@@ -38,9 +37,6 @@
 		panelHidden = false,
 		onTogglePanelHidden,
 		prefetchingAssets = false,
-		hasAiPending = false,
-		onAcceptAllProposals,
-		onRejectAllProposals,
 		hoveredPaths = [],
 		selectedRunPaths = [],
 		activeRunnable,
@@ -103,9 +99,6 @@
 		panelHidden?: boolean
 		onTogglePanelHidden?: () => void
 		prefetchingAssets?: boolean
-		hasAiPending?: boolean
-		onAcceptAllProposals?: () => void
-		onRejectAllProposals?: () => void
 		hoveredPaths?: string[]
 		selectedRunPaths?: string[]
 		activeRunnable?: { kind: 'script' | 'flow'; path: string } | undefined
@@ -190,16 +183,6 @@
 	let idleView = $derived(
 		mode !== 'edit' && editor.selection == undefined && editor.activeDraftPath == undefined
 	)
-
-	// Pending-proposal diff tallies, read from the resolved graph so they stay in
-	// lockstep with the per-node ring/chip coloring (added = green, edited = amber).
-	let aiAddedCount = $derived(
-		displayGraph.runnables.filter((r) => r.aiPendingKind === 'added').length
-	)
-	let aiModifiedCount = $derived(
-		displayGraph.runnables.filter((r) => r.aiPendingKind === 'modified').length
-	)
-	let aiPendingCount = $derived(aiAddedCount + aiModifiedCount)
 
 	// Wrap the writes (and the rightPaneSize read in the else branch) in untrack so
 	// the effect tracks only `detailsPaneOpen` / `storedRightPaneSize` — without it,
@@ -414,43 +397,6 @@
 				{panToNodeId}
 			/>
 			{#if boundBar}{@render boundBar()}{/if}
-			<!-- Review banner, top-left so it never collides with the canvas controls
-			     (top-right) or the minimap (bottom-right) as the canvas narrows on
-			     selection — z-30 keeps it above both. Spells out what the AI staged
-			     (counts + green/amber legend) so it's clear what Accept/Reject acts on. -->
-			{#if hasAiPending && onAcceptAllProposals && onRejectAllProposals}
-				<div
-					class="absolute top-2 left-2 z-30 flex flex-col gap-1.5 px-2.5 py-2 rounded-md bg-surface shadow-md border border-gray-200 dark:border-gray-700"
-				>
-					<div class="flex items-center gap-2 text-2xs">
-						<span class="font-semibold text-emphasis">
-							{aiPendingCount} AI {aiPendingCount === 1 ? 'change' : 'changes'} to review
-						</span>
-						{#if aiAddedCount > 0}
-							<span class="flex items-center gap-1 text-tertiary">
-								<span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-								{aiAddedCount} new
-							</span>
-						{/if}
-						{#if aiModifiedCount > 0}
-							<span class="flex items-center gap-1 text-tertiary">
-								<span class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
-								{aiModifiedCount} edited
-							</span>
-						{/if}
-					</div>
-					<div class="flex flex-row">
-						<Button
-							class="px-2 py-1 bg-[#a0e6a0] rounded-l text-xs font-semibold text-black"
-							onclick={onAcceptAllProposals}>Accept all</Button
-						>
-						<Button
-							class="px-2 py-1 bg-[#e6a0a0] rounded-r text-xs font-semibold text-black"
-							onclick={onRejectAllProposals}>Reject all</Button
-						>
-					</div>
-				</div>
-			{/if}
 			{#if mode === 'edit'}
 				<PipelineEventLog events={eventLogEvents} />
 			{/if}

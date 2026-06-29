@@ -49,17 +49,8 @@ export interface AssetGraphRunnableNode {
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.
+	// AI-built nodes are plain drafts too (no separate pending/approval state).
 	unsaved?: boolean
-	// Draft staged by the AI chat and awaiting the user's Accept/Reject.
-	// Rendered with an accent ring so AI proposals read as distinct from a
-	// plain unsaved (manual) draft, mirroring the flow editor's pending diff.
-	aiPending?: boolean
-	// For an `aiPending` node, whether the proposal ADDS a node that isn't
-	// deployed ('added', green diff) or MODIFIES one that already is ('modified',
-	// amber diff). Drives the add/change diff coloring so the Accept/Reject review
-	// reads at a glance. There is no 'removed' kind: the AI never deletes a
-	// deployed node (remove_pipeline_node only un-stages a pending proposal).
-	aiPendingKind?: 'added' | 'modified'
 }
 
 // Lineage edge from parsed r/w usages — informational only, not the
