@@ -25,7 +25,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     utils::require_admin,
-    workspaces::{DataTable, WM_FORK_PREFIX},
+    workspaces::{DataTable, DEV_WORKSPACE_LOCK_RULE_NAME, WM_FORK_PREFIX},
 };
 use windmill_queue::schedule::{get_schedule_opt, push_scheduled_job};
 
@@ -948,9 +948,30 @@ pub(crate) async fn delete_workspace(
     .execute(&mut *tx)
     .await?;
 
+    // If this workspace is itself a dev workspace, deleting it dissolves the pairing, so also drop
+    // the parent prod's reserved dev_workspace_lock (mirrors detach_dev_workspace) — otherwise prod
+    // stays locked against direct deploy/forking with no dev workspace left to make changes in.
+    let dev_lock_parent: Option<String> = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+
+    if let Some(ref parent) = dev_lock_parent {
+        sqlx::query!(
+            "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
+            parent,
+            DEV_WORKSPACE_LOCK_RULE_NAME
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // Record under the instance-level "admins" workspace. The per-workspace audit
     // rows are deleted along with the workspace, so this instance-level entry is the
@@ -966,6 +987,10 @@ pub(crate) async fn delete_workspace(
     )
     .await?;
     tx.commit().await?;
+
+    if let Some(parent) = dev_lock_parent {
+        windmill_common::workspaces::invalidate_protection_rules_cache(&parent);
+    }
 
     Ok(format!("Deleted workspace {}", &w_id))
 }
