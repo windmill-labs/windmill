@@ -53,6 +53,12 @@
 					// effect could never match the old folder's job — drop the hint.
 					activeRunnable = undefined
 					activeRunnableJobId = undefined
+					// Re-scope the Global pipeline prompt to the new folder (the helper
+					// methods already read the reactive path, but the system message
+					// string was built for the old one). Only when this session is the
+					// active one — its helpers are the registered set; a hidden session
+					// reconfigures when it next becomes active.
+					if (isActiveSession) aiChatManager.rebuildGlobalSystemMessage()
 				}
 				pe.folder = folder
 			}
