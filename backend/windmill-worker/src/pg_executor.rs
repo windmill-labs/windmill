@@ -641,10 +641,13 @@ pub async fn do_postgresql(
         database.root_certificate_pem.hash(&mut h);
         h.finish()
     };
+    // to_uri() already ends with `?sslmode=...`, so append further key segments
+    // with `&` to keep database_string a well-formed URI (it is only ever a cache
+    // key, but a malformed one would mislead anyone who later logs or parses it).
     let database_string = if use_iam_auth {
-        format!("{}?iam=true&tls={tls_disc:x}", database.to_uri())
+        format!("{}&iam=true&tls={tls_disc:x}", database.to_uri())
     } else {
-        format!("{}?tls={tls_disc:x}", database.to_uri())
+        format!("{}&tls={tls_disc:x}", database.to_uri())
     };
     let database_string_clone = database_string.clone();
 

@@ -277,9 +277,13 @@ lazy_static::lazy_static! {
 
     /// Escape hatch that restores the legacy behavior of accepting any Postgres
     /// TLS certificate (no chain or hostname verification), for operators who
-    /// cannot immediately supply root_certificate_pem after upgrading. When unset,
-    /// verify-ca/verify-full enforce verification against the OS trust store.
-    pub static ref PG_ACCEPT_INVALID_CERTS: bool = std::env::var("PG_ACCEPT_INVALID_CERTS").is_ok();
+    /// cannot immediately supply root_certificate_pem after upgrading. Set it to
+    /// `true` (or `1`) to enable; otherwise verify-ca/verify-full enforce
+    /// verification against the OS trust store. Value-based on purpose so that
+    /// `PG_ACCEPT_INVALID_CERTS=false` does not silently disable verification.
+    pub static ref PG_ACCEPT_INVALID_CERTS: bool = std::env::var("PG_ACCEPT_INVALID_CERTS")
+        .map(|s| s == "true" || s == "1")
+        .unwrap_or(false);
 
     /// Snapshot of the standard outbound-proxy env vars, read once at startup.
     /// Lowercase (`no_proxy`, `http_proxy`, `https_proxy`) is preferred to match
