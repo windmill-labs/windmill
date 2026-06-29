@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(username, split_part(email, '@', 1)) AS \"username!\", email FROM password WHERE super_admin = true AND disabled = false ORDER BY email LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "17cdf02b4912078459526205849246fd2bdf9e3fce89852120aa4ad4ad6abfc3"
+}
