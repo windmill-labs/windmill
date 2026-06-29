@@ -20,8 +20,10 @@
 		AppService,
 		FlowService,
 		FolderService,
+		ResourceService,
 		ScriptService,
 		UserService,
+		VariableService,
 		WorkspaceService,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
@@ -186,15 +188,34 @@
 		}
 	}
 
-	// Seed a workspace-specific item that exists on only one side onto the other, copying its current
-	// value (incl. secret values). Reuses the normal deploy (authorized against the target), then
-	// marks it workspace-specific on the target too so it stays per-environment.
+	// Seed a workspace-specific item onto a side that lacks it, copying its current value (incl.
+	// secret values). Strictly create-only: markers can be one-sided (a pin can fail on a locked
+	// side), so a missing marker doesn't prove the item is missing — re-check actual existence and,
+	// if the target already has it, mark it workspace-specific there instead of overwriting its value.
 	async function createOnRemote(it: PinnedItem) {
 		const from = it.onCurrent ? currentWorkspaceId : parentWorkspaceId
 		const to = it.onCurrent ? parentWorkspaceId : currentWorkspaceId
 		const k = `${it.item_kind}:${it.path}`
+		const kindCast = it.item_kind as 'resource' | 'variable'
 		pinBusy[k] = true
 		try {
+			const existsOnTarget =
+				kindCast === 'resource'
+					? await ResourceService.existsResource({ workspace: to, path: it.path })
+					: await VariableService.existsVariable({ workspace: to, path: it.path })
+			if (existsOnTarget) {
+				// Don't overwrite — just mark the existing target item workspace-specific.
+				await WorkspaceService.setWsSpecific({
+					workspace: to,
+					requestBody: { item_kind: kindCast, path: it.path, value: true }
+				})
+				sendUserToast(
+					`${it.path} already exists in ${to} — marked it workspace-specific instead of overwriting`
+				)
+				await loadPinned()
+				onChanged?.()
+				return
+			}
 			const res = await deployItem({
 				kind: it.item_kind as Kind,
 				path: it.path,
@@ -207,11 +228,7 @@
 			}
 			await WorkspaceService.setWsSpecific({
 				workspace: to,
-				requestBody: {
-					item_kind: it.item_kind as 'resource' | 'variable',
-					path: it.path,
-					value: true
-				}
+				requestBody: { item_kind: kindCast, path: it.path, value: true }
 			})
 			sendUserToast(`Created ${it.path} in ${to}`)
 			await loadPinned()
@@ -1340,7 +1357,8 @@
 			(including any secret value) from
 			<b>{createConfirm?.onCurrent ? currentWorkspaceId : parentWorkspaceId}</b>
 			into <b>{createConfirm?.onCurrent ? parentWorkspaceId : currentWorkspaceId}</b>. It stays
-			workspace-specific afterward, so later promotes won't overwrite it.
+			workspace-specific afterward, so later promotes won't overwrite it. If it already exists
+			there, it's left untouched and just marked workspace-specific.
 		</p>
 	</ConfirmationModal>
 {:else}
