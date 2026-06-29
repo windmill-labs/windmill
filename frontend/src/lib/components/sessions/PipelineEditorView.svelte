@@ -6,12 +6,13 @@
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
 	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { useActiveRunnableIds } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection,
 		NativeTriggerKind
 	} from '$lib/components/assets/AssetGraph/types'
-	import { AssetService, type AssetKind } from '$lib/gen'
+	import { AssetService, JobService, type AssetKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/utils'
 	import { createPipelineAiHelpers } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
@@ -165,6 +166,66 @@
 		void tick().then(() => focusDataUploadSignal++)
 	}
 
+	// ── Run dispatch + live run state ──────────────────────────────────────────
+	// Reuses the shared folder-scoped job poll (node badges + event log) the route
+	// page uses. The session runs ONE node at a time (preview for an unsaved draft,
+	// the deployed version otherwise) — it skips the route page's cascade/deploy
+	// queue, which the AI-session run UX doesn't need.
+	const pathPrefix = $derived(`f/${path}/`)
+	const activeRunnables = useActiveRunnableIds(
+		() => workspaceId,
+		() => pathPrefix
+	)
+	// Zero-latency "running" hint for a node run launched from the canvas (the poll
+	// hasn't seen the job yet). Released when that exact job reaches a terminal
+	// status in the poll, so the badge hands off to the poll's status with no flash.
+	let activeRunnable = $state<{ kind: 'script' | 'flow'; path: string } | undefined>(undefined)
+	let activeRunnableJobId = $state<string | undefined>(undefined)
+	$effect(() => {
+		pathPrefix // re-scope the poll when the folder changes
+		activeRunnables.setObserving(true)
+		return () => activeRunnables.dispose()
+	})
+	$effect(() => {
+		if (!activeRunnableJobId) return
+		const ev = activeRunnables.events.find((e) => e.id === activeRunnableJobId)
+		if (ev && (ev.status === 'success' || ev.status === 'failure')) {
+			activeRunnable = undefined
+			activeRunnableJobId = undefined
+		}
+	})
+
+	async function runNode(
+		nodePath: string,
+		args: Record<string, any> = {}
+	): Promise<string | undefined> {
+		const draft = pe.drafts.get(nodePath)
+		activeRunnables.arm(`script:${nodePath}`)
+		try {
+			const jobId = draft
+				? await JobService.runScriptPreview({
+						workspace: workspaceId,
+						requestBody: {
+							path: nodePath,
+							content: draft.script.content,
+							language: draft.script.language,
+							args
+						}
+					})
+				: await JobService.runScriptByPath({
+						workspace: workspaceId,
+						path: nodePath,
+						requestBody: { ...args }
+					})
+			activeRunnable = { kind: 'script', path: nodePath }
+			activeRunnableJobId = jobId
+			return jobId
+		} catch (e: any) {
+			sendUserToast(`Run failed: ${e?.body ?? e?.message ?? e}`, true)
+			return undefined
+		}
+	}
+
 	// Register the pipeline tools on this session's manager while the view is the
 	// active one. setPipelineHelpers rebuilds the global tool set to include the
 	// pipeline tools and tears them down on cleanup.
@@ -212,13 +273,35 @@
 				displayGraph={resolvedGraph}
 				mode="edit"
 				workspace={workspaceId}
-				pathPrefix={`f/${path}/`}
+				{pathPrefix}
 				onCreateMissingTrigger={openMissingTriggerDrawer}
 				onEditTrigger={openEditTriggerDrawer}
 				onDeleteTrigger={deleteAttachedTrigger}
 				onOpenWebhook={openWebhookDrawer}
 				onOpenDataUpload={openDataUploadRun}
 				focusUploadSignal={focusDataUploadSignal}
+				{activeRunnable}
+				activeRunnableIds={activeRunnables.ids}
+				runStates={activeRunnables.states}
+				eventLogEvents={activeRunnables.events}
+				onRunProducer={(producer) => runNode(producer.path)}
+				onRunByPath={runNode}
+				canRunByPath
+				onTestStateChange={(running) => {
+					const openPath = pe.openScriptPath
+					if (running && openPath) {
+						activeRunnable = { kind: 'script', path: openPath }
+						activeRunnables.arm(`script:${openPath}`)
+						activeRunnableJobId = undefined
+					} else {
+						activeRunnable = undefined
+						activeRunnableJobId = undefined
+					}
+				}}
+				onRunCompleted={() => {
+					activeRunnable = undefined
+					activeRunnableJobId = undefined
+				}}
 				onSelect={handleCanvasSelect}
 				onDraftSaved={afterSaved}
 				onPersistedSaved={afterSaved}
