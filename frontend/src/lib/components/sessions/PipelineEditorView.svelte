@@ -283,12 +283,12 @@
 				Failed to load pipeline: {graphRes.error.message}
 			</div>
 		{:else}
-			<!-- The session preview shares the route page's editor body. It persists
-			     drafts to the same per-folder DB draft as the route page, so AI drafts
-			     survive a reload / session switch (and an LRU-evicted runtime). It opts
-			     out of the run/cascade/trigger/bounded affordances (their callbacks are
-			     omitted, so the canvas/pane hide them); building still works via the AI
-			     helpers. -->
+			<!-- The session preview shares the route page's editor body and persists
+			     drafts to the same per-folder DB draft, so AI drafts survive a reload /
+			     session switch (and an LRU-evicted runtime). It wires the shared run +
+			     trigger affordances (handlers above) but omits the route page's
+			     cascade / bounded-run / add-script-from-asset callbacks, so those stay
+			     hidden. -->
 			<PipelineGraphEditor
 				editor={pe}
 				folder={path}
