@@ -90,6 +90,13 @@ export function resetBenchmarkMockBackend(): void {
 	benchmarkDrafts.clear()
 }
 
+// Stand-in for FolderService.createFolder so the global create_folder tool runs in
+// memory instead of mutating the real backend. Folders aren't otherwise modelled
+// (no folder-listing in evals), so this just echoes the created name.
+export function createBenchmarkFolder(_workspace: string, name: string): string {
+	return name
+}
+
 export function registerBenchmarkWorkspace(workspace: string): void {
 	benchmarkWorkspaces.add(workspace)
 }

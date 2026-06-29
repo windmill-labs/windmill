@@ -1634,6 +1634,12 @@ async fn update_resource(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+    // A rename moves the resource (and its linked variable) to ns.path, so the
+    // destination must also be within the token's write scope, not just the
+    // source path.
+    if let Some(npath) = ns.path.as_deref() {
+        check_scopes(&authed, || format!("resources:write:{}", npath))?;
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),

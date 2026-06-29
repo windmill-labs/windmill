@@ -422,6 +422,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
 			workspaceItemsContext += `- type: flow, path: ${context.path}\n`
+		} else if (context.type === 'workspace_app') {
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
+			}
+			workspaceItemsContext += `- type: raw_app, path: ${context.path}\n`
 		}
 	}
 
@@ -936,7 +941,9 @@ export async function buildSchemaForTool(
 			throw new Error(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
 		}
 
-		toolDef.function.parameters = { ...schema, additionalProperties: false }
+		// Anthropic requires input_schema.type to be present; flows with no inputs
+		// can produce a sparse schema (e.g. { order: [] }) lacking it.
+		toolDef.function.parameters = { type: 'object', ...schema, additionalProperties: false }
 
 		// recursively normalize provider-incompatible schema fragments
 		normalizeToolParameterSchema(toolDef.function.parameters)

@@ -68,6 +68,7 @@ import wasmUrlWac from 'windmill-parser-wasm-wac/windmill_parser_wasm_bg.wasm?ur
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
+import { type ColumnLineage } from './components/assets/AssetGraph/parsePipelineAnnotations'
 
 const loadSchemaLastRun = writable<
 	| [
@@ -169,6 +170,10 @@ type InferAssetsResult =
 			assets: AssetWithAccessType[]
 			sql_queries?: InferAssetsSqlQueryDetails[]
 			columns?: Record<string, AssetUsageAccessType>
+			// Body-inferred column lineage (DuckDB SQL AST). Present once the
+			// `windmill-parser-wasm-asset` package is rebuilt with the inference;
+			// the spread below already forwards it from the parser output.
+			column_lineage?: ColumnLineage[]
 	  }
 	| {
 			status: 'error'

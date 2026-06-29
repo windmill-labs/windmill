@@ -69,6 +69,13 @@
 		type DucklakeSettingsType
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import {
+		archiveSessionsForWorkspace,
+		countSessionsForWorkspace,
+		deleteSessionsForWorkspace,
+		reconcileAfterWorkspaceChange
+	} from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
 	import { validateWebhookUrl, validateEncryptionKey } from '$lib/validators/workspaceSettings'
@@ -88,6 +95,65 @@
 	let slack_team_name: string | undefined = $state()
 	let teams_team_id: string | undefined = $state()
 	let teams_team_name: string | undefined = $state()
+
+	// Workspace archive/delete cascade to the workspace's client-side AI sessions
+	// (archive → archive, delete → delete) via reconcileSessionsLifecycle. The
+	// confirmation modals warn how many sessions are affected first.
+	let archiveConfirmOpen = $state(false)
+	let deleteConfirmOpen = $state(false)
+	let affectedSessionCount = $state(0)
+
+	async function openArchiveConfirm() {
+		affectedSessionCount = await countSessionsForWorkspace($workspaceStore ?? '')
+		archiveConfirmOpen = true
+	}
+	async function openDeleteConfirm() {
+		affectedSessionCount = await countSessionsForWorkspace($workspaceStore ?? '')
+		deleteConfirmOpen = true
+	}
+	async function doArchiveWorkspace() {
+		const ws = $workspaceStore ?? ''
+		// Land on the parent workspace if this is a fork and the parent is still
+		// accessible — otherwise fall back to the workspace picker.
+		const parentId = $userWorkspaces.find((w) => w.id === ws)?.parent_workspace_id
+		const parentStillAccessible = !!(parentId && $userWorkspaces.find((w) => w.id === parentId))
+		await WorkspaceService.archiveWorkspace({ workspace: ws })
+		sendUserToast(`Archived workspace ${ws}`)
+		// Best-effort client cleanup: a local IndexedDB failure must not strand the
+		// user on the just-archived workspace. The reconcile also refreshes the
+		// workspace list (dropping the archived one) so the parent-accessible check
+		// below — captured before the archive — still routes correctly.
+		try {
+			await archiveSessionsForWorkspace(ws)
+			await reconcileAfterWorkspaceChange()
+		} catch (e) {
+			console.error('Session cleanup after workspace archive failed', e)
+		}
+		if (parentStillAccessible && parentId) {
+			switchWorkspace(parentId)
+			await goto('/')
+		} else {
+			workspaceStore.set(undefined)
+			usersWorkspaceStore.set(undefined)
+			await goto('/user/workspaces')
+		}
+	}
+	async function doDeleteWorkspace() {
+		const ws = $workspaceStore ?? ''
+		await WorkspaceService.deleteWorkspace({ workspace: ws })
+		sendUserToast(`Deleted workspace ${ws}`)
+		// Best-effort client cleanup — must not block navigation off the deleted
+		// workspace if a local IndexedDB op throws.
+		try {
+			await deleteSessionsForWorkspace(ws)
+			await reconcileAfterWorkspaceChange()
+		} catch (e) {
+			console.error('Session cleanup after workspace delete failed', e)
+		}
+		workspaceStore.set(undefined)
+		usersWorkspaceStore.set(undefined)
+		await goto('/user/workspaces')
+	}
 	let useCustomSlackApp: boolean = $state(false)
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
 
@@ -1558,34 +1624,7 @@
 									disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 									unifiedSize="md"
 									btnClasses="mt-2"
-									on:click={async () => {
-										const ws = $workspaceStore ?? ''
-										// Land on the parent workspace if this is a fork and the
-										// parent is still accessible — otherwise fall back to the
-										// workspace picker.
-										const parentId = $userWorkspaces.find((w) => w.id === ws)?.parent_workspace_id
-										const parentStillAccessible = !!(
-											parentId && $userWorkspaces.find((w) => w.id === parentId)
-										)
-										await WorkspaceService.archiveWorkspace({ workspace: ws })
-										sendUserToast(`Archived workspace ${ws}`)
-										if (parentStillAccessible && parentId) {
-											// Refresh the list so the just-archived workspace drops out before
-											// we land on the parent. Guarded: a refresh failure must not block
-											// the switch (the list reloads on next page load).
-											try {
-												usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-											} catch (e) {
-												console.error('Failed to refresh workspaces after archive', e)
-											}
-											switchWorkspace(parentId)
-											await goto('/')
-										} else {
-											workspaceStore.set(undefined)
-											usersWorkspaceStore.set(undefined)
-											await goto('/user/workspaces')
-										}
-									}}
+									on:click={openArchiveConfirm}
 								>
 									Archive workspace
 								</Button>
@@ -1596,18 +1635,51 @@
 										disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 										size="sm"
 										btnClasses="mt-2"
-										on:click={async () => {
-											await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
-											sendUserToast(`Deleted workspace ${$workspaceStore}`)
-											workspaceStore.set(undefined)
-											usersWorkspaceStore.set(undefined)
-											goto('/user/workspaces')
-										}}
+										on:click={openDeleteConfirm}
 									>
 										Delete workspace (superadmin)
 									</Button>
 								{/if}
 							</div>
+
+							<ConfirmationModal
+								open={archiveConfirmOpen}
+								title="Archive workspace"
+								confirmationText="Archive"
+								onConfirmed={async () => {
+									archiveConfirmOpen = false
+									await doArchiveWorkspace()
+								}}
+								onCanceled={() => (archiveConfirmOpen = false)}
+							>
+								<div class="flex flex-col gap-2">
+									<span>
+										Archiving this workspace also archives its AI sessions{affectedSessionCount > 0
+											? ` (${affectedSessionCount})`
+											: ''}. Unarchiving the workspace restores them.
+									</span>
+								</div>
+							</ConfirmationModal>
+
+							<ConfirmationModal
+								open={deleteConfirmOpen}
+								title="Delete workspace"
+								confirmationText="Delete"
+								onConfirmed={async () => {
+									deleteConfirmOpen = false
+									await doDeleteWorkspace()
+								}}
+								onCanceled={() => (deleteConfirmOpen = false)}
+							>
+								<div class="flex flex-col gap-2">
+									<span>
+										Permanently deleting this workspace also permanently deletes its AI sessions{affectedSessionCount >
+										0
+											? ` (${affectedSessionCount})`
+											: ''}. This cannot be undone.
+									</span>
+								</div>
+							</ConfirmationModal>
 						{:else if tab == 'webhook'}
 							<SettingsPageHeader
 								title="Workspace webhook"

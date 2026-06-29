@@ -301,5 +301,210 @@
 			"tag": null,
 			"retry": null
 		}
+	},
+	{
+		"name": "data_test built-ins accumulate in order",
+		"code": "-- pipeline\n-- materialize ducklake://analytics/orders key=order_id\n-- data_test unique order_id\n-- data_test not_null user_id\n-- data_test accepted_values status = paid,pending,refunded\n-- data_test relationships user_id -> datatable://prod/users.id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders",
+				"unique_key": "order_id"
+			},
+			"data_tests": [
+				{ "type": "unique", "column": "order_id" },
+				{ "type": "not_null", "column": "user_id" },
+				{
+					"type": "accepted_values",
+					"column": "status",
+					"values": ["paid", "pending", "refunded"]
+				},
+				{
+					"type": "relationships",
+					"column": "user_id",
+					"to_kind": "datatable",
+					"to_path": "prod/users",
+					"to_column": "id"
+				}
+			]
+		}
+	},
+	{
+		"name": "data_test accepted_values strips quotes and spacing",
+		"code": "# data_test accepted_values kind = \"a b\", 'c' ,d\nprint(1)",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [
+				{ "type": "accepted_values", "column": "kind", "values": ["a b", "c", "d"] }
+			]
+		}
+	},
+	{
+		"name": "data_test custom escape hatch is a script path",
+		"code": "// data_test f/tests/orders_amount_sane\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [{ "type": "custom", "path": "f/tests/orders_amount_sane" }]
+		}
+	},
+	{
+		"name": "data_test relationships with ducklake shorthand target",
+		"code": "// data_test relationships sku -> ducklake://warehouse/dim_products.sku\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [
+				{
+					"type": "relationships",
+					"column": "sku",
+					"to_kind": "ducklake",
+					"to_path": "warehouse/dim_products",
+					"to_column": "sku"
+				}
+			]
+		}
+	},
+	{
+		"name": "malformed data_test lines are dropped fail-safe",
+		"code": "// data_test uniq order_id\n// data_test accepted_values s =\n// data_test relationships a -> b\n// data_test unique\n// data_test\n// data_test unique id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [{ "type": "unique", "column": "id" }]
+		}
+	},
+	{
+		"name": "ci test annotation is not a data test",
+		"code": "// test: f/foo/bar\n// data_test unique id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [{ "type": "unique", "column": "id" }]
+		}
+	},
+	{
+		"name": "column lineage maps output columns to upstream sources",
+		"code": "// column order_total <- ducklake://warehouse/orders.amount, ducklake://warehouse/orders.tax\n// column user_name <- datatable://prod/users.name\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "order_total",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						},
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "tax"
+						}
+					]
+				},
+				{
+					"column": "user_name",
+					"inputs": [
+						{ "from_kind": "datatable", "from_path": "prod/users", "from_column": "name" }
+					]
+				}
+			]
+		}
+	},
+	{
+		"name": "column lineage keeps duplicate input refs (dedup is a view concern)",
+		"code": "// column total <- ducklake://warehouse/orders.amount, ducklake://warehouse/orders.amount\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "total",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						},
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						}
+					]
+				}
+			]
+		}
+	},
+	{
+		"name": "column lineage keeps schema-qualified table, drops malformed refs",
+		"code": "// column sku <- ducklake://warehouse/main.dim_products.sku, bad_no_dot\n// column no_arrow datatable://prod/x.y\n// column total <- bad_no_dot\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "sku",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/main.dim_products",
+							"from_column": "sku"
+						}
+					]
+				}
+			]
+		}
 	}
 ]

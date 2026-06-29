@@ -16,7 +16,8 @@
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
 	let parentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === parentWorkspaceId))
 	// Detect fork/dev workspaces by their parent link, not the `wm-fork-` id prefix (dev
-	// workspaces have an ordinary, prefix-less id).
+	// workspaces have an ordinary, prefix-less id). Keying on the parent (rather than the
+	// prefix) also avoids a parentless "Fork of ()" banner when the linkage is dropped.
 	let isFork = $derived(parentWorkspaceId != null)
 	let isDevWorkspace = $derived(currentWorkspaceData?.is_dev_workspace ?? false)
 

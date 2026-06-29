@@ -136,14 +136,22 @@ describe('buildContextString', () => {
 				path: 'f/flows/reporting',
 				title: 'f/flows/reporting',
 				summary: 'Reporting flow'
+			},
+			{
+				type: 'workspace_app',
+				path: 'f/apps/dashboard',
+				title: 'f/apps/dashboard',
+				summary: 'Dashboard raw app'
 			}
 		])
 
 		expect(context).toContain('SELECTED WORKSPACE ITEMS:')
 		expect(context).toContain('- type: script, path: f/scripts/report')
 		expect(context).toContain('- type: flow, path: f/flows/reporting')
+		expect(context).toContain('- type: raw_app, path: f/apps/dashboard')
 		expect(context).not.toContain('Report script')
 		expect(context).not.toContain('Reporting flow')
+		expect(context).not.toContain('Dashboard raw app')
 		expect(context).not.toContain('Code:')
 		expect(context).not.toContain('Value:')
 	})

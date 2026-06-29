@@ -226,6 +226,15 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     if !is_eligible_kind(job) {
         return Ok(DispatchResult::default());
     }
+    // A parented script is dispatch-eligible only as a native retry attempt — a
+    // re-run of the SAME runnable as its chain parent. Schedule/error/recovery
+    // handlers are also parented `Script` children but run a DIFFERENT script;
+    // excluding them stops a handler that happens to declare assets from
+    // triggering a cascade (the pre-native-retry `parent_job IS NULL` guard
+    // excluded every parented child).
+    if job.parent_job.is_some() && !is_native_retry_attempt(db, job).await? {
+        return Ok(DispatchResult::default());
+    }
     let runnable_path = match job.runnable_path.as_deref() {
         Some(p) if !p.is_empty() => p,
         _ => return Ok(DispatchResult::default()),
@@ -406,10 +415,26 @@ fn is_eligible_kind(job: &MiniCompletedJob) -> bool {
     if !matches!(job.kind, JobKind::Script | JobKind::Preview) {
         return false;
     }
-    if job.parent_job.is_some() || job.flow_step_id.is_some() {
+    // Flow steps (and sub-flow jobs) carry `flow_step_id` and are ineligible.
+    // Native script-retry attempts carry `parent_job` (the chain root) but no
+    // `flow_step_id`; whether a parented job is actually a retry attempt (vs a
+    // schedule/error handler child) is decided in `try_dispatch`.
+    if job.flow_step_id.is_some() {
         return false;
     }
     true
+}
+
+// Native retry attempts carry an explicit `native_retry_attempt` marker; no
+// other parented `Script` child (schedule handlers, WAC inline children, flow
+// steps) does. One indexed point lookup, only for parented jobs.
+async fn is_native_retry_attempt(db: &DB, job: &MiniCompletedJob) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = $1) AS \"exists!\"",
+        job.id,
+    )
+    .fetch_one(db)
+    .await?)
 }
 
 async fn fetch_args(
@@ -618,14 +643,16 @@ async fn push_subscriber(
         script.runnable_settings.debouncing_settings,
     );
 
-    // Retry is only available via the flow runtime — wrap the script in a
-    // one-step flow when the cascade declares one. No retry =
-    // unwrapped `ScriptHash` push.
+    // When the cascade declares a retry, hand `push` a one-step-flow request
+    // carrying the policy + `language`; `push` materializes it into a native
+    // retryable `Script` (not a flow), so a failed/recovered subscriber stays
+    // eligible to trigger its own downstream. No retry = plain `ScriptHash`.
     let payload = if let Some(retry) = crate::cascade::cascade_retry(retry_count, retry_delay_s) {
         JobPayload::SingleStepFlow {
             path: subscriber_path.to_string(),
             hash: Some(hash),
             flow_version: None,
+            language: Some(script.language),
             args: HashMap::new(),
             retry: Some(retry),
             error_handler_path: None,

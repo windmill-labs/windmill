@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.728.0",
+    "version": "1.740.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -174,52 +174,124 @@
         }
       }
     },
-    "/inkeep": {
-      "post": {
-        "summary": "query Windmill AI documentation assistant (EE only)",
-        "operationId": "queryDocumentation",
+    "/docs/search": {
+      "get": {
+        "summary": "Full-text search across the entire Windmill documentation. Provide one or more keywords; returns the most relevant docs pages, each with its Source URL and short matching snippets. Use this FIRST to find relevant pages by their content (a flag, function, error message, config key or concept). If the snippets answer the question, answer directly; otherwise call readDocsPage with a returned Source URL to read more.",
+        "operationId": "searchDocs",
         "x-mcp-tool": true,
         "tags": [
           "documentation"
         ],
-        "requestBody": {
-          "description": "query to send to the AI documentation assistant",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "query": {
-                    "type": "string",
-                    "description": "The documentation query to send to the AI assistant"
-                  }
-                },
-                "required": [
-                  "query"
-                ]
-              }
+        "parameters": [
+          {
+            "name": "query",
+            "description": "Keywords to search for in the documentation body, e.g. \"chromium worker tag\" or \"retry exponential backoff\". Fewer, more distinctive words match better.",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           }
-        },
+        ],
         "responses": {
           "200": {
-            "description": "AI documentation assistant response",
+            "description": "matching documentation pages",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "description": "Response from Inkeep service"
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "description": "Model-ready rendering of the results"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "url": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "score": {
+                            "type": "integer"
+                          },
+                          "snippets": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "url",
+                          "title",
+                          "score",
+                          "snippets"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "results"
+                  ]
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/docs/page": {
+      "get": {
+        "summary": "Fetch the markdown of a single Windmill documentation page. Provide the `url` of a page found via searchDocs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section.",
+        "operationId": "readDocsPage",
+        "x-mcp-tool": true,
+        "tags": [
+          "documentation"
+        ],
+        "parameters": [
+          {
+            "name": "url",
+            "description": "The docs page to read, as a Source URL returned by searchDocs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted.",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           },
-          "403": {
-            "description": "Enterprise Edition required",
+          {
+            "name": "section",
+            "description": "Optional. A heading title from the page outline to read just that section instead of the full page.",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "documentation page content",
             "content": {
-              "text/plain": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "source_url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "source_url"
+                  ]
                 }
               }
             }
@@ -1531,6 +1603,56 @@
         }
       }
     },
+    "/workspaces/session_workspace_status": {
+      "post": {
+        "summary": "get the lifecycle status of workspaces referenced by client-side sessions",
+        "operationId": "getSessionWorkspaceStatus",
+        "tags": [
+          "workspace"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "workspace_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "workspace_ids"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "map of workspace id to status (active, archived, or deleted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "archived",
+                      "deleted"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/workspaces/get_as_superadmin": {
       "get": {
         "summary": "get workspace as super admin (require to be super admin)",
@@ -2492,6 +2614,10 @@
                       "type": "integer",
                       "format": "int64"
                     },
+                    "s3_not_found": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
                     "orphans_scanned": {
                       "type": "integer",
                       "format": "int64"
@@ -2585,6 +2711,124 @@
                     "bootstrapping",
                     "last_run_exported",
                     "updated_at"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/audit_logs_s3_backfill": {
+      "post": {
+        "summary": "start an opt-in historical backfill of audit logs to object storage",
+        "operationId": "runAuditLogsS3Backfill",
+        "tags": [
+          "setting"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "inclusive lower bound of the window to export"
+                  },
+                  "to": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "exclusive upper bound of the window to export"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "backfill started"
+          }
+        }
+      }
+    },
+    "/settings/audit_logs_s3_backfill_status": {
+      "get": {
+        "summary": "get status of the audit-log object-store historical backfill",
+        "operationId": "getAuditLogsS3BackfillStatus",
+        "tags": [
+          "setting"
+        ],
+        "responses": {
+          "200": {
+            "description": "current backfill status (null if never run)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "nullable": true,
+                  "type": "object",
+                  "properties": {
+                    "running": {
+                      "type": "boolean"
+                    },
+                    "started_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "finished_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "phase": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "to": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "rows_written": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "objects_written": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "last_ts": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "last_error": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "running",
+                    "started_at",
+                    "phase",
+                    "from",
+                    "to",
+                    "rows_written",
+                    "objects_written",
+                    "errors"
                   ]
                 }
               }
@@ -9704,6 +9948,10 @@
                     "type": "string",
                     "description": "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only). The token URL is never caller-supplied."
                   },
+                  "cc_token_url": {
+                    "type": "string",
+                    "description": "Bring-your-own token endpoint override (client_credentials flow only). Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; ignored/rejected on the shared-instance path."
+                  },
                   "mcp_server_url": {
                     "type": "string",
                     "description": "MCP server URL for MCP OAuth token refresh"
@@ -9785,6 +10033,10 @@
                   "cc_instance": {
                     "type": "string",
                     "description": "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side. The token URL is never caller-supplied."
+                  },
+                  "cc_token_url": {
+                    "type": "string",
+                    "description": "Bring-your-own token endpoint override. Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; rejected on the shared-instance path."
                   }
                 }
               }
@@ -11614,6 +11866,32 @@
         }
       }
     },
+    "/apps_u/embed_token_by_custom_path/{custom_path}": {
+      "get": {
+        "summary": "get app embed token by custom path",
+        "operationId": "getAppEmbedTokenByCustomPath",
+        "tags": [
+          "app"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CustomPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "embed token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbedTokenResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/scripts/hub/get/{path}": {
       "get": {
         "summary": "get hub script content by path",
@@ -12188,6 +12466,14 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "all_users",
+            "in": "query",
+            "description": "List every draft in the workspace (all users), not just the current user's own + legacy rows. Other users' rows come back with `mine=false` (view-only).",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -12225,6 +12511,27 @@
                       "created_at": {
                         "type": "string",
                         "format": "date-time"
+                      },
+                      "can_write": {
+                        "type": "boolean",
+                        "description": "Whether the current user may deploy/discard this draft (same check the deploy/discard endpoints enforce)."
+                      },
+                      "mine": {
+                        "type": "boolean",
+                        "description": "The row belongs to the current user (own draft or the legacy no-owner row) and is therefore actionable. Always true in the default listing; with `all_users=true`, other users' rows are false (view-only)."
+                      },
+                      "draft_users": {
+                        "description": "Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.\nPopulated only for the shared full-page-editor kinds (script/flow/app/raw_app); omitted for\ndrawer kinds, which keep their drafts private. Feeds the Draft badge's owner-avatar circles.\n",
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "username": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
                       }
                     },
                     "required": [
@@ -12232,7 +12539,9 @@
                       "path",
                       "draft_only",
                       "legacy_draft",
-                      "created_at"
+                      "created_at",
+                      "can_write",
+                      "mine"
                     ]
                   }
                 }
@@ -12302,6 +12611,55 @@
         }
       }
     },
+    "/w/{workspace}/drafts/get_own/{kind}/{path}": {
+      "get": {
+        "summary": "fetch the current user's own draft content at a path (any kind)",
+        "operationId": "getOwnDraft",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UserDraftItemKind"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the user's draft content, or null when none exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "nullable": true,
+                  "type": "object",
+                  "properties": {
+                    "value": {},
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/drafts/update/{kind}/{path}": {
       "post": {
         "summary": "upsert (or clear) the current user's draft at a path",
@@ -12348,6 +12706,11 @@
                   "legacy": {
                     "type": "boolean",
                     "description": "Delete-only. Target the legacy workspace-level row (email NULL) instead of the current user's row. Used to discard a legacy draft from the review page."
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Upsert-only override for the stored creation timestamp. Normal saves omit it (stamped server-side); the localStorage→DB migration passes the draft's original write time so migrated drafts keep their age."
                   }
                 }
               }
@@ -12378,6 +12741,67 @@
                     "status",
                     "current_timestamp"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/drafts/migrate_legacy/{kind}/{path}": {
+      "post": {
+        "summary": "resolve a legacy (workspace-level) draft (admin only)",
+        "description": "Delete a legacy draft (email NULL) or assign it to the authed admin as a per-user draft. Workspace admins / superadmins only.",
+        "operationId": "migrateLegacyDraft",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UserDraftItemKind"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "delete",
+                      "assign_to_self"
+                    ],
+                    "description": "delete the legacy draft, or take ownership of it."
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "migration result",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -16099,6 +16523,202 @@
         }
       }
     },
+    "/w/{workspace}/ai_skills/list": {
+      "get": {
+        "summary": "list the workspace AI chat skills (name + description only)",
+        "operationId": "listAiSkills",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "skill listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "description"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/ai_skills/get/{name}": {
+      "get": {
+        "summary": "get a workspace AI chat skill including its instructions",
+        "operationId": "getAiSkill",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "skill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "description",
+                    "instructions"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "instructions": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/ai_skills/upload": {
+      "post": {
+        "summary": "upsert workspace AI chat skills (admin only)",
+        "operationId": "uploadAiSkills",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "skills"
+                ],
+                "properties": {
+                  "skills": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "description",
+                        "instructions"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9-]+$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024
+                        },
+                        "instructions": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 65536
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "uploaded",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/ai_skills/delete/{name}": {
+      "delete": {
+        "summary": "delete a workspace AI chat skill (admin only)",
+        "operationId": "deleteAiSkill",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/apps/get_data/v/{secretWithExtension}": {
       "get": {
         "summary": "get raw app data by",
@@ -16114,6 +16734,7 @@
             "name": "secretWithExtension",
             "in": "path",
             "required": true,
+            "description": "App version secret suffixed with the requested file type extension. Supported extensions are `.js` (JavaScript bundle), `.css` (stylesheet), and `.html` (sandboxed wrapper document).",
             "schema": {
               "type": "string"
             }
@@ -16124,6 +16745,16 @@
             "description": "app details",
             "content": {
               "text/javascript": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/css": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/html": {
                 "schema": {
                   "type": "string"
                 }
@@ -16518,6 +17149,35 @@
         }
       }
     },
+    "/w/{workspace}/apps/embed_token/p/{path}": {
+      "get": {
+        "summary": "get app embed token by path",
+        "operationId": "getAppEmbedTokenByPath",
+        "tags": [
+          "app"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "embed token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbedTokenResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/apps/get/lite/{path}": {
       "get": {
         "summary": "get app lite by path",
@@ -16713,6 +17373,40 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AppWithLastVersion"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/apps_u/embed_token/{secret}": {
+      "get": {
+        "summary": "get app embed token by secret",
+        "operationId": "getAppEmbedTokenBySecret",
+        "tags": [
+          "app"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "secret",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "embed token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbedTokenResponse"
                 }
               }
             }
@@ -17862,6 +18556,14 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "timeout",
+            "description": "custom timeout in seconds for this preview run",
+            "in": "query",
+            "schema": {
+              "type": "integer"
             }
           },
           {
@@ -19889,6 +20591,89 @@
         }
       }
     },
+    "/w/{workspace}/jobs_u/get_flow_all_logs_structured/{id}": {
+      "get": {
+        "summary": "get all logs for a flow job in a structured format",
+        "operationId": "getFlowAllLogsStructured",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/JobId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "structured logs of all flow steps, one entry per job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "job_id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string",
+                        "description": "human-readable label describing the job's position in the flow tree"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "description": "job kind (script, flow, forloopflow, ...)"
+                      },
+                      "flow_step_id": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "step_path": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "materialized step path (e.g. \"a/b\")"
+                      },
+                      "depth": {
+                        "type": "integer",
+                        "description": "depth in the flow tree (0 for the root flow job)"
+                      },
+                      "parent_module_type": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "parent module type (forloopflow, branchall, ...)"
+                      },
+                      "sibling_index": {
+                        "type": "integer",
+                        "description": "1-based index of this job among siblings sharing the same step"
+                      },
+                      "sibling_count": {
+                        "type": "integer",
+                        "description": "total number of siblings sharing the same step"
+                      },
+                      "logs": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "job_id",
+                      "label",
+                      "kind",
+                      "depth",
+                      "sibling_index",
+                      "sibling_count",
+                      "logs"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/jobs_u/get_completed_logs_tail/{id}": {
       "get": {
         "summary": "get completed job logs tail",
@@ -20394,6 +21179,192 @@
                   "required": [
                     "created_at"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/jobs_u/dispatch_events/{id}": {
+      "get": {
+        "summary": "list asset-trigger dispatch events for a producer job",
+        "description": "Returns the chronological log of decisions the asset-trigger dispatcher made after this producer job completed. Each row is one (subscriber, asset write) decision: `dispatched` (with `child_job_id`), `join_pending` (with `received_inputs` / `required_inputs` / `partition`), or `skipped` (with `reason`). Rows are reaped automatically when the producer's `v2_job` row is deleted by the retention sweep.\n",
+        "operationId": "listDispatchEvents",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/JobId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "dispatch events for this producer job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "subscriber_path": {
+                        "type": "string"
+                      },
+                      "asset_kind": {
+                        "type": "string",
+                        "enum": [
+                          "s3object",
+                          "resource",
+                          "variable",
+                          "ducklake",
+                          "datatable",
+                          "volume"
+                        ]
+                      },
+                      "asset_path": {
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "dispatched",
+                          "join_pending",
+                          "skipped"
+                        ]
+                      },
+                      "child_job_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "partition": {
+                        "type": "string"
+                      },
+                      "received_inputs": {
+                        "type": "integer"
+                      },
+                      "required_inputs": {
+                        "type": "integer"
+                      },
+                      "debounce_s": {
+                        "type": "integer"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "subscriber_path",
+                      "asset_kind",
+                      "asset_path",
+                      "outcome",
+                      "created_at"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/jobs/asset_dispatch_edges": {
+      "get": {
+        "summary": "list asset-cascade producer→child job edges for a folder",
+        "description": "Returns the `dispatched` asset-trigger edges (producer job → child job) whose subscriber lives under `path_start`. Lets a pipeline view reconstruct the cascade tree of a folder by job id and group connected runs. Visibility follows the producer job's RLS.\n",
+        "operationId": "listAssetDispatchEdges",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "path_start",
+            "in": "query",
+            "required": true,
+            "description": "Folder path prefix the children live under, e.g. `f/orders/`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "created_after",
+            "in": "query",
+            "required": false,
+            "description": "Only edges dispatched at/after this instant.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "asset-cascade edges for the folder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "producer_job_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "child_job_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Set for `dispatched`; absent for `join_pending` inputs."
+                      },
+                      "subscriber_path": {
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "dispatched",
+                          "join_pending"
+                        ]
+                      },
+                      "asset_kind": {
+                        "type": "string",
+                        "enum": [
+                          "s3object",
+                          "resource",
+                          "variable",
+                          "ducklake",
+                          "datatable",
+                          "volume"
+                        ]
+                      },
+                      "asset_path": {
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "producer_job_id",
+                      "subscriber_path",
+                      "outcome",
+                      "asset_kind",
+                      "asset_path",
+                      "created_at"
+                    ]
+                  }
                 }
               }
             }
@@ -21097,6 +22068,10 @@
                           }
                         }
                       }
+                    },
+                    "view_token": {
+                      "type": "string",
+                      "description": "Share-read-link token for the flow. An authenticated workspace member can append it as a `view_token` query param on the run page to read a flow they don't otherwise have access to."
                     }
                   }
                 }
@@ -21517,6 +22492,10 @@
                           "approver"
                         ]
                       }
+                    },
+                    "view_token": {
+                      "type": "string",
+                      "description": "Share-read-link token for the parent flow. An authenticated workspace member can append it as a `view_token` query param on the run page to read a flow they don't otherwise have access to."
                     }
                   },
                   "required": [
@@ -32737,6 +33716,241 @@
         }
       }
     },
+    "/w/{workspace}/assets/graph": {
+      "get": {
+        "summary": "Get the workspace-wide asset <-> runnable graph",
+        "operationId": "getAssetsGraph",
+        "tags": [
+          "asset"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "asset_kinds",
+            "in": "query",
+            "description": "Filter by asset kinds (comma-separated list)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "description": "Scope the graph to runnables in a single folder",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "asset graph nodes, lineage edges and trigger edges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "assets",
+                    "runnables",
+                    "edges",
+                    "triggers"
+                  ],
+                  "properties": {
+                    "assets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "kind",
+                          "path"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "$ref": "#/components/schemas/AssetKind"
+                          },
+                          "path": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "runnables": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "path",
+                          "usage_kind"
+                        ],
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "usage_kind": {
+                            "$ref": "#/components/schemas/AssetUsageKind"
+                          },
+                          "in_pipeline": {
+                            "type": "boolean",
+                            "description": "True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false."
+                          }
+                        }
+                      }
+                    },
+                    "edges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "runnable_path",
+                          "runnable_kind",
+                          "asset_kind",
+                          "asset_path"
+                        ],
+                        "properties": {
+                          "runnable_path": {
+                            "type": "string"
+                          },
+                          "runnable_kind": {
+                            "$ref": "#/components/schemas/AssetUsageKind"
+                          },
+                          "asset_kind": {
+                            "$ref": "#/components/schemas/AssetKind"
+                          },
+                          "asset_path": {
+                            "type": "string"
+                          },
+                          "access_type": {
+                            "$ref": "#/components/schemas/AssetUsageAccessType"
+                          }
+                        }
+                      }
+                    },
+                    "triggers": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "description": "Asset trigger edge (`// on <asset>`)",
+                            "required": [
+                              "trigger_kind",
+                              "asset_kind",
+                              "asset_path",
+                              "runnable_kind",
+                              "runnable_path"
+                            ],
+                            "properties": {
+                              "trigger_kind": {
+                                "type": "string",
+                                "enum": [
+                                  "asset"
+                                ]
+                              },
+                              "asset_kind": {
+                                "$ref": "#/components/schemas/AssetKind"
+                              },
+                              "asset_path": {
+                                "type": "string"
+                              },
+                              "runnable_kind": {
+                                "$ref": "#/components/schemas/AssetUsageKind"
+                              },
+                              "runnable_path": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "description": "Native trigger edge (schedule, email, kafka, ...). `path` is the trigger row's path.",
+                            "required": [
+                              "trigger_kind",
+                              "path",
+                              "runnable_kind",
+                              "runnable_path"
+                            ],
+                            "properties": {
+                              "trigger_kind": {
+                                "type": "string",
+                                "enum": [
+                                  "schedule",
+                                  "email",
+                                  "kafka",
+                                  "mqtt",
+                                  "nats",
+                                  "postgres",
+                                  "sqs",
+                                  "gcp"
+                                ]
+                              },
+                              "path": {
+                                "type": "string"
+                              },
+                              "runnable_kind": {
+                                "$ref": "#/components/schemas/AssetUsageKind"
+                              },
+                              "runnable_path": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/assets/pipelines": {
+      "get": {
+        "summary": "List folders that contain at least one pipeline-member script",
+        "operationId": "listPipelineFolders",
+        "tags": [
+          "asset"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "folders containing pipeline scripts, with their script counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "folder",
+                      "script_count"
+                    ],
+                    "properties": {
+                      "folder": {
+                        "type": "string",
+                        "description": "The folder name (without the `f/` prefix)"
+                      },
+                      "script_count": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Number of pipeline-member scripts in the folder"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/volumes/list": {
       "get": {
         "summary": "List all volumes in the workspace",
@@ -33686,7 +34900,8 @@
           "trigger_cli",
           "trigger_nextcloud",
           "trigger_google",
-          "trigger_github"
+          "trigger_github",
+          "data_pipeline"
         ]
       },
       "OpenFlow": {
@@ -36308,6 +37523,10 @@
           "parent_hash": {
             "type": "string"
           },
+          "auto_parent": {
+            "type": "boolean",
+            "description": "When true, the backend resolves the parent to the current deployed head for this path within the transaction (ignoring parent_hash), instead of failing with a \"lineage must be linear\" error when the supplied parent_hash is stale."
+          },
           "summary": {
             "type": "string"
           },
@@ -36709,6 +37928,9 @@
           "preprocessed": {
             "type": "boolean"
           },
+          "is_retry": {
+            "type": "boolean"
+          },
           "worker": {
             "type": "string"
           }
@@ -36864,6 +38086,9 @@
             "type": "number"
           },
           "preprocessed": {
+            "type": "boolean"
+          },
+          "is_retry": {
             "type": "boolean"
           },
           "worker": {
@@ -37373,6 +38598,12 @@
               "type": "string"
             }
           },
+          "folders_read": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "folders_owners": {
             "type": "array",
             "items": {
@@ -37400,6 +38631,7 @@
           "operator",
           "disabled",
           "folders",
+          "folders_read",
           "folders_owners"
         ]
       },
@@ -39303,7 +40535,8 @@
           "gcp",
           "azure",
           "google",
-          "github"
+          "github",
+          "asset"
         ]
       },
       "TriggerMode": {
@@ -43149,6 +44382,10 @@
           },
           "on_behalf_of_email": {
             "type": "string"
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Publisher opt-in to app sandbox isolation (alpha). When true the app is isolated from each viewer's Windmill session. When false/absent the app runs same-origin with the viewer's full session (the default, pre-isolation behavior).\n"
           }
         }
       },
@@ -43428,6 +44665,44 @@
         },
         "required": [
           "version"
+        ]
+      },
+      "EmbedTokenResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "nullable": true,
+            "description": "Narrowly-scoped embed token for the iframe. Absent for fully anonymous or raw apps, which load without a scoped token."
+          },
+          "expiration": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Expiration of the embed token."
+          },
+          "raw_app": {
+            "type": "boolean",
+            "description": "Raw apps render single-iframe and skip the opaque-viewer indirection and the embed token entirely."
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session."
+          },
+          "app_path": {
+            "type": "string",
+            "nullable": true,
+            "description": "The resolved app path; the embedder uses it to scope the app's backing localStorage per app."
+          },
+          "workspace_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store."
+          }
+        },
+        "required": [
+          "raw_app",
+          "sandbox"
         ]
       },
       "FlowVersion": {

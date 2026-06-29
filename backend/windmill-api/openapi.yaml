@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.734.0
+  version: 1.742.0
   title: Windmill API
 
   contact:
@@ -127,40 +127,89 @@ paths:
               schema:
                 type: string
 
-  /inkeep:
-    post:
-      summary: query Windmill AI documentation assistant (EE only)
-      operationId: queryDocumentation
+  /docs/search:
+    get:
+      summary: "Full-text search across the entire Windmill documentation. Provide one or more keywords; returns the most relevant docs pages, each with its Source URL and short matching snippets. Use this FIRST to find relevant pages by their content (a flag, function, error message, config key or concept). If the snippets answer the question, answer directly; otherwise call readDocsPage with a returned Source URL to read more."
+      operationId: searchDocs
       x-mcp-tool: true
       tags:
         - documentation
-      requestBody:
-        description: query to send to the AI documentation assistant
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                query:
-                  type: string
-                  description: The documentation query to send to the AI assistant
-              required:
-                - query
+      parameters:
+        - name: query
+          description: 'Keywords to search for in the documentation body, e.g. "chromium worker tag" or "retry exponential backoff". Fewer, more distinctive words match better.'
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          description: AI documentation assistant response
+          description: matching documentation pages
           content:
             application/json:
               schema:
                 type: object
-                description: Response from Inkeep service
-        "403":
-          description: Enterprise Edition required
+                properties:
+                  text:
+                    type: string
+                    description: Model-ready rendering of the results
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        score:
+                          type: integer
+                        snippets:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - url
+                        - title
+                        - score
+                        - snippets
+                required:
+                  - text
+                  - results
+
+  /docs/page:
+    get:
+      summary: "Fetch the markdown of a single Windmill documentation page. Provide the `url` of a page found via searchDocs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section."
+      operationId: readDocsPage
+      x-mcp-tool: true
+      tags:
+        - documentation
+      parameters:
+        - name: url
+          description: "The docs page to read, as a Source URL returned by searchDocs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted."
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: section
+          description: "Optional. A heading title from the page outline to read just that section instead of the full page."
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: documentation page content
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  text:
+                    type: string
+                  source_url:
+                    type: string
+                required:
+                  - text
+                  - source_url
 
   /openapi.yaml:
     get:
@@ -997,6 +1046,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
 
+  /workspaces/session_workspace_status:
+    post:
+      summary: get the lifecycle status of workspaces referenced by client-side sessions
+      operationId: getSessionWorkspaceStatus
+      tags:
+        - workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - workspace_ids
+      responses:
+        "200":
+          description: map of workspace id to status (active, archived, or deleted)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  enum:
+                    - active
+                    - archived
+                    - deleted
+
   /w/{workspace}/workspaces/get_as_superadmin:
     get:
       summary: get workspace as super admin (require to be super admin)
@@ -1715,6 +1797,9 @@ paths:
                   s3_deleted:
                     type: integer
                     format: int64
+                  s3_not_found:
+                    type: integer
+                    format: int64
                   orphans_scanned:
                     type: integer
                     format: int64
@@ -1786,6 +1871,92 @@ paths:
                   - bootstrapping
                   - last_run_exported
                   - updated_at
+
+  /settings/audit_logs_s3_backfill:
+    post:
+      summary: start an opt-in historical backfill of audit logs to object storage
+      operationId: runAuditLogsS3Backfill
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                  description: inclusive lower bound of the window to export
+                to:
+                  type: string
+                  format: date-time
+                  description: exclusive upper bound of the window to export
+              required:
+                - from
+                - to
+      responses:
+        "202":
+          description: backfill started
+
+  /settings/audit_logs_s3_backfill_status:
+    get:
+      summary: get status of the audit-log object-store historical backfill
+      operationId: getAuditLogsS3BackfillStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: current backfill status (null if never run)
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  phase:
+                    type: string
+                  from:
+                    type: string
+                    format: date-time
+                  to:
+                    type: string
+                    format: date-time
+                  rows_written:
+                    type: integer
+                    format: int64
+                  objects_written:
+                    type: integer
+                    format: int64
+                  last_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  errors:
+                    type: integer
+                    format: int64
+                  last_error:
+                    type: string
+                    nullable: true
+                required:
+                  - running
+                  - started_at
+                  - phase
+                  - from
+                  - to
+                  - rows_written
+                  - objects_written
+                  - errors
 
   /settings/send_stats:
     post:
@@ -6387,6 +6558,9 @@ paths:
                 cc_instance:
                   type: string
                   description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only). The token URL is never caller-supplied."
+                cc_token_url:
+                  type: string
+                  description: "Bring-your-own token endpoint override (client_credentials flow only). Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; ignored/rejected on the shared-instance path."
                 mcp_server_url:
                   type: string
                   description: "MCP server URL for MCP OAuth token refresh"
@@ -6442,6 +6616,9 @@ paths:
                 cc_instance:
                   type: string
                   description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side. The token URL is never caller-supplied."
+                cc_token_url:
+                  type: string
+                  description: "Bring-your-own token endpoint override. Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; rejected on the shared-instance path."
       responses:
         "200":
           description: OAuth token response
@@ -7587,6 +7764,22 @@ paths:
                     properties:
                       workspace_id:
                         type: string
+
+  /apps_u/embed_token_by_custom_path/{custom_path}:
+    get:
+      summary: get app embed token by custom path
+      operationId: getAppEmbedTokenByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
 
   /scripts/hub/get/{path}:
     get:
@@ -10518,6 +10711,133 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai_skills/list:
+    get:
+      summary: list the workspace AI chat skills (name + description only)
+      operationId: listAiSkills
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: skill listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - name
+                    - description
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+
+  /w/{workspace}/ai_skills/get/{name}:
+    get:
+      summary: get a workspace AI chat skill including its instructions
+      operationId: getAiSkill
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: skill
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - name
+                  - description
+                  - instructions
+                properties:
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  instructions:
+                    type: string
+
+  /w/{workspace}/ai_skills/upload:
+    post:
+      summary: upsert workspace AI chat skills (admin only)
+      operationId: uploadAiSkills
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - skills
+              properties:
+                skills:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - description
+                      - instructions
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 64
+                        pattern: "^[a-z0-9-]+$"
+                      description:
+                        type: string
+                        minLength: 1
+                        maxLength: 1024
+                      instructions:
+                        type: string
+                        minLength: 1
+                        maxLength: 65536
+      responses:
+        "200":
+          description: uploaded
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_skills/delete/{name}:
+    delete:
+      summary: delete a workspace AI chat skill (admin only)
+      operationId: deleteAiSkill
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -10529,6 +10849,10 @@ paths:
         - name: secretWithExtension
           in: path
           required: true
+          description: >-
+            App version secret suffixed with the requested file type extension.
+            Supported extensions are `.js` (JavaScript bundle), `.css`
+            (stylesheet), and `.html` (sandboxed wrapper document).
           schema:
             type: string
       responses:
@@ -10536,6 +10860,12 @@ paths:
           description: app details
           content:
             text/javascript:
+              schema:
+                type: string
+            text/css:
+              schema:
+                type: string
+            text/html:
               schema:
                 type: string
 
@@ -10789,6 +11119,23 @@ paths:
                   - $ref: "#/components/schemas/AppWithLastVersion"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
+  /w/{workspace}/apps/embed_token/p/{path}:
+    get:
+      summary: get app embed token by path
+      operationId: getAppEmbedTokenByPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
+
   /w/{workspace}/apps/get/lite/{path}:
     get:
       summary: get app lite by path
@@ -10905,6 +11252,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps_u/embed_token/{secret}:
+    get:
+      summary: get app embed token by secret
+      operationId: getAppEmbedTokenBySecret
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: secret
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
 
   /w/{workspace}/apps_u/public_resource/{path}:
     get:
@@ -11614,6 +11982,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: timeout
+          description: custom timeout in seconds for this preview run
+          in: query
+          schema:
+            type: integer
         - $ref: "#/components/parameters/NewJobId"
 
       requestBody:
@@ -12796,6 +13169,64 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/jobs_u/get_flow_all_logs_structured/{id}:
+    get:
+      summary: get all logs for a flow job in a structured format
+      operationId: getFlowAllLogsStructured
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: structured logs of all flow steps, one entry per job
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    job_id:
+                      type: string
+                    label:
+                      type: string
+                      description: human-readable label describing the job's position in the flow tree
+                    kind:
+                      type: string
+                      description: job kind (script, flow, forloopflow, ...)
+                    flow_step_id:
+                      type: string
+                      nullable: true
+                    step_path:
+                      type: string
+                      nullable: true
+                      description: materialized step path (e.g. "a/b")
+                    depth:
+                      type: integer
+                      description: depth in the flow tree (0 for the root flow job)
+                    parent_module_type:
+                      type: string
+                      nullable: true
+                      description: parent module type (forloopflow, branchall, ...)
+                    sibling_index:
+                      type: integer
+                      description: 1-based index of this job among siblings sharing the same step
+                    sibling_count:
+                      type: integer
+                      description: total number of siblings sharing the same step
+                    logs:
+                      type: string
+                  required:
+                    - job_id
+                    - label
+                    - kind
+                    - depth
+                    - sibling_index
+                    - sibling_count
+                    - logs
 
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
@@ -22960,6 +23391,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        is_retry:
+          type: boolean
         worker:
           type: string
       required:
@@ -23079,6 +23512,8 @@ components:
         aggregate_wait_time_ms:
           type: number
         preprocessed:
+          type: boolean
+        is_retry:
           type: boolean
         worker:
           type: string
@@ -23454,6 +23889,10 @@ components:
           type: array
           items:
             type: string
+        folders_read:
+          type: array
+          items:
+            type: string
         folders_owners:
           type: array
           items:
@@ -23473,6 +23912,7 @@ components:
         - operator
         - disabled
         - folders
+        - folders_read
         - folders_owners
 
     UserSource:
@@ -27803,6 +28243,13 @@ components:
           type: string
         on_behalf_of_email:
           type: string
+        sandbox:
+          type: boolean
+          description: >
+            Publisher opt-in to app sandbox isolation (alpha). When true the app
+            is isolated from each viewer's Windmill session. When false/absent
+            the app runs same-origin with the viewer's full session (the
+            default, pre-isolation behavior).
 
     ListableApp:
       type: object
@@ -28021,6 +28468,36 @@ components:
           type: string
       required:
         - version
+
+    EmbedTokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          nullable: true
+          description: Narrowly-scoped embed token for the iframe. Absent for fully anonymous or raw apps, which load without a scoped token.
+        expiration:
+          type: string
+          format: date-time
+          nullable: true
+          description: Expiration of the embed token.
+        raw_app:
+          type: boolean
+          description: Raw apps render single-iframe and skip the opaque-viewer indirection and the embed token entirely.
+        sandbox:
+          type: boolean
+          description: Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session.
+        app_path:
+          type: string
+          nullable: true
+          description: The resolved app path; the embedder uses it to scope the app's backing localStorage per app.
+        workspace_id:
+          type: string
+          nullable: true
+          description: The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store.
+      required:
+        - raw_app
+        - sandbox
 
     FlowVersion:
       type: object

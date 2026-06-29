@@ -118,6 +118,7 @@
 		disabledFlowInputs = false,
 		savedPrimarySchedule = undefined,
 		version = undefined,
+		draftBaseVersion = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
 		children,
@@ -225,7 +226,12 @@
 	}
 	let onLatest = true
 	async function compareVersions() {
-		if (version === undefined) {
+		// Compare the draft's pinned fork base against the current head when editing
+		// a draft, else the load-time head. This catches both a concurrent deploy
+		// (head moved since open) AND a stale draft reopened after a deploy (head ==
+		// load-time head, but the draft was forked from an older version).
+		const base = draftBaseVersion ?? version
+		if (base === undefined) {
 			return
 		}
 		try {
@@ -235,7 +241,7 @@
 					path: initialPath
 				})
 
-				onLatest = version === flowVersion?.id
+				onLatest = base === flowVersion?.id
 			} else {
 				onLatest = true
 			}

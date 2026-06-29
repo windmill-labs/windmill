@@ -21,6 +21,7 @@ bigquery = ["dep:gcp_auth"]
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
 parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 flow_testing = []
+failpoints = []
 cloud = []
 sqlx = []
 deno_core = ["dep:windmill-runtime-nativets"]
@@ -38,7 +39,7 @@ java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 rlang = ["dep:windmill-parser-r"]
 duckdb = ["dep:libloading"]
-quickjs = ["windmill-jseval/quickjs"]
+quickjs = ["windmill-jseval/quickjs", "windmill-queue/quickjs"]
 bedrock = ["windmill-ai/bedrock"]
 
 [dependencies]
@@ -114,7 +115,8 @@ hmac.workspace = true
 pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
-nix.workspace = true
+# `fs` adds flock(2) for the cross-process Python install lock (shared cache mounts)
+nix = { workspace = true, features = ["fs"] }
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true

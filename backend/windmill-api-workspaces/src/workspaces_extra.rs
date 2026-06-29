@@ -25,7 +25,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     utils::require_admin,
-    workspaces::DataTable,
+    workspaces::{DataTable, WM_FORK_PREFIX},
 };
 use windmill_queue::schedule::{get_schedule_opt, push_scheduled_job};
 
@@ -64,13 +64,33 @@ pub(crate) async fn change_workspace_id(
         old_id, rw.new_id
     );
 
-    // Create new workspace with new id and name
+    // Create new workspace with new id and name. A fork that keeps a wm-fork-
+    // id must carry its parent_workspace_id over, otherwise it becomes a
+    // parentless "fork of nothing" with no source to compare or merge against.
+    // A non-fork target id means the workspace is being promoted out of a fork,
+    // so the parent pointer is intentionally cleared.
     info!("Creating new workspace row");
+    // A dev workspace is a prefix-less fork, so the wm-fork- check alone would
+    // drop its parent on rename and orphan it from its prod. Keep the parent for
+    // dev workspaces too (the dev flag itself isn't carried — it downgrades to an
+    // ordinary fork, re-attach to restore it).
+    let old_is_dev_workspace = sqlx::query_scalar!(
+        "SELECT is_dev_workspace FROM workspace WHERE id = $1",
+        &old_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    let new_is_fork = rw.new_id.starts_with(WM_FORK_PREFIX) || old_is_dev_workspace;
     sqlx::query!(
-        "INSERT INTO workspace SELECT $1, $2, owner, false, premium FROM workspace WHERE id = $3",
+        "INSERT INTO workspace (id, name, owner, deleted, premium, parent_workspace_id)
+         SELECT $1, $2, owner, false, premium,
+                CASE WHEN $4 THEN parent_workspace_id ELSE NULL END
+         FROM workspace WHERE id = $3",
         &rw.new_id,
         &rw.new_name,
-        &old_id
+        &old_id,
+        new_is_fork
     )
     .execute(&mut *tx)
     .await?;
@@ -340,6 +360,18 @@ pub(crate) async fn change_workspace_id(
     .await?;
     sqlx::query!(
         "UPDATE workspace_fork_deployment_request SET fork_workspace_id = $1 WHERE fork_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Re-parent child forks: any fork whose parent_workspace_id was the old id
+    // must follow the renamed parent to the new id, otherwise it is left
+    // pointing at the soft-deleted old shell (whose data has moved here).
+    info!("Re-parenting child forks to the new workspace id");
+    sqlx::query!(
+        "UPDATE workspace SET parent_workspace_id = $1 WHERE parent_workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -745,6 +777,18 @@ pub(crate) async fn delete_workspace(
     sqlx::query!("DELETE FROM v2_job_queue WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+    // dispatch_event / flow_conversation_message / zombie_job_counter no longer cascade from
+    // v2_job (see migration drop_v2_job_side_table_cascades); delete them before v2_job so the
+    // workspace's jobs leave no orphan side rows. One round-trip, scanning v2_job once.
+    sqlx::query!(
+        "WITH ids AS (SELECT id FROM v2_job WHERE workspace_id = $1),
+              _de AS (DELETE FROM dispatch_event WHERE workspace_id = $1),
+              _fc AS (DELETE FROM flow_conversation_message WHERE job_id IN (SELECT id FROM ids))
+         DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM ids)",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM v2_job WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;

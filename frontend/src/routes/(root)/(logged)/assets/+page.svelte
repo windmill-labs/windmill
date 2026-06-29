@@ -40,8 +40,7 @@
 	import { untrack } from 'svelte'
 	import { VolumeService } from '$lib/gen'
 	import VolumesDrawer from '$lib/components/assets/VolumesDrawer.svelte'
-	import { HardDriveIcon, NetworkIcon } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import { HardDriveIcon } from 'lucide-svelte'
 
 	interface AssetCursor {
 		created_at?: string
@@ -162,18 +161,7 @@
 			title="Assets"
 			tooltip="Assets show up here whenever you use them in Windmill."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
-		>
-			<div class="flex justify-end">
-				<Button
-					variant="accent-secondary"
-					unifiedSize="sm"
-					href="{base}/pipeline"
-					startIcon={{ icon: NetworkIcon }}
-				>
-					Pipelines
-				</Button>
-			</div>
-		</PageHeader>
+		/>
 
 		<Section label="All workspace assets" class="mb-20">
 			<div class="flex gap-4">
