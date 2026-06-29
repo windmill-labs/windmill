@@ -639,6 +639,7 @@ pub async fn do_postgresql(
         let mut h = std::collections::hash_map::DefaultHasher::new();
         database.sslmode.hash(&mut h);
         database.root_certificate_pem.hash(&mut h);
+        database.trust_cert.hash(&mut h);
         h.finish()
     };
     // to_uri() already ends with `?sslmode=...`, so append further key segments

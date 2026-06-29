@@ -275,16 +275,6 @@ lazy_static::lazy_static! {
 
     pub static ref QUIET_LOGS: bool = std::env::var("QUIET_LOGS").map(|s| s.parse::<bool>().unwrap_or(false)).unwrap_or(false);
 
-    /// Escape hatch that restores the legacy behavior of accepting any Postgres
-    /// TLS certificate (no chain or hostname verification), for operators who
-    /// cannot immediately supply root_certificate_pem after upgrading. Set it to
-    /// `true` (or `1`) to enable; otherwise verify-ca/verify-full enforce
-    /// verification against the OS trust store. Value-based on purpose so that
-    /// `PG_ACCEPT_INVALID_CERTS=false` does not silently disable verification.
-    pub static ref PG_ACCEPT_INVALID_CERTS: bool = std::env::var("PG_ACCEPT_INVALID_CERTS")
-        .map(|s| s == "true" || s == "1")
-        .unwrap_or(false);
-
     /// Snapshot of the standard outbound-proxy env vars, read once at startup.
     /// Lowercase (`no_proxy`, `http_proxy`, `https_proxy`) is preferred to match
     /// the convention used by libcurl / reqwest; uppercase is the fallback.
@@ -609,16 +599,17 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             sslmode: sslmode.map(|s| s.to_string()),
             dbname: "mydb".to_string(),
             root_certificate_pem: root_cert.map(|s| s.to_string()),
+            trust_cert: None,
             use_iam_auth: None,
             region: None,
         }
     }
 
-    /// Returns whether the connector enforces verification for the given config.
-    /// Assumes PG_ACCEPT_INVALID_CERTS is unset (the default in the test env).
+    /// Returns whether the connector enforces verification for the given config
+    /// (trust_cert off).
     fn verifies(sslmode: Option<&str>, root_cert: Option<&str>) -> bool {
         let mut builder = native_tls::TlsConnector::builder();
-        PgDatabase::configure_pg_tls_verification(&mut builder, sslmode, root_cert).unwrap()
+        PgDatabase::configure_pg_tls_verification(&mut builder, sslmode, root_cert, false).unwrap()
     }
 
     #[test]
@@ -649,12 +640,27 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
     }
 
     #[test]
+    fn trust_cert_disables_verification_for_any_mode() {
+        // The grandfather/escape flag forces accept-any, overriding verify-*.
+        let mut builder = native_tls::TlsConnector::builder();
+        let verified = PgDatabase::configure_pg_tls_verification(
+            &mut builder,
+            Some("verify-full"),
+            None,
+            true,
+        )
+        .unwrap();
+        assert!(!verified);
+    }
+
+    #[test]
     fn invalid_pem_is_rejected() {
         let mut builder = native_tls::TlsConnector::builder();
         let err = PgDatabase::configure_pg_tls_verification(
             &mut builder,
             Some("verify-full"),
             Some("not a certificate"),
+            false,
         );
         assert!(err.is_err());
     }
@@ -701,6 +707,11 @@ pub struct PgDatabase {
     pub sslmode: Option<String>,
     pub dbname: String,
     pub root_certificate_pem: Option<String>,
+    /// When true, accept any server certificate (no chain or hostname check),
+    /// overriding sslmode. Lets an operator opt a single resource out of the
+    /// verification that verify-ca/verify-full otherwise enforce. Matches the
+    /// `trust_cert` field on the ms_sql_server resource type.
+    pub trust_cert: Option<bool>,
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
 }
@@ -802,15 +813,17 @@ impl PgDatabase {
     /// Verification uses the OS trust store plus any supplied root certificate.
     /// Returns false when the connector was set to accept any certificate, so
     /// callers can surface that an unverified connection is being made.
-    /// `PG_ACCEPT_INVALID_CERTS` forces the legacy accept-anything behavior.
+    /// The `trust_cert` resource flag forces the legacy accept-anything behavior
+    /// regardless of sslmode.
     fn configure_pg_tls_verification(
         builder: &mut native_tls::TlsConnectorBuilder,
         sslmode: Option<&str>,
         root_certificate_pem: Option<&str>,
+        trust_cert: bool,
     ) -> Result<bool, error::Error> {
         use native_tls::Certificate;
 
-        if *PG_ACCEPT_INVALID_CERTS {
+        if trust_cert {
             builder
                 .danger_accept_invalid_certs(true)
                 .danger_accept_invalid_hostnames(true);
@@ -873,6 +886,7 @@ impl PgDatabase {
                 &mut connector,
                 self.sslmode.as_deref(),
                 self.root_certificate_pem.as_deref(),
+                self.trust_cert.unwrap_or(false),
             )?;
 
             let (client, connection) = tokio::time::timeout(
@@ -933,6 +947,7 @@ impl PgDatabase {
             &mut connector,
             self.sslmode.as_deref(),
             self.root_certificate_pem.as_deref(),
+            self.trust_cert.unwrap_or(false),
         )?;
         if !verified {
             tracing::warn!("IAM RDS auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (or set sslmode=verify-full) to enforce verification.");
@@ -1000,6 +1015,7 @@ impl PgDatabase {
             dbname,
             sslmode,
             root_certificate_pem: None,
+            trust_cert: None,
             use_iam_auth: None,
             region: None,
         })
