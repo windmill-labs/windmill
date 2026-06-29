@@ -124,7 +124,14 @@
 		const f = folder
 		untrack(() => {
 			if (pe.folder !== f) {
-				if (pe.folder !== undefined) pe.reset()
+				if (pe.folder !== undefined) {
+					pe.reset()
+					// Re-scope the Global chat's pipeline prompt to the new folder. The
+					// helper methods already read the reactive folder, but the system
+					// message string was built for the old one and is only rebuilt when
+					// Global mode is reconfigured — so rebuild it here.
+					aiChatManager.rebuildGlobalSystemMessage()
+				}
 				pe.folder = f
 			}
 		})
