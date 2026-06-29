@@ -724,6 +724,8 @@ A script joins the pipeline when its source begins with the \`// pipeline\` anno
 
 ## Materialize (the managed output)
 
+> **\`// materialize\` is DuckDB-only**, and its target must be a DuckLake table (\`ducklake://<name>/<table>\`). Deploy **rejects** \`// materialize\` on any other language (\`python3\`, \`bun\`, \`postgresql\`) or a non-DuckLake target. For a non-DuckDB node, do **not** use \`// materialize\` — write the output via the SDK (\`wmill.writeS3File(...)\`, a postgresql \`CREATE TABLE\`, ducklake helpers, …) and let it be inferred. Use \`duckdb\` when a node should materialize a DuckLake table.
+
 \`// materialize <asset-uri>\` tells the runtime to write the node's output table **for you**: write the body as a single \`SELECT\` and the runtime wraps it in the create/replace — do **not** also write your own \`CREATE TABLE\` / \`INSERT\`. Write strategy:
 
 - no option → **replace** the whole table each run (full refresh; the only mode whose output columns may change);
