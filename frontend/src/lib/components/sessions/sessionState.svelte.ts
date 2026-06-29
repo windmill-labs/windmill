@@ -31,14 +31,18 @@ import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.sve
 import { onUserChange } from '$lib/userScopedStorage'
 
 // Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
-// intentionally not previewable — only code-based 'raw_app' apps are.
-export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app'; path: string }
+// intentionally not previewable — only code-based 'raw_app' apps are. A
+// 'pipeline' target's `path` is the folder name (not a workspace item path):
+// it hosts the data-pipeline graph editor for that folder, which uses its own
+// fetch/draft model rather than the single-item load slots the other kinds share.
+export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app' | 'pipeline'; path: string }
 
 // Useful for filtering dropdowns / pickers to "items the side panel can open".
 export const EDITOR_TARGET_KINDS: ReadonlySet<SessionTarget['kind']> = new Set([
 	'flow',
 	'script',
-	'raw_app'
+	'raw_app',
+	'pipeline'
 ])
 
 // Lifecycle status for a fork session. Git-parallel:
