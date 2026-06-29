@@ -476,6 +476,20 @@
 		}
 	})
 
+	// The EE license hydrates asynchronously. If it lands after loadTriggers
+	// already ran license-less, the EE trigger kinds (kafka/nats/sqs/gcp/azure)
+	// would stay empty until the workspace/folder changes. Re-fetch triggers on
+	// the false→true transition. Initialized from the current value so a license
+	// already present at mount doesn't trigger a redundant reload.
+	let prevHadLicense = !!$enterpriseLicense
+	$effect(() => {
+		const hasLicense = !!$enterpriseLicense
+		if (hasLicense && !prevHadLicense && $workspaceStore) {
+			loadTriggers($workspaceStore, workspaceLoadSeq)
+		}
+		prevHadLicense = hasLicense
+	})
+
 	let relevantTriggers = $derived.by(() => {
 		const selectedScripts = new Set(
 			selectedItems.filter((i) => i.kind === 'script').map((i) => i.path)
