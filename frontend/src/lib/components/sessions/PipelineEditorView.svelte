@@ -130,12 +130,18 @@
 		<span class="text-tertiary">· data pipeline</span>
 	</div>
 	<div class="flex-1 min-h-0">
-		{#if graphRes.loading && !graphRes.current}
+		<!-- Only block on the deployed-graph fetch when there's nothing to show yet.
+		     When the runtime already holds staged drafts (e.g. returning to a session
+		     whose editor pane was LRU-unmounted, so `graphRes` re-fetches from
+		     scratch), render the editor immediately so the proposals + review banner
+		     stay visible — `resolveGraph` overlays the drafts on an empty base and the
+		     deployed nodes fill in when the fetch resolves. -->
+		{#if graphRes.loading && !graphRes.current && pe.drafts.size === 0}
 			<div class="h-full flex items-center justify-center gap-2 text-tertiary">
 				<Loader2 size={18} class="animate-spin" />
 				<span>Loading pipeline…</span>
 			</div>
-		{:else if graphRes.error}
+		{:else if graphRes.error && pe.drafts.size === 0}
 			<div class="h-full flex items-center justify-center text-red-500 text-sm px-4 text-center">
 				Failed to load pipeline: {graphRes.error.message}
 			</div>
