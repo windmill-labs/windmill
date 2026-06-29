@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { JobService } from '$lib/gen'
+import { JobService, ScriptService } from '$lib/gen'
 import { createPipelineAiHelpers, type PipelineDraft } from './pipelineAiHelpers'
 import type { AssetGraphResponse } from './types'
 
@@ -95,6 +95,22 @@ describe('pipeline AI direct-draft helpers', () => {
 		await expect(
 			handle.proposeNode({ path: 'f/x/dep', language: 'duckdb' as any, content: '-- pipeline' })
 		).rejects.toThrow(/already exists/)
+		expect(drafts().size).toBe(0)
+	})
+
+	it('proposeNode rejects a path that is an already-deployed script when the graph has not hydrated', async () => {
+		// Empty graph (session preview can race open_preview), but a deployed script
+		// exists at the path — the backend probe must still catch it.
+		const spy = vi.spyOn(ScriptService, 'getScriptByPath').mockResolvedValue({} as any)
+		const { handle, drafts } = makeHandle()
+		await expect(
+			handle.proposeNode({
+				path: 'f/x/deployed',
+				language: 'duckdb' as any,
+				content: '-- pipeline'
+			})
+		).rejects.toThrow(/already exists/)
+		expect(spy).toHaveBeenCalled()
 		expect(drafts().size).toBe(0)
 	})
 

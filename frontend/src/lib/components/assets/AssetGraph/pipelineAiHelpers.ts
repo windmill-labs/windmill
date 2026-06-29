@@ -200,6 +200,25 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 					`A pipeline node already exists at '${path}'. Use edit_pipeline_node to change it instead.`
 				)
 			}
+			// Authoritative new-node check: the resolved graph may not have hydrated yet
+			// (the session preview can race open_preview), and it only lists pipeline
+			// runnables — so probe the backend. ANY deployed script at this path means
+			// "build new" would shadow it on deploy; the model should edit instead.
+			const workspace = deps.getWorkspace()
+			if (workspace) {
+				let deployedExists = false
+				try {
+					await ScriptService.getScriptByPath({ workspace, path })
+					deployedExists = true
+				} catch {
+					// 404 → no deployed script at this path, safe to create a new node.
+				}
+				if (deployedExists) {
+					throw new Error(
+						`A script already exists at '${path}'. Use edit_pipeline_node to change it instead.`
+					)
+				}
+			}
 			const inferred = await inferOutputAssets(language, content)
 			// Fall back to a seeded output (from the declared output_kind) when the
 			// body doesn't yet write anything inferable.

@@ -1251,7 +1251,7 @@
       - delete_workspace_item
   judgeChecklist:
     - builds a data pipeline node as a script (not a flow)
-    - marks the script as a pipeline member with the `// pipeline` annotation
+    - marks the script as a pipeline member with the pipeline annotation in the script's comment syntax (`-- pipeline` for a DuckDB/SQL node, not `// pipeline`)
     - declares a schedule trigger and writes its output to a managed DuckLake table
     - leaves the result as an AI draft and does not deploy or save it
 
@@ -1278,7 +1278,7 @@
       - delete_workspace_item
   judgeChecklist:
     - creates two data pipeline nodes as scripts (not a flow) in f/evals/global
-    - both scripts carry the `// pipeline` annotation
+    - both scripts carry the pipeline annotation in their comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
     - the first ingests orders into a DuckLake table
     - the second reads that same table and writes a daily rollup, wired to the first step's output asset
     - leaves both as AI drafts without deploying
