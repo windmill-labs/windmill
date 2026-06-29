@@ -86,13 +86,25 @@
 			: undefined
 	)
 
+	// Surface the backend's explanation: API errors carry the real message in
+	// `.body` (plain text for Windmill 4xx), while `.message` is the generic
+	// status text ("Bad Request"). Prefer the body so e.g. a path/route_path
+	// collision reads as the actual reason, not just "Bad Request".
+	function errorMessage(e: any): string {
+		const body = e?.body
+		if (typeof body === 'string' && body.trim() !== '') return body
+		if (body && typeof body === 'object')
+			return body.error?.message ?? body.message ?? JSON.stringify(body)
+		return e?.message ?? String(e)
+	}
+
 	function record(path: string, p: Promise<unknown>): Promise<void> {
 		return p.then(
 			() => {
 				results = [...results, { path, ok: true }]
 			},
 			(e: any) => {
-				results = [...results, { path, ok: false, error: e?.message ?? String(e) }]
+				results = [...results, { path, ok: false, error: errorMessage(e) }]
 			}
 		)
 	}
