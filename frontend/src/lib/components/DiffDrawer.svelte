@@ -35,11 +35,10 @@
 
 	interface Props {
 		restoreDeployed?: () => Promise<void>
-		restoreDraft?: () => Promise<void>
 		isFlow?: boolean
 	}
 
-	let { restoreDeployed = undefined, restoreDraft = undefined, isFlow = false }: Props = $props()
+	let { restoreDeployed = undefined, isFlow = false }: Props = $props()
 
 	let data:
 		| {
@@ -87,7 +86,7 @@
 			| {
 					mode: 'normal'
 					deployed: Value
-					draft: Value | undefined
+					draft?: Value | undefined
 					current: Value
 					defaultDiffType?: 'deployed' | 'draft'
 					button?: { text: string; onClick: () => void }
@@ -101,7 +100,7 @@
 			  }
 	) {
 		if (diff.mode === 'normal') {
-			const { deployed, draft, current, defaultDiffType, button } = diff
+			const { deployed, draft, current, button } = diff
 			data = {
 				mode: 'normal',
 				deployed: !deployed.draft_only ? prepareDiff(deployed) : undefined,
@@ -111,13 +110,9 @@
 				button
 			}
 
-			if (defaultDiffType && data[defaultDiffType]) {
-				diffType = defaultDiffType
-			} else if (data.deployed) {
-				diffType = 'deployed'
-			} else if (data.draft) {
-				diffType = 'draft'
-			}
+			// The draft-vs-current view (and its tab) is obsolete — always show the
+			// deployed-vs-current diff.
+			diffType = 'deployed'
 		} else {
 			const { original, current, title, button } = diff
 			data = {
@@ -135,68 +130,25 @@
 <Drawer bind:this={diffViewer} size="1200px" on:close>
 	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
 		<div class="flex flex-col gap-4 h-full">
-			{#if diffType && data}
-				<Tabs bind:selected={diffType} wrapperClass="shrink-0">
-					{#if data.mode === 'simple'}
-						<Tab value="custom" label={data.title} />
-					{:else}
-						<Tab
-							value="deployed"
-							disabled={!data.deployed}
-							label="{'Deployed <> Current'}{!data.deployed ? ' (no deployed version)' : ''}"
-						/>
-
-						<Tab
-							value="draft"
-							disabled={!data.draft}
-							label="{'Latest saved draft <> Current'}{!data.draft ? ' (no draft)' : ''}"
-						/>
-					{/if}
-				</Tabs>
-			{/if}
 			{#if data?.mode === 'normal'}
-				{#if diffType === 'draft'}
-					<Button
-						unifiedSize="md"
-						variant="default"
-						wrapperClasses="self-start"
-						onClick={restoreDraft}
-						disabled={orderedJsonStringify(data.draft) === orderedJsonStringify(data.current)}
-						>Restore to latest saved draft</Button
-					>
-				{:else if diffType === 'deployed'}
-					<Button
-						unifiedSize="md"
-						variant="default"
-						wrapperClasses="self-start"
-						onClick={restoreDeployed}
-						disabled={!data.draft &&
-							orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
-					>
-						Restore to deployed{data.draft ? ' and discard draft' : ''}
-					</Button>
-				{/if}
+				<Button
+					unifiedSize="md"
+					variant="default"
+					wrapperClasses="self-start"
+					onClick={restoreDeployed}
+					disabled={!data.draft &&
+						orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
+				>
+					Restore to deployed{data.draft ? ' and discard draft' : ''}
+				</Button>
 			{/if}
 			{#if data}
 				{#if contentType}
 					{@const content =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.content
-								: data.deployed?.content
-							: data.original?.content}
+						data.mode === 'normal' ? data.deployed?.content : data.original?.content}
 					{@const metadata =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.metadata
-								: data.deployed?.metadata
-							: data.original?.metadata}
-					{@const lang =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.lang
-								: data.deployed?.lang
-							: data.original?.lang}
+						data.mode === 'normal' ? data.deployed?.metadata : data.original?.metadata}
+					{@const lang = data.mode === 'normal' ? data.deployed?.lang : data.original?.lang}
 					<div class="flex flex-col h-full gap-4">
 						{#if data.current.content !== undefined}
 							<Tabs bind:selected={contentType}>
@@ -260,11 +212,9 @@
 					</div>
 				{:else}
 					<Alert title="No changes detected">
-						{#if diffType === 'draft'}
-							There are no differences between latest saved draft and current
-						{:else if diffType === 'deployed'}
+						{#if diffType === 'deployed'}
 							There are no differences between deployed and current
-						{:else if diffType === 'custom'}
+						{:else}
 							There are no differences
 						{/if}
 					</Alert>

@@ -1,65 +1,26 @@
 <script lang="ts">
-	import { base } from '$app/paths'
-	import { Button, Skeleton } from '$lib/components/common'
-	import { AppService, type AppWithLastVersion } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
-	import { Pen } from 'lucide-svelte'
-	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
+	/*
+	 * WIN-2006: in-workspace raw app viewer. Thin wrapper over the shared
+	 * InWorkspaceAppViewer (same component as the low-code /apps/get route) so raw
+	 * apps get the identical sandbox behavior. PublicAppFrame renders raw apps
+	 * inline with the bundle isolated in RawAppPreview's own opaque iframe.
+	 */
+	import { base } from '$lib/base'
+	import InWorkspaceAppViewer from '$lib/components/apps/editor/InWorkspaceAppViewer.svelte'
+	import { Skeleton } from '$lib/components/common'
+	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/state'
-	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 
-	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
-
-	let app = $state(undefined) as AppWithLastVersion | undefined
-
-	let secret = $state(undefined) as string | undefined
-	async function loadApp() {
-		console.log('Loading app')
-		app = await AppService.getAppLiteByPath({
-			workspace: $workspaceStore!,
-			path: page.params.path ?? ''
-		})
-	}
-
-	async function loadSecret() {
-		secret = await AppService.getPublicSecretOfLatestVersionOfApp({
-			workspace: $workspaceStore!,
-			path: page.params.path ?? ''
-		})
-	}
-
-	$effect(() => {
-		$workspaceStore && loadApp()
-		$workspaceStore && loadSecret()
-	})
-
-	let can_write = $derived(canWrite(page.params.path ?? '', app?.extra_perms ?? {}, $userStore))
-	function getRunnables(app: AppWithLastVersion) {
-		return ((app?.value as any)?.runnables ?? {}) as Record<string, Runnable>
-	}
+	let workspace = $derived($workspaceStore ?? '')
+	let path = $derived(page.params.path ?? '')
 </script>
 
-<div class="h-full min-h-[600px] w-full relative p-2bg-white">
-	{#if !$workspaceStore || !$userStore || !app}
-		<Skeleton layout={[10]} />
-	{:else}
-		<RawAppPreview
-			path={page.params.path ?? ''}
-			workspace={$workspaceStore}
-			user={$userStore}
-			runnables={getRunnables(app)}
-			{secret}
-		/>
-	{/if}
-	{#if can_write && !hideEditBtn}
-		<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
-			<Button
-				size="sm"
-				startIcon={{ icon: Pen }}
-				variant="subtle"
-				href="{base}/apps_raw/edit/{page.params.path}?nodraft=true">Edit</Button
-			>
-		</div>
-	{/if}
-</div>
+{#if workspace && path}
+	<!-- Key by target: SvelteKit reuses this page component on in-route
+	     navigation, so the viewer must fully remount (see /apps/get). -->
+	{#key `${workspace}/${path}`}
+		<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps_raw/edit/{path}?nodraft=true" />
+	{/key}
+{:else}
+	<Skeleton layout={[10]} />
+{/if}

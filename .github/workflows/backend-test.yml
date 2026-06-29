@@ -50,7 +50,9 @@ jobs:
           dotnet-version: "9.0.x"
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          # Pin to the Deno version shipped in the runtime image (Dockerfile) so CI
+          # tests what production runs, instead of floating on the latest v2.x.
+          deno-version: 2.2.1
       - uses: actions/setup-go@v2
         with:
           go-version: 1.21.5
@@ -62,7 +64,7 @@ jobs:
           node-version: "20"
       - uses: astral-sh/setup-uv@v6.2.1
         with:
-          version: "0.9.25"
+          version: "0.11.24"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"

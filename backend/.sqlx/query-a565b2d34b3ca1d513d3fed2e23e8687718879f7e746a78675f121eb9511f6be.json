@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH mine AS (\n                        SELECT debounce_batch, consumed_by FROM v2_job_debounce_batch WHERE id = $1\n                    ), claimed AS (\n                        -- Claim the whole batch in ONE update so concurrent same-batch\n                        -- survivors lock rows in identical scan order (no lock-ordering\n                        -- deadlock); each re-evaluates `consumed_at IS NULL` under EvalPlanQual\n                        -- and skips rows the other already took. A claim therefore consumes\n                        -- every still-unclaimed row of the batch atomically.\n                        UPDATE v2_job_debounce_batch SET consumed_at = now(), consumed_by = $1\n                        WHERE debounce_batch = (SELECT debounce_batch FROM mine)\n                          AND consumed_at IS NULL\n                        RETURNING id\n                    )\n                    SELECT\n                        EXISTS (SELECT 1 FROM mine) AS \"had_row!\",\n                        (SELECT consumed_by FROM mine) AS prev_consumed_by,\n                        ARRAY(SELECT id FROM claimed) AS \"claimed_ids!\",\n                        EXISTS (SELECT 1 FROM claimed WHERE id = $1) AS \"claimed_self!\"\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "had_row!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "prev_consumed_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "claimed_ids!",
+        "type_info": "UuidArray"
+      },
+      {
+        "ordinal": 3,
+        "name": "claimed_self!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a565b2d34b3ca1d513d3fed2e23e8687718879f7e746a78675f121eb9511f6be"
+}

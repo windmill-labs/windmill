@@ -9,13 +9,13 @@ export function buildForkEditUrl(itemType: ItemType, itemPath: string): string {
 			editPath = `${base}/scripts/edit/${itemPath}`
 			break
 		case 'flow':
-			editPath = `${base}/flows/edit/${itemPath}?nodraft=true`
+			editPath = `${base}/flows/edit/${itemPath}`
 			break
 		case 'app':
-			editPath = `${base}/apps/edit/${itemPath}?nodraft=true`
+			editPath = `${base}/apps/edit/${itemPath}`
 			break
 		case 'raw_app':
-			editPath = `${base}/apps_raw/edit/${itemPath}?nodraft=true`
+			editPath = `${base}/apps_raw/edit/${itemPath}`
 			break
 	}
 	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPath)}`

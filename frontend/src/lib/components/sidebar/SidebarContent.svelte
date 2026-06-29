@@ -4,7 +4,6 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
-		usersWorkspaceStore,
 		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
@@ -82,6 +81,10 @@
 	import MenuButton from './MenuButton.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/AzureIcon.svelte'
+	import {
+		deleteSessionsForWorkspace,
+		reconcileAfterWorkspaceChange
+	} from '$lib/components/sessions/sessionState.svelte'
 
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
@@ -143,25 +146,34 @@
 					sendUserToast(`Failed to delete forked child ${child.id}: ${err}`, true)
 					return
 				}
+				// Backend delete is authoritative; session cleanup is best-effort so a
+				// local failure can't abort the remaining (parent) deletes.
+				await deleteSessionsForWorkspace(child.id).catch((e) =>
+					console.error(`Session cleanup for ${child.id} failed`, e)
+				)
 			}
 		}
 
 		await WorkspaceService.deleteWorkspace({ workspace })
+		await deleteSessionsForWorkspace(workspace).catch((e) =>
+			console.error('Session cleanup after workspace delete failed', e)
+		)
 		sendUserToast('You deleted the workspace')
 		if (parentStillAccessible && parentId) {
-			// Refresh the workspace list before landing on the parent.
-			// `clearStores()` would null `usersWorkspaceStore`, which the
-			// sidebar's `visibleSessions` filter reads via `$userWorkspaces`
-			// — with an empty list, every committed session falls into the
-			// "workspace_id set but not in user's list" branch and renders
-			// as "Fork — no longer available" until a hard reload.
+			// Refresh the workspace list AND reconcile session lifecycle before
+			// landing on the parent. The refresh keeps the sidebar's
+			// `visibleSessions` filter from rendering every committed session as
+			// "Fork — no longer available" (it reads `$userWorkspaces`, which
+			// `clearStores()` would null). The reconcile re-roots surviving child
+			// forks: deleting this fork without "delete children" re-parents them
+			// via the backend's ON DELETE SET NULL, so their sessions' stored
+			// `workspace_root_id` must be recomputed off the now-deleted ancestor.
+			// A reconcile failure must NOT strand the user on the just-deleted
+			// workspace — always fall through to the parent switch + navigation.
 			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+				await reconcileAfterWorkspaceChange()
 			} catch (e) {
-				// A transient list-refresh failure must not strand the user on the
-				// just-deleted workspace — still switch + navigate (the list reloads
-				// on the next page load).
-				console.error('Failed to refresh workspaces after delete', e)
+				console.error('Failed to reconcile sessions after workspace delete', e)
 			}
 			switchWorkspace(parentId)
 			await goto('/')
@@ -887,6 +899,7 @@
 			deleteWorkspaceForkModal = false
 		}}
 		on:confirmed={() => {
+			deleteWorkspaceForkModal = false
 			deleteFork()
 		}}
 	>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Loader2 } from 'lucide-svelte'
 	import { Badge } from './common'
+	import Checkbox from './common/checkbox/Checkbox.svelte'
 	import Row from './common/table/Row.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import type { Snippet } from 'svelte'
@@ -18,6 +19,10 @@
 		items: DeployableItem[]
 		selectedItems: string[]
 		selectablePredicate?: (item: DeployableItem) => boolean
+		/** For a non-deployed item that isn't selectable, return a reason string to
+		 * render a disabled checkbox + hover tooltip (instead of greying the row);
+		 * return undefined to keep the default greyed-out, no-checkbox treatment. */
+		selectBlockedReason?: (item: DeployableItem) => string | undefined
 		deploymentStatus: Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 		allSelected?: boolean
 		emptyMessage?: string
@@ -27,7 +32,11 @@
 		// Snippets for customization
 		header?: Snippet
 		alerts?: Snippet
+		/** Rendered on the right of the "Select all" row (e.g. a filter toggle). */
+		selectAllActions?: Snippet
 		itemSummary?: Snippet<[DeployableItem]>
+		/** Overrides the secondary path line per item (e.g. to strike a renamed path). */
+		itemPath?: Snippet<[DeployableItem]>
 		itemActions?: Snippet<[DeployableItem]>
 		footer?: Snippet
 
@@ -41,13 +50,16 @@
 		items,
 		selectedItems,
 		selectablePredicate = () => true,
+		selectBlockedReason,
 		deploymentStatus,
 		allSelected = false,
 		emptyMessage = 'No items to deploy',
 		hideSelection = false,
 		header,
 		alerts,
+		selectAllActions,
 		itemSummary,
+		itemPath,
 		itemActions,
 		footer,
 		onToggleItem,
@@ -78,26 +90,34 @@
 		{@render alerts()}
 	{/if}
 
-	{#if items.length > 0}
-		<!-- Select all row -->
-		{#if !hideSelection}
-			<div class="px-4 py-2 flex items-center justify-between">
+	<!-- Controls row: "Select all" (when there are items and selection is enabled) +
+	     optional right-side actions (e.g. a filter toggle). Renders when there are
+	     items OR actions are provided, so a filter that empties the list doesn't take
+	     its own toggle with it. -->
+	{#if items.length > 0 || selectAllActions}
+		<div class="px-4 py-2 flex items-center justify-between">
+			{#if items.length > 0 && !hideSelection}
 				<label
 					class="flex items-center gap-2 text-secondary text-xs"
 					class:opacity-50={!hasSelectableItems}
 					class:cursor-pointer={hasSelectableItems}
 				>
-					<input
-						type="checkbox"
+					<Checkbox
 						disabled={!hasSelectableItems}
 						checked={allSelected}
-						onchange={allSelected ? onDeselectAll : onSelectAll}
-						class="rounded max-w-4 w-full"
+						onChange={allSelected ? onDeselectAll : onSelectAll}
 					/> Select all
 				</label>
-			</div>
-		{/if}
+			{:else}
+				<span></span>
+			{/if}
+			{#if selectAllActions}
+				{@render selectAllActions()}
+			{/if}
+		</div>
+	{/if}
 
+	{#if items.length > 0}
 		<!-- Items list -->
 		<div class="overflow-y-auto">
 			<div class="border rounded-md bg-surface-tertiary">
@@ -106,12 +126,15 @@
 					{@const isSelected = selectedItems.includes(item.key)}
 					{@const status = deploymentStatus[item.key]}
 					{@const isDeployed = status?.status === 'deployed'}
+					{@const blockedReason =
+						!isSelectable && !isDeployed ? selectBlockedReason?.(item) : undefined}
 
 					<Row
 						isSelectable={!hideSelection && isSelectable && !isDeployed}
+						selectDisabledReason={blockedReason}
 						selectOnRowClick={!hideSelection}
 						alignWithSelectable={!hideSelection}
-						disabled={!hideSelection && !isSelectable}
+						disabled={!hideSelection && (blockedReason ? false : !isSelectable)}
 						selected={isSelected && !isDeployed}
 						onSelect={() => handleSelect(item)}
 						path={item.kind !== 'resource' &&
@@ -130,6 +153,17 @@
 								{@render itemSummary(item)}
 							{:else}
 								{item.path}
+							{/if}
+						{/snippet}
+						{#snippet pathDisplay()}
+							{#if itemPath}
+								{@render itemPath(item)}
+							{:else}
+								{item.kind !== 'resource' &&
+								item.kind !== 'variable' &&
+								item.kind !== 'resource_type'
+									? item.path
+									: ''}
 							{/if}
 						{/snippet}
 						{#snippet actions()}

@@ -43,6 +43,9 @@ export type Kind =
 	// Legacy generic kind used by the cross-workspace `DeployWorkspace` UI,
 	// which carries the trigger sub-kind in `additionalInformation`.
 	| 'trigger'
+	// A data-pipeline draft bundle (drafts list only — not a deployable item;
+	// opens the pipeline view instead).
+	| 'data_pipeline'
 
 export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
 	include_path: [],
@@ -334,7 +337,7 @@ export async function getTriggersDeployData(
  * `TRIGGER_COMPARE_IGNORE` and `stripTriggerOrScheduleRuntimeFields` in the
  * shared deploy module.
  */
-const TRIGGER_RUNTIME_IGNORE = new Set([
+export const TRIGGER_RUNTIME_IGNORE = new Set([
 	'workspace_id',
 	'edited_by',
 	'edited_at',

@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM asset\n           WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = 'script'\n           RETURNING kind AS \"kind!: AssetKind\", path,\n                     usage_access_type AS \"usage_access_type: AssetUsageAccessType\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!: AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "usage_access_type: AssetUsageAccessType",
+        "type_info": {
+          "Custom": {
+            "name": "asset_access_type",
+            "kind": {
+              "Enum": [
+                "r",
+                "w",
+                "rw"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ab18d8765d6795eaa8035a8ac902790ff61549c5dd76e5b5cfb14b110a98abf2"
+}

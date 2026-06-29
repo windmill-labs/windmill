@@ -287,7 +287,7 @@ impl From<JobPerms> for Authed {
     }
 }
 
-pub async fn is_super_admin_email(db: &DB, email: &str) -> Result<bool> {
+pub async fn is_super_admin_email<'c>(db: impl sqlx::PgExecutor<'c>, email: &str) -> Result<bool> {
     if email == SUPERADMIN_SECRET_EMAIL || email == SUPERADMIN_NOTIFICATION_EMAIL {
         return Ok(true);
     }

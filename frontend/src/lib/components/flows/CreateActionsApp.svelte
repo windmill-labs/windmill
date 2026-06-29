@@ -26,10 +26,10 @@
 			// Navigation to /apps_raw/add triggers a full page reload (for cross-origin isolation),
 			// so the in-memory importStore would be lost. Use sessionStorage instead.
 			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
-			await goto('/apps_raw/add?nodraft=true')
+			await goto('/apps_raw/add')
 		} else {
 			$importStore = parsed
-			await goto('/apps/add?nodraft=true')
+			await goto('/apps/add')
 		}
 		drawer?.closeDrawer?.()
 	}
@@ -40,51 +40,51 @@
 
 	function selectLowCode() {
 		appTypeModalOpen = false
-		goto(`${base}/apps/add?nodraft=true`)
+		goto(`${base}/apps/add`)
 	}
 
 	function selectFullCode() {
 		appTypeModalOpen = false
-		goto(`${base}/apps_raw/add?nodraft=true`)
+		goto(`${base}/apps_raw/add`)
 	}
 </script>
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-		<Button
-			id="create-app-button"
-			aiId="apps-create-actions-app"
-			aiDescription="Create a new app"
-			unifiedSize="lg"
-			startIcon={{ icon: Plus }}
-			endIcon={{ icon: LayoutDashboard }}
-			on:click={openAppTypeModal}
-			variant="accent"
-			dropdownItems={[
-				{
-					label: 'Import low-code app',
-					onClick: () => {
-						appKind = 'lowcode'
-						importType = 'yaml'
-						drawer?.toggleDrawer?.()
-					}
-				},
-				{
-					label: 'Import full-code app',
-					onClick: () => {
-						appKind = 'fullcode'
-						importType = 'yaml'
-						drawer?.toggleDrawer?.()
-					}
+	<Button
+		id="create-app-button"
+		aiId="apps-create-actions-app"
+		aiDescription="Create a new app"
+		unifiedSize="lg"
+		startIcon={{ icon: Plus }}
+		endIcon={{ icon: LayoutDashboard }}
+		on:click={openAppTypeModal}
+		variant="accent"
+		dropdownItems={[
+			{
+				label: 'Import low-code app',
+				onClick: () => {
+					appKind = 'lowcode'
+					importType = 'yaml'
+					drawer?.toggleDrawer?.()
 				}
-			]}
-		>
-			<div class="flex flex-row items-center"> App </div>
-		</Button>
-	</div>
+			},
+			{
+				label: 'Import full-code app',
+				onClick: () => {
+					appKind = 'fullcode'
+					importType = 'yaml'
+					drawer?.toggleDrawer?.()
+				}
+			}
+		]}
+	>
+		<div class="flex flex-row items-center"> App </div>
+	</Button>
+</div>
 
 <!-- App Type Selection Modal -->
-<Modal bind:open={appTypeModalOpen} title="Choose your app builder">
+<Modal bind:open={appTypeModalOpen} title="Choose your app builder" class="sm:max-w-3xl">
 	<div class="flex flex-col gap-4 pr-4">
 		<div class="grid grid-cols-2 gap-8">
 			<!-- Low-code option -->
@@ -122,8 +122,8 @@
 					<p class="text-xs text-tertiary mt-1">
 						Build with React or Svelte with full control and a powerful AI agent.
 
-					<br /><br />
-					Better for complex apps or apps that require full flexibility and control.
+						<br /><br />
+						Better for complex apps or apps that require full flexibility and control.
 					</p>
 				</div>
 			</button>

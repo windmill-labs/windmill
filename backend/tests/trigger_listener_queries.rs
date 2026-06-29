@@ -200,7 +200,7 @@ async fn test_handler_queries_websocket(db: Pool<Postgres>) -> anyhow::Result<()
     assert_eq!(trigger.base.permissioned_as, "u/test-user");
 
     let triggers = handler
-        .list_triggers(&mut *conn, "test-workspace", None)
+        .list_triggers(&mut *conn, "test-workspace", None, None)
         .await?;
     assert!(triggers.iter().any(|t| t.base.path == "f/test/handler_ws"));
 

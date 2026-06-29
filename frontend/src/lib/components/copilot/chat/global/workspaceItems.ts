@@ -28,6 +28,7 @@ export type FlowDraftValue = {
 	value: FlowValue
 	schema?: Record<string, any> | null
 	groups?: NonNullable<FlowValue['groups']> | null
+	description?: string | null
 }
 
 export const TRIGGER_KINDS = [
@@ -71,6 +72,9 @@ export type AppDraftValue = {
 	data?: any
 	policy?: Policy
 	custom_path?: string
+	// Fork base: the deployed app version this draft was started from, pinned at
+	// fork. The app analog of a script's parent_hash / a flow's version_id.
+	parent_version?: number
 }
 
 export type ResourceDraftState = {
@@ -98,6 +102,11 @@ export type WorkspaceItem = {
 	summary?: string
 	language?: ScriptLang
 	triggerKind?: TriggerKind
+	// Fork base: the deployed version this draft was started from, compared against
+	// the current deployed head to detect a stale draft. `parentHash` for scripts
+	// (script hash), `parentVersionId` for flows (flow_version id).
+	parentHash?: string
+	parentVersionId?: number
 	value?:
 		| string
 		| FlowDraftValue

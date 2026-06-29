@@ -13,7 +13,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_oss::prepend_token_to_github_url,
+    git_sync_oss::{prepend_token_to_github_url, sanitize_git_url},
     worker::{
         is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
@@ -22,7 +22,8 @@ use windmill_common::{
 use windmill_queue::MiniPulledJob;
 
 use windmill_parser_yaml::{
-    AnsibleRequirements, GitRepo, PreexistingAnsibleInventory, ResourceOrVariablePath,
+    validate_vault_id, AnsibleRequirements, GitRepo, PreexistingAnsibleInventory,
+    ResourceOrVariablePath,
 };
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -846,7 +847,7 @@ pub async fn get_git_repo_full_head_commit_hash(
         .first()
         .ok_or(anyhow!(
             "The HEAD commit hash was not found for repo `{}`",
-            &repo.url
+            sanitize_git_url(&repo.url)
         ))?
         .split_whitespace()
         .next()
@@ -910,6 +911,11 @@ pub fn create_ansible_cfg(
     }
     if let Some(vault_ids) = reqs.as_ref().map(|r| &r.vault_id) {
         if !vault_ids.is_empty() {
+            // Defense in depth: entries are validated at parse time, but re-check here
+            // since they are interpolated raw into ansible.cfg (config-directive injection).
+            for vault_id in vault_ids {
+                validate_vault_id(vault_id)?;
+            }
             let password_files = vault_ids.join(",");
 
             passwords_cfg.push_str(&format!("vault_identity_list = {password_files}\n"));
@@ -1248,7 +1254,12 @@ pub async fn handle_ansible_job(
                     git_ssh_cmd,
                 )
                 .await
-                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to clone git repo `{}`: {e}",
+                        sanitize_git_url(&repo.url)
+                    )
+                })?;
             } else {
                 clone_repo(
                     &repo,
@@ -1263,7 +1274,12 @@ pub async fn handle_ansible_job(
                     git_ssh_cmd,
                 )
                 .await
-                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to clone git repo `{}`: {e}",
+                        sanitize_git_url(&repo.url)
+                    )
+                })?;
             }
 
             append_logs(
@@ -1310,7 +1326,7 @@ pub async fn handle_ansible_job(
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("\nCloning {}...\n", &repo.url),
+                format!("\nCloning {}...\n", sanitize_git_url(&repo.url)),
                 conn,
             )
             .await;
@@ -1332,13 +1348,18 @@ pub async fn handle_ansible_job(
                     git_ssh_cmd,
                 )
                 .await
-                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to clone git repo `{}`: {e}",
+                        sanitize_git_url(&repo.url)
+                    )
+                })?;
             } else {
                 if req_lockfiles.is_some() {
                     append_logs(
                         &job.id,
                         &job.workspace_id,
-                        format!("Warning: `{}` is using latest commit because the lockfile didn't store a commit hash for this repo. Updates to the repo could break the deployed playbook.\n", &repo.url),
+                        format!("Warning: `{}` is using latest commit because the lockfile didn't store a commit hash for this repo. Updates to the repo could break the deployed playbook.\n", sanitize_git_url(&repo.url)),
                         conn,
                     )
                     .await;
@@ -1356,13 +1377,22 @@ pub async fn handle_ansible_job(
                     git_ssh_cmd,
                 )
                 .await
-                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to clone git repo `{}`: {e}",
+                        sanitize_git_url(&repo.url)
+                    )
+                })?;
             }
 
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("Cloned {} into {}\n", &repo.url, &repo.target_path),
+                format!(
+                    "Cloned {} into {}\n",
+                    sanitize_git_url(&repo.url),
+                    &repo.target_path
+                ),
                 conn,
             )
             .await;
@@ -1798,5 +1828,32 @@ mod tests {
     fn test_validate_relative_path_rejects_empty() {
         assert!(validate_relative_path("", "playbook").is_err());
         assert!(validate_relative_path("   ", "playbook").is_err());
+    }
+
+    #[test]
+    fn test_create_ansible_cfg_writes_valid_vault_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let reqs = AnsibleRequirements {
+            vault_id: vec!["dev@vault_pass.txt".to_string()],
+            ..Default::default()
+        };
+        create_ansible_cfg(Some(&reqs), job_dir, false).unwrap();
+        let cfg = std::fs::read_to_string(dir.path().join("ansible.cfg")).unwrap();
+        assert!(cfg.contains("vault_identity_list = dev@vault_pass.txt"));
+        assert!(!cfg.contains("library"));
+    }
+
+    #[test]
+    fn test_create_ansible_cfg_rejects_vault_id_injection() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let reqs = AnsibleRequirements {
+            vault_id: vec!["default@/tmp/wm/x\nlibrary = /tmp/wm/evil_modules".to_string()],
+            ..Default::default()
+        };
+        // Defense-in-depth boundary: a poisoned entry must error before any config is written.
+        assert!(create_ansible_cfg(Some(&reqs), job_dir, false).is_err());
+        assert!(!dir.path().join("ansible.cfg").exists());
     }
 }

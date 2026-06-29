@@ -551,6 +551,13 @@ impl PyV {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            child_cmd.env("SSL_CERT_FILE", cert_path);
+        }
+        if *NATIVE_CERT {
+            child_cmd.env("UV_NATIVE_TLS", "true");
+        }
+
         if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
             child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
         }

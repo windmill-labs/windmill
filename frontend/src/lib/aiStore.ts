@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store'
 import { workspaceAIClients } from './components/copilot/lib'
 import { type AIProviderModel, type AIProvider, WorkspaceService, type AIConfig } from './gen'
 import {
+	aiUserDisabled,
 	COPILOT_SESSION_MODEL_SETTING_NAME,
 	COPILOT_SESSION_PROVIDER_SETTING_NAME,
 	COPILOT_SESSION_REASONING_SETTING_NAME
@@ -47,6 +48,15 @@ export const copilotInfo = writable<{
 	customPrompts: {},
 	maxTokensPerModel: {},
 	webSearchEnabledProviders: {}
+})
+
+// Apply the per-user opt-out live: toggling it flips `enabled` without re-fetching.
+// Only enable when providers exist (aiModels is populated whenever the config has any).
+aiUserDisabled.subscribe((disabled) => {
+	copilotInfo.update((info) => ({
+		...info,
+		enabled: info.aiModels.length > 0 && !disabled
+	}))
 })
 
 /** Strip the deprecated /thinking suffix from a configured model slot, if present. */
@@ -107,7 +117,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 		})
 
 		copilotInfo.set({
-			enabled: true,
+			// Providers are configured; the per-user opt-out is the only thing that can gate it off.
+			enabled: !get(aiUserDisabled),
 			// Strip the deprecated /thinking suffix from the configured model slots too,
 			// otherwise a workspace whose default still carries it sends an invalid model id.
 			codeCompletionModel: stripModelSuffix(aiConfig.code_completion_model),
@@ -192,4 +203,13 @@ export function getCombinedCustomPrompt(mode: string): string | undefined {
 	}
 
 	return prompts.join('\n\n')
+}
+
+// Like getCombinedCustomPrompt but keeps the workspace and user slices separate so the
+// Global system prompt can label them distinctly — only the user slice is editable by the
+// update_user_instructions tool.
+export function getCustomPromptParts(mode: string): { workspace?: string; user?: string } {
+	const workspace = get(copilotInfo).customPrompts?.[mode]?.trim() || undefined
+	const user = getUserCustomPrompts()[mode]?.trim() || undefined
+	return { workspace, user }
 }

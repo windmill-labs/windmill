@@ -2,7 +2,12 @@
 	import { Button } from '$lib/components/common'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { classes } from '$lib/components/common/alert/model'
-	import { type Value } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		orderedYamlStringify,
+		replaceFalseWithUndefined,
+		type Value
+	} from '$lib/utils'
 	import { AlertCircle, Diff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -30,6 +35,34 @@
 		disabled = false,
 		title = 'Deployed <> Local changes'
 	}: Props = $props()
+
+	/** Same cleaning + YAML serialization the DiffDrawer applies before
+	 * comparing. Without it the banner would fire on differences the
+	 * drawer treats as no-op (toggle defaults, `false ↔ undefined`,
+	 * key ordering noise) — exactly the case where the user clicks
+	 * "Show diff" and sees the "No changes detected" empty state. */
+	function diffKey(value: unknown): string {
+		try {
+			return orderedYamlStringify(cleanValueProperties(replaceFalseWithUndefined(value as Value)))
+		} catch {
+			return ''
+		}
+	}
+
+	// Suppress the banner when:
+	//   • There's no deployed baseline (brand-new entity — "Show diff"
+	//     would early-return and "Discard" is semantically backwards),
+	//     OR
+	//   • Deployed and current are equal under the DiffDrawer's own
+	//     comparison. The callers' `show` is a coarser "form differs
+	//     from baseline" check that can stale-fire after a save lands
+	//     or when `false`/`undefined` toggle noise flips a field.
+	let visible = $derived.by(() => {
+		if (!show) return false
+		const deployed = getDeployed()
+		if (deployed == null) return false
+		return diffKey(deployed) !== diffKey(getCurrent())
+	})
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
@@ -66,7 +99,7 @@
 
 <DiffDrawer bind:this={diffDrawer} />
 
-{#if show}
+{#if visible}
 	<div
 		transition:slide|local={{ duration: 120 }}
 		class={twMerge(
