@@ -957,7 +957,7 @@
 						? 'Deploy this new script to the workspace'
 						: 'Deploy your changes to this script'}
 				>
-					{saving ? 'Saving…' : isCreate ? 'Create' : 'Save'}
+					{saving ? 'Deploying…' : 'Deploy'}
 				</Button>
 			{/if}
 			{#if onHide}
