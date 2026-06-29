@@ -1,9 +1,3 @@
--- Remove the trust_cert property from postgresql resource type schemas.
-UPDATE resource_type
-SET schema = schema #- '{properties,trust_cert}'
-WHERE name = 'postgresql'
-  AND jsonb_typeof(schema) = 'object';
-
 -- Remove the grandfather flag. Scoped to the same set the up migration stamped
 -- (verify-ca/verify-full, no root cert) to limit clobbering a flag an operator
 -- may have set by hand.
