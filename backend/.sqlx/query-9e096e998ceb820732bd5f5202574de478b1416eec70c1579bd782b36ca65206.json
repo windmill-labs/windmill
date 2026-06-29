@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO group_ (workspace_id, name, summary, extra_perms)\n         SELECT $2, name, summary, extra_perms\n         FROM group_\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e096e998ceb820732bd5f5202574de478b1416eec70c1579bd782b36ca65206"
+}

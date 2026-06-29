@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO azure_trigger (\n            azure_resource_path, azure_mode, scope_resource_id, topic_name,\n            subscription_name, event_type_filters, push_auth_config, path, script_path,\n            is_flow, workspace_id, edited_by, email, edited_at, extra_perms, server_id,\n            last_server_ping, error, mode, permissioned_as, error_handler_path,\n            error_handler_args, retry, labels\n        )\n        SELECT\n            azure_resource_path, azure_mode, scope_resource_id, topic_name,\n            subscription_name, event_type_filters, push_auth_config, path, script_path,\n            is_flow, $1, edited_by, email, edited_at, extra_perms, NULL,\n            NULL, NULL, 'disabled'::TRIGGER_MODE, permissioned_as, error_handler_path,\n            error_handler_args, retry, labels\n        FROM azure_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16e8d3f75ce4b5b18cefc25ebb670b506677681394606426964491488d64c62c"
+}

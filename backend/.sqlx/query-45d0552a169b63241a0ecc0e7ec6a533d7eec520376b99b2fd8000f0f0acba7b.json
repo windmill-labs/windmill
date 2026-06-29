@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\nWITH rows_to_delete AS (\n    SELECT concurrency_id\n    FROM concurrency_counter\n\n    WHERE job_uuids = '{}'::jsonb\n    FOR UPDATE SKIP LOCKED\n)\nDELETE FROM concurrency_counter\nWHERE concurrency_id IN (SELECT concurrency_id FROM rows_to_delete)  RETURNING concurrency_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "concurrency_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "45d0552a169b63241a0ecc0e7ec6a533d7eec520376b99b2fd8000f0f0acba7b"
+}

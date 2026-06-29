@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE folder SET display_name = 'Modified Shared Folder'\n         WHERE workspace_id = 'wm-fork-test-workspace' AND name = 'shared'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "96406f7d7a42ec5a614415ed2fbf6f24291e869aa028ef3190390aaeadd10a46"
+}

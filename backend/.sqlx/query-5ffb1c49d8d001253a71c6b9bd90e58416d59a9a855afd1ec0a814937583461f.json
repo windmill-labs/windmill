@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE mcp_oauth_refresh_token SET revoked = TRUE WHERE token_family = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5ffb1c49d8d001253a71c6b9bd90e58416d59a9a855afd1ec0a814937583461f"
+}

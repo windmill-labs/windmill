@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM native_trigger WHERE workspace_id = $1 AND script_path = $2 AND is_flow = $3 AND service_name = 'google'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bc1298e492d3008386d9b1b449a98156fe186832494d16a434921727e5d3314d"
+}

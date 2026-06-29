@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE volume SET extra_perms = extra_perms - $1\n         WHERE workspace_id = $2 AND name = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "82b3bd95e5d28c4cd4eedcae8cf050ba7b7e4d9eabba03be251ae9a8017b317d"
+}

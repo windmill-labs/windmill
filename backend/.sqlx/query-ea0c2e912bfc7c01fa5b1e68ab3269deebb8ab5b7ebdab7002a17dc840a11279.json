@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_runnable_dependencies SET runnable_path = REGEXP_REPLACE(runnable_path, 'u/' || $2 || '/(.*)', $1 || '/\\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ea0c2e912bfc7c01fa5b1e68ab3269deebb8ab5b7ebdab7002a17dc840a11279"
+}

@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE job_tree AS (\n            SELECT j.id, j.kind::text, j.flow_step_id, j.parent_job,\n                   '' as path_label, 0 as depth,\n                   j.id::text as id_path,\n                   ''::text as parent_module_type\n            FROM v2_job j\n            WHERE j.id = $2 AND j.workspace_id = $1\n            UNION ALL\n            SELECT j.id, j.kind::text, j.flow_step_id, j.parent_job,\n                   CASE\n                       WHEN jt.path_label = '' THEN COALESCE(j.flow_step_id, '')\n                       ELSE jt.path_label || '/' || COALESCE(j.flow_step_id, '')\n                   END,\n                   jt.depth + 1,\n                   jt.id_path || '/' || j.id::text,\n                   COALESCE((\n                       SELECT m->'value'->>'type'\n                       FROM v2_job parent_j\n                       LEFT JOIN flow f ON f.path = parent_j.runnable_path\n                           AND f.workspace_id = parent_j.workspace_id\n                       LEFT JOIN flow_node fn ON fn.id = parent_j.runnable_id\n                       CROSS JOIN LATERAL jsonb_array_elements(\n                           COALESCE(parent_j.raw_flow, f.value, fn.flow)->'modules'\n                       ) m\n                       WHERE parent_j.id = jt.id\n                         AND m->>'id' = j.flow_step_id\n                       LIMIT 1\n                   ), '')::text\n            FROM v2_job j\n            JOIN job_tree jt ON j.parent_job = jt.id\n            WHERE j.workspace_id = $1\n        ),\n        with_sibling_index AS (\n            SELECT jt.*,\n                   ROW_NUMBER() OVER (\n                       PARTITION BY jt.parent_job, jt.flow_step_id\n                       ORDER BY jt.id\n                   ) as sibling_index,\n                   COUNT(*) OVER (\n                       PARTITION BY jt.parent_job, jt.flow_step_id\n                   ) as sibling_count\n            FROM job_tree jt\n        )\n        SELECT w.id, w.kind, w.flow_step_id, w.path_label,\n               w.sibling_index::int as sibling_index,\n               w.sibling_count::int as sibling_count,\n               w.depth::int as depth,\n               w.parent_module_type,\n               coalesce(job_logs.logs, '') as logs,\n               COALESCE(job_logs.log_offset, 0) as log_offset,\n               job_logs.log_file_index\n        FROM with_sibling_index w\n        LEFT JOIN job_logs ON job_logs.job_id = w.id\n        ORDER BY w.id_path ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "path_label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sibling_index",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "sibling_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "depth",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "parent_module_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "logs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "log_offset",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "log_file_index",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "5b95f464d492227ffe8a449844da00a6539788f9be647d6b52f01cbb2967473e"
+}

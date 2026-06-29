@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO group_ (workspace_id, name, summary, extra_perms)\n        VALUES ('test-workspace', 'error_handler', 'The group the error handler acts on behalf of', '{\"u/test-user\": true}')\n        ON CONFLICT DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "5f5bdd667f699a5a1c05e07d805a97afb06252541d06b4785063819c3893b674"
+}

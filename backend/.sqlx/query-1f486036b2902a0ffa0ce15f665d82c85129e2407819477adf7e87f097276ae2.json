@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)\n         SELECT $2, path, typ, value, created_at, email\n         FROM draft\n         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f486036b2902a0ffa0ce15f665d82c85129e2407819477adf7e87f097276ae2"
+}

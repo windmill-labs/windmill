@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT policy as \"policy: sqlx::types::Json<Box<RawValue>>\"\n                FROM app WHERE app.path = $1 AND app.workspace_id = $2 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "policy: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5d7081a9ba0d702f63ed9d44be5ffe0ba043565790865c6a6f52fab6ce340d2c"
+}

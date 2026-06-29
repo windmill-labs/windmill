@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    string_agg(stream, '' order by idx asc) as stream,\n                    max(idx) + 1 as offset\n                FROM job_result_stream_v2\n                WHERE job_id = $2 AND idx >= $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stream",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "offset",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "f173446b1c4c1118627c7486374ec5ee10a8ffca9de26f191b715caabb6f038a"
+}

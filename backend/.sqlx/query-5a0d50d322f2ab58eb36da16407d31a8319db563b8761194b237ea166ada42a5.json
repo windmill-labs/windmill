@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dispatch_event WHERE workspace_id = $1 AND producer_job_id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5a0d50d322f2ab58eb36da16407d31a8319db563b8761194b237ea166ada42a5"
+}

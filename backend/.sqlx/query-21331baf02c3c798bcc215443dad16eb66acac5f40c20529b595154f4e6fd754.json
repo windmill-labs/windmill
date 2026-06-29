@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status\n                         SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_schedule_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_schedule_clean', '[]'::jsonb) || $1)\n                         WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "21331baf02c3c798bcc215443dad16eb66acac5f40c20529b595154f4e6fd754"
+}
