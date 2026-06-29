@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { goto } from '$app/navigation'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from '$lib/components/common'
 	import {
@@ -10,7 +10,17 @@
 		AppService,
 		ResourceService,
 		ScheduleService,
-		FolderService
+		FolderService,
+		HttpTriggerService,
+		WebsocketTriggerService,
+		KafkaTriggerService,
+		NatsTriggerService,
+		MqttTriggerService,
+		SqsTriggerService,
+		GcpTriggerService,
+		AzureTriggerService,
+		PostgresTriggerService,
+		EmailTriggerService
 	} from '$lib/gen'
 	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import {
@@ -89,6 +99,36 @@
 
 	// Minimal non-public policy for re-created apps.
 	const defaultPolicy = { execution_mode: 'publisher', triggerables_v2: {} } as any
+
+	// Trigger kinds that require an Enterprise license. The others (http,
+	// websocket, postgres, mqtt, email) are available on CE. `schedule` is
+	// handled separately because it has a distinct request-body shape.
+	const EE_TRIGGER_KINDS = new Set(['kafka', 'nats', 'sqs', 'gcp', 'azure'])
+
+	// Non-schedule trigger creators, keyed by kind.
+	const TRIGGER_CREATE: Record<string, (workspace: string, requestBody: any) => Promise<unknown>> =
+		{
+			http: (workspace, requestBody) =>
+				HttpTriggerService.createHttpTrigger({ workspace, requestBody }),
+			websocket: (workspace, requestBody) =>
+				WebsocketTriggerService.createWebsocketTrigger({ workspace, requestBody }),
+			kafka: (workspace, requestBody) =>
+				KafkaTriggerService.createKafkaTrigger({ workspace, requestBody }),
+			nats: (workspace, requestBody) =>
+				NatsTriggerService.createNatsTrigger({ workspace, requestBody }),
+			mqtt: (workspace, requestBody) =>
+				MqttTriggerService.createMqttTrigger({ workspace, requestBody }),
+			sqs: (workspace, requestBody) =>
+				SqsTriggerService.createSqsTrigger({ workspace, requestBody }),
+			gcp: (workspace, requestBody) =>
+				GcpTriggerService.createGcpTrigger({ workspace, requestBody }),
+			azure: (workspace, requestBody) =>
+				AzureTriggerService.createAzureTrigger({ workspace, requestBody }),
+			postgres: (workspace, requestBody) =>
+				PostgresTriggerService.createPostgresTrigger({ workspace, requestBody }),
+			email: (workspace, requestBody) =>
+				EmailTriggerService.createEmailTrigger({ workspace, requestBody })
+		}
 
 	// Map bundled paths `f/<fromSlug>/...` -> `f/<folder>/...`. Only enumerated
 	// paths go in, so rewriters touch real refs, never incidental text.
@@ -272,15 +312,37 @@
 								script_path: t.runnable_path,
 								is_flow: t.runnable_kind === 'flow',
 								enabled: false,
-								args: t.config?.args ?? {}
+								args: t.config?.args ?? {},
+								summary: t.summary ?? null
 							}
 						})
 					)
 				} else {
-					await record(
-						t.path,
-						Promise.reject(new Error(`trigger kind '${t.kind}' not supported yet`))
-					)
+					const create = TRIGGER_CREATE[t.kind]
+					if (!create) {
+						await record(
+							t.path,
+							Promise.reject(new Error(`trigger kind '${t.kind}' not supported yet`))
+						)
+					} else if (EE_TRIGGER_KINDS.has(t.kind) && !$enterpriseLicense) {
+						await record(
+							t.path,
+							Promise.reject(new Error(`trigger kind '${t.kind}' requires Enterprise`))
+						)
+					} else {
+						// `config` carries only kind-specific fields (publish strips path/
+						// script_path/is_flow/enabled/summary), so the explicit fields win.
+						// `enabled: false` imports the trigger disabled, like schedules.
+						const requestBody = {
+							...(t.config ?? {}),
+							path: t.path,
+							script_path: t.runnable_path,
+							is_flow: t.runnable_kind === 'flow',
+							summary: t.summary ?? null,
+							enabled: false
+						}
+						await record(t.path, create(workspace, requestBody))
+					}
 				}
 			}
 			done = true
@@ -333,8 +395,10 @@
 			class="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
 		>
 			Resources are imported as empty stubs — set their values after import; a resource whose path
-			already exists is reported as failed (existing values are never overwritten). Only schedule
-			triggers are recreated (imported disabled); other trigger kinds are skipped.
+			already exists is reported as failed (existing values are never overwritten). All trigger
+			kinds are recreated disabled; Kafka, NATS, SQS, GCP and Azure triggers require Enterprise.
+			Triggers that reference a resource depend on stubs imported empty, so fill in the resource
+			value before re-enabling the trigger.
 		</div>
 
 		<div class="mt-6 flex items-center gap-3">
