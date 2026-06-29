@@ -717,16 +717,27 @@ async fn create_deployment_request_comment(
 // ---- helpers ------------------------------------------------------------
 
 async fn parent_of_fork(db: &DB, w_id: &str) -> Result<String> {
-    sqlx::query_scalar!(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+    // Resolve the fork's parent and require it to still exist and be active. A
+    // parent that is archived (soft-deleted) can no longer be accessed, so a
+    // diff or deployment request against it targets an unreachable workspace.
+    let parent = sqlx::query!(
+        "SELECT p.id AS \"id!\", p.deleted AS \"deleted!\"
+         FROM workspace f
+         JOIN workspace p ON p.id = f.parent_workspace_id
+         WHERE f.id = $1",
         w_id,
     )
     .fetch_optional(db)
-    .await?
-    .flatten()
-    .ok_or_else(|| {
-        Error::BadRequest(format!(
+    .await?;
+
+    match parent {
+        None => Err(Error::BadRequest(format!(
             "workspace {w_id} is not a fork (no parent_workspace_id)"
-        ))
-    })
+        ))),
+        Some(p) if p.deleted => Err(Error::BadRequest(format!(
+            "parent workspace {} of fork {w_id} is archived",
+            p.id
+        ))),
+        Some(p) => Ok(p.id),
+    }
 }

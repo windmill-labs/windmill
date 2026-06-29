@@ -19,7 +19,8 @@ export function computeBorderStatus(
 	} else {
 		let flow_jobs_success = graphModuleState?.flow_jobs_success
 		if (!flow_jobs_success) {
-			return 'WaitingForPriorSteps'
+			// No run yet: leave the branch border neutral instead of forcing a highlight.
+			return undefined
 		} else {
 			let status = flow_jobs_success?.[branchIndex]
 			if (status == undefined) {

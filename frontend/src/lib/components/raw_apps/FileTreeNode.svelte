@@ -1,32 +1,11 @@
 <script lang="ts">
-	import {
-		ChevronRight,
-		ChevronDown,
-		File,
-		Folder,
-		Pencil,
-		Trash2,
-		Lock,
-		Ellipsis,
-		ImageIcon
-	} from 'lucide-svelte'
+	import { ChevronRight, ChevronDown, Folder, Pencil, Trash2, Lock, Ellipsis } from 'lucide-svelte'
 	import Self from './FileTreeNode.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { Button } from '../common'
 	import TextInput from '../text_input/TextInput.svelte'
-	import TypeScript from '../common/languageIcons/TypeScript.svelte'
-	import JavaScriptIcon from '../icons/JavaScriptIcon.svelte'
-	import JsonIcon from '../icons/JsonIcon.svelte'
-	import ReactIcon from '../icons/ReactIcon.svelte'
-	import SvelteIcon from '../icons/SvelteIcon.svelte'
-	import VueIcon from '../icons/VueIcon.svelte'
-	import CssIcon from '../icons/CssIcon.svelte'
-	import SassIcon from '../icons/SassIcon.svelte'
-	import LessIcon from '../icons/LessIcon.svelte'
-	import HtmlIcon from '../icons/HtmlIcon.svelte'
-	import MarkdownIcon from '../icons/MarkdownIcon.svelte'
-	import YamlIcon from '../icons/YamlIcon.svelte'
+	import { getFileIcon } from '../icons/fileIcon'
 	import { tick, untrack } from 'svelte'
 
 	interface TreeNode {
@@ -155,61 +134,9 @@
 		})
 	)
 
-	function getFileExtension(filename: string): string {
-		const parts = filename.split('.')
-		return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : ''
-	}
-
-	const fileIcon = $derived.by(() => {
-		if (node.isFolder) {
-			return { icon: Folder, className: 'text-secondary' }
-		}
-
-		const ext = getFileExtension(node.name)
-
-		switch (ext) {
-			case 'json':
-				return { icon: JsonIcon }
-			case 'tsx':
-				return { icon: ReactIcon }
-			case 'jsx':
-				return { icon: ReactIcon }
-			case 'ts':
-				return { icon: TypeScript }
-			case 'js':
-				return { icon: JavaScriptIcon }
-			case 'svelte':
-				return { icon: SvelteIcon }
-			case 'vue':
-				return { icon: VueIcon }
-			case 'css':
-				return { icon: CssIcon }
-			case 'scss':
-			case 'sass':
-				return { icon: SassIcon }
-			case 'less':
-				return { icon: LessIcon }
-			case 'png':
-			case 'jpg':
-			case 'jpeg':
-			case 'gif':
-			case 'svg':
-			case 'webp':
-			case 'ico':
-				return { icon: ImageIcon, className: 'text-purple-500' }
-			case 'html':
-			case 'htm':
-				return { icon: HtmlIcon }
-			case 'md':
-			case 'markdown':
-				return { icon: MarkdownIcon }
-			case 'yaml':
-			case 'yml':
-				return { icon: YamlIcon }
-			default:
-				return { icon: File, className: 'text-tertiary' }
-		}
-	})
+	const fileIcon = $derived(
+		node.isFolder ? { icon: Folder, className: 'text-secondary' } : getFileIcon(node.name)
+	)
 </script>
 
 <div>

@@ -20,6 +20,7 @@
 		Loader2
 	} from 'lucide-svelte'
 	import DucklakeResultPreview from './assets/AssetGraph/DucklakeResultPreview.svelte'
+	import DataTestsResult from './DataTestsResult.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
 
@@ -564,9 +565,53 @@
 			resultHeaderHeight
 		)
 	})
+
+	// Per-test breakdown of a managed `// materialize` run, rendered as a
+	// checklist above the raw result. On success it rides the result
+	// (`data_tests: [{ test, violating }]`, a one-row array). On failure the job
+	// result is the error, whose message is the worker's breakdown text — parsed
+	// back into the same shape so the checklist shows on both outcomes. Both
+	// formats are produced by this repo's worker (see duckdb_executor.rs); the
+	// derivation is inert (undefined) for every other DisplayResult use.
+	let dataTests = $derived.by(() => {
+		// Success: structured column on the summary row.
+		const row = Array.isArray(result) ? (result as any)?.[0] : (result as any)
+		let dt = row?.data_tests
+		if (typeof dt === 'string') {
+			try {
+				dt = JSON.parse(dt)
+			} catch {
+				dt = undefined
+			}
+		}
+		if (
+			Array.isArray(dt) &&
+			dt.length > 0 &&
+			dt.every((x) => x && typeof x.test === 'string' && typeof x.violating === 'number')
+		) {
+			return dt as Array<{ test: string; violating: number }>
+		}
+		// Failure: parse the worker's breakdown out of the error message.
+		const msg = (result as any)?.error?.message
+		if (typeof msg === 'string' && msg.includes('data tests failed on')) {
+			const out: Array<{ test: string; violating: number }> = []
+			for (const line of msg.split('\n')) {
+				const fail = line.match(/^\s*✗\s*(.+?)\s*—\s*(\d+)\s+violating/)
+				const pass = line.match(/^\s*✓\s*(.+?)\s*$/)
+				if (fail) out.push({ test: fail[1], violating: parseInt(fail[2], 10) })
+				else if (pass) out.push({ test: pass[1], violating: 0 })
+			}
+			if (out.length > 0) return out
+		}
+		return undefined
+	})
 </script>
 
 <HighlightTheme />
+
+{#if dataTests}
+	<DataTestsResult tests={dataTests} />
+{/if}
 
 {#if result_stream && result == undefined}
 	<div class="flex flex-col w-full gap-2">

@@ -75,6 +75,8 @@ Public CLI surface:
 - `--model <alias>`: choose the model under test
 - `--models <a,b,c>`: run the same cases sequentially against several model aliases
 - `--verbose`: stream assistant output for frontend runs
+- `--skip-judge`: skip LLM judge scoring for the run
+- `--execution-only`: only require the model/proxy/frontend loop to complete; skip validators, tool expectations, backend artifact validation, and judge scoring
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
 
@@ -99,7 +101,7 @@ Notes:
 - the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
 - frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
-- the judge model is separate and currently defaults to `claude-sonnet-4-6`
+- the judge model is separate and currently defaults to `claude-sonnet-4-6`; use `--skip-judge` for deterministic-only runs
 
 ## Case Format
 

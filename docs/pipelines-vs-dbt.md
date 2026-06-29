@@ -46,9 +46,9 @@ Asset-centric, polyglot, annotation-driven, event-aware:
 
 | Gap | Architectural blocker? | Verdict |
 |---|---|---|
-| Data tests | No | Pure TODO |
+| Data tests | No | **Shipped** (`// data_test`) |
 | Incremental materializations | No, but pick a philosophy | TODO with design decision |
-| Column lineage + docs site | No | Pure TODO |
+| Column lineage | No | **Shipped** (`// column`); docs site still TODO |
 | Snapshots / SCD2 | No | New output kind |
 | Selective execution grammar | No | UI/CLI surface |
 | Schema contracts | No, but design metadata model | TODO with design work |
@@ -64,10 +64,16 @@ and annotation extensibility**. The rest is execution.
 dbt: `unique`, `not_null`, `accepted_values`, custom generic tests, plus
 singular tests. Run as `SELECT` statements that pass when they return 0 rows.
 
-Today: nothing. Annotation parser is the natural hook —
-`// test unique col_name`, `// test not_null col_name`,
-`// test <script_path>` for custom. Pipeline runtime already handles
-failure propagation. Lowest-risk, highest-payoff item.
+**Shipped** via the `// data_test` annotation (built on materialization):
+`// data_test unique <col>`, `not_null`, `accepted_values <col> = a,b,c`,
+`relationships <col> -> <asset>.<col>`, and `// data_test <script_path>` for
+the custom escape hatch (dbt's singular test). Each compiles to a SQL
+*verifier probe* that runs against the freshly-materialized asset and raises on
+violation, riding the existing failure-propagation path. This is also the first
+*extensible* annotation — see `ducklake-materialization.md` §"Data tests" for
+the annotation→verifier pattern that column-lineage will reuse. The keyword is
+`data_test`, not `test`, to stay clear of the unrelated `// test:` CI-test
+annotation.
 
 ### 2. Incremental materializations
 
@@ -78,10 +84,38 @@ See [Incremental deep-dive](#incremental-deep-dive) below.
 dbt: SQL-AST parsing for column-level deps; `dbt docs serve` produces a
 static lineage site with descriptions.
 
-Today: graph is asset-level. `SqlQueryDetails` in the parser
-(`backend/parsers/windmill-parser/src/asset_parser.rs:44`) already has a
-column map — the scaffolding exists. No `// column` annotation, no docs
-surface. Pure TODO; no abstraction stands in the way.
+**Shipped**, inferred-first. For DuckDB scripts the column lineage is **derived
+automatically from the SQL AST** — `windmill-parser-sql-asset` walks each
+output-producing query's projection and maps every output column to the source
+columns its expression reads (passthroughs *and* computed columns like
+`amount + tax AS total`), resolving each input to its asset via the same
+`ATTACH`/alias machinery the asset parser already uses. This is the dbt-style
+AST lineage, and it needs no annotation.
+
+The `// column <out_col> <- <asset-uri>.<col>[, …]` annotation is the
+**override / escape hatch**, for the cases inference can't reach: polyglot
+transforms (Python/TS/Bash — no SQL AST), dynamic SQL (`${sql.raw(...)}`, flagged
+by `SqlQueryDetails.has_raw_interpolation`), or correcting a mis-inferred edge.
+Inferred and annotated lineage are merged per output column with the annotation
+winning (`merge_column_lineage`). The annotation is the second *extensible*
+annotation family after `// data_test` — same head-then-tail parse shape (see
+`ColumnLineage`/`ColumnRef` in `asset_parser.rs`) — and is pure metadata: it
+drives the graph surface, never a runtime probe.
+
+Surfaced two ways in the asset graph: a count badge on the
+producer→materialized-asset write-edge, and a **transitive column-lineage
+trace** (`ColumnLineageTrace.svelte`, over the cross-script graph built by
+`columnLineageGraph.ts`) in the asset details pane — select an asset to see its
+columns and their full upstream/downstream lineage, click any column to
+highlight its complete impact set across the pipeline (forward + backward).
+
+SQL-AST inference runs both **server-side** (the graph endpoint + deploy via
+`parse_assets`, for *deployed* members) and **in the live editor** — the same
+parser compiled to WASM (`windmill-parser-wasm-asset`) runs on the open draft's
+buffer, and `resolveGraph` merges its `column_lineage` with the buffer's
+`// column` annotations under the same annotation-wins precedence, so the draft
+preview matches what deploys. The `dbt docs serve`-style static lineage *site*
+is still TODO.
 
 ### 4. Snapshots / SCD2
 

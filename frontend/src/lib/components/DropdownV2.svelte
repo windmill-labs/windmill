@@ -30,6 +30,10 @@
 		placement?: Placement
 		usePointerDownOutside?: boolean
 		closeOnOtherDropdownOpen?: boolean
+		// When false the menu stays open after an item is selected (melt's closeOnItemClick).
+		// Consumers that keep the menu open must close it themselves where appropriate.
+		// Read once at menu creation (like `placement`); changing it after mount has no effect.
+		closeOnItemClick?: boolean
 		fixedHeight?: boolean
 		hidePopup?: boolean
 		open?: boolean
@@ -41,10 +45,18 @@
 		size?: ButtonType.UnifiedSize
 		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
-		// In customMenu mode the snippet receives the melt-ui `item` action
-		// store so consumers can wrap their own rows in <MenuItem> (or
-		// `use:melt={$item}`) and get arrow-key navigation + aria wiring.
-		menu?: import('svelte').Snippet<[{ item: MenubarMenuElements['item']; close: () => void }]>
+		// In customMenu mode the snippet receives the melt-ui `item` action store
+		// (so consumers can wrap rows in <MenuItem> for arrow-key navigation + aria)
+		// and `builders` (so they can compose melt submenus, e.g. via DropdownSubmenuItem).
+		menu?: import('svelte').Snippet<
+			[
+				{
+					item: MenubarMenuElements['item']
+					close: () => void
+					builders: ReturnType<typeof createDropdownMenu>['builders']
+				}
+			]
+		>
 		maxHeight?: string | undefined
 	}
 
@@ -56,6 +68,7 @@
 		placement = 'bottom-end',
 		usePointerDownOutside = false,
 		closeOnOtherDropdownOpen = true,
+		closeOnItemClick = true,
 		fixedHeight = true,
 		hidePopup = false,
 		open = $bindable(false),
@@ -82,6 +95,7 @@
 		positioning: {
 			placement: untrack(() => placement)
 		},
+		closeOnItemClick: untrack(() => closeOnItemClick),
 		loop: true,
 		onOpenChange: ({ next }) => {
 			if (closeOnOtherDropdownOpen) {
@@ -176,7 +190,7 @@
 		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 	>
 		{#if customMenu}
-			{@render menu?.({ item, close })}
+			{@render menu?.({ item, close, builders })}
 		{:else}
 			<div
 				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"

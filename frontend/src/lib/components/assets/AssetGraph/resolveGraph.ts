@@ -1,5 +1,10 @@
 import type { AssetGraphResponse, NativeTriggerKind } from './types'
-import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
+import {
+	mergeColumnLineage,
+	parsePipelineAnnotations,
+	type ColumnLineage,
+	type PipelineAnnotations
+} from './parsePipelineAnnotations'
 import {
 	extractWrites,
 	extractReads,
@@ -20,7 +25,12 @@ export type ResolveGraphInput = {
 	/** In-flight drafts keyed by script path. */
 	drafts: Map<string, GraphDraft>
 	/** Body assets inferred for the currently-open script (live keystrokes). */
-	liveBodyAssets: { scriptPath: string | undefined; assets: AssetWithAltAccessType[] }
+	liveBodyAssets: {
+		scriptPath: string | undefined
+		assets: AssetWithAltAccessType[]
+		/** Body-inferred column lineage (DuckDB SQL AST) for the open script. */
+		columnLineage?: ColumnLineage[]
+	}
 	/** Pipeline annotations parsed from the currently-open buffer. */
 	liveAnnotations: { scriptPath: string | undefined; annotations: PipelineAnnotations }
 	/** Sticky session caches of inferred body writes/reads per script path. */
@@ -173,6 +183,13 @@ function makeContext(input: ResolveGraphInput): ResolveContext {
 		if (liveAnnotations.scriptPath === openPath) {
 			for (const a of liveAnnotations.annotations.triggerAssets)
 				liveRefKeys.add(`${a.kind}:${a.path}`)
+			// The `// materialize <asset>` target is a declared *output*, but it
+			// lives in an annotation (not the SQL body), so neither triggerAssets
+			// (inputs) nor the body-inferred assets cover it. Without this its
+			// persisted write-edge is judged stale and dropped the moment the
+			// script is selected/edited — leaving the output asset unlinked.
+			const m = liveAnnotations.annotations.materialize
+			if (m) liveRefKeys.add(`${m.targetKind}:${m.targetPath}`)
 		}
 		for (const a of liveBodyAssets.assets) liveRefKeys.add(`${a.kind}:${a.path}`)
 	}
@@ -215,6 +232,19 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 
 	for (const [path, d] of drafts) {
 		const parsed = parsePipelineAnnotations(d.script.content)
+		// For the open script, fold in the WASM-inferred column lineage (DuckDB
+		// SQL AST) under the same annotation-wins precedence the backend applies
+		// on deploy, so the live preview matches what deploys. Only the open
+		// script carries live inference (`liveBodyAssets`); other drafts stay
+		// annotation-only until they deploy (the backend infers then).
+		const inferredCL =
+			path === liveBodyAssets.scriptPath ? (liveBodyAssets.columnLineage ?? []) : []
+		const mergedCL = mergeColumnLineage(inferredCL, parsed.columnLineage)
+		// The `// materialize` target this draft's column lineage describes, so
+		// the column graph anchors to it rather than guessing a write-edge.
+		const materializeTarget = parsed.materialize
+			? { kind: parsed.materialize.targetKind, path: parsed.materialize.targetPath }
+			: undefined
 		// A draft can coexist with a base entry — during save the refetch
 		// lands before drafts cleanup, and a user re-editing a deployed
 		// script also produces both. In that case we mutate the existing
@@ -232,10 +262,23 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				freshness: parsed.freshness?.duration,
 				tag: parsed.tag,
 				retry: parsed.retry,
+				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
+				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
+				materialize_target: materializeTarget,
 				unsaved: true
 			})
 		} else {
-			runnables[baseIdx] = { ...runnables[baseIdx], unsaved: true }
+			// Refresh annotation-derived badges from the live parse too, so
+			// adding/removing `// data_test` / `// column` lines on an
+			// already-deployed script updates the badge immediately (not only
+			// after redeploy/refetch).
+			runnables[baseIdx] = {
+				...runnables[baseIdx],
+				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
+				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
+				materialize_target: materializeTarget,
+				unsaved: true
+			}
 		}
 		// Output asset(s): three-tier resolution.
 		//   1. Active draft (the body the user is editing right now):
@@ -260,6 +303,16 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		}
 		if (writeOuts.length === 0 && d.outputAsset) {
 			writeOuts.push(d.outputAsset)
+		}
+		// `// materialize <asset>` declares a write output via annotation, not
+		// the SQL body, so the body-inference tiers above miss it. Add it from
+		// the live-parsed annotations so an edited materialize script keeps its
+		// output edge (the loop below dedups against existing assets/edges).
+		if (parsed.materialize) {
+			writeOuts.push({
+				kind: parsed.materialize.targetKind,
+				path: parsed.materialize.targetPath
+			})
 		}
 		for (const out of writeOuts) {
 			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)

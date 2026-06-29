@@ -117,3 +117,87 @@ export function computeDownstreamClosure(g: AssetGraphResponse, root: string): D
 	}
 	return { nodes: ordered, edges: cleanEdges, indegree: cleanIndegree, cyclic }
 }
+
+export type InducedSchedule = {
+	/** Selected scripts that are schedulable, in a topological order. */
+	nodes: string[]
+	/** In-set dependency edges: `edges.get(p)` = in-set subscribers of `p`. */
+	edges: Map<string, Set<string>>
+	/** In-set upstream count per node. */
+	indegree: Map<string, number>
+	/** Schedulable scripts with no in-set upstream — the schedule's seeds. */
+	roots: string[]
+	/**
+	 * Selected scripts on (or fed only through) a cycle. Excluded from
+	 * `nodes`/`edges`/`indegree`/`roots`; surfaced so callers can warn.
+	 */
+	cyclic: string[]
+}
+
+/**
+ * Topological schedule of an arbitrary *set* of scripts (e.g. a bounded-cascade
+ * selection), respecting only the dependency edges that fall *inside* the set.
+ * Multi-root: every selected script with no in-set upstream is a seed.
+ * Cycle-safe in the same way as `computeDownstreamClosure`.
+ *
+ * `oneHop` is the producer→consumer adjacency (script path → downstream script
+ * paths). It defaults to the `// on` subscriber map — but a bounded run passes
+ * a *read-aware* map (boundedCascade.buildLineageDownstreamMap) so a selected
+ * script that merely *reads* an upstream asset still runs after its producer,
+ * matching the CLI's `topoOrder`. Keep the default subscriber-only: it mirrors
+ * the production asset-trigger dispatch the unbounded cascade simulates.
+ */
+export function computeInducedSchedule(
+	g: AssetGraphResponse,
+	selected: Set<string>,
+	oneHop: Map<string, Set<string>> = buildDownstreamMap(g)
+): InducedSchedule {
+	// In-set edges + indegrees.
+	const edges = new Map<string, Set<string>>()
+	const indegree = new Map<string, number>()
+	for (const n of selected) indegree.set(n, 0)
+	for (const p of selected) {
+		const subs = new Set<string>()
+		for (const s of oneHop.get(p) ?? []) {
+			if (!selected.has(s)) continue
+			subs.add(s)
+			indegree.set(s, (indegree.get(s) ?? 0) + 1)
+		}
+		if (subs.size > 0) edges.set(p, subs)
+	}
+
+	// Kahn from every indegree-0 node.
+	const seeds = [...selected].filter((n) => (indegree.get(n) ?? 0) === 0)
+	const remaining = new Map(indegree)
+	const ready = [...seeds]
+	const ordered: string[] = []
+	while (ready.length > 0) {
+		const n = ready.shift()!
+		ordered.push(n)
+		for (const s of edges.get(n) ?? []) {
+			const d = (remaining.get(s) ?? 0) - 1
+			remaining.set(s, d)
+			if (d === 0) ready.push(s)
+		}
+	}
+
+	const orderedSet = new Set(ordered)
+	const cyclic = [...selected].filter((n) => !orderedSet.has(n))
+	if (cyclic.length === 0) {
+		return { nodes: ordered, edges, indegree, roots: seeds, cyclic }
+	}
+
+	// Strip cyclic nodes from the schedulable structures.
+	const cyclicSet = new Set(cyclic)
+	const cleanEdges = new Map<string, Set<string>>()
+	const cleanIndegree = new Map<string, number>()
+	for (const n of ordered) cleanIndegree.set(n, 0)
+	for (const [p, subs] of edges) {
+		if (cyclicSet.has(p)) continue
+		const kept = new Set([...subs].filter((s) => !cyclicSet.has(s)))
+		if (kept.size > 0) cleanEdges.set(p, kept)
+		for (const s of kept) cleanIndegree.set(s, (cleanIndegree.get(s) ?? 0) + 1)
+	}
+	const roots = ordered.filter((n) => (cleanIndegree.get(n) ?? 0) === 0)
+	return { nodes: ordered, edges: cleanEdges, indegree: cleanIndegree, roots, cyclic }
+}

@@ -482,7 +482,8 @@ pub fn build_wrap_blocks(
     partition_value_sql: &str,
     partitioned: bool,
     strategy: MaterializeStrategy,
-) -> Vec<String> {
+    tests: &[DataTestResolved],
+) -> Result<Vec<String>, String> {
     let target_qualified = format!("{TARGET_ALIAS}.{target_table}");
     let cg = MaterializeCodegen {
         target_qualified: &target_qualified,
@@ -492,6 +493,14 @@ pub fn build_wrap_blocks(
         partitioned,
         strategy,
     };
+    let ctx = DataTestCtx {
+        target_qualified: &target_qualified,
+        asset_path,
+        partition_col,
+        partition_value_sql,
+        partitioned,
+    };
+    let test_sql = build_data_test_checks(tests, &ctx)?;
     let mut blocks: Vec<String> = Vec::new();
     // Setup blocks come from the splitter with their `;` stripped — re-terminate
     // each so that when the executor re-joins and re-splits the assembled query,
@@ -499,15 +508,20 @@ pub fn build_wrap_blocks(
     // don't merge into one malformed statement.
     blocks.extend(plan.setup.iter().map(|s| terminate(s)));
     blocks.push(target_attach.to_string());
+    // Referenced-asset ATTACHes (relationships tests) — read-only, before the
+    // write and the summary that probes them.
+    blocks.extend(test_sql.attaches);
     blocks.extend(cg.statements());
+    // The summary read carries the per-test breakdown (when any tests apply).
     blocks.push(materialize_result_sql(
         &target_qualified,
         asset_path,
         partition_col,
         partition_value_sql,
         partitioned,
+        &test_sql.checks,
     ));
-    blocks
+    Ok(blocks)
 }
 
 /// The trailing one-row summary the materialize run returns: the asset it
@@ -520,6 +534,7 @@ pub fn materialize_result_sql(
     partition_col: &str,
     partition_value_sql: &str,
     partitioned: bool,
+    checks: &[DataTestCheck],
 ) -> String {
     let (count_expr, partition_sel) = if partitioned {
         // Row count is the slice this run wrote (the partition); `partition`
@@ -536,10 +551,69 @@ pub fn materialize_result_sql(
             String::new(),
         )
     };
-    format!(
-        "SELECT 'ducklake://{asset_path}' AS materialized, \
+    // Capture the materialized output schema (gap #2a) in the same summary row —
+    // no extra round-trip. `DESCRIBE SELECT * FROM <target>` yields one row per
+    // column (`column_name`, `column_type`); fold them into a list-of-struct the
+    // worker reads back and persists as asset metadata. The write just
+    // committed, so the latest snapshot (no `AT (VERSION)` needed) is exactly the
+    // slice recorded in `snapshot_id`.
+    //
+    // Two correctness details:
+    // - `_wm_ord` (a `row_number()` over the DESCRIBE) is captured so the
+    //   list-of-struct is ordered *explicitly* (`list(... ORDER BY _wm_ord)`).
+    //   DESCRIBE returns columns in physical order; without the explicit ORDER
+    //   the `list()` aggregate could reorder them and spuriously bump the schema
+    //   version on a re-materialize.
+    // - For a `// partitioned` asset the physical table carries the synthetic
+    //   `_wm_partition` column; it must be filtered out so the recorded schema is
+    //   the producer's logical output, not Windmill's storage detail (this is the
+    //   grain #2b contract enforcement reads back).
+    let partition_filter = if partitioned {
+        format!(
+            " WHERE column_name <> '{}'",
+            partition_col.replace('\'', "''")
+        )
+    } else {
+        String::new()
+    };
+    let schema_capture = format!(
+        "(SELECT list({{'name': column_name, 'type': column_type}} ORDER BY _wm_ord) \
+         FROM (SELECT column_name, column_type, row_number() OVER () AS _wm_ord \
+               FROM (DESCRIBE SELECT * FROM {target_qualified}){partition_filter})) AS output_schema"
+    );
+    let base_cols = format!(
+        "'ducklake://{asset_path}' AS materialized, \
          {partition_sel}{count_expr} AS rows, \
-         (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id;"
+         (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id, \
+         {schema_capture}"
+    );
+    if checks.is_empty() {
+        return format!("SELECT {base_cols};");
+    }
+    // Per-test breakdown. Each check's violating-count is computed once as a CTE
+    // column (`c0`, `c1`, …); the `data_tests` list-of-struct then references
+    // those columns — DuckDB rejects scalar subqueries *inside* a struct/list
+    // literal, hence the CTE. Names are single-quote-escaped. The result row
+    // carries the whole breakdown so the worker runs every test (no
+    // abort-on-first) and decides pass/fail itself.
+    let cte_cols = checks
+        .iter()
+        .enumerate()
+        .map(|(i, c)| format!("{} AS c{i}", c.violating))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let list_items = checks
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let name = c.name.replace('\'', "''");
+            format!("{{'test': '{name}', 'violating': c{i}}}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "WITH _wm_tr AS (SELECT {cte_cols}) \
+         SELECT {base_cols}, [{list_items}] AS data_tests FROM _wm_tr;"
     )
 }
 
@@ -551,6 +625,271 @@ fn terminate(stmt: &str) -> String {
     } else {
         format!("{t};")
     }
+}
+
+// ---------------------------------------------------------------------------
+// Data tests (`// data_test`)
+// ---------------------------------------------------------------------------
+//
+// A data test is the FIRST extensible annotation: the parser yields a
+// `DataTest` from a known vocabulary, and this module turns each into a
+// *check* — a `(name, violating-row-count query)` pair — that runs against the
+// freshly-materialized target after the write commits. The materialize summary
+// query embeds every check's count in one `data_tests` column, so all tests
+// run in a single pass (no abort-on-first) and the worker, not the SQL,
+// decides pass/fail and reports the full per-test breakdown.
+//
+// The pattern is deliberately open: a verifier is just `(name, count query)`.
+// Built-ins differ only in their count query; the `Custom` escape hatch
+// supplies its own (a user SELECT returning the violating rows). A sibling
+// annotation family (column-lineage) can emit its own checks through the same
+// `push_check` shape rather than bolting on a parallel mechanism. See
+// `docs/ducklake-materialization.md`.
+
+use crate::asset_parser::{AssetKind, DataTest};
+
+/// Target context a data-test probe runs against — the materialized table and
+/// the partition slice (when partitioned, tests are scoped to the slice just
+/// written, so a rerun/backfill is independent of other partitions' data).
+#[derive(Debug, Clone)]
+pub struct DataTestCtx<'a> {
+    /// Fully-qualified materialized target, e.g. `_wm_target.orders`.
+    pub target_qualified: &'a str,
+    /// `<name>/<table>` of the target, for human-readable probe messages.
+    pub asset_path: &'a str,
+    /// Physical partition column on the managed table.
+    pub partition_col: &'a str,
+    /// SQL literal/expression for the current partition value (already escaped).
+    pub partition_value_sql: &'a str,
+    /// Whether the target is partitioned (scopes probes to the slice).
+    pub partitioned: bool,
+}
+
+/// A data test resolved enough to generate SQL. Built-ins carry only their
+/// parsed `DataTest`; `Custom` additionally carries the fetched script body
+/// (the parser crate can't fetch it — the worker does and passes it in).
+#[derive(Debug, Clone)]
+pub enum DataTestResolved {
+    BuiltIn(DataTest),
+    Custom { path: String, body: String },
+}
+
+/// One compiled data-test check: a human-readable `name` and a scalar SQL
+/// expression (`violating`) yielding the number of rows that violate it (0 =
+/// pass). The materialize summary query embeds every check's count so the
+/// worker gets the whole breakdown in one result — all tests run (no
+/// abort-on-first) and the worker, not the SQL, decides pass/fail.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataTestCheck {
+    pub name: String,
+    /// Scalar subquery yielding the violating-row count, e.g.
+    /// `(SELECT count(*) AS v FROM (…))`.
+    pub violating: String,
+}
+
+/// The SQL a set of data tests compiles to: referenced-asset `ATTACH`
+/// statements (resolved by the executor's ATTACH-transform pass) and the
+/// per-test checks, both in declaration order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DataTestChecks {
+    pub attaches: Vec<String>,
+    pub checks: Vec<DataTestCheck>,
+}
+
+/// Alias prefix for a relationships test's referenced asset, attached
+/// read-only alongside the target. `_wm_ref_<n>` so it never collides with the
+/// user's aliases or the reserved `_wm_target`.
+const REF_ALIAS_PREFIX: &str = "_wm_ref_";
+
+// Double-quote a SQL identifier, escaping embedded quotes — so an arbitrary
+// column name from an annotation can't break out of the identifier.
+fn quote_ident(id: &str) -> String {
+    format!("\"{}\"", id.replace('"', "\"\""))
+}
+
+// Quote a possibly schema-qualified table reference (`schema.table`) by quoting
+// each dotted segment independently: `main.dim_products` → `"main"."dim_products"`.
+// Quoting the whole thing would make DuckDB read it as one table name containing
+// a literal dot, querying the wrong table.
+fn quote_qualified(name: &str) -> String {
+    name.split('.')
+        .map(quote_ident)
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+// Single-quote a SQL string literal, escaping embedded quotes.
+fn quote_lit(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+// The `WHERE`/`AND` fragment scoping a probe to the current partition, or
+// empty when unpartitioned. `prefix` is `WHERE ` or `AND ` per call site.
+fn partition_scope(ctx: &DataTestCtx, prefix: &str, table_alias: Option<&str>) -> String {
+    if !ctx.partitioned {
+        return String::new();
+    }
+    let col = match table_alias {
+        Some(a) => format!("{a}.{}", quote_ident(ctx.partition_col)),
+        None => quote_ident(ctx.partition_col),
+    };
+    format!("{prefix}{col} = {}", ctx.partition_value_sql)
+}
+
+// Record one check: its display `name` plus `count_query` (which yields a
+// single-column violating-row count) wrapped as a scalar subquery.
+fn push_check(out: &mut DataTestChecks, name: String, count_query: String) {
+    out.checks
+        .push(DataTestCheck { name, violating: format!("({count_query})") });
+}
+
+/// Compile resolved data tests into ATTACH statements + per-test checks for
+/// `ctx`'s target. Pure: returns SQL text, executes nothing. Errors carry an
+/// actionable message (e.g. a relationships target that isn't an attachable
+/// table).
+pub fn build_data_test_checks(
+    tests: &[DataTestResolved],
+    ctx: &DataTestCtx,
+) -> Result<DataTestChecks, String> {
+    let t = ctx.target_qualified;
+    let mut out = DataTestChecks::default();
+    // Dedup ref attaches by (kind, name): a database can't be attached twice,
+    // so multiple relationships into the same db share one alias.
+    let mut ref_aliases: Vec<(AssetKind, String, String)> = Vec::new();
+
+    for resolved in tests {
+        match resolved {
+            DataTestResolved::BuiltIn(DataTest::Unique { column }) => {
+                let c = quote_ident(column);
+                let scope = partition_scope(ctx, " AND ", None);
+                let q = format!(
+                    "SELECT count(*) AS v FROM (SELECT {c} FROM {t} WHERE {c} IS NOT NULL{scope} \
+                     GROUP BY {c} HAVING count(*) > 1)"
+                );
+                push_check(&mut out, format!("unique({column})"), q);
+            }
+            DataTestResolved::BuiltIn(DataTest::NotNull { column }) => {
+                let c = quote_ident(column);
+                let scope = partition_scope(ctx, " AND ", None);
+                let q = format!("SELECT count(*) AS v FROM {t} WHERE {c} IS NULL{scope}");
+                push_check(&mut out, format!("not_null({column})"), q);
+            }
+            DataTestResolved::BuiltIn(DataTest::AcceptedValues { column, values }) => {
+                let c = quote_ident(column);
+                let scope = partition_scope(ctx, " AND ", None);
+                let list = values
+                    .iter()
+                    .map(|v| quote_lit(v))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let q = format!(
+                    "SELECT count(*) AS v FROM {t} WHERE {c} IS NOT NULL AND {c} NOT IN ({list}){scope}"
+                );
+                push_check(&mut out, format!("accepted_values({column})"), q);
+            }
+            DataTestResolved::BuiltIn(DataTest::Relationships {
+                column,
+                to_kind,
+                to_path,
+                to_column,
+            }) => {
+                let (ref_name, ref_table) = to_path.split_once('/').ok_or_else(|| {
+                    format!("data_test relationships: target `{to_path}` must be `<name>/<table>`")
+                })?;
+                if ref_table.is_empty() {
+                    return Err(format!(
+                        "data_test relationships: target `{to_path}` has no table"
+                    ));
+                }
+                let scheme = match to_kind {
+                    AssetKind::Ducklake => "ducklake",
+                    AssetKind::DataTable => "datatable",
+                    other => {
+                        return Err(format!(
+                            "data_test relationships: target kind {other:?} is not an attachable \
+                             table (use ducklake:// or datatable://)"
+                        ))
+                    }
+                };
+                // The materialize target's ducklake is already attached as
+                // `_wm_target`; a reference into that same lake must reuse it
+                // rather than ATTACH the same database again under a fresh alias
+                // (DuckDB forbids attaching one database twice). `asset_path` is
+                // the target's `<lake>/<table>`, so its lake is the part before
+                // the first `/`.
+                let target_lake = ctx.asset_path.split('/').next().unwrap_or("");
+                let alias = if *to_kind == AssetKind::Ducklake && ref_name == target_lake {
+                    TARGET_ALIAS.to_string()
+                } else {
+                    // Reuse an existing alias for the same (kind, name), else mint one.
+                    match ref_aliases
+                        .iter()
+                        .find(|(k, n, _)| k == to_kind && n == ref_name)
+                    {
+                        Some((_, _, a)) => a.clone(),
+                        None => {
+                            let a = format!("{REF_ALIAS_PREFIX}{}", ref_aliases.len());
+                            // Escape the name — it is interpolated into a
+                            // single-quoted DuckDB literal (defense-in-depth: the
+                            // name is deploy-time annotation content, but the parser
+                            // places no character restriction on asset paths).
+                            let esc_name = ref_name.replace('\'', "''");
+                            out.attaches
+                                .push(format!("ATTACH '{scheme}://{esc_name}' AS {a};"));
+                            ref_aliases.push((*to_kind, ref_name.to_string(), a.clone()));
+                            a
+                        }
+                    }
+                };
+                let c = quote_ident(column);
+                let rc = quote_ident(to_column);
+                // `ref_table` may be schema-qualified (`schema.table`); quote each
+                // segment so the dot stays a schema separator, not a literal.
+                let rt = quote_qualified(ref_table);
+                let scope = partition_scope(ctx, " AND ", Some("_wm_src"));
+                let q = format!(
+                    "SELECT count(*) AS v FROM {t} _wm_src \
+                     WHERE _wm_src.{c} IS NOT NULL{scope} \
+                     AND NOT EXISTS (SELECT 1 FROM {alias}.{rt} _wm_ref \
+                     WHERE _wm_ref.{rc} = _wm_src.{c})"
+                );
+                push_check(
+                    &mut out,
+                    format!("relationships({column} -> {to_path}.{to_column})"),
+                    q,
+                );
+            }
+            // A parsed Custom must be resolved (body fetched) before codegen.
+            DataTestResolved::BuiltIn(DataTest::Custom { path }) => {
+                return Err(format!(
+                    "data_test custom `{path}`: body not resolved before codegen (internal)"
+                ));
+            }
+            DataTestResolved::Custom { path, body } => {
+                // dbt singular-test convention: the body is a *single* SELECT
+                // (or CTE) returning the violating rows. It is embedded as a
+                // subquery (`FROM (<body>)`), so a multi-statement body would
+                // produce invalid SQL — validate up front with an actionable
+                // error. It runs in the target's connection (can read
+                // `_wm_target` + the user's attaches); partition substitution is
+                // already applied by the worker.
+                let stmts = split_statements(body);
+                if stmts.is_empty() {
+                    return Err(format!("data_test custom `{path}`: empty test body"));
+                }
+                if stmts.len() > 1 {
+                    return Err(format!(
+                        "data_test custom `{path}`: must be a single SELECT returning the \
+                         violating rows (found {} statements)",
+                        stmts.len()
+                    ));
+                }
+                let q = format!("SELECT count(*) AS v FROM ({})", stmts[0]);
+                push_check(&mut out, format!("custom({path})"), q);
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -792,7 +1131,9 @@ mod tests {
             "'2026-06-19'",
             true,
             MaterializeStrategy::Replace,
-        );
+            &[],
+        )
+        .unwrap();
         // setup block first, then the target ATTACH, then codegen, then result.
         assert!(blocks[0].starts_with("ATTACH 'ducklake://main' AS dl"));
         // every setup block must be `;`-terminated so re-splitting can't merge it
@@ -813,5 +1154,276 @@ mod tests {
         assert!(last.contains("'2026-06-19' AS partition"));
         assert!(last.contains("WHERE _wm_partition = '2026-06-19') AS rows"));
         assert!(last.contains("ducklake_snapshots('_wm_target')"));
+    }
+
+    // -- data tests ---------------------------------------------------------
+
+    fn ctx_partitioned() -> DataTestCtx<'static> {
+        DataTestCtx {
+            target_qualified: "_wm_target.orders",
+            asset_path: "analytics/orders",
+            partition_col: "_wm_partition",
+            partition_value_sql: "'2026-06-19'",
+            partitioned: true,
+        }
+    }
+    fn ctx_unpartitioned() -> DataTestCtx<'static> {
+        DataTestCtx { partitioned: false, ..ctx_partitioned() }
+    }
+
+    #[test]
+    fn data_test_unique_and_not_null_partition_scoped() {
+        let tests = vec![
+            DataTestResolved::BuiltIn(DataTest::Unique { column: "order_id".into() }),
+            DataTestResolved::BuiltIn(DataTest::NotNull { column: "user_id".into() }),
+        ];
+        let sql = build_data_test_checks(&tests, &ctx_partitioned()).unwrap();
+        assert!(sql.attaches.is_empty());
+        assert_eq!(sql.checks.len(), 2);
+        // short, asset-free names (the asset is shown once by the breakdown).
+        assert_eq!(sql.checks[0].name, "unique(order_id)");
+        assert_eq!(sql.checks[1].name, "not_null(user_id)");
+        // each `violating` is a scalar count subquery.
+        assert!(sql.checks[0]
+            .violating
+            .starts_with("(SELECT count(*) AS v FROM"));
+        // unique: groups non-null keys within the slice, having count>1
+        assert!(sql.checks[0]
+            .violating
+            .contains("GROUP BY \"order_id\" HAVING count(*) > 1"));
+        assert!(sql.checks[0]
+            .violating
+            .contains("\"order_id\" IS NOT NULL AND \"_wm_partition\" = '2026-06-19'"));
+        // not_null: null rows in the slice
+        assert!(sql.checks[1]
+            .violating
+            .contains("WHERE \"user_id\" IS NULL AND \"_wm_partition\" = '2026-06-19'"));
+    }
+
+    #[test]
+    fn data_test_unpartitioned_has_no_partition_scope() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::NotNull {
+            column: "id".into(),
+        })];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        assert!(sql.checks[0].violating.contains("WHERE \"id\" IS NULL"));
+        assert!(!sql.checks[0].violating.contains("_wm_partition"));
+    }
+
+    #[test]
+    fn data_test_accepted_values_escapes_literals() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::AcceptedValues {
+            column: "status".into(),
+            values: vec!["paid".into(), "o'brien".into()],
+        })];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        assert!(sql.checks[0]
+            .violating
+            .contains("NOT IN ('paid', 'o''brien')"));
+        assert!(sql.checks[0].violating.contains("\"status\" IS NOT NULL"));
+    }
+
+    #[test]
+    fn data_test_relationships_attaches_ref_and_dedups() {
+        let tests = vec![
+            DataTestResolved::BuiltIn(DataTest::Relationships {
+                column: "user_id".into(),
+                to_kind: AssetKind::DataTable,
+                to_path: "prod/users".into(),
+                to_column: "id".into(),
+            }),
+            // second relationship into the SAME db reuses the alias (no 2nd attach)
+            DataTestResolved::BuiltIn(DataTest::Relationships {
+                column: "buyer_id".into(),
+                to_kind: AssetKind::DataTable,
+                to_path: "prod/buyers".into(),
+                to_column: "id".into(),
+            }),
+        ];
+        let sql = build_data_test_checks(&tests, &ctx_partitioned()).unwrap();
+        assert_eq!(sql.attaches.len(), 1, "same db attached once");
+        assert_eq!(sql.attaches[0], "ATTACH 'datatable://prod' AS _wm_ref_0;");
+        assert!(sql.checks[0]
+            .violating
+            .contains("NOT EXISTS (SELECT 1 FROM _wm_ref_0.\"users\""));
+        assert!(sql.checks[1]
+            .violating
+            .contains("NOT EXISTS (SELECT 1 FROM _wm_ref_0.\"buyers\""));
+        assert!(sql.checks[0]
+            .violating
+            .contains("_wm_src.\"_wm_partition\" = '2026-06-19'"));
+        assert_eq!(
+            sql.checks[0].name,
+            "relationships(user_id -> prod/users.id)"
+        );
+    }
+
+    #[test]
+    fn data_test_relationships_escapes_ref_name_in_attach() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Relationships {
+            column: "k".into(),
+            to_kind: AssetKind::DataTable,
+            to_path: "ev'il/users".into(),
+            to_column: "id".into(),
+        })];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        // single quote in the name is doubled so it can't break out of the literal
+        assert_eq!(sql.attaches[0], "ATTACH 'datatable://ev''il' AS _wm_ref_0;");
+    }
+
+    #[test]
+    fn data_test_relationships_same_lake_reuses_target() {
+        // A relationship into the SAME ducklake as the materialize target
+        // (asset_path = "analytics/orders") must NOT re-ATTACH it — _wm_target
+        // already holds that catalog; reuse it.
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Relationships {
+            column: "user_id".into(),
+            to_kind: AssetKind::Ducklake,
+            to_path: "analytics/users".into(),
+            to_column: "id".into(),
+        })];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        assert!(
+            sql.attaches.is_empty(),
+            "same-lake ref must not ATTACH again"
+        );
+        assert!(sql.checks[0]
+            .violating
+            .contains("NOT EXISTS (SELECT 1 FROM _wm_target.\"users\""));
+    }
+
+    #[test]
+    fn data_test_relationships_schema_qualified_target() {
+        // `<lake>/<schema>.<table>` — the schema-qualified table must quote each
+        // segment so the dot stays a separator, not part of one identifier.
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Relationships {
+            column: "sku".into(),
+            to_kind: AssetKind::Ducklake,
+            to_path: "warehouse/main.dim_products".into(),
+            to_column: "sku".into(),
+        })];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        assert_eq!(
+            sql.attaches[0],
+            "ATTACH 'ducklake://warehouse' AS _wm_ref_0;"
+        );
+        assert!(
+            sql.checks[0]
+                .violating
+                .contains("FROM _wm_ref_0.\"main\".\"dim_products\""),
+            "schema-qualified target should be quoted per segment: {}",
+            sql.checks[0].violating
+        );
+    }
+
+    #[test]
+    fn data_test_relationships_rejects_non_attachable_kind() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Relationships {
+            column: "k".into(),
+            to_kind: AssetKind::S3Object,
+            to_path: "bucket/file".into(),
+            to_column: "c".into(),
+        })];
+        assert!(build_data_test_checks(&tests, &ctx_unpartitioned()).is_err());
+    }
+
+    #[test]
+    fn data_test_custom_wraps_body() {
+        let tests = vec![DataTestResolved::Custom {
+            path: "f/tests/amount".into(),
+            body: "SELECT * FROM _wm_target.orders WHERE amount < 0;".into(),
+        }];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        // trailing ; stripped, wrapped as a count subquery
+        assert!(sql.checks[0].violating.contains(
+            "SELECT count(*) AS v FROM (SELECT * FROM _wm_target.orders WHERE amount < 0)"
+        ));
+        assert_eq!(sql.checks[0].name, "custom(f/tests/amount)");
+    }
+
+    #[test]
+    fn data_test_custom_rejects_multi_statement_body() {
+        // The body is embedded as a subquery, so a setup-then-SELECT body would
+        // produce invalid SQL — reject it up front with an actionable error.
+        let tests = vec![DataTestResolved::Custom {
+            path: "f/tests/amount".into(),
+            body: "SET threads = 1; SELECT * FROM _wm_target.orders WHERE amount < 0".into(),
+        }];
+        let err = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap_err();
+        assert!(err.contains("single SELECT"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn data_test_unresolved_custom_is_internal_error() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Custom {
+            path: "f/x".into(),
+        })];
+        assert!(build_data_test_checks(&tests, &ctx_unpartitioned()).is_err());
+    }
+
+    #[test]
+    fn materialize_result_sql_embeds_data_tests_breakdown() {
+        let checks = vec![
+            DataTestCheck {
+                name: "unique(order_id)".into(),
+                violating: "(SELECT count(*) AS v FROM q0)".into(),
+            },
+            DataTestCheck {
+                name: "custom(f/t)".into(),
+                violating: "(SELECT count(*) AS v FROM q1)".into(),
+            },
+        ];
+        let sql = materialize_result_sql(
+            "_wm_target.orders",
+            "analytics/orders",
+            "_wm_partition",
+            "'2026-06-19'",
+            false,
+            &checks,
+        );
+        // counts computed once in a CTE, referenced by the list-of-struct.
+        assert!(sql.starts_with("WITH _wm_tr AS (SELECT (SELECT count(*) AS v FROM q0) AS c0,"));
+        assert!(sql.contains("[{'test': 'unique(order_id)', 'violating': c0}, "));
+        assert!(sql.contains("{'test': 'custom(f/t)', 'violating': c1}] AS data_tests"));
+        assert!(sql.contains("FROM _wm_tr;"));
+        // no tests -> plain summary, no CTE / data_tests column.
+        let plain = materialize_result_sql(
+            "_wm_target.orders",
+            "analytics/orders",
+            "_wm_partition",
+            "'x'",
+            false,
+            &[],
+        );
+        assert!(plain.starts_with("SELECT 'ducklake://analytics/orders' AS materialized"));
+        assert!(!plain.contains("data_tests"));
+        // Schema capture (gap #2a) is in every summary, tests or not. Unpartitioned
+        // → explicit ordering, no partition-column filter.
+        for s in [&sql, &plain] {
+            assert!(s.contains(
+                "(SELECT list({'name': column_name, 'type': column_type} ORDER BY _wm_ord) \
+                 FROM (SELECT column_name, column_type, row_number() OVER () AS _wm_ord \
+                 FROM (DESCRIBE SELECT * FROM _wm_target.orders))) AS output_schema"
+            ));
+            assert!(!s.contains("WHERE column_name <>"));
+        }
+    }
+
+    #[test]
+    fn materialize_result_sql_schema_excludes_partition_column() {
+        // Partitioned → the synthetic `_wm_partition` column is filtered out so
+        // the captured schema is the producer's logical output only.
+        let sql = materialize_result_sql(
+            "_wm_target.orders_daily",
+            "analytics/orders_daily",
+            "_wm_partition",
+            "'2026-06-19'",
+            true,
+            &[],
+        );
+        assert!(sql.contains(
+            "FROM (DESCRIBE SELECT * FROM _wm_target.orders_daily) \
+             WHERE column_name <> '_wm_partition')) AS output_schema"
+        ));
     }
 }

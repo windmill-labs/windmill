@@ -6,6 +6,7 @@
 	import type { ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -196,6 +197,13 @@
 		focusInput()
 	}
 
+	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
+	export function insertFileMention(name: string) {
+		const sep = instructions.length === 0 || instructions.endsWith(' ') ? '' : ' '
+		instructions = `${instructions}${sep}${formatMention(name)} `
+		focusInput()
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			if (node && !node.contains(event.target as Node)) {
@@ -222,7 +230,9 @@
 		// Workspace items are fetched on-demand and not in availableContext,
 		// so skip the availableContext check for them
 		const isWorkspaceItem =
-			contextElement.type === 'workspace_script' || contextElement.type === 'workspace_flow'
+			contextElement.type === 'workspace_script' ||
+			contextElement.type === 'workspace_flow' ||
+			contextElement.type === 'workspace_app'
 		if (
 			!isWorkspaceItem &&
 			!availableContext.find(

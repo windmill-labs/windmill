@@ -7,6 +7,7 @@
 	import DraftDiffDrawer from './DraftDiffDrawer.svelte'
 	import SessionDiffButton from './SessionDiffButton.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	let { session }: { session: Session } = $props()
 
@@ -58,7 +59,13 @@
 	>
 		<div class="flex items-center gap-1.5 min-w-0">
 			<span class="inline-flex shrink-0"><Pencil class="w-3.5 h-3.5 text-secondary" /></span>
-			<span class="truncate text-secondary">{count} draft{count === 1 ? '' : 's'}</span>
+			<Tooltip placement="top" class="truncate text-secondary">
+				{count} draft{count === 1 ? '' : 's'}
+				{#snippet text()}
+					Tracks all unsaved draft changes in this workspace — including edits made outside this
+					chat (e.g. in the editor), not only changes made by the assistant.
+				{/snippet}
+			</Tooltip>
 		</div>
 		<div class="flex items-center gap-1 shrink-0">
 			<SessionDiffButton {count} onclick={() => drawer?.open()} />
