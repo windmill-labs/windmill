@@ -30,7 +30,7 @@ describe('pipeline AI direct-draft helpers', () => {
 			['f/x/a', draft()],
 			['f/x/b', draft()]
 		])
-		await handle.helpers.removeProposedNode('f/x/a')
+		await handle.removeProposedNode('f/x/a')
 		expect(drafts().has('f/x/a')).toBe(false)
 		expect(drafts().has('f/x/b')).toBe(true)
 		expect(forgotten()).toContain('f/x/a')
@@ -38,12 +38,12 @@ describe('pipeline AI direct-draft helpers', () => {
 
 	it('removeProposedNode throws when there is no draft to discard', async () => {
 		const { handle } = makeHandle()
-		await expect(handle.helpers.removeProposedNode('f/x/missing')).rejects.toThrow()
+		await expect(handle.removeProposedNode('f/x/missing')).rejects.toThrow()
 	})
 
 	it('getPipelineContext does not expose any pending/approval state', () => {
 		const { handle } = makeHandle([['f/x/a', draft()]])
-		const ctx = handle.helpers.getPipelineContext()
+		const ctx = handle.getPipelineContext()
 		expect(ctx).not.toHaveProperty('pendingProposals')
 		expect(handle).not.toHaveProperty('acceptAll')
 		expect(handle).not.toHaveProperty('rejectAll')

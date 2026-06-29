@@ -259,7 +259,6 @@ export class AIChatManager {
 	skipResponsesApi = false
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
-	// Declared ahead of the autoAcceptEdits derived below, which reads it.
 	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
@@ -290,10 +289,7 @@ export class AIChatManager {
 	// "Compacting conversation" label on the processing indicator.
 	compacting = $state(false)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
-	autoAcceptEditsAvailable = $derived(
-		supportsAutoAcceptEdits(this.mode) ||
-			(this.mode === AIMode.GLOBAL && this.pipelineAiChatHelpers !== undefined)
-	)
+	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
 			(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
@@ -733,13 +729,6 @@ export class AIChatManager {
 		}
 	}
 
-	// Accept whatever pending edits the active mode has staged. Only the flow
-	// editor has a pending-changes/approval step; pipeline AI edits apply directly
-	// as drafts, so there is nothing to accept there.
-	private acceptPendingEdits = () => {
-		this.acceptPendingFlowEdits()
-	}
-
 	setAutonomyMode = (mode: AIAutonomyMode) => {
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
@@ -748,7 +737,7 @@ export class AIChatManager {
 			this.acceptPendingToolConfirmations()
 		}
 		if (this.autoAcceptEditsActive) {
-			this.acceptPendingEdits()
+			this.acceptPendingFlowEdits()
 		}
 	}
 
@@ -1784,7 +1773,7 @@ export class AIChatManager {
 				// "continue" picks up from there.
 				this.commitInterruptedTurn(collectedMessages, partialReply)
 				if (this.autoAcceptEditsActive) {
-					this.acceptPendingEdits()
+					this.acceptPendingFlowEdits()
 				}
 				// The report from the last completed iteration still describes the
 				// stored history it was sent with (the kept partial tail is a small
@@ -1840,7 +1829,7 @@ export class AIChatManager {
 					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
 					: undefined
 				if (this.autoAcceptEditsActive) {
-					this.acceptPendingEdits()
+					this.acceptPendingFlowEdits()
 				}
 				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 				// Only this branch is a clean send: the queued-message flush below

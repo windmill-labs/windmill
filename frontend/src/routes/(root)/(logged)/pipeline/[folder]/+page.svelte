@@ -351,10 +351,14 @@
 		const script = buildDraft(language, scriptPath, triggers, outputKind, out, input)
 		// Write the new draft into the map (structural update so Svelte
 		// re-derives graphWithDraft) and focus it in the details pane. When
-		// the user picked `none`, `outputAsset` is undefined and the graph
-		// overlay skips synthesizing a write edge.
+		// the user picked `none`, `out` is undefined and the graph overlay
+		// skips synthesizing a write edge.
 		const next = new Map(pe.drafts)
-		next.set(scriptPath, { localId: pe.newDraftLocalId(), script, outputAsset: out })
+		next.set(scriptPath, {
+			localId: pe.newDraftLocalId(),
+			script,
+			outputAssets: out ? [out] : undefined
+		})
 		pe.drafts = next
 		pe.activeDraftPath = scriptPath
 		pe.selection = undefined
@@ -409,7 +413,7 @@
 	// build/edit logic is shared verbatim with the in-session preview
 	// (PipelineEditorView) via createPipelineAiHelpers.
 
-	const { helpers: pipelineAiHelpers } = createPipelineAiHelpers({
+	const pipelineAiHelpers = createPipelineAiHelpers({
 		getFolder: () => folder,
 		getWorkspace: () => $workspaceStore,
 		getResolvedGraph: () => graphWithDraft,

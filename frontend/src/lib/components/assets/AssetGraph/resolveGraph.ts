@@ -15,7 +15,6 @@ import {
 /** Minimal structural shape of a pipeline draft `resolveGraph` needs. */
 export type GraphDraft = {
 	script: { content: string }
-	outputAsset?: { kind: AssetKind; path: string }
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
 }
 
@@ -280,29 +279,21 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				unsaved: true
 			}
 		}
-		// Output asset(s): three-tier resolution.
+		// Output asset(s): two-tier resolution.
 		//   1. Active draft (the body the user is editing right now):
 		//      live body inference is authoritative — renaming a
 		//      CREATE TABLE target or writeS3File path retires the
 		//      old output node and surfaces the new one as the user
 		//      types.
-		//   2. Inactive draft with a captured `outputAssets` snapshot
-		//      (taken on the last pane transition): use those, so a
-		//      draft the user already edited keeps its renamed outputs
-		//      after they've clicked elsewhere.
-		//   3. Fallback to the static `outputAsset` seeded at draft
-		//      creation — covers fresh drafts and parser misses (e.g.
-		//      WIN-1943: wmill.writeS3File({s3, storage}) object form
-		//      not yet detected by the TS parser).
+		//   2. Inactive draft: its captured `outputAssets` (inferred at
+		//      creation/last edit, or the seeded output for a fresh draft
+		//      whose body doesn't yet write anything inferable).
 		const liveForThisDraft = liveBodyAssets.scriptPath === path
 		const writeOuts: Array<{ kind: AssetKind; path: string }> = []
 		if (liveForThisDraft) {
 			writeOuts.push(...extractWrites(liveBodyAssets.assets))
 		} else if (d.outputAssets) {
 			writeOuts.push(...d.outputAssets)
-		}
-		if (writeOuts.length === 0 && d.outputAsset) {
-			writeOuts.push(d.outputAsset)
 		}
 		// `// materialize <asset>` declares a write output via annotation, not
 		// the SQL body, so the body-inference tiers above miss it. Add it from

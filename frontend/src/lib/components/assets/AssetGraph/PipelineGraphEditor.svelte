@@ -91,8 +91,9 @@
 		workspace: string | undefined
 		/** Folder the pipeline is scoped to — drives the autosave draft path. */
 		folder: string
-		/** Persist drafts as a `data_pipeline` DraftService bundle (route page only;
-		 * the session preview leaves this false). FlowBuilder's autosave analogue. */
+		/** Persist drafts as a per-folder `data_pipeline` DraftService bundle (enabled
+		 * by both the route page and the in-session preview). FlowBuilder's autosave
+		 * analogue. */
 		persistDrafts?: boolean
 		pathPrefix: string
 		defaultPathSuffix?: string
@@ -207,8 +208,7 @@
 	// `data_pipeline`) keyed at the folder, syncing across devices + surfacing in
 	// the global drafts list. localStorage is a synchronous crash mirror, READ only
 	// for the one-time migration below; the DB is the source of truth on load.
-	// FlowBuilder's autosave analogue — gated by `persistDrafts` so the in-session
-	// preview (which doesn't persist) opts out.
+	// FlowBuilder's autosave analogue — gated by `persistDrafts`.
 	const PIPELINE_DRAFT_KIND = 'data_pipeline' as const
 	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
 	let storageKey = $derived(`pipeline-${folder}`)
@@ -236,7 +236,7 @@
 
 	function readLocalBundle(): PipelineDraftBundle | undefined {
 		if (typeof localStorage === 'undefined') return undefined
-		const raw = localStorage.getItem(`pipeline-${folder}`)
+		const raw = localStorage.getItem(storageKey)
 		if (!raw) return undefined
 		try {
 			const s = decodeState(raw)

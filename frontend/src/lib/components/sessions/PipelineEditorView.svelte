@@ -76,7 +76,7 @@
 		})
 	)
 
-	const { helpers } = createPipelineAiHelpers({
+	const helpers = createPipelineAiHelpers({
 		getFolder: () => path,
 		getWorkspace: () => workspaceId,
 		getResolvedGraph: () => resolvedGraph,
@@ -131,11 +131,11 @@
 	</div>
 	<div class="flex-1 min-h-0">
 		<!-- Only block on the deployed-graph fetch when there's nothing to show yet.
-		     When the runtime already holds staged drafts (e.g. returning to a session
-		     whose editor pane was LRU-unmounted, so `graphRes` re-fetches from
-		     scratch), render the editor immediately so the proposals + review banner
-		     stay visible — `resolveGraph` overlays the drafts on an empty base and the
-		     deployed nodes fill in when the fetch resolves. -->
+		     When the runtime already holds drafts (e.g. returning to a session whose
+		     editor pane was LRU-unmounted, so `graphRes` re-fetches from scratch),
+		     render the editor immediately so the drafts stay visible — `resolveGraph`
+		     overlays them on an empty base and the deployed nodes fill in when the
+		     fetch resolves. -->
 		{#if graphRes.loading && !graphRes.current && pe.drafts.size === 0}
 			<div class="h-full flex items-center justify-center gap-2 text-tertiary">
 				<Loader2 size={18} class="animate-spin" />
@@ -147,11 +147,11 @@
 			</div>
 		{:else}
 			<!-- The session preview shares the route page's editor body. It persists
-			     drafts to the same per-folder DB draft as the route page, so staged
-			     AI proposals survive a reload / session switch (and an LRU-evicted
-			     runtime). It opts out of the run/cascade/trigger/bounded affordances
-			     (their callbacks are omitted, so the canvas/pane hide them); building +
-			     the diff/approval review still work via the AI helpers. -->
+			     drafts to the same per-folder DB draft as the route page, so AI drafts
+			     survive a reload / session switch (and an LRU-evicted runtime). It opts
+			     out of the run/cascade/trigger/bounded affordances (their callbacks are
+			     omitted, so the canvas/pane hide them); building still works via the AI
+			     helpers. -->
 			<PipelineGraphEditor
 				editor={pe}
 				folder={path}

@@ -12,24 +12,21 @@ import type { PipelineDraft } from './pipelineAiHelpers'
 // Externalized pipeline-editor state — the data-pipeline analogue of the flow
 // editor's `flowStore` / `flowStateStore`. It owns the in-flight draft Map, the
 // live editor overlays, and the current selection: the substrate the route page
-// editor and (later) the in-session preview both render through. Persistence,
-// graph resolution, run dispatch, and deploy stay with the consumer; this is a
-// plain reactive bag so a consumer can read/mutate it without prop plumbing.
-//
-// Step 1 of the FlowBuilder-style consolidation: the route page constructs one
-// instance and references it in place, with no behaviour change. Subsequent
-// steps move the rendering into a shared <PipelineGraphEditor>.
+// editor and the in-session preview both render through (via the shared
+// <PipelineGraphEditor>). Persistence, graph resolution, run dispatch, and deploy
+// stay with the consumer; this is a plain reactive bag so a consumer can
+// read/mutate it without prop plumbing.
 // ============================================================================
 
 const EMPTY_ANNOTATIONS: PipelineAnnotations = parsePipelineAnnotations('')
 
-export type LiveAnnotations = { scriptPath: string | undefined; annotations: PipelineAnnotations }
-export type LiveBodyAssets = {
+type LiveAnnotations = { scriptPath: string | undefined; annotations: PipelineAnnotations }
+type LiveBodyAssets = {
 	scriptPath: string | undefined
 	assets: AssetWithAltAccessType[]
 	columnLineage?: ColumnLineage[]
 }
-export type LiveContent = { scriptPath: string | undefined; content: string }
+type LiveContent = { scriptPath: string | undefined; content: string }
 
 export class PipelineEditorState {
 	/** In-flight drafts keyed by script path (manual + AI-staged). */

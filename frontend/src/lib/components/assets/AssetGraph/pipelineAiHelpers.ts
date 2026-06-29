@@ -29,7 +29,6 @@ import type {
 export type PipelineDraft = {
 	localId: string
 	script: Script
-	outputAsset?: { kind: AssetKind; path: string }
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
 }
 
@@ -48,7 +47,7 @@ export type PipelineAiHelperDeps = {
 	ensureEditable?: () => void
 	/** Surface the draft overlay if it is hidden (the page's "show drafts" view). */
 	onShowDrafts?: () => void
-	/** Forget per-path state when a created proposal is reverted away. */
+	/** Forget per-path state when a draft is discarded. */
 	onForgetPath?: (path: string) => void
 	/** Notify the caller a test run started so it can light up its run UI. */
 	onRunStarted?: (jobId: string, path: string) => void
@@ -94,11 +93,7 @@ async function inferOutputAssets(
 	}
 }
 
-export type PipelineAiHelpersHandle = {
-	helpers: PipelineAIChatHelpers
-}
-
-export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiHelpersHandle {
+export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIChatHelpers {
 	function buildContext(): PipelineContext {
 		const graph = deps.getResolvedGraph()
 		const drafts = deps.getDrafts()
@@ -169,18 +164,19 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 					`A draft already exists at '${path}'. Use edit_pipeline_node to change it instead.`
 				)
 			}
-			const outputAssets = await inferOutputAssets(language, content)
-			const seededOutput =
-				outputAssets[0] ??
+			const inferred = await inferOutputAssets(language, content)
+			// Fall back to a seeded output (from the declared output_kind) when the
+			// body doesn't yet write anything inferable.
+			const seeded =
+				inferred[0] ??
 				(outputKind
 					? autoOutputAsset(outputKind as PipelineOutputKind, deps.getFolder(), language)
 					: undefined)
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: deps.newDraftLocalId(),
-				script: makePipelineScript(language, path, content, isoNow()),
-				outputAsset: seededOutput,
-				outputAssets: outputAssets.length > 0 ? outputAssets : undefined
+				script: makePipelineScript(language, path, content, new Date().toISOString()),
+				outputAssets: inferred.length > 0 ? inferred : seeded ? [seeded] : undefined
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
@@ -200,13 +196,12 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 				const deployed = await ScriptService.getScriptByPath({ workspace, path })
 				language = deployed.language
 			}
-			const outputAssets = await inferOutputAssets(language, content)
+			const inferred = await inferOutputAssets(language, content)
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: existing?.localId ?? deps.newDraftLocalId(),
-				script: makePipelineScript(language, path, content, isoNow()),
-				outputAsset: outputAssets[0] ?? existing?.outputAsset,
-				outputAssets: outputAssets.length > 0 ? outputAssets : existing?.outputAssets
+				script: makePipelineScript(language, path, content, new Date().toISOString()),
+				outputAssets: inferred.length > 0 ? inferred : existing?.outputAssets
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
@@ -255,11 +250,5 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 		}
 	}
 
-	return { helpers }
-}
-
-// `new Date()` is unavailable in some sandboxes but fine in the browser, where
-// both editors run. Isolated here so the construction sites stay declarative.
-function isoNow(): string {
-	return new Date().toISOString()
+	return helpers
 }

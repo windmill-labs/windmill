@@ -214,34 +214,6 @@ export async function getDraftDiffValues(
 		// head for a stale draft) so it never renders as a spurious diff line.
 		const { version_id: _dv, ...draftValue } = (draft ?? deployed) as any
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.flow!(draftValue) : deployed, draft: draftValue }
-	} else if (kind === 'data_pipeline') {
-		// A `data_pipeline` draft is a BUNDLE of node-script drafts keyed by path,
-		// not a single deployable item (each node deploys individually as a script).
-		// There is no deployed counterpart for the bundle itself, so diff it
-		// node-by-node: surface each node's draft body keyed by its path. The viewer
-		// renders the resulting path→source map as a (single-sided, "added") diff;
-		// for a node that edits an already-deployed script we fold in the deployed
-		// body as the "before" so its line changes show.
-		const row = (await DraftService.getOwnDraft({ workspace, kind: 'data_pipeline', path })) as any
-		const bundle = (row?.value ?? {}) as {
-			drafts?: Array<[string, { script?: { content?: string } }]>
-		}
-		const entries = Array.isArray(bundle.drafts) ? bundle.drafts : []
-		const draft: Record<string, string> = {}
-		const deployed: Record<string, string> = {}
-		await Promise.all(
-			entries.map(async ([nodePath, d]) => {
-				draft[nodePath] = d?.script?.content ?? ''
-				if (draftOnly) return
-				try {
-					const dep = await ScriptService.getScriptByPath({ workspace, path: nodePath })
-					deployed[nodePath] = dep.content
-				} catch {
-					// Node not deployed yet → no "before" for it (renders as added).
-				}
-			})
-		)
-		return { deployed: draftOnly ? {} : deployed, draft }
 	} else if (kind === 'app' || kind === 'raw_app') {
 		// A never-deployed raw app has no `app` row; the backend resolves the
 		// draft kind from `rawApp`, so it MUST be set or the lookup 404s.

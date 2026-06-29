@@ -125,12 +125,11 @@
 			for (const it of items) {
 				if (it.kind === 'data_pipeline') {
 					// A pipeline bundle isn't a single diffable item — explode it into its
-					// node-script subitems. Fall back to a single bundle row if unreadable.
+					// node-script subitems. An unreadable bundle is skipped (it has no
+					// single-item diff to show).
 					const nodes = await explodePipelineBundle(it.path)
-					if (nodes) {
-						out.push(...nodes)
-						continue
-					}
+					if (nodes) out.push(...nodes)
+					continue
 				}
 				// Raw apps must surface as `raw_app` so the row's edit link points at the
 				// raw-app editor (mirrors CompareDrafts); `getDraftItems` carries the flag.
