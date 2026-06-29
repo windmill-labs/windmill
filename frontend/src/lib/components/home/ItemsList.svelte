@@ -506,7 +506,8 @@
 		if (menuItem) {
 			if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
 				const menu = menuItem.closest<HTMLElement>('[role="menu"]')
-				if (menu) {
+				// menus marked data-arrow-loop keep melt's cyclic wrap instead of exiting
+				if (menu && !menu.hasAttribute('data-arrow-loop')) {
 					const items = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
 					const idx = items.indexOf(menuItem)
 					const isFirst = idx === 0
