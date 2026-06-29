@@ -714,7 +714,7 @@ A **data pipeline** is NOT a flow. A flow is one runnable that orchestrates step
 
 ## What makes a script a pipeline node
 
-A script joins the pipeline when its source begins with the \`// pipeline\` annotation (in the script's comment syntax — \`//\` for TS, \`#\` for Python/SQL/Bash). All other wiring is expressed as annotation comments near the top of the file:
+A script joins the pipeline when its source begins with the \`pipeline\` annotation as a top-of-file comment, **written in the script's own comment syntax** — \`//\` for TS/JS (bun), \`--\` for SQL (DuckDB/Postgres), \`#\` for Python/Bash. So it's \`-- pipeline\` in a DuckDB node, \`# pipeline\` in a Python node, \`// pipeline\` in a bun node. Every annotation below uses that same prefix (the \`//\` shown is the TS form). All other wiring is expressed as annotation comments near the top of the file:
 
 - \`// on <ref>\` — declares an execution-DAG **input** (what triggers/feeds this node). \`<ref>\` is either:
   - an **asset URI** (the node runs when that asset is produced upstream): \`ducklake://main/orders\`, \`datatable://main/users\`, \`s3://<key>\`, \`$res:f/folder/my_resource\`, \`volume://name/path\`.
