@@ -752,6 +752,23 @@ pub(crate) async fn delete_workspace(
         require_super_admin(&db, &authed.email).await?;
     }
 
+    // Don't hard-delete a workspace that still has a dev workspace paired to it: the FK is
+    // ON DELETE SET NULL, which would orphan the (prefix-less) dev into a parentless, non-fork row
+    // its owner could no longer self-delete. Require detaching/deleting the dev first. Ordinary
+    // forks have no such guard — they keep their prefix and stay owner-deletable when orphaned.
+    if let Some(dev_id) = sqlx::query_scalar!(
+        "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        return Err(Error::BadRequest(format!(
+            "Cannot delete workspace '{}' because it has a dev workspace ('{}'). Detach or delete the dev workspace first.",
+            w_id, dev_id
+        )));
+    }
+
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -922,16 +939,6 @@ pub(crate) async fn delete_workspace(
 
     sqlx::query!(
         "DELETE FROM skip_workspace_diff_tally WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // Downgrade any child dev workspace before the delete: the FK is ON DELETE SET NULL, so the
-    // child's parent_workspace_id is about to become NULL, which would violate the
-    // is_dev_workspace -> has-parent invariant. The child survives as an ordinary orphaned fork.
-    sqlx::query!(
-        "UPDATE workspace SET is_dev_workspace = false WHERE parent_workspace_id = $1",
         &w_id
     )
     .execute(&mut *tx)

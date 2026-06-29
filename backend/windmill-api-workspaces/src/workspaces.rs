@@ -4399,9 +4399,15 @@ async fn clone_groups(
 }
 
 /// Copy the source workspace's members into the target so a fork/dev can be a
-/// shared environment, carrying each member's role. Group memberships are
-/// already cloned by `clone_groups`; this just adds the `usr` rows. Idempotent —
-/// skips the creator, who already has a row.
+/// shared environment, carrying each member's role, and put them in the target's
+/// `all` group (mirroring `add_user`: a member row + `all` membership).
+///
+/// On the create-fork path `clone_groups` has already cloned the full group
+/// structure (definitions + memberships) from the identical source, so the `all`
+/// insert here is a harmless no-op. On the attach path the target is an
+/// independent workspace with its own group namespace — cloning the source's
+/// other groups would collide, so only `all` (universal, same meaning in every
+/// workspace) is added. Idempotent throughout.
 async fn copy_workspace_members(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -4414,6 +4420,14 @@ async fn copy_workspace_members(
          ON CONFLICT DO NOTHING",
         target_workspace_id,
         source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO usr_to_group (workspace_id, usr, group_)
+         SELECT $1::varchar, username, 'all' FROM usr WHERE workspace_id = $1::varchar
+         ON CONFLICT DO NOTHING",
+        target_workspace_id,
     )
     .execute(&mut **tx)
     .await?;

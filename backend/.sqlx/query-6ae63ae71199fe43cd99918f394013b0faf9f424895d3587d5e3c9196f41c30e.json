@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr_to_group (workspace_id, usr, group_)\n         SELECT $1::varchar, username, 'all' FROM usr WHERE workspace_id = $1::varchar\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ae63ae71199fe43cd99918f394013b0faf9f424895d3587d5e3c9196f41c30e"
+}

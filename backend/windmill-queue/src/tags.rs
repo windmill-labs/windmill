@@ -68,8 +68,10 @@ pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Optio
     })
 }
 
-/// Returns the parent workspace id for a fork, or `None` if the fork has no parent set (or the
-/// DB lookup failed). Backed by a short-TTL cache to avoid a DB round-trip per job push.
+/// Returns the parent workspace id for a fork, or `None` if the fork has no parent set. Backed by a
+/// short-TTL cache to avoid a DB round-trip per job push. A transient DB error returns `None` for
+/// this call but is NOT cached, so the next push retries instead of misrouting a (prefix-less) dev
+/// workspace's jobs for the whole TTL.
 async fn lookup_fork_parent(fork_id: &str, db: &Pool<Postgres>) -> Option<String> {
     if let Some((parent, cached_at)) = FORK_PARENT_CACHE.get(fork_id) {
         if cached_at.elapsed().as_secs() < FORK_PARENT_CACHE_TTL_SECS {
@@ -84,8 +86,11 @@ async fn lookup_fork_parent(fork_id: &str, db: &Pool<Postgres>) -> Option<String
     .fetch_optional(db)
     .await
     {
-        Ok(Some(Some(parent))) => Some(parent),
-        _ => None,
+        Ok(opt) => opt.flatten(),
+        Err(e) => {
+            tracing::warn!("failed to look up fork parent for {fork_id}: {e:#}");
+            return None;
+        }
     };
 
     FORK_PARENT_CACHE.insert(

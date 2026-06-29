@@ -127,8 +127,12 @@
 	const showForkUpsell = $derived(forkAffordanceOpen && ceWorkspaceCapReached)
 	// Whether the second "Fork from <root>" create entry is shown (admins can fork the prod root
 	// directly even when the default entry forks the dev). Mirrors its render condition so keyboard
-	// nav and the row index math stay in sync.
-	const hasCreateFromRoot = $derived(showCreateFork && canForkRoot && !!devOfRoot)
+	// nav and the row index math stay in sync. Suppressed while the root's rules are still loading,
+	// otherwise `canForkRoot` defaults true and a non-bypass user could stage a fork from a
+	// forking-locked root before the rules resolve.
+	const hasCreateFromRoot = $derived(
+		showCreateFork && !rootRulesetsResource.loading && canForkRoot && !!devOfRoot
+	)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)

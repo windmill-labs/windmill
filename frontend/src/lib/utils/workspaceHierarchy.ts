@@ -121,14 +121,17 @@ export function workspaceIsFork(
 
 /**
  * The canonical dev workspace of a prod workspace, if any (at most one per prod). Used to redirect
- * edits from a locked prod workspace into its dev workspace.
+ * edits from a locked prod workspace into its dev workspace. Disabled dev workspaces are excluded:
+ * redirecting edits to one the user can't select would be a dead end.
  */
 export function findCanonicalDevWorkspace(
 	prodWorkspaceId: string | undefined,
 	allWorkspaces: UserWorkspace[]
 ): UserWorkspace | undefined {
 	if (!prodWorkspaceId) return undefined
-	return allWorkspaces.find((w) => w.parent_workspace_id === prodWorkspaceId && w.is_dev_workspace)
+	return allWorkspaces.find(
+		(w) => w.parent_workspace_id === prodWorkspaceId && w.is_dev_workspace && !w.disabled
+	)
 }
 
 /**
