@@ -10,10 +10,13 @@
 		Plus,
 		Code2,
 		LayoutDashboard,
+		ChevronDown,
 		ChevronRight,
 		Loader2,
 		Workflow,
-		Import
+		Import,
+		Info,
+		PanelLeftClose
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
@@ -21,6 +24,8 @@
 	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { importStore } from '$lib/components/apps/store'
+	import { clickOutside, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import YAML from 'yaml'
 
 	type Variant = {
@@ -102,7 +107,7 @@
 						key: 'app-fullcode',
 						label: 'App (full-code)',
 						icon: LayoutDashboard,
-						accent: 'purple',
+						accent: 'orange',
 						tagline: 'Build with React or Svelte',
 						description:
 							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
@@ -167,7 +172,7 @@
 						key: 'app-lowcode',
 						label: 'App (low-code)',
 						icon: LayoutDashboard,
-						accent: 'orange',
+						accent: 'gray',
 						tagline: 'Drag-and-drop UI builder',
 						description:
 							'Assemble an internal UI from 60+ components wired to your scripts and flows. Best for simple apps or apps that need minimal customization.',
@@ -192,7 +197,7 @@
 			activeBorder: 'border-blue-500 dark:border-blue-400'
 		},
 		teal: {
-			tile: 'bg-teal-100 dark:bg-teal-900/40',
+			tile: 'bg-teal-50 dark:bg-teal-900/20',
 			iconText: 'text-teal-600 dark:text-teal-400',
 			activeBg: 'bg-teal-50 dark:bg-teal-900/20',
 			activeBorder: 'border-teal-500 dark:border-teal-400'
@@ -214,23 +219,29 @@
 			iconText: 'text-indigo-600 dark:text-indigo-400',
 			activeBg: 'bg-indigo-50 dark:bg-indigo-900/20',
 			activeBorder: 'border-indigo-500 dark:border-indigo-400'
+		},
+		gray: {
+			tile: 'bg-gray-100 dark:bg-gray-700',
+			iconText: 'text-gray-600 dark:text-gray-300',
+			activeBg: 'bg-gray-50 dark:bg-gray-800/40',
+			activeBorder: 'border-gray-400 dark:border-gray-500'
 		}
 	}
 
 	let open = $state(false)
 	let activeKey = $state(allOptions[0]?.key)
+	// every option's import action, surfaced together under the bottom "Import" submenu
+	const importActions: Extra[] = allOptions.flatMap((o) => o.extras ?? [])
+
+	const SHOW_DOC_SETTING = 'home_create_show_doc'
+	let showDoc = $state(getLocalSetting(SHOW_DOC_SETTING) !== 'false')
+	function setShowDoc(value: boolean) {
+		showDoc = value
+		// only persist the non-default (hidden) state, so a cleared key means "shown"
+		storeLocalSetting(SHOW_DOC_SETTING, value ? undefined : 'false')
+	}
 	let active = $derived(allOptions.find((o) => o.key === activeKey) ?? allOptions[0])
 	let activeAc = $derived(accentClasses[active.accent])
-
-	let closeTimeout: ReturnType<typeof setTimeout> | undefined
-	function scheduleOpen() {
-		if (closeTimeout) clearTimeout(closeTimeout)
-		open = true
-	}
-	function scheduleClose() {
-		if (closeTimeout) clearTimeout(closeTimeout)
-		closeTimeout = setTimeout(() => (open = false), 120)
-	}
 
 	// shared YAML/JSON import drawer, reused by every "Import …" extra
 	let importDrawer: Drawer | undefined = $state(undefined)
@@ -277,10 +288,12 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="relative"
-	onmouseenter={scheduleOpen}
-	onmouseleave={scheduleClose}
-	onfocusin={scheduleOpen}
-	onfocusout={scheduleClose}
+	use:clickOutside={{
+		capture: true,
+		// the language submenu portals to <body>; don't treat clicks inside it as outside
+		exclude: async () => Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[],
+		onClickOutside: () => (open = false)
+	}}
 >
 	<Button
 		id="create-new-button"
@@ -289,7 +302,8 @@
 		unifiedSize="md"
 		variant="accent"
 		startIcon={{ icon: Plus }}
-		onClick={() => active?.onSelect()}
+		endIcon={{ icon: ChevronDown }}
+		onClick={() => (open = !open)}
 	>
 		New
 	</Button>
@@ -298,120 +312,194 @@
 		<div class="absolute right-0 top-full z-50 pt-2" role="menu" tabindex="-1">
 			<div
 				class="flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl overflow-hidden"
-				style="width: 780px;"
+				style={showDoc ? 'width: 700px;' : ''}
 			>
-				<!-- explanation of the highlighted editor -->
-				<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
-					<div class="flex flex-row items-center gap-3">
-						<div
-							class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 {activeAc.tile}"
-						>
-							<active.icon size={26} class={activeAc.iconText} />
-						</div>
-						<div class="min-w-0">
-							<div class="flex flex-row items-center gap-2">
-								<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
-								{#if active.badge}
-									<span
-										class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {active
-											.badge.class}"
-									>
-										{active.badge.label}
-									</span>
-								{/if}
+				{#if showDoc}
+					<!-- explanation of the highlighted editor -->
+					<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
+						<div class="flex flex-row items-center gap-3">
+							<div
+								class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 {activeAc.tile}"
+							>
+								<active.icon size={26} class={activeAc.iconText} />
 							</div>
-							<p class="text-xs text-tertiary">{active.tagline}</p>
-						</div>
-					</div>
-
-					<p class="text-sm text-secondary leading-relaxed">{active.description}</p>
-
-					<ul class="flex flex-col gap-1.5 mt-1">
-						{#each active.bullets as bullet (bullet)}
-							<li class="flex flex-row items-center gap-2 text-xs text-secondary">
-								<ChevronRight size={14} class={activeAc.iconText} />
-								{bullet}
-							</li>
-						{/each}
-					</ul>
-
-					{#if active.variants || active.extras}
-						<div class="mt-auto flex flex-col gap-2 pt-2">
-							{#if active.variants}
-								<div class="flex flex-row flex-wrap gap-2">
-									{#each active.variants as variant (variant.label)}
-										{@const VariantIcon = variant.icon}
-										<Button unifiedSize="sm" variant="accent" onClick={() => variant.onSelect()}>
-											<VariantIcon width={16} height={16} />
-											{variant.label}
-										</Button>
-									{/each}
-								</div>
-							{/if}
-							{#if active.extras}
-								<div class="flex flex-row flex-wrap gap-2">
-									{#each active.extras as extra (extra.label)}
-										<Button
-											unifiedSize="sm"
-											variant="default"
-											startIcon={{ icon: Import }}
-											onClick={() => extra.onSelect()}
+							<div class="min-w-0">
+								<div class="flex flex-row items-center gap-2">
+									<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
+									{#if active.badge}
+										<span
+											class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {active
+												.badge.class}"
 										>
-											{extra.label}
-										</Button>
-									{/each}
+											{active.badge.label}
+										</span>
+									{/if}
 								</div>
-							{/if}
+								<p class="text-xs text-tertiary">{active.tagline}</p>
+							</div>
 						</div>
-					{/if}
-				</div>
+
+						<p class="text-xs text-secondary leading-relaxed">{active.description}</p>
+
+						<ul class="flex flex-col gap-1.5 mt-1">
+							{#each active.bullets as bullet (bullet)}
+								<li class="flex flex-row items-center gap-2 text-xs text-secondary">
+									<ChevronRight size={14} class={activeAc.iconText} />
+									{bullet}
+								</li>
+							{/each}
+						</ul>
+
+						<button
+							class="mt-auto self-start inline-flex items-center gap-1 pt-2 text-[10px] text-tertiary hover:text-secondary transition-colors"
+							title="Hide descriptions"
+							onclick={() => setShowDoc(false)}
+						>
+							<PanelLeftClose size={12} />
+							Hide descriptions
+						</button>
+					</div>
+				{/if}
 
 				<!-- option list -->
-				<div class="flex flex-col gap-0.5 p-2 w-[21rem] shrink-0">
-					{#each allOptions as option, i (option.key)}
+				<div class="flex flex-col gap-0.5 p-2 w-[18rem] shrink-0">
+					{#snippet rowBody(option: Option, ac: (typeof accentClasses)[string])}
+						<div class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
+							<option.icon size={14} class={ac.iconText} />
+						</div>
+						<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+							{option.label}
+						</span>
+						{#if option.badge}
+							<span
+								class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {option
+									.badge.class}"
+							>
+								{option.badge.label}
+							</span>
+						{/if}
+					{/snippet}
+					{#each allOptions as option (option.key)}
 						{@const ac = accentClasses[option.accent]}
 						{@const isActive = option.key === activeKey}
-						{#if option.badge && !allOptions[i - 1]?.badge}
-							<div class="mx-1 mt-3 mb-3 border-t border-gray-200 dark:border-gray-700"></div>
-						{/if}
-						<button
-							class="flex flex-row items-center gap-3 rounded-md border px-2 py-2 text-left cursor-pointer transition-colors {isActive
-								? `${ac.activeBg} ${ac.activeBorder}`
-								: 'border-transparent hover:bg-surface-hover'}"
+						{@const innerClass = `flex-1 min-w-0 flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors ${isActive ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							class="flex flex-row items-center gap-1"
 							onmouseenter={() => (activeKey = option.key)}
-							onfocus={() => (activeKey = option.key)}
-							onclick={() => option.onSelect()}
-							role="menuitem"
 						>
-							<div class="w-8 h-8 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
-								<option.icon size={18} class={ac.iconText} />
-							</div>
-							<span class="text-sm font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
-								{option.label}
-							</span>
-							{#if option.badge}
-								<span
-									class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {option
-										.badge.class}"
+							{#if option.variants}
+								<!-- floating-ui anchors the language submenu tight to the row and flips it
+								     toward the page center, since the popover hugs the right viewport edge -->
+								<Popover
+									openOnHover
+									debounceDelay={80}
+									class={innerClass}
+									contentClasses="p-1"
+									floatingConfig={{
+										placement: 'left-start',
+										gutter: 4,
+										flip: true,
+										fitViewport: true,
+										overflowPadding: 8
+									}}
+									triggerAttrs={{ role: 'menuitem' }}
 								>
-									{option.badge.label}
-								</span>
+									{#snippet trigger()}
+										{@render rowBody(option, ac)}
+										<ChevronRight size={14} class="shrink-0 text-tertiary" />
+									{/snippet}
+									{#snippet content()}
+										<div class="flex flex-col gap-0.5 w-32">
+											{#each option.variants ?? [] as variant (variant.label)}
+												{@const VariantIcon = variant.icon}
+												<button
+													class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors hover:bg-surface-hover"
+													onclick={() => variant.onSelect()}
+													role="menuitem"
+												>
+													<VariantIcon width={14} height={14} />
+													<span class="text-xs font-medium text-primary">{variant.label}</span>
+												</button>
+											{/each}
+										</div>
+									{/snippet}
+								</Popover>
+							{:else}
+								<button
+									class={innerClass}
+									onfocus={() => (activeKey = option.key)}
+									onclick={() => option.onSelect()}
+									role="menuitem"
+								>
+									{@render rowBody(option, ac)}
+								</button>
 							{/if}
-							<ChevronRight
-								size={16}
-								class="transition-opacity {isActive
-									? `opacity-100 ${ac.iconText}`
-									: 'opacity-0 text-tertiary'}"
-							/>
-						</button>
+						</div>
 					{/each}
+
+					<!-- bottom import section: one entry whose submenu imports any artifact -->
+					<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+					<Popover
+						openOnHover
+						debounceDelay={80}
+						class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors hover:bg-surface-hover"
+						contentClasses="p-1"
+						floatingConfig={{
+							placement: 'left-end',
+							gutter: 4,
+							flip: true,
+							fitViewport: true,
+							overflowPadding: 8
+						}}
+						triggerAttrs={{ role: 'menuitem' }}
+					>
+						{#snippet trigger()}
+							<div
+								class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
+							>
+								<Import size={14} class="text-gray-600 dark:text-gray-300" />
+							</div>
+							<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+								Import
+							</span>
+							<ChevronRight size={14} class="shrink-0 text-tertiary" />
+						{/snippet}
+						{#snippet content()}
+							<div class="flex flex-col gap-0.5 w-52">
+								{#each importActions as action (action.label)}
+									<button
+										class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors hover:bg-surface-hover"
+										onclick={() => action.onSelect()}
+										role="menuitem"
+									>
+										<Import size={14} class="shrink-0 text-tertiary" />
+										<span class="text-xs font-medium text-primary whitespace-nowrap">
+											{action.label}
+										</span>
+									</button>
+								{/each}
+							</div>
+						{/snippet}
+					</Popover>
+
+					{#if !showDoc}
+						<button
+							class="mt-1 inline-flex items-center gap-1 px-2 py-1 text-[10px] text-tertiary hover:text-secondary transition-colors"
+							title="Show descriptions"
+							onclick={() => setShowDoc(true)}
+						>
+							<Info size={12} />
+							Show descriptions
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>
 	{/if}
 </div>
 
-<!-- shared import drawer (YAML / JSON) for the detail-panel "Import …" actions -->
+<!-- shared import drawer (YAML / JSON) for the bottom "Import" submenu actions -->
 <Drawer bind:this={importDrawer} size="800px">
 	<DrawerContent title={importTitles[importKind]} on:close={() => importDrawer?.closeDrawer?.()}>
 		<Tabs bind:selected={importType}>
