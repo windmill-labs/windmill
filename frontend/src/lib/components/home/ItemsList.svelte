@@ -282,6 +282,23 @@
 				: undefined
 	)
 	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
+
+	// Pipeline entries are rendered independently of the item list, so apply the
+	// same gates the items get — otherwise a pipeline would still show under the
+	// Flows/Apps tabs, in the archived view, or outside a selected owner. Pipelines
+	// are script-based units always at `f/<folder>`, so kind=script and the
+	// user-folder toggle always include them; only kind=flow/app, archived, and a
+	// non-matching owner exclude them.
+	let visiblePipelineFolders = $derived.by(() => {
+		if (archived) return new Set<string>()
+		if (itemKind !== 'all' && itemKind !== 'script') return new Set<string>()
+		if (ownerFilter == undefined) return pipelineFolders
+		return new Set(
+			[...pipelineFolders].filter(
+				(f) => `f/${f}` === ownerFilter || `f/${f}`.startsWith(ownerFilter + '/')
+			)
+		)
+	})
 	let includeWithoutMain = $state(
 		getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME)
 			? getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME) == 'true'
@@ -861,7 +878,7 @@
 			{#each new Array(6) as _}
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
-		{:else if filteredItems.length === 0 && (filter !== '' || pipelineFolders.size === 0)}
+		{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0)}
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
@@ -871,7 +888,7 @@
 				{items}
 				{nbDisplayed}
 				{collapseAll}
-				{pipelineFolders}
+				pipelineFolders={visiblePipelineFolders}
 				isSearching={filter !== ''}
 				on:scriptChanged={() => loadScripts(includeWithoutMain)}
 				on:flowChanged={loadFlows}
@@ -888,7 +905,7 @@
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary">
 				{#if filter === ''}
-					{#each [...pipelineFolders].sort() as folder (folder)}
+					{#each [...visiblePipelineFolders].sort() as folder (folder)}
 						<a
 							href="{base}/pipeline/{encodeURIComponent(folder)}"
 							class="w-full inline-flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-surface-hover transition-colors text-sm first-of-type:rounded-t-md"
