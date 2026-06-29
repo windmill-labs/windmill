@@ -335,6 +335,18 @@ export class AIChatManager {
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
+	// Resolves the workspace this chat operates on. Session chats set it to their
+	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
+	// global workspaceStore. Undefined for the global side-panel chat, which
+	// follows the active workspace. Always read via `operatingWorkspace`.
+	workspaceResolver: (() => string | undefined) | undefined = undefined
+
+	// The workspace every workspace-scoped chat action targets — skills, tool
+	// loop, logging, user-message context, and commit. Session-resolved when a
+	// resolver is set, else the globally-active workspace.
+	get operatingWorkspace(): string | undefined {
+		return this.workspaceResolver?.() ?? get(workspaceStore)
+	}
 
 	// Workspace AI skills (name + description) advertised in the GLOBAL system
 	// prompt and surfaced as slash commands in session chat. Loaded
@@ -649,18 +661,11 @@ export class AIChatManager {
 			)
 			switch (result) {
 				case 'ok':
-					await this.historyManager.saveChat(
-						this.displayMessages,
-						this.messages,
-						this.contextUsage
-					)
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 					sendUserToast('Conversation compacted.')
 					break
 				case 'empty':
-					sendUserToast(
-						'Compaction produced an empty summary — conversation left unchanged.',
-						true
-					)
+					sendUserToast('Compaction produced an empty summary — conversation left unchanged.', true)
 					break
 				case 'error':
 					sendUserToast('Failed to compact the conversation.', true)
@@ -992,7 +997,7 @@ export class AIChatManager {
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
 	// the system message so the next chat-loop iteration advertises them. Ignore
 	// stale resolves so workspace changes cannot overwrite newer skills.
-	refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
+	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.globalSkillsRefreshId
 		const skills = await loadWorkspaceSkills(workspace)
 		if (refreshId !== this.globalSkillsRefreshId) {
@@ -1252,7 +1257,7 @@ export class AIChatManager {
 					openai: workspaceAIClients.getOpenaiClient(),
 					anthropic: workspaceAIClients.getAnthropicClient()
 				},
-				workspace: get(workspaceStore) ?? '',
+				workspace: this.operatingWorkspace ?? '',
 				skipResponsesApi: this.skipResponsesApi,
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
@@ -1277,7 +1282,7 @@ export class AIChatManager {
 						return prepareGlobalUserMessage(
 							pendingPrompt,
 							this.contextManager.getSelectedContext(),
-							{ workspace: get(workspaceStore) }
+							{ workspace: this.operatingWorkspace }
 						)
 					}
 					return undefined
@@ -1480,7 +1485,7 @@ export class AIChatManager {
 		// Session chats commit their workspace in beforeSend; skills must match the
 		// committed workspace before the system prompt is sent.
 		if (this.mode === AIMode.GLOBAL) {
-			await this.refreshGlobalSkills(get(workspaceStore) ?? '')
+			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		// Declared outside `try` so the catch can recover what the loop produced
@@ -1508,7 +1513,7 @@ export class AIChatManager {
 			const model = tryGetCurrentModel()
 			if (model) {
 				WorkspaceService.logAiChat({
-					workspace: get(workspaceStore) ?? '',
+					workspace: this.operatingWorkspace ?? '',
 					requestBody: {
 						session_id: this.historyManager.getCurrentChatId(),
 						provider: model.provider,
@@ -1592,7 +1597,7 @@ export class AIChatManager {
 					break
 				case AIMode.GLOBAL:
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
-						workspace: get(workspaceStore)
+						workspace: this.operatingWorkspace
 					})
 					break
 				case AIMode.APP:
@@ -2132,7 +2137,7 @@ export class AIChatManager {
 						moduleState && !moduleState.previewSuccess
 							? getStringError(moduleState.previewResult)
 							: undefined,
-					getCode: () => module.value.type === 'rawscript' ? module.value.content : '',
+					getCode: () => (module.value.type === 'rawscript' ? module.value.content : ''),
 					lang: module.value.language,
 					path: module.id,
 					...editorRelated

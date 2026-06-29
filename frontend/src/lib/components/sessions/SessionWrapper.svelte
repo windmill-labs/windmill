@@ -15,12 +15,15 @@
 	import {
 		Archive,
 		ArchiveRestore,
+		ArrowUpRight,
 		EllipsisVertical,
+		GitFork,
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
 		Trash2
 	} from 'lucide-svelte'
+	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import WorkspaceItemDrillPicker from '$lib/components/WorkspaceItemDrillPicker.svelte'
@@ -81,6 +84,36 @@
 
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
+
+	// The workspace context the session acts on: its family root (avatar + name)
+	// and, when the session runs in a fork, the fork name. Drives the "Acting on"
+	// strip in the header. `targetId` is the workspace the navigate button jumps to.
+	const acting = $derived.by(() => {
+		const wsId = session ? getEffectiveWorkspaceId(session) : undefined
+		if (!wsId) return undefined
+		const cur = $userWorkspaces.find((w) => w.id === wsId)
+		let root = cur
+		while (root?.parent_workspace_id) {
+			const parent = $userWorkspaces.find((w) => w.id === root!.parent_workspace_id)
+			if (!parent) break
+			root = parent
+		}
+		const isFork = !!cur && !!root && cur.id !== root.id
+		return {
+			targetId: wsId,
+			rootName: root?.name ?? wsId,
+			rootColor: root?.color,
+			forkName: isFork ? (cur?.name ?? wsId) : undefined
+		}
+	})
+
+	// Navigate to the workspace the session acts on: switch into it and leave
+	// session mode for its home page.
+	function navigateToActingWorkspace() {
+		if (!acting) return
+		syncWorkspaceTo(acting.targetId)
+		void goto('/')
+	}
 
 	$effect(() => {
 		if ($workspaceStore) {
@@ -386,6 +419,38 @@
 						</span>
 					{/snippet}
 				</DropdownV2>
+				{#if acting && hasFirstUserMessage}
+					<!-- "Acting on" context: workspace root (avatar + name) and, when the
+					     session runs in a fork, the fork name (accent pill) — with a button
+					     to jump into that workspace. Compact; sits right after the title.
+					     Hidden until the session has started — a new (un-sent) session shows
+					     the "Run in" picker (SessionWorkspaceBar) instead. -->
+					<div class="flex items-center gap-1 min-w-0 text-2xs text-tertiary">
+						<span class="shrink-0">Acting on</span>
+						<span class="inline-flex items-center gap-1 min-w-0 text-secondary">
+							<WorkspaceIcon workspaceColor={acting.rootColor} size={10} padding="p-0.5" />
+							<span class="truncate font-medium max-w-[8rem]">{acting.rootName}</span>
+						</span>
+						{#if acting.forkName}
+							<span class="shrink-0 text-tertiary">·</span>
+							<span
+								class="inline-flex items-center gap-0.5 min-w-0 rounded bg-surface-accent-selected text-accent px-1 py-0.5"
+							>
+								<GitFork size={11} class="shrink-0" />
+								<span class="truncate font-medium max-w-[8rem]">{acting.forkName}</span>
+							</span>
+						{/if}
+						<button
+							type="button"
+							onclick={navigateToActingWorkspace}
+							title="Go to this workspace"
+							aria-label="Go to this workspace"
+							class="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+						>
+							<ArrowUpRight size={13} />
+						</button>
+					</div>
+				{/if}
 				{#if !hideEditor && !session.target && hasFirstUserMessage}
 					<!-- Drill-picker for sessions that have started but haven't
 				     picked an editor target yet. Hidden on fresh sessions

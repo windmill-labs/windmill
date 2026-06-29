@@ -60,6 +60,18 @@ export function sessionPreviewUrl(
 	return previewUrls[session.id] ?? sessionTargetHref(session.target) ?? `${base}/`
 }
 
+// Like sessionPreviewUrl but WITHOUT the home-page fallback: returns a URL only
+// when the session has something real to preview (a captured view or an editor
+// target). Used to decide whether to seed a default preview tab at all — a new
+// session with nothing to preview should open with no preview rather than
+// defaulting to the home page.
+export function sessionPreviewSeedUrl(
+	session: { id: string; target?: SessionTarget } | undefined
+): string | undefined {
+	if (!session) return undefined
+	return previewUrls[session.id] ?? sessionTargetHref(session.target)
+}
+
 // Force the global sidebar off in the previewed page (the sessions page already
 // has its own navigation rail) by setting Windmill's `nomenubar` query flag.
 // Returns a relative URL so the iframe stays same-origin.

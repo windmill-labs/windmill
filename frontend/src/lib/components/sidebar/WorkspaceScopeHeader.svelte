@@ -74,7 +74,7 @@
 </script>
 
 <div
-	class="flex items-center min-w-0 {isCollapsed ? 'justify-center px-0' : 'px-2'} py-1 rounded-md"
+	class="flex items-center min-w-0 {isCollapsed ? 'justify-center px-0' : 'px-2'} py-0.5 rounded-md"
 >
 	<WorkspaceFamilyPicker
 		selectedId={effectiveId}
@@ -86,15 +86,17 @@
 	>
 		{#snippet trigger()}
 			<Button
-				variant="default"
-				unifiedSize="sm"
+				variant="subtle"
+				unifiedSize="xs"
 				title={isFork ? `Fork: ${forkName}` : 'Workspace root'}
 				startIcon={isFork || isCollapsed ? { icon: GitFork } : undefined}
 				endIcon={!isCollapsed ? { icon: ChevronDown } : undefined}
 				wrapperClasses="w-full"
-				btnClasses="min-w-0 w-full {isCollapsed ? 'justify-center' : 'justify-start'} {isFork
-					? '!text-accent !border-accent/30 font-semibold'
-					: ''}"
+				btnClasses="min-w-0 w-full rounded-md text-2xs {isCollapsed
+					? 'justify-center'
+					: 'justify-start'} {isFork
+					? 'bg-surface-accent-selected text-accent font-semibold'
+					: 'bg-surface-secondary'}"
 			>
 				{#if !isCollapsed}
 					<span class="truncate min-w-0 flex-1 text-left">

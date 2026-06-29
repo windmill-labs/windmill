@@ -10,6 +10,7 @@
 		PanelRightClose,
 		PanelRightOpen,
 		ChevronDown,
+		MonitorPlay,
 		X
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -27,7 +28,7 @@
 		selectSession,
 		sessionState,
 		setSessionTabs,
-		syncWorkspaceTo,
+		setSessionPreviewCollapsed,
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
 	import {
@@ -37,10 +38,13 @@
 		promoteEditorWarm
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
-	import { sessionPreviewUrl, withMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
+	import {
+		sessionPreviewUrl,
+		sessionPreviewSeedUrl,
+		withMenuHidden
+	} from '$lib/components/sessions/sessionMode.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
-	import { userWorkspaces } from '$lib/stores'
 	import { base } from '$lib/base'
 	import {
 		matchPreviewPage,
@@ -65,23 +69,15 @@
 
 	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
 
-	// Unfiltered resolution by name — used to drive workspace switching
-	// when a deep-linked session lives outside the current workspace.
+	// Unfiltered resolution by name — drives the "session not found" fallback and
+	// the active-session lookup below.
 	const sessionByName = $derived(
 		sessionName ? sessionState.sessions.find((s) => s.name === sessionName) : undefined
 	)
 
-	// If the deep-linked session committed to a workspace different from
-	// the active one, switch globally so visibility resolves and the chat
-	// loads against the right workspace. Skip the switch when the target
-	// workspace is no longer in the user's list — pointing the global
-	// workspace at a deleted id would break sidebar scope.
-	$effect(() => {
-		const ws = sessionByName?.workspace_id
-		if (!ws) return
-		if (!$userWorkspaces.find((w) => w.id === ws)) return
-		untrack(() => syncWorkspaceTo(ws))
-	})
+	// Opening a session deliberately does NOT switch the global workspace: the
+	// chat targets the session's own workspace via the manager's workspace
+	// resolver, so the user's active (navigation-mode) workspace is left alone.
 
 	// Resolve by name without applying the sidebar scope filter so an open
 	// chat survives workspace switches.
@@ -171,16 +167,27 @@
 	$effect(() => {
 		const s = activeSession
 		untrack(() => {
+			const seedUrl = sessionPreviewSeedUrl(s)
 			if (s?.previewTabs && s.previewTabs.length > 0) {
 				tabs = s.previewTabs.map((t) => ({ ...t }))
 				const saved = s.activePreviewTabId
 				activeTabId = saved && tabs.some((t) => t.id === saved) ? saved : tabs[0].id
-			} else {
-				tabs = [{ id: 'session', url: previewUrl, loc: previewUrl, pinned: true }]
+			} else if (seedUrl) {
+				tabs = [{ id: 'session', url: seedUrl, loc: seedUrl, pinned: true }]
 				activeTabId = 'session'
+			} else {
+				// New session with nothing to preview yet — no default tab (don't
+				// fall back to iframing the home page). The preview panel shows an
+				// empty state with the "+" picker to open one.
+				tabs = []
+				activeTabId = ''
 			}
 			mountedTabIds.clear()
 			mountedTabIds.add(activeTabId)
+			// Restore this session's persisted preview-panel layout. Default when the
+			// user hasn't set one: collapsed for a fresh session with nothing to
+			// preview (chat gets full width), open once it has a preview tab.
+			previewCollapsed = s?.previewCollapsed ?? tabs.length === 0
 		})
 	})
 
@@ -229,8 +236,14 @@
 	let newTabOpen = $state(false)
 
 	let fullscreen = $state(false)
-	// Collapse the preview panel to give the chat the full width.
+	// Collapse the preview panel to give the chat the full width. Per-session:
+	// restored from the session record on switch and written back on toggle.
 	let previewCollapsed = $state(false)
+	function setPreviewCollapsed(collapsed: boolean) {
+		previewCollapsed = collapsed
+		const id = activeSession?.id
+		if (id) setSessionPreviewCollapsed(id, collapsed)
+	}
 
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
@@ -444,7 +457,7 @@
 									     the tab strip keeps the full width. -->
 									<button
 										type="button"
-										onclick={() => (previewCollapsed = true)}
+										onclick={() => setPreviewCollapsed(true)}
 										title="Collapse preview"
 										aria-label="Collapse preview"
 										class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
@@ -593,6 +606,46 @@
 											></iframe>
 										{/if}
 									{/each}
+									{#if tabs.length === 0}
+										<!-- New session with nothing to preview: an empty state with a
+										     picker to open one, instead of defaulting to the home page. -->
+										<div
+											class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 bg-surface"
+										>
+											<MonitorPlay size={28} class="text-tertiary" />
+											<div class="flex flex-col gap-1">
+												<span class="text-sm font-medium text-secondary">No preview open</span>
+												<span class="text-xs text-tertiary max-w-xs"
+													>Open a page, flow, script or app to preview it alongside the chat.</span
+												>
+											</div>
+											<Popover
+												placement="bottom"
+												usePointerDownOutside
+												excludeSelectors=".drawer"
+												disableFocusTrap
+												closeOnOtherPopoverOpen
+												bind:isOpen={newTabOpen}
+												openFocus="[data-workspace-picker-search]"
+											>
+												{#snippet trigger()}
+													<span
+														class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-light text-secondary hover:bg-surface-hover cursor-pointer"
+													>
+														<Plus size={14} /> Open a preview
+													</span>
+												{/snippet}
+												{#snippet content()}
+													<PreviewRouterPicker
+														onPick={(t) => {
+															newTabOpen = false
+															openInNewTab(t)
+														}}
+													/>
+												{/snippet}
+											</Popover>
+										</div>
+									{/if}
 								</div>
 							</div>
 						</div>
@@ -608,7 +661,7 @@
 						unifiedSize="sm"
 						startIcon={{ icon: PanelRightOpen }}
 						title="Open side panel"
-						onclick={() => (previewCollapsed = false)}
+						onclick={() => setPreviewCollapsed(false)}
 					>
 						Open side panel
 					</Button>

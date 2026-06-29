@@ -68,7 +68,13 @@
 		</Popover>
 	{/if}
 	<Popover>
-		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} {compact} {diffManager} on:generateStep />
+		<FlowErrorHandlerItem
+			{disableAi}
+			small={smallErrorHandler}
+			{compact}
+			{diffManager}
+			on:generateStep
+		/>
 		{#snippet text()}
 			Error Handler
 		{/snippet}
@@ -98,7 +104,7 @@
 				btnClasses={AIBtnClasses(aiChatOpen ? 'selected' : 'default')}
 			/>
 			{#snippet text()}
-				Flow AI Chat
+				Open in AI session
 			{/snippet}
 		</Popover>
 	{/if}

@@ -297,13 +297,17 @@
 		// Render the bottom account group (User, Settings, Workers, Folders, Logs, Help).
 		// Splitting these lets a host show content nav and account nav in separate rails.
 		showSecondary?: boolean
+		// Main-menu labels to omit here because the host renders them elsewhere
+		// (e.g. the session-mode rail lifts Home/Runs up next to Favorites/Search).
+		excludeMainLabels?: string[]
 	}
 
 	let {
 		numUnacknowledgedCriticalAlerts = 0,
 		isCollapsed = false,
 		showMain = true,
-		showSecondary = true
+		showSecondary = true,
+		excludeMainLabels = []
 	}: Props = $props()
 
 	let leaveWorkspaceModal = $state(false)
@@ -320,79 +324,81 @@
 	const itemClass = twMerge(
 		'text-secondary font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 	)
-	let mainMenuLinks = $derived([
-		{
-			label: 'Home',
-			href: `${base}/`,
-			icon: Home,
-			aiId: 'sidebar-menu-link-home',
-			aiDescription:
-				"Button to navigate to home which contains all the user's scripts, flows and apps"
-		},
-		{
-			label: 'Runs',
-			href: `${base}/runs`,
-			icon: Play,
-			aiId: 'sidebar-menu-link-runs',
-			aiDescription: 'Button to navigate to runs',
-			onclick: () => {
-				setTimeout(() => {
-					window.dispatchEvent(new Event('popstate'))
-				}, 100)
-			}
-		},
-		{
-			label: 'Variables',
-			href: `${base}/variables`,
-			icon: DollarSign,
-			disabled: $userStore?.operator,
-			aiId: 'sidebar-menu-link-variables',
-			aiDescription: 'Button to navigate to variables'
-		},
-		{
-			label: 'Resources',
-			href: `${base}/resources`,
-			icon: Boxes,
-			disabled: $userStore?.operator,
-			aiId: 'sidebar-menu-link-resources',
-			aiDescription: 'Button to navigate to resources'
-		},
-		{
-			label: 'Assets',
-			href: `${base}/assets`,
-			icon: Pyramid,
-			aiId: 'sidebar-menu-link-assets',
-			aiDescription: 'Button to navigate to assets'
-		},
-		{
-			label: 'Folders',
-			href: `${base}/folders`,
-			icon: FolderOpen,
-			disabled: $userStore?.operator,
-			aiId: 'sidebar-menu-link-folders',
-			aiDescription: 'Button to navigate to folders'
-		},
-		{
-			label: 'Groups',
-			href: `${base}/groups`,
-			icon: Users,
-			disabled: $userStore?.operator,
-			aiId: 'sidebar-menu-link-groups',
-			aiDescription: 'Button to navigate to groups'
-		},
-		// Add Tutorials to main menu only if not all completed and not skipped
-		...($tutorialsToDo.length > 0 && !$skippedAll
-			? [
-					{
-						label: 'Tutorials',
-						href: `${base}/tutorials`,
-						icon: GraduationCap,
-						aiId: 'sidebar-menu-link-tutorials-main',
-						aiDescription: 'Button to navigate to tutorials'
-					}
-				]
-			: [])
-	])
+	let mainMenuLinks = $derived(
+		[
+			{
+				label: 'Home',
+				href: `${base}/`,
+				icon: Home,
+				aiId: 'sidebar-menu-link-home',
+				aiDescription:
+					"Button to navigate to home which contains all the user's scripts, flows and apps"
+			},
+			{
+				label: 'Runs',
+				href: `${base}/runs`,
+				icon: Play,
+				aiId: 'sidebar-menu-link-runs',
+				aiDescription: 'Button to navigate to runs',
+				onclick: () => {
+					setTimeout(() => {
+						window.dispatchEvent(new Event('popstate'))
+					}, 100)
+				}
+			},
+			{
+				label: 'Variables',
+				href: `${base}/variables`,
+				icon: DollarSign,
+				disabled: $userStore?.operator,
+				aiId: 'sidebar-menu-link-variables',
+				aiDescription: 'Button to navigate to variables'
+			},
+			{
+				label: 'Resources',
+				href: `${base}/resources`,
+				icon: Boxes,
+				disabled: $userStore?.operator,
+				aiId: 'sidebar-menu-link-resources',
+				aiDescription: 'Button to navigate to resources'
+			},
+			{
+				label: 'Assets',
+				href: `${base}/assets`,
+				icon: Pyramid,
+				aiId: 'sidebar-menu-link-assets',
+				aiDescription: 'Button to navigate to assets'
+			},
+			{
+				label: 'Folders',
+				href: `${base}/folders`,
+				icon: FolderOpen,
+				disabled: $userStore?.operator,
+				aiId: 'sidebar-menu-link-folders',
+				aiDescription: 'Button to navigate to folders'
+			},
+			{
+				label: 'Groups',
+				href: `${base}/groups`,
+				icon: Users,
+				disabled: $userStore?.operator,
+				aiId: 'sidebar-menu-link-groups',
+				aiDescription: 'Button to navigate to groups'
+			},
+			// Add Tutorials to main menu only if not all completed and not skipped
+			...($tutorialsToDo.length > 0 && !$skippedAll
+				? [
+						{
+							label: 'Tutorials',
+							href: `${base}/tutorials`,
+							icon: GraduationCap,
+							aiId: 'sidebar-menu-link-tutorials-main',
+							aiDescription: 'Button to navigate to tutorials'
+						}
+					]
+				: [])
+		].filter((l) => !excludeMainLabels.includes(l.label))
+	)
 	let defaultExtraTriggerLinks = $derived([
 		{
 			label: 'HTTP',

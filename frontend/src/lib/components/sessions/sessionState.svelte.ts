@@ -150,6 +150,9 @@ export type Session = {
 	previewTabs?: SessionPreviewTab[]
 	// Which preview tab was active. Falls back to the first tab on restore.
 	activePreviewTabId?: string
+	// Whether the user collapsed the preview panel for this session (to give the
+	// chat full width). Per-session so each session restores its own layout.
+	previewCollapsed?: boolean
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -682,7 +685,9 @@ export async function commitSessionWorkspace(
 		s.pending_workspace_id = undefined
 		s.workspace_root_id = workspaceRootId(newId, get(userWorkspaces)) ?? newId
 		await putSession(s)
-		if (get(workspaceStore) !== newId) switchWorkspace(newId)
+		// The global workspaceStore is intentionally left untouched: the session
+		// chat targets its own workspace via AIChatManager.operatingWorkspace, so
+		// committing must not yank the user's active (navigation-mode) workspace.
 		return newId
 	}
 
@@ -692,13 +697,9 @@ export async function commitSessionWorkspace(
 	s.pending_workspace_id = undefined
 	s.workspace_root_id = workspaceRootId(ws, get(userWorkspaces)) ?? ws
 	await putSession(s)
-	// `pending_workspace_id` defaults to the root workspace when created from
-	// inside a fork, so the committed workspace can differ from the active
-	// workspaceStore. Without this sync, the very first AI request's
-	// `logAiChat` and tool calls read the stale fork from workspaceStore
-	// while the session metadata says root. Mirrors the `switchWorkspace`
-	// in the pending_fork branch above.
-	if (get(workspaceStore) !== ws) syncWorkspaceTo(ws)
+	// The global workspaceStore is intentionally left untouched (see the fork
+	// branch above): the session chat reads its committed workspace through the
+	// manager's workspace resolver, not the active workspaceStore.
 	return ws
 }
 
@@ -730,6 +731,15 @@ export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabI
 	if (!s) return
 	s.previewTabs = tabs.map((t) => ({ ...t }))
 	s.activePreviewTabId = activeTabId
+	void putSession(s)
+}
+
+// Persist whether the preview panel is collapsed for this session. Fire-and-forget
+// write-behind; no-ops for transient sessions until they materialise on send.
+export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || !!s.previewCollapsed === collapsed) return
+	s.previewCollapsed = collapsed
 	void putSession(s)
 }
 

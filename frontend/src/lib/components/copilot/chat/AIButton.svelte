@@ -4,8 +4,7 @@
 	import { aiUserDisabled } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DarkPopover from '$lib/components/Popover.svelte'
-	import { ExternalLink, WandSparkles } from 'lucide-svelte'
-	import { getModifierKey } from '$lib/utils'
+	import { ExternalLink, MessagesSquare } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	let {
@@ -20,13 +19,7 @@
 {#if $copilotInfo.enabled}
 	<DarkPopover>
 		{#snippet text()}
-			<div class="flex flex-row gap-1">
-				Show the AI Panel.
-
-				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
-					{getModifierKey()}L
-				</div>
-			</div>
+			Open in AI session
 		{/snippet}
 		{@render button({ onPress: () => togglePanel() })}
 	</DarkPopover>
@@ -60,10 +53,10 @@
 		color="light"
 		variant="default"
 		onClick={onPress}
-		startIcon={{ icon: WandSparkles }}
+		startIcon={{ icon: MessagesSquare }}
 		iconOnly
 		{btnClasses}
 	>
-		AI Panel
+		Open in AI session
 	</Button>
 {/snippet}

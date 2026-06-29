@@ -12,6 +12,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
@@ -51,13 +52,14 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
+	import { ArrowLeft, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
@@ -68,6 +70,8 @@
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
+	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
+	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
@@ -89,12 +93,26 @@
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = $state(false)
 	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
-	let isCollapsed = $state(false)
+	// Persisted nav-rail collapse preference. Only the manual toggle writes to it;
+	// the contextual auto-collapse (app-mode routes, narrow widths) mutates the
+	// in-memory `isCollapsed` without persisting, so it stays transient and never
+	// gets "stuck" collapsed across reloads.
+	const collapsePref = useLocalStorageValue<boolean>('nav_menu_collapsed', false, 'boolean')
+	let isCollapsed = $state(collapsePref.val)
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 	let menuHidden = $state(false)
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
+
+	// Session mode is route-derived: the rail shows the sessions sidebar on the
+	// /sessions page and the workspace navigation everywhere else. The switch
+	// (SessionModeSwitch) just navigates in and out of that route.
+	let sessionMode = $derived(page.url.pathname.startsWith(base + '/sessions'))
+	// Inside a preview iframe the rail still renders (navigation mode), but the
+	// switch must not — entering session mode from within the preview would
+	// nest the whole experience. Hide it when embedded.
+	const embedded = BROWSER && window.self !== window.top
 
 	const SIDEBAR_BG = '#F3F3F7'
 	const SIDEBAR_BG_DARK = '#1e232e'
@@ -340,19 +358,12 @@
 		$usedTriggerKinds = usedKinds
 	}
 
-	function pathInAppMode(pathname: string | undefined): boolean {
-		if (!pathname) return false
-		return (
-			pathname.startsWith(base + '/apps') ||
-			pathname.startsWith(base + '/flows/add') ||
-			pathname.startsWith(base + '/flows/edit') ||
-			pathname.startsWith(base + '/scripts/add') ||
-			pathname.startsWith(base + '/scripts/edit')
-		)
-	}
 	afterNavigate((n) => {
-		if (pathInAppMode(n.to?.url.pathname) && innerWidth >= 768) {
-			isCollapsed = true
+		// Remember the last navigation-mode route so exiting session mode returns
+		// the user where they were rather than to the home page.
+		const to = n.to?.url
+		if (to && !to.pathname.startsWith(base + '/sessions')) {
+			rememberNavRoute(to.pathname + to.search)
 		}
 	})
 
@@ -520,6 +531,35 @@
 
 <svelte:window bind:innerWidth />
 
+<!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
+     and Search as the primary quick-access cluster. Excluded from SidebarContent
+     (via excludeMainLabels) so they aren't rendered twice. -->
+{#snippet quickLinks(collapsed: boolean)}
+	<MenuLink
+		class="!text-xs"
+		label="Home"
+		href={`${base}/`}
+		icon={Home}
+		isCollapsed={collapsed}
+		aiId="sidebar-menu-link-home"
+		aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"
+	/>
+	<MenuLink
+		class="!text-xs"
+		label="Runs"
+		href={`${base}/runs`}
+		icon={Play}
+		isCollapsed={collapsed}
+		aiId="sidebar-menu-link-runs"
+		aiDescription="Button to navigate to runs"
+		onclick={() => {
+			setTimeout(() => {
+				window.dispatchEvent(new Event('popstate'))
+			}, 100)
+		}}
+	/>
+{/snippet}
+
 <UserSettings bind:this={userSettings} showMcpMode={true} />
 <DraftMigrationErrorModal />
 {#if page.status == 404}
@@ -603,50 +643,60 @@
 											{/snippet}
 										</Menubar>
 									</div>
-									<!-- Family-scoped region: New AI session + the session list.
-									     w-40 cap: the drawer is max-w-min, and long session titles
-									     (nowrap before truncation) would otherwise inflate its
-									     min-content width to the full text width. -->
-									<div class="px-2 py-3 w-40">
-										<SessionPicker isCollapsed={false} embedded />
-									</div>
 
-									<!-- Divider: family-scoped region above, workspace-scoped below. -->
-									<div class="mx-3 border-t border-light dark:border-gray-700"></div>
+									{#if !embedded}
+										<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
+										<div class="px-2 pb-1 w-40">
+											<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} />
+										</div>
+									{/if}
 
-									<!-- Workspace scope: names the active root/fork. -->
-									<div class="pt-2 w-40">
-										<WorkspaceScopeHeader isCollapsed={false} />
-									</div>
+									{#if sessionMode}
+										<!-- Session mode: the session list owns the rail.
+										     w-40 cap: the drawer is max-w-min, and long session titles
+										     (nowrap before truncation) would otherwise inflate its
+										     min-content width to the full text width. -->
+										<div class="px-2 py-2 w-40">
+											<SessionPicker isCollapsed={false} embedded />
+										</div>
+									{:else}
+										<!-- Navigation mode: the classic workspace navigation. -->
+										<!-- Workspace scope: names the active root/fork. -->
+										<div class="pt-2 w-40">
+											<WorkspaceScopeHeader isCollapsed={false} />
+										</div>
 
-									<!-- Workspace-scoped region: Favorites + Search + workspace items. -->
-									<div class="px-2 pt-1 pb-2 w-40">
-										<Menubar>
-											{#snippet children({ createMenu })}
-												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-											{/snippet}
-										</Menubar>
-										<MenuButton
-											stopPropagationOnClick={true}
-											on:click={() => openSearchModal()}
+										<!-- Workspace-scoped region: Home/Runs + Favorites + Search + workspace items. -->
+										<div class="px-2 pt-1 pb-2 w-40 flex flex-col gap-1">
+											{@render quickLinks(false)}
+											<Menubar>
+												{#snippet children({ createMenu })}
+													<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
+												{/snippet}
+											</Menubar>
+											<MenuButton
+												stopPropagationOnClick={true}
+												on:click={() => openSearchModal()}
+												isCollapsed={false}
+												icon={Search}
+												label="Search"
+												class="!text-xs"
+												shortcut={`${getModifierKey()}k`}
+											/>
+										</div>
+
+										<SidebarContent
 											isCollapsed={false}
-											icon={Search}
-											label="Search"
-											class="!text-xs"
-											shortcut={`${getModifierKey()}k`}
+											showSecondary={false}
+											excludeMainLabels={['Home', 'Runs']}
+											numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+												? 0
+												: numUnacknowledgedCriticalAlerts}
 										/>
-									</div>
-
-									<SidebarContent
-										isCollapsed={false}
-										showSecondary={false}
-										numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-											? 0
-											: numUnacknowledgedCriticalAlerts}
-									/>
-									<div class="px-2 pb-2">
-										<SettingsMenu isCollapsed={false} />
-									</div>
+										<div class="px-2 pb-2">
+											<SettingsMenu isCollapsed={false} />
+										</div>
+									{/if}
 								</div>
 							</div>
 						</div>
@@ -664,7 +714,9 @@
 							class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
-							<!-- Workspace picker as the sidebar header (replaces the Windmill logo). -->
+							<!-- Workspace picker as the sidebar header (replaces the Windmill logo).
+							     Kept in both modes: it scopes which workspace family's sessions
+							     the sessions sidebar shows. -->
 							<div class="flex-shrink-0 px-2 h-12 flex items-center">
 								<Menubar class="w-full">
 									{#snippet children({ createMenu })}
@@ -672,59 +724,71 @@
 									{/snippet}
 								</Menubar>
 							</div>
-							<!-- Family-scoped region: New AI session + the session list. These
-							     belong to the workspace family and don't change with the fork. -->
-							<div class="px-2 py-3 flex flex-col gap-1">
-								<SessionPicker {isCollapsed} embedded />
-							</div>
 
-							<!-- Divider: family-scoped region above, workspace-scoped below. -->
-							<div class="border-t border-light dark:border-gray-700"></div>
+							{#if !embedded}
+								<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
+								<div class="px-2 pb-1 {isCollapsed ? 'flex justify-center' : ''}">
+									<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} {isCollapsed} />
+								</div>
+							{/if}
 
-							<!-- Workspace scope: names the active root/fork. Everything below
-							     reflects the selected workspace. -->
-							<div class="pt-2">
-								<WorkspaceScopeHeader {isCollapsed} />
-							</div>
+							{#if sessionMode}
+								<!-- Session mode: the session list owns the rail. Workspace nav moves
+								     into the preview side panel (the iframe renders its own nav). -->
+								<div class="px-2 py-2 flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
+									<SessionPicker {isCollapsed} embedded />
+								</div>
+							{:else}
+								<!-- Navigation mode: the classic workspace navigation. -->
+								<!-- Workspace scope: names the active root/fork. Everything below
+								     reflects the selected workspace. -->
+								<div class="pt-2">
+									<WorkspaceScopeHeader {isCollapsed} />
+								</div>
 
-							<!-- Workspace-scoped region: Favorites + Search + workspace items. -->
-							<div class="px-2 pt-1 pb-2 flex flex-col gap-1">
-								<Menubar class="flex flex-col gap-1">
-									{#snippet children({ createMenu })}
-										<FavoriteMenu
-											{createMenu}
-											favoriteLinks={favoriteManager.current}
-											{isCollapsed}
-										/>
-									{/snippet}
-								</Menubar>
-								<MenuButton
-									stopPropagationOnClick={true}
-									on:click={() => openSearchModal()}
+								<!-- Workspace-scoped region: Home/Runs + Favorites + Search + workspace items. -->
+								<div class="px-2 pt-1 pb-2 flex flex-col gap-1">
+									{@render quickLinks(isCollapsed)}
+									<Menubar class="flex flex-col gap-1">
+										{#snippet children({ createMenu })}
+											<FavoriteMenu
+												{createMenu}
+												favoriteLinks={favoriteManager.current}
+												{isCollapsed}
+											/>
+										{/snippet}
+									</Menubar>
+									<MenuButton
+										stopPropagationOnClick={true}
+										on:click={() => openSearchModal()}
+										{isCollapsed}
+										icon={Search}
+										label="Search"
+										class="!text-xs"
+										shortcut={`${getModifierKey()}k`}
+									/>
+								</div>
+
+								<SidebarContent
 									{isCollapsed}
-									icon={Search}
-									label="Search"
-									class="!text-xs"
-									shortcut={`${getModifierKey()}k`}
+									showSecondary={false}
+									excludeMainLabels={['Home', 'Runs']}
+									numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+										? 0
+										: numUnacknowledgedCriticalAlerts}
 								/>
-							</div>
 
-							<SidebarContent
-								{isCollapsed}
-								showSecondary={false}
-								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-									? 0
-									: numUnacknowledgedCriticalAlerts}
-							/>
-
-							<div class="px-2 pb-1">
-								<SettingsMenu {isCollapsed} />
-							</div>
+								<div class="px-2 pb-1">
+									<SettingsMenu {isCollapsed} />
+								</div>
+							{/if}
 
 							<div class="flex-shrink-0 flex px-4 pb-3.5">
 								<button
 									onclick={() => {
 										isCollapsed = !isCollapsed
+										// Manual toggle is the persisted preference (auto-collapse isn't).
+										collapsePref.val = isCollapsed
 									}}
 								>
 									<ArrowLeft

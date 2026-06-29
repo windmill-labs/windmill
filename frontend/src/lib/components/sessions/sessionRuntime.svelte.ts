@@ -31,6 +31,7 @@ import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	ensureChatIdsSeeded,
+	getEffectiveWorkspaceId,
 	materializeTransient,
 	sessionState,
 	setGeneratedSessionSummary,
@@ -268,6 +269,13 @@ function createRuntime(session: Session): SessionRuntime {
 	// Carried into the tool helpers so this session's preview/deploy tool calls
 	// dispatch to THIS session even when another session is the UI-active one.
 	manager.sessionId = session.id
+	// The chat targets the session's OWN (possibly forked) workspace without
+	// switching the global workspaceStore. Resolved live from the session record
+	// so it tracks the pending → committed (and staged-fork) transitions.
+	manager.workspaceResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		return s ? getEffectiveWorkspaceId(s) : undefined
+	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted

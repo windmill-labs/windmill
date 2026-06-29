@@ -10,7 +10,6 @@
 		Filter,
 		GitFork,
 		MessageSquare,
-		MessageSquarePlus,
 		Pencil,
 		PencilLine,
 		Plus,
@@ -307,13 +306,9 @@
 		// Picking a session leaves browse mode so the chat comes back.
 		onSelectSession?.()
 		selectSession(session.id)
-		// If the session has a committed workspace different from the
-		// active one, switch globally so the editor/forks resolve correctly.
-		// Skip for unavailable forks — switching to a deleted workspace
-		// would error out and leave the user in limbo.
-		if (!isUnavailableFork(session)) {
-			syncWorkspaceTo(session.workspace_id)
-		}
+		// The global workspaceStore is intentionally NOT switched here: a session
+		// runs against its own workspace via the chat manager's workspace resolver,
+		// so opening one must not change the user's active (navigation) workspace.
 		// Refresh the fork diff count — users typically click back into a
 		// session after editing items elsewhere in the SPA, where neither
 		// the visibility-change nor the AI-loading signal would fire.
@@ -562,15 +557,6 @@
 			? 'border-b border-light dark:border-gray-700'
 			: ''}"
 	>
-		<!-- New-session action styled like the other sidebar entries (Favorites,
-		     Search). -->
-		<MenuButton
-			on:click={createAndOpen}
-			{isCollapsed}
-			icon={MessageSquarePlus}
-			label="New AI session"
-			class="!text-xs"
-		/>
 		<div class="flex flex-row items-center justify-between pl-1 pr-0.5">
 			{#if collapsible && visibleSessions.length > 0}
 				<button
@@ -595,6 +581,15 @@
 				</span>
 			{/if}
 			<div class="flex flex-row items-center gap-0.5">
+				<button
+					type="button"
+					title="New session"
+					aria-label="New session"
+					onclick={createAndOpen}
+					class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+				>
+					<Plus size={12} />
+				</button>
 				<Popover placement="bottom-end" usePointerDownOutside disableFocusTrap class="inline-flex">
 					{#snippet trigger()}
 						<button
