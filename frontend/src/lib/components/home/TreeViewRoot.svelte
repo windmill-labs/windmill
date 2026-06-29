@@ -24,7 +24,24 @@
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
 	$effect(() => {
 		items
-		untrack(() => (groupedItems = groupItems(items)))
+		pipelineFolders
+		untrack(() => {
+			const grouped = groupItems(items)
+			// Ensure every pipeline folder is present at the top level so its
+			// "Pipeline" entry shows even when it has no listed items — a bundle-phase
+			// pipeline (only a draft so far) or a folder whose only scripts are
+			// pipeline members (folded into the pipeline, hidden from the list).
+			const present = new Set(
+				grouped
+					.filter((g) => 'folderName' in g)
+					.map((g) => (g as { folderName: string }).folderName)
+			)
+			const injected = [...(pipelineFolders ?? [])]
+				.filter((f) => !present.has(f))
+				.sort()
+				.map((folderName) => ({ folderName, items: [] }))
+			groupedItems = [...injected, ...grouped]
+		})
 	})
 </script>
 

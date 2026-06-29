@@ -13,6 +13,7 @@
 		type ListableRawApp
 	} from '$lib/gen'
 	import { resource } from 'runed'
+	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
@@ -73,20 +74,33 @@
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
 
-	// Folders with ≥1 pipeline script (auto_kind='pipeline'). Used by
-	// TreeView to surface a "Pipeline" entry inside those folders. Cheap
-	// thanks to the partial index on script.auto_kind.
+	// Folders that are data pipelines, surfaced as their own "Pipeline" entry
+	// (the member scripts are folded into it, not listed individually). Two
+	// sources: deployed pipelines (folders with ≥1 `auto_kind='pipeline'` script,
+	// cheap via the partial index) AND bundle-phase pipelines that only exist as a
+	// `data_pipeline` draft so far — so a pipeline shows up the moment its first
+	// node is drafted, before anything is deployed.
 	let pipelineFoldersRes = resource(
 		() => $workspaceStore,
 		async (ws) => {
 			if (!ws) return new Set<string>()
+			const folders = new Set<string>()
 			try {
-				const rows = await AssetService.listPipelineFolders({ workspace: ws })
-				return new Set(rows.map((r) => r.folder))
+				for (const r of await AssetService.listPipelineFolders({ workspace: ws }))
+					folders.add(r.folder)
 			} catch {
-				// Decorative tree entry — degrade to "no pipelines" on failure.
-				return new Set<string>()
+				// Decorative entry — degrade gracefully on failure.
 			}
+			try {
+				for (const d of await getDraftItems(ws)) {
+					if (d.kind !== 'data_pipeline') continue
+					const m = d.path.match(/^f\/([^/]+)\/data_pipeline$/)
+					if (m) folders.add(m[1])
+				}
+			} catch {
+				// Drafts unavailable — show deployed pipelines only.
+			}
+			return folders
 		}
 	)
 	let pipelineFolders = $derived(pipelineFoldersRes.current ?? new Set<string>())
@@ -115,12 +129,16 @@
 			withoutDescription: true
 		})
 
-		scripts = loadedScripts.map((script: Script) => {
-			return {
-				canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
-				...script
-			}
-		})
+		scripts = loadedScripts
+			// Pipeline-member scripts (`auto_kind='pipeline'`) are represented by
+			// their pipeline's entry, not listed individually.
+			.filter((script: Script) => script.auto_kind !== 'pipeline')
+			.map((script: Script) => {
+				return {
+					canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
+					...script
+				}
+			})
 		loading = false
 	}
 
