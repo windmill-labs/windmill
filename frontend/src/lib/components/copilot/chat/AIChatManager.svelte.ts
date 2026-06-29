@@ -1026,10 +1026,18 @@ export class AIChatManager {
 		if (this.mode !== AIMode.GLOBAL) {
 			return
 		}
-		this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills
 		})
+		// Preserve the active pipeline-editor augmentation that configureGlobalMode
+		// adds — otherwise update_user_instructions (which calls this) would drop the
+		// /pipeline/<folder> context + direct-draft/materialize guidance mid-session.
+		const pipeline = this.pipelineAiChatHelpers
+		if (pipeline) {
+			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
+		}
+		this.systemMessage = systemMessage
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
