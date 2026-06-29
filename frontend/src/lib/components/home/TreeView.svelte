@@ -27,8 +27,14 @@
 	}: Props = $props()
 
 	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
+	// Hidden while searching: pipelines aren't part of the text filter (the list
+	// view hides their rows on a query too), so a folder matching the search
+	// shouldn't surface an unrelated Pipeline row.
 	let hasPipeline = $derived(
-		depth === 0 && isFolderItem(item) && (pipelineFolders?.has(item.folderName) ?? false)
+		depth === 0 &&
+			!isSearching &&
+			isFolderItem(item) &&
+			(pipelineFolders?.has(item.folderName) ?? false)
 	)
 
 	const isFolder = isFolderItem

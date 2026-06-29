@@ -235,10 +235,13 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 						}
 					})
 				} else {
+					// test_pipeline_node previews ONE node — never fan out to downstream
+					// deployed subscribers via the backend asset dispatcher (which would
+					// run side-effecting deployed scripts the user didn't ask for).
 					jobId = await JobService.runScriptByPath({
 						workspace,
 						path,
-						requestBody: { ...(args ?? {}) }
+						requestBody: { ...(args ?? {}), _wmill_skip_asset_dispatch: true }
 					})
 				}
 				deps.onRunStarted?.(jobId, path)

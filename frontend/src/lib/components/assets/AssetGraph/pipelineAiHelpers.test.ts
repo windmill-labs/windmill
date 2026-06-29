@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { JobService } from '$lib/gen'
 import { createPipelineAiHelpers, type PipelineDraft } from './pipelineAiHelpers'
 import type { AssetGraphResponse } from './types'
 
@@ -47,5 +48,19 @@ describe('pipeline AI direct-draft helpers', () => {
 		expect(ctx).not.toHaveProperty('pendingProposals')
 		expect(handle).not.toHaveProperty('acceptAll')
 		expect(handle).not.toHaveProperty('rejectAll')
+	})
+
+	it('testNode on a deployed node never dispatches downstream subscribers', async () => {
+		// No draft at the path → runs the deployed version, which must carry
+		// `_wmill_skip_asset_dispatch` so a single-node test can't fire downstream.
+		const spy = vi.spyOn(JobService, 'runScriptByPath').mockResolvedValue('job-1' as any)
+		const { handle } = makeHandle()
+		await handle.testNode('f/x/deployed', { foo: 1 })
+		expect(spy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ _wmill_skip_asset_dispatch: true, foo: 1 })
+			})
+		)
+		spy.mockRestore()
 	})
 })
