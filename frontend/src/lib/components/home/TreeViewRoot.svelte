@@ -9,6 +9,7 @@
 		nbDisplayed: number
 		items: ItemType[] | undefined
 		isSearching?: boolean
+		pipelineFolders?: Set<string>
 	}
 
 	let {
@@ -16,7 +17,8 @@
 		showCode,
 		nbDisplayed = $bindable(),
 		items,
-		isSearching = false
+		isSearching = false,
+		pipelineFolders
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -37,12 +39,13 @@
 	</div>
 {:else}
 	<div class="border rounded-md bg-surface-tertiary">
-		{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
+		{#each groupedItems.slice(0, nbDisplayed) as item ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
 			{#if item}
 				<TreeView
 					{isSearching}
 					{collapseAll}
 					{item}
+					{pipelineFolders}
 					on:scriptChanged
 					on:flowChanged
 					on:appChanged
@@ -56,7 +59,10 @@
 	{#if groupedItems.length > 15 && nbDisplayed < groupedItems.length}
 		<span class="text-xs font-normal text-secondary"
 			>{nbDisplayed} root nodes out of {groupedItems.length}
-			<button class="ml-4 text-xs font-normal text-primary hover:text-emphasis" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
+			<button
+				class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
+				onclick={() => (nbDisplayed += 30)}>load 30 more</button
+			></span
 		>
 	{/if}
 {/if}

@@ -275,7 +275,13 @@ export function gitSyncIncludePattern(
     case "emailtrigger":
       return `${path}.email_trigger.*`;
     default:
-      return `${path}.*`;
+      // Scripts: `${path}.*` matches the dotted layout
+      // (`${path}.script.yaml` etc.), `${path}__mod/**` matches the folder
+      // layout used by scripts with companion modules
+      // (`${path}__mod/script.ts`, `${path}__mod/helper.ts`, ...). Without the
+      // second pattern the module files are filtered out of the pull and the
+      // subsequent `git add '${path}**'` fails with "pathspec did not match".
+      return `${path}.*,${path}__mod/**`;
   }
 }
 

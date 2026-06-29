@@ -25,6 +25,30 @@ export const DEFAULT_DATA: RawAppData = {
 	schema: undefined
 }
 
+/**
+ * Normalize a raw-app value's data config to `RawAppData`, handling the old
+ * nested `creation` shape and the legacy top-level `datatables`. Shared by the
+ * editor loader and the deployed-vs-draft diff so both project identically.
+ * Returns `undefined` when the value carries no data config.
+ */
+export function extractDataConfig(value: any): RawAppData | undefined {
+	if (value?.data) {
+		const d = value.data
+		// Handle old nested creation format
+		if (d.creation) {
+			return {
+				tables: d.tables ?? [],
+				datatable: d.creation.datatable,
+				schema: d.creation.schema
+			}
+		}
+		return d
+	} else if (value?.datatables) {
+		return { ...DEFAULT_DATA, tables: value.datatables }
+	}
+	return undefined
+}
+
 export type DataTableWhitelist = {
 	datatables: Set<string>
 	allTablesDatatables: Set<string>
@@ -76,7 +100,12 @@ export function isDatatableTableAllowed(
 		return true
 	}
 
-	return whitelist.tables.get(datatableName)?.get(schemaName ?? 'public')?.has(tableName) ?? false
+	return (
+		whitelist.tables
+			.get(datatableName)
+			?.get(schemaName ?? 'public')
+			?.has(tableName) ?? false
+	)
 }
 
 /**

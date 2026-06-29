@@ -41,6 +41,61 @@ async function run(
   await runCatalogQuery(opts, "datatable", name, sql);
 }
 
+async function create(
+  opts: GlobalOptions & { resource?: string; force?: boolean },
+  name?: string,
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dtName = name ?? DEFAULT_DATATABLE_NAME;
+
+  const existing = await wmill.listDataTables({
+    workspace: workspace.workspaceId,
+  });
+  if (existing.some((d) => d.name === dtName)) {
+    throw new Error(`Datatable '${dtName}' already exists in this workspace`);
+  }
+  // edit_datatable_config replaces the whole settings object, and fork
+  // metadata on existing datatables can't be read back through the API —
+  // so only touch a non-empty config when explicitly asked to.
+  if (existing.length > 0 && !opts.force) {
+    throw new Error(
+      `Workspace already has datatable(s): ${existing
+        .map((d) => d.name)
+        .join(", ")}. Re-run with --force to add '${dtName}' ` +
+        "(note: fork metadata on existing datatables is not preserved)",
+    );
+  }
+
+  const datatables: Record<
+    string,
+    { database: { resource_type: "postgresql" | "instance"; resource_path?: string } }
+  > = {};
+  for (const d of existing) {
+    datatables[d.name] = {
+      database: {
+        resource_type: d.resource_type as "postgresql" | "instance",
+        resource_path: d.resource_path ?? undefined,
+      },
+    };
+  }
+  datatables[dtName] = opts.resource
+    ? { database: { resource_type: "postgresql", resource_path: opts.resource } }
+    : { database: { resource_type: "instance", resource_path: "datatable_db" } };
+
+  await wmill.editDataTableConfig({
+    workspace: workspace.workspaceId,
+    requestBody: { settings: { datatables } },
+  });
+  log.info(
+    `Datatable '${dtName}' created (${
+      opts.resource
+        ? `postgresql resource ${opts.resource}`
+        : "instance-backed"
+    }). Scripts can now use datatable://${dtName}.`,
+  );
+}
+
 async function serve(
   opts: GlobalOptions & { port?: number; host?: string; password?: string },
 ) {
@@ -69,6 +124,20 @@ const command = new Command()
     "Output only the final result as JSON. Useful for scripting.",
   )
   .action(run as any)
+  .command(
+    "create",
+    "register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>",
+  )
+  .arguments("[name:string]")
+  .option(
+    "--resource <resource:string>",
+    "Back the datatable with an existing postgresql resource path instead of the instance database",
+  )
+  .option(
+    "--force",
+    "Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)",
+  )
+  .action(create as any)
   .command(
     "serve",
     "Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string",

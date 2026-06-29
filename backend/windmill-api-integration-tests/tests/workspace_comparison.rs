@@ -92,8 +92,8 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
 
     // Create app
     sqlx::query!(
-        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only)
-         VALUES ('test-workspace', 'f/shared/dashboard', 'Dashboard app', '{}', ARRAY[1::bigint], '{}', false)"
+        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms)
+         VALUES ('test-workspace', 'f/shared/dashboard', 'Dashboard app', '{}', ARRAY[1::bigint], '{}')"
     )
     .execute(&db)
     .await?;
@@ -1332,6 +1332,191 @@ async fn test_compare_workspaces_fork_only_folder_visibility(
             .iter()
             .any(|d| d["path"] == "f/folder2/myscript" && d["kind"] == "script"),
         "fork-only script should appear in diffs; got {diffs:?}"
+    );
+
+    Ok(())
+}
+
+/// Regression test: deleting a fork must purge its `workspace_diff` and
+/// `skip_workspace_diff_tally` rows. These tables are keyed by workspace id with
+/// no FK cascade, and a fork id is reused when a fork is deleted and recreated
+/// under the same name. If the cached diff rows survive the delete, they leak
+/// onto the next fork sharing that id and produce a spurious "changes not
+/// visible" warning that hides the deploy button (WIN-2066).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_delete_fork_purges_workspace_diff(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // Create the fork so the caller owns it (delete is authorized for fork owners).
+    let fork_response = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-test-workspace",
+            "name": "Test Fork",
+            "color": "#0000ff"
+        }))
+        .send()
+        .await?;
+    assert!(
+        fork_response.status().is_success(),
+        "Fork creation should succeed: {}",
+        fork_response.status()
+    );
+
+    // Seed cached diff state for the fork: as the fork side of a pair, as the
+    // source side of a pair, and a skip-tally row.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-test-workspace', 'f/shared/leaky', 'script', 1, 0, true, true, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('wm-fork-test-workspace', 'test-workspace', 'f/shared/other', 'script', 0, 1, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO skip_workspace_diff_tally (workspace_id) VALUES ('wm-fork-test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Delete the fork through the real handler.
+    let delete_response = client
+        .client()
+        .delete(&format!("{base_url}/workspaces/delete/wm-fork-test-workspace"))
+        .send()
+        .await?;
+    assert!(
+        delete_response.status().is_success(),
+        "Fork deletion should succeed: {}",
+        delete_response.status()
+    );
+
+    let leftover_diffs = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace_diff
+         WHERE source_workspace_id = 'wm-fork-test-workspace'
+            OR fork_workspace_id = 'wm-fork-test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        leftover_diffs,
+        Some(0),
+        "workspace_diff rows referencing the deleted fork must be purged"
+    );
+
+    let leftover_skip = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM skip_workspace_diff_tally WHERE workspace_id = 'wm-fork-test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        leftover_skip,
+        Some(0),
+        "skip_workspace_diff_tally row for the deleted fork must be purged"
+    );
+
+    Ok(())
+}
+
+/// Regression test: creating a fork must start with clean diff state even when
+/// the (reusable) fork id was previously occupied by a deleted fork. Stale
+/// `workspace_diff` / `skip_workspace_diff_tally` rows left behind by an earlier
+/// occupant would otherwise leak onto the new fork — a stale skip row suppresses
+/// comparison entirely, and stale diff rows produce a spurious "changes not
+/// visible" warning that hides the deploy button (WIN-2066).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_fork_purges_stale_diff_state(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // Simulate leftovers from a previously deleted fork that reused this id:
+    // diff rows on both sides plus a skip-tally row, with no workspace yet.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-test-workspace', 'f/shared/leaky', 'script', 1, 0, true, true, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('wm-fork-test-workspace', 'test-workspace', 'f/shared/other', 'script', 0, 1, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO skip_workspace_diff_tally (workspace_id) VALUES ('wm-fork-test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Create the fork reusing that id; the conflict check passes because no
+    // workspace row exists for it.
+    let fork_response = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-test-workspace",
+            "name": "Test Fork",
+            "color": "#0000ff"
+        }))
+        .send()
+        .await?;
+    assert!(
+        fork_response.status().is_success(),
+        "Fork creation should succeed: {}",
+        fork_response.status()
+    );
+
+    let leftover_diffs = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace_diff
+         WHERE source_workspace_id = 'wm-fork-test-workspace'
+            OR fork_workspace_id = 'wm-fork-test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        leftover_diffs,
+        Some(0),
+        "stale workspace_diff rows must be purged on fork creation"
+    );
+
+    let leftover_skip = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM skip_workspace_diff_tally WHERE workspace_id = 'wm-fork-test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        leftover_skip,
+        Some(0),
+        "stale skip_workspace_diff_tally row must be purged on fork creation"
     );
 
     Ok(())

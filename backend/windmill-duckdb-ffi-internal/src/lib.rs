@@ -266,6 +266,12 @@ fn setup_duckdb_connection(
         .unwrap_or(("http", &base_internal_url));
     let s3_endpoint_ssl = s3_endpoint_ssl == "https";
 
+    // Escape values interpolated into single-quoted SQL literals, consistent with
+    // configure_duckdb_resource_limits above (a stray quote would break the statement).
+    let s3_access_key = sql_single_quote(s3_access_key);
+    let s3_secret_key = sql_single_quote(s3_secret_key);
+    let endpoint = sql_single_quote(&format!("{s3_endpoint}/api/w/{w_id}/s3_proxy"));
+
     conn.execute_batch(&format!(
         "INSTALL httpfs; LOAD httpfs;
         INSTALL azure; LOAD azure;
@@ -274,7 +280,7 @@ fn setup_duckdb_connection(
             PROVIDER config,
             KEY_ID '{s3_access_key}',
             SECRET '{s3_secret_key}',
-            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+            ENDPOINT '{endpoint}',
             URL_STYLE path,
             USE_SSL {s3_endpoint_ssl}
         );
@@ -282,7 +288,7 @@ fn setup_duckdb_connection(
             TYPE gcs,
             KEY_ID '{s3_access_key}',
             SECRET '{s3_secret_key}',
-            ENDPOINT '{s3_endpoint}/api/w/{w_id}/s3_proxy',
+            ENDPOINT '{endpoint}',
             USE_SSL {s3_endpoint_ssl}
         );
         ",

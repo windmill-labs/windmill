@@ -41,8 +41,6 @@
 		}
 		return s
 	}
-
-	let DEFAULT_DATATABLE_DB_NAME = 'datatable_db'
 </script>
 
 <script lang="ts">
@@ -61,7 +59,7 @@
 	import Row from '../table/Row.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { isCustomInstanceDbEnabled } from './utils.svelte'
+	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
 	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
@@ -75,6 +73,8 @@
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
+	import Alert from '../common/alert/Alert.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -97,6 +97,18 @@
 		tempSettings.dataTables.splice(index, 1)
 	}
 
+	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
+
+	function defaultInstanceDbName(): string {
+		const usedNames = [
+			...Object.keys(customInstanceDbs.current ?? {}),
+			...tempSettings.dataTables
+				.filter((d) => d.database.resource_type === 'instance' && d.database.resource_path)
+				.map((d) => d.database.resource_path!)
+		]
+		return getUnusedInstanceDbName('dt', $workspaceStore ?? '', usedNames)
+	}
+
 	function onNewDataTable() {
 		const name = tempSettings.dataTables.some((d) => d.name === 'main')
 			? `${random_adj()}_datatable`
@@ -105,12 +117,10 @@
 			name,
 			database: {
 				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
-				resource_path: $isCustomInstanceDbEnabled ? DEFAULT_DATATABLE_DB_NAME : undefined
+				resource_path: $isCustomInstanceDbEnabled ? defaultInstanceDbName() : undefined
 			}
 		})
 	}
-
-	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
 
 	async function onSave() {
 		try {
@@ -177,6 +187,14 @@
 	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 />
 
+{#if isCloudHosted()}
+	<Alert type="info" title="Instance database not available on cloud" class="mb-4" size="xs">
+		On Windmill Cloud, data tables cannot use the Windmill instance database. Select
+		<span class="font-semibold">PostgreSQL</span> and provide an external PostgreSQL resource (e.g. Supabase
+		or Neon) instead.
+	</Alert>
+{/if}
+
 <DataTable>
 	<Head>
 		<tr>
@@ -219,7 +237,12 @@
 									{
 										value: 'instance',
 										label: 'Instance',
-										subtitle: $isCustomInstanceDbEnabled ? undefined : 'Superadmin only'
+										disabled: isCloudHosted(),
+										subtitle: $isCustomInstanceDbEnabled
+											? undefined
+											: isCloudHosted()
+												? 'Not available on cloud'
+												: 'Superadmin only'
 									}
 								]}
 								bind:value={
@@ -228,7 +251,7 @@
 										dataTable.database = {
 											resource_type,
 											resource_path:
-												resource_type === 'instance' ? DEFAULT_DATATABLE_DB_NAME : undefined
+												resource_type === 'instance' ? defaultInstanceDbName() : undefined
 										}
 									}
 								}

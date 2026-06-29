@@ -212,6 +212,9 @@ describe("loadCases", () => {
         },
       ],
     });
+    expect(caseEntry?.initialPath).toContain(
+      "ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json"
+    );
     expect(caseEntry?.toolExpect).toMatchObject({
       requiredToolsUsed: ["write_script"],
       forbiddenToolsUsed: ["deploy_workspace_item", "delete_workspace_item"],
@@ -244,6 +247,21 @@ describe("loadCases", () => {
         },
       ],
     });
+  });
+
+  it("loads global docs-search cases as tool-use checks", async () => {
+    const globalCases = await loadCases("global");
+    const docsCases = globalCases.filter((entry) =>
+      entry.id.startsWith("global-docs-"),
+    );
+    expect(docsCases.length).toBeGreaterThanOrEqual(3);
+
+    // Each docs case verifies the assistant reaches for search_docs and does not
+    // draft anything; with no draft, the global judge is skipped.
+    for (const entry of docsCases) {
+      expect(entry.skipJudge).toBe(true);
+      expect(entry.toolExpect?.requiredToolsUsed).toContain("search_docs");
+    }
   });
 
   it("loads tool expectations for workspace mutation cases", async () => {

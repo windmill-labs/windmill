@@ -165,7 +165,6 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             platform: AIPlatform::Standard,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
     }

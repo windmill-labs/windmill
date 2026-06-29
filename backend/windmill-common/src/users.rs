@@ -50,10 +50,10 @@ const EMAIL_CACHE_TTL_SECS: u64 = 60;
 /// - "u/{username}" → lookup email from usr table (cached)
 /// - "g/{group}" → "group-{group}@windmill.dev"
 /// - raw email → return as-is
-pub async fn get_email_from_permissioned_as(
+pub async fn get_email_from_permissioned_as<'c>(
     permissioned_as: &str,
     workspace_id: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: impl sqlx::PgExecutor<'c>,
 ) -> crate::error::Result<String> {
     if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
         let lookup = EmailCacheKey(workspace_id, username);

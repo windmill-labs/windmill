@@ -13,6 +13,7 @@ use windmill_api_auth::{
     ApiAuthed,
 };
 use windmill_common::{
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
@@ -33,7 +34,6 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
@@ -44,8 +44,9 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 
 use windmill_common::{
     assets::{
-        clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+        clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
+        insert_script_trigger, parse_duration_secs, parse_pipeline_annotations,
+        replace_static_asset_usage, trigger_spec_to_row, AssetUsageKind, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -82,122 +83,6 @@ use windmill_queue::{
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
-#[derive(Serialize, sqlx::FromRow)]
-pub struct ScriptWDraft<SR> {
-    pub hash: ScriptHash,
-    pub path: String,
-    pub summary: String,
-    pub description: String,
-    pub content: String,
-    pub language: ScriptLang,
-    pub kind: ScriptKind,
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
-    /// Timestamp at which the most recent DB draft was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub schema: Option<Schema>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub envs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ttl: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ignore_s3_path: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dedicated_worker: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart_unless_cancelled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_use: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_secs: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_kind: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_preprocessor: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(json(nullable))]
-    pub assets: Option<Vec<AssetWithAltAccessType>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(json(nullable))]
-    pub modules: Option<HashMap<String, ScriptModule>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<String>>,
-    #[serde(flatten)]
-    #[sqlx(flatten)]
-    pub runnable_settings: SR,
-}
-
-impl ScriptWDraft<ScriptRunnableSettingsHandle> {
-    pub async fn prefetch_cached<'a>(
-        self,
-        db: &DB,
-    ) -> error::Result<ScriptWDraft<ScriptRunnableSettingsInline>> {
-        let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                self.runnable_settings.runnable_settings_handle,
-                db,
-            )
-            .await?;
-
-        Ok(ScriptWDraft {
-            runnable_settings: ScriptRunnableSettingsInline {
-                concurrency_settings: concurrency_settings.maybe_fallback(
-                    self.runnable_settings.concurrency_key,
-                    self.runnable_settings.concurrent_limit,
-                    self.runnable_settings.concurrency_time_window_s,
-                ),
-                debouncing_settings: debouncing_settings.maybe_fallback(
-                    self.runnable_settings.debounce_key,
-                    self.runnable_settings.debounce_delay_s,
-                ),
-            },
-            hash: self.hash,
-            path: self.path,
-            summary: self.summary,
-            description: self.description,
-            content: self.content,
-            language: self.language,
-            kind: self.kind,
-            tag: self.tag,
-            draft: self.draft,
-            draft_created_at: self.draft_created_at,
-            schema: self.schema,
-            draft_only: self.draft_only,
-            envs: self.envs,
-            cache_ttl: self.cache_ttl,
-            cache_ignore_s3_path: self.cache_ignore_s3_path,
-            dedicated_worker: self.dedicated_worker,
-            ws_error_handler_muted: self.ws_error_handler_muted,
-            priority: self.priority,
-            restart_unless_cancelled: self.restart_unless_cancelled,
-            delete_after_use: self.delete_after_use,
-            delete_after_secs: self.delete_after_secs,
-            timeout: self.timeout,
-            visible_to_runner_only: self.visible_to_runner_only,
-            auto_kind: self.auto_kind,
-            has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
-            assets: self.assets,
-            modules: self.modules,
-            labels: self.labels,
-        })
-    }
-}
-
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/top", get(get_top_hub_scripts))
@@ -222,7 +107,6 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_script))
         .route("/create_snapshot", post(create_snapshot_script))
         .route("/archive/p/{*path}", post(archive_script_by_path))
-        .route("/get/draft/{*path}", get(get_script_by_path_w_draft))
         .route("/get/p/{*path}", get(get_script_by_path))
         .route("/list_tokens/{*path}", get(list_tokens))
         .route("/raw/p/{*path}", get(raw_script_by_path))
@@ -295,6 +179,7 @@ async fn list_search_scripts(
 async fn list_scripts(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
@@ -305,7 +190,7 @@ async fn list_scripts(
             "hash",
             "o.path",
             "summary",
-            "COALESCE(draft.created_at, o.created_at) as created_at",
+            "o.created_at as created_at",
             "archived",
             "extra_perms",
             if !lq.without_description.unwrap_or(false) {
@@ -317,13 +202,22 @@ async fn list_scripts(
             "language",
             "favorite.path IS NOT NULL as starred",
             "tag",
-            "draft.path IS NOT NULL as has_draft",
-            "draft_only",
             "ws_error_handler_muted",
             "auto_kind",
             "codebase IS NOT NULL as use_codebase",
             "kind",
             "o.labels",
+            "draft.email IS NOT NULL as is_draft",
+            // Canonical reference for the draft-feature comments; flows/apps point here.
+            // Per-path draft owners as a JSON array (`Json<Vec<DraftUserRef>>`); NULL -> None,
+            // never an empty array. LEFT JOIN `usr` keeps orphaned drafts (user left workspace)
+            // visible with `username = None`. In the `admins` workspace username IS the email,
+            // so fall back to `d.email` there or the authed user's own draft resolves to a phantom
+            // "Legacy workspace draft"; the genuine NULL-email legacy row stays None.
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
@@ -335,7 +229,8 @@ async fn list_scripts(
         .left()
         .join("draft")
         .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script'"
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script' AND draft.email = ?"
+                .bind(&authed.email),
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
@@ -359,10 +254,6 @@ async fn list_scripts(
         // deny-list: anything that isn't a 'lib' (library script without
         // main) is callable, including future `auto_kind` values.
         sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
-    }
-
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("draft_only IS NOT TRUE");
     }
 
     if lq.show_archived.unwrap_or(false) {
@@ -434,7 +325,7 @@ async fn list_scripts(
             .fields(&["dm.deployment_msg"]);
     }
 
-    if let Some(languages) = lq.languages {
+    if let Some(languages) = &lq.languages {
         sqlb.and_where_in(
             "language",
             &languages
@@ -447,13 +338,114 @@ async fn list_scripts(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "scripts", "read");
-    let rows = sqlx::query_as::<_, ListableScript>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
         .filter(|r| allowed(&r.path))
         .collect::<Vec<_>>();
     tx.commit().await?;
+
+    // Canonical reference for draft-only synthesis; the other kinds point here.
+    // Append the authed user's drafts at paths with no deployed script. Gated on
+    // `include_draft_only` so picker callers stay deployed-only (home page opts in);
+    // skipped past page 0 or under any narrowing filter to keep pagination clean.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.created_by.is_none()
+        && lq.first_parent_hash.is_none()
+        && lq.last_parent_hash.is_none()
+        && lq.parent_hash.is_none()
+        && lq.is_template.is_none()
+        && lq.dedicated_worker.is_none()
+        && lq.label.is_none()
+        && lq.languages.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && !lq.show_archived.unwrap_or(false)
+    {
+        // `(email = $2 OR email IS NULL)` surfaces the user's own draft-only rows plus
+        // legacy NULL-email workspace rows; `DISTINCT ON (path)` ordered `email IS NULL`
+        // last collapses a path holding both to the owned row.
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT DISTINCT ON (path)
+                      path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'script'
+                 AND (email = $2 OR email IS NULL)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM script s
+                     WHERE s.workspace_id = draft.workspace_id
+                       AND s.path = draft.path
+                 )
+               ORDER BY path, (email IS NULL)"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            let language: ScriptLang = v
+                .get("language")
+                .and_then(|x| serde_json::from_value(x.clone()).ok())
+                .unwrap_or_default();
+            let kind: ScriptKind = v
+                .get("kind")
+                .and_then(|x| serde_json::from_value(x.clone()).ok())
+                .unwrap_or(ScriptKind::Script);
+            // Scripts bind the Path widget to `script.path`, so the typed path
+            // round-trips through the draft JSON's own `path` (no `draft_path` field).
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
+            rows.push(ListableScript {
+                hash: ScriptHash(0),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                created_at: row.created_at,
+                archived: false,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                language,
+                starred: false,
+                tag: v.get("tag").and_then(|s| s.as_str()).map(|s| s.to_string()),
+                description: v
+                    .get("description")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string()),
+                draft_only: Some(true),
+                has_deploy_errors: false,
+                ws_error_handler_muted: None,
+                auto_kind: None,
+                use_codebase: false,
+                deployment_msg: None,
+                kind,
+                labels: None,
+                // Synthesized rows have no deployed row to inherit folder labels from.
+                inherited_labels: None,
+                is_draft: true,
+                draft_path,
+                // Synthesized rows are the authed user's own draft (single-user case).
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
@@ -721,7 +713,6 @@ async fn is_noop_deploy_against_parent(
         language,
         kind,
         tag,
-        draft_only,
         envs,
         concurrency_settings,
         debouncing_settings,
@@ -798,7 +789,6 @@ async fn is_noop_deploy_against_parent(
         || visible_to_runner_only != &parent.visible_to_runner_only
         || has_preprocessor != &parent.has_preprocessor
         || is_template.unwrap_or(false) != parent.is_template.unwrap_or(false)
-        || draft_only.unwrap_or(false) != parent.draft_only.unwrap_or(false)
     {
         return Ok(false);
     }
@@ -1026,20 +1016,10 @@ async fn create_script_internal<'c>(
 
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
-        (None, Some(s)) if !s.draft_only.unwrap_or(false) => Err(Error::BadRequest(format!(
+        (None, Some(s)) => Err(Error::BadRequest(format!(
             "Path conflict for {} with non-archived hash {}",
             &ns.path, &s.hash
         ))),
-        (None, Some(s)) => {
-            sqlx::query!(
-                "DELETE FROM script WHERE hash = $1 AND workspace_id = $2",
-                s.hash.0,
-                &w_id
-            )
-            .execute(&mut *tx)
-            .await?;
-            Ok(None)
-        }
         (Some(p_hash), o) => {
             // Lock the parent row to prevent concurrent updates with the same parent_hash
             // This ensures linear lineage - only one script can have a given parent at a time
@@ -1256,7 +1236,121 @@ async fn create_script_internal<'c>(
 
     let ci_test_refs =
         windmill_common::schema::parse_ci_test_annotation(&ns.content, &lang.as_comment_lit());
-    let auto_kind = if ci_test_refs.is_some() {
+    // `pipeline` wins over `test` and any client-supplied auto_kind. The
+    // bare `// pipeline` marker is the opt-in signal for pipeline
+    // membership; parsed writes tell us what is produced (we don't record
+    // them in auto_kind itself).
+    let pipeline_annotations = parse_pipeline_annotations(&ns.content);
+    // `// freshness` is parsed but enforcement is a not-yet-implemented
+    // enterprise feature (skeleton in windmill_common::pipeline_advanced).
+    // Surface a clear TODO at deploy rather than silently accepting an
+    // annotation that does nothing.
+    if pipeline_annotations.freshness.is_some() {
+        tracing::warn!(
+            "{}",
+            windmill_common::pipeline_advanced::freshness_enforcement_todo()
+        );
+    }
+    // `// materialize` materializes a `ducklake://<name>/<table>` target from a
+    // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
+    // target would otherwise deploy, register a producer in the asset graph, then
+    // silently no-op at run time (`build_materialized_query` returns `Ok(None)`),
+    // and a non-DuckDB script never reaches the executor that records state. The
+    // managed-only checks (single trailing SELECT, no SQL args) come after — a
+    // `manual` script owns its DDL and skips them.
+    if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        if ns.language != ScriptLang::DuckDb {
+            return Err(Error::BadRequest(format!(
+                "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
+                 wmll.ducklake helpers to materialize from other languages.",
+                ns.language.as_str()
+            )));
+        }
+        if m.target_kind != windmill_parser::asset_parser::AssetKind::Ducklake {
+            return Err(Error::BadRequest(
+                "`// materialize` only supports a DuckLake target \
+                 (`ducklake://<name>/<table>`); other asset kinds aren't materializable."
+                    .to_string(),
+            ));
+        }
+        if !m.target_path.contains('/') {
+            return Err(Error::BadRequest(format!(
+                "`// materialize` needs a table in the target: \
+                 `ducklake://{0}/<table>` (got `ducklake://{0}`).",
+                m.target_path
+            )));
+        }
+        if !m.manual {
+            if let Err(e) = windmill_parser::sql_materialize::classify_wrap(&ns.content) {
+                return Err(Error::BadRequest(e.message()));
+            }
+            // SQL args are supported: managed materialize strips line comments
+            // (including `-- $name (type)` declarations) when it wraps the SELECT,
+            // but the executor parses the signature from the un-wrapped script, so
+            // `$name` references in the SELECT stay bound at run time.
+        }
+        // `key=` (merge) and `append` are mutually exclusive reconciliation
+        // strategies; append (INSERT-only) wins. Surface the conflict rather
+        // than silently dropping the dedup the author may have intended.
+        if m.unique_key.is_some() && m.append {
+            tracing::warn!(
+                "script {}: both `key=` and `append` set on // materialize; append wins (INSERT-only, no dedup)",
+                ns.path
+            );
+        }
+    }
+    let in_pipeline = pipeline_annotations.in_pipeline;
+    // `// trigger all` → AND join barrier (else OR, the default).
+    let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
+    // Script-level `// debounce <dur>` default; a per-`// on debounce=`
+    // overrides it (precedence resolved per edge below).
+    let pipeline_debounce_default = pipeline_annotations.debounce_default;
+    let pipeline_triggers = pipeline_annotations.triggers;
+    // `// tag <name>` overrides the caller-supplied tag at deploy. Source
+    // wins, matching the wipe-and-reinsert convention of other pipeline
+    // annotations. Applied before the dep-job tag selection below (which
+    // special-cases dedicated_worker / bunnative / `$args[`) so that path
+    // sees the annotation-overridden value.
+    if let Some(t) = pipeline_annotations.tag.clone() {
+        ns.tag = Some(t);
+    }
+    // `// retry <count> [<delay>]` is persisted to `script_trigger` below (asset
+    // edges only) and drives native subscriber retry in the cascade: a failed
+    // subscriber re-runs as a `Script` job (not a flow step), so it stays
+    // eligible for asset dispatch and can trigger its own downstream on success.
+    // Asset presence is server-authoritative: re-parse the deployed content
+    // (same parsers the frontend wasm wraps) and union with the client list.
+    // The `asset` rows written below drive the asset-trigger cascade, so a
+    // client deploying `assets: null` (e.g. broken wasm inference) must not
+    // silently kill the producer side while `// on` subscribers stay wired.
+    let effective_assets = crate::asset_inference::effective_script_assets(
+        &ns.language,
+        &ns.content,
+        ns.assets.take(),
+    );
+    // Register the `// materialize` target as a write asset so the deployed
+    // asset graph shows this script as the producer of the managed table — the
+    // body's `SELECT` doesn't express the write (the runtime generates it), so
+    // server-side inference wouldn't otherwise link it.
+    let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        let kind = windmill_common::assets::asset_kind_from_parser(m.target_kind);
+        let mut a = effective_assets.unwrap_or_default();
+        if !a.iter().any(|x| x.kind == kind && x.path == m.target_path) {
+            a.push(windmill_common::assets::AssetWithAltAccessType {
+                path: m.target_path.clone(),
+                kind,
+                access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
+                alt_access_type: None,
+                columns: None,
+            });
+        }
+        Some(a)
+    } else {
+        effective_assets
+    };
+    let auto_kind = if in_pipeline {
+        Some("pipeline".to_string())
+    } else if ci_test_refs.is_some() {
         Some("test".to_string())
     } else {
         auto_kind
@@ -1266,6 +1360,7 @@ async fn create_script_internal<'c>(
         RunnableSettings {
             debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
             concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
+            retry_settings: None,
         },
         &db,
     )
@@ -1292,10 +1387,10 @@ async fn create_script_internal<'c>(
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+         envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
          delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
         &w_id,
         &hash.0,
         ns.path,
@@ -1311,7 +1406,6 @@ async fn create_script_internal<'c>(
         lang as ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind,
         ns.tag,
-        ns.draft_only,
         envs,
         guarded_concurrent_limit,
         guarded_concurrency_time_window_s,
@@ -1334,7 +1428,9 @@ async fn create_script_internal<'c>(
             &authed,
         ),
         validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        effective_assets
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok()),
         guarded_debounce_key,
         guarded_debounce_delay_s,
         ns.cache_ignore_s3_path,
@@ -1376,10 +1472,15 @@ async fn create_script_internal<'c>(
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         if !skip_draft_deletion {
+            // Canonical: on deploy only wipe the deployer's own draft (plus the legacy
+            // NULL-email row). Teammates' drafts are independent — they stay and fire the
+            // StaleDraftModal on the teammate's next reload rather than vanishing silently.
             sqlx::query!(
-                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+                 AND (email = $3 OR email IS NULL)",
                 p_path,
-                &w_id
+                &w_id,
+                &authed.email,
             )
             .execute(&mut *tx)
             .await?;
@@ -1463,10 +1564,14 @@ async fn create_script_internal<'c>(
             }
         }
     } else if !skip_draft_deletion {
+        // See the matching branch above — only wipe the deployer's own
+        // draft (plus the legacy NULL-email row).
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+             AND (email = $3 OR email IS NULL)",
             ns.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1563,11 +1668,86 @@ async fn create_script_internal<'c>(
         );
     }
 
-    clear_static_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
-    for asset in ns.assets.as_ref().into_iter().flatten() {
-        insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
-            .await?;
+    // Clear + reinsert this script's producer rows at script_path (== ns.path),
+    // invalidating the producer-writes cache once iff the write-producer set
+    // changed (see replace_static_asset_usage).
+    replace_static_asset_usage(
+        &mut tx,
+        &w_id,
+        &script_path,
+        effective_assets.as_deref().unwrap_or(&[]),
+    )
+    .await?;
+
+    // Pipeline trigger edges: wipe-and-reinsert per deploy so removing an
+    // `// on ...` annotation drops the edge. Only Asset / Schedule produce
+    // a row — native trigger marker annotations (`// on kafka`, etc.) are
+    // discovered by the graph endpoint directly from the per-kind trigger
+    // tables, so `trigger_spec_to_row` returns None for those.
+    clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
+    // On rename, also drop the OLD path's trigger rows. clear is keyed by
+    // path (no by-hash variant), and only `ns.path` is wiped above — without
+    // this, stale `// on` edges for the old path keep matching producers and
+    // would trigger a script later recreated at that path even if it has no
+    // annotation (P1). (Producer/asset rows for the old path are already
+    // cleared via clear_static_asset_usage_by_script_hash on the parent.)
+    if let Some(ref old) = p_path_opt {
+        if old != &ns.path {
+            clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+        }
     }
+    for spec in &pipeline_triggers {
+        let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
+            continue;
+        };
+        // Effective debounce for this edge: per-`// on debounce=` wins,
+        // else the script-level `// debounce` default. Debounce only
+        // applies to asset-cascade edges; other trigger kinds get none.
+        let debounce_s = match spec {
+            TriggerSpec::Asset { debounce: Some(d), .. } => parse_duration_secs(d),
+            TriggerSpec::Asset { .. } => pipeline_debounce_default
+                .as_deref()
+                .and_then(parse_duration_secs),
+            _ => None,
+        };
+        // `// retry` applies only to the asset cascade: a failed subscriber is
+        // re-run natively (a `Script` job, not a flow step), so it can still
+        // trigger its own downstream on success — see asset_dispatch.
+        let (retry_count, retry_delay_s) = match spec {
+            TriggerSpec::Asset { .. } => (
+                pipeline_annotations
+                    .retry
+                    .as_ref()
+                    // `// retry <count>` count is u32; saturate the narrowing to i16.
+                    .map(|r| r.count.min(i16::MAX as u32) as i16),
+                pipeline_annotations
+                    .retry
+                    .as_ref()
+                    .and_then(|r| r.delay.as_deref())
+                    .and_then(parse_duration_secs),
+            ),
+            _ => (None, None),
+        };
+        insert_script_trigger(
+            &mut *tx,
+            &w_id,
+            AssetUsageKind::Script,
+            &ns.path,
+            trigger_kind,
+            &trigger_ref,
+            pipeline_join_all,
+            debounce_s,
+            retry_count,
+            retry_delay_s,
+        )
+        .await?;
+    }
+
+    // Schedule annotations (`// on schedule`) are marker-only — the binding
+    // lives on the schedule row's own `script_path` field, which the user
+    // creates separately via the schedule editor. No script-create-time
+    // reconciliation is needed (and there are no "managed" schedules to
+    // upsert/delete anymore).
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if let Some(parent_hash) = ns.parent_hash {
@@ -1773,14 +1953,25 @@ pub async fn pick_hub_script_by_path(
     Ok::<_, Error>((status_code, headers, response))
 }
 
+// Canonical: fields inlined rather than `#[serde(flatten)]` from
+// `WithStarredInfoQuery` / `WithDraftQuery`. axum's `serde_urlencoded` extractor
+// drops type info through flatten, so `?get_draft=true` arrives as a String and
+// fails the inner bool deserializer. Inlining lets the bool adapter see it directly.
+#[derive(Deserialize)]
+struct GetScriptByPathQuery {
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
+}
+
 #[axum::debug_handler]
 async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<ScriptWithStarred<ScriptRunnableSettingsInline>> {
+    Query(query): Query<GetScriptByPathQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -1800,7 +1991,7 @@ async fn get_script_by_path(
             ORDER BY s.created_at DESC LIMIT 1",
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .bind(&authed.username)
         .fetch_optional(&mut *tx)
         .await?
@@ -1812,53 +2003,43 @@ async fn get_script_by_path(
             ),
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .fetch_optional(&mut *tx)
         .await?
     };
     tx.commit().await?;
 
-    let script = windmill_common::scripts::prefetch_cached_script_with_starred(
-        not_found_if_none(script_o, "Script", path)?,
+    // Canonical: with no deployed row and `get_draft` set, fall back to the draft
+    // table so editing a never-deployed draft works like a deployed reload.
+    let deployed = match script_o {
+        Some(script_o) => Some(
+            windmill_common::scripts::prefetch_cached_script_with_starred(script_o, &db).await?,
+        ),
+        None => None,
+    };
+    let overlay = overlay_or_draft_only(
         &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Script,
+        path,
+        query.get_draft,
+        deployed,
+        || windmill_common::error::Error::NotFound(format!("Script not found at path {path}")),
     )
     .await?;
 
-    Ok(Json(script))
+    Ok(Json(overlay))
 }
 
 async fn list_tokens(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
     let path = path.to_path();
-    list_tokens_internal(&db, &w_id, &path, false).await
-}
-
-async fn get_script_by_path_w_draft(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ScriptWDraft<ScriptRunnableSettingsInline>> {
-    let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-
-    let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, draft.created_at as draft_created_at, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
-         script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
-         WHERE script.path = $1 AND script.workspace_id = $2
-         ORDER BY script.created_at DESC LIMIT 1",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let script = not_found_if_none(script_o, "Script", path)?;
-    Ok(Json(script.prefetch_cached(&db).await?))
+    list_tokens_internal(&db, &w_id, &path, false).await
 }
 
 async fn get_script_history(
@@ -2521,18 +2702,6 @@ async fn get_deployment_status(
     Ok(Json(deployment_status))
 }
 
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return windmill_api_auth::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
-        "script",
-    )
-    .await;
-}
-
 async fn archive_script_by_path(
     authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
@@ -2572,6 +2741,10 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    // Pipeline event hygiene: an archived script must not be triggered by
+    // anything. Wipe declared `// on ...` edges (asset-event subscribers
+    // look these up).
+    clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
 
     audit_log(
         &mut *tx,
@@ -2649,6 +2822,9 @@ async fn archive_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // Pipeline event hygiene: archived scripts must not be triggered by
+    // anything. Wipe declared `// on ...` edges.
+    clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
 
     audit_log(
         &mut *tx,
@@ -2709,6 +2885,10 @@ async fn delete_script_by_hash(
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
 
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // Pipeline event hygiene: a deleted script must not be triggered by
+    // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
+    // the script was never a pipeline member.
+    clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
 
     audit_log(
         &mut *tx,
@@ -2769,18 +2949,7 @@ async fn delete_script_by_path(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let draft_only = sqlx::query_scalar!(
-        "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-
-    if !draft_only {
-        require_admin(authed.is_admin, &authed.username)?;
-    }
+    require_admin(authed.is_admin, &authed.username)?;
 
     // Capture all script versions and drafts for trashbin before deleting
     let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(
@@ -2831,6 +3000,11 @@ async fn delete_script_by_path(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Pipeline event hygiene: a deleted script must not be triggered by
+    // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
+    // the script was never a pipeline member.
+    clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(

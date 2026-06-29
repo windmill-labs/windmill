@@ -693,8 +693,6 @@ pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error
 
     let full_path = job_dir.join(&user_path);
 
-    // let normalized_job_dir = std::fs::canonicalize(job_dir)?;
-    // let normalized_full_path = std::fs::canonicalize(&full_path)?;
     let normalized_job_dir = normalize_path(job_dir);
     let normalized_full_path = normalize_path(&full_path);
 
@@ -704,6 +702,36 @@ pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error
             "Path is outside the allowed job directory.",
         )
         .into());
+    }
+
+    // The lexical check above cannot see symlinks: a symlink planted inside the
+    // job dir - e.g. by an earlier Ansible `git_repos` clone whose tracked
+    // content includes one - would let a later `git clone` or file write follow
+    // it out of the job dir while still passing the textual `starts_with` check.
+    // Walk the *normalized* relative path (`..`/`.` already collapsed) so each
+    // step matches the real on-disk resolution, and reject any existing component
+    // that is a symlink. Walking the raw user path would drift on an in-bounds
+    // `..` (e.g. `foo/../link`, which normalizes back inside the job dir) and miss
+    // the real symlinked component. Not-yet-existing components are safe: a path
+    // that does not exist cannot itself be a symlink.
+    let relative = normalized_full_path
+        .strip_prefix(&normalized_job_dir)
+        .unwrap_or(&normalized_full_path);
+    let mut current = normalized_job_dir.clone();
+    for component in relative.components() {
+        if let Component::Normal(c) = component {
+            current.push(c);
+            if std::fs::symlink_metadata(&current)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "Path traverses a symlink, which is not allowed.",
+                )
+                .into());
+            }
+        }
     }
 
     Ok(normalized_full_path)
@@ -2825,6 +2853,73 @@ mod tests {
             "temp/bak dirs leaked: {:?}",
             leftovers
         );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_is_allowed_file_location_allows_plain_relative() {
+        let base = std::env::temp_dir().join(format!("wm_allowed_loc_ok_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        let out = is_allowed_file_location(job_dir_str, "repo/sub/playbook.yml").unwrap();
+        assert_eq!(out, normalize_path(&job_dir.join("repo/sub/playbook.yml")));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_is_allowed_file_location_rejects_parent_and_absolute() {
+        let base =
+            std::env::temp_dir().join(format!("wm_allowed_loc_esc_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        assert!(is_allowed_file_location(job_dir_str, "../escape").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "a/../../escape").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "/etc/passwd").is_err());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // Regression for GHSA-v934-cvpf-6fjw: a symlink planted inside the job dir
+    // (e.g. by an earlier `git_repos` clone) must not let a later target traverse
+    // it out of the job dir, even though the lexical path stays "inside".
+    #[cfg(unix)]
+    #[test]
+    fn test_is_allowed_file_location_rejects_symlink_traversal() {
+        let base =
+            std::env::temp_dir().join(format!("wm_allowed_loc_symlink_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        // Stand-in for the shared cache dir living outside the job dir.
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        // Plant `job/repo` -> `../outside`, as a malicious first clone would.
+        let planted = job_dir.join("repo");
+        std::os::unix::fs::symlink(&outside, &planted).unwrap();
+
+        // Both the symlink itself and any path traversing it are rejected.
+        assert!(is_allowed_file_location(job_dir_str, "repo").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "repo/payload").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "repo/sub/payload").is_err());
+
+        // An in-bounds `..` must not bypass the check: `foo/../repo/payload`
+        // normalizes back to `repo/payload` and still traverses the symlink.
+        assert!(is_allowed_file_location(job_dir_str, "foo/../repo/payload").is_err());
+        std::fs::create_dir(job_dir.join("real")).unwrap();
+        assert!(is_allowed_file_location(job_dir_str, "real/../repo/payload").is_err());
+
+        // A dangling symlink (target does not exist yet) is still caught:
+        // `symlink_metadata` does not follow the link.
+        let dangling = job_dir.join("dangling");
+        std::os::unix::fs::symlink(base.join("nonexistent"), &dangling).unwrap();
+        assert!(is_allowed_file_location(job_dir_str, "dangling/payload").is_err());
 
         let _ = std::fs::remove_dir_all(&base);
     }

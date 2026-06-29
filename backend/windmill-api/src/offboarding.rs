@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::db::ApiAuthed;
+use crate::db::{ApiAuthed, OptJobAuthed};
 use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use axum::{
     extract::{Extension, Path},
     Json,
 };
 use serde::{Deserialize, Serialize};
-use windmill_api_auth::require_super_admin;
+use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin};
 use windmill_api_users::users::delete_workspace_user_internal;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -483,11 +483,13 @@ pub(crate) async fn global_offboard_preview(
 
 pub(crate) async fn offboard_global_user(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(db): Extension<DB>,
     Path(email): Path<String>,
     Json(req): Json<GlobalOffboardRequest>,
 ) -> Result<Json<OffboardResponse>> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let workspaces = sqlx::query!(
         "SELECT workspace_id, username FROM usr WHERE email = $1",
@@ -847,8 +849,8 @@ async fn offboard_user_from_workspace<'c>(
     let flows_reassigned = sqlx::query_scalar!(
         r#"WITH inserted AS (
             INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)
-            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)
+            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs
                 FROM flow
                 WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3
             RETURNING 1

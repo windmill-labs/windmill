@@ -8,6 +8,7 @@ use strum::AsRefStr;
 use crate::{
     error::{self, to_anyhow, Error, Result},
     get_database_url,
+    secret_backend::{get_secret_value, is_external_stored_value},
     utils::get_custom_pg_instance_password,
     variables::{build_crypt, decrypt},
     PgDatabase, DB,
@@ -165,7 +166,7 @@ pub enum ObjectType {
     WorkspaceDependencies,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28261/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28719/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -822,10 +823,14 @@ async fn transform_json_unchecked(
             .await
             .map_err(to_anyhow)?;
             let value = if is_secret {
-                let mc = build_crypt(&db, &w_id).await?;
-                decrypt(&mc, value).map_err(|e| {
-                    Error::internal_err(format!("Error decrypting variable {}: {}", &s, e))
-                })?
+                if is_external_stored_value(&value) {
+                    get_secret_value(db, w_id, &s[5..], &value).await?
+                } else {
+                    let mc = build_crypt(&db, &w_id).await?;
+                    decrypt(&mc, value).map_err(|e| {
+                        Error::internal_err(format!("Error decrypting variable {}: {}", &s, e))
+                    })?
+                }
             } else {
                 value
             };

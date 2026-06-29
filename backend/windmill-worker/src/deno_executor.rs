@@ -434,7 +434,11 @@ try {{
     if let Some(ref npmrc_content) = npmrc {
         if !npmrc_content.trim().is_empty() {
             write_file(job_dir, ".npmrc", npmrc_content)?;
-            write_file(job_dir, "deno.json", "{}")?;
+            // minimumDependencyAge=0 opts out of Deno's supply-chain guard that rejects
+            // npm packages published within the last ~24h. Private/internal registries
+            // routinely serve just-published versions, so the guard would break them.
+            // Older Deno ignores the unknown field, so this is safe across versions.
+            write_file(job_dir, "deno.json", r#"{"minimumDependencyAge":"0"}"#)?;
         }
     }
 
