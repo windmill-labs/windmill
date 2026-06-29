@@ -269,7 +269,9 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
 				materialize_target: materializeTarget,
 				unsaved: true,
-				aiPending: d.aiPending
+				aiPending: d.aiPending,
+				// No deployed runnable for this path → the proposal is a new node.
+				aiPendingKind: d.aiPending ? 'added' : undefined
 			})
 		} else {
 			// Refresh annotation-derived badges from the live parse too, so
@@ -282,7 +284,10 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
 				materialize_target: materializeTarget,
 				unsaved: true,
-				aiPending: d.aiPending
+				aiPending: d.aiPending,
+				// A deployed runnable already exists at this path → the proposal
+				// edits it (re-edit of a deployed script, or the save→refetch race).
+				aiPendingKind: d.aiPending ? 'modified' : undefined
 			}
 		}
 		// Output asset(s): three-tier resolution.

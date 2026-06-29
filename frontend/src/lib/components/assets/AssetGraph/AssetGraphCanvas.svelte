@@ -390,6 +390,7 @@
 					retry: r.retry,
 					unsaved: r.unsaved ?? false,
 					aiPending: r.aiPending ?? false,
+					aiPendingKind: r.aiPendingKind,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits
 					// flows). The run button mirrors the asset-node affordance:

@@ -54,6 +54,12 @@ export interface AssetGraphRunnableNode {
 	// Rendered with an accent ring so AI proposals read as distinct from a
 	// plain unsaved (manual) draft, mirroring the flow editor's pending diff.
 	aiPending?: boolean
+	// For an `aiPending` node, whether the proposal ADDS a node that isn't
+	// deployed ('added', green diff) or MODIFIES one that already is ('modified',
+	// amber diff). Drives the add/change diff coloring so the Accept/Reject review
+	// reads at a glance. There is no 'removed' kind: the AI never deletes a
+	// deployed node (remove_pipeline_node only un-stages a pending proposal).
+	aiPendingKind?: 'added' | 'modified'
 }
 
 // Lineage edge from parsed r/w usages — informational only, not the

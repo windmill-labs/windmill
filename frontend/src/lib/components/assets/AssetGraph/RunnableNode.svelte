@@ -44,9 +44,12 @@
 			// persisted). Same convention as `unsaved` on triggers/edges.
 			unsaved?: boolean
 			// True for a draft staged by the AI chat awaiting Accept/Reject —
-			// rendered with an accent ring so AI proposals read distinctly from a
-			// plain unsaved draft (mirrors the flow editor's pending diff).
+			// rendered with a diff-colored ring so AI proposals read distinctly from
+			// a plain unsaved draft (mirrors the flow editor's pending diff).
 			aiPending?: boolean
+			// 'added' (new node, green) vs 'modified' (edits a deployed node,
+			// amber) — the diff color of the pending proposal.
+			aiPendingKind?: 'added' | 'modified'
 			// Page-supplied dispatch that runs THIS node (saved → runScriptByPath,
 			// unsaved → runScriptPreview with the locally-cached draft content).
 			// Wired only for script runnables — flows are ignored upstream. When
@@ -90,7 +93,9 @@
 	let Icon = $derived(data.runnable_kind === 'flow' ? GitBranch : Code2)
 	let nodeTooltip = $derived(
 		data.aiPending
-			? `${data.path} (AI proposal — review on the canvas)`
+			? `${data.path} (AI proposal — ${
+					data.aiPendingKind === 'modified' ? 'edits a deployed node' : 'new node'
+				}; review on the canvas)`
 			: data.unsaved
 				? `${data.path} (unsaved draft)`
 				: data.in_pipeline
@@ -156,7 +161,12 @@
 			'bg-surface border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500',
 			selected && 'bg-surface-accent-selected border-border-selected',
 			data.unsaved && 'border-2 border-dashed border-gray-400 dark:border-gray-500',
-			data.aiPending && 'border-2 border-dashed border-blue-400 ring-2 ring-blue-300/60'
+			// Diff coloring: an added node rings green, an edited (already-deployed)
+			// node rings amber — so the Accept/Reject review reads at a glance.
+			data.aiPending &&
+				(data.aiPendingKind === 'modified'
+					? 'border-2 border-dashed border-amber-400 ring-2 ring-amber-300/60'
+					: 'border-2 border-dashed border-emerald-400 ring-2 ring-emerald-300/60')
 		)}
 		style="width: {NODE.width}px; min-height: {NODE.height}px;"
 		title={nodeTooltip}
@@ -204,6 +214,23 @@
 			>
 				<RotateCw size={10} />
 				<span class="text-3xs leading-none">×{r.count}</span>
+			</div>
+		{/if}
+		{#if data.aiPending}
+			<div
+				class={twMerge(
+					'shrink-0 flex items-center px-1 py-0.5 mr-1 rounded-sm',
+					data.aiPendingKind === 'modified'
+						? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+						: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+				)}
+				title={data.aiPendingKind === 'modified'
+					? 'AI proposal — edits a deployed node (pending Accept/Reject)'
+					: 'AI proposal — new node (pending Accept/Reject)'}
+			>
+				<span class="text-3xs leading-none font-medium"
+					>{data.aiPendingKind === 'modified' ? 'edited' : 'new'}</span
+				>
 			</div>
 		{/if}
 		{#if data.runState}

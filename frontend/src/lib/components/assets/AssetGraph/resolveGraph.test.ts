@@ -93,6 +93,29 @@ describe('resolveGraph', () => {
 		})
 	})
 
+	it('aiPending draft with no deployed runnable is tagged added (green diff)', () => {
+		const drafts = new Map([['f/x/new', { script: { content: '' }, aiPending: true }]])
+		const r = resolveGraph(input({ drafts }))
+		const node = r.runnables.find((n) => n.path === 'f/x/new')
+		expect(node?.aiPending).toBe(true)
+		expect(node?.aiPendingKind).toBe('added')
+	})
+
+	it('aiPending draft over a deployed runnable is tagged modified (amber diff)', () => {
+		const base = baseGraph({ runnables: [{ path: 'f/x/prod', usage_kind: 'script' }] })
+		const drafts = new Map([['f/x/prod', { script: { content: '' }, aiPending: true }]])
+		const r = resolveGraph(input({ base, drafts }))
+		const node = r.runnables.find((n) => n.path === 'f/x/prod')
+		expect(node?.aiPending).toBe(true)
+		expect(node?.aiPendingKind).toBe('modified')
+	})
+
+	it('a plain (non-AI) draft carries no aiPendingKind', () => {
+		const drafts = new Map([['f/x/d', { script: { content: '' } }]])
+		const r = resolveGraph(input({ drafts }))
+		expect(r.runnables.find((n) => n.path === 'f/x/d')?.aiPendingKind).toBeUndefined()
+	})
+
 	it('draft: outputAssets snapshot wins over the static outputAsset', () => {
 		const drafts = new Map([
 			[
