@@ -2,16 +2,25 @@ use sqlx::{Pool, Postgres};
 use windmill_common::worker::{
     DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
 };
+use windmill_common::workspaces::WM_FORK_PREFIX;
 
 const FORK_PARENT_CACHE_TTL_SECS: u64 = 300;
 
 lazy_static::lazy_static! {
     // Cache of fork workspace id -> (parent_workspace_id, cached_at).
-    // `parent_workspace_id` is essentially immutable once a fork is created, so a multi-minute TTL
-    // is safe. `None` means the lookup found no parent (or the DB call failed); we still cache it
-    // briefly so that forks missing a parent do not hammer the DB.
+    // `parent_workspace_id` is stable for the lifetime of a fork EXCEPT across attach/detach of a
+    // dev workspace, which set/keep it; those paths call `invalidate_fork_parent_cache` so routing
+    // doesn't lag. `None` means the lookup found no parent (or the DB call failed); we still cache
+    // it briefly so that forks missing a parent do not hammer the DB.
     static ref FORK_PARENT_CACHE: quick_cache::sync::Cache<String, (Option<String>, std::time::Instant)> =
         quick_cache::sync::Cache::new(500);
+}
+
+/// Drop the cached fork->parent mapping for a workspace. Call after mutating `parent_workspace_id`
+/// (attaching/detaching a dev workspace) so per-workspace job tags resolve to the new parent
+/// immediately instead of after the cache TTL.
+pub fn invalidate_fork_parent_cache(workspace_id: &str) {
+    FORK_PARENT_CACHE.remove(workspace_id);
 }
 
 /// Returns `Some(effective_workspace_tag_id)` if jobs of `workspace_id` should use workspace-
@@ -29,7 +38,9 @@ pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Optio
     // parent_workspace_id). The lookup caches its `None` result, so non-forks stay cheap after warmup
     // (and the common case is already short-circuited by the global toggle above).
     let parent = lookup_fork_parent(workspace_id, db).await;
-    let is_fork = parent.is_some();
+    // A `wm-fork-` workspace can outlive its parent (the FK is `ON DELETE SET NULL`), so keep
+    // treating the prefix as fork-ness for the `-fork` suffix even when the parent link is gone.
+    let is_fork = parent.is_some() || workspace_id.starts_with(WM_FORK_PREFIX);
     let effective_ws_id: String = parent.unwrap_or_else(|| workspace_id.to_string());
 
     // Whitelist check is against the resolved (parent) id so that including a parent in the

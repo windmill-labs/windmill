@@ -95,6 +95,8 @@
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
 		// Don't offer the option if the fork is gone or not user-accessible.
 		if (!ws || !ws.parent_workspace_id) return undefined
+		// A persistent dev workspace is not an ephemeral session fork — never offer to delete it.
+		if (ws.is_dev_workspace) return undefined
 		return wsId
 	})
 

@@ -96,7 +96,10 @@
 		!isRuleActiveInRulesets(rootRulesets, 'DisableWorkspaceForking') ||
 			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', $userStore)
 	)
-	const rootDisabled = $derived(!!devOfRoot && !canDeployRoot)
+	// Keep the root disabled while its rules are still being fetched: until they resolve `rootRulesets`
+	// is empty and `canDeployRoot` defaults to true, which would briefly show a locked root as
+	// selectable.
+	const rootDisabled = $derived(!!devOfRoot && (rootRulesetsResource.loading || !canDeployRoot))
 
 	// Structural gate: hidden on cloud, in the admins workspace, or when the user
 	// can't fork. DisableWorkspaceForking on the active workspace (a locked prod)
@@ -122,6 +125,10 @@
 	const forkAffordanceOpen = $derived(allowCreateFork && forksGateOpen && !!onCreateFork && !!root)
 	const showCreateFork = $derived(forkAffordanceOpen && !ceWorkspaceCapReached)
 	const showForkUpsell = $derived(forkAffordanceOpen && ceWorkspaceCapReached)
+	// Whether the second "Fork from <root>" create entry is shown (admins can fork the prod root
+	// directly even when the default entry forks the dev). Mirrors its render condition so keyboard
+	// nav and the row index math stay in sync.
+	const hasCreateFromRoot = $derived(showCreateFork && canForkRoot && !!devOfRoot)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
@@ -135,9 +142,14 @@
 	// Manual keyboard navigation, modelled after SelectDropdown. melt's
 	// menu API couples Enter/Space to closing the menu, which we explicitly
 	// don't want for the "Create new fork" row — it swaps to inline input.
-	type NavRow = { kind: 'create' } | { kind: 'root'; id: string } | { kind: 'fork'; id: string }
+	type NavRow =
+		| { kind: 'create' }
+		| { kind: 'create-from-root' }
+		| { kind: 'root'; id: string }
+		| { kind: 'fork'; id: string }
 	const navRows = $derived<NavRow[]>([
 		...(showCreateFork ? [{ kind: 'create' as const }] : []),
+		...(hasCreateFromRoot ? [{ kind: 'create-from-root' as const }] : []),
 		...(root ? [{ kind: 'root' as const, id: root.id }] : []),
 		...forks.map((f) => ({ kind: 'fork' as const, id: f.id }))
 	])
@@ -149,6 +161,8 @@
 	function activateRow(row: NavRow) {
 		if (row.kind === 'create') {
 			void enterCreateMode()
+		} else if (row.kind === 'create-from-root') {
+			void enterCreateMode(undefined, true)
 		} else if (row.kind === 'root') {
 			if (!rootDisabled) void pick(row.id)
 		} else if (row.kind === 'fork') {
@@ -339,10 +353,12 @@
 						<Plus size={14} class="shrink-0 text-tertiary" />
 						<span>{createForkLabel}</span>
 					</button>
-					{#if canForkRoot && devOfRoot}
+					{#if hasCreateFromRoot}
+						{@const createFromRootIdx = 1}
 						<button
 							type="button"
-							class={`${rowBase} hover:bg-surface-hover`}
+							class={`${rowBase} ${keyArrowPos === createFromRootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+							onmouseenter={() => (keyArrowPos = createFromRootIdx)}
 							onclick={() => enterCreateMode(undefined, true)}
 						>
 							<Plus size={14} class="shrink-0 text-tertiary" />
@@ -366,7 +382,7 @@
 			{/if}
 
 			{#if root}
-				{@const rootIdx = showCreateFork ? 1 : 0}
+				{@const rootIdx = (showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0)}
 				<button
 					type="button"
 					disabled={rootDisabled}
@@ -383,7 +399,8 @@
 				</button>
 			{/if}
 			{#each forks as f, fi (f.id)}
-				{@const forkIdx = (showCreateFork ? 1 : 0) + (root ? 1 : 0) + fi}
+				{@const forkIdx =
+					(showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0) + (root ? 1 : 0) + fi}
 				<button
 					type="button"
 					class={`${rowBase} ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}

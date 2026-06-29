@@ -64,24 +64,20 @@ pub(crate) async fn change_workspace_id(
         old_id, rw.new_id
     );
 
-    // Create new workspace with new id and name. A fork that keeps a wm-fork-
-    // id must carry its parent_workspace_id over, otherwise it becomes a
-    // parentless "fork of nothing" with no source to compare or merge against.
-    // A non-fork target id means the workspace is being promoted out of a fork,
-    // so the parent pointer is intentionally cleared.
+    // Create new workspace with new id and name. Fork lineage is preserved from the source row's
+    // own parent_workspace_id, not inferred from the new id's prefix: a prefix-less fork (a dev or
+    // detached-dev workspace) would otherwise be silently promoted to a root workspace on rename,
+    // dropping the link it needs to compare/merge against its parent. Promoting out of a fork is a
+    // separate, explicit action — a rename never does it implicitly. The dev flag itself isn't
+    // carried (the row downgrades to an ordinary fork; re-attach to restore the dev designation).
     info!("Creating new workspace row");
-    // A dev workspace is a prefix-less fork, so the wm-fork- check alone would
-    // drop its parent on rename and orphan it from its prod. Keep the parent for
-    // dev workspaces too (the dev flag itself isn't carried — it downgrades to an
-    // ordinary fork, re-attach to restore it).
-    let old_is_dev_workspace = sqlx::query_scalar!(
-        "SELECT is_dev_workspace FROM workspace WHERE id = $1",
+    let new_is_fork = sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
         &old_id
     )
     .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(false);
-    let new_is_fork = rw.new_id.starts_with(WM_FORK_PREFIX) || old_is_dev_workspace;
     sqlx::query!(
         "INSERT INTO workspace (id, name, owner, deleted, premium, parent_workspace_id)
          SELECT $1, $2, owner, false, premium,
@@ -744,7 +740,7 @@ pub(crate) async fn delete_workspace(
         _ => Ok(w_id),
     }?;
 
-    let is_fork = workspace_has_parent(&db, &w_id).await?;
+    let is_fork = workspace_is_fork(&db, &w_id).await?;
     if dwq.only_delete_forks.unwrap_or(false) && !is_fork {
         return Err(Error::BadRequest(
             "Cannot delete this workspace because it is not a workspace fork.".to_string(),
@@ -931,6 +927,16 @@ pub(crate) async fn delete_workspace(
     .execute(&mut *tx)
     .await?;
 
+    // Downgrade any child dev workspace before the delete: the FK is ON DELETE SET NULL, so the
+    // child's parent_workspace_id is about to become NULL, which would violate the
+    // is_dev_workspace -> has-parent invariant. The child survives as an ordinary orphaned fork.
+    sqlx::query!(
+        "UPDATE workspace SET is_dev_workspace = false WHERE parent_workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -968,7 +974,7 @@ pub async fn drop_forked_datatable_databases(
     Json(req): Json<DropForkedDatatableDatabasesRequest>,
 ) -> Result<Json<Vec<String>>> {
     // Same permission check as delete_workspace: fork owner or super admin
-    let is_fork = workspace_has_parent(&db, &w_id).await?;
+    let is_fork = workspace_is_fork(&db, &w_id).await?;
     let mut tx = db.begin().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
         require_super_admin(&db, &authed.email).await?;
@@ -1116,9 +1122,15 @@ async fn is_workspace_owner(
     Ok(owner.map(|o| o == authed.email).unwrap_or(false))
 }
 
-/// Whether a workspace is a fork or dev workspace (both set `parent_workspace_id`). Used to gate
-/// owner-self-delete, which is permitted for forks/dev workspaces but requires superadmin otherwise.
-async fn workspace_has_parent(db: &DB, w_id: &str) -> Result<bool> {
+/// Whether a workspace is a fork or dev workspace. Both forks and dev workspaces set
+/// `parent_workspace_id`, but a `wm-fork-` workspace can outlive its parent (the FK is
+/// `ON DELETE SET NULL`), so also treat the prefix as fork-ness — otherwise an orphaned fork would
+/// lose owner-self-delete. Used to gate owner-self-delete, which is permitted for forks/dev
+/// workspaces but requires superadmin otherwise.
+async fn workspace_is_fork(db: &DB, w_id: &str) -> Result<bool> {
+    if w_id.starts_with(WM_FORK_PREFIX) {
+        return Ok(true);
+    }
     Ok(sqlx::query_scalar!(
         r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
         w_id

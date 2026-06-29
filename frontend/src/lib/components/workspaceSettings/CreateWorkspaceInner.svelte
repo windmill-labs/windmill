@@ -60,14 +60,15 @@
 	// The dev-workspace option is only offered when forking a root workspace that doesn't already
 	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
 	let existingDevWorkspace = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
+	let currentWorkspaceEntry = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+	// Require the current workspace to be loaded before treating it as a root: a missing entry must
+	// not read as root (it would offer invalid dev creation while the workspace list is still loading).
 	let currentIsRoot = $derived(
-		!$userWorkspaces.find((w) => w.id === $workspaceStore)?.parent_workspace_id
+		!!currentWorkspaceEntry && !currentWorkspaceEntry.parent_workspace_id
 	)
 	let canDesignateDevWorkspace = $derived(currentIsRoot && !existingDevWorkspace)
 	let currentWorkspaceName = $derived(
-		$userWorkspaces.find((w) => w.id === $workspaceStore)?.name ??
-			$workspaceStore ??
-			'the root workspace'
+		currentWorkspaceEntry?.name ?? $workspaceStore ?? 'the root workspace'
 	)
 
 	let id = $state('')

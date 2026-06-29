@@ -9,6 +9,7 @@
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink } from 'lucide-svelte'
 
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
@@ -31,6 +32,11 @@
 
 	async function refresh() {
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		// Attach/detach changes this (root) workspace's protection rules; reload them so the
+		// direct-deploy / forking lock UI reflects the change without a workspace switch or reload.
+		if ($workspaceStore) {
+			await loadProtectionRules($workspaceStore)
+		}
 	}
 
 	async function attach() {

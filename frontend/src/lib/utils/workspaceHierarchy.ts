@@ -105,14 +105,17 @@ export function isRootWorkspace(workspace: UserWorkspace): boolean {
 }
 
 /**
- * Whether a workspace (by id) is a fork or dev workspace. Both set `parent_workspace_id`, so this is
- * the prefix-independent way to detect fork-ness (a dev workspace has no `wm-fork-` id prefix).
+ * Whether a workspace (by id) is a fork or dev workspace. Forks and dev workspaces both set
+ * `parent_workspace_id` (a dev workspace has no `wm-fork-` id prefix), but a `wm-fork-` workspace can
+ * outlive its parent (the parent FK is `ON DELETE SET NULL`), so treat the prefix as fork-ness too —
+ * otherwise an orphaned fork would lose its fork-only affordances (e.g. owner self-delete).
  */
 export function workspaceIsFork(
 	workspaceId: string | undefined,
 	allWorkspaces: UserWorkspace[]
 ): boolean {
 	if (!workspaceId) return false
+	if (workspaceId.startsWith('wm-fork-')) return true
 	return allWorkspaces.find((w) => w.id === workspaceId)?.parent_workspace_id != null
 }
 

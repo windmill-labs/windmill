@@ -1,6 +1,12 @@
 import { base } from '$lib/base'
 import { get } from 'svelte/store'
-import { userWorkspaces, workspaceStore, type UserWorkspace, type UserExt } from '$lib/stores'
+import {
+	userStore,
+	userWorkspaces,
+	workspaceStore,
+	type UserWorkspace,
+	type UserExt
+} from '$lib/stores'
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 import { isRuleActive, canUserBypassRuleKind } from '$lib/workspaceProtectionRules.svelte'
 
@@ -8,8 +14,10 @@ type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
 
 /**
  * Whether to show the "edit in fork / dev workspace" affordance. Allowed when forking isn't disabled,
- * OR when the current workspace has a canonical dev to route to — routing into an existing dev
- * workspace creates no fork, so it survives a locked prod that has `DisableWorkspaceForking` set.
+ * when the user can bypass the forking rule (workspace admins, mirroring `canCreateFork`), OR when the
+ * current workspace has a canonical dev to route to — routing into an existing dev workspace creates
+ * no fork, so it survives a locked prod that has `DisableWorkspaceForking` set. User identity is read
+ * non-reactively (it's stable within a session); reactivity comes from the workspace args.
  */
 export function editInForkAllowed(
 	currentWorkspaceId: string | undefined,
@@ -17,6 +25,7 @@ export function editInForkAllowed(
 ): boolean {
 	return (
 		!isRuleActive('DisableWorkspaceForking') ||
+		canUserBypassRuleKind('DisableWorkspaceForking', get(userStore)) ||
 		!!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
 	)
 }

@@ -109,12 +109,17 @@
 	const isPinned = (kind: string, path: string) =>
 		pinnedItems.some((it) => it.item_kind === kind && it.path === path)
 
+	// Bumped on each load so a response that resolves after the compared pair
+	// changed can't overwrite the newer pair's items.
+	let pinnedReqSeq = 0
 	async function loadPinned() {
+		const seq = ++pinnedReqSeq
 		try {
 			const [cur, par] = await Promise.all([
 				WorkspaceService.listWsSpecific({ workspace: currentWorkspaceId }),
 				WorkspaceService.listWsSpecific({ workspace: parentWorkspaceId })
 			])
+			if (seq !== pinnedReqSeq) return
 			const map = new Map<string, PinnedItem>()
 			for (const it of [...cur, ...par]) map.set(`${it.item_kind}:${it.path}`, it)
 			pinnedItems = [...map.values()].sort((a, b) =>

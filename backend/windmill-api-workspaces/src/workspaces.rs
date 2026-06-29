@@ -4972,6 +4972,9 @@ async fn create_workspace_fork_branch(
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
         ensure_dev_parent_is_root(&db, &w_id).await?;
+        // Reject before creating any git branch if the parent already has a dev workspace,
+        // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
+        ensure_no_existing_dev_workspace(&db, &w_id).await?;
     } else {
         validate_fork_workspace_id(&nw.id)?;
     }
@@ -5388,6 +5391,10 @@ async fn attach_dev_workspace(
     )
     .await?;
     tx.commit().await?;
+
+    // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
+    // so per-workspace job tags route to the prod family immediately rather than after the TTL.
+    windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
 
     if req.lock_prod_deploy || req.lock_prod_forking {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
