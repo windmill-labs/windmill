@@ -648,6 +648,9 @@
 		hubReadme = hubReadme.trim()
 		const workspace = $workspaceStore
 		if (!workspace) return
+		// Capture the load sequence: a workspace switch during the draft request
+		// bumps it (and resets selectedItems/relevantTriggers to the new workspace).
+		const seq = workspaceLoadSeq
 		try {
 			const res = await fetch(`/api/w/${workspace}/hub/publish_draft${folderQs()}`, {
 				method: 'POST',
@@ -674,6 +677,12 @@
 			} catch {}
 			if (!returnedSlug) {
 				sendUserToast(`Hub did not return a slug. Aborting publish to avoid path drift.`, true)
+				return
+			}
+			// Workspace switched mid-request: publishing now would push the new
+			// workspace's items/triggers into the old workspace's Hub draft. Abort.
+			if (workspaceLoadSeq !== seq) {
+				sendUserToast(`Workspace changed during publish — aborted to avoid mixing items.`, true)
 				return
 			}
 			effectiveSlug = returnedSlug

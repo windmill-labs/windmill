@@ -204,10 +204,13 @@
 	}
 
 	async function install() {
-		// Snapshot: `workspace` is $derived, so a mid-import switch would split items.
+		// Snapshot reactive state up-front: `workspace` ($derived) and `data`
+		// ($state, replaced by load()) can both change mid-import on a workspace
+		// switch, which would split items or mix two exports. Pin both.
 		const workspace = $workspaceStore
-		if (!data || !workspace) return
-		const folder = folderName.trim() || data.project.slug
+		const exportData = data
+		if (!exportData || !workspace) return
+		const folder = folderName.trim() || exportData.project.slug
 		installing = true
 		results = []
 		done = false
@@ -216,7 +219,7 @@
 				await FolderService.createFolder({ workspace, requestBody: { name: folder } })
 			} catch {}
 
-			const proj = retarget(data, data.project.slug, folder)
+			const proj = retarget(exportData, exportData.project.slug, folder)
 			for (const s of proj.scripts) {
 				await record(
 					s.path,
