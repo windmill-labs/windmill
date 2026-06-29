@@ -163,10 +163,8 @@
 	let workspaceTriggers = $state<WorkspaceTrigger[]>([])
 	let triggersLoading = $state(false)
 	let workspaceLoadSeq = 0
-	// Per-invocation token for loadTriggers: a license-late reload reuses the same
-	// workspaceLoadSeq as the original license-less load, so the workspace guard
-	// alone can't stop a slow earlier request from overwriting a newer one. Only
-	// the latest trigger load (highest token) is allowed to assign.
+	// Per-call token: a license-late reload reuses workspaceLoadSeq, so only the
+	// latest loadTriggers (highest token) may assign — a slow earlier one is dropped.
 	let triggerLoadSeq = 0
 	// Guards the reset+reload effect so a spurious same-value workspace-store emit
 	// (e.g. a layout re-render) doesn't wipe state or close an open drawer.
@@ -346,9 +344,8 @@
 		const tok = ++triggerLoadSeq
 		triggersLoading = true
 		try {
-			// Kafka, NATS, SQS, GCP and Azure triggers are EE-only — calling them on CE
-			// just floods the console with 404s, so skip them without a license. The
-			// others (http, websocket, schedule, postgres, mqtt, email) exist on CE.
+			// Kafka/NATS/SQS/GCP/Azure are EE-only (404 on CE) — skip without a license.
+			// http/websocket/schedule/postgres/mqtt/email exist on CE.
 			const safeList = async <T,>(p: Promise<T[]>): Promise<T[]> => {
 				try {
 					return await p
@@ -482,11 +479,9 @@
 		}
 	})
 
-	// The EE license hydrates asynchronously. If it lands after loadTriggers
-	// already ran license-less, the EE trigger kinds (kafka/nats/sqs/gcp/azure)
-	// would stay empty until the workspace/folder changes. Re-fetch triggers on
-	// the false→true transition. Initialized from the current value so a license
-	// already present at mount doesn't trigger a redundant reload.
+	// The EE license hydrates async; if it lands after a license-less loadTriggers,
+	// EE kinds stay empty until the workspace changes. Re-fetch on false→true.
+	// Seeded from the current value to avoid a redundant reload when already present.
 	let prevHadLicense = !!$enterpriseLicense
 	$effect(() => {
 		const hasLicense = !!$enterpriseLicense
@@ -1105,9 +1100,8 @@
 		return results.reduce((a: number, b) => a + b, 0)
 	}
 
-	// `workspace` is captured by the caller (confirmBundle) before the draft is
-	// created, so the whole deploy runs against the same workspace the Hub draft's
-	// source_id was bound to — a workspace switch mid-deploy can't split items.
+	// `workspace` is captured by confirmBundle before the draft is created, so the
+	// deploy stays bound to the draft's source_id — a mid-deploy switch can't split.
 	async function deployAll(workspace: string) {
 		const slug = hubSlug
 		// Snapshot the selection up-front so a workspace switch mid-deploy can't

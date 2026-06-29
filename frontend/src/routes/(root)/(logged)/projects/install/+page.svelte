@@ -100,12 +100,10 @@
 	// Minimal non-public policy for re-created apps.
 	const defaultPolicy = { execution_mode: 'publisher', triggerables_v2: {} } as any
 
-	// Trigger kinds that require an Enterprise license. The others (http,
-	// websocket, postgres, mqtt, email) are available on CE. `schedule` is
-	// handled separately because it has a distinct request-body shape.
+	// EE-only kinds; the rest (http, websocket, postgres, mqtt, email) work on CE.
 	const EE_TRIGGER_KINDS = new Set(['kafka', 'nats', 'sqs', 'gcp', 'azure'])
 
-	// Non-schedule trigger creators, keyed by kind.
+	// Non-schedule trigger creators, keyed by kind (schedule has its own body shape).
 	const TRIGGER_CREATE: Record<string, (workspace: string, requestBody: any) => Promise<unknown>> =
 		{
 			http: (workspace, requestBody) =>
@@ -194,9 +192,7 @@
 	}
 
 	async function install() {
-		// Snapshot the target workspace once: the module-level `workspace` is
-		// reactive ($derived), so a workspace switch mid-import would otherwise
-		// split items across workspaces (folder in A, later items in B).
+		// Snapshot: `workspace` is $derived, so a mid-import switch would split items.
 		const workspace = $workspaceStore
 		if (!data || !workspace) return
 		const folder = folderName.trim() || data.project.slug
@@ -334,10 +330,8 @@
 							Promise.reject(new Error(`trigger kind '${t.kind}' requires Enterprise`))
 						)
 					} else {
-						// `config` carries only kind-specific fields (publish strips path/
-						// script_path/is_flow/enabled/summary), so the explicit fields win.
-						// `mode: 'disabled'` imports the trigger disabled (non-schedule
-						// triggers use `mode`, not the deprecated `enabled` flag).
+						// `config` holds only kind-specific fields; explicit fields win.
+						// `mode: 'disabled'` imports it disabled (non-schedule uses `mode`).
 						const requestBody = {
 							...(t.config ?? {}),
 							path: t.path,

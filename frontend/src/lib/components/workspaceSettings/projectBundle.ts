@@ -292,9 +292,8 @@ export async function buildProjectBundle(
 		if (classifyPath(p, slug) !== 'hub') resourcePaths.add(p)
 	}
 
-	// Dedup/index by `${kind}:${path}`, not bare path: Windmill allows distinct
-	// item kinds (script vs flow) at the same path, and keying by path alone would
-	// silently drop one of them from the bundle.
+	// Key by `${kind}:${path}`, not bare path: a script and flow can share a path,
+	// and keying by path alone would silently drop one.
 	const refKey = (kind: string, path: string) => `${kind}:${path}`
 
 	// Refs at the same BFS depth are independent: fetch each level concurrently.
