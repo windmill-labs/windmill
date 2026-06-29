@@ -115,6 +115,21 @@
 	// `pe.*` throughout; the persistence / graph / run logic below stays here.
 	const pe = new PipelineEditorState()
 
+	// The in-app folder switcher navigates same-route (`/pipeline/<other>`), which
+	// reuses this page component — nothing remounts. Mirror the session preview's
+	// retarget guard: reset the editor state on a folder change so folder A's drafts
+	// don't display under B (and aren't autosaved into B's bundle), and so
+	// hydratedFromDb flips back to false and B's draft bundle re-hydrates.
+	$effect(() => {
+		const f = folder
+		untrack(() => {
+			if (pe.folder !== f) {
+				if (pe.folder !== undefined) pe.reset()
+				pe.folder = f
+			}
+		})
+	})
+
 	// Page mode, URL-addressable via `?mode=`. No param = view (the
 	// default): deployed-only graph focused on past/live executions.
 	// Operators are clamped to view — the derived ignores a hand-typed

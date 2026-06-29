@@ -158,10 +158,25 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 		},
 		proposeNode: async ({ path, language, content, outputKind }) => {
 			deps.ensureEditable?.()
+			// build_pipeline_node creates a NEW node in the OPEN folder. Reject a path
+			// outside the folder (it would silently stage into this folder's bundle)
+			// and a path that collides with an existing node (the model should use
+			// edit_pipeline_node instead of shadowing a deployed node as a draft).
+			const folder = deps.getFolder()
+			if (folder && !path.startsWith(`f/${folder}/`)) {
+				throw new Error(
+					`build_pipeline_node must use a path in the open folder — under 'f/${folder}/' (got '${path}').`
+				)
+			}
 			const drafts = deps.getDrafts()
 			if (drafts.has(path)) {
 				throw new Error(
 					`A draft already exists at '${path}'. Use edit_pipeline_node to change it instead.`
+				)
+			}
+			if (deps.getResolvedGraph().runnables.some((r) => r.path === path)) {
+				throw new Error(
+					`A pipeline node already exists at '${path}'. Use edit_pipeline_node to change it instead.`
 				)
 			}
 			const inferred = await inferOutputAssets(language, content)

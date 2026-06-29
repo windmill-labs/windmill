@@ -95,15 +95,20 @@
 				} catch {
 					// Node not deployed yet → no "before" (renders as added).
 				}
-				const key = `script/${nodePath}`
-				pipelineNodeValues[key] = { before, after }
 				const rel = nodePath.startsWith(`${folder}/`) ? nodePath.slice(folder.length + 1) : nodePath
+				// Nest under the bundle folder (`…/data_pipeline/<node>`) so the nodes
+				// group as the pipeline's subitems in the tree.
+				const displayPath = `${bundlePath}/${rel}`
+				// A pipeline node shares `script/<nodePath>` with a standalone script
+				// draft at the same path, so identify the row by its distinct
+				// bundle-nested path — `path` stays the real node for the edit link.
+				const key = `pipeline:${displayPath}`
+				pipelineNodeValues[key] = { before, after }
 				out.push({
 					kind: 'script',
 					path: nodePath,
-					// Nest under the bundle folder (`…/data_pipeline/<node>`) so the nodes
-					// group as the pipeline's subitems in the tree.
-					displayPath: `${bundlePath}/${rel}`,
+					displayPath,
+					key,
 					summary: d?.script?.summary || undefined,
 					status: before ? 'modified' : 'added'
 				})
@@ -162,8 +167,9 @@
 
 	async function loadValues(d: DiffRow): Promise<{ before: unknown; after: unknown }> {
 		// Exploded pipeline-node rows carry their content from the bundle, not a
-		// per-item draft endpoint.
-		const pipelineNode = pipelineNodeValues[`${d.kind}/${d.path}`]
+		// per-item draft endpoint — keyed by the row's unique `key` so a standalone
+		// script draft at the same path can't read a node's cached value.
+		const pipelineNode = d.key ? pipelineNodeValues[d.key] : undefined
 		if (pipelineNode) return { before: pipelineNode.before, after: pipelineNode.after }
 		const draftOnly = draftOnlyByKey[`${d.kind}/${d.path}`] ?? false
 		// getDraftDiffValues keys on the draft itemKind: `raw_app` must stay

@@ -258,6 +258,7 @@
 		try {
 			let bundle: PipelineDraftBundle | undefined
 			let serverSavedAt: string | undefined
+			let fromServer = false
 			if (ws) {
 				const row = await DraftService.getOwnDraft({
 					workspace: ws,
@@ -267,9 +268,15 @@
 				if (row?.value) {
 					bundle = row.value as PipelineDraftBundle
 					serverSavedAt = row.created_at
-					editor.loadedFromDbDraft = true
+					fromServer = true
 				}
 			}
+			// A folder retarget during the await (the route-page header switcher, or a
+			// session retarget) changed the target and reset hydratedFromDb. Don't
+			// apply this now-stale folder's bundle or mark the new folder hydrated —
+			// otherwise the stale result blocks the new folder's hydrate and its
+			// drafts bleed across folders.
+			if (path !== pipelineDraftPath) return
 			let migratedFromLocal = false
 			if (!bundle) {
 				const local = readLocalBundle()
@@ -278,6 +285,7 @@
 					migratedFromLocal = true
 				}
 			}
+			if (fromServer) editor.loadedFromDbDraft = true
 			if (bundle) restoreBundle(bundle)
 			UserDraftDbSyncer.recordRemoteSync(
 				{ workspace: ws ?? '', itemKind: PIPELINE_DRAFT_KIND, path },
@@ -287,7 +295,7 @@
 		} catch (e) {
 			console.warn('failed to load pipeline drafts', e)
 		} finally {
-			editor.hydratedFromDb = true
+			if (path === pipelineDraftPath) editor.hydratedFromDb = true
 		}
 	}
 

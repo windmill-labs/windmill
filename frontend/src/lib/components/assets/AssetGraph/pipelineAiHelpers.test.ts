@@ -1,19 +1,21 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { JobService } from '$lib/gen'
 import { createPipelineAiHelpers, type PipelineDraft } from './pipelineAiHelpers'
 import type { AssetGraphResponse } from './types'
 
 // Build a helper handle over an in-memory drafts Map, mirroring how the editor
-// wires it. Only the synchronous draft-mutation path (discard) is exercised here,
-// so the graph/workspace accessors are stubbed.
-function makeHandle(initial: Array<[string, PipelineDraft]> = []) {
+// wires it. `getFolder` returns the bare folder name (as the route/session do).
+function makeHandle(
+	initial: Array<[string, PipelineDraft]> = [],
+	runnables: Array<{ path: string }> = []
+) {
 	let drafts = new Map(initial)
 	let forgotten: string[] = []
 	const handle = createPipelineAiHelpers({
-		getFolder: () => 'f/x',
+		getFolder: () => 'x',
 		getWorkspace: () => 'w',
 		getResolvedGraph: () =>
-			({ assets: [], runnables: [], edges: [], triggers: [] }) as AssetGraphResponse,
+			({ assets: [], runnables, edges: [], triggers: [] }) as unknown as AssetGraphResponse,
 		getDrafts: () => drafts,
 		setDrafts: (next) => (drafts = next),
 		newDraftLocalId: () => 'id',
@@ -21,6 +23,8 @@ function makeHandle(initial: Array<[string, PipelineDraft]> = []) {
 	})
 	return { handle, drafts: () => drafts, forgotten: () => forgotten }
 }
+
+afterEach(() => vi.restoreAllMocks())
 
 const draft = (over: Partial<PipelineDraft> = {}): PipelineDraft =>
 	({ localId: 'l', script: { content: '' } as any, ...over }) as PipelineDraft
@@ -61,6 +65,28 @@ describe('pipeline AI direct-draft helpers', () => {
 				requestBody: expect.objectContaining({ _wmill_skip_asset_dispatch: true, foo: 1 })
 			})
 		)
-		spy.mockRestore()
+	})
+
+	it('proposeNode rejects a path outside the open folder', async () => {
+		const { handle, drafts } = makeHandle()
+		await expect(
+			handle.proposeNode({ path: 'f/other/n', language: 'duckdb' as any, content: '' })
+		).rejects.toThrow(/open folder/)
+		expect(drafts().size).toBe(0)
+	})
+
+	it('proposeNode rejects a path colliding with an existing draft', async () => {
+		const { handle } = makeHandle([['f/x/a', draft()]])
+		await expect(
+			handle.proposeNode({ path: 'f/x/a', language: 'duckdb' as any, content: '' })
+		).rejects.toThrow(/already exists/)
+	})
+
+	it('proposeNode rejects a path colliding with an existing deployed node', async () => {
+		const { handle, drafts } = makeHandle([], [{ path: 'f/x/dep' }])
+		await expect(
+			handle.proposeNode({ path: 'f/x/dep', language: 'duckdb' as any, content: '' })
+		).rejects.toThrow(/already exists/)
+		expect(drafts().size).toBe(0)
 	})
 })

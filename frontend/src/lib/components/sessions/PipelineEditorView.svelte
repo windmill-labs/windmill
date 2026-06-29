@@ -98,6 +98,12 @@
 		onProposeNode: (p) => {
 			pe.activeDraftPath = p
 			pe.selection = undefined
+		},
+		// An AI test_pipeline_node run lights up the same live badge as the run button.
+		onRunStarted: (jobId, p) => {
+			activeRunnables.arm(`script:${p}`)
+			activeRunnable = { kind: 'script', path: p }
+			activeRunnableJobId = jobId
 		}
 	})
 
