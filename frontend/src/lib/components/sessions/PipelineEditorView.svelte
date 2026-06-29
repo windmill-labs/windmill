@@ -47,7 +47,13 @@
 		const folder = path
 		untrack(() => {
 			if (pe.folder !== folder) {
-				if (pe.folder !== undefined) pe.reset()
+				if (pe.folder !== undefined) {
+					pe.reset()
+					// A retarget without remount re-scopes the poll, so the release
+					// effect could never match the old folder's job — drop the hint.
+					activeRunnable = undefined
+					activeRunnableJobId = undefined
+				}
 				pe.folder = folder
 			}
 		})
@@ -183,7 +189,9 @@
 	let activeRunnableJobId = $state<string | undefined>(undefined)
 	$effect(() => {
 		pathPrefix // re-scope the poll when the folder changes
-		activeRunnables.setObserving(true)
+		// Only the visible session needs live badges/event-log; hidden warm panes
+		// (up to MAX_WARM_EDITORS) shouldn't poll in the background.
+		activeRunnables.setObserving(isActiveSession)
 		return () => activeRunnables.dispose()
 	})
 	$effect(() => {
@@ -195,28 +203,43 @@
 		}
 	})
 
+	function runProducer(producer: { kind: 'script' | 'flow'; path: string; cascade?: boolean }) {
+		// Pipeline nodes are scripts; a flow producer can't be preview/by-path run.
+		if (producer.kind !== 'script') return Promise.resolve(undefined)
+		return runNode(producer.path, {}, producer.cascade ?? false)
+	}
+
 	async function runNode(
 		nodePath: string,
-		args: Record<string, any> = {}
+		args: Record<string, any> = {},
+		cascade = false
 	): Promise<string | undefined> {
 		const draft = pe.drafts.get(nodePath)
 		activeRunnables.arm(`script:${nodePath}`)
 		try {
-			const jobId = draft
-				? await JobService.runScriptPreview({
-						workspace: workspaceId,
-						requestBody: {
-							path: nodePath,
-							content: draft.script.content,
-							language: draft.script.language,
-							args
-						}
-					})
-				: await JobService.runScriptByPath({
-						workspace: workspaceId,
+			let jobId: string
+			if (draft) {
+				// Preview-run the draft content; a preview never dispatches downstream.
+				jobId = await JobService.runScriptPreview({
+					workspace: workspaceId,
+					requestBody: {
 						path: nodePath,
-						requestBody: { ...args }
-					})
+						content: draft.script.content,
+						language: draft.script.language,
+						args
+					}
+				})
+			} else {
+				// A single-node run must NOT fan out to downstream deployed subscribers
+				// via the backend asset dispatcher unless the user explicitly chose
+				// "run + downstream" (cascade) — otherwise clicking one node's Run would
+				// fire side-effecting production scripts.
+				jobId = await JobService.runScriptByPath({
+					workspace: workspaceId,
+					path: nodePath,
+					requestBody: { ...args, ...(cascade ? {} : { _wmill_skip_asset_dispatch: true }) }
+				})
+			}
 			activeRunnable = { kind: 'script', path: nodePath }
 			activeRunnableJobId = jobId
 			return jobId
@@ -284,8 +307,8 @@
 				activeRunnableIds={activeRunnables.ids}
 				runStates={activeRunnables.states}
 				eventLogEvents={activeRunnables.events}
-				onRunProducer={(producer) => runNode(producer.path)}
-				onRunByPath={runNode}
+				onRunProducer={runProducer}
+				onRunByPath={(path, args) => runNode(path, args)}
 				canRunByPath
 				onTestStateChange={(running) => {
 					const openPath = pe.openScriptPath
@@ -293,7 +316,9 @@
 						activeRunnable = { kind: 'script', path: openPath }
 						activeRunnables.arm(`script:${openPath}`)
 						activeRunnableJobId = undefined
-					} else {
+					} else if (!running && activeRunnable?.path === openPath) {
+						// Only clear the hint for the script the pane just finished — a
+						// canvas per-node run of a different script keeps its own hint.
 						activeRunnable = undefined
 						activeRunnableJobId = undefined
 					}
@@ -323,7 +348,12 @@
 </div>
 
 <!-- Native trigger editor drawers (schedule/kafka/webhook/…), shared with the
-     route page; opened imperatively from the canvas via the handlers above. -->
+     route page; opened imperatively from the canvas via the handlers above.
+     NOTE: these operate on the global `$workspaceStore`, not the `workspaceId`
+     prop. That's correct only because activating a session syncs the store to
+     the session's workspace (SessionPicker), and triggers are only opened from
+     the visible/active session — so for a forked-workspace session the store is
+     already pointed at the right workspace by the time a drawer opens. -->
 <PipelineTriggerEditors
 	bind:this={triggerEditors}
 	mountTriggerEditors

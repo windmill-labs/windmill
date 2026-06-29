@@ -103,7 +103,15 @@
 			return folders
 		}
 	)
-	let pipelineFolders = $derived(pipelineFoldersRes.current ?? new Set<string>())
+	// Folders of pipeline-member scripts present in the current listing (captured
+	// in loadScripts before they're filtered out). Unioned in so a folder whose
+	// only pipeline node is a never-deployed `// pipeline` script draft — not in
+	// listPipelineFolders (deployed-only) nor a `data_pipeline` bundle — still gets
+	// a pipeline entry instead of vanishing.
+	let pipelineMemberFolders = $state(new Set<string>())
+	let pipelineFolders = $derived(
+		new Set<string>([...(pipelineFoldersRes.current ?? []), ...pipelineMemberFolders])
+	)
 
 	let scripts: TableScript[] | undefined = $state()
 	let flows: TableFlow[] | undefined = $state()
@@ -129,16 +137,26 @@
 			withoutDescription: true
 		})
 
+		// Pipeline-member scripts (`auto_kind='pipeline'`) are represented by their
+		// pipeline's entry, not listed individually — but capture their folders so
+		// the pipeline entry still surfaces (incl. a members-only / draft-only folder).
+		const memberFolders = new Set<string>()
 		scripts = loadedScripts
-			// Pipeline-member scripts (`auto_kind='pipeline'`) are represented by
-			// their pipeline's entry, not listed individually.
-			.filter((script: Script) => script.auto_kind !== 'pipeline')
+			.filter((script: Script) => {
+				if (script.auto_kind === 'pipeline') {
+					const m = script.path.match(/^f\/([^/]+)\//)
+					if (m) memberFolders.add(m[1])
+					return false
+				}
+				return true
+			})
 			.map((script: Script) => {
 				return {
 					canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
 					...script
 				}
 			})
+		pipelineMemberFolders = memberFolders
 		loading = false
 	}
 
@@ -843,7 +861,10 @@
 			{#each new Array(6) as _}
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
-		{:else if filteredItems.length === 0}
+		{:else if filteredItems.length === 0 && (filter !== '' || pipelineFolders.size === 0)}
+			<!-- Pipelines aren't part of the text filter, so only fall through to show
+			     them (list rows / injected tree folders) when not actively searching;
+			     a no-match search still reads as empty. -->
 			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
 		{:else if treeView}
 			<TreeViewRoot

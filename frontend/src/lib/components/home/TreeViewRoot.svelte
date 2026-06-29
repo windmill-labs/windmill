@@ -36,11 +36,21 @@
 					.filter((g) => 'folderName' in g)
 					.map((g) => (g as { folderName: string }).folderName)
 			)
-			const injected = [...(pipelineFolders ?? [])]
-				.filter((f) => !present.has(f))
-				.sort()
-				.map((folderName) => ({ folderName, items: [] }))
-			groupedItems = [...injected, ...grouped]
+			// Insert each missing pipeline folder among the existing folders in name
+			// order — `groupItems` already sorts user groups first then folders
+			// alphabetically, so inserting before the first greater-named folder
+			// keeps that ordering (rather than prepending out of order).
+			for (const folderName of [...(pipelineFolders ?? [])].filter((f) => !present.has(f)).sort()) {
+				const item = { folderName, items: [] }
+				const idx = grouped.findIndex(
+					(g) =>
+						'folderName' in g &&
+						(g as { folderName: string }).folderName.localeCompare(folderName) > 0
+				)
+				if (idx < 0) grouped.push(item)
+				else grouped.splice(idx, 0, item)
+			}
+			groupedItems = grouped
 		})
 	})
 </script>
