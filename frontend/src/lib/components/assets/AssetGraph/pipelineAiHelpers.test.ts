@@ -119,4 +119,25 @@ describe('pipeline AI direct-draft helpers', () => {
 		await expect(handle.editNode('f/other/foo', '-- pipeline')).rejects.toThrow(/open folder/)
 		expect(drafts().size).toBe(0)
 	})
+
+	it('editNode preserves the deployed script hash/metadata and replaces only content', async () => {
+		const deployed = {
+			hash: 'abc123',
+			path: 'f/x/node',
+			summary: 'My node',
+			description: 'desc',
+			tag: 'custom',
+			language: 'duckdb',
+			content: '-- pipeline\nSELECT 1'
+		}
+		vi.spyOn(ScriptService, 'getScriptByPath').mockResolvedValue(deployed as any)
+		const { handle, drafts } = makeHandle()
+		await handle.editNode('f/x/node', '-- pipeline\nSELECT 2')
+		const d = drafts().get('f/x/node')
+		expect(d?.script.hash).toBe('abc123')
+		expect(d?.script.summary).toBe('My node')
+		expect(d?.script.description).toBe('desc')
+		expect(d?.script.tag).toBe('custom')
+		expect(d?.script.content).toBe('-- pipeline\nSELECT 2')
+	})
 })

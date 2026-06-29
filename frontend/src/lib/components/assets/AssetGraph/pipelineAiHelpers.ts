@@ -244,20 +244,25 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			assertPipelineAnnotation(content)
 			const drafts = deps.getDrafts()
 			const existing = drafts.get(path)
-			let language: ScriptLang
+			// Base the edit on the existing draft's / deployed script object and replace
+			// ONLY the content — preserving hash, summary, description, tag, schema, and
+			// settings. Rebuilding a fresh script would wipe that metadata: deploying
+			// from the pane (auto_parent) would update the script while clearing it, and
+			// the route "Save all" path (no parent_hash) could hit the path-conflict
+			// branch on the occupied path.
+			let baseScript: Script
 			if (existing) {
-				language = existing.script.language
+				baseScript = existing.script
 			} else {
 				const workspace = deps.getWorkspace()
 				if (!workspace) throw new Error('No workspace is selected.')
-				const deployed = await ScriptService.getScriptByPath({ workspace, path })
-				language = deployed.language
+				baseScript = await ScriptService.getScriptByPath({ workspace, path })
 			}
-			const inferred = await inferOutputAssets(language, content)
+			const inferred = await inferOutputAssets(baseScript.language, content)
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: existing?.localId ?? deps.newDraftLocalId(),
-				script: makePipelineScript(language, path, content, new Date().toISOString()),
+				script: { ...baseScript, content },
 				outputAssets: inferred.length > 0 ? inferred : existing?.outputAssets
 			})
 			deps.setDrafts(next)
