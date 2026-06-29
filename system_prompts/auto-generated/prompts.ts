@@ -722,6 +722,20 @@ A script joins the pipeline when its source begins with the \`// pipeline\` anno
 - **Outputs** are inferred from what the body writes — a \`CREATE TABLE\`, a \`wmill.writeS3File(...)\`, a DuckLake/datatable write. To declare a managed output explicitly, use \`// materialize <asset-uri>\`.
 - Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\` (e.g. \`1h\`), \`// tag <worker-tag>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\`.
 
+## Materialize (the managed output)
+
+\`// materialize <asset-uri>\` tells the runtime to write the node's output table **for you**: write the body as a single \`SELECT\` and the runtime wraps it in the create/replace — do **not** also write your own \`CREATE TABLE\` / \`INSERT\`. Write strategy:
+
+- no option → **replace** the whole table each run (full refresh; the only mode whose output columns may change);
+- \`// materialize <uri> append\` → INSERT-append rows (incremental);
+- \`// materialize <uri> key=<col>\` → merge/upsert on \`<col>\`.
+
+\`// materialize manual <uri>\` opts **out** of managed writes — the script writes its own DDL and the annotation only records the output asset for lineage.
+
+\`materialize\` pairs with partitioning for incremental pipelines: a \`// partitioned <daily|hourly|weekly|monthly|dynamic>\` node runs **once per partition** (append/merge into a fixed-schema table), and the \`{partition}\` token inside any asset URI is substituted with the current partition value at run time.
+
+\`materialize\` is an output **declaration** on a node — not a command. There is no "materialize run".
+
 ## How to build one in chat
 
 1. Put every node in the **same folder**: \`f/<folder>/<name>\`. The folder is the pipeline.
