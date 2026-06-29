@@ -332,14 +332,15 @@
 					} else {
 						// `config` carries only kind-specific fields (publish strips path/
 						// script_path/is_flow/enabled/summary), so the explicit fields win.
-						// `enabled: false` imports the trigger disabled, like schedules.
+						// `mode: 'disabled'` imports the trigger disabled (non-schedule
+						// triggers use `mode`, not the deprecated `enabled` flag).
 						const requestBody = {
 							...(t.config ?? {}),
 							path: t.path,
 							script_path: t.runnable_path,
 							is_flow: t.runnable_kind === 'flow',
 							summary: t.summary ?? null,
-							enabled: false
+							mode: 'disabled'
 						}
 						await record(t.path, create(workspace, requestBody))
 					}
