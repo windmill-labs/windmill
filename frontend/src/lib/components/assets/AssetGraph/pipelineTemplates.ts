@@ -546,6 +546,14 @@ function bodyDuckdb(ctx: TemplateContext): string {
 	}
 	if (ducklakeDb) {
 		lines.push(`ATTACH 'ducklake://${ducklakeDb}' AS lake;`)
+		if (input?.kind === 'ducklake') {
+			// Discoverability hint: every materialize records a DuckLake snapshot,
+			// so a consumer can pin its read to a past version. Snapshot ids live
+			// in the asset's History tab.
+			lines.push(
+				`-- time-travel: read a past snapshot with \`FROM ${`lake.${catalogTableRef(input.path)}`} AT (VERSION => 42)\``
+			)
+		}
 	}
 	if (datatableDb || ducklakeDb) lines.push('')
 

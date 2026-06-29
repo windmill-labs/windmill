@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { parsePipelineAnnotations } from './parsePipelineAnnotations'
+import {
+	mergeColumnLineage,
+	parsePipelineAnnotations,
+	type ColumnLineage
+} from './parsePipelineAnnotations'
 
 // Unit-test the TS mirror of the backend `parse_pipeline_annotations`. The
 // two implementations MUST stay behaviorally identical — these tests are
@@ -129,5 +133,31 @@ describe('parsePipelineAnnotations: data_upload', () => {
 	it('requires a whole word', () => {
 		const out = parsePipelineAnnotations('// on data_uploadish')
 		expect(out.nativeTriggers).toEqual([])
+	})
+})
+
+describe('mergeColumnLineage', () => {
+	const ref = (path: string, col: string): ColumnLineage['inputs'][number] => ({
+		from_kind: 'ducklake',
+		from_path: path,
+		from_column: col
+	})
+
+	it('annotation wins per output column; inferred fills the rest (mirrors Rust)', () => {
+		const inferred: ColumnLineage[] = [
+			{ column: 'total', inputs: [ref('w/o', 'amount')] },
+			{ column: 'qty', inputs: [ref('w/o', 'qty')] }
+		]
+		const annotated: ColumnLineage[] = [{ column: 'total', inputs: [ref('w/manual', 'grand')] }]
+		const merged = mergeColumnLineage(inferred, annotated)
+		expect(merged).toEqual([
+			{ column: 'total', inputs: [ref('w/manual', 'grand')] }, // annotation, first + authoritative
+			{ column: 'qty', inputs: [ref('w/o', 'qty')] } // inferred, not overridden
+		])
+	})
+
+	it('returns annotations unchanged when there is no inferred lineage', () => {
+		const annotated: ColumnLineage[] = [{ column: 'a', inputs: [ref('w/o', 'a')] }]
+		expect(mergeColumnLineage([], annotated)).toEqual(annotated)
 	})
 })

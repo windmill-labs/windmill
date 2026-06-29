@@ -73,6 +73,9 @@ import {
 	getCurrentModel,
 	tryGetCurrentModel,
 	getCombinedCustomPrompt,
+	getCustomPromptParts,
+	getUserCustomPrompts,
+	setUserCustomPrompts,
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
@@ -118,6 +121,10 @@ const USER_CANCEL_REASON = 'user_cancelled'
 // regular message that merely mentions "/compact" mid-sentence is unaffected.
 const COMPACT_COMMAND_NAME = 'compact'
 const COMPACT_COMMAND_RE = /^\/compact\s*$/
+// Built-in `/clear` session command — saves the conversation to history and
+// resets to a fresh chat (the "New chat" action), instead of sending a turn.
+const CLEAR_COMMAND_NAME = 'clear'
+const CLEAR_COMMAND_RE = /^\/clear\s*$/
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
@@ -337,11 +344,12 @@ export class AIChatManager {
 	private globalSkillsRefreshId = 0
 
 	// Built-in session-chat slash commands, listed in the command picker
-	// alongside workspace skills. Unlike a skill, `/compact` runs locally
-	// (compactManually) and never reaches the model; the submit path intercepts
-	// it first, so it shadows any workspace skill of the same name.
+	// alongside workspace skills. Unlike a skill, these run locally and never
+	// reach the model; the submit path intercepts them first, so they shadow any
+	// workspace skill of the same name.
 	readonly sessionBuiltinCommands: AiSkillListItem[] = [
-		{ name: COMPACT_COMMAND_NAME, description: 'Summarize the conversation to free up context' }
+		{ name: COMPACT_COMMAND_NAME, description: 'Summarize the conversation to free up context' },
+		{ name: CLEAR_COMMAND_NAME, description: 'Clear the conversation and start a new chat' }
 	]
 
 	// Built-ins followed by workspace skills, with any skill whose name collides
@@ -950,8 +958,7 @@ export class AIChatManager {
 			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
-			const customPrompt = getCombinedCustomPrompt(mode)
-			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
+			this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(mode), {
 				previewTools: this.isSessionChat,
 				skills: this.globalSkills
 			})
@@ -960,7 +967,18 @@ export class AIChatManager {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
 				testActiveFlow: async (args?: Record<string, any>) =>
 					this.flowAiChatHelpers?.testFlow(args),
-				attachedFiles: this.attachedFiles
+				attachedFiles: this.attachedFiles,
+				getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
+				setUserInstructions: (instructions: string) => {
+					const prompts = getUserCustomPrompts()
+					if (instructions.trim()) {
+						prompts[AIMode.GLOBAL] = instructions
+					} else {
+						delete prompts[AIMode.GLOBAL]
+					}
+					setUserCustomPrompts(prompts)
+					this.rebuildGlobalSystemMessage()
+				}
 			} satisfies GlobalToolHelpers
 			void this.refreshGlobalSkills()
 		} else if (mode === AIMode.APP) {
@@ -982,11 +1000,24 @@ export class AIChatManager {
 		}
 		this.globalSkills = skills
 		if (this.mode === AIMode.GLOBAL) {
-			this.systemMessage = prepareGlobalSystemMessage(getCombinedCustomPrompt(AIMode.GLOBAL), {
+			this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 				previewTools: this.isSessionChat,
 				skills
 			})
 		}
+	}
+
+	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
+	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
+	// re-reads this.systemMessage via a getter.
+	rebuildGlobalSystemMessage = () => {
+		if (this.mode !== AIMode.GLOBAL) {
+			return
+		}
+		this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+			previewTools: this.isSessionChat,
+			skills: this.globalSkills
+		})
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
@@ -1375,9 +1406,11 @@ export class AIChatManager {
 			isPreprocessor?: boolean
 		} = {}
 	) => {
-		// Returns whether the message was actually turned into a chat turn —
-		// the queue flush uses this to restore messages dropped by an early
-		// return instead of silently losing them.
+		// Returns whether the input was consumed: true when it was sent as a chat
+		// turn OR handled as a local built-in command, false when it was dropped
+		// without being acted on (mode hidden, empty, beforeSend failed). The
+		// queue flush restores the queued message only on false, so a consumed
+		// command isn't re-queued and re-fired into the next conversation.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
 			return false
@@ -1392,19 +1425,26 @@ export class AIChatManager {
 		if (!this.instructions.trim()) {
 			return false
 		}
-		// Built-in `/compact` session command: summarize the conversation locally
-		// instead of sending a turn to the model. Intercepted here — before the
-		// beforeSend workspace commit, file regrants, and skill expansion — and not
-		// turned into a chat turn. Scoped to session chat GLOBAL mode, where the
-		// slash-command UI lives.
-		if (
-			this.isSessionChat &&
-			this.mode === AIMode.GLOBAL &&
-			COMPACT_COMMAND_RE.test(this.instructions.trim())
-		) {
-			this.instructions = ''
-			await this.compactManually()
-			return false
+		// Built-in session commands run locally instead of becoming a chat turn.
+		// Intercepted here — before the beforeSend workspace commit, file regrants,
+		// and skill expansion. Scoped to session chat GLOBAL mode, where the
+		// slash-command UI lives. Return true (consumed, not dropped) so that a
+		// command flushed from the queue isn't restored and re-fired into the next
+		// conversation.
+		if (this.isSessionChat && this.mode === AIMode.GLOBAL) {
+			const trimmed = this.instructions.trim()
+			// `/compact`: summarize the conversation locally to free up context.
+			if (COMPACT_COMMAND_RE.test(trimmed)) {
+				this.instructions = ''
+				await this.compactManually()
+				return true
+			}
+			// `/clear`: save the conversation to history and start a fresh chat.
+			if (CLEAR_COMMAND_RE.test(trimmed)) {
+				this.instructions = ''
+				await this.saveAndClear()
+				return true
+			}
 		}
 		// Re-grant any locked File System Access handles within this send gesture, so the
 		// file tools can read the live files. requestPermission() needs a user gesture, and

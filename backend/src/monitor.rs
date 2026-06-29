@@ -75,6 +75,7 @@ use windmill_common::{
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
     },
     indexer::load_indexer_config,
+    jobs::delete_jobs,
     jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
@@ -1275,6 +1276,19 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
     }
 
+    // native_retry_attempt has no FK to v2_job (kept off the hot bulk delete).
+    // Retention sweeps markers alongside the jobs it deletes, but direct job
+    // deletions (workspace/job/schedule clearing) leave markers orphaned — reap
+    // any whose job is gone. The table is sparse, so this anti-join is cheap.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM native_retry_attempt nra WHERE NOT EXISTS (SELECT 1 FROM v2_job WHERE id = nra.job_id)"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error reaping orphaned native retry markers: {:?}", e);
+    }
+
     if let Err(e) = windmill_queue::cascade::reap_stale_join_slots(db).await {
         tracing::error!("Error reaping stale join_pending_inputs slots: {:?}", e);
     }
@@ -1647,10 +1661,21 @@ async fn delete_expired_jobs_batch(
             Err(e) => tracing::error!("Error deleting job logs: {:?}", e),
         }
 
-        if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
-            .execute(&mut *tx)
-            .await
+        // Native retry markers have no FK (to keep this bulk delete cheap) — sweep
+        // them with their jobs here too (the periodic retention path), same as the
+        // other side tables. The table is created by a startup migration, so it
+        // always exists by the time cleanup runs.
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM native_retry_attempt WHERE job_id = ANY($1)",
+            &deleted_jobs
+        )
+        .execute(&mut *tx)
+        .await
         {
+            tracing::error!("Error deleting native retry markers: {:?}", e);
+        }
+
+        if let Err(e) = delete_jobs(&mut *tx, &deleted_jobs).await {
             tracing::error!("Error deleting job: {:?}", e);
         }
 
@@ -2690,6 +2715,9 @@ pub async fn monitor_db(
             if let Some(db) = conn.as_sql() {
                 if let Err(e) = cleanup_debounce_orphaned_keys(&db).await {
                     tracing::error!("Error cleaning up debounce keys: {:?}", e);
+                }
+                if let Err(e) = cleanup_consumed_debounce_batches(&db).await {
+                    tracing::error!("Error cleaning up consumed debounce batches: {:?}", e);
                 }
             }
         }
@@ -4389,6 +4417,40 @@ RETURNING key,job_id
                 row.job_id
             );
         }
+    }
+    Ok(())
+}
+
+/// GC for claim-based debounce batches: once a batch row has been consumed (its
+/// args accumulated into some survivor's run), it only lingers to let a later-pulled
+/// survivor of the same batch tell "already consumed" from "never batched". A generous
+/// grace period (>> any debounce window) makes that decision safe; after it, the rows
+/// are dead weight. A re-pulled survivor whose row was GC'd correctly falls back to its
+/// own (already-accumulated, persisted) args, so the grace period is not correctness-
+/// critical.
+async fn cleanup_consumed_debounce_batches(db: &DB) -> error::Result<()> {
+    // Only reclaim a consumed row once its job has LEFT the queue. A consumed sibling
+    // (its contribution already accumulated by another survivor) can sit queued well
+    // past any time-based grace under a concurrency limit / worker backlog; removing its
+    // row while still queued would make its eventual pull treat it as never-batched and
+    // re-run its item (a duplicate). Keeping the row until the job is no longer queued
+    // guarantees that pull still sees "already consumed" and runs empty. The age floor
+    // is just a safety margin on top.
+    let deleted = sqlx::query_scalar!(
+        "WITH del AS (
+            DELETE FROM v2_job_debounce_batch
+            WHERE consumed_at IS NOT NULL
+              AND consumed_at < now() - interval '10 minutes'
+              AND id NOT IN (SELECT id FROM v2_job_queue)
+            RETURNING 1
+        ) SELECT count(*) FROM del"
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    if deleted > 0 {
+        tracing::info!("Cleaned up {deleted} consumed debounce batch rows");
     }
     Ok(())
 }

@@ -23,6 +23,7 @@ pub fn workspaced_service() -> Router {
         .route("/graph", get(asset_graph))
         .route("/pipelines", get(list_pipeline_folders))
         .route("/partitions", get(list_partitions))
+        .route("/asset_schemas", get(list_asset_schemas))
         .route("/record_materialization", post(record_materialization))
 }
 
@@ -53,17 +54,40 @@ async fn list_partitions(
     Ok(Json(rows))
 }
 
+// Per-asset captured output schema versions for a ducklake asset (gap #2a) —
+// the schema-evolution history persisted after each managed `// materialize`.
+// Newest version first; materialization targets are ducklake-only in v1, so the
+// kind is fixed.
+async fn list_asset_schemas(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsQuery>,
+) -> JsonResult<Vec<windmill_common::materialization::AssetSchemaVersion>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = windmill_common::materialization::list_asset_schemas(
+        &mut *tx,
+        &w_id,
+        AssetKind::Ducklake,
+        &q.path,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
 // Record a materialization outcome from a polyglot (Python/TS) `wmill.ducklake`
 // helper running as a pipeline step. The DuckDB `// materialize` engine records
 // this itself; the SDK helpers post here instead so SDK-materialized slices show
-// up in the grid identically. RLS-scoped to the caller's workspace.
+// up in the grid identically. When the helper also captured the output schema,
+// that schema version is upserted too. RLS-scoped to the caller's workspace.
 async fn record_materialization(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
     Json(req): Json<windmill_common::materialization::RecordMaterializationRequest>,
 ) -> JsonResult<()> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
     windmill_common::materialization::record_materialization(
         &mut *tx,
         &w_id,
@@ -78,6 +102,37 @@ async fn record_materialization(
     )
     .await?;
     tx.commit().await?;
+    // Schema capture is independently best-effort (its own transaction for the
+    // per-asset advisory lock) and must never roll back the partition record
+    // above — mirroring the worker's `record_mat`. A lost schema version
+    // degrades the history, not the run. Only a successful (`Materialized`) write
+    // advances the recorded schema — a failed/running write must not (and a
+    // client shouldn't be able to bump the history by attaching a schema to one).
+    let is_materialized = matches!(
+        req.status,
+        windmill_common::materialization::MaterializationStatus::Materialized
+    );
+    if let (true, Some(columns)) = (is_materialized, req.schema.as_ref()) {
+        let res: windmill_common::error::Result<()> = async {
+            let mut tx = user_db.clone().begin(&authed).await?;
+            windmill_common::materialization::record_asset_schema(
+                &mut tx,
+                &w_id,
+                req.asset_kind,
+                &req.asset_path,
+                columns,
+                req.snapshot_id,
+                req.job_id,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = res {
+            tracing::warn!("failed to record captured asset schema: {e:#}");
+        }
+    }
     Ok(Json(()))
 }
 
@@ -450,6 +505,59 @@ struct GraphRunnableNode {
     // pipeline-member visual state on the frontend.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     in_pipeline: bool,
+    // Annotation badges parsed from the deployed script body, so the canvas
+    // shows partition/freshness/tag/retry/data-test chips on *deployed* nodes
+    // (not only on live-edited drafts, which the frontend parses itself). Kept
+    // in lockstep with the TS `AssetGraphRunnableNode` fields the node renders.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    partition_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    freshness: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    retry: Option<windmill_common::assets::RetrySpec>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    data_tests: Vec<windmill_common::assets::DataTest>,
+    // `// column <out> <- <src>.<col>` declared column-level lineage, surfaced
+    // so the canvas can draw the column-lineage view on deployed nodes (not
+    // only live drafts). Lockstep with TS `AssetGraphRunnableNode.column_lineage`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    column_lineage: Vec<windmill_common::assets::ColumnLineage>,
+    // `// materialize <asset>` target — the asset this script's `column_lineage`
+    // describes. Lets the column-graph anchor lineage to the exact output asset
+    // instead of guessing a ducklake write-edge (a multi-output script writes
+    // several). Absent for scripts with no `// materialize` annotation.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_target: Option<MaterializeTargetNode>,
+    // Managed `// materialize` write strategy (`replace` | `append` | `merge`),
+    // absent for non-materializing or `manual` scripts. Surfaced so the asset
+    // panel can tell whether the captured schema can evolve: only whole-table
+    // `replace` (CREATE OR REPLACE) can change columns run-to-run; `append` /
+    // `merge` / any partitioned write INSERTs into a fixed-schema table.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_strategy: Option<String>,
+}
+
+// The output asset a producer's column lineage belongs to (the `// materialize`
+// target). Kept minimal — the column graph only needs (kind, path) to anchor.
+#[derive(Serialize, Debug)]
+struct MaterializeTargetNode {
+    kind: windmill_common::assets::AssetKind,
+    path: String,
+}
+
+// The partition's kind word for the node badge (the full PartitionSpec carries
+// tz/format/start, which the badge doesn't need).
+fn partition_kind_word(kind: &windmill_common::assets::PartitionKind) -> &'static str {
+    use windmill_common::assets::PartitionKind::*;
+    match kind {
+        Daily => "daily",
+        Hourly => "hourly",
+        Weekly => "weekly",
+        Monthly => "monthly",
+        Dynamic { .. } => "dynamic",
+    }
 }
 
 // Lineage edge from parsed r/w usages. One per (runnable, asset, access_type)
@@ -642,15 +750,22 @@ async fn asset_graph(
     .await?;
 
     // Which scripts in scope are pipeline members (have `// pipeline`).
+    // Pipeline members + their latest deployed body, so the graph can surface
+    // annotation badges (partition/freshness/tag/retry/data_test) on deployed
+    // nodes. `DISTINCT ON (path) … ORDER BY created_at DESC` picks the newest
+    // non-archived version per path (a redeploy archives the prior one, but be
+    // defensive against transient overlaps).
     let pipeline_member_paths = sqlx::query!(
         r#"
-        SELECT path AS "path!"
+        SELECT DISTINCT ON (path) path AS "path!", content AS "content!",
+               language AS "language!: windmill_common::scripts::ScriptLang"
         FROM script
         WHERE workspace_id = $1
           AND auto_kind = 'pipeline'
           AND archived = false
           AND deleted = false
           AND ($2::text IS NULL OR path LIKE $2)
+        ORDER BY path, created_at DESC
         "#,
         &w_id,
         folder_filter.as_deref(),
@@ -681,6 +796,48 @@ async fn asset_graph(
 
     tx.commit().await?;
 
+    // Parse each pipeline member's body once into its badge annotations, keyed
+    // by path, for the runnable-node construction below.
+    let annotations_by_path: std::collections::HashMap<
+        String,
+        windmill_common::assets::PipelineAnnotations,
+    > = pipeline_member_paths
+        .iter()
+        .map(|r| {
+            (
+                r.path.clone(),
+                windmill_common::assets::parse_pipeline_annotations(&r.content),
+            )
+        })
+        .collect();
+    // Column-level lineage per member. The annotation-only lineage (already
+    // parsed above) is the baseline. For DuckDB scripts we additionally run the
+    // full SQL asset parser to infer output→input column edges from the AST; it
+    // merges them with the `// column` annotations (annotation wins). If the SQL
+    // can't be parsed (DuckDB accepts grammar `sqlparser` rejects), we fall back
+    // to the annotation-only baseline rather than dropping explicit annotations.
+    let column_lineage_by_path: std::collections::HashMap<
+        String,
+        Vec<windmill_common::assets::ColumnLineage>,
+    > = pipeline_member_paths
+        .iter()
+        .map(|r| {
+            let annotated = || {
+                annotations_by_path
+                    .get(&r.path)
+                    .map(|a| a.column_lineage.clone())
+                    .unwrap_or_default()
+            };
+            let lineage = if r.language == windmill_common::scripts::ScriptLang::DuckDb {
+                windmill_parser_sql_asset::parse_assets(&r.content)
+                    .map(|o| o.column_lineage)
+                    .unwrap_or_else(|_| annotated())
+            } else {
+                annotated()
+            };
+            (r.path.clone(), lineage)
+        })
+        .collect();
     let pipeline_member_script_paths: std::collections::HashSet<String> =
         pipeline_member_paths.into_iter().map(|r| r.path).collect();
     let existing_script_paths: std::collections::HashSet<String> =
@@ -804,7 +961,50 @@ async fn asset_graph(
         .map(|(usage_kind, path)| {
             let in_pipeline = usage_kind == AssetUsageKind::Script
                 && pipeline_member_script_paths.contains(&path);
-            GraphRunnableNode { path, usage_kind, in_pipeline }
+            // Annotation badges, only for pipeline-member scripts (the only
+            // bodies we parsed). Gate on the runnable kind too: a flow sharing a
+            // path with a pipeline script must not inherit its badges.
+            let ann = (usage_kind == AssetUsageKind::Script)
+                .then(|| annotations_by_path.get(&path))
+                .flatten();
+            GraphRunnableNode {
+                in_pipeline,
+                partition_kind: ann
+                    .and_then(|a| a.partition.as_ref())
+                    .map(|p| partition_kind_word(&p.kind).to_string()),
+                freshness: ann
+                    .and_then(|a| a.freshness.as_ref())
+                    .map(|f| f.duration.clone()),
+                tag: ann.and_then(|a| a.tag.clone()),
+                retry: ann.and_then(|a| a.retry.clone()),
+                data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),
+                // Inferred (DuckDB AST) + annotation column lineage, gated to
+                // scripts like the badges above.
+                column_lineage: (usage_kind == AssetUsageKind::Script)
+                    .then(|| column_lineage_by_path.get(&path))
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default(),
+                materialize_target: ann.and_then(|a| a.materialize.as_ref()).map(|m| {
+                    MaterializeTargetNode {
+                        kind: windmill_common::assets::asset_kind_from_parser(m.target_kind),
+                        path: m.target_path.clone(),
+                    }
+                }),
+                materialize_strategy: ann.and_then(|a| a.materialize.as_ref()).and_then(|m| {
+                    if m.manual {
+                        None
+                    } else if m.append {
+                        Some("append".to_string())
+                    } else if m.unique_key.is_some() {
+                        Some("merge".to_string())
+                    } else {
+                        Some("replace".to_string())
+                    }
+                }),
+                path,
+                usage_kind,
+            }
         })
         .collect();
     runnables.sort_by(|a, b| a.path.cmp(&b.path));

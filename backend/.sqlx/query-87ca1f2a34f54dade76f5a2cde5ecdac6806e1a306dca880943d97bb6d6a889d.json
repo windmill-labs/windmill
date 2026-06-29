@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT DISTINCT ON (path) path AS \"path!\", content AS \"content!\",\n               language AS \"language!: windmill_common::scripts::ScriptLang\"\n        FROM script\n        WHERE workspace_id = $1\n          AND auto_kind = 'pipeline'\n          AND archived = false\n          AND deleted = false\n          AND ($2::text IS NULL OR path LIKE $2)\n        ORDER BY path, created_at DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "content!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "language!: windmill_common::scripts::ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby",
+                "rlang"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "87ca1f2a34f54dade76f5a2cde5ecdac6806e1a306dca880943d97bb6d6a889d"
+}

@@ -56,6 +56,9 @@
 	let othersModalOpen = $state(false)
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
+	// The flow_version the draft was forked from (pinned, doesn't drift), for the
+	// precise staleness check in DraftEditorModals + FlowBuilder's deploy guard.
+	let draftBaseVersion = $state<number | undefined>(undefined)
 	// Editor-displayed path; defaults to the URL path. Cleared to '' in the
 	// `new_draft` branch so the Path widget's `initPath` seeds the friendly name.
 	let flowInitialPath = $state(page.params.path ?? '')
@@ -152,6 +155,11 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// New-draft skips the deployed/draft fetches, so the version-staleness
+			// inputs are never reassigned — clear the previous flow's values, else they
+			// bleed across the reused route and falsely trip the stale-draft modal.
+			version = undefined
+			draftBaseVersion = undefined
 			// Brand-new flow: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave around the bootstrap cascade: the Path widget's
@@ -357,6 +365,9 @@
 		// Layer the draft (`.draft`, if any) over the deployed payload at the field
 		// level. See /scripts/edit's loader for the rationale.
 		const { draft: draftFromBackend, ...deployedFlow } = backendFlow as any
+		// `version_id` rides on the persisted draft (pinned at fork); undefined for a
+		// pre-feature draft or when editing the deployed flow directly (no draft).
+		draftBaseVersion = draftFromBackend?.version_id as number | undefined
 		const effectiveFlow: Flow = draftFromBackend
 			? ({ ...deployedFlow, ...draftFromBackend } as Flow)
 			: (deployedFlow as Flow)
@@ -501,6 +512,8 @@
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
+	{draftBaseVersion}
+	deployedHeadVersion={version}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
 		if (!$workspaceStore) return
@@ -563,6 +576,7 @@
 		{draftTriggersFromUrl}
 		{selectedTriggerIndexFromUrl}
 		{version}
+		{draftBaseVersion}
 		{loadedFromHistoryFromUrl}
 	/>
 {/if}

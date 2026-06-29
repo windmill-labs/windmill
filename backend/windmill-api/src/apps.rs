@@ -1841,7 +1841,9 @@ async fn create_app_internal<'a>(
             ));
         }
     }
-    let mut tx = user_db.clone().begin(&authed).await?;
+    // Resolve the on-behalf-of defaults on the (non-RLS) pool *before* opening
+    // the RLS transaction below: doing these lookups mid-transaction would hold
+    // a second simultaneous connection while `tx` is still checked out.
     let should_preserve = app.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed)
         && app.policy.on_behalf_of.is_some();
@@ -1867,6 +1869,8 @@ async fn create_app_internal<'a>(
             app.policy.on_behalf_of_email = Some(authed.email.clone());
         }
     }
+
+    let mut tx = user_db.clone().begin(&authed).await?;
     let path = app.path.clone();
     if &app.path == "" {
         return Err(Error::BadRequest("App path cannot be empty".to_string()));

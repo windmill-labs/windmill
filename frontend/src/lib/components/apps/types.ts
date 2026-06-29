@@ -144,6 +144,8 @@ export interface AppEditorProps {
 	path: string
 	policy: Policy
 	summary: string
+	/** Initial labels for the app, threaded from the loaded app data. */
+	labels?: string[]
 	/** Deployed app value the autosave `discardIf` compares against, so an
 	 * edit reverting to deployed clears the draft instead of leaving a no-op.
 	 * `undefined` for draft-only paths (no deployed baseline). */
@@ -157,6 +159,7 @@ export interface AppEditorProps {
 				summary: string
 				policy: any
 				custom_path?: string
+				labels?: string[]
 		  }
 		| undefined
 	version?: number | undefined
@@ -176,6 +179,10 @@ export interface AppEditorProps {
 	loadedFromDraft?: boolean
 	othersDraftsCount?: number
 	onOpenOthersDrafts?: () => void
+	// Restoring an older deployment from the history drawer. Threaded through
+	// AppEditorHeader as a callback prop rather than `on:restore` forwarding,
+	// which does not propagate through these runes-mode components.
+	onRestore?: (restoredApp: any) => void
 }
 
 export type App = {
@@ -198,6 +205,13 @@ export type App = {
 	hideLegacyTopBar?: boolean | undefined
 	mobileViewOnSmallerScreens?: boolean | undefined
 	version?: number
+	/**
+	 * Fork base for the stale-draft check: the deployed app version this draft
+	 * was started from, pinned at fork. Stamped on the draft seed in the editor;
+	 * compared against the deployed head (`versions[last]`) in the compare view.
+	 * In DRAFT_COMPARE_IGNORED_FIELDS so it never trips the autosave no-op check.
+	 */
+	parent_version?: number
 	/**
 	 * User-typed path persisted on the autosaved App when it differs from
 	 * the deployed/seeded baseline. The home list renders it so a friendly

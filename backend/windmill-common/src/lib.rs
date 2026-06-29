@@ -285,6 +285,16 @@ lazy_static::lazy_static! {
 
 const LATEST_VERSION_ID_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Test hook: disables the process-global deployed-script hash/info caches so
+/// every resolution reads the current DB. Integration tests use `#[sqlx::test]`
+/// isolated DBs that share one workspace id and reuse script paths, so a cache
+/// keyed by `(workspace, path)`/`(workspace, hash)` resolves a path to a hash
+/// that lives in a *different* test's DB — and when the info cache misses for
+/// that foreign hash the lookup 404s in the wrong DB. Always `false` in
+/// production (the caches are TTL/LRU-bounded against real deploys).
+pub static DEPLOYED_SCRIPT_CACHE_DISABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub async fn shutdown_signal(
     tx: KillpillSender,
     mut rx: tokio::sync::broadcast::Receiver<()>,
@@ -526,6 +536,31 @@ mod classify_python_logging_line_tests {
         assert_eq!(classify_python_logging_line("warning:lowercase:msg"), None);
         assert_eq!(classify_python_logging_line("plain stderr text"), None);
         assert_eq!(classify_python_logging_line(""), None);
+    }
+}
+
+#[cfg(test)]
+mod validate_dbname_tests {
+    use super::validate_dbname;
+
+    #[test]
+    fn accepts_letters_digits_underscores_and_hyphens() {
+        assert!(validate_dbname("mydb").is_ok());
+        assert!(validate_dbname("my_db").is_ok());
+        assert!(validate_dbname("my-database").is_ok());
+        assert!(validate_dbname("My-Db_1").is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_names() {
+        // Must start with a letter (hyphen/digit/underscore leads are rejected).
+        assert!(validate_dbname("-db").is_err());
+        assert!(validate_dbname("1db").is_err());
+        assert!(validate_dbname("_db").is_err());
+        // No other special characters or whitespace.
+        assert!(validate_dbname("my db").is_err());
+        assert!(validate_dbname("my;db").is_err());
+        assert!(validate_dbname("").is_err());
     }
 }
 
@@ -812,7 +847,7 @@ impl PgDatabase {
 }
 
 /// Validate a database name to prevent SQL injection.
-/// Must start with a letter, contain only alphanumeric characters or underscores, and be <= 63 chars.
+/// Must start with a letter, contain only alphanumeric characters, underscores, or hyphens, and be <= 63 chars.
 pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     let dbname = dbname.trim();
     if dbname.is_empty() {
@@ -836,10 +871,11 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     }
     if !dbname
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
         return Err(error::Error::BadRequest(
-            "Database name must contain only alphanumeric characters or underscores".to_string(),
+            "Database name must contain only alphanumeric characters, underscores, or hyphens"
+                .to_string(),
         ));
     }
     Ok(())
@@ -1279,8 +1315,12 @@ pub fn get_latest_deployed_hash_for_path<'e>(
 ) -> impl Future<Output = error::Result<ScriptHashInfo<ScriptRunnableSettingsHandle>>> + Send + 'e {
     async move {
         let cache_key = (w_id.to_string(), script_path.to_string());
+        let use_cache = !DEPLOYED_SCRIPT_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
         let mut computed_hash = None;
-        let hash = match DEPLOYED_SCRIPT_HASH_CACHE.get(&cache_key) {
+        let hash = match DEPLOYED_SCRIPT_HASH_CACHE
+            .get(&cache_key)
+            .filter(|_| use_cache)
+        {
             Some(cached_hash)
                 if cached_hash.expires_at > std::time::Instant::now()
                     && db.as_ref().is_none_or(|x| {
@@ -1323,13 +1363,15 @@ pub fn get_latest_deployed_hash_for_path<'e>(
                 };
 
                 let hash = utils::not_found_if_none(hash, "script", script_path)?;
-                DEPLOYED_SCRIPT_HASH_CACHE.insert(
-                    cache_key,
-                    ExpiringLatestVersionId {
-                        id: hash,
-                        expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
-                    },
-                );
+                if use_cache {
+                    DEPLOYED_SCRIPT_HASH_CACHE.insert(
+                        cache_key,
+                        ExpiringLatestVersionId {
+                            id: hash,
+                            expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
+                        },
+                    );
+                }
 
                 hash
             }
@@ -1361,9 +1403,10 @@ pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
     hash: i64,
 ) -> error::Result<ScriptHashInfo<ScriptRunnableSettingsHandle>> {
     let key = (w_id.to_string(), hash);
+    let use_cache = !DEPLOYED_SCRIPT_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
 
     let mut computed_hash = None;
-    match DEPLOYED_SCRIPT_INFO_CACHE.get(&key) {
+    match DEPLOYED_SCRIPT_INFO_CACHE.get(&key).filter(|_| use_cache) {
         Some(info)
             if db_authed.as_ref().is_none_or(|x| {
                 let r = HASH_PERMS_CACHE.check_perms_in_cache(x.authed, scripts::ScriptHash(hash));
@@ -1392,7 +1435,9 @@ pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
 
             let info = utils::not_found_if_none(info, "script", &hash.to_string())?;
 
-            DEPLOYED_SCRIPT_INFO_CACHE.insert(key, info.clone());
+            if use_cache {
+                DEPLOYED_SCRIPT_INFO_CACHE.insert(key, info.clone());
+            }
 
             Ok(info)
         }

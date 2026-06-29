@@ -606,6 +606,17 @@ pub(crate) async fn tarball_workspace(
         ExtraPermsBehavior::Drop
     };
 
+    // Resolve workspace dependencies on the pool *before* opening the RLS
+    // transaction: fetching them mid-transaction would hold a second
+    // simultaneous connection while `tx` is still checked out.
+    let workspace_dependencies = if include_workspace_dependencies.unwrap_or(false)
+        && require_admin(authed.is_admin, &authed.username).is_ok()
+    {
+        Some(WorkspaceDependencies::list(&w_id, &db).await?)
+    } else {
+        None
+    };
+
     let mut tx = user_db.begin(&authed).await?;
 
     // Exporting decrypted secrets in bulk is the same capability as a per-item
@@ -883,11 +894,8 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
-    if include_workspace_dependencies.unwrap_or(false)
-        && require_admin(authed.is_admin, &authed.username).is_ok()
-    {
+    if let Some(workspace_dependencies) = workspace_dependencies {
         tracing::info!("Including workspace dependencies in tarball export");
-        let workspace_dependencies = WorkspaceDependencies::list(&w_id, &db).await?;
         tracing::info!(
             "Found {} workspace dependencies",
             workspace_dependencies.len()

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.738.0
+  version: 1.742.0
   title: Windmill API
 
   contact:
@@ -127,40 +127,89 @@ paths:
               schema:
                 type: string
 
-  /inkeep:
-    post:
-      summary: query Windmill AI documentation assistant (EE only)
-      operationId: queryDocumentation
+  /docs/search:
+    get:
+      summary: "Full-text search across the entire Windmill documentation. Provide one or more keywords; returns the most relevant docs pages, each with its Source URL and short matching snippets. Use this FIRST to find relevant pages by their content (a flag, function, error message, config key or concept). If the snippets answer the question, answer directly; otherwise call readDocsPage with a returned Source URL to read more."
+      operationId: searchDocs
       x-mcp-tool: true
       tags:
         - documentation
-      requestBody:
-        description: query to send to the AI documentation assistant
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                query:
-                  type: string
-                  description: The documentation query to send to the AI assistant
-              required:
-                - query
+      parameters:
+        - name: query
+          description: 'Keywords to search for in the documentation body, e.g. "chromium worker tag" or "retry exponential backoff". Fewer, more distinctive words match better.'
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          description: AI documentation assistant response
+          description: matching documentation pages
           content:
             application/json:
               schema:
                 type: object
-                description: Response from Inkeep service
-        "403":
-          description: Enterprise Edition required
+                properties:
+                  text:
+                    type: string
+                    description: Model-ready rendering of the results
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        score:
+                          type: integer
+                        snippets:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - url
+                        - title
+                        - score
+                        - snippets
+                required:
+                  - text
+                  - results
+
+  /docs/page:
+    get:
+      summary: "Fetch the markdown of a single Windmill documentation page. Provide the `url` of a page found via searchDocs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section."
+      operationId: readDocsPage
+      x-mcp-tool: true
+      tags:
+        - documentation
+      parameters:
+        - name: url
+          description: "The docs page to read, as a Source URL returned by searchDocs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted."
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: section
+          description: "Optional. A heading title from the page outline to read just that section instead of the full page."
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: documentation page content
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  text:
+                    type: string
+                  source_url:
+                    type: string
+                required:
+                  - text
+                  - source_url
 
   /openapi.yaml:
     get:
@@ -1762,6 +1811,92 @@ paths:
                   - bootstrapping
                   - last_run_exported
                   - updated_at
+
+  /settings/audit_logs_s3_backfill:
+    post:
+      summary: start an opt-in historical backfill of audit logs to object storage
+      operationId: runAuditLogsS3Backfill
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                  description: inclusive lower bound of the window to export
+                to:
+                  type: string
+                  format: date-time
+                  description: exclusive upper bound of the window to export
+              required:
+                - from
+                - to
+      responses:
+        "202":
+          description: backfill started
+
+  /settings/audit_logs_s3_backfill_status:
+    get:
+      summary: get status of the audit-log object-store historical backfill
+      operationId: getAuditLogsS3BackfillStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: current backfill status (null if never run)
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  phase:
+                    type: string
+                  from:
+                    type: string
+                    format: date-time
+                  to:
+                    type: string
+                    format: date-time
+                  rows_written:
+                    type: integer
+                    format: int64
+                  objects_written:
+                    type: integer
+                    format: int64
+                  last_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  errors:
+                    type: integer
+                    format: int64
+                  last_error:
+                    type: string
+                    nullable: true
+                required:
+                  - running
+                  - started_at
+                  - phase
+                  - from
+                  - to
+                  - rows_written
+                  - objects_written
+                  - errors
 
   /settings/send_stats:
     post:
@@ -11751,6 +11886,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: timeout
+          description: custom timeout in seconds for this preview run
+          in: query
+          schema:
+            type: integer
         - $ref: "#/components/parameters/NewJobId"
 
       requestBody:
@@ -12933,6 +13073,64 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/jobs_u/get_flow_all_logs_structured/{id}:
+    get:
+      summary: get all logs for a flow job in a structured format
+      operationId: getFlowAllLogsStructured
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: structured logs of all flow steps, one entry per job
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    job_id:
+                      type: string
+                    label:
+                      type: string
+                      description: human-readable label describing the job's position in the flow tree
+                    kind:
+                      type: string
+                      description: job kind (script, flow, forloopflow, ...)
+                    flow_step_id:
+                      type: string
+                      nullable: true
+                    step_path:
+                      type: string
+                      nullable: true
+                      description: materialized step path (e.g. "a/b")
+                    depth:
+                      type: integer
+                      description: depth in the flow tree (0 for the root flow job)
+                    parent_module_type:
+                      type: string
+                      nullable: true
+                      description: parent module type (forloopflow, branchall, ...)
+                    sibling_index:
+                      type: integer
+                      description: 1-based index of this job among siblings sharing the same step
+                    sibling_count:
+                      type: integer
+                      description: total number of siblings sharing the same step
+                    logs:
+                      type: string
+                  required:
+                    - job_id
+                    - label
+                    - kind
+                    - depth
+                    - sibling_index
+                    - sibling_count
+                    - logs
 
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
@@ -23097,6 +23295,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        is_retry:
+          type: boolean
         worker:
           type: string
       required:
@@ -23216,6 +23416,8 @@ components:
         aggregate_wait_time_ms:
           type: number
         preprocessed:
+          type: boolean
+        is_retry:
           type: boolean
         worker:
           type: string

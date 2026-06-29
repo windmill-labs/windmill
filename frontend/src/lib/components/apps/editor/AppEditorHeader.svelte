@@ -88,6 +88,7 @@
 					summary: string
 					policy: any
 					custom_path?: string
+					labels?: string[]
 			  }
 			| undefined
 		version?: number | undefined
@@ -96,6 +97,8 @@
 		bottomPanelHidden?: boolean
 		newApp: boolean
 		newPath?: string
+		/** Initial labels for the app, threaded from the loaded app data via AppEditor. */
+		labels?: string[]
 		/** URL path the draft is keyed under; empty on `/apps/add` (no draft yet). */
 		userDraftPath?: string
 		onSavedNewAppPath?: (path: string) => void
@@ -112,6 +115,10 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
 	}
 
 	let {
@@ -125,6 +132,7 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
+		labels: initialLabels = undefined,
 		userDraftPath = '',
 		onSavedNewAppPath,
 		onShowLeftPanel,
@@ -137,7 +145,8 @@
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		onRestore
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -256,7 +265,8 @@
 					policy,
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
-					preserve_on_behalf_of: preserveOnBehalfOf || undefined
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+					labels
 				}
 			})
 			// New path now exists server-side — drop the autocomplete cache so
@@ -267,7 +277,8 @@
 				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
-				custom_path: customPath
+				custom_path: customPath,
+				labels: $state.snapshot(labels)
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -310,7 +321,8 @@
 							value: $app,
 							path: newEditedPath || savedApp.path,
 							policy,
-							custom_path: customPath
+							custom_path: customPath,
+							labels
 						})
 					)
 			) {
@@ -361,7 +373,8 @@
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
 					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
-				preserve_on_behalf_of: preserveOnBehalfOf || undefined
+				preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+				labels
 			}
 		})
 		invalidateWorkspacePaths($workspaceStore!)
@@ -370,13 +383,19 @@
 			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			labels: $state.snapshot(labels)
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
 			workspace: $workspaceStore!,
 			path: npath
 		})
 		version = appHistory[0]?.version
+		// Re-pin the fork base to the just-deployed head: the editor stays open, so a
+		// follow-up deploy (or a new edit) would otherwise compare against the now-
+		// superseded base and falsely warn. parent_version is in
+		// DRAFT_COMPARE_IGNORED_FIELDS, so this write can't spawn a spurious draft.
+		if ($app) $app.parent_version = version
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -421,7 +440,12 @@
 
 	let onLatest = $state(true)
 	async function compareVersions() {
-		if (version === undefined) {
+		// Compare the draft's pinned fork base (`$app.parent_version`) against the
+		// current head when editing a draft, else the load-time head. Catches both a
+		// concurrent deploy (head moved since open) AND a stale draft reopened after a
+		// deploy (head == load-time head, but the draft was forked from an older one).
+		const base = $app?.parent_version ?? version
+		if (base === undefined) {
 			return
 		}
 		try {
@@ -429,7 +453,7 @@
 				workspace: $workspaceStore!,
 				path: $appPath
 			})
-			onLatest = appVersion?.version === undefined || version === appVersion?.version
+			onLatest = appVersion?.version === undefined || base === appVersion?.version
 		} catch (e) {
 			console.error('Error comparing versions', e)
 			onLatest = true
@@ -614,7 +638,8 @@
 						value: $app,
 						path: newEditedPath || savedApp.path,
 						policy,
-						custom_path: customPath
+						custom_path: customPath,
+						labels
 					}
 				})
 			},
@@ -713,6 +738,7 @@
 	})
 
 	let customPath = $state(savedApp?.custom_path)
+	let labels = $state(untrack(() => initialLabels))
 
 	$effect(() => {
 		if ($openDebugRun == undefined) {
@@ -742,7 +768,8 @@
 		value: $app,
 		path: newEditedPath || savedApp?.path,
 		policy,
-		custom_path: customPath
+		custom_path: customPath,
+		labels
 	}}
 />
 
@@ -786,7 +813,8 @@
 								value: $app,
 								path: newEditedPath || savedApp.path,
 								policy,
-								custom_path: customPath
+								custom_path: customPath,
+								labels
 							},
 							button: {
 								text: 'Looks good, deploy',
@@ -839,6 +867,7 @@
 			bind:pathError
 			bind:newEditedPath
 			bind:preserveOnBehalfOf
+			bind:labels
 			hideSecretUrl={false}
 		/>
 	</DrawerContent>
@@ -852,7 +881,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore appPath={$appPath} />
+		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} appPath={$appPath} />
 	</DrawerContent>
 </Drawer>
 

@@ -25,6 +25,16 @@
 		 * job ids.
 		 */
 		gateJobIds?: boolean
+		/**
+		 * Additional trusted message source beyond the bundle iframe: the
+		 * detached preview window opened from the editor ("open preview in a
+		 * separate window"). Its app bundle posts runnable requests to
+		 * `window.opener` (this window), so the bridge must accept its
+		 * `event.source` and reply to it. A getter so it tracks the live handle
+		 * without a reactive prop. Editor-only — the detached window runs the
+		 * same unsandboxed bundle as the inline preview.
+		 */
+		extraSourceWindow?: () => Window | null | undefined
 	}
 
 	let {
@@ -35,23 +45,30 @@
 		jobsById = $bindable({}),
 		editor,
 		workspace,
-		gateJobIds = true
+		gateJobIds = true,
+		extraSourceWindow
 	}: Props = $props()
 
 	// Job ids launched by this app instance — see `gateJobIds`.
 	const launchedJobs = new Set<string>()
 
 	let listener = async (event) => {
-		// Only accept messages from the bundle iframe (opaque origin) so other
-		// frames/extensions can't drive the runnable bridge (WIN-2006). Reject
-		// unconditionally until the iframe is bound — never process a message from
-		// an unknown source.
-		if (!iframe || event.source !== iframe.contentWindow) return
+		// Only accept messages from the bundle iframe (opaque origin) or the
+		// detached preview window we opened, so other frames/extensions can't
+		// drive the runnable bridge (WIN-2006). Reject unconditionally until the
+		// iframe is bound — never process a message from an unknown source.
+		const detachedWindow = extraSourceWindow?.()
+		const sourceWindow = event.source as Window | null
+		if (!iframe || !sourceWindow) return
+		if (sourceWindow !== iframe.contentWindow && sourceWindow !== detachedWindow) return
 
 		const data = event.data
 
+		// Reply to whichever window sent the request (inline iframe or the
+		// detached preview), not a hardcoded target — otherwise the detached
+		// window's calls would hang waiting for a response routed elsewhere.
 		function respond(o: object) {
-			iframe?.contentWindow?.postMessage({ type: data.type + 'Res', ...o, reqId: data.reqId }, '*')
+			sourceWindow?.postMessage({ type: data.type + 'Res', ...o, reqId: data.reqId }, '*')
 		}
 		async function respondWithResult(uuid: string) {
 			let error = false
@@ -170,7 +187,7 @@
 			const jobId = data.jobId
 			const reqId = data.reqId
 			if (gateJobIds && !launchedJobs.has(jobId)) {
-				iframe?.contentWindow?.postMessage(
+				sourceWindow?.postMessage(
 					{ type: 'streamJobRes', reqId, error: true, result: { message: 'Unknown job' } },
 					'*'
 				)
@@ -197,7 +214,7 @@
 
 					if (type === 'error') {
 						eventSource.close()
-						iframe?.contentWindow?.postMessage(
+						sourceWindow?.postMessage(
 							{
 								type: 'streamJobRes',
 								reqId,
@@ -211,7 +228,7 @@
 
 					if (type === 'not_found') {
 						eventSource.close()
-						iframe?.contentWindow?.postMessage(
+						sourceWindow?.postMessage(
 							{
 								type: 'streamJobRes',
 								reqId,
@@ -225,7 +242,7 @@
 
 					// Send stream update if there's new stream data
 					if (update.new_result_stream !== undefined) {
-						iframe?.contentWindow?.postMessage(
+						sourceWindow?.postMessage(
 							{
 								type: 'streamJobUpdate',
 								reqId,
@@ -239,7 +256,7 @@
 					// Check if job is completed
 					if (update.completed) {
 						eventSource.close()
-						iframe?.contentWindow?.postMessage(
+						sourceWindow?.postMessage(
 							{
 								type: 'streamJobRes',
 								reqId,
@@ -257,7 +274,7 @@
 			eventSource.onerror = (error) => {
 				console.warn('SSE stream error:', error)
 				eventSource.close()
-				iframe?.contentWindow?.postMessage(
+				sourceWindow?.postMessage(
 					{
 						type: 'streamJobRes',
 						reqId,
