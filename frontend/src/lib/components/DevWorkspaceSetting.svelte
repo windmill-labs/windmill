@@ -113,6 +113,11 @@
 			<Button color="red" disabled={busy} onclick={() => detach(canonicalDev.id)}>Detach</Button>
 		</div>
 	</div>
+{:else if parentId}
+	<p class="text-sm text-secondary max-w-2xl">
+		Dev workspace pairing is only available for root workspaces. This workspace is a fork of
+		<b>{parentId}</b>.
+	</p>
 {:else}
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm text-secondary">

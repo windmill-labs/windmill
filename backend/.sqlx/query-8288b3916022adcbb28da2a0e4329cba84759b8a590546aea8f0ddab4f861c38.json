@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT (parent_workspace_id IS NOT NULL) AS \"has_parent!\", deleted\n           FROM workspace WHERE id = $1",
+  "query": "SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "has_parent!",
-        "type_info": "Bool"
+        "name": "parent_workspace_id",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 1,
@@ -20,9 +20,9 @@
       ]
     },
     "nullable": [
-      null,
+      true,
       false
     ]
   },
-  "hash": "27b5fc9e4b820064501ed6154d93221b32097dd1511d4d51ad38d1b6e1bbda62"
+  "hash": "8288b3916022adcbb28da2a0e4329cba84759b8a590546aea8f0ddab4f861c38"
 }

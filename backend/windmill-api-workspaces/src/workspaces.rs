@@ -6,7 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{check_scopes, require_devops_role, require_super_admin, ApiAuthed};
+use windmill_api_auth::{
+    check_scopes, require_devops_role, require_owner_of_path, require_super_admin, ApiAuthed,
+};
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
@@ -4983,6 +4985,11 @@ async fn create_workspace_fork_branch(
         return Err(Error::PermissionDenied(msg));
     }
 
+    // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
+    // validates up front; it does NOT create the workspace row. The caller follows up with
+    // `create_workspace_fork`, which inserts the row and applies the dev designation + prod lock +
+    // member copy. So the dev/lock/copy_members fields here are validated only — they are acted on by
+    // that second call. Validating early lets a bad request fail before any branch is created.
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
         ensure_dev_parent_is_root(&db, &w_id).await?;
@@ -5311,8 +5318,7 @@ async fn attach_dev_workspace(
     validate_dev_workspace_id(&dev_w_id)?;
 
     let dev = sqlx::query!(
-        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!", deleted
-           FROM workspace WHERE id = $1"#,
+        r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
         &dev_w_id
     )
     .fetch_optional(&db)
@@ -5325,12 +5331,22 @@ async fn attach_dev_workspace(
             dev_w_id
         )));
     }
-    if dev.has_parent {
+    // A candidate that already belongs to a DIFFERENT parent can't be attached. A candidate already
+    // parented to this prod is allowed: it's the recovery path after renaming a dev workspace (the
+    // rename keeps the parent but drops the dev flag), and re-designating an existing fork of this
+    // prod as its dev.
+    if dev
+        .parent_workspace_id
+        .as_deref()
+        .is_some_and(|p| p != prod_w_id)
+    {
         return Err(Error::BadRequest(format!(
             "Workspace {} is already a fork or dev workspace of another workspace",
             dev_w_id
         )));
     }
+    // The candidate can't itself be a prod with its own dev workspace (no nested dev chains).
+    ensure_no_existing_dev_workspace(&db, &dev_w_id).await?;
 
     // Prod must be a root workspace, otherwise attaching could form a parent<->child cycle (e.g.
     // attaching A as the dev of B when B is already the dev of A), which breaks hierarchy traversal.
@@ -8290,9 +8306,12 @@ async fn set_ws_specific(
     }
 
     // Authorize like the resource/variable editors' own ws_specific toggle:
-    // write scope on the item + the workspace deploy rules. This lets a
-    // non-admin who can edit the item pin it, while a locked workspace (prod)
-    // still blocks non-deployers — so a non-admin pins on the dev side only.
+    // actual write access to the item + token scope + the workspace deploy rules.
+    // `require_owner_of_path` is the real write gate (the resource editor uses it);
+    // `check_scopes` only constrains scoped tokens (it is a no-op for session/cookie
+    // logins). Together: a non-admin who can edit the item may pin it, while a
+    // read-only member is rejected and a locked workspace still blocks non-deployers.
+    require_owner_of_path(&authed, &body.path)?;
     check_scopes(&authed, || {
         format!("{}s:write:{}", body.item_kind, body.path)
     })?;
@@ -8349,6 +8368,20 @@ async fn set_ws_specific(
             w_id,
             body.item_kind,
             body.path,
+        )
+        .execute(&mut *tx)
+        .await?;
+        // While pinned, the item's cached workspace_diff verdict was never recomputed (the compare
+        // read filter excludes it), so it may now be stale in either direction. Mark it NULL so the
+        // next compare re-evaluates from scratch — and the now-shared item reappears (or is dropped)
+        // correctly instead of being stuck on its pre-pin verdict.
+        sqlx::query!(
+            "UPDATE workspace_diff SET has_changes = NULL
+             WHERE path = $2 AND kind = $3
+               AND ($1 IN (source_workspace_id, fork_workspace_id))",
+            w_id,
+            body.path,
+            body.item_kind,
         )
         .execute(&mut *tx)
         .await?;

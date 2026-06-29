@@ -1385,6 +1385,11 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+/// Marks every variable referenced by the resource at `resource_path` as workspace-specific.
+///
+/// AUTH CONTRACT: this mutates `ws_specific` and does NOT check authorization itself. The caller
+/// MUST verify that `authed` has write access to the resource at `resource_path` in `w_id` (e.g. via
+/// `require_owner_of_path`) before calling it.
 pub async fn mark_linked_variables_ws_specific(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,

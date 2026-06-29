@@ -69,7 +69,11 @@ pub(crate) async fn change_workspace_id(
     // detached-dev workspace) would otherwise be silently promoted to a root workspace on rename,
     // dropping the link it needs to compare/merge against its parent. Promoting out of a fork is a
     // separate, explicit action — a rename never does it implicitly. The dev flag itself isn't
-    // carried (the row downgrades to an ordinary fork; re-attach to restore the dev designation).
+    // carried (the row downgrades to an ordinary fork of the same prod): the move-and-archive
+    // archives the old row only after this INSERT, so carrying is_dev would momentarily put two
+    // non-deleted dev rows under one parent and trip the one-dev-per-parent unique index. To restore
+    // the dev designation, re-run attach_dev_workspace with this prod — it accepts a fork already
+    // parented to the prod.
     info!("Creating new workspace row");
     let new_is_fork = sqlx::query_scalar!(
         r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
