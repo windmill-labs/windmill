@@ -723,127 +723,6 @@ pub async fn handle_receive_completed_job(
     }
 }
 
-/// Phase 4: when a git-sync dry-run pull (carrying the `__git_sync_pr_check`
-/// marker) completes, post the resulting diff to its GitHub check run.
-#[cfg(all(feature = "enterprise", feature = "private"))]
-async fn maybe_post_git_sync_pr_check(
-    db: &DB,
-    job_id: &uuid::Uuid,
-    workspace_id: &str,
-    success: bool,
-    result_raw: &str,
-) {
-    use serde::Deserialize;
-
-    // Only git-sync dry-run jobs carry this marker; everything else no-ops.
-    let marker: Option<serde_json::Value> = match sqlx::query_scalar!(
-        "SELECT args->'__git_sync_pr_check' FROM v2_job WHERE id = $1",
-        job_id
-    )
-    .fetch_optional(db)
-    .await
-    {
-        Ok(v) => v.flatten(),
-        Err(e) => {
-            tracing::error!("git pr-check: failed to read job args: {e:#}");
-            return;
-        }
-    };
-    let Some(marker) = marker else {
-        return;
-    };
-
-    #[derive(Deserialize)]
-    struct PrCheck {
-        check_run_id: i64,
-        repo_url: String,
-    }
-    let Ok(pr) = serde_json::from_value::<PrCheck>(marker) else {
-        return;
-    };
-
-    let (conclusion, title, summary): (&str, String, String) = if !success {
-        (
-            "failure",
-            "Windmill diff failed".to_string(),
-            "The dry-run pull to compute the diff failed. See the job in Windmill for details."
-                .to_string(),
-        )
-    } else {
-        #[derive(Deserialize)]
-        struct DryRunChange {
-            #[serde(rename = "type")]
-            change_type: String,
-            path: String,
-        }
-        #[derive(Deserialize)]
-        struct SettingsDiff {
-            #[serde(rename = "hasChanges", default)]
-            has_changes: bool,
-        }
-        #[derive(Deserialize)]
-        struct SyncResponse {
-            #[serde(default)]
-            changes: Vec<DryRunChange>,
-            #[serde(default, rename = "settingsDiffResult")]
-            settings_diff_result: Option<SettingsDiff>,
-        }
-        match serde_json::from_str::<SyncResponse>(result_raw) {
-            Ok(resp) => {
-                let settings_changed = resp
-                    .settings_diff_result
-                    .map(|s| s.has_changes)
-                    .unwrap_or(false);
-                if resp.changes.is_empty() && !settings_changed {
-                    (
-                        "success",
-                        "In sync".to_string(),
-                        "Merging this PR would make no changes to the workspace.".to_string(),
-                    )
-                } else {
-                    let mut lines = vec![format!(
-                        "Merging this PR would apply {} change(s) to the workspace:\n",
-                        resp.changes.len()
-                    )];
-                    for c in resp.changes.iter().take(100) {
-                        lines.push(format!("- `{}` {}", c.change_type, c.path));
-                    }
-                    if resp.changes.len() > 100 {
-                        lines.push(format!("- ... and {} more", resp.changes.len() - 100));
-                    }
-                    if settings_changed {
-                        lines.push("\nWorkspace settings would also change.".to_string());
-                    }
-                    (
-                        "neutral",
-                        format!("{} change(s) to deploy", resp.changes.len()),
-                        lines.join("\n"),
-                    )
-                }
-            }
-            Err(_) => (
-                "neutral",
-                "Diff computed".to_string(),
-                "Windmill computed a diff but could not summarize it.".to_string(),
-            ),
-        }
-    };
-
-    if let Err(e) = windmill_common::git_sync_ee::update_check_run(
-        db,
-        workspace_id,
-        &pr.repo_url,
-        pr.check_run_id,
-        conclusion,
-        &title,
-        &summary,
-    )
-    .await
-    {
-        tracing::error!("git pr-check: failed to update check run: {e:#}");
-    }
-}
-
 pub async fn process_completed_job(
     JobCompleted {
         job,
@@ -926,10 +805,6 @@ pub async fn process_completed_job(
             from_cache.unwrap_or(false),
         )
         .await?;
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        if job.kind == JobKind::DeploymentCallback {
-            maybe_post_git_sync_pr_check(db, &job_id, &workspace_id, true, result.get()).await;
-        }
         drop(job);
 
         add_time!(bench, "add_completed_job END");
@@ -1031,10 +906,6 @@ pub async fn process_completed_job(
             .await?;
             Arc::new(serde_json::value::to_raw_value(&wrapped).unwrap())
         };
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        if job.kind == JobKind::DeploymentCallback {
-            maybe_post_git_sync_pr_check(db, &job.id, &job.workspace_id, false, result.get()).await;
-        }
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {
                 tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
