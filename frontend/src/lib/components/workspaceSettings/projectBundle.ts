@@ -292,11 +292,17 @@ export async function buildProjectBundle(
 		if (classifyPath(p, slug) !== 'hub') resourcePaths.add(p)
 	}
 
+	// Dedup/index by `${kind}:${path}`, not bare path: Windmill allows distinct
+	// item kinds (script vs flow) at the same path, and keying by path alone would
+	// silently drop one of them from the bundle.
+	const refKey = (kind: string, path: string) => `${kind}:${path}`
+
 	// Refs at the same BFS depth are independent: fetch each level concurrently.
 	let level: ItemRef[] = []
 	for (const s of seed) {
-		if (!queued.has(s.path)) {
-			queued.add(s.path)
+		const key = refKey(s.kind, s.path)
+		if (!queued.has(key)) {
+			queued.add(key)
 			level.push(s)
 		}
 	}
@@ -310,14 +316,15 @@ export async function buildProjectBundle(
 				unresolved.push(ref.path)
 				continue
 			}
-			fetched.set(ref.path, item)
+			fetched.set(refKey(ref.kind, ref.path), item)
 			for (const r of refsForFetched(item)) {
 				if (classifyPath(r.path, slug) === 'hub') continue
 				if (r.kind === 'resource') {
 					resourcePaths.add(r.path)
 				} else if (r.kind === 'script' || r.kind === 'flow') {
-					if (!queued.has(r.path)) {
-						queued.add(r.path)
+					const key = refKey(r.kind, r.path)
+					if (!queued.has(key)) {
+						queued.add(key)
 						next.push({ kind: r.kind, path: r.path })
 					}
 				}
@@ -326,12 +333,12 @@ export async function buildProjectBundle(
 		level = next
 	}
 
-	const itemPaths = [...fetched.keys()]
+	const fetchedItems = [...fetched.values()]
+	const itemPaths = fetchedItems.map((it) => it.path)
 	const map = buildPathMap([...itemPaths, ...resourcePaths], slug)
 
-	const items: BundledItem[] = itemPaths.map((path) => {
-		const it = fetched.get(path)!
-		const rewritten: BundledItem = { ...it, newPath: map.get(path) ?? path }
+	const items: BundledItem[] = fetchedItems.map((it) => {
+		const rewritten: BundledItem = { ...it, newPath: map.get(it.path) ?? it.path }
 		if (it.kind === 'script') {
 			rewritten.content = rewriteContent(it.content ?? '', map)
 		} else if (it.kind === 'raw_app') {

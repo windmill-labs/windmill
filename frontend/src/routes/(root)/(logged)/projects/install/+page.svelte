@@ -194,6 +194,10 @@
 	}
 
 	async function install() {
+		// Snapshot the target workspace once: the module-level `workspace` is
+		// reactive ($derived), so a workspace switch mid-import would otherwise
+		// split items across workspaces (folder in A, later items in B).
+		const workspace = $workspaceStore
 		if (!data || !workspace) return
 		const folder = folderName.trim() || data.project.slug
 		installing = true

@@ -687,7 +687,7 @@
 			return
 		}
 		bundleDrawer?.closeDrawer()
-		await deployAll()
+		await deployAll(workspace)
 	}
 
 	let hubItemIds = $state<Record<string, number>>({})
@@ -1105,9 +1105,10 @@
 		return results.reduce((a: number, b) => a + b, 0)
 	}
 
-	async function deployAll() {
-		const workspace = $workspaceStore
-		if (!workspace) return
+	// `workspace` is captured by the caller (confirmBundle) before the draft is
+	// created, so the whole deploy runs against the same workspace the Hub draft's
+	// source_id was bound to — a workspace switch mid-deploy can't split items.
+	async function deployAll(workspace: string) {
 		const slug = hubSlug
 		// Snapshot the selection up-front so a workspace switch mid-deploy can't
 		// write stale state into the new workspace.
