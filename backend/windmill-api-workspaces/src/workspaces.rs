@@ -7,7 +7,7 @@
  */
 
 use windmill_api_auth::{
-    check_scopes, require_devops_role, require_owner_of_path, require_super_admin, ApiAuthed,
+    check_scopes, require_devops_role, require_is_writer, require_super_admin, ApiAuthed,
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
@@ -4410,8 +4410,8 @@ async fn copy_workspace_members(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role)
-         SELECT $1, username, email, is_admin, created_at, operator, disabled, role
+        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via)
+         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via
          FROM usr WHERE workspace_id = $2
          ON CONFLICT DO NOTHING",
         target_workspace_id,
@@ -5608,11 +5608,45 @@ async fn archive_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // If this is an attached dev workspace, archiving it leaves the prod with no active dev (the
+    // unique index and user_workspaces both ignore deleted=true), so clear the prod's
+    // dev_workspace_lock too. Gate it on prod-admin since it removes prod's protection rule (mirrors
+    // detach/delete) — a dev-admin who isn't a prod-admin must not be able to unlock prod this way.
+    let dev_lock_parent: Option<String> = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    if let Some(ref prod) = dev_lock_parent {
+        let is_prod_admin = sqlx::query_scalar!(
+            "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+            prod,
+            &authed.email
+        )
+        .fetch_optional(&db)
+        .await?
+        .unwrap_or(false);
+        if !is_prod_admin {
+            require_super_admin(&db, &authed.email).await?;
+        }
+    }
+
     let (schedules_count, canceled_count, deleted_tokens_count) =
         archive_workspace_impl(&db, &w_id, &authed.username).await?;
 
     // Audit log
     let mut tx = db.begin().await?;
+    if let Some(ref prod) = dev_lock_parent {
+        sqlx::query!(
+            "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
+            prod,
+            DEV_WORKSPACE_LOCK_RULE_NAME
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     let mut audit_params = HashMap::new();
     audit_params.insert("disabled_schedules", schedules_count.to_string());
     audit_params.insert("canceled_jobs", canceled_count.to_string());
@@ -5643,6 +5677,10 @@ async fn archive_workspace(
     )
     .await?;
     tx.commit().await?;
+
+    if let Some(prod) = dev_lock_parent {
+        windmill_common::workspaces::invalidate_protection_rules_cache(&prod);
+    }
 
     Ok(format!(
         "Archived workspace {}, disabled {} schedules, canceled {} jobs and deleted {} tokens",
@@ -8305,7 +8343,22 @@ async fn set_ws_specific(
     // `check_scopes` only constrains scoped tokens (it is a no-op for session/cookie
     // logins). Together: a non-admin who can edit the item may pin it, while a
     // read-only member is rejected and a locked workspace still blocks non-deployers.
-    require_owner_of_path(&authed, &body.path)?;
+    // `require_is_writer` matches the resource/variable editors' write semantics (owner, folder
+    // writer, or item writer via extra_perms) — not owner-only.
+    let writer_query = if body.item_kind == "resource" {
+        "SELECT extra_perms FROM resource WHERE path = $1 AND workspace_id = $2"
+    } else {
+        "SELECT extra_perms FROM variable WHERE path = $1 AND workspace_id = $2"
+    };
+    require_is_writer(
+        &authed,
+        &body.path,
+        &w_id,
+        db.clone(),
+        writer_query,
+        &body.item_kind,
+    )
+    .await?;
     check_scopes(&authed, || {
         format!("{}s:write:{}", body.item_kind, body.path)
     })?;

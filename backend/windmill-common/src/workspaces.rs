@@ -461,22 +461,6 @@ pub enum RuleCheckResult {
 /// feature (applied on pairing, removed on detach).
 pub const DEV_WORKSPACE_LOCK_RULE_NAME: &str = "dev_workspace_lock";
 
-/// Guidance shown when the dev-workspace lock blocks an action, pointing at the dev-workspace flow
-/// instead of the generic "fork or PR" message.
-fn dev_workspace_lock_msg(rule: &ProtectionRuleKind, prod_w_id: &str) -> String {
-    match rule {
-        ProtectionRuleKind::DisableDirectDeployment => format!(
-            "'{}' is a prod workspace paired with a dev workspace. Make your changes in the dev workspace and promote them, instead of deploying directly here.",
-            prod_w_id
-        ),
-        ProtectionRuleKind::DisableWorkspaceForking => format!(
-            "'{}' is a prod workspace. Make your changes in its dev workspace instead of forking it.",
-            prod_w_id
-        ),
-        _ => rule.msg().to_string(),
-    }
-}
-
 pub async fn check_user_against_rule(
     workspace_id: &str,
     rule: &ProtectionRuleKind,
@@ -509,17 +493,12 @@ pub async fn check_user_against_rule(
             {
                 continue;
             }
-            let msg = if ruleset.name == DEV_WORKSPACE_LOCK_RULE_NAME {
-                dev_workspace_lock_msg(rule, workspace_id)
-            } else {
-                format!(
-                    "Ruleset {} of {} blocked this action: {}",
-                    ruleset.name,
-                    workspace_id,
-                    rule.msg()
-                )
-            };
-            return Ok(RuleCheckResult::Blocked(msg));
+            return Ok(RuleCheckResult::Blocked(format!(
+                "Ruleset {} of {} blocked this action: {}",
+                ruleset.name,
+                workspace_id,
+                rule.msg()
+            )));
         }
     }
 

@@ -1114,6 +1114,14 @@
 		}
 	}
 
+	// The Dev workspace tab is only meaningful on a root workspace (to pair/manage a dev) or on a
+	// dev workspace itself (to see its prod / detach). Hide it for ordinary forks — pairing isn't
+	// available there and the backend would reject it.
+	const currentWsForDevTab = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+	const showDevWorkspaceTab = $derived(
+		!currentWsForDevTab?.parent_workspace_id || (currentWsForDevTab?.is_dev_workspace ?? false)
+	)
+
 	// Navigation groups for sidebar
 	const navigationGroups = $derived([
 		{
@@ -1162,13 +1170,17 @@
 					aiDescription: 'Deployment UI workspace settings',
 					isEE: true
 				},
-				{
-					id: 'dev_workspace',
-					label: 'Dev workspace',
-					aiId: 'workspace-settings-dev-workspace',
-					aiDescription:
-						'Pair this workspace with a dev workspace (same code, different environment)'
-				},
+				...(showDevWorkspaceTab
+					? [
+							{
+								id: 'dev_workspace',
+								label: 'Dev workspace',
+								aiId: 'workspace-settings-dev-workspace',
+								aiDescription:
+									'Pair this workspace with a dev workspace (same code, different environment)'
+							}
+						]
+					: []),
 				{
 					id: 'rulesets',
 					label: 'Rulesets',

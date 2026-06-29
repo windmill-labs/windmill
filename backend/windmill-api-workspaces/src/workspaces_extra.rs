@@ -64,33 +64,42 @@ pub(crate) async fn change_workspace_id(
         old_id, rw.new_id
     );
 
-    // Create new workspace with new id and name. Fork lineage is preserved from the source row's
-    // own parent_workspace_id, not inferred from the new id's prefix: a prefix-less fork (a dev or
-    // detached-dev workspace) would otherwise be silently promoted to a root workspace on rename,
-    // dropping the link it needs to compare/merge against its parent. Promoting out of a fork is a
-    // separate, explicit action — a rename never does it implicitly. The dev flag itself isn't
-    // carried (the row downgrades to an ordinary fork of the same prod): the move-and-archive
-    // archives the old row only after this INSERT, so carrying is_dev would momentarily put two
-    // non-deleted dev rows under one parent and trip the one-dev-per-parent unique index. To restore
-    // the dev designation, re-run attach_dev_workspace with this prod — it accepts a fork already
-    // parented to the prod.
+    // Create new workspace with new id and name. Fork lineage AND the dev designation are preserved
+    // from the source row, not inferred from the new id's prefix: a prefix-less fork (a dev or
+    // detached-dev workspace) would otherwise be silently promoted to a root workspace, and a dev
+    // would lose its flag — leaving its prod locked with no canonical dev. Promoting out of a fork is
+    // a separate, explicit action — a rename never does it implicitly.
     info!("Creating new workspace row");
-    let new_is_fork = sqlx::query_scalar!(
-        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
+    let old = sqlx::query!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!", is_dev_workspace
+           FROM workspace WHERE id = $1"#,
         &old_id
     )
     .fetch_optional(&mut *tx)
-    .await?
-    .unwrap_or(false);
+    .await?;
+    let new_is_fork = old.as_ref().map(|o| o.has_parent).unwrap_or(false);
+    let new_is_dev = new_is_fork && old.as_ref().map(|o| o.is_dev_workspace).unwrap_or(false);
+    // Neutralize the old row's dev flag BEFORE inserting the new one: the move-and-archive archives
+    // the old row only later, so without this the new dev row and the not-yet-archived old dev row
+    // would momentarily both be active under the same parent and trip the one-dev-per-parent index.
+    if new_is_dev {
+        sqlx::query!(
+            "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+            &old_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     sqlx::query!(
-        "INSERT INTO workspace (id, name, owner, deleted, premium, parent_workspace_id)
+        "INSERT INTO workspace (id, name, owner, deleted, premium, parent_workspace_id, is_dev_workspace)
          SELECT $1, $2, owner, false, premium,
-                CASE WHEN $4 THEN parent_workspace_id ELSE NULL END
+                CASE WHEN $4 THEN parent_workspace_id ELSE NULL END, $5
          FROM workspace WHERE id = $3",
         &rw.new_id,
         &rw.new_name,
         &old_id,
-        new_is_fork
+        new_is_fork,
+        new_is_dev
     )
     .execute(&mut *tx)
     .await?;
@@ -771,6 +780,30 @@ pub(crate) async fn delete_workspace(
             "Cannot delete workspace '{}' because it has a dev workspace ('{}'). Detach or delete the dev workspace first.",
             w_id, dev_id
         )));
+    }
+
+    // Deleting an attached dev workspace removes the parent prod's dev_workspace_lock (below), so it
+    // must be a prod-admin action, not just the dev's own owner (dev ownership can diverge from
+    // prod's) — mirrors detach_dev_workspace, which is prod-admin gated.
+    if let Some(prod) = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    {
+        let is_prod_admin = sqlx::query_scalar!(
+            "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+            &prod,
+            &authed.email
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !is_prod_admin {
+            require_super_admin(&db, &authed.email).await?;
+        }
     }
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
