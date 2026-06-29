@@ -510,46 +510,6 @@
 				<!-- svelte-ignore a11y_autofocus -->
 				<TextInput inputProps={{ autofocus: true }} bind:value={name} />
 			</label>
-			{#if isFork && canDesignateDevWorkspace}
-				<Label label="Persistent dev workspace">
-					<span class="text-xs text-secondary">
-						Create a standing dev workspace (no <code>wm-fork-</code> prefix) paired with this workspace,
-						instead of a throwaway fork.
-					</span>
-					<div class="flex flex-col gap-2 pt-1">
-						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
-						{#if createAsDevWorkspace}
-							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
-								<div class="flex flex-col gap-0.5">
-									<span class="text-xs font-semibold text-emphasis"
-										>Protect {currentWorkspaceName}</span
-									>
-									<span class="text-2xs text-secondary">
-										Adds protection rules to this (root) workspace so changes are made in the new
-										dev workspace and promoted here.
-									</span>
-								</div>
-								<Toggle
-									bind:checked={lockProdDeploy}
-									options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
-								/>
-								<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
-							</div>
-						{/if}
-					</div>
-				</Label>
-			{/if}
-			{#if isFork}
-				<Label label="Members">
-					<span class="text-xs text-secondary">
-						Copy this workspace's members (and their group memberships) into the fork so the team
-						can work in it.
-					</span>
-					<div class="pt-1">
-						<Toggle bind:checked={copyMembers} options={{ right: 'Copy members' }} />
-					</div>
-				</Label>
-			{/if}
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
 				{#if isFork}
@@ -591,6 +551,46 @@
 					{/if}
 				{/if}
 			</label>
+			{#if isFork && canDesignateDevWorkspace}
+				<Label label="Persistent dev workspace">
+					<span class="text-xs text-secondary">
+						Create a standing dev workspace (no <code>wm-fork-</code> prefix) paired with this workspace,
+						instead of a throwaway fork.
+					</span>
+					<div class="flex flex-col gap-2 pt-1">
+						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
+						{#if createAsDevWorkspace}
+							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
+								<div class="flex flex-col gap-0.5">
+									<span class="text-xs font-semibold text-emphasis"
+										>Protect {currentWorkspaceName}</span
+									>
+									<span class="text-2xs text-secondary">
+										Adds protection rules to this (root) workspace so changes are made in the new
+										dev workspace and promoted here.
+									</span>
+								</div>
+								<Toggle
+									bind:checked={lockProdDeploy}
+									options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+								/>
+								<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+							</div>
+						{/if}
+					</div>
+				</Label>
+			{/if}
+			{#if isFork}
+				<Label label="Members">
+					<span class="text-xs text-secondary">
+						Copy this workspace's members (and their group memberships) into the fork so the team
+						can work in it.
+					</span>
+					<div class="pt-1">
+						<Toggle bind:checked={copyMembers} options={{ right: 'Copy members' }} />
+					</div>
+				</Label>
+			{/if}
 			<Label label="Workspace color">
 				<span class="text-xs text-secondary">
 					Color to identify the current workspace in the list of workspaces
