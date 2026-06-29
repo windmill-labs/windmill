@@ -543,7 +543,7 @@
 								options={{
 									right: 'Automatically deploy changes from Git',
 									rightTooltip:
-										'Windmill periodically checks the tracked branch and pulls new commits into this workspace. Repositories connected through the GitHub App will sync via webhooks in a future update.'
+										'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks; others are checked about every minute.'
 								}}
 								on:change={(e) => setAutoPullEnabled(e.detail)}
 							/>
