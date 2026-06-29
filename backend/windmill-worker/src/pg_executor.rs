@@ -629,10 +629,22 @@ pub async fn do_postgresql(
     // Include use_iam_auth in cache key to distinguish IAM vs non-IAM connections to the same host.
     // The cache key is static (doesn't include the token), which is correct because PostgreSQL
     // connections remain valid after initial auth — fresh tokens are generated on cache miss.
+    //
+    // to_uri() collapses require/verify-ca/verify-full to the same string, so the TLS verification
+    // inputs are folded into the key separately. Without this a connection established under a
+    // weaker sslmode (or a different root cert) could be reused for a stricter request, undoing
+    // the verification configured in PgDatabase::configure_pg_tls_verification.
+    let tls_disc = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        database.sslmode.hash(&mut h);
+        database.root_certificate_pem.hash(&mut h);
+        h.finish()
+    };
     let database_string = if use_iam_auth {
-        format!("{}?iam=true", database.to_uri())
+        format!("{}?iam=true&tls={tls_disc:x}", database.to_uri())
     } else {
-        database.to_uri()
+        format!("{}?tls={tls_disc:x}", database.to_uri())
     };
     let database_string_clone = database_string.clone();
 
