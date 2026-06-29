@@ -340,8 +340,9 @@
 	async function loadTriggers(workspace: string, seq: number) {
 		triggersLoading = true
 		try {
-			// Native triggers are EE-only — calling them on CE just floods the console
-			// with 404s. Skip them entirely without a license; schedules exist on CE.
+			// Kafka, NATS, SQS, GCP and Azure triggers are EE-only — calling them on CE
+			// just floods the console with 404s, so skip them without a license. The
+			// others (http, websocket, schedule, postgres, mqtt, email) exist on CE.
 			const safeList = async <T,>(p: Promise<T[]>): Promise<T[]> => {
 				try {
 					return await p
@@ -354,17 +355,17 @@
 				ee ? safeList(p()) : Promise.resolve([])
 			const [http, websocket, schedule, kafka, nats, sqs, mqtt, gcp, azure, postgres, email] =
 				await Promise.all([
-					eeList(() => HttpTriggerService.listHttpTriggers({ workspace })),
-					eeList(() => WebsocketTriggerService.listWebsocketTriggers({ workspace })),
+					safeList(HttpTriggerService.listHttpTriggers({ workspace })),
+					safeList(WebsocketTriggerService.listWebsocketTriggers({ workspace })),
 					safeList(ScheduleService.listSchedules({ workspace })),
 					eeList(() => KafkaTriggerService.listKafkaTriggers({ workspace })),
 					eeList(() => NatsTriggerService.listNatsTriggers({ workspace })),
 					eeList(() => SqsTriggerService.listSqsTriggers({ workspace })),
-					eeList(() => MqttTriggerService.listMqttTriggers({ workspace })),
+					safeList(MqttTriggerService.listMqttTriggers({ workspace })),
 					eeList(() => GcpTriggerService.listGcpTriggers({ workspace })),
 					eeList(() => AzureTriggerService.listAzureTriggers({ workspace })),
-					eeList(() => PostgresTriggerService.listPostgresTriggers({ workspace })),
-					eeList(() => EmailTriggerService.listEmailTriggers({ workspace }))
+					safeList(PostgresTriggerService.listPostgresTriggers({ workspace })),
+					safeList(EmailTriggerService.listEmailTriggers({ workspace }))
 				])
 			if (seq !== workspaceLoadSeq) return
 			const normalize = (
