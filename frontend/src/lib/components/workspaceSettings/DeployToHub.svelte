@@ -1180,6 +1180,9 @@
 			}
 
 			for (const it of bundle.items) {
+				// Stop writing item status / Hub IDs into a workspace the user has
+				// switched away from mid-publish.
+				if ($workspaceStore !== workspace) return
 				const key = `${it.kind}:${it.path}`
 				deploymentStatus = { ...deploymentStatus, [key]: { status: 'loading' } }
 				try {

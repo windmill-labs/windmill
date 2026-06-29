@@ -52,25 +52,35 @@
 	let done = $state(false)
 	let folderName = $state('')
 
+	let loadSeq = 0
+
 	$effect(() => {
 		if (slug && workspace) void load()
 	})
 
 	async function load() {
+		// Token + captured slug/workspace: a slow /export for an old ?hub= must not
+		// overwrite the data of a newer one once we've navigated away.
+		const reqSeq = ++loadSeq
+		const reqSlug = slug
+		const reqWorkspace = workspace
 		loading = true
 		loadError = undefined
 		try {
 			const res = await fetch(
-				`/api/w/${workspace}/hub/projects/${encodeURIComponent(slug)}/export`,
+				`/api/w/${reqWorkspace}/hub/projects/${encodeURIComponent(reqSlug)}/export`,
 				{ credentials: 'include', headers: { accept: 'application/json' } }
 			)
-			if (!res.ok) throw new Error(`export ${res.status}: ${await res.text()}`)
-			data = JSON.parse(await res.text())
+			const text = await res.text()
+			if (reqSeq !== loadSeq) return // a newer load() superseded this one
+			if (!res.ok) throw new Error(`export ${res.status}: ${text}`)
+			data = JSON.parse(text)
 			if (data && !folderName) folderName = data.project.slug
 		} catch (e: any) {
+			if (reqSeq !== loadSeq) return
 			loadError = e?.message ?? String(e)
 		} finally {
-			loading = false
+			if (reqSeq === loadSeq) loading = false
 		}
 	}
 
