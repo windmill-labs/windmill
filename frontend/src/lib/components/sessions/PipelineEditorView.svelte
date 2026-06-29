@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import { Loader2, Workflow } from 'lucide-svelte'
 	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
+	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
 	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import type {
 		AssetGraphResponse,
-		AssetGraphSelection
+		AssetGraphSelection,
+		NativeTriggerKind
 	} from '$lib/components/assets/AssetGraph/types'
 	import { AssetService, type AssetKind } from '$lib/gen'
+	import { sendUserToast } from '$lib/utils'
 	import { createPipelineAiHelpers } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 
@@ -112,6 +115,56 @@
 		await graphRes.refetch()
 	}
 
+	// Native trigger editor drawers — the shared <PipelineTriggerEditors> the route
+	// page uses; the canvas drives them imperatively. The draft guards mirror the
+	// route page: a trigger row stores a hard `script_path`, so it can only attach
+	// to a deployed script.
+	let triggerEditors: PipelineTriggerEditors | undefined = $state(undefined)
+	let focusDataUploadSignal = $state(0)
+
+	function openMissingTriggerDrawer(kind: NativeTriggerKind, scriptPath: string) {
+		if (pe.drafts.has(scriptPath)) {
+			sendUserToast(
+				`Save the script "${scriptPath}" first — triggers can only be attached to deployed scripts.`,
+				true
+			)
+			return
+		}
+		triggerEditors?.openNew(kind, scriptPath)
+	}
+
+	function openEditTriggerDrawer(kind: NativeTriggerKind, triggerPath: string, scriptPath: string) {
+		triggerEditors?.openEdit(kind, triggerPath, scriptPath)
+	}
+
+	function deleteAttachedTrigger(kind: NativeTriggerKind, triggerPath: string) {
+		triggerEditors?.requestDelete(kind, triggerPath)
+	}
+
+	function openWebhookDrawer(scriptPath: string) {
+		if (pe.drafts.has(scriptPath)) {
+			sendUserToast(
+				`Save the script "${scriptPath}" first — webhooks only trigger the deployed version.`,
+				true
+			)
+			return
+		}
+		triggerEditors?.openWebhook(scriptPath)
+	}
+
+	// Data upload has no trigger row — open the target in the details pane and pulse
+	// the signal so its auto-generated run form focuses the S3 input.
+	function openDataUploadRun(scriptPath: string) {
+		if (pe.drafts.has(scriptPath)) {
+			pe.activeDraftPath = scriptPath
+			pe.selection = undefined
+		} else {
+			pe.activeDraftPath = undefined
+			pe.selection = { kind: 'runnable', runnable_kind: 'script', path: scriptPath }
+		}
+		void tick().then(() => focusDataUploadSignal++)
+	}
+
 	// Register the pipeline tools on this session's manager while the view is the
 	// active one. setPipelineHelpers rebuilds the global tool set to include the
 	// pipeline tools and tears them down on cleanup.
@@ -160,6 +213,12 @@
 				mode="edit"
 				workspace={workspaceId}
 				pathPrefix={`f/${path}/`}
+				onCreateMissingTrigger={openMissingTriggerDrawer}
+				onEditTrigger={openEditTriggerDrawer}
+				onDeleteTrigger={deleteAttachedTrigger}
+				onOpenWebhook={openWebhookDrawer}
+				onOpenDataUpload={openDataUploadRun}
+				focusUploadSignal={focusDataUploadSignal}
 				onSelect={handleCanvasSelect}
 				onDraftSaved={afterSaved}
 				onPersistedSaved={afterSaved}
@@ -179,3 +238,11 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Native trigger editor drawers (schedule/kafka/webhook/…), shared with the
+     route page; opened imperatively from the canvas via the handlers above. -->
+<PipelineTriggerEditors
+	bind:this={triggerEditors}
+	mountTriggerEditors
+	onUpdate={() => graphRes.refetch()}
+/>
