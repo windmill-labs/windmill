@@ -4996,6 +4996,12 @@ async fn create_workspace_fork_branch(
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
         ensure_no_existing_dev_workspace(&db, &w_id).await?;
+        // Locking the parent is admin-only (mirrors create_workspace_fork). Enforce it in this first
+        // phase too: otherwise a non-admin requesting a locked dev passes here, creates the branches,
+        // then fails the admin check in the follow-up create_workspace_fork — leaving dangling branches.
+        if nw.lock_prod_deploy || nw.lock_prod_forking {
+            require_admin(authed.is_admin, &authed.username)?;
+        }
     } else {
         validate_fork_workspace_id(&nw.id)?;
     }
@@ -8302,6 +8308,16 @@ async fn set_ws_specific(
         return Err(Error::BadRequest(format!(
             "Invalid kind '{}'. Must be 'resource' or 'variable'",
             body.item_kind
+        )));
+    }
+
+    // Reject a malformed path with a 400 before `require_owner_of_path`, which indexes the `u/<user>`
+    // / `f/<folder>` segments and would otherwise panic (500) on a path like `u` with no segment.
+    let segs: Vec<&str> = body.path.split('/').collect();
+    if segs.len() < 2 || !matches!(segs[0], "u" | "f") || segs[1].is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Invalid {} path: {}",
+            body.item_kind, body.path
         )));
     }
 

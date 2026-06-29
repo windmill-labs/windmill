@@ -225,6 +225,10 @@
 				name,
 				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 				is_dev_workspace: createAsDevWorkspace,
+				// Send the lock intent in this first phase too so the backend can reject a non-admin's
+				// locked-dev request before any branch is created (avoids dangling branches).
+				lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
+				lock_prod_forking: createAsDevWorkspace && lockProdForking,
 				copy_members: copyMembers
 			}
 		})
