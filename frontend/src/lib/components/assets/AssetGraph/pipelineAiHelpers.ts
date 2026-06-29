@@ -141,9 +141,16 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAiH
 	}
 
 	function rejectAll() {
-		// Iterate the snapshot set: it covers every path the AI created or edited
-		// this cycle (a created path's snapshot is `undefined` → removed).
-		for (const path of [...aiSnapshots.keys()]) revertPath(path)
+		// Snapshots cover every path the AI created or edited THIS in-memory cycle
+		// (a created path's snapshot is `undefined` → removed). But proposals
+		// rehydrated from the persisted draft after a reload have no snapshot, so
+		// also sweep any still-pending draft: without a baseline to restore, the
+		// safe revert is to discard it (revertPath deletes paths with no snapshot —
+		// which, for an edit of a deployed node, falls back to the deployed body).
+		const pendingPaths = [...deps.getDrafts().entries()]
+			.filter(([, d]) => d.aiPending)
+			.map(([p]) => p)
+		for (const path of new Set([...aiSnapshots.keys(), ...pendingPaths])) revertPath(path)
 		aiSnapshots.clear()
 	}
 
