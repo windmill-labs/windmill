@@ -75,18 +75,32 @@ describe('pipeline AI direct-draft helpers', () => {
 		expect(drafts().size).toBe(0)
 	})
 
+	it('proposeNode rejects content missing the pipeline annotation', async () => {
+		const { handle, drafts } = makeHandle()
+		await expect(
+			handle.proposeNode({ path: 'f/x/new', language: 'duckdb' as any, content: 'SELECT 1' })
+		).rejects.toThrow(/pipeline annotation/)
+		expect(drafts().size).toBe(0)
+	})
+
 	it('proposeNode rejects a path colliding with an existing draft', async () => {
 		const { handle } = makeHandle([['f/x/a', draft()]])
 		await expect(
-			handle.proposeNode({ path: 'f/x/a', language: 'duckdb' as any, content: '' })
+			handle.proposeNode({ path: 'f/x/a', language: 'duckdb' as any, content: '-- pipeline' })
 		).rejects.toThrow(/already exists/)
 	})
 
 	it('proposeNode rejects a path colliding with an existing deployed node', async () => {
 		const { handle, drafts } = makeHandle([], [{ path: 'f/x/dep' }])
 		await expect(
-			handle.proposeNode({ path: 'f/x/dep', language: 'duckdb' as any, content: '' })
+			handle.proposeNode({ path: 'f/x/dep', language: 'duckdb' as any, content: '-- pipeline' })
 		).rejects.toThrow(/already exists/)
+		expect(drafts().size).toBe(0)
+	})
+
+	it('editNode rejects a path outside the open folder', async () => {
+		const { handle, drafts } = makeHandle()
+		await expect(handle.editNode('f/other/foo', '-- pipeline')).rejects.toThrow(/open folder/)
 		expect(drafts().size).toBe(0)
 	})
 })

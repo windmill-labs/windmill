@@ -285,13 +285,15 @@
 
 	// Pipeline entries are rendered independently of the item list, so apply the
 	// same gates the items get — otherwise a pipeline would still show under the
-	// Flows/Apps tabs, in the archived view, or outside a selected owner. Pipelines
-	// are script-based units always at `f/<folder>`, so kind=script and the
-	// user-folder toggle always include them; only kind=flow/app, archived, and a
-	// non-matching owner exclude them.
+	// Flows/Apps tabs, in the archived view, under a label filter, or outside a
+	// selected owner. Pipelines are script-based units always at `f/<folder>`, so
+	// kind=script and the user-folder toggle always include them; kind=flow/app,
+	// archived, a label filter (pipelines carry no labels), and a non-matching
+	// owner exclude them.
 	let visiblePipelineFolders = $derived.by(() => {
 		if (archived) return new Set<string>()
 		if (itemKind !== 'all' && itemKind !== 'script') return new Set<string>()
+		if (labelFilter != undefined) return new Set<string>()
 		if (ownerFilter == undefined) return pipelineFolders
 		return new Set(
 			[...pipelineFolders].filter(

@@ -3,6 +3,7 @@ import { emptySchema, sendUserToast } from '$lib/utils'
 import { inferAssets } from '$lib/infer'
 import { extractWrites, type AssetWithAltAccessType } from '$lib/components/assets/lib'
 import { assetUri, autoOutputAsset, type PipelineOutputKind } from './pipelineTemplates'
+import { parsePipelineAnnotations } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
 import type {
 	PipelineAIChatHelpers,
@@ -94,6 +95,30 @@ async function inferOutputAssets(
 }
 
 export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIChatHelpers {
+	// A staged draft is always persisted into the OPEN folder's data_pipeline
+	// bundle, so a path outside the folder would silently land an unrelated script
+	// there. Both build and edit must stay scoped to the folder.
+	function assertInFolder(path: string) {
+		const folder = deps.getFolder()
+		if (folder && !path.startsWith(`f/${folder}/`)) {
+			throw new Error(
+				`Pipeline nodes must be in the open folder — use a path under 'f/${folder}/' (got '${path}').`
+			)
+		}
+	}
+
+	// A pipeline node IS its `// pipeline` annotation (it's what makes the deployed
+	// script a pipeline member). Reject content that lacks it so a staged draft
+	// isn't a non-member script the model can't see is broken until deploy.
+	function assertPipelineAnnotation(content: string) {
+		if (!parsePipelineAnnotations(content).inPipeline) {
+			throw new Error(
+				`Pipeline node content must declare the pipeline annotation on its own comment line ` +
+					`(\`// pipeline\`, or \`-- pipeline\` for SQL / \`# pipeline\` for Python).`
+			)
+		}
+	}
+
 	function buildContext(): PipelineContext {
 		const graph = deps.getResolvedGraph()
 		const drafts = deps.getDrafts()
@@ -162,12 +187,8 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			// outside the folder (it would silently stage into this folder's bundle)
 			// and a path that collides with an existing node (the model should use
 			// edit_pipeline_node instead of shadowing a deployed node as a draft).
-			const folder = deps.getFolder()
-			if (folder && !path.startsWith(`f/${folder}/`)) {
-				throw new Error(
-					`build_pipeline_node must use a path in the open folder — under 'f/${folder}/' (got '${path}').`
-				)
-			}
+			assertInFolder(path)
+			assertPipelineAnnotation(content)
 			const drafts = deps.getDrafts()
 			if (drafts.has(path)) {
 				throw new Error(
@@ -200,6 +221,8 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 		},
 		editNode: async (path, content) => {
 			deps.ensureEditable?.()
+			assertInFolder(path)
+			assertPipelineAnnotation(content)
 			const drafts = deps.getDrafts()
 			const existing = drafts.get(path)
 			let language: ScriptLang

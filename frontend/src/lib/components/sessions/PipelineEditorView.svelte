@@ -340,6 +340,14 @@
 					pe.forgetPath(removedPath)
 					await graphRes.refetch()
 				}}
+				onScriptRenamed={async (oldPath, newPath) => {
+					// Repoint the selection so the canvas follows the renamed node instead
+					// of staying on the now-gone old path until an unrelated refetch.
+					if (pe.selection?.kind === 'runnable' && pe.selection.path === oldPath) {
+						pe.selection = { ...pe.selection, path: newPath }
+					}
+					await graphRes.refetch()
+				}}
 				onDiscard={() => {
 					if (pe.activeDraftPath) pe.discardDraft(pe.activeDraftPath)
 				}}
