@@ -140,14 +140,16 @@
 				Failed to load pipeline: {graphRes.error.message}
 			</div>
 		{:else}
-			<!-- The session preview shares the route page's editor body. It opts out of
-			     persistence (persistDrafts=false) and the run/cascade/trigger/bounded
-			     affordances (their callbacks are omitted, so the canvas/pane hide them);
-			     building + the diff/approval review still work via the AI helpers. -->
+			<!-- The session preview shares the route page's editor body. It persists
+			     drafts to the same per-folder DB draft as the route page, so staged
+			     AI proposals survive a reload / session switch (and an LRU-evicted
+			     runtime). It opts out of the run/cascade/trigger/bounded affordances
+			     (their callbacks are omitted, so the canvas/pane hide them); building +
+			     the diff/approval review still work via the AI helpers. -->
 			<PipelineGraphEditor
 				editor={pe}
 				folder={path}
-				persistDrafts={false}
+				persistDrafts={true}
 				displayGraph={resolvedGraph}
 				mode="edit"
 				workspace={workspaceId}

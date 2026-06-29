@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, untrack, type Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { DraftService } from '$lib/gen'
@@ -230,7 +230,9 @@
 	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
 	let storageKey = $derived(`pipeline-${folder}`)
 	type PipelineDraftBundle = { drafts: Array<[string, PipelineDraft]>; activeDraftPath?: string }
-	let draftsHydrated = $state(false)
+	// Hydration is tracked on the editor instance (`editor.hydratedFromDb`), not a
+	// component flag: the in-session preview reuses one instance across editor
+	// hide/show, and it must hydrate ONCE per instance, not on every remount.
 	let lastPersistedBundle: string | undefined = undefined
 
 	function restoreBundle(bundle: PipelineDraftBundle) {
@@ -302,12 +304,16 @@
 		} catch (e) {
 			console.warn('failed to load pipeline drafts', e)
 		} finally {
-			draftsHydrated = true
+			editor.hydratedFromDb = true
 		}
 	}
 
-	onMount(() => {
-		if (persistDrafts) void hydrateDrafts()
+	// Hydrate when persistence is on and this editor instance hasn't been hydrated
+	// for the current folder yet. An effect (not onMount) so a folder retarget —
+	// which resets `hydratedFromDb` — re-hydrates the new folder's draft bundle.
+	$effect(() => {
+		if (!persistDrafts || editor.hydratedFromDb) return
+		void hydrateDrafts()
 	})
 
 	$effect(() => {
@@ -344,7 +350,7 @@
 		const key = storageKey
 		const ws = workspace
 		const path = pipelineDraftPath
-		const hydrated = draftsHydrated
+		const hydrated = editor.hydratedFromDb
 		untrack(() => {
 			if (!hydrated) return
 			const isEmpty = serialized.length === 0 && !activePath

@@ -59,6 +59,14 @@ export class PipelineEditorState {
 	 * different folder and reset, so stale drafts don't bleed across folders. */
 	folder = $state<string | undefined>(undefined)
 
+	/** True once the DB draft bundle for the current folder has been hydrated
+	 * into this instance. Gated per-instance (not per component mount) so the
+	 * in-session preview hydrates ONCE when its runtime is fresh and then keeps
+	 * the in-memory drafts across editor hide/show — re-reading the DB on every
+	 * remount would race a not-yet-flushed autosave and drop a just-staged draft.
+	 * Reset to false on a folder retarget so the new folder re-hydrates. */
+	hydratedFromDb = $state(false)
+
 	/** Clear all in-flight state. Used when the session preview retargets a
 	 * different pipeline folder (a same-folder remount keeps the drafts). */
 	reset = () => {
@@ -67,6 +75,8 @@ export class PipelineEditorState {
 		this.selection = undefined
 		this.clearLiveOverlays()
 		this.loadedFromDbDraft = false
+		// Force a re-hydrate from the DB draft of the newly-targeted folder.
+		this.hydratedFromDb = false
 	}
 
 	#nextDraftLocalId = 0
