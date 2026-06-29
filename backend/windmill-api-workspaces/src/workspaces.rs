@@ -6922,26 +6922,21 @@ async fn compare_workspaces(
         }));
     }
 
-    // Honor ws_specific at read time: a workspace-specific resource/variable
-    // keeps its own value per environment, so an OVERWRITE (it exists on both
-    // sides) must never appear in the diff. The per-item compare suppresses it,
-    // but a cached `has_changes=true` row is trusted without re-running that
-    // compare, so filter those here too. A ws_specific item missing on one side
-    // is a CREATE (seed the initial copy), not an overwrite — keep it visible.
-    // The row is left intact, so unpinning resurfaces it without a re-tally.
+    // Honor ws_specific at read time: a workspace-specific resource/variable keeps its own value per
+    // environment, so it must never appear in the normal diff (the per-item compare suppresses it,
+    // but a cached `has_changes=true` row is trusted without re-running that compare, so filter those
+    // here too). Seeding the initial copy onto a side that lacks it is a separate explicit action
+    // (the "Create in <other>" button on the Workspace-specific list), not part of the diff. The row
+    // is left intact, so unpinning resurfaces it without a re-tally.
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
         "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
         WHERE source_workspace_id = $1 AND fork_workspace_id = $2
-        AND NOT (
-            COALESCE(workspace_diff.exists_in_source, false)
-            AND COALESCE(workspace_diff.exists_in_fork, false)
-            AND EXISTS (
-                SELECT 1 FROM ws_specific ws
-                WHERE ws.path = workspace_diff.path
-                  AND ws.item_kind = workspace_diff.kind
-                  AND ws.workspace_id IN (workspace_diff.source_workspace_id, workspace_diff.fork_workspace_id)
-            )
+        AND NOT EXISTS (
+            SELECT 1 FROM ws_specific ws
+            WHERE ws.path = workspace_diff.path
+              AND ws.item_kind = workspace_diff.kind
+              AND ws.workspace_id IN (workspace_diff.source_workspace_id, workspace_diff.fork_workspace_id)
         )",
         source_workspace_id,
         fork_workspace_id,
@@ -7688,14 +7683,10 @@ async fn compare_two_resources(
     .await?
     .unwrap_or(false);
 
-    // A workspace-specific resource keeps its own value per environment, so
-    // suppress it only when it exists on both sides (an overwrite). When it is
-    // missing on one side, fall through so it shows as a create — the initial
-    // copy can be seeded, but later promotes never override it.
-    if (source_ws_specific || target_ws_specific)
-        && source_resource.is_some()
-        && target_resource.is_some()
-    {
+    // A workspace-specific resource keeps its own value per environment, so it never appears in the
+    // diff (in either direction). Seeding the initial copy onto a side that lacks it is a separate
+    // explicit action ("Create in <other>"), not a diff entry.
+    if source_ws_specific || target_ws_specific {
         return Ok(ItemComparison {
             has_changes: false,
             exists_in_source: source_resource.is_some(),
@@ -7751,10 +7742,9 @@ async fn compare_two_variables(
     .fetch_one(db)
     .await?;
 
-    // Suppress a workspace-specific variable only when it exists on both sides
-    // (an overwrite); a variable missing on one side falls through to show as a
-    // create so the initial copy can be seeded without later overrides.
-    if (presence.src_ws || presence.tgt_ws) && presence.src_var && presence.tgt_var {
+    // A workspace-specific variable keeps its own value per environment, so it never appears in the
+    // diff. Seeding the initial copy onto a side that lacks it is a separate explicit action.
+    if presence.src_ws || presence.tgt_ws {
         return Ok(ItemComparison {
             has_changes: false,
             exists_in_source: presence.src_var,

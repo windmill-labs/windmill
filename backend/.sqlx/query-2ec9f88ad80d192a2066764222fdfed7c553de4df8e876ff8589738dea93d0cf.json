@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff\n        WHERE source_workspace_id = $1 AND fork_workspace_id = $2\n        AND NOT (\n            COALESCE(workspace_diff.exists_in_source, false)\n            AND COALESCE(workspace_diff.exists_in_fork, false)\n            AND EXISTS (\n                SELECT 1 FROM ws_specific ws\n                WHERE ws.path = workspace_diff.path\n                  AND ws.item_kind = workspace_diff.kind\n                  AND ws.workspace_id IN (workspace_diff.source_workspace_id, workspace_diff.fork_workspace_id)\n            )\n        )",
+  "query": "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff\n        WHERE source_workspace_id = $1 AND fork_workspace_id = $2\n        AND NOT EXISTS (\n            SELECT 1 FROM ws_specific ws\n            WHERE ws.path = workspace_diff.path\n              AND ws.item_kind = workspace_diff.kind\n              AND ws.workspace_id IN (workspace_diff.source_workspace_id, workspace_diff.fork_workspace_id)\n        )",
   "describe": {
     "columns": [
       {
@@ -55,5 +55,5 @@
       true
     ]
   },
-  "hash": "568476735f624a5886f34f5be3647eb1edf42d9f918a50b10fc6125e3e785e32"
+  "hash": "2ec9f88ad80d192a2066764222fdfed7c553de4df8e876ff8589738dea93d0cf"
 }

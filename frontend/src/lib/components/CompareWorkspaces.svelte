@@ -100,12 +100,16 @@
 	// Workspace-specific ("pinned") resources/variables. They keep their own
 	// value per environment and are suppressed from the diff, so the page fetches
 	// them separately to keep them visible and un-pinnable.
-	type PinnedItem = { item_kind: string; path: string }
+	// `onCurrent`/`onParent` track which side carries the ws_specific marker — which, because marks
+	// are existence-guarded, also tells us which side the item exists on. An item present on only one
+	// side can be seeded onto the other via "Create in <other>".
+	type PinnedItem = { item_kind: string; path: string; onCurrent: boolean; onParent: boolean }
 	let pinnedItems = $state<PinnedItem[]>([])
 	let pinBusy = $state<Record<string, boolean>>({})
+	let createConfirm = $state<PinnedItem | undefined>(undefined)
 
-	// A workspace-specific item missing on one side still shows as a create
-	// (create-if-missing); don't offer to pin it again when it's already pinned.
+	// Whether this item is already workspace-specific (marked on either side); used to avoid offering
+	// to pin it again from a diff row.
 	const isPinned = (kind: string, path: string) =>
 		pinnedItems.some((it) => it.item_kind === kind && it.path === path)
 
@@ -121,7 +125,20 @@
 			])
 			if (seq !== pinnedReqSeq) return
 			const map = new Map<string, PinnedItem>()
-			for (const it of [...cur, ...par]) map.set(`${it.item_kind}:${it.path}`, it)
+			const mark = (it: { item_kind: string; path: string }, side: 'cur' | 'par') => {
+				const k = `${it.item_kind}:${it.path}`
+				const e = map.get(k) ?? {
+					item_kind: it.item_kind,
+					path: it.path,
+					onCurrent: false,
+					onParent: false
+				}
+				if (side === 'cur') e.onCurrent = true
+				else e.onParent = true
+				map.set(k, e)
+			}
+			for (const it of cur) mark(it, 'cur')
+			for (const it of par) mark(it, 'par')
 			pinnedItems = [...map.values()].sort((a, b) =>
 				`${a.item_kind}:${a.path}`.localeCompare(`${b.item_kind}:${b.path}`)
 			)
@@ -164,6 +181,43 @@
 			}
 			await loadPinned()
 			onChanged?.()
+		} finally {
+			pinBusy[k] = false
+		}
+	}
+
+	// Seed a workspace-specific item that exists on only one side onto the other, copying its current
+	// value (incl. secret values). Reuses the normal deploy (authorized against the target), then
+	// marks it workspace-specific on the target too so it stays per-environment.
+	async function createOnRemote(it: PinnedItem) {
+		const from = it.onCurrent ? currentWorkspaceId : parentWorkspaceId
+		const to = it.onCurrent ? parentWorkspaceId : currentWorkspaceId
+		const k = `${it.item_kind}:${it.path}`
+		pinBusy[k] = true
+		try {
+			const res = await deployItem({
+				kind: it.item_kind as Kind,
+				path: it.path,
+				workspaceFrom: from,
+				workspaceTo: to
+			})
+			if (!res.success) {
+				sendUserToast(`Failed to create ${it.path} in ${to}: ${res.error ?? 'unknown error'}`, true)
+				return
+			}
+			await WorkspaceService.setWsSpecific({
+				workspace: to,
+				requestBody: {
+					item_kind: it.item_kind as 'resource' | 'variable',
+					path: it.path,
+					value: true
+				}
+			})
+			sendUserToast(`Created ${it.path} in ${to}`)
+			await loadPinned()
+			onChanged?.()
+		} catch (e) {
+			sendUserToast(`Failed to create ${it.path}: ${e}`, true)
 		} finally {
 			pinBusy[k] = false
 		}
@@ -1093,7 +1147,7 @@
 								<Badge
 									color="gray"
 									size="xs"
-									title="Deploying creates the initial copy here; later promotes keep each environment's own value."
+									title="Kept per environment, so it's excluded from the diff. Seed a missing copy or revert it in the Workspace-specific items list below."
 								>
 									workspace-specific
 								</Badge>
@@ -1102,7 +1156,7 @@
 									unifiedSize="xs"
 									variant="subtle"
 									disabled={pinBusy[key]}
-									title="Keep this item's value per environment: promoting can create a missing copy but never overwrites an existing one"
+									title="Keep this item's value per environment (excluded from the diff). Seed a missing copy from the Workspace-specific items list."
 									onClick={() => setPinned(diff.kind as 'resource' | 'variable', diff.path, true)}
 								>
 									Make workspace specific
@@ -1197,14 +1251,33 @@
 					Workspace-specific items
 				</div>
 				<p class="text-xs text-tertiary">
-					These resources and variables keep their own value in each environment. Promoting can
-					create a missing copy but never overwrites an existing one.
+					These resources and variables keep their own value in each environment and are excluded
+					from the diff. An item that exists on only one side can be seeded onto the other with
+					"Create in …" (copies the current value, including secrets); it's never overwritten
+					afterward.
 				</p>
 				<div class="flex flex-col gap-1">
 					{#each pinnedItems as it (`${it.item_kind}:${it.path}`)}
+						{@const missingSide =
+							it.onCurrent && !it.onParent
+								? parentWorkspaceId
+								: !it.onCurrent && it.onParent
+									? currentWorkspaceId
+									: undefined}
 						<div class="flex items-center gap-2 text-sm">
 							<Badge color="transparent" small>{it.item_kind}</Badge>
 							<span class="text-secondary font-mono text-xs flex-1 truncate">{it.path}</span>
+							{#if missingSide}
+								<Button
+									unifiedSize="xs"
+									variant="subtle"
+									disabled={pinBusy[`${it.item_kind}:${it.path}`]}
+									title="Copy this item's current value (including secrets) into {missingSide}"
+									onClick={() => (createConfirm = it)}
+								>
+									Create in {missingSide}
+								</Button>
+							{/if}
 							<Button
 								unifiedSize="xs"
 								variant="subtle"
@@ -1249,6 +1322,26 @@
 				{/each}
 			</ul>
 		</div>
+	</ConfirmationModal>
+
+	<ConfirmationModal
+		open={!!createConfirm}
+		title="Create in {createConfirm?.onCurrent ? parentWorkspaceId : currentWorkspaceId}?"
+		confirmationText="Create"
+		onConfirmed={() => {
+			const it = createConfirm
+			createConfirm = undefined
+			if (it) createOnRemote(it)
+		}}
+		onCanceled={() => (createConfirm = undefined)}
+	>
+		<p class="text-sm">
+			This copies the current value of <span class="font-mono">{createConfirm?.path}</span>
+			(including any secret value) from
+			<b>{createConfirm?.onCurrent ? currentWorkspaceId : parentWorkspaceId}</b>
+			into <b>{createConfirm?.onCurrent ? parentWorkspaceId : currentWorkspaceId}</b>. It stays
+			workspace-specific afterward, so later promotes won't overwrite it.
+		</p>
 	</ConfirmationModal>
 {:else}
 	<div class="flex items-center justify-center h-full">
