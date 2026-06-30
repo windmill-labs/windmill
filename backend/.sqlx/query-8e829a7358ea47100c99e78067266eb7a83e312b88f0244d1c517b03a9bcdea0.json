@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO materialized_asset_schema\n           (workspace_id, asset_kind, asset_path, version, columns,\n            snapshot_id, job_id, captured_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Int8",
+        "Jsonb",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8e829a7358ea47100c99e78067266eb7a83e312b88f0244d1c517b03a9bcdea0"
+}

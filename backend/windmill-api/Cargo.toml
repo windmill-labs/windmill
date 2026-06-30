@@ -43,7 +43,7 @@ mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill
 bedrock = ["windmill-ai/bedrock"]
 python = ["windmill-dep-map/python", "dep:windmill-parser-py", "dep:windmill-parser-py-imports", "windmill-api-scripts/python", "windmill-api-configs/python", "windmill-api-agent-workers?/python", "windmill-trigger/python", "windmill-common/python"]
 no_auth = ["windmill-api-auth/no_auth", "windmill-store/no_auth", "windmill-api-users/no_auth"]
-quickjs = ["windmill-jseval/quickjs"]
+quickjs = ["windmill-jseval/quickjs", "windmill-queue/quickjs"]
 
 [dependencies]
 windmill-ai = { workspace = true, default-features = false }

@@ -25,11 +25,17 @@
 	import type { Schema } from '$lib/common'
 	import type { AssetGraphSelection, PipelineMode } from './types'
 	import PipelineScriptView from './PipelineScriptView.svelte'
-	import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
+	import {
+		parsePipelineAnnotations,
+		type ColumnLineage,
+		type PipelineAnnotations
+	} from './parsePipelineAnnotations'
+	import ColumnLineageTrace from './ColumnLineageTrace.svelte'
+	import { assetColumnNodes, type ColumnLineageGraph } from './columnLineageGraph'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
-	import PartitionStatusGrid from './PartitionStatusGrid.svelte'
+	import DucklakeAssetPanel from './DucklakeAssetPanel.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
@@ -72,7 +78,11 @@
 		// edges + synthesize asset nodes for drafts whose body has been
 		// edited past the seeded template. Fires on every keystroke that
 		// changes the inferred set.
-		onAssetsChange?: (scriptPath: string | undefined, assets: AssetWithAltAccessType[]) => void
+		onAssetsChange?: (
+			scriptPath: string | undefined,
+			assets: AssetWithAltAccessType[],
+			columnLineage?: ColumnLineage[]
+		) => void
 		// Emits the live editor buffer on every keystroke so the parent can
 		// autosave the in-flight content WITHOUT waiting for the pane teardown
 		// (`onDraftPersist`). `onDraftPersist` stays the authoritative commit on
@@ -114,6 +124,14 @@
 			path: string
 			unsaved?: boolean
 		}>
+		// Pipeline-wide column-lineage graph (built by the parent page from the
+		// resolved graph). Drives the transitive column-lineage trace shown for a
+		// selected materialized asset.
+		selectionColumnGraph?: ColumnLineageGraph
+		// Whether the selected ducklake asset's schema can evolve (whole-table
+		// `replace` producer). Forwarded to the Schema tab: version history when
+		// true, a single fixed-schema view when false. Defaults to true (unknown).
+		schemaCanEvolve?: boolean
 		// Bumped by the parent after dispatching a run so the runs panel
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
@@ -165,6 +183,11 @@
 		// cascade option when > 0. The page computes this from the graph
 		// edges + triggers + currently-open path.
 		downstreamSubscribers?: number
+		// Pipeline-only: set when the currently-open script is a valid
+		// bounded-run start (schedule / manual root). Surfaces a "Run downstream
+		// up to…" entry on the Test split's caret that enters the canvas
+		// end-node pick mode rooted at this script. Undefined → no entry.
+		onStartBoundedRun?: () => void
 		// Sister to `requestRunSignal`. When bumped, the bridge calls
 		// `ScriptEditor.runTest({ cascade: true })` — used by the canvas
 		// runnable menu's "Run + trigger N downstream" item when the chosen
@@ -209,6 +232,8 @@
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
+		selectionColumnGraph,
+		schemaCanEvolve = true,
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
@@ -219,6 +244,7 @@
 		onDraftPathChange,
 		requestRemoveSignal,
 		downstreamSubscribers = 0,
+		onStartBoundedRun,
 		requestRunCascadeSignal,
 		focusUploadSignal,
 		mode = 'edit',
@@ -349,6 +375,10 @@
 	// edges as the user edits the body (e.g. renaming a CREATE TABLE
 	// target updates the output asset node in real time).
 	let liveBodyAssets = $state<AssetWithAltAccessType[] | undefined>(undefined)
+	// Body-inferred column lineage (DuckDB SQL AST), bound out of ScriptEditor
+	// alongside `liveBodyAssets` and forwarded so the live graph can show
+	// inferred column lineage on the edited script before it deploys.
+	let liveColumnLineage = $state<ColumnLineage[] | undefined>(undefined)
 
 	// Bumped when the runs panel reports a watched job has reached a
 	// terminal state. Drives S3FilePreview's refreshKey so the preview
@@ -529,7 +559,9 @@
 			: {
 					inPipeline: false,
 					triggerAssets: [],
-					nativeTriggers: []
+					nativeTriggers: [],
+					dataTests: [],
+					columnLineage: []
 				}
 	)
 	$effect(() => {
@@ -542,7 +574,7 @@
 	})
 	$effect(() => {
 		if (readOnly) return
-		onAssetsChange?.(script?.path, liveBodyAssets ?? [])
+		onAssetsChange?.(script?.path, liveBodyAssets ?? [], liveColumnLineage)
 	})
 	$effect(() => {
 		if (readOnly) return
@@ -914,14 +946,18 @@
 				/>
 			{/if}
 			{#if !readOnly && isScriptView && script && !atLatestSavePoint}
+				{@const isCreate = isDraft && !script?.hash}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: Save }}
 					onclick={save}
 					disabled={saving}
+					title={isCreate
+						? 'Deploy this new script to the workspace'
+						: 'Deploy your changes to this script'}
 				>
-					{saving ? 'Saving…' : isDraft && !script?.hash ? 'Create' : 'Save'}
+					{saving ? 'Deploying…' : 'Deploy'}
 				</Button>
 			{/if}
 			{#if onHide}
@@ -984,7 +1020,25 @@
 									refreshKey={previewRefreshKey}
 								/>
 							{:else if selection.asset_kind === 'ducklake'}
-								<PartitionStatusGrid path={selection.path} {workspace} />
+								<!-- Key on path so switching ducklake assets resets the panel's
+								     selected snapshot / tab instead of carrying state across. -->
+								{#key selection.path}
+									<div class="flex flex-col h-full overflow-auto">
+										{#if selectionColumnGraph && assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path).length > 0}
+											<div class="border-b shrink-0">
+												<ColumnLineageTrace
+													graph={selectionColumnGraph}
+													assetKind={selection.asset_kind}
+													assetPath={selection.path}
+													targetLabel={selection.path}
+												/>
+											</div>
+										{/if}
+										<div class="flex-1 min-h-0">
+											<DucklakeAssetPanel path={selection.path} {workspace} {schemaCanEvolve} />
+										</div>
+									</div>
+								{/key}
 							{:else}
 								<div class="p-3 text-xs text-secondary">
 									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows
@@ -1082,6 +1136,7 @@
 							argsAboveLogs: true,
 							logsResultSideBySide: true,
 							downstreamSubscribers,
+							onBoundedRun: onStartBoundedRun,
 							// Selecting a script node should immediately show
 							// "what happened last time it ran" — pulling the
 							// latest top-level completed job into the preview
@@ -1092,6 +1147,7 @@
 					bind:code={script.content}
 					bind:schema={script.schema}
 					bind:assets={liveBodyAssets}
+					bind:inferredColumnLineage={liveColumnLineage}
 					{onTestStateChange}
 					{args}
 				/>

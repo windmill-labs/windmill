@@ -3,6 +3,7 @@
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { twMerge } from 'tailwind-merge'
 	import { Brain, ChevronDown, ChevronRight, Loader2 } from 'lucide-svelte'
+	import { slide } from 'svelte/transition'
 	import type { DisplayMessage } from './shared'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
@@ -95,6 +96,7 @@
 
 		{#if reasoningExpanded}
 			<div
+				transition:slide={{ duration: 150 }}
 				class="p-2 bg-surface text-secondary break-words prose prose-sm dark:prose-invert max-w-full leading-snug
 					prose-p:text-2xs prose-li:text-2xs prose-code:text-2xs prose-pre:text-2xs prose-ul:!pl-5
 					prose-headings:font-medium prose-headings:text-secondary prose-headings:mt-2 prose-headings:mb-1

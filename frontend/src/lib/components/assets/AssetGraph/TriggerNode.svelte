@@ -60,7 +60,7 @@
 	import { Handle, Position } from '@xyflow/svelte'
 	import { NODE } from '$lib/components/graph/util'
 	import { twMerge } from 'tailwind-merge'
-	import { AlertTriangle, EllipsisVertical, Trash2 } from 'lucide-svelte'
+	import { AlertTriangle, EllipsisVertical, Target, Trash2 } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { stopPropagation, preventDefault } from 'svelte/legacy'
 	import type { Item } from '$lib/utils'
@@ -113,6 +113,12 @@
 			// trigger. Confirmation is the caller's responsibility — the
 			// node just exposes the entry point on the kebab menu.
 			onDeleteTrigger?: (kind: NativeTriggerKind, triggerPath: string) => void
+			// Wired by the canvas only when this trigger's target script is a
+			// valid bounded-run start (schedule / manual root) with downstream.
+			// Entering the page's end-node pick mode rooted at that script — the
+			// View-mode entry point for bounded runs (the script's own Run-button
+			// caret is Edit-only).
+			onStartBoundedRun?: () => void
 		}
 	}
 	let { data }: Props = $props()
@@ -173,8 +179,17 @@
 			!!data.onDeleteTrigger
 	)
 
-	let menuItems: Item[] = $derived(
-		canDelete
+	let menuItems: Item[] = $derived([
+		...(data.onStartBoundedRun
+			? [
+					{
+						displayName: 'Run downstream up to…',
+						icon: Target,
+						action: () => data.onStartBoundedRun?.()
+					}
+				]
+			: []),
+		...(canDelete
 			? [
 					{
 						displayName: 'Delete…',
@@ -182,12 +197,12 @@
 						type: 'delete' as const,
 						action: () => {
 							if (!data.ref || !data.onDeleteTrigger) return
-							data.onDeleteTrigger(data.kind as NativeTriggerKind, data.ref)
+							data.onDeleteTrigger?.(data.kind as NativeTriggerKind, data.ref)
 						}
 					}
 				]
-			: []
-	)
+			: [])
+	])
 
 	function handleMissingClick() {
 		if (!canCreate || !data.runnable_path || !data.onCreateMissingTrigger) return

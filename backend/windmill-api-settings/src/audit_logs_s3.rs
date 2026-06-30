@@ -20,9 +20,11 @@ use windmill_common::DB;
 pub struct AuditLogsS3ExportStatus {
     /// xid cursor: rows of transactions below this have been exported.
     pub last_xmin: i64,
-    /// Partition-pruning floor (the epoch sentinel while still bootstrapping).
+    /// Partition-pruning floor: the latest audit-row timestamp the cursor has
+    /// reached (also the read side's 7-day-fallback anchor).
     pub last_ts: Option<DateTime<Utc>>,
-    /// True until the initial post-enable backlog has been fully drained.
+    /// True while the exporter is draining a backlog — the last run was capped
+    /// at `MAX_XID_INTERVAL` xids and has not yet caught up to the live snapshot.
     pub bootstrapping: bool,
     /// The latest audit-row timestamp actually written to object storage so
     /// far (monotonic) — the "how current is the mirror" figure.
@@ -50,8 +52,7 @@ pub async fn get_status(db: &DB) -> error::Result<Option<AuditLogsS3ExportStatus
             .map(|d| d.with_timezone(&Utc))
     };
     let last_ts = parse_dt("last_ts");
-    let epoch = DateTime::<Utc>::from_timestamp(0, 0).unwrap();
-    let bootstrapping = last_ts.map(|t| t <= epoch).unwrap_or(true);
+    let bootstrapping = v.get("draining").and_then(|x| x.as_bool()).unwrap_or(false);
     Ok(Some(AuditLogsS3ExportStatus {
         last_xmin: v.get("last_xmin").and_then(|x| x.as_i64()).unwrap_or(0),
         last_ts,

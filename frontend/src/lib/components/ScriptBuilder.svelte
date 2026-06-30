@@ -2016,6 +2016,7 @@
 			stablePathForCaptures={initialPath || fakeInitialPath}
 			bind:code={script.content}
 			lang={script.language}
+			timeout={script.timeout}
 			kind={script.kind}
 			autoKind={script.auto_kind}
 			{template}

@@ -336,12 +336,14 @@
 		callbacks?: Callbacks,
 		flowPath?: string,
 		modules?: Record<string, import('$lib/gen').ScriptModule> | null,
-		tempScriptRefs?: Record<string, string>
+		tempScriptRefs?: Record<string, string>,
+		timeout?: number
 	): Promise<string> {
 		return abstractRun(
 			() =>
 				JobService.runScriptPreview({
 					workspace: $workspaceStore!,
+					timeout,
 					requestBody: {
 						path,
 						content: code,

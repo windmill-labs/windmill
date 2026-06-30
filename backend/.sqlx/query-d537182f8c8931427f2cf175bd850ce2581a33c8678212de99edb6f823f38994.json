@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (status = 'success' OR EXISTS (\n                            SELECT 1 FROM native_retry_attempt nra\n                            JOIN v2_job jc ON jc.id = nra.job_id\n                            JOIN v2_job_completed cc ON cc.id = nra.job_id\n                            WHERE jc.parent_job = j.id AND cc.status = 'success'\n                        )) AS \"success!\"\n                    FROM v2_job j JOIN v2_job_completed USING (id)\n                    WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2\n                        AND parent_job IS NULL\n                        AND runnable_path = $3\n                        AND j.id != $4\n                    ORDER BY created_at DESC\n                    LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "success!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d537182f8c8931427f2cf175bd850ce2581a33c8678212de99edb6f823f38994"
+}

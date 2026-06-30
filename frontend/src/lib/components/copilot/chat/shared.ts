@@ -423,6 +423,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
 			workspaceItemsContext += `- type: flow, path: ${context.path}\n`
+		} else if (context.type === 'workspace_app') {
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
+			}
+			workspaceItemsContext += `- type: raw_app, path: ${context.path}\n`
 		}
 	}
 

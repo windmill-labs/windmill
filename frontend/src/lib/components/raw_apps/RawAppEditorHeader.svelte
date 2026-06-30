@@ -26,7 +26,7 @@
 		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
@@ -102,6 +102,7 @@
 					summary: string
 					policy: any
 					custom_path?: string
+					labels?: string[]
 					/** No deployed counterpart exists (draft-only); disables Diff. */
 					no_deployed?: boolean
 			  }
@@ -109,6 +110,8 @@
 		version?: number | undefined
 		newApp: boolean
 		newPath?: string
+		/** Initial labels for the app, threaded from the loaded app data. */
+		labels?: string[]
 		appPath: string
 		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
@@ -151,6 +154,14 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
+		// Deploy created the app at a new path; the page navigates to it. Callback
+		// prop for the same reason as `onRestore` — `on:savedNewAppPath` forwarding
+		// through these runes-mode components is dropped.
+		onSavedNewAppPath?: (path: string) => void
 	}
 
 	let {
@@ -161,6 +172,7 @@
 		version = $bindable(undefined),
 		newApp,
 		newPath = '',
+		labels: initialLabels = undefined,
 		appPath,
 		runnables,
 		data,
@@ -184,8 +196,15 @@
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		onRestore,
+		onSavedNewAppPath
 	}: Props = $props()
+
+	// Set by the on-behalf-of selector when the publisher picks a user other than
+	// themselves. Forwarded as `preserve_on_behalf_of` so the backend keeps the
+	// policy's on_behalf_of instead of resetting it to the deploying user.
+	let preserveOnBehalfOf = $state(false)
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
@@ -315,7 +334,9 @@
 						summary: summary,
 						policy,
 						deployment_message: deploymentMsg,
-						custom_path: customPath
+						custom_path: customPath,
+						preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+						labels
 					},
 					js,
 					css
@@ -329,7 +350,8 @@
 				value: structuredClone(stateSnapshot(app)),
 				path: path,
 				policy: policy,
-				custom_path: customPath
+				custom_path: customPath,
+				labels: $state.snapshot(labels)
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -346,7 +368,7 @@
 					path: appPath
 				})
 			}
-			dispatch('savedNewAppPath', path)
+			onSavedNewAppPath?.(path)
 			onDeploy?.({ path })
 		} catch (e) {
 			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
@@ -434,10 +456,12 @@
 					policy,
 					path: npath,
 					deployment_message: deploymentMsg,
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
-						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
+						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+					labels
 				},
 				js,
 				css
@@ -449,7 +473,8 @@
 			value: structuredClone(stateSnapshot(app)),
 			path: npath,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			labels: $state.snapshot(labels)
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
 			workspace: $workspaceStore!,
@@ -468,7 +493,7 @@
 			})
 		}
 		if (appPath !== npath) {
-			dispatch('savedNewAppPath', npath)
+			onSavedNewAppPath?.(npath)
 		}
 		onDeploy?.({ path: npath })
 	}
@@ -568,10 +593,9 @@
 		}
 	])
 
-	const dispatch = createEventDispatcher()
-
 	let customPath = $state(savedApp?.custom_path)
 	let customPathError = $state('')
+	let labels = $state(untrack(() => initialLabels))
 
 	let jobsDrawerOpen = $state(false)
 
@@ -585,7 +609,8 @@
 			value: app,
 			path: newEditedPath || savedApp?.path,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			labels
 		})
 	)
 
@@ -674,13 +699,15 @@
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
+			bind:preserveOnBehalfOf
+			bind:labels
 		/>
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {appPath} />
+		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} {appPath} />
 	</DrawerContent>
 </Drawer>
 

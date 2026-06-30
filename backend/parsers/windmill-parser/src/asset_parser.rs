@@ -112,6 +112,16 @@ pub struct ParseAssetsOutput {
     // Drives the worker's write-strategy + snapshot capture.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub materialize: Option<MaterializeSpec>,
+    // `// data_test <kind> …` — data-quality assertions run against the
+    // materialized asset after the write commits. Accumulating (multiple
+    // lines allowed). Drives the worker's post-materialize verifier probes.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub data_tests: Vec<DataTest>,
+    // `// column <out> <- <src>.<col>[, …]` — declared column-level lineage,
+    // one entry per output column. Accumulating. Pure metadata: drives the
+    // column-lineage graph view, executes nothing.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub column_lineage: Vec<ColumnLineage>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -235,6 +245,74 @@ pub struct MaterializeSpec {
     pub unique_key: Option<String>,
 }
 
+// `// data_test <kind> …` — a data-quality assertion run against the
+// freshly-materialized asset (post DELETE+INSERT), failing the run on
+// violation. The first extensible annotation family: the parser turns a
+// `data_test` line into one of a known *vocabulary* of checks, and the
+// runtime turns each check into a SQL "verifier" probe. A sibling annotation
+// family (e.g. column-lineage) follows the same shape — a keyword head
+// selecting a variant, the rest parsed per-variant — rather than growing a
+// new closed list. See `docs/ducklake-materialization.md` §"Extensible
+// annotations". Multiple `// data_test` lines accumulate (unlike the
+// single-value annotations above, which are first-write-wins).
+//
+// Built-ins mirror dbt's generic data tests; `Custom` is the escape hatch
+// (dbt's singular test): a DuckDB script path whose SELECT returns the
+// violating rows. The keyword is `data_test` — NOT `test` — to stay clear
+// of the unrelated `// test:` CI-test annotation (see
+// `windmill_common::schema::parse_ci_test_annotation`), matching dbt 1.8's
+// own `tests:` → `data_tests:` rename.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DataTest {
+    // `// data_test unique <col>` — no two non-NULL rows share `column`.
+    Unique { column: String },
+    // `// data_test not_null <col>` — `column` is never NULL.
+    NotNull { column: String },
+    // `// data_test accepted_values <col> = a,b,c` — every non-NULL value of
+    // `column` is one of `values` (comma-separated; surrounding quotes stripped).
+    AcceptedValues { column: String, values: Vec<String> },
+    // `// data_test relationships <col> -> <asset>.<refcol>` — referential
+    // integrity: every non-NULL `column` value exists in `to_path`'s `to_column`.
+    Relationships { column: String, to_kind: AssetKind, to_path: String, to_column: String },
+    // `// data_test <script_path>` — escape hatch: a deployed DuckDB script
+    // whose trailing SELECT returns the violating rows (non-empty ⇒ fail).
+    Custom { path: String },
+}
+
+// `// column <out_col> <- <asset-uri>.<col>[, …]` — declared column-level
+// lineage: one output column of this script's produced asset and the upstream
+// source columns it derives from. A sibling of `DataTest` in the extensible
+// annotation family (`docs/pipelines-vs-dbt.md` §3): same parse shape — a head
+// token (the output column) then a per-variant tail — but accumulating, one
+// line per output column. Unlike `data_test` these are pure metadata: they
+// drive the column-lineage graph view, never a runtime probe.
+//
+// dbt derives column lineage from SQL-AST parsing; Windmill is polyglot
+// (Python/TS/Bash/SQL in one DAG), so a uniform AST is not available. The
+// annotation is the explicit, language-agnostic declaration — the same
+// "annotations are real comments parsed strictly" stance as the rest of the
+// pipeline grammar. Body-inferred per-asset column *sets* (`columns` on
+// `ParseAssetsResult`) complement it but cannot express column→column edges.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct ColumnLineage {
+    // The produced asset's output column this line describes.
+    pub column: String,
+    // Upstream source columns it derives from (≥1; malformed refs dropped).
+    pub inputs: Vec<ColumnRef>,
+}
+
+// One `<asset-uri>.<col>` upstream reference inside a `// column` line. The
+// asset URI accepts the default-syntax shorthands (like `// materialize` /
+// `// data_test relationships`); the column is the segment after the final
+// `.` (so a schema-qualified `warehouse/main.orders.amount` keeps `amount`).
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct ColumnRef {
+    pub from_kind: AssetKind,
+    pub from_path: String,
+    pub from_column: String,
+}
+
 // `// trigger any` (default) vs `// trigger all`. `Any` = OR: any trigger
 // firing runs the script (current behaviour). `All` = AND: the script
 // runs only once every partition-bearing input has materialized at the
@@ -266,6 +344,8 @@ pub struct PipelineAnnotations {
     pub tag: Option<String>,
     pub retry: Option<RetrySpec>,
     pub materialize: Option<MaterializeSpec>,
+    pub data_tests: Vec<DataTest>,
+    pub column_lineage: Vec<ColumnLineage>,
 }
 
 impl ParseAssetsOutput {
@@ -290,8 +370,32 @@ impl ParseAssetsOutput {
             tag: pipeline.tag,
             retry: pipeline.retry,
             materialize: pipeline.materialize,
+            data_tests: pipeline.data_tests,
+            column_lineage: pipeline.column_lineage,
         }
     }
+}
+
+// Combine column lineage inferred from the body (SQL AST) with lineage declared
+// via `// column` annotations. The annotation is the *override*: where both
+// describe the same output column, the explicit declaration wins and the
+// inferred entry is dropped. Inferred entries are also deduped by output column
+// among themselves (first wins). Used by the language asset-parsers so a
+// `// column` line can correct a mis-inferred edge without disabling inference
+// for the rest of the columns.
+pub fn merge_column_lineage(
+    inferred: Vec<ColumnLineage>,
+    annotated: Vec<ColumnLineage>,
+) -> Vec<ColumnLineage> {
+    let mut seen: std::collections::HashSet<String> =
+        annotated.iter().map(|c| c.column.clone()).collect();
+    let mut out = annotated;
+    for c in inferred {
+        if seen.insert(c.column.clone()) {
+            out.push(c);
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -626,6 +730,29 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        // `data_test` is checked before `on`/asset shorthands and is a complete
+        // word (so it never collides with the `// test:` CI annotation, which
+        // has no whitespace after `test`). Accumulates — every well-formed line
+        // adds a check; malformed lines are dropped (fail-safe, the missing
+        // check is then simply absent from the graph + run).
+        if let Some(after_kw) = consume_keyword(rest, "data_test") {
+            if let Some(spec) = parse_data_test_spec(after_kw.trim()) {
+                out.data_tests.push(spec);
+            }
+            continue;
+        }
+
+        // `// column <out> <- <src>.<col>[, …]` — accumulating column lineage.
+        // A complete word, so it never swallows a body comment that happens to
+        // start with `column` followed by non-lineage prose (that has no `<-`
+        // and is dropped fail-safe). Checked before `on`/asset shorthands.
+        if let Some(after_kw) = consume_keyword(rest, "column") {
+            if let Some(spec) = parse_column_lineage_spec(after_kw.trim()) {
+                out.column_lineage.push(spec);
+            }
+            continue;
+        }
+
         if let Some(after_kw) = consume_keyword(rest, "on") {
             let spec_text = after_kw.trim();
             if spec_text.is_empty() {
@@ -700,6 +827,123 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
         .filter(|k| !k.is_empty())
         .cloned();
     Some(MaterializeSpec { target_kind, target_path: path.to_string(), manual, append, unique_key })
+}
+
+// Parse a `// data_test <kind> …` right-hand side into one `DataTest`. The
+// leading token selects the variant; the remainder is parsed per-variant.
+// Anything not matching a built-in keyword is the `Custom` escape hatch — a
+// single script-path token. Returns `None` for malformed input so a typo
+// fails safe (the check is dropped, never silently mis-parsed).
+//
+// This is the extension seam: a new built-in is one match arm + its parser;
+// a sibling annotation family (column-lineage) reuses the same head-keyword
+// dispatch shape rather than adding a parallel closed list.
+fn parse_data_test_spec(s: &str) -> Option<DataTest> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let mut it = s.splitn(2, char::is_whitespace);
+    let head = it.next()?;
+    let rest = it.next().unwrap_or("").trim();
+    match head {
+        "unique" => Some(DataTest::Unique { column: single_ident(rest)? }),
+        "not_null" => Some(DataTest::NotNull { column: single_ident(rest)? }),
+        "accepted_values" => parse_accepted_values(rest),
+        "relationships" => parse_relationships(rest),
+        // Custom escape hatch: the whole right-hand side must be one path token
+        // (`head` with no trailing content). Trailing content after a
+        // non-built-in head is a malformed built-in (e.g. `uniq order_id`) and
+        // is rejected rather than misread as a path.
+        _ if rest.is_empty() => Some(DataTest::Custom { path: head.to_string() }),
+        _ => None,
+    }
+}
+
+// A single bare identifier token (column name). Rejects empty / multi-token
+// input. The identifier is double-quoted + escaped at codegen, so any
+// character is safe here; we only enforce "exactly one token".
+fn single_ident(s: &str) -> Option<String> {
+    let s = s.trim();
+    if s.is_empty() || s.split_whitespace().count() != 1 {
+        return None;
+    }
+    Some(s.to_string())
+}
+
+// Strip one layer of matching surrounding single or double quotes.
+fn unquote(s: &str) -> &str {
+    let b = s.as_bytes();
+    if b.len() >= 2 && (b[0] == b'"' || b[0] == b'\'') && b[b.len() - 1] == b[0] {
+        &s[1..s.len() - 1]
+    } else {
+        s
+    }
+}
+
+// `<col> = a,b,c` — column, then `=`, then a comma-separated value list.
+// Surrounding quotes are stripped per value; empty values are dropped; a
+// value may not itself contain a comma (v1 limitation).
+fn parse_accepted_values(s: &str) -> Option<DataTest> {
+    let (col, vals) = s.split_once('=')?;
+    let column = single_ident(col)?;
+    let values: Vec<String> = vals
+        .split(',')
+        .map(|v| unquote(v.trim()).to_string())
+        .filter(|v| !v.is_empty())
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    Some(DataTest::AcceptedValues { column, values })
+}
+
+// `<col> -> <asset-uri>.<refcol>` — referential integrity. The referenced
+// column is the segment after the final `.`; everything before it is the
+// asset URI (default-syntax shorthands enabled, like `// materialize`).
+fn parse_relationships(s: &str) -> Option<DataTest> {
+    let (col, target) = s.split_once("->")?;
+    let column = single_ident(col)?;
+    let target = target.trim();
+    let (asset_uri, ref_col) = target.rsplit_once('.')?;
+    let to_column = single_ident(ref_col)?;
+    let (to_kind, to_path) = parse_asset_syntax(asset_uri.trim(), true)?;
+    if to_path.is_empty() {
+        return None;
+    }
+    Some(DataTest::Relationships { column, to_kind, to_path: to_path.to_string(), to_column })
+}
+
+// Parse a `// column <out_col> <- <ref>[, <ref> …]` right-hand side. The head
+// (before `<-`) is the output column; the tail is a comma-separated list of
+// `<asset-uri>.<col>` upstream references. Mirrors `parse_accepted_values`'
+// "drop empties, require ≥1" stance: individually malformed refs are dropped
+// and the line is kept iff at least one ref parses; a missing `<-`, a non-ident
+// output column, or zero valid refs drops the whole line (fail-safe).
+fn parse_column_lineage_spec(s: &str) -> Option<ColumnLineage> {
+    let (out_col, refs) = s.split_once("<-")?;
+    let column = single_ident(out_col)?;
+    let inputs: Vec<ColumnRef> = refs
+        .split(',')
+        .filter_map(|r| parse_column_ref(r.trim()))
+        .collect();
+    if inputs.is_empty() {
+        return None;
+    }
+    Some(ColumnLineage { column, inputs })
+}
+
+// `<asset-uri>.<col>` — the referenced column is the segment after the final
+// `.`; everything before it is the asset URI (default-syntax shorthands
+// enabled, like `// materialize`). Same shape as `parse_relationships`' target.
+fn parse_column_ref(s: &str) -> Option<ColumnRef> {
+    let (asset_uri, ref_col) = s.rsplit_once('.')?;
+    let from_column = single_ident(ref_col)?;
+    let (from_kind, from_path) = parse_asset_syntax(asset_uri.trim(), true)?;
+    if from_path.is_empty() {
+        return None;
+    }
+    Some(ColumnRef { from_kind, from_path: from_path.to_string(), from_column })
 }
 
 // Parse a `// partitioned <kind> [opts]` right-hand side. Recognized kinds:
@@ -1307,5 +1551,231 @@ mod pipeline_annotation_tests {
         assert_eq!(m.get("a").unwrap(), "ok");
         assert_eq!(m.get("b").unwrap(), "fine");
         assert!(m.get("garbage").is_none());
+    }
+
+    #[test]
+    fn data_test_builtins() {
+        let code = concat!(
+            "// data_test unique order_id\n",
+            "// data_test not_null user_id\n",
+            "// data_test accepted_values status = paid,pending,refunded\n",
+            "// data_test relationships user_id -> datatable://prod/users.id\n",
+        );
+        let out = parse_pipeline_annotations(code);
+        assert_eq!(
+            out.data_tests,
+            vec![
+                DataTest::Unique { column: "order_id".to_string() },
+                DataTest::NotNull { column: "user_id".to_string() },
+                DataTest::AcceptedValues {
+                    column: "status".to_string(),
+                    values: vec![
+                        "paid".to_string(),
+                        "pending".to_string(),
+                        "refunded".to_string()
+                    ],
+                },
+                DataTest::Relationships {
+                    column: "user_id".to_string(),
+                    to_kind: AssetKind::DataTable,
+                    to_path: "prod/users".to_string(),
+                    to_column: "id".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn data_test_accepts_quotes_and_spacing() {
+        let out = parse_pipeline_annotations("// data_test accepted_values kind = \"a b\", 'c' ,d");
+        assert_eq!(
+            out.data_tests,
+            vec![DataTest::AcceptedValues {
+                column: "kind".to_string(),
+                values: vec!["a b".to_string(), "c".to_string(), "d".to_string()],
+            }]
+        );
+    }
+
+    #[test]
+    fn data_test_custom_escape_hatch() {
+        // A non-built-in single token is a custom script path; default-syntax
+        // asset shorthands are NOT triggered here (a path is just a path).
+        let out = parse_pipeline_annotations("// data_test f/tests/orders_amount_sane");
+        assert_eq!(
+            out.data_tests,
+            vec![DataTest::Custom { path: "f/tests/orders_amount_sane".to_string() }]
+        );
+    }
+
+    #[test]
+    fn data_test_relationships_ducklake_shorthand() {
+        let out = parse_pipeline_annotations(
+            "// data_test relationships sku -> ducklake://warehouse/dim_products.sku",
+        );
+        assert_eq!(
+            out.data_tests,
+            vec![DataTest::Relationships {
+                column: "sku".to_string(),
+                to_kind: AssetKind::Ducklake,
+                to_path: "warehouse/dim_products".to_string(),
+                to_column: "sku".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn data_test_malformed_dropped_fail_safe() {
+        // A misspelled built-in with trailing content is not a valid path token
+        // → dropped, not misread as a custom test. An empty value list, a
+        // missing arrow target, and a bare keyword are all dropped too.
+        let out = parse_pipeline_annotations(concat!(
+            "// data_test uniq order_id\n",        // typo'd built-in + arg
+            "// data_test accepted_values s =\n",  // no values
+            "// data_test relationships a -> b\n", // no `.refcol`
+            "// data_test unique\n",               // missing column
+            "// data_test\n",                      // bare keyword
+        ));
+        assert!(out.data_tests.is_empty());
+    }
+
+    #[test]
+    fn data_test_not_confused_with_ci_test_annotation() {
+        // `// test:` is the unrelated CI-test annotation — it must NOT be
+        // parsed as a data test (no whitespace after `test`, and the keyword
+        // is `data_test` anyway).
+        let out = parse_pipeline_annotations("// test: f/foo/bar\n// data_test unique id");
+        assert_eq!(
+            out.data_tests,
+            vec![DataTest::Unique { column: "id".to_string() }]
+        );
+    }
+
+    #[test]
+    fn column_lineage_basic() {
+        let code = concat!(
+            "// column order_total <- ducklake://warehouse/orders.amount, ducklake://warehouse/orders.tax\n",
+            "// column user_name <- datatable://prod/users.name\n",
+        );
+        let out = parse_pipeline_annotations(code);
+        assert_eq!(
+            out.column_lineage,
+            vec![
+                ColumnLineage {
+                    column: "order_total".to_string(),
+                    inputs: vec![
+                        ColumnRef {
+                            from_kind: AssetKind::Ducklake,
+                            from_path: "warehouse/orders".to_string(),
+                            from_column: "amount".to_string(),
+                        },
+                        ColumnRef {
+                            from_kind: AssetKind::Ducklake,
+                            from_path: "warehouse/orders".to_string(),
+                            from_column: "tax".to_string(),
+                        },
+                    ],
+                },
+                ColumnLineage {
+                    column: "user_name".to_string(),
+                    inputs: vec![ColumnRef {
+                        from_kind: AssetKind::DataTable,
+                        from_path: "prod/users".to_string(),
+                        from_column: "name".to_string(),
+                    }],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn column_lineage_schema_qualified_keeps_last_dot_as_column() {
+        // The column is the segment after the FINAL dot, so a schema-qualified
+        // ducklake table (`main.dim_products`) survives intact.
+        let out = parse_pipeline_annotations(
+            "// column sku <- ducklake://warehouse/main.dim_products.sku",
+        );
+        assert_eq!(
+            out.column_lineage,
+            vec![ColumnLineage {
+                column: "sku".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "warehouse/main.dim_products".to_string(),
+                    from_column: "sku".to_string(),
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn column_lineage_drops_malformed_refs_keeps_valid() {
+        // `bad_no_dot` has no `.col` and is dropped; the line survives on its
+        // one valid ref. Mirrors accepted_values' drop-empties-keep-≥1 stance.
+        let out = parse_pipeline_annotations(
+            "// column total <- bad_no_dot, datatable://prod/orders.amount",
+        );
+        assert_eq!(
+            out.column_lineage,
+            vec![ColumnLineage {
+                column: "total".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::DataTable,
+                    from_path: "prod/orders".to_string(),
+                    from_column: "amount".to_string(),
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn merge_column_lineage_annotation_overrides_inferred() {
+        let inferred = vec![
+            ColumnLineage {
+                column: "total".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "w/o".to_string(),
+                    from_column: "amount".to_string(),
+                }],
+            },
+            ColumnLineage {
+                column: "qty".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "w/o".to_string(),
+                    from_column: "qty".to_string(),
+                }],
+            },
+        ];
+        // Annotation redefines `total` (wins) and leaves `qty` to inference.
+        let annotated = vec![ColumnLineage {
+            column: "total".to_string(),
+            inputs: vec![ColumnRef {
+                from_kind: AssetKind::DataTable,
+                from_path: "prod/x".to_string(),
+                from_column: "grand_total".to_string(),
+            }],
+        }];
+        let merged = merge_column_lineage(inferred, annotated);
+        assert_eq!(merged.len(), 2);
+        // Annotation entry kept first and authoritative.
+        assert_eq!(merged[0].column, "total");
+        assert_eq!(merged[0].inputs[0].from_column, "grand_total");
+        // Inferred `qty` survives (no annotation for it); inferred `total` dropped.
+        assert_eq!(merged[1].column, "qty");
+    }
+
+    #[test]
+    fn column_lineage_malformed_lines_dropped_fail_safe() {
+        // No arrow, a multi-token output column, and a line whose every ref is
+        // malformed are all dropped entirely.
+        let out = parse_pipeline_annotations(concat!(
+            "// column no_arrow datatable://prod/x.y\n", // missing `<-`
+            "// column a b <- datatable://prod/x.y\n",   // output not a single ident
+            "// column total <- bad_no_dot\n",           // no valid ref
+            "// column\n",                               // bare keyword
+        ));
+        assert!(out.column_lineage.is_empty());
     }
 }

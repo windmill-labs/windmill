@@ -8,6 +8,7 @@ const ann = (over: Partial<PipelineAnnotations> = {}): PipelineAnnotations => ({
 	inPipeline: false,
 	triggerAssets: [],
 	nativeTriggers: [],
+	dataTests: [],
 	...over
 })
 
@@ -65,11 +66,14 @@ describe('resolveGraph', () => {
 		expect(resolveGraph(input({ base }))).toEqual(base)
 	})
 
-	it('draft: adds an unsaved runnable + write edge from the static outputAsset', () => {
+	it('draft: adds an unsaved runnable + write edge from outputAssets', () => {
 		const drafts = new Map([
 			[
 				'f/x/d',
-				{ script: { content: '' }, outputAsset: { kind: 's3object' as const, path: '/out.json' } }
+				{
+					script: { content: '' },
+					outputAssets: [{ kind: 's3object' as const, path: '/out.json' }]
+				}
 			]
 		])
 		const r = resolveGraph(input({ drafts }))
@@ -90,22 +94,6 @@ describe('resolveGraph', () => {
 			access_type: 'w',
 			unsaved: true
 		})
-	})
-
-	it('draft: outputAssets snapshot wins over the static outputAsset', () => {
-		const drafts = new Map([
-			[
-				'f/x/d',
-				{
-					script: { content: '' },
-					outputAsset: { kind: 's3object' as const, path: '/old.json' },
-					outputAssets: [{ kind: 's3object' as const, path: '/new.json' }]
-				}
-			]
-		])
-		const r = resolveGraph(input({ drafts }))
-		expect(r.edges.map((e) => e.asset_path)).toContain('/new.json')
-		expect(r.edges.map((e) => e.asset_path)).not.toContain('/old.json')
 	})
 
 	it('active draft: live body writes are authoritative over the snapshot', () => {

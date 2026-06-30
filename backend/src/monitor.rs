@@ -75,6 +75,7 @@ use windmill_common::{
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
     },
     indexer::load_indexer_config,
+    jobs::delete_jobs,
     jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
@@ -1275,6 +1276,19 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
     }
 
+    // native_retry_attempt has no FK to v2_job (kept off the hot bulk delete).
+    // Retention sweeps markers alongside the jobs it deletes, but direct job
+    // deletions (workspace/job/schedule clearing) leave markers orphaned — reap
+    // any whose job is gone. The table is sparse, so this anti-join is cheap.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM native_retry_attempt nra WHERE NOT EXISTS (SELECT 1 FROM v2_job WHERE id = nra.job_id)"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error reaping orphaned native retry markers: {:?}", e);
+    }
+
     if let Err(e) = windmill_queue::cascade::reap_stale_join_slots(db).await {
         tracing::error!("Error reaping stale join_pending_inputs slots: {:?}", e);
     }
@@ -1647,10 +1661,21 @@ async fn delete_expired_jobs_batch(
             Err(e) => tracing::error!("Error deleting job logs: {:?}", e),
         }
 
-        if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
-            .execute(&mut *tx)
-            .await
+        // Native retry markers have no FK (to keep this bulk delete cheap) — sweep
+        // them with their jobs here too (the periodic retention path), same as the
+        // other side tables. The table is created by a startup migration, so it
+        // always exists by the time cleanup runs.
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM native_retry_attempt WHERE job_id = ANY($1)",
+            &deleted_jobs
+        )
+        .execute(&mut *tx)
+        .await
         {
+            tracing::error!("Error deleting native retry markers: {:?}", e);
+        }
+
+        if let Err(e) = delete_jobs(&mut *tx, &deleted_jobs).await {
             tracing::error!("Error deleting job: {:?}", e);
         }
 
@@ -2690,6 +2715,9 @@ pub async fn monitor_db(
             if let Some(db) = conn.as_sql() {
                 if let Err(e) = cleanup_debounce_orphaned_keys(&db).await {
                     tracing::error!("Error cleaning up debounce keys: {:?}", e);
+                }
+                if let Err(e) = cleanup_consumed_debounce_batches(&db).await {
+                    tracing::error!("Error cleaning up consumed debounce batches: {:?}", e);
                 }
             }
         }
@@ -4393,6 +4421,40 @@ RETURNING key,job_id
     Ok(())
 }
 
+/// GC for claim-based debounce batches: once a batch row has been consumed (its
+/// args accumulated into some survivor's run), it only lingers to let a later-pulled
+/// survivor of the same batch tell "already consumed" from "never batched". A generous
+/// grace period (>> any debounce window) makes that decision safe; after it, the rows
+/// are dead weight. A re-pulled survivor whose row was GC'd correctly falls back to its
+/// own (already-accumulated, persisted) args, so the grace period is not correctness-
+/// critical.
+async fn cleanup_consumed_debounce_batches(db: &DB) -> error::Result<()> {
+    // Only reclaim a consumed row once its job has LEFT the queue. A consumed sibling
+    // (its contribution already accumulated by another survivor) can sit queued well
+    // past any time-based grace under a concurrency limit / worker backlog; removing its
+    // row while still queued would make its eventual pull treat it as never-batched and
+    // re-run its item (a duplicate). Keeping the row until the job is no longer queued
+    // guarantees that pull still sees "already consumed" and runs empty. The age floor
+    // is just a safety margin on top.
+    let deleted = sqlx::query_scalar!(
+        "WITH del AS (
+            DELETE FROM v2_job_debounce_batch
+            WHERE consumed_at IS NOT NULL
+              AND consumed_at < now() - interval '10 minutes'
+              AND id NOT IN (SELECT id FROM v2_job_queue)
+            RETURNING 1
+        ) SELECT count(*) FROM del"
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    if deleted > 0 {
+        tracing::info!("Cleaned up {deleted} consumed debounce batch rows");
+    }
+    Ok(())
+}
+
 async fn cleanup_debounce_keys_for_completed_jobs(db: &DB) -> error::Result<()> {
     // If min version doesn't support runnable settings, clean up debounce keys for completed jobs
     if !windmill_common::min_version::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
@@ -4429,8 +4491,31 @@ RETURNING key,job_id
 // Per-statement cap keeps each delete short and lock-light; the per-cycle batch
 // cap bounds total work per monitor iteration so monitor_db stays responsive.
 // A large backlog drains across several iterations rather than one long delete.
+//
+// These sweeps anti-join the whole table to find orphans, so their cost tracks the heap's
+// physical size. job_perms / job_result_stream_v2 are high-churn (one row per job, deleted
+// here), so their bloat — not the query shape — is what makes the sweep slow. These sweeps run
+// every monitor cycle, but the bulk vacuuming_tables() runs only ~hourly, so dead tuples pile
+// up between bulk vacuums; each sweep VACUUMs its own table right after deleting (see below) to
+// keep the heap near the live working set. The outer `ctid IN (SELECT ... LIMIT)` is
+// deliberate: a `job_id IN (...)` rewrite adds a second scan/probe for the delete and
+// benchmarks slower, so don't "simplify" it.
 const ORPHAN_CLEANUP_BATCH_SIZE: u64 = 100_000;
 const ORPHAN_CLEANUP_MAX_BATCHES: usize = 10;
+
+// Reclaim the dead tuples a sweep just created so the next sweep's anti-join scans a lean heap
+// instead of a bloated one. Plain VACUUM (not FULL) only takes SHARE UPDATE EXCLUSIVE, so
+// concurrent reads/writes (every job create touches job_perms) keep running, and the visibility
+// map lets it skip unchanged pages so repeated runs are cheap. SKIP_LOCKED means HA replicas
+// don't pile up: one vacuums, the rest skip rather than queue behind it.
+async fn vacuum_after_sweep(db: &DB, table: &str) {
+    if let Err(e) = sqlx::query(&format!("VACUUM (SKIP_LOCKED) {table}"))
+        .execute(db)
+        .await
+    {
+        tracing::warn!("Error vacuuming {table} after orphan cleanup: {e:?}");
+    }
+}
 
 async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
     let mut total: u64 = 0;
@@ -4454,6 +4539,7 @@ async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
 
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_perms rows");
+        vacuum_after_sweep(db, "job_perms").await;
     }
     Ok(())
 }
@@ -4485,6 +4571,7 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
 
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
+        vacuum_after_sweep(db, "job_result_stream_v2").await;
     }
     Ok(())
 }

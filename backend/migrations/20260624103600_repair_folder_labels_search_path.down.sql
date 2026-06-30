@@ -1,0 +1,3 @@
+-- No-op: this migration only re-pins the function's search_path. Reverting would
+-- mean restoring the hardcoded `SET search_path = public`, which is the very bug
+-- this repairs, so there is nothing to undo.

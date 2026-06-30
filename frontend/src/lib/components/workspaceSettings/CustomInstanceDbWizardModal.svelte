@@ -146,7 +146,7 @@
 									title: 'Database name is valid',
 									status: status?.logs.valid_dbname,
 									description:
-										'The database name must be alphanumeric (underscores allowed) and cannot be named the same as the Windmill database (usually "windmill")'
+										'The database name must be alphanumeric (underscores and hyphens allowed) and cannot be named the same as the Windmill database (usually "windmill")'
 								},
 								{
 									title:

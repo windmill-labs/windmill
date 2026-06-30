@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
+	decideSessionLifecycle,
 	deriveForkStatus,
 	isForkSession,
 	renameSession,
@@ -228,7 +229,7 @@ describe('commitSessionWorkspace — CE workspace-cap fork guard', () => {
 describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () => {
 	it('syncs workspaceStore to the committed workspace when they differ', async () => {
 		// Repro: user is sitting in a fork workspace (wm-fork-x) and creates a
-		// new session whose pending_workspace_id defaults to the family root.
+		// new session whose pending_workspace_id defaults to the root workspace.
 		// Without the syncWorkspaceTo call in commitSessionWorkspace's non-fork
 		// branch, the session metadata says root while the active workspace
 		// stays on the fork — so AIChatManager.chatRequest's logAiChat and tool
@@ -247,6 +248,7 @@ describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () 
 			expect(committed).toBe('root_ws')
 			const s = sessionState.sessions.find((x) => x.id === id)
 			expect(s?.workspace_id).toBe('root_ws')
+			expect(s?.workspace_root_id).toBe('root_ws')
 			expect(s?.pending_workspace_id).toBeUndefined()
 			expect(get(workspaceStore)).toBe('root_ws')
 		} finally {
@@ -269,6 +271,8 @@ describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () 
 		try {
 			const committed = await commitSessionWorkspace(id, undefined)
 			expect(committed).toBe('root_ws')
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.workspace_root_id).toBe('root_ws')
 			expect(get(workspaceStore)).toBe('root_ws')
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
@@ -321,5 +325,41 @@ describe('session summary generation guards', () => {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
 		}
+	})
+})
+
+describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
+	const mk = (over: Partial<Session> = {}): Session => ({
+		id: 'x',
+		name: 'session-1',
+		workspace_id: 'ws',
+		createdAt: 0,
+		...over
+	})
+
+	it('deleted workspace → delete, regardless of archive state', () => {
+		expect(decideSessionLifecycle(mk(), 'deleted')).toEqual({ action: 'delete' })
+		expect(decideSessionLifecycle(mk({ archived: true }), 'deleted')).toEqual({ action: 'delete' })
+	})
+
+	it('archived workspace → archive (tagged) when not already archived; no-op otherwise', () => {
+		expect(decideSessionLifecycle(mk(), 'archived')).toEqual({
+			action: 'archive',
+			patch: { archived: true, archivedByWorkspace: true }
+		})
+		expect(decideSessionLifecycle(mk({ archived: true }), 'archived')).toEqual({ action: 'noop' })
+	})
+
+	it('active workspace → unarchive only the ones WE archived (archivedByWorkspace)', () => {
+		expect(decideSessionLifecycle(mk({ archived: true, archivedByWorkspace: true }), 'active')).toEqual(
+			{ action: 'unarchive', patch: { archived: undefined, archivedByWorkspace: undefined } }
+		)
+		// user-archived (no archivedByWorkspace flag) is left alone
+		expect(decideSessionLifecycle(mk({ archived: true }), 'active')).toEqual({ action: 'noop' })
+		expect(decideSessionLifecycle(mk(), 'active')).toEqual({ action: 'noop' })
+	})
+
+	it('unknown status (workspace absent from the queried set) → no-op, never a delete', () => {
+		expect(decideSessionLifecycle(mk(), undefined)).toEqual({ action: 'noop' })
 	})
 })
