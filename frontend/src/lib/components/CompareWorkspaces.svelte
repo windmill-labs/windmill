@@ -1320,8 +1320,7 @@
 				<p class="text-xs text-tertiary">
 					These resources and variables keep their own value in each environment and are excluded
 					from the diff. An item that exists on only one side can be seeded onto the other with
-					"Create in …" (copies the current value, including secrets); it's never overwritten
-					afterward.
+					"Create in …" (copies the current value, including secrets); it will never overwrite an existing value.
 				</p>
 				<div class="flex flex-col gap-1">
 					{#each pinnedItems as it (`${it.item_kind}:${it.path}`)}
