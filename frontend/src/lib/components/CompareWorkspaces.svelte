@@ -234,11 +234,15 @@
 				})
 			}
 			return 'created'
-		} catch (e: any) {
-			// The backend rejects an existing path with "<Resource|Variable> <path> already exists".
-			const body =
-				typeof e?.body === 'string' ? e.body : (e?.body?.error?.message ?? e?.message ?? '')
-			if (String(body).includes('already exists')) return 'conflict'
+		} catch (e) {
+			// Don't parse the error message: re-check existence. If the target now exists, the create
+			// lost a race (the backend create is create-only and rejected it), so report a conflict and
+			// leave it untouched rather than overwriting.
+			const existsNow =
+				kind === 'resource'
+					? await ResourceService.existsResource({ workspace: to, path })
+					: await VariableService.existsVariable({ workspace: to, path })
+			if (existsNow) return 'conflict'
 			throw e
 		}
 	}

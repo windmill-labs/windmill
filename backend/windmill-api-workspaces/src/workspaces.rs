@@ -7,7 +7,8 @@
  */
 
 use windmill_api_auth::{
-    check_scopes, require_devops_role, require_is_writer, require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes, require_devops_role, require_is_writer,
+    require_super_admin, ApiAuthed,
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
@@ -5674,8 +5675,15 @@ async fn archive_workspace(
         )
         .execute(&mut *tx)
         .await?;
+        // archive_workspace_impl already committed `deleted = true` in a separate transaction, so a
+        // replacement dev could have been created and re-locked the prod in that window. Only drop the
+        // lock if no active dev remains for the prod — otherwise we'd remove the replacement's lock.
         sqlx::query!(
-            "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
+            "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2
+             AND NOT EXISTS (
+                 SELECT 1 FROM workspace
+                 WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false
+             )",
             prod,
             DEV_WORKSPACE_LOCK_RULE_NAME
         )
@@ -8307,6 +8315,19 @@ async fn list_ws_specific(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
+    // RLS gates membership/folder access, but a scoped API token must also be held to its read
+    // scopes — mirror the resource/variable list endpoints, which filter with these predicates so a
+    // token lacking `resources:read:*` / `variables:read:*` can't enumerate pinned paths it can't read.
+    let resource_allowed = build_scope_path_predicate(&authed, "resources", "read");
+    let variable_allowed = build_scope_path_predicate(&authed, "variables", "read");
+    let items = items
+        .into_iter()
+        .filter(|it| match it.item_kind.as_str() {
+            "resource" => resource_allowed(&it.path),
+            "variable" => variable_allowed(&it.path),
+            _ => false,
+        })
+        .collect::<Vec<_>>();
     Ok(Json(items))
 }
 
@@ -8327,6 +8348,17 @@ async fn list_ws_specific_versions(
             "Invalid kind '{}'. Must be 'resource' or 'variable'",
             q.kind
         )));
+    }
+
+    // A scoped API token must hold the read scope for this path, like the resource/variable read
+    // endpoints. Without the scope, report no versions rather than leaking the path's history.
+    let domain = if q.kind == "resource" {
+        "resources"
+    } else {
+        "variables"
+    };
+    if !build_scope_path_predicate(&authed, domain, "read")(&q.path) {
+        return Ok(Json(vec![]));
     }
 
     let versions: Vec<String> = sqlx::query_scalar!(
