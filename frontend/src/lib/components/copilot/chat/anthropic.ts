@@ -286,15 +286,15 @@ export async function parseAnthropicCompletion(
 			role: 'assistant',
 			tool_calls: toolCallsToProcess
 		}
-		// Preserve thinking blocks (with signatures) so the next request keeps the
-		// reasoning chain — Anthropic requires this when thinking is combined with tool
-		// use. They are re-injected by convertOpenAIToAnthropicMessages.
-		const thinkingBlocks = finalMessage.content.filter(
-			(b) => b.type === 'thinking' || b.type === 'redacted_thinking'
-		)
-		if (thinkingBlocks.length > 0) {
-			;(assistantWithTools as any)._anthropicThinkingBlocks = thinkingBlocks
-		}
+		// Preserve the full assistant turn verbatim (thinking/redacted_thinking blocks
+		// with their signatures, server_tool_use + web_search_tool_result, text and
+		// tool_use) in original order. Anthropic validates each thinking block's
+		// signature against the blocks that precede it in the latest assistant message,
+		// so the turn must be replayed exactly as received: reordering the thinking
+		// blocks or dropping the web-search blocks makes a signature no longer match and
+		// the request is rejected with "thinking blocks ... cannot be modified".
+		// convertOpenAIToAnthropicMessages re-emits this content verbatim.
+		;(assistantWithTools as any)._anthropicContent = finalMessage.content
 		messages.push(assistantWithTools)
 		addedMessages.push(assistantWithTools)
 
@@ -323,7 +323,31 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 	let system: TextBlockParam[] | undefined
 	const anthropicMessages: MessageParam[] = []
 
-	for (const message of messages) {
+	// A streamed assistant turn that ends in tool calls is stored as a standalone text
+	// message followed by the tool-call message carrying _anthropicContent. That text is
+	// already part of _anthropicContent (replayed verbatim below), so skip the standalone
+	// copy — otherwise it is duplicated and emitted ahead of the turn's thinking blocks.
+	const skipStandaloneText = new Set<number>()
+	for (let i = 0; i < messages.length; i++) {
+		if (!(messages[i] as any)._anthropicContent) continue
+		for (let j = i - 1; j >= 0; j--) {
+			const m = messages[j]
+			if (
+				m.role === 'assistant' &&
+				typeof m.content === 'string' &&
+				!m.tool_calls &&
+				!(m as any)._anthropicContent
+			) {
+				skipStandaloneText.add(j)
+			} else {
+				break
+			}
+		}
+	}
+
+	for (let i = 0; i < messages.length; i++) {
+		const message = messages[i]
+		if (skipStandaloneText.has(i)) continue
 		if (message.role === 'system') {
 			const systemText =
 				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
@@ -345,10 +369,20 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 					typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
 			})
 		} else if (message.role === 'assistant') {
+			// Replay the original assistant turn verbatim when it was captured (see the
+			// _anthropicContent note where the streamed turn is stored) so thinking-block
+			// signatures stay valid.
+			const anthropicContent = (message as any)._anthropicContent
+			if (Array.isArray(anthropicContent) && anthropicContent.length > 0) {
+				anthropicMessages.push({ role: 'assistant', content: anthropicContent as any })
+				continue
+			}
+
 			const content: any[] = []
 
-			// Re-inject preserved thinking blocks first (Anthropic requires thinking to
-			// precede tool_use in the same assistant turn when thinking is enabled).
+			// Fallback for turns persisted before _anthropicContent existed: re-inject the
+			// preserved thinking blocks first (Anthropic requires thinking to precede
+			// tool_use in the same assistant turn when thinking is enabled).
 			const thinkingBlocks = (message as any)._anthropicThinkingBlocks
 			if (Array.isArray(thinkingBlocks) && thinkingBlocks.length > 0) {
 				content.push(...thinkingBlocks)
