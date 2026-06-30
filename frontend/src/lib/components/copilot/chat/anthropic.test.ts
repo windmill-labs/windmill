@@ -161,4 +161,64 @@ describe('convertOpenAIToAnthropicMessages', () => {
 			cache_control: { type: 'ephemeral' }
 		})
 	})
+
+	it("preserves an earlier turn's standalone answer separated by a user message", () => {
+		const anthropicContent = [
+			{ type: 'thinking', thinking: 't', signature: 'sig' },
+			{ type: 'tool_use', id: 'tool_2', name: 'list_resources', input: {} }
+		]
+
+		const messages: ChatCompletionMessageParam[] = [
+			{ role: 'user', content: 'first question' },
+			// Turn 1's final answer — must survive; it belongs to a different turn.
+			{ role: 'assistant', content: 'answer to the first turn' },
+			{ role: 'user', content: 'second question' },
+			// Turn 2's standalone text — this is the one that should be dropped.
+			{ role: 'assistant', content: 'let me check' },
+			{
+				role: 'assistant',
+				tool_calls: [
+					{ id: 'tool_2', type: 'function', function: { name: 'list_resources', arguments: '{}' } }
+				],
+				_anthropicContent: anthropicContent
+			} as any
+		]
+
+		const { messages: out } = convertOpenAIToAnthropicMessages(messages)
+
+		// Only turn 2's standalone text is dropped; turn 1's answer is untouched.
+		expect(out).toHaveLength(4)
+		expect(out[0]).toEqual({ role: 'user', content: 'first question' })
+		expect(out[1]).toEqual({ role: 'assistant', content: 'answer to the first turn' })
+		expect(out[2]).toEqual({ role: 'user', content: 'second question' })
+		expect((out[3].content as any[]).map((b) => b.type)).toEqual(['thinking', 'tool_use'])
+	})
+
+	it('skips every standalone text message preceding one captured turn', () => {
+		const anthropicContent = [
+			{ type: 'text', text: 'part one' },
+			{ type: 'text', text: 'part two' },
+			{ type: 'tool_use', id: 'tool_3', name: 'list_resources', input: {} }
+		]
+
+		const messages: ChatCompletionMessageParam[] = [
+			{ role: 'user', content: 'go' },
+			{ role: 'assistant', content: 'part one' },
+			{ role: 'assistant', content: 'part two' },
+			{
+				role: 'assistant',
+				tool_calls: [
+					{ id: 'tool_3', type: 'function', function: { name: 'list_resources', arguments: '{}' } }
+				],
+				_anthropicContent: anthropicContent
+			} as any
+		]
+
+		const { messages: out } = convertOpenAIToAnthropicMessages(messages)
+
+		// Both standalone copies dropped; the verbatim turn already carries the text.
+		expect(out).toHaveLength(2)
+		expect(out[0]).toEqual({ role: 'user', content: 'go' })
+		expect((out[1].content as any[]).map((b) => b.type)).toEqual(['text', 'text', 'tool_use'])
+	})
 })
