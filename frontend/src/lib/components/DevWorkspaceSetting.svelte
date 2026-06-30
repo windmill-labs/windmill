@@ -11,11 +11,33 @@
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink } from 'lucide-svelte'
+	import { resource } from 'runed'
 
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let isDev = $derived(currentWs?.is_dev_workspace ?? false)
 	let parentId = $derived(currentWs?.parent_workspace_id ?? undefined)
 	let canonicalDev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
+
+	// A prod admin who isn't a member of the dev can't see it in their workspace list, so ask the
+	// server (only when the client list doesn't already have it) — otherwise the tab would show the
+	// attach form instead of the existing pairing and detach control.
+	const devWorkspaceResource = resource(
+		() => (!isDev && !parentId && !canonicalDev ? $workspaceStore : undefined),
+		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
+	)
+	// The paired dev to display: the client entry when we're a member (so "Go to dev workspace" works),
+	// else the server result (pairing + detach still available to a prod admin).
+	let pairedDev = $derived(
+		canonicalDev
+			? { id: canonicalDev.id, name: canonicalDev.name, isMember: true }
+			: devWorkspaceResource.current
+				? {
+						id: devWorkspaceResource.current.id,
+						name: devWorkspaceResource.current.name,
+						isMember: false
+					}
+				: undefined
+	)
 
 	let selectedDevId = $state<string | undefined>(undefined)
 	let lockProdDeploy = $state(true)
@@ -107,21 +129,23 @@
 			</Button>
 		</div>
 	</div>
-{:else if canonicalDev}
+{:else if pairedDev}
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm">
-			This workspace's dev workspace is <b>{canonicalDev.name}</b> ({canonicalDev.id}). Edits to
-			this workspace are redirected there.
+			This workspace's dev workspace is <b>{pairedDev.name}</b> ({pairedDev.id}). Edits to this
+			workspace are redirected there.
 		</p>
 		<div class="flex gap-2">
-			<Button
-				variant="default"
-				startIcon={{ icon: GitFork }}
-				onclick={() => switchWorkspace(canonicalDev.id)}
-			>
-				Go to dev workspace
-			</Button>
-			<Button color="red" disabled={busy} onclick={() => detach(canonicalDev.id)}>Detach</Button>
+			{#if pairedDev.isMember}
+				<Button
+					variant="default"
+					startIcon={{ icon: GitFork }}
+					onclick={() => switchWorkspace(pairedDev.id)}
+				>
+					Go to dev workspace
+				</Button>
+			{/if}
+			<Button color="red" disabled={busy} onclick={() => detach(pairedDev.id)}>Detach</Button>
 		</div>
 	</div>
 {:else if parentId}

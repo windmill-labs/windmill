@@ -156,7 +156,7 @@ pub fn workspaced_service() -> Router {
         .route("/create_fork", post(create_workspace_fork))
         .route("/attach_dev_workspace", post(attach_dev_workspace))
         .route("/detach_dev_workspace", post(detach_dev_workspace))
-        .route("/has_dev_workspace", get(has_dev_workspace))
+        .route("/get_dev_workspace", get(get_dev_workspace))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
         .route(
@@ -663,19 +663,29 @@ async fn exists_workspace(
 /// Whether this workspace already has an active canonical dev workspace. The create-fork UI can't
 /// rely on the caller's workspace list to decide this — a dev paired to this prod may exist that the
 /// caller isn't a member of — so it asks the server, which sees all children.
-async fn has_dev_workspace(
+#[derive(Serialize)]
+struct DevWorkspaceInfo {
+    id: String,
+    name: String,
+}
+
+/// This workspace's active canonical dev workspace, if any. The create-fork UI and the dev-workspace
+/// settings tab can't rely on the caller's workspace list — a dev paired to this prod may exist that
+/// the caller isn't a member of — so they ask the server, which sees all children. Returns its id/name
+/// so a prod admin who isn't a dev member can still see the pairing and detach it.
+async fn get_dev_workspace(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<bool> {
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false)",
+) -> JsonResult<Option<DevWorkspaceInfo>> {
+    let dev = sqlx::query_as!(
+        DevWorkspaceInfo,
+        "SELECT id, name FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
         &w_id
     )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-    Ok(Json(exists))
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(dev))
 }
 
 async fn list_workspaces(

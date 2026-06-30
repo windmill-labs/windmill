@@ -70,15 +70,13 @@
 	)
 	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
 	// so the client workspace list can't see it and would offer an invalid "create dev" action.
-	const hasDevWorkspaceResource = resource(
+	const devWorkspaceResource = resource(
 		() => (currentIsRoot ? $workspaceStore : undefined),
-		async (ws) => (ws ? await WorkspaceService.hasDevWorkspace({ workspace: ws }) : false)
+		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
 	)
-	// Offer dev designation only once the server confirms there's no dev yet; stay conservative (no
-	// offer) while the check is loading.
-	let canDesignateDevWorkspace = $derived(
-		currentIsRoot && hasDevWorkspaceResource.current === false
-	)
+	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
+	// conservative (no offer) while the check is loading (current is undefined).
+	let canDesignateDevWorkspace = $derived(currentIsRoot && devWorkspaceResource.current === null)
 	let currentWorkspaceName = $derived(
 		currentWorkspaceEntry?.name ?? $workspaceStore ?? 'the root workspace'
 	)

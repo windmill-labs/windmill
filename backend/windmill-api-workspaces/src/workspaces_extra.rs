@@ -387,6 +387,16 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    // A dev/fork's `deploy_to` points at the prod root, so it must follow the rename too — otherwise
+    // the child re-parents to the new id but still deploys to the soft-deleted old shell.
+    sqlx::query!(
+        "UPDATE workspace_settings SET deploy_to = $1 WHERE deploy_to = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating workspace_protection_rule table");
     sqlx::query!(
         "UPDATE workspace_protection_rule SET workspace_id = $1 WHERE workspace_id = $2",
