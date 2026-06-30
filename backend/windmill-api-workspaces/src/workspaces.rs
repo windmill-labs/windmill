@@ -6680,7 +6680,6 @@ async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a new protection rule
 /// `dev_workspace_lock` is owned by the dev-workspace feature (attach/detach/archive/delete create and
 /// remove it by name). Reserve it from the public protection-rule API so a user-managed rule can't
 /// collide: otherwise the feature's name-based cleanup would clobber the user's rule, or a manual edit
@@ -6695,6 +6694,7 @@ fn reject_reserved_rule_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Create a new protection rule
 async fn create_protection_rule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
