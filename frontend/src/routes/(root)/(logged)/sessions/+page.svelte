@@ -190,6 +190,34 @@
 		})
 	})
 
+	// The open_preview tool mutates the session's *persisted* tab model directly
+	// (so it works for backgrounded sessions too). When the tool targets the
+	// session currently on screen, mirror its additions into the live tab list.
+	// Additive only: the page owns removals/reorders and write-behinds the full
+	// set every 400ms, so reconciling more than new-tab + active-id would let this
+	// fight that write-behind and clobber local-only state (in-tab `loc`/`url`).
+	$effect(() => {
+		const s = activeSession
+		const persisted = s?.previewTabs
+		const wantActive = s?.activePreviewTabId
+		const wantCollapsed = s?.previewCollapsed
+		untrack(() => {
+			if (!s) return
+			if (persisted) {
+				for (const pt of persisted) {
+					if (!tabs.some((t) => t.id === pt.id)) tabs.push({ ...pt })
+				}
+			}
+			if (wantActive && wantActive !== activeTabId && tabs.some((t) => t.id === wantActive)) {
+				activeTabId = wantActive
+				mountedTabIds.add(wantActive)
+			}
+			// open_preview clears previewCollapsed to reveal the just-opened tab.
+			// Only mirror the explicit `false` (undefined = "unset", leave as-is).
+			if (wantCollapsed === false && previewCollapsed) previewCollapsed = false
+		})
+	})
+
 	// Write-behind tab state onto the session record (debounced — `loc` churns as
 	// the user browses inside a tab). The session id is captured in the closure so
 	// a pending write always lands on the session it was scheduled for.

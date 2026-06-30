@@ -30,15 +30,15 @@ import { emptySchema, type StateStore } from '$lib/utils'
 import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
+	describeSessionPreview,
 	ensureChatIdsSeeded,
 	getEffectiveWorkspaceId,
 	materializeTransient,
+	openSessionPreviewTab,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
-	setSessionTarget,
-	type Session,
-	type SessionTarget
+	type Session
 } from './sessionState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -820,25 +820,23 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
 	}
-	const current = sessionState.sessions.find((s) => s.id === sessionId)?.target
-	if (current && current.kind === kind && current.path === path) {
-		return `Preview is already open showing ${kind} "${path}".`
+	const result = openSessionPreviewTab(sessionId, { kind, path })
+	if (result.status === 'no-session') {
+		return 'Error: no active session to open the preview in.'
 	}
-	const target: SessionTarget = { kind, path }
-	setSessionTarget(sessionId, target)
 	promoteEditorWarm(sessionId)
-	return `Opened ${kind} preview for ${path} in the side panel.`
+	return result.status === 'focused'
+		? `A preview tab is already showing ${kind} "${path}" — focused it.`
+		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
 })
 
-// Companion to the open_preview handler: report whether the calling session's
-// preview is open and which item it shows, so the assistant can avoid
-// re-opening a preview already showing the item it just edited.
+// Companion to the open_preview handler: report the calling session's open
+// preview tabs (the panel is multi-tab), so the assistant can avoid re-opening
+// a tab already showing the item it just edited.
 setGetPreviewStatusHandler((callerSessionId) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return 'No active session; the preview panel is unavailable.'
-	const target = sessionState.sessions.find((s) => s.id === sessionId)?.target
-	if (!target) return 'No preview is currently open in the side panel.'
-	return `The preview is currently open showing ${target.kind} "${target.path}".`
+	return describeSessionPreview(sessionId)
 })
 
 // After a chat deploy, reload the calling session's preview — only if it's open
