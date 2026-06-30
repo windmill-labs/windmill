@@ -86,11 +86,12 @@ async function dev(opts: PipelineDevOpts, folderArg?: string) {
     // best-effort
   }
 
+  const EMPTY_GRAPH = { runnables: [], assets: [], edges: [], triggers: [] };
   async function buildBundle() {
     const { graph, scripts } = await buildLocalPipelineGraph({
       root,
       folder: folder!,
-      defaultTs: opts.defaultTs,
+      defaultTs: merged.defaultTs,
     });
     return {
       type: "pipeline" as const,
@@ -101,7 +102,15 @@ async function dev(opts: PipelineDevOpts, folderArg?: string) {
     };
   }
 
-  let current = await buildBundle();
+  // Don't let a transient build error (e.g. a half-written file) abort startup —
+  // serve an empty graph and recover on the next save.
+  let current: Awaited<ReturnType<typeof buildBundle>>;
+  try {
+    current = await buildBundle();
+  } catch (e: any) {
+    log.error(colors.red(`Initial graph build failed: ${e.message}`));
+    current = { type: "pipeline", folder, graph: EMPTY_GRAPH, scripts: [], temp_script_refs: tempScriptRefs };
+  }
   log.info(
     colors.blue(
       `Watching f/${folder} — ${current.scripts.length} pipeline script(s)`,

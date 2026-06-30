@@ -114,7 +114,8 @@ async function show(
   let graph: AssetGraph;
   let enrich: ((nativeByScript: Map<string, NativeMarker[]>, roots: string[]) => Promise<void>) | undefined;
   if (opts.local) {
-    graph = (await buildLocalPipelineGraph({ root: workspaceRoot(), folder: f, defaultTs: opts.defaultTs })).graph;
+    const merged = await mergeConfigWithConfigFile(opts);
+    graph = (await buildLocalPipelineGraph({ root: workspaceRoot(), folder: f, defaultTs: merged.defaultTs })).graph;
   } else {
     const workspace = await resolveWorkspace(opts);
     await requireLogin(opts);
@@ -350,10 +351,13 @@ async function run(
   let localScripts: Map<string, LocalScript> | undefined;
   let tempScriptRefs: Record<string, string> | undefined;
   if (opts.local) {
+    // Resolve config (defaultTs drives .ts → bun/deno language inference, so a
+    // deno-default workspace previews under the right runtime).
+    const merged = await mergeConfigWithConfigFile(opts);
     const built = await buildLocalPipelineGraph({
       root: workspaceRoot(),
       folder: f,
-      defaultTs: opts.defaultTs,
+      defaultTs: merged.defaultTs,
     });
     graph = built.graph;
     localScripts = new Map(built.scripts.map((s) => [s.path, s]));
@@ -361,7 +365,6 @@ async function run(
     // that imports a sibling workspace lib previews against local edits. Same
     // trick as `wmill dev` / `wmill app dev`; degrades to undefined gracefully.
     try {
-      const merged = await mergeConfigWithConfigFile(opts);
       const codebases = await listSyncCodebases(merged);
       const { buildPreviewTempScriptRefs } = await import(
         "../generate-metadata/generate-metadata.ts"

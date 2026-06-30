@@ -5,11 +5,13 @@
 // (`app/generate_agents.ts:regenerateAgentDocs`) but scoped to a pipeline folder.
 
 import { writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { OpenAPI } from "../../../gen/index.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { GlobalOptions } from "../../types.ts";
@@ -159,9 +161,11 @@ export async function generatePipelineDocs(
   await requireLogin(opts);
   const f = folder.replace(/^f\//, "").replace(/\/$/, "");
   const root = workspaceRoot();
+  // defaultTs (from wmill.yaml) drives .ts → bun/deno inference for the local graph.
+  const merged = await mergeConfigWithConfigFile(opts);
 
   const graph = opts.local
-    ? (await buildLocalPipelineGraph({ root, folder: f, defaultTs: opts.defaultTs })).graph
+    ? (await buildLocalPipelineGraph({ root, folder: f, defaultTs: merged.defaultTs })).graph
     : await fetchDeployedGraph(workspace.workspaceId, f);
 
   if (graph.runnables.length === 0) {
@@ -171,7 +175,7 @@ export async function generatePipelineDocs(
     if (!opts.local) {
       try {
         const localCount =
-          (await buildLocalPipelineGraph({ root, folder: f, defaultTs: opts.defaultTs })).graph
+          (await buildLocalPipelineGraph({ root, folder: f, defaultTs: merged.defaultTs })).graph
             .runnables.length;
         if (localCount > 0) {
           log.info(
@@ -197,7 +201,29 @@ export async function generatePipelineDocs(
   const md = generatePipelineMarkdown(f, graph, datatableSchemas, !!opts.local);
   const folderDir = path.join(root, "f", f);
   await writeFile(path.join(folderDir, "PIPELINE.md"), md, "utf-8");
-  await writeFile(path.join(folderDir, "AGENTS.md"), `See @PIPELINE.md for this pipeline's graph, assets, and how to run it.\n`, "utf-8");
-  await writeFile(path.join(folderDir, "CLAUDE.md"), `Instructions are in @PIPELINE.md\n`, "utf-8");
-  log.info(colors.green(`✓ Wrote PIPELINE.md, AGENTS.md, CLAUDE.md to f/${f}`));
+
+  // PIPELINE.md is ours to own. AGENTS.md / CLAUDE.md are commonly user-authored,
+  // so only write the pointer when the file is absent or already a generated
+  // pointer (contains "@PIPELINE.md") — never clobber hand-written instructions.
+  const written = ["PIPELINE.md"];
+  const pointers: Array<[string, string]> = [
+    ["AGENTS.md", `See @PIPELINE.md for this pipeline's graph, assets, and how to run it.\n`],
+    ["CLAUDE.md", `Instructions are in @PIPELINE.md\n`],
+  ];
+  for (const [name, content] of pointers) {
+    const p = path.join(folderDir, name);
+    if (existsSync(p)) {
+      try {
+        if (!readFileSync(p, "utf-8").includes("@PIPELINE.md")) {
+          log.warn(colors.yellow(`Kept existing f/${f}/${name} (not a generated pointer)`));
+          continue;
+        }
+      } catch {
+        continue;
+      }
+    }
+    await writeFile(p, content, "utf-8");
+    written.push(name);
+  }
+  log.info(colors.green(`✓ Wrote ${written.join(", ")} to f/${f}`));
 }

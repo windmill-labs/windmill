@@ -101,6 +101,8 @@ function wasmFnForLanguage(language: string): "parse_assets_ts" | "parse_assets_
     case "deno":
     case "nativets":
       return "parse_assets_ts";
+    case "bunnative":
+      return "parse_assets_ts";
     case "python3":
       return "parse_assets_py";
     case "duckdb":
@@ -120,7 +122,16 @@ const ASSET_WASM_PKG = "windmill-parser-wasm-asset";
 
 // Comment prefix per language, for the no-wasm annotation fallback.
 function commentPrefix(language: string): string {
-  if (language === "python3" || language === "bash" || language === "ansible") return "#";
+  if (
+    language === "python3" ||
+    language === "bash" ||
+    language === "ansible" ||
+    language === "ruby" ||
+    language === "rlang" ||
+    language === "nu" ||
+    language === "powershell"
+  )
+    return "#";
   if (
     language === "postgresql" ||
     language === "mysql" ||
@@ -231,10 +242,19 @@ export async function collectScripts(
       const ext = exts.find((x) => e.name.endsWith(x));
       if (!ext) continue;
       const relFromRoot = path.relative(root, abs).replaceAll("\\", "/");
+      // A bare `.sql` (no dialect) makes inferContentTypeFromFilePath throw —
+      // skip the file rather than letting one unclassifiable file abort the
+      // whole graph build (which would also wedge `pipeline dev` at startup).
+      let language: string;
+      try {
+        language = inferContentTypeFromFilePath(abs, defaultTs);
+      } catch {
+        continue;
+      }
       out.push({
         path: removeExtensionToPath(relFromRoot),
         content: fs.readFileSync(abs, "utf-8"),
-        language: inferContentTypeFromFilePath(abs, defaultTs),
+        language,
       });
     }
   }
