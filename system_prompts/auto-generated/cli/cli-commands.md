@@ -431,6 +431,7 @@ inspect asset-driven pipelines (scripts marked `// pipeline`, wired by `// on <s
 - `pipeline dev [folder:string]` - Live-preview a data pipeline from local files: watch an `f/<folder>` of `// pipeline` scripts, push the working-tree graph to the dev page, and run the cascade via preview (no deploy).
   - `--port <port:number>` - Port for the dev WebSocket server.
   - `--no-open` - Do not open the browser automatically.
+  - `--frontend <origin:string>` - Origin serving the /pipeline_dev page (e.g. http://localhost:3000 for a locally-run frontend). Defaults to the workspace remote; use it when the remote's deployed frontend predates the dev page.
 
 ### protection-rules
 

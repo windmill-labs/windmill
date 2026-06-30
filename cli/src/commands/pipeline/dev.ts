@@ -37,6 +37,7 @@ interface PipelineDevOpts extends GlobalOptions, SyncOptions {
   port?: number;
   open?: boolean;
   defaultTs?: "bun" | "deno";
+  frontend?: string;
 }
 
 // Resolve the target folder: explicit arg, else auto-detect when cwd sits inside
@@ -172,8 +173,14 @@ async function dev(opts: PipelineDevOpts, folderArg?: string) {
     ws.on("error", () => clients.delete(ws));
   });
 
+  // The `/pipeline_dev` page is served by the frontend, not the backend. By
+  // default we open it on the workspace remote, but that 404s on a remote whose
+  // deployed frontend predates this route — `--frontend` points the page at a
+  // locally-run frontend (`REMOTE=<remote> npm run dev`) while the API/token
+  // still target the remote. Normalize to a single trailing slash either way.
+  const pageBase = (opts.frontend ?? workspace.remote).replace(/\/?$/, "/");
   const url =
-    `${workspace.remote}pipeline_dev?workspace=${workspace.workspaceId}` +
+    `${pageBase}pipeline_dev?workspace=${workspace.workspaceId}` +
     `&wm_token=${workspace.token}&folder=${encodeURIComponent(folder)}&port=${port}`;
 
   server.listen(port, LISTEN_HOST, () => {
@@ -202,6 +209,10 @@ const command = new Command()
   .arguments("[folder:string]")
   .option("--port <port:number>", "Port for the dev WebSocket server.")
   .option("--no-open", "Do not open the browser automatically.")
+  .option(
+    "--frontend <origin:string>",
+    "Origin serving the /pipeline_dev page (e.g. http://localhost:3000 for a locally-run frontend). Defaults to the workspace remote; use it when the remote's deployed frontend predates the dev page.",
+  )
   .action(dev as any);
 
 export default command;
