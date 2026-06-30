@@ -234,6 +234,10 @@
 		persistTabs()
 	}
 	let newTabOpen = $state(false)
+	// Separate open flag for the empty-state launcher: it can be mounted at the
+	// same time as the tab-strip "+" popover, so sharing one flag would open both
+	// pickers at once.
+	let emptyStateNewTabOpen = $state(false)
 
 	let fullscreen = $state(false)
 	// Collapse the preview panel to give the chat the full width. Per-session:
@@ -625,7 +629,7 @@
 												excludeSelectors=".drawer"
 												disableFocusTrap
 												closeOnOtherPopoverOpen
-												bind:isOpen={newTabOpen}
+												bind:isOpen={emptyStateNewTabOpen}
 												openFocus="[data-workspace-picker-search]"
 											>
 												{#snippet trigger()}
@@ -638,7 +642,7 @@
 												{#snippet content()}
 													<PreviewRouterPicker
 														onPick={(t) => {
-															newTabOpen = false
+															emptyStateNewTabOpen = false
 															openInNewTab(t)
 														}}
 													/>
