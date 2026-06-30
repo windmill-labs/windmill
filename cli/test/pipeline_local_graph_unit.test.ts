@@ -86,3 +86,38 @@ test("empty / no-pipeline folder yields an empty graph", async () => {
     },
   );
 });
+
+test("`// materialize <asset>` producer connects to its `// on` consumer", async () => {
+  // The wasm asset parser doesn't surface `// materialize`; the CLI-side scan
+  // must still emit the producer's write edge so it links to the consumer.
+  await withFolder(
+    {
+      "load.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/users\nSELECT 1 AS id;\n`,
+      "consume.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/users\nSELECT count(*) FROM users;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      // the materialize target is a shared asset
+      expect(graph.assets).toContainEqual({ kind: "ducklake", path: "main/users" });
+
+      // the producer carries its materialize_target and a write edge
+      const load = graph.runnables.find((r) => r.path === "f/mypipe/load");
+      expect(load?.materialize_target).toEqual({ kind: "ducklake", path: "main/users" });
+      expect(graph.edges).toContainEqual({
+        runnable_kind: "script",
+        runnable_path: "f/mypipe/load",
+        asset_kind: "ducklake",
+        asset_path: "main/users",
+        access_type: "w",
+      });
+
+      // the consumer subscribes to the same asset (the connecting trigger)
+      const at = graph.triggers.find(
+        (t) => t.trigger_kind === "asset" && t.runnable_path === "f/mypipe/consume",
+      ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      expect(at?.asset_path).toBe("main/users");
+    },
+  );
+});

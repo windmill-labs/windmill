@@ -33,6 +33,10 @@ export type GraphRunnable = {
   path: string;
   usage_kind: "script" | "flow" | "job";
   in_pipeline?: boolean;
+  // `// materialize <asset>` target — the script's declared output, mirrored
+  // from the deployed graph so the UI anchors column lineage / the materialize
+  // badge to it (the producer write-edge is emitted separately).
+  materialize_target?: { kind: string; path: string };
 };
 export type GraphEdge = {
   runnable_kind: string;
@@ -80,6 +84,10 @@ type ParseAssetsRaw = {
     | { kind: "asset"; asset_kind: string; path: string; debounce?: string }
     | { kind: string }
   )[];
+  // `// materialize [manual] <asset> …` — managed-materialize target (emitted by
+  // the wasm asset parser). The body (a bare trailing SELECT) writes nothing
+  // inferable, so the producer's output edge comes from here, not from `assets`.
+  materialize?: { target_kind: string; target_path: string };
 };
 
 // Mirror `inferAssets` (frontend/src/lib/infer.ts): only ts / py / sql have a
@@ -170,8 +178,11 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
 }
 
 // Infer a single script's assets + pipeline annotations. Returns the raw
-// `ParseAssetsOutput`. wasm parse errors degrade to the annotation fallback so a
-// syntactically-broken script still shows as a pipeline node if it's annotated.
+// `ParseAssetsOutput` (incl. `materialize`, which the wasm asset parser emits as
+// of windmill-parser-wasm-asset 1.740.0 — kept in lockstep with the frontend's
+// pin so the local graph mirrors the deployed one). wasm parse errors degrade to
+// the annotation fallback so a syntactically-broken script still shows as a
+// pipeline node if it's annotated.
 export async function inferScriptAssets(
   content: string,
   language: string,
@@ -255,7 +266,13 @@ export async function buildLocalPipelineGraph(args: {
     const out = await inferScriptAssets(s.content, s.language);
     if (!out.in_pipeline) continue; // not a pipeline member
     pipelineScripts.push(s);
-    runnables.push({ path: s.path, usage_kind: "script", in_pipeline: true });
+    const mat = out.materialize;
+    runnables.push({
+      path: s.path,
+      usage_kind: "script",
+      in_pipeline: true,
+      ...(mat ? { materialize_target: { kind: mat.target_kind, path: mat.target_path } } : {}),
+    });
 
     for (const a of out.assets ?? []) {
       assetSet.set(`${a.kind}:${a.path}`, { kind: a.kind, path: a.path });
@@ -266,6 +283,33 @@ export async function buildLocalPipelineGraph(args: {
         asset_path: a.path,
         access_type: a.access_type,
       });
+    }
+    // `// materialize <asset>` declares a write output via annotation, not the
+    // SQL body, so body-inference misses it. Translate the parsed materialize
+    // target into the producer's write edge here (mirrors frontend
+    // resolveGraph.ts) so the materialized asset connects to its `// on`
+    // consumers; dedup against any body write.
+    if (mat) {
+      assetSet.set(`${mat.target_kind}:${mat.target_path}`, {
+        kind: mat.target_kind,
+        path: mat.target_path,
+      });
+      const hasWrite = edges.some(
+        (e) =>
+          e.runnable_path === s.path &&
+          e.asset_kind === mat.target_kind &&
+          e.asset_path === mat.target_path &&
+          (e.access_type === "w" || e.access_type === "rw"),
+      );
+      if (!hasWrite) {
+        edges.push({
+          runnable_kind: "script",
+          runnable_path: s.path,
+          asset_kind: mat.target_kind,
+          asset_path: mat.target_path,
+          access_type: "w",
+        });
+      }
     }
     for (const t of out.triggers ?? []) {
       if (t.kind === "asset") {
