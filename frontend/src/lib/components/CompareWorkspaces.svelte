@@ -254,9 +254,17 @@
 				return
 			}
 			// A resource owns its `$var:` secrets, so seed any linked variables the target lacks before
-			// creating the resource — otherwise it would reference variables that don't exist there.
+			// creating the resource — otherwise it would reference variables that don't exist there. If
+			// any linked variable fails to seed, abort rather than create a resource with dangling refs.
 			const linkedFailed =
 				kindCast === 'resource' ? await seedMissingLinkedVars(it.path, from, to) : []
+			if (linkedFailed.length > 0) {
+				sendUserToast(
+					`Did not create ${it.path} in ${to}: failed to seed linked variable(s) ${linkedFailed.join(', ')}`,
+					true
+				)
+				return
+			}
 
 			const res = await deployItem({
 				kind: it.item_kind as Kind,
@@ -273,14 +281,7 @@
 				workspace: to,
 				requestBody: { item_kind: kindCast, path: it.path, value: true }
 			})
-			if (linkedFailed.length > 0) {
-				sendUserToast(
-					`Created ${it.path} in ${to}, but these linked variables could not be seeded: ${linkedFailed.join(', ')}`,
-					true
-				)
-			} else {
-				sendUserToast(`Created ${it.path} in ${to}`)
-			}
+			sendUserToast(`Created ${it.path} in ${to}`)
 			await loadPinned()
 			onChanged?.()
 		} catch (e) {
@@ -1320,7 +1321,8 @@
 				<p class="text-xs text-tertiary">
 					These resources and variables keep their own value in each environment and are excluded
 					from the diff. An item that exists on only one side can be seeded onto the other with
-					"Create in …" (copies the current value, including secrets); it will never overwrite an existing value.
+					"Create in …" (copies the current value, including secrets); it will never overwrite an
+					existing value.
 				</p>
 				<div class="flex flex-col gap-1">
 					{#each pinnedItems as it (`${it.item_kind}:${it.path}`)}

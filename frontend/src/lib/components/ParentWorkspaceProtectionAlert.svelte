@@ -46,9 +46,13 @@
 		canUserBypassRuleKindInRulesets(parentRulesets, 'DisableDirectDeployment', parentUserInfo)
 	)
 
+	// Block deploy until the parent's rules/identity have loaded: while loading `parentRulesets` is
+	// empty, which would otherwise read as "no lock" and briefly enable deploy before the real
+	// lock/bypass check resolves.
 	let canDeploy = $derived(
-		!isRuleActiveInRulesets(parentRulesets, 'DisableDirectDeployment') ||
-			(canBypass && overrideChecked)
+		!parentDataResource.loading &&
+			(!isRuleActiveInRulesets(parentRulesets, 'DisableDirectDeployment') ||
+				(canBypass && overrideChecked))
 	)
 
 	// Reset override when parent workspace changes

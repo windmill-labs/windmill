@@ -4982,12 +4982,12 @@ async fn create_workspace_fork_branch(
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
         ensure_no_existing_dev_workspace(&db, &w_id).await?;
-        // Locking the parent is admin-only (mirrors create_workspace_fork). Enforce it in this first
-        // phase too: otherwise a non-admin requesting a locked dev passes here, creates the branches,
-        // then fails the admin check in the follow-up create_workspace_fork — leaving dangling branches.
-        if nw.lock_prod_deploy || nw.lock_prod_forking {
-            require_admin(authed.is_admin, &authed.username)?;
-        }
+        // Creating the canonical dev consumes the parent's one-dev-per-prod slot (and locking the
+        // parent mutates its protection rules), so require admin of the parent regardless of the lock
+        // flags — mirrors attach/detach, which are prod-admin gated. Without this a non-admin forker
+        // could claim the dev slot. Enforced in this first phase too so the request fails before any
+        // git branch is created rather than leaving dangling branches.
+        require_admin(authed.is_admin, &authed.username)?;
     } else {
         validate_fork_workspace_id(&nw.id)?;
     }
@@ -5167,11 +5167,11 @@ async fn create_workspace_fork(
 
     if nw.is_dev_workspace {
         ensure_dev_parent_is_root(&db, &parent_workspace_id).await?;
-        // Locking prod mutates the parent's protection rules, which is an admin-only action
-        // everywhere else; gate it the same way here so forking can't be used to escalate.
-        if nw.lock_prod_deploy || nw.lock_prod_forking {
-            require_admin(authed.is_admin, &authed.username)?;
-        }
+        // Creating the canonical dev consumes the parent's one-dev-per-prod slot (and locking prod
+        // mutates its protection rules), so require admin of the parent regardless of the lock flags —
+        // mirrors attach/detach, which are prod-admin gated. Without this a non-admin forker could
+        // claim the dev slot (and, without member copy, prod admins might not even see it to detach).
+        require_admin(authed.is_admin, &authed.username)?;
         ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
     }
 

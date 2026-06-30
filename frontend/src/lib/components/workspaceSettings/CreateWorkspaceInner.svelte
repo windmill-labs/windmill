@@ -15,7 +15,7 @@
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
 	import { usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { findCanonicalDevWorkspace, workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -63,8 +63,10 @@
 	let currentWorkspaceEntry = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	// Require the current workspace to be loaded before treating it as a root: a missing entry must
 	// not read as root (it would offer invalid dev creation while the workspace list is still loading).
+	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
+	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
 	let currentIsRoot = $derived(
-		!!currentWorkspaceEntry && !currentWorkspaceEntry.parent_workspace_id
+		!!currentWorkspaceEntry && !workspaceIsFork($workspaceStore, $userWorkspaces)
 	)
 	let canDesignateDevWorkspace = $derived(currentIsRoot && !existingDevWorkspace)
 	let currentWorkspaceName = $derived(
@@ -594,11 +596,11 @@
 					</div>
 				</Label>
 			{/if}
-			{#if isFork}
+			{#if isFork && createAsDevWorkspace}
 				<Label label="Members">
 					<span class="text-xs text-secondary">
-						Copy this workspace's members (and their group memberships) into the fork so the team
-						can work in it.
+						Copy this workspace's members (and their group memberships) into the dev workspace so
+						the team can work in it.
 					</span>
 					<div class="pt-1">
 						<Toggle bind:checked={copyMembers} options={{ right: 'Copy members' }} />

@@ -12,7 +12,11 @@ import {
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
-import { isRuleActive, canUserBypassRuleKind } from '$lib/workspaceProtectionRules.svelte'
+import {
+	isRuleActive,
+	canUserBypassRuleKind,
+	protectionRulesState
+} from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
@@ -575,9 +579,16 @@ export function createSession(): Session {
 	const devOfCurrent = currentWs
 		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
 		: undefined
+	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
+	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
+	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
+	// editable) when one exists; the picker still lets the user switch back once rules resolve.
+	const rulesLoadedForCurrent =
+		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
 	const canDeployHere =
-		!isRuleActive('DisableDirectDeployment') ||
-		canUserBypassRuleKind('DisableDirectDeployment', get(userStore))
+		rulesLoadedForCurrent &&
+		(!isRuleActive('DisableDirectDeployment') ||
+			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
 	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user

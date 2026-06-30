@@ -773,8 +773,10 @@ pub(crate) async fn delete_workspace(
     // ON DELETE SET NULL, which would orphan the (prefix-less) dev into a parentless, non-fork row
     // its owner could no longer self-delete. Require detaching/deleting the dev first. Ordinary
     // forks have no such guard — they keep their prefix and stay owner-deletable when orphaned.
+    // Archived devs (deleted = true) are included: they keep is_dev_workspace = true, so SET NULL on
+    // their parent would violate the `is_dev ⇒ has parent` CHECK and fail the whole delete with a 500.
     if let Some(dev_id) = sqlx::query_scalar!(
-        "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
+        "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace",
         &w_id
     )
     .fetch_optional(&mut *tx)
