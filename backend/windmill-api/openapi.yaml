@@ -4515,6 +4515,22 @@ paths:
               properties:
                 settings:
                   $ref: "#/components/schemas/DataTableSettings"
+                renames:
+                  description: data tables renamed in this save, so their migrations cascade
+                  type: array
+                  items:
+                    type: object
+                    required: [from, to]
+                    properties:
+                      from:
+                        type: string
+                      to:
+                        type: string
+                deleted_datatables:
+                  description: data tables removed in this save, so their migrations are deleted
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: status
