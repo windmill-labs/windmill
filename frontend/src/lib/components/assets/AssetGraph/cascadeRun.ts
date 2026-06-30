@@ -14,6 +14,7 @@ import {
 	type CascadeNodeState
 } from './cascadeOrchestrator'
 import { computeDownstreamClosure, computeInducedSchedule } from './graphTraversal'
+import { buildLineageDownstreamMap } from './boundedCascade'
 import type { AssetGraphResponse } from './types'
 
 export const CASCADE_POLL_INTERVAL_MS = 1000
@@ -112,12 +113,21 @@ export async function runBoundedCascade(opts: {
 	launch: (path: string) => Promise<string>
 	waitTerminal: (jobId: string) => Promise<'success' | 'failure'>
 	onUpdate?: (statuses: Map<string, CascadeNodeState>) => void
-}): Promise<CascadeRunResult> {
-	const schedule = computeInducedSchedule(opts.graph, opts.scripts)
-	return await runSelection({
+}): Promise<CascadeRunResult & { cyclic: string[] }> {
+	// Read-aware adjacency (NOT the default write-edge map) so a pure-reader
+	// member runs after its producer — parity with the route page's bounded run
+	// and the CLI `topoOrder`. `cyclic` is surfaced so callers can warn instead of
+	// silently dropping scripts stuck on a dependency cycle.
+	const schedule = computeInducedSchedule(
+		opts.graph,
+		opts.scripts,
+		buildLineageDownstreamMap(opts.graph)
+	)
+	const res = await runSelection({
 		schedule,
 		launch: opts.launch,
 		waitTerminal: opts.waitTerminal,
 		onUpdate: opts.onUpdate
 	})
+	return { ...res, cyclic: schedule.cyclic }
 }

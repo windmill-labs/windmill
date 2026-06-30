@@ -464,10 +464,18 @@ async function run(
   let reachableEnds: string[] = [];
   let droppedEnds: string[] = [];
   if (runAll) {
-    // Whole pipeline: every `// pipeline` script, globally topo-ordered below.
-    selectedScripts = new Set(
-      graph.runnables.filter((r) => r.usage_kind === "script").map((r) => r.path),
-    );
+    // Whole pipeline = every valid start (schedule/manual root) plus all its
+    // descendants, unioned. Deriving from `starts` (not all runnables) keeps
+    // event-trigger roots — kafka/mqtt/nats/postgres/sqs/gcp/email, which
+    // `validStarts` excludes because they fan out per-event — out of an
+    // unqualified `pipeline run <folder>`, so it never fires an event handler
+    // with empty args + side effects.
+    const all = new Set<string>();
+    for (const s of starts) {
+      all.add(s);
+      for (const d of descendants(dag, s)) all.add(d);
+    }
+    selectedScripts = new Set(scriptsOf(all));
   } else if (ends.length === 0) {
     // No bound → full read-aware downstream of start (pure readers included).
     const all = new Set(descendants(dag, start!));

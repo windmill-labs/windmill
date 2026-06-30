@@ -160,6 +160,12 @@ export async function generatePipelineDocs(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const f = folder.replace(/^f\//, "").replace(/\/$/, "");
+  // `docs` WRITES PIPELINE.md / AGENTS.md / CLAUDE.md under `f/<folder>`; a `..`
+  // segment would escape the folder and clobber files elsewhere in the tree.
+  if (f.split("/").includes("..")) {
+    log.error(colors.red(`Invalid folder '${folder}': '..' path segments are not allowed.`));
+    return;
+  }
   const root = workspaceRoot();
   // defaultTs (from wmill.yaml) drives .ts → bun/deno inference for the local graph.
   const merged = await mergeConfigWithConfigFile(opts);

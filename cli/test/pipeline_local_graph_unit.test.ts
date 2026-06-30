@@ -152,6 +152,29 @@ test("defaultTs (from wmill.yaml) drives bare `.ts` runtime — deno, not always
   );
 });
 
+test("go/bash fallback: leading-header `// on` only, options stripped, no body phantoms", async () => {
+  await withFolder(
+    {
+      // header annotations (one with a trailing option) + a body comment that
+      // must NOT become a phantom trigger.
+      "ingest.go":
+        `// pipeline\n// on s3://demo/raw.csv debounce=5s\npackage inner\nfunc main() {\n\t// on s3://demo/PHANTOM.csv\n}\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >[];
+      // exactly one trigger: the body `// on …PHANTOM` is past the header → ignored
+      expect(ats).toHaveLength(1);
+      // the trailing `debounce=5s` option is stripped from the asset path
+      expect(ats[0].asset_path).toBe("demo/raw.csv");
+      expect(graph.assets.some((a) => a.path.includes("PHANTOM"))).toBe(false);
+    },
+  );
+});
+
 test("`# volume:` producer connects to its `# on volume://` consumer", async () => {
   // Volume annotations are parsed separately from the wasm body parser (mirrors
   // the frontend/backend); without that pass the producer has no write edge.

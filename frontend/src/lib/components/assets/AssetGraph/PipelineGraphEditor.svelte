@@ -178,7 +178,9 @@
 
 	let leftPaneSize = $state(60)
 	let rightPaneSize = $state(40)
-	let storedRightPaneSize = $state(40)
+	// 0 = "no user-chosen size yet" so the orientation-aware default (55% stacked /
+	// 40% side-by-side) applies on first open; a real drag overwrites it below.
+	let storedRightPaneSize = $state(0)
 
 	// Container width drives the split orientation: stack vertically (graph over
 	// details) when too narrow for a comfortable side-by-side split.

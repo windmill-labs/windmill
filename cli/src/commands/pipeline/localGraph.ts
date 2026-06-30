@@ -164,25 +164,32 @@ const NATIVE_KINDS = new Set([
   "data_upload",
 ]);
 function fallbackParse(content: string, language: string): ParseAssetsRaw {
-  const p = commentPrefix(language).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const raw = commentPrefix(language);
+  const p = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const out: ParseAssetsRaw = { in_pipeline: false, triggers: [] };
+  // Annotations live in the LEADING comment header (like the canonical parsers).
+  // Stop at the first non-comment line so a body comment — e.g. `// on s3://…`
+  // inside commented-out code or a heredoc — can't inject a phantom trigger.
   for (const line of content.split("\n")) {
-    const bare = line.match(new RegExp(`^\\s*${p}\\s*pipeline\\s*$`));
-    if (bare) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    if (!trimmed.startsWith(raw)) break;
+    if (line.match(new RegExp(`^\\s*${p}\\s*pipeline\\s*$`))) {
       out.in_pipeline = true;
       continue;
     }
     const on = line.match(new RegExp(`^\\s*${p}\\s*on\\s+(.+?)\\s*$`));
     if (!on) continue;
-    const spec = on[1].trim();
-    const uri = spec.match(/^([a-z0-9_]+):\/\/(.+)$/i);
+    // The asset/native kind is the FIRST token; trailing `key=value` options
+    // (e.g. `debounce=5s`) are not part of the path.
+    const firstTok = on[1].trim().split(/\s+/)[0];
+    const uri = firstTok.match(/^([a-z0-9_]+):\/\/(.+)$/i);
     if (uri) {
       const prefix = uri[1].toLowerCase();
       const kind = prefix === "s3" ? "s3object" : prefix;
       out.triggers!.push({ kind: "asset", asset_kind: kind, path: uri[2] });
-    } else {
-      const word = spec.split(/\s+/)[0];
-      if (NATIVE_KINDS.has(word)) out.triggers!.push({ kind: word });
+    } else if (NATIVE_KINDS.has(firstTok)) {
+      out.triggers!.push({ kind: firstTok });
     }
   }
   return out;
