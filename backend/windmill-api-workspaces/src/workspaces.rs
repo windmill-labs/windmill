@@ -6681,6 +6681,20 @@ async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
 }
 
 /// Create a new protection rule
+/// `dev_workspace_lock` is owned by the dev-workspace feature (attach/detach/archive/delete create and
+/// remove it by name). Reserve it from the public protection-rule API so a user-managed rule can't
+/// collide: otherwise the feature's name-based cleanup would clobber the user's rule, or a manual edit
+/// could weaken the feature's lock.
+fn reject_reserved_rule_name(name: &str) -> Result<()> {
+    if name == DEV_WORKSPACE_LOCK_RULE_NAME {
+        return Err(Error::BadRequest(format!(
+            "'{}' is a reserved protection-rule name managed by the dev workspace feature",
+            DEV_WORKSPACE_LOCK_RULE_NAME
+        )));
+    }
+    Ok(())
+}
+
 async fn create_protection_rule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -6688,6 +6702,7 @@ async fn create_protection_rule(
     Json(req): Json<CreateProtectionRuleRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    reject_reserved_rule_name(&req.name)?;
 
     let mut tx = db.begin().await?;
 
@@ -6762,6 +6777,7 @@ async fn update_protection_rule(
     Json(req): Json<UpdateProtectionRuleRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    reject_reserved_rule_name(&rule_name)?;
 
     let mut tx = db.begin().await?;
 
@@ -6836,6 +6852,7 @@ async fn delete_protection_rule(
     Path((w_id, rule_name)): Path<(String, String)>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    reject_reserved_rule_name(&rule_name)?;
 
     let mut tx = db.begin().await?;
 
