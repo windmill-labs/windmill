@@ -615,6 +615,25 @@ pub async fn do_postgresql(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
+    // Surface in the job logs (not just the worker logs) when a verify-ca/verify-full
+    // resource is connecting without actually verifying the server certificate, so the
+    // person running the query can see and fix the misconfiguration.
+    if database.verify_mode_skips_verification() {
+        windmill_queue::append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "warning: sslmode={} but the server's TLS certificate is not being verified \
+                 (accept_invalid_certs is enabled, or no root certificate is configured). Set \
+                 accept_invalid_certs to false or provide root_certificate_pem to verify the \
+                 server identity.\n",
+                database.sslmode.as_deref().unwrap_or("")
+            ),
+            conn,
+        )
+        .await;
+    }
+
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
     let collection_strategy = if annotations.raw_output || annotations.return_last_result {
         // raw_output emits a single envelope from the last statement, so the

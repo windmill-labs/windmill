@@ -808,6 +808,21 @@ impl PgDatabase {
         }
     }
 
+    /// True when sslmode requests verification (verify-ca/verify-full) but the
+    /// effective configuration disables it, so the server's identity is not
+    /// checked. Mirrors the verify-* decision in `configure_pg_tls_verification`.
+    pub fn verify_mode_skips_verification(&self) -> bool {
+        matches!(
+            self.sslmode.as_deref(),
+            Some("verify-ca") | Some("verify-full")
+        ) && self.accept_invalid_certs.unwrap_or(
+            self.root_certificate_pem
+                .as_deref()
+                .unwrap_or("")
+                .is_empty(),
+        )
+    }
+
     /// Configure certificate and hostname verification on a native-tls connector
     /// according to the requested Postgres `sslmode`. The crates.io tokio-postgres
     /// build only parses disable/prefer/require, so verify-ca and verify-full are
@@ -891,18 +906,13 @@ impl PgDatabase {
         if ssl_mode_is_require {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
-            let verified = Self::configure_pg_tls_verification(
+            Self::configure_pg_tls_verification(
                 &mut connector,
                 self.sslmode.as_deref(),
                 self.root_certificate_pem.as_deref(),
                 self.accept_invalid_certs,
             )?;
-            if !verified
-                && matches!(
-                    self.sslmode.as_deref(),
-                    Some("verify-ca") | Some("verify-full")
-                )
-            {
+            if self.verify_mode_skips_verification() {
                 tracing::warn!(
                     "Postgres connection with sslmode={} is not verifying the server certificate (accept_invalid_certs is set, or no root certificate is configured and the resource predates that flag). Set accept_invalid_certs=false or provide root_certificate_pem to enforce verification.",
                     self.sslmode.as_deref().unwrap_or("")
