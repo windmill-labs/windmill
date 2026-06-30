@@ -102,13 +102,18 @@ wmilld pipeline docs demo_pipeline
 ```
 Or pull real pipelines: `wmilld sync pull --yes && wmilld pipeline list && wmilld pipeline show <folder> --local`.
 
-Browser preview: the `/pipeline_dev` route isn't deployed to remotes yet, so the URL `pipeline dev`
-auto-opens (`<remote>/pipeline_dev?…`) 404s on internal. Test it by running THIS branch's frontend
-locally and opening the localhost URL:
+Browser preview: against a remote whose deployed frontend predates the `/pipeline_dev` route, the
+auto-opened `<remote>/pipeline_dev?…` 404s. Run THIS branch's frontend locally and point the dev
+page at it with `--frontend`:
 ```
 cd frontend && REMOTE=https://internal.windmill.dev npm run dev      # or a local backend
-cd ~/pl-demo && wmilld pipeline dev demo_pipeline --no-open
-# open http://localhost:3000/pipeline_dev?workspace=data-pipelines&wm_token=<TOK>&folder=demo_pipeline&port=3201
+cd ~/pl-demo && wmilld pipeline dev demo_pipeline --frontend http://localhost:3000
+```
+`pipeline dev` then opens (and prints) the full URL — **copy that printed URL**, don't hand-write it.
+It carries both `wm_token` (workspace auth) and `ws_token` (the per-session WS token); the dev
+server rejects the WebSocket without `ws_token`, so the page would sit disconnected:
+```
+http://localhost:3000/pipeline_dev?workspace=<WS>&wm_token=<TOK>&folder=demo_pipeline&port=3201&ws_token=<WS_TOK>
 ```
 
 ## Validation status

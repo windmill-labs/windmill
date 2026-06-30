@@ -188,13 +188,73 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
   return out;
 }
 
+// Comment prefix for `volume:` annotations. Deliberately NOT `commentPrefix`
+// above (which returns `--` for SQL): volume annotations are only recognized for
+// the languages the backend/frontend recognize them for — mirrors
+// `asset_inference.rs:comment_prefix` and `infer.ts:getCommentPrefix` (SQL → none).
+function volumeCommentPrefix(language: string): string | undefined {
+  switch (language) {
+    case "python3":
+    case "bash":
+    case "powershell":
+    case "ansible":
+    case "ruby":
+    case "rlang":
+      return "#";
+    case "deno":
+    case "bun":
+    case "bunnative":
+    case "nativets":
+    case "go":
+      return "//";
+    default:
+      return undefined;
+  }
+}
+
+// `<prefix> volume: <path>` lines in the LEADING comment block, each an `rw`
+// volume asset. Scanning stops at the first non-comment line (blank lines
+// skipped). Exact mirror of frontend `parseVolumeAnnotations` (infer.ts) /
+// backend `parse_volume_annotations` (asset_inference.rs) — the wasm body parser
+// does NOT emit these, so the local graph must supplement them or a `volume:`
+// producer shows disconnected from its `// on volume://…` consumers.
+function parseVolumeAnnotations(
+  content: string,
+  prefix: string,
+): { kind: string; path: string; access_type: "rw" }[] {
+  const out: { kind: string; path: string; access_type: "rw" }[] = [];
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    if (!trimmed.startsWith(prefix)) break;
+    const after = trimmed.slice(prefix.length).trim();
+    const m = after.match(/^volume:\s*(\S+)/);
+    if (m) out.push({ kind: "volume", path: m[1], access_type: "rw" });
+  }
+  return out;
+}
+
 // Infer a single script's assets + pipeline annotations. Returns the raw
 // `ParseAssetsOutput` (incl. `materialize`, which the wasm asset parser emits as
 // of windmill-parser-wasm-asset 1.740.0 — kept in lockstep with the frontend's
-// pin so the local graph mirrors the deployed one). wasm parse errors degrade to
-// the annotation fallback so a syntactically-broken script still shows as a
-// pipeline node if it's annotated.
+// pin so the local graph mirrors the deployed one), plus `volume:` annotation
+// assets the wasm doesn't surface (merged in below, like the frontend/backend).
+// wasm parse errors degrade to the annotation fallback so a syntactically-broken
+// script still shows as a pipeline node if it's annotated.
 export async function inferScriptAssets(
+  content: string,
+  language: string,
+): Promise<ParseAssetsRaw> {
+  const out = await inferScriptAssetsBody(content, language);
+  const vp = volumeCommentPrefix(language);
+  if (vp) {
+    const vols = parseVolumeAnnotations(content, vp);
+    if (vols.length > 0) out.assets = [...(out.assets ?? []), ...vols];
+  }
+  return out;
+}
+
+async function inferScriptAssetsBody(
   content: string,
   language: string,
 ): Promise<ParseAssetsRaw> {

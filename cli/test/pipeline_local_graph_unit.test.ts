@@ -152,6 +152,36 @@ test("defaultTs (from wmill.yaml) drives bare `.ts` runtime — deno, not always
   );
 });
 
+test("`# volume:` producer connects to its `# on volume://` consumer", async () => {
+  // Volume annotations are parsed separately from the wasm body parser (mirrors
+  // the frontend/backend); without that pass the producer has no write edge.
+  await withFolder(
+    {
+      "producer.py": `# pipeline\n# volume: cache /tmp/cache\ndef main():\n    pass\n`,
+      "consumer.py": `# pipeline\n# on volume://cache\ndef main():\n    pass\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      expect(graph.assets).toContainEqual({ kind: "volume", path: "cache" });
+      // producer carries the rw write edge to the volume
+      const producerEdge = graph.edges.find(
+        (e) =>
+          e.runnable_path === "f/mypipe/producer" &&
+          e.asset_kind === "volume" &&
+          e.asset_path === "cache",
+      );
+      expect(producerEdge?.access_type).toBe("rw");
+      // consumer subscribes to the same volume (the connecting trigger)
+      const at = graph.triggers.find(
+        (t) => t.trigger_kind === "asset" && t.runnable_path === "f/mypipe/consumer",
+      ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      expect(at?.asset_kind).toBe("volume");
+      expect(at?.asset_path).toBe("cache");
+    },
+  );
+});
+
 test("`#`-comment languages (ruby) use the `#` annotation fallback (no wasm parser)", async () => {
   await withFolder(
     { "ingest.rb": `# pipeline\n# on s3://demo/raw.csv\nputs "hi"\n` },
