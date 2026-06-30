@@ -144,6 +144,8 @@ export interface AppEditorProps {
 	path: string
 	policy: Policy
 	summary: string
+	/** Initial labels for the app, threaded from the loaded app data. */
+	labels?: string[]
 	/** Deployed app value the autosave `discardIf` compares against, so an
 	 * edit reverting to deployed clears the draft instead of leaving a no-op.
 	 * `undefined` for draft-only paths (no deployed baseline). */
@@ -157,6 +159,7 @@ export interface AppEditorProps {
 				summary: string
 				policy: any
 				custom_path?: string
+				labels?: string[]
 		  }
 		| undefined
 	version?: number | undefined
@@ -176,6 +179,10 @@ export interface AppEditorProps {
 	loadedFromDraft?: boolean
 	othersDraftsCount?: number
 	onOpenOthersDrafts?: () => void
+	// Restoring an older deployment from the history drawer. Threaded through
+	// AppEditorHeader as a callback prop rather than `on:restore` forwarding,
+	// which does not propagate through these runes-mode components.
+	onRestore?: (restoredApp: any) => void
 }
 
 export type App = {

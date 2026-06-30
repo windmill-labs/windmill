@@ -6,11 +6,18 @@
 	interface Props {
 		workspaceColor?: string
 		isForked?: boolean
+		isDevWorkspace?: boolean
 		parentName?: string
 		size?: number
 	}
 
-	let { workspaceColor, isForked = false, parentName, size = 14 }: Props = $props()
+	let {
+		workspaceColor,
+		isForked = false,
+		isDevWorkspace = false,
+		parentName,
+		size = 14
+	}: Props = $props()
 
 	const iconColor = $derived(getContrastTextColor(workspaceColor))
 </script>
@@ -20,7 +27,8 @@
 		<Tooltip>
 			{#snippet text()}
 				{#if isForked && parentName}
-					Fork of {parentName}
+					{isDevWorkspace ? 'Dev workspace of' : 'Fork of'}
+					{parentName}
 				{/if}
 			{/snippet}
 			<GitFork {size} class="flex-shrink-0" style="color: {iconColor}" />

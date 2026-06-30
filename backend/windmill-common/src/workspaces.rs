@@ -179,7 +179,24 @@ pub const WM_FORK_PREFIX: &str = "wm-fork-";
 /// layer because the actual branch creation runs in a deferred git-sync worker job — without
 /// this check, the API returns 200 and the failure only surfaces later in the worker.
 pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
-    if !id.starts_with(WM_FORK_PREFIX) {
+    validate_workspace_branch_id(id, true)
+}
+
+/// Like [`validate_fork_workspace_id`] but does not require the `wm-fork-` prefix. Used for dev
+/// workspaces, whose id is an ordinary (prefix-less) workspace id but must still be git-branch-safe
+/// because it is interpolated into a `wm-fork/<original_branch>/<id>` branch name like any fork.
+pub fn validate_dev_workspace_id(id: &str) -> error::Result<()> {
+    validate_workspace_branch_id(id, false)
+}
+
+fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::Result<()> {
+    if id.is_empty() {
+        return Err(Error::BadRequest(
+            "Workspace id cannot be empty".to_string(),
+        ));
+    }
+
+    if require_fork_prefix && !id.starts_with(WM_FORK_PREFIX) {
         return Err(Error::BadRequest(format!(
             "The id `{}` is invalid for a forked workspace. It should be prefixed by {}",
             id, WM_FORK_PREFIX
@@ -188,8 +205,9 @@ pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
 
     if id.len() > 50 {
         return Err(Error::BadRequest(format!(
-            "Fork workspace id `{}` is too long ({} chars). Maximum length is 50 characters (including the '{}' prefix).",
-            id, id.len(), WM_FORK_PREFIX
+            "Workspace id `{}` is too long ({} chars). Maximum length is 50 characters.",
+            id,
+            id.len()
         )));
     }
 
@@ -438,6 +456,11 @@ pub enum RuleCheckResult {
 /// - User is not in bypass lists
 ///
 /// Returns `Err` if the rule is not found
+/// Reserved protection-rule name applied to a prod workspace paired with a dev workspace. It carries
+/// `DisableDirectDeployment` + `DisableWorkspaceForking` and is auto-managed by the dev-workspace
+/// feature (applied on pairing, removed on detach).
+pub const DEV_WORKSPACE_LOCK_RULE_NAME: &str = "dev_workspace_lock";
+
 pub async fn check_user_against_rule(
     workspace_id: &str,
     rule: &ProtectionRuleKind,
@@ -793,6 +816,30 @@ mod tests {
         assert!(validate_fork_workspace_id("wm-fork-foo.lock").is_err());
         assert!(validate_fork_workspace_id("wm-fork-foo/.bar").is_err());
         assert!(validate_fork_workspace_id("wm-fork-foo/bar.lock").is_err());
+    }
+
+    #[test]
+    fn test_validate_dev_workspace_id_accepts_prefixless_valid() {
+        // Dev workspaces use ordinary, prefix-less ids but must stay git-branch-safe.
+        validate_dev_workspace_id("dev").unwrap();
+        validate_dev_workspace_id("my-dev-workspace").unwrap();
+        validate_dev_workspace_id("staging.42").unwrap();
+        // The fork prefix is allowed but not required.
+        validate_dev_workspace_id("wm-fork-dev").unwrap();
+    }
+
+    #[test]
+    fn test_validate_dev_workspace_id_rejects_empty_and_git_unsafe() {
+        assert!(validate_dev_workspace_id("").is_err());
+        assert!(validate_dev_workspace_id("dev workspace").is_err());
+        assert!(validate_dev_workspace_id("dev..staging").is_err());
+        assert!(validate_dev_workspace_id("dev/.x").is_err());
+        assert!(validate_dev_workspace_id("dev.lock").is_err());
+    }
+
+    #[test]
+    fn test_validate_fork_workspace_id_rejects_empty() {
+        assert!(validate_fork_workspace_id("").is_err());
     }
 
     #[test]

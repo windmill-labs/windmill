@@ -8,6 +8,7 @@
 		type Session
 	} from './sessionState.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
+	import { Badge } from '$lib/components/common'
 	import { Building, ChevronDown, GitFork } from 'lucide-svelte'
 
 	let { session }: { session: Session } = $props()
@@ -65,6 +66,9 @@
 				<span class="font-medium text-primary truncate max-w-[180px]">
 					{pendingFork?.name ?? currentWs?.name ?? effectiveId ?? 'Pick workspace'}
 				</span>
+				{#if !pendingFork && currentWs?.is_dev_workspace}
+					<Badge color="indigo" small>dev</Badge>
+				{/if}
 				{#if pendingFork}
 					<span class="text-2xs text-tertiary italic shrink-0">(new)</span>
 				{/if}

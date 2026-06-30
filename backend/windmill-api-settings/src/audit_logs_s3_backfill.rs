@@ -186,18 +186,17 @@ pub async fn try_start(db: &DB, from: DateTime<Utc>, to: DateTime<Utc>) -> error
     // without pg_read_all_stats/superuser sees only its own sessions, and a prepared
     // (2PC) transaction is invisible to pg_stat_activity — in either case an old
     // transaction could still commit rows inside an accepted window after our scan ends.
-    // Since a backfill asserts completeness, we REJECT in those cases rather than fall
-    // back to a best-effort margin (NULL below). (The continuous exporter, which only
-    // claims bounded lag, keeps the 7-day fallback instead.)
-    let settled_cutoff: Option<DateTime<Utc>> = sqlx::query_scalar!(
-        r#"SELECT CASE WHEN (current_setting('is_superuser') = 'on'
-                              OR pg_has_role(current_user, 'pg_read_all_stats', 'USAGE'))
-                          AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts)
-                     THEN (SELECT min(xact_start) FROM pg_stat_activity WHERE xact_start IS NOT NULL)
-                     ELSE NULL END AS "cutoff?""#
-    )
-    .fetch_one(db)
-    .await?;
+    // Since a backfill asserts completeness, we REJECT in those cases (the function
+    // returns NULL). (The continuous exporter, which only claims bounded lag, keeps the
+    // 7-day fallback instead.) The probe lives in the `audit_logs_s3_oldest_inflight_ts()`
+    // SQL function (migration 20260626132251) so its `pg_has_role`/`pg_authid` read is
+    // wrapped in a subtransaction EXCEPTION: managed providers (e.g. Cloud SQL) forbid
+    // reading pg_authid from an elevated context, which would otherwise surface here as
+    // an opaque error instead of NULL → the actionable rejection below.
+    let settled_cutoff: Option<DateTime<Utc>> =
+        sqlx::query_scalar!(r#"SELECT audit_logs_s3_oldest_inflight_ts() AS "cutoff?""#)
+            .fetch_one(db)
+            .await?;
     let Some(settled_cutoff) = settled_cutoff else {
         return Err(error::Error::BadRequest(
             "audit backfill: cannot determine a trustworthy settled-time boundary, so completeness \

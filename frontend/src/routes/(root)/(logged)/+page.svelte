@@ -1,13 +1,11 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
-	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
-	import CreateActionsScript from '$lib/components/scripts/CreateActionsScript.svelte'
+	import CreateActionsMenu from '$lib/components/home/CreateActionsMenu.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
@@ -15,7 +13,6 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import HomeConnectDrawer from '$lib/components/home/HomeConnectDrawer.svelte'
 	import {
-		Building,
 		ExternalLink,
 		GitFork,
 		Globe2,
@@ -28,11 +25,10 @@
 	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
-	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
+	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
@@ -49,11 +45,7 @@
 
 	type Tab = 'hub' | 'workspace'
 
-	let tab: Tab = $state(
-		window.location.hash == '#workspace' || window.location.hash == '#hub'
-			? (window.location.hash?.replace('#', '') as Tab)
-			: 'workspace'
-	)
+	let tab = $state<Tab>('workspace')
 
 	let subtab: 'flow' | 'script' | 'app' = $state('script')
 
@@ -289,54 +281,45 @@
 				Windmill instance, such as keeping resource types up to date.
 			</Alert>
 		{/if}
-		<PageHeader
-			title="Home"
-			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
-		>
-			{#if $userStore?.operator}
+		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
+			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
+				Home
+			</h1>
+			<div class="ml-auto flex flex-row gap-2 items-center">
+				{#if !$userStore?.operator && HOME_SHOW_HUB}
+					<Button
+						variant="default"
+						unifiedSize="md"
+						startIcon={{ icon: Globe2 }}
+						endIcon={{ icon: ExternalLink }}
+						href={$hubBaseUrlStore}
+						target="_blank"
+						btnClasses="whitespace-nowrap"
+					>
+						Hub
+					</Button>
+				{/if}
 				<Button
 					variant="default"
-					unifiedSize="sm"
+					unifiedSize="md"
 					startIcon={{ icon: PlugZap }}
 					btnClasses="whitespace-nowrap"
 					onClick={() => homeConnectDrawer?.openDrawer?.()}
 				>
 					CLI / MCP
 				</Button>
-			{/if}
-			{#if !$userStore?.operator && showCreateButtons}
-				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
-				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
-			{/if}
-		</PageHeader>
+				{#if !$userStore?.operator && showCreateButtons}
+					<div class="ml-2">
+						<CreateActionsMenu />
+					</div>
+				{/if}
+			</div>
+		</div>
 
 		<TutorialBanner />
 
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
-		{#if !$userStore?.operator}
-			<div class="flex w-full items-center gap-3 pb-2">
-				<div class="min-w-0 flex-1 overflow-auto scrollbar-hidden">
-					<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
-						<Tab value="workspace" label="Workspace" icon={Building} />
-						{#if HOME_SHOW_HUB}
-							<Tab value="hub" label="Hub" icon={Globe2} />
-						{/if}
-					</Tabs>
-				</div>
-
-				<Button
-					variant="default"
-					unifiedSize="sm"
-					startIcon={{ icon: PlugZap }}
-					btnClasses="whitespace-nowrap shrink-0"
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-			</div>
-		{/if}
 		{#if tab == 'hub'}
 			<div class="flex flex-col gap-y-16">
 				<div class="flex flex-col pb-8">

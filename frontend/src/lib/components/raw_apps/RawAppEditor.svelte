@@ -71,6 +71,8 @@
 		summary?: string
 		path: string
 		newPath?: string | undefined
+		/** Initial labels for the app, threaded from the loaded app data. */
+		labels?: string[]
 		savedApp?:
 			| {
 					value: any
@@ -82,6 +84,7 @@
 					/** No deployed counterpart exists (draft-only); disables Diff. */
 					no_deployed?: boolean
 					custom_path?: string
+					labels?: string[]
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
@@ -121,6 +124,14 @@
 		onOpenOthersDrafts?: () => void
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
 		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
+		// Deploy created the app at a new path; the page navigates to it. Callback
+		// prop for the same reason as `onRestore` — `on:savedNewAppPath` forwarding
+		// through these runes-mode components is dropped.
+		onSavedNewAppPath?: (path: string) => void
 	}
 
 	let {
@@ -132,6 +143,7 @@
 		summary = $bindable(''),
 		path,
 		newPath = undefined,
+		labels = undefined,
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
 		onNavigate,
@@ -148,7 +160,9 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
 		onRuntimeLogRequester = undefined,
-		onRunsProvider = undefined
+		onRunsProvider = undefined,
+		onRestore,
+		onSavedNewAppPath
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -1596,12 +1610,13 @@
 		bind:savedApp
 		bind:summary
 		bind:pendingDraftPath
-		on:restore
-		on:savedNewAppPath
+		{onRestore}
+		{onSavedNewAppPath}
 		{policy}
 		{diffDrawer}
 		{newApp}
 		{newPath}
+		{labels}
 		appPath={path}
 		{liveEditorDraftStoragePath}
 		{autosaveWorkspace}

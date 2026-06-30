@@ -33,6 +33,7 @@
 				summary: string
 				policy: any
 				custom_path?: string
+				labels?: string[]
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
@@ -297,7 +298,8 @@
 			value: backendApp_.value as App,
 			path: backendApp_.path,
 			policy: backendApp_.policy,
-			custom_path: backendApp_.custom_path
+			custom_path: backendApp_.custom_path,
+			labels: backendApp_.labels
 		}
 		// "Load another user's draft" handoff: render their value. Overlay mode (we
 		// have our own draft) hard-locks saves until the user confirms overwriting
@@ -388,9 +390,14 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	function onRestore(ev: any) {
+	function onRestore(restoredApp: any) {
 		sendUserToast('App restored from previous deployment')
-		app = ev.detail
+		// Drop the stale pre-restore autosave. The remounted AppEditor seeds its
+		// state from `appDraftHandle.draft ?? app`, so without this it keeps showing
+		// the old draft instead of the restored version. Same reason `reloadDeployed`
+		// removes the draft before remounting.
+		UserDraft.remove('app', path)
+		app = restoredApp
 		// Re-pin the stale-draft fork base to the current head. A restored value
 		// carries the `parent_version` baked in when that older version was deployed,
 		// which would make the deploy guard (`compareVersions`) falsely report "not on
@@ -404,7 +411,8 @@
 			value: app_.value as App,
 			path: app_.path,
 			policy: app_.policy,
-			custom_path: app_.custom_path
+			custom_path: app_.custom_path,
+			labels: app_.labels
 		}
 		redraw++
 	}
@@ -470,9 +478,10 @@
 						app.path = url
 					}
 				}}
-				on:restore={onRestore}
+				{onRestore}
 				summary={app.summary}
 				app={app.value}
+				labels={app.labels}
 				{deployedBaseline}
 				newPath={app.value?.draft_path ?? app.path}
 				path={page.params.path ?? ''}
