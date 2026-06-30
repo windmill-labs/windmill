@@ -12,6 +12,7 @@
 		findCanonicalDevWorkspace
 	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
+	import { getUserExt } from '$lib/user'
 	import {
 		fetchProtectionRulesForWorkspace,
 		isRuleActiveInRulesets,
@@ -88,18 +89,30 @@
 		async (id) => (id ? await fetchProtectionRulesForWorkspace(id) : [])
 	)
 	const rootRulesets = $derived(rootRulesetsResource.current ?? [])
+	// Bypass must be judged with the user's identity IN THE ROOT (is_admin/groups are per-workspace),
+	// not the active workspace's `$userStore` — otherwise an admin of the dev/active workspace who is a
+	// non-admin of the root would get a false bypass. `getUserExt` returns undefined for a non-member,
+	// which `canUserBypassRuleKindInRulesets` treats as no bypass.
+	const rootUserInfoResource = resource(
+		() => root?.id,
+		async (id) => (id ? await getUserExt(id) : undefined)
+	)
+	const rootUserInfo = $derived(rootUserInfoResource.current)
 	const canDeployRoot = $derived(
 		!isRuleActiveInRulesets(rootRulesets, 'DisableDirectDeployment') ||
-			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableDirectDeployment', $userStore)
+			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableDirectDeployment', rootUserInfo)
 	)
 	const canForkRoot = $derived(
 		!isRuleActiveInRulesets(rootRulesets, 'DisableWorkspaceForking') ||
-			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', $userStore)
+			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', rootUserInfo)
 	)
-	// Keep the root disabled while its rules are still being fetched: until they resolve `rootRulesets`
-	// is empty and `canDeployRoot` defaults to true, which would briefly show a locked root as
-	// selectable.
-	const rootDisabled = $derived(!!devOfRoot && (rootRulesetsResource.loading || !canDeployRoot))
+	// A genuinely deploy-locked root (you can't deploy and can't bypass) is disabled regardless of
+	// whether a dev workspace exists to steer to — being deploy-locked is the gate, not dev presence.
+	// Roots with no rules resolve `canDeployRoot` to true, so ordinary families aren't affected. Kept
+	// disabled while either fetch is in flight (both default to the conservative locked state).
+	const rootDisabled = $derived(
+		rootRulesetsResource.loading || rootUserInfoResource.loading || !canDeployRoot
+	)
 
 	// Structural gate: hidden on cloud, in the admins workspace, or when the user
 	// can't fork. DisableWorkspaceForking on the active workspace (a locked prod)
@@ -131,7 +144,11 @@
 	// otherwise `canForkRoot` defaults true and a non-bypass user could stage a fork from a
 	// forking-locked root before the rules resolve.
 	const hasCreateFromRoot = $derived(
-		showCreateFork && !rootRulesetsResource.loading && canForkRoot && !!devOfRoot
+		showCreateFork &&
+			!rootRulesetsResource.loading &&
+			!rootUserInfoResource.loading &&
+			canForkRoot &&
+			!!devOfRoot
 	)
 
 	let dropdownOpen = $state(false)
@@ -390,7 +407,11 @@
 				<button
 					type="button"
 					disabled={rootDisabled}
-					title={rootDisabled ? `${root.name} is locked — run in the dev workspace` : undefined}
+					title={rootDisabled
+						? devOfRoot
+							? `${root.name} is locked. Run in its dev workspace instead.`
+							: `${root.name} is locked for direct deploys.`
+						: undefined}
 					class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
 					onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
 					onclick={() => !rootDisabled && void pick(root.id)}
