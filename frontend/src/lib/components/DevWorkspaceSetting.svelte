@@ -22,11 +22,24 @@
 	let lockProdForking = $state(true)
 	let busy = $state(false)
 
-	// Only standalone root workspaces (not already a fork/dev of something) can be attached.
+	// A standalone root workspace, or an existing fork of this prod (same family), can be attached.
+	// A fork parented to a different workspace can't (the backend rejects a parent that isn't this
+	// prod), so it's excluded here.
 	let attachCandidates = $derived(
 		$userWorkspaces
-			.filter((w) => !w.parent_workspace_id && w.id !== $workspaceStore && w.id !== 'admins')
-			.map((w) => ({ label: `${w.name} (${w.id})`, value: w.id }))
+			.filter(
+				(w) =>
+					w.id !== $workspaceStore &&
+					w.id !== 'admins' &&
+					(!w.parent_workspace_id || w.parent_workspace_id === $workspaceStore)
+			)
+			.map((w) => ({
+				label:
+					w.parent_workspace_id === $workspaceStore
+						? `${w.name} (${w.id}), fork of this workspace`
+						: `${w.name} (${w.id})`,
+				value: w.id
+			}))
 	)
 
 	async function refresh() {
