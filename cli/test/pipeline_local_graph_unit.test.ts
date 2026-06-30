@@ -121,3 +121,48 @@ test("`// materialize <asset>` producer connects to its `// on` consumer", async
     },
   );
 });
+
+test("a bare `.sql` (ambiguous dialect) is skipped, not a build-aborting crash", async () => {
+  // `inferContentTypeFromFilePath` throws on a dialect-less `.sql`; one such file
+  // must not abort the whole graph build (it also wedged `pipeline dev` at start).
+  await withFolder(
+    {
+      "good.duckdb.sql": `-- pipeline\nSELECT 1;\n`,
+      "ambiguous.sql": `-- pipeline\nSELECT 1;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const paths = graph.runnables.map((r) => r.path);
+      expect(paths).toContain("f/mypipe/good");
+      // the unclassifiable file is dropped — the build still succeeds
+      expect(paths).not.toContain("f/mypipe/ambiguous");
+    },
+  );
+});
+
+test("defaultTs (from wmill.yaml) drives bare `.ts` runtime — deno, not always bun", async () => {
+  await withFolder(
+    { "etl.ts": `// pipeline\nexport async function main() {}\n` },
+    async (root, folder) => {
+      const bun = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const deno = await buildLocalPipelineGraph({ root, folder, defaultTs: "deno" });
+      expect(bun.scripts.find((s) => s.path === "f/mypipe/etl")?.language).toBe("bun");
+      expect(deno.scripts.find((s) => s.path === "f/mypipe/etl")?.language).toBe("deno");
+    },
+  );
+});
+
+test("`#`-comment languages (ruby) use the `#` annotation fallback (no wasm parser)", async () => {
+  await withFolder(
+    { "ingest.rb": `# pipeline\n# on s3://demo/raw.csv\nputs "hi"\n` },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.runnables.map((r) => r.path)).toContain("f/mypipe/ingest");
+      const at = graph.triggers.find(
+        (t) => t.trigger_kind === "asset" && t.runnable_path === "f/mypipe/ingest",
+      ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      expect(at?.asset_kind).toBe("s3object");
+      expect(at?.asset_path).toBe("demo/raw.csv");
+    },
+  );
+});

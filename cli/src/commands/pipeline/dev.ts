@@ -23,10 +23,15 @@ import {
   type SyncOptions,
 } from "../../core/conf.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
-import { resolveBindPort, BIND_HOST } from "../../utils/port-probe.ts";
+import { resolveBindPort } from "../../utils/port-probe.ts";
 import { buildLocalPipelineGraph, workspaceRoot } from "./localGraph.ts";
 
 const PORT = 3201;
+// Bind loopback only: each WS frame ships the folder's full script source
+// (`scripts[].content` + `temp_script_refs`) with no auth, so it must not be
+// reachable from the LAN. The webview connects via `ws://localhost`, and an SSH
+// `-L` / devbox port-forward targets 127.0.0.1 on the host, so both still work.
+const LISTEN_HOST = "127.0.0.1";
 
 interface PipelineDevOpts extends GlobalOptions, SyncOptions {
   port?: number;
@@ -171,7 +176,7 @@ async function dev(opts: PipelineDevOpts, folderArg?: string) {
     `${workspace.remote}pipeline_dev?workspace=${workspace.workspaceId}` +
     `&wm_token=${workspace.token}&folder=${encodeURIComponent(folder)}&port=${port}`;
 
-  server.listen(port, BIND_HOST, () => {
+  server.listen(port, LISTEN_HOST, () => {
     log.info(colors.green.bold(`🚀 Pipeline dev server on ws://localhost:${port}/ws`));
     log.info(colors.gray(`Open: ${url}`));
     if (opts.open !== false) {
