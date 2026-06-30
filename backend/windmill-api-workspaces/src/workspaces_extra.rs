@@ -379,12 +379,12 @@ pub(crate) async fn change_workspace_id(
     // must follow the renamed parent to the new id, otherwise it is left
     // pointing at the soft-deleted old shell (whose data has moved here).
     info!("Re-parenting child forks to the new workspace id");
-    sqlx::query!(
-        "UPDATE workspace SET parent_workspace_id = $1 WHERE parent_workspace_id = $2",
+    let reparented_children: Vec<String> = sqlx::query_scalar!(
+        "UPDATE workspace SET parent_workspace_id = $1 WHERE parent_workspace_id = $2 RETURNING id",
         &rw.new_id,
         &old_id
     )
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     // A dev/fork's `deploy_to` points at the prod root, so it must follow the rename too — otherwise
@@ -724,6 +724,13 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     tx.commit().await?;
+
+    // The children's parent_workspace_id changed (old root -> new root); invalidate their fork-parent
+    // routing cache so jobs route under the renamed root rather than the old (archived) one until the
+    // 300s TTL would otherwise expire.
+    for child in &reparented_children {
+        windmill_queue::tags::invalidate_fork_parent_cache(child);
+    }
 
     // Archive old workspace: disable schedules, cancel remaining jobs, set deleted=true
     // Note: schedules were already moved to new workspace, so this will find 0 schedules

@@ -5232,11 +5232,21 @@ async fn create_workspace_fork(
     .execute(&mut *tx)
     .await?;
 
+    // Optionally bring the parent's members into the fork (a shared dev env). Done before the explicit
+    // creator insert below so the creator — who is a parent member — is copied with full metadata
+    // (operator/role/is_service_account/added_via), not the bare row the insert alone would leave.
+    if nw.copy_members {
+        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id).await?;
+    }
+
+    // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
+    // member). No-op when copy_members already brought their full row.
     sqlx::query!(
         "INSERT INTO usr
            (workspace_id, email, username, is_admin)
            SELECT $1, email, username, is_admin FROM usr
          WHERE workspace_id = $3 AND email = $2
+         ON CONFLICT DO NOTHING
         ",
         forked_id,
         authed.email,
@@ -5247,11 +5257,6 @@ async fn create_workspace_fork(
 
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
-
-    // Optionally bring the parent's members into the fork (a shared dev env).
-    if nw.copy_members {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id).await?;
-    }
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
