@@ -34,6 +34,9 @@
 	const workspace = sp.get('workspace') ?? undefined
 	const port = sp.get('port') ?? '3201'
 	const folder = sp.get('folder') ?? ''
+	// Per-session token gating the dev WS — the server rejects connections without
+	// it so a stray localhost page can't read the pushed script source.
+	const wsToken = sp.get('ws_token') ?? undefined
 
 	$effect.pre(() => {
 		if (token) {
@@ -153,7 +156,8 @@
 			if (disposed) return
 			wsState = 'connecting'
 			try {
-				socket = new WebSocket(`ws://localhost:${_port}/ws`)
+				const q = wsToken ? `?token=${encodeURIComponent(wsToken)}` : ''
+				socket = new WebSocket(`ws://localhost:${_port}/ws${q}`)
 			} catch {
 				scheduleReconnect()
 				return
@@ -333,6 +337,7 @@
 				onRunProducer={runProducer}
 				onRunByPath={(path, args) => runNode(path, args)}
 				{resolveLocalScript}
+				localScriptsVersion={bundle}
 				canRunByPath
 				onRunCompleted={() => {
 					activeRunnable = undefined

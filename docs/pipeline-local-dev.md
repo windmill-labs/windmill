@@ -1,8 +1,10 @@
 # Local development for Data Pipelines
 
-Status: **first iteration, draft PR.** Headless CLI paths verified offline + unit-tested;
-the live browser preview (`pipeline dev` → `/pipeline_dev`) is implemented but **not yet
-exercised against a running stack**. This document is the handoff for continuing the work.
+Status: **draft PR, validated end-to-end.** Both the headless CLI paths and the live browser
+preview (`pipeline dev` → `/pipeline_dev`) have been exercised against a running EE + MinIO
+stack — headless `pipeline run --local`, browser `Run` / `Run + downstream` cascades writing
+real assets, live-reload on save, failure/cascade UX, parameterized run-forms, and the
+`--frontend` flag. This document captures the design and the remaining follow-ups.
 
 ## What & why
 
@@ -112,21 +114,21 @@ cd ~/pl-demo && wmilld pipeline dev demo_pipeline --no-open
 ## Validation status
 
 - ✅ `pipeline show --local` verified offline against a fixture (renders a connected DAG).
-- ✅ `localGraph` unit tests (3) + all 883 CLI unit tests pass.
-- ✅ CLI `tsc` clean (pipeline files); frontend `npm run check` 0 errors; svelte-autofixer clean.
+- ✅ `localGraph` unit tests (7) + the CLI suite pass; CLI `tsc` clean; frontend `npm run check`
+  0 errors on changed files; svelte-autofixer clean.
 - ✅ CLI agent docs regenerated.
-- ❌ Live `pipeline dev` → `/pipeline_dev` browser preview **NOT exercised** against a running stack
-  (no backend/frontend was available). No PR screenshots captured for the same reason.
+- ✅ Live `pipeline dev` → `/pipeline_dev` browser preview **exercised against a running EE + MinIO
+  stack**: graph render + live-reload on save, single-node `Run` and `Run + downstream` cascades
+  writing real assets, parameterized run-forms, failure/cascade UX, responsive layout, and the
+  `--frontend` flag. Screenshots in the PR body.
 
 ## TODO for the takeover agent
 
-1. **Verify the browser preview end-to-end** (Playwright per AGENTS.md): bring up a stack, run
-   `pipeline dev`, confirm the graph matches the UI, a save live-reloads, and Run executes the
-   cascade. Attach screenshots to the PR.
-2. **Dev-page route reachability on remotes**: `/pipeline_dev` must be served by the frontend the
-   user actually opens. Either (a) document the local-frontend workflow, or (b) add a
-   `--dev-url`/`--frontend <origin>` flag to `pipeline dev` so the opened URL can target a local
-   frontend while the API/token stay pointed at the remote.
+(Items 1–2 below are **done**; left here for context.)
+
+1. ~~Verify the browser preview end-to-end~~ — done (see Validation status; screenshots in PR).
+2. ~~Dev-page route reachability on remotes~~ — done: added `--frontend <origin>` so `pipeline dev`
+   can open the page on a locally-run frontend while the API/token target the remote.
 3. **Route-page dedup**: optionally refactor `frontend/src/routes/(root)/(logged)/pipeline/[folder]/+page.svelte`
    to consume `cascadeRun.ts` (its `launchCascadeScript`/`runDraftAwareCascade`/`waitJobTerminal`
    are the source of the extraction) — eliminates duplication. Keep behavior identical.

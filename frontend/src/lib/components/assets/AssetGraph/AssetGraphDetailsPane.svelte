@@ -55,6 +55,11 @@
 		// which is intentionally not-runnable until deployed). May be async so the
 		// caller can infer the args schema for the run form.
 		resolveLocalScript?: (path: string) => Script | undefined | Promise<Script | undefined>
+		// Bump this whenever `resolveLocalScript`'s backing content changes (a
+		// `pipeline dev` live-reload pushes a new bundle). It's in the `scriptRes`
+		// key so the open pane re-resolves the selected node's source even though
+		// `selection` is unchanged — otherwise the pane sticks on stale content.
+		localScriptsVersion?: unknown
 		workspace: string
 		onclose: () => void
 		// Optional: dismiss the pane while preserving the current selection /
@@ -227,6 +232,7 @@
 		selection,
 		draftScript,
 		resolveLocalScript,
+		localScriptsVersion,
 		workspace,
 		onclose,
 		onHide,
@@ -398,7 +404,7 @@
 	// When `draftScript` is provided we bypass the fetch entirely and edit
 	// it locally; saving calls ScriptService.createScript to deploy it.
 	let scriptRes = resource(
-		[() => workspace, () => selection, () => draftScript],
+		[() => workspace, () => selection, () => draftScript, () => localScriptsVersion],
 		async ([ws, sel, draft]) => {
 			if (draft) return undefined
 			if (!sel || sel.kind !== 'runnable' || sel.runnable_kind !== 'script') return undefined

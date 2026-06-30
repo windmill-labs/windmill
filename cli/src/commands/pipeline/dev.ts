@@ -11,6 +11,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { randomBytes } from "node:crypto";
 import process from "node:process";
 import * as open from "open";
 import { WebSocket, WebSocketServer } from "ws";
@@ -159,7 +160,23 @@ async function dev(opts: PipelineDevOpts, folderArg?: string) {
     res.writeHead(200);
     res.end();
   });
-  const wss = new WebSocketServer({ server });
+  // Loopback bind keeps the LAN out, but any browser tab can still open a
+  // `ws://localhost:<port>` connection — and each frame ships the folder's full
+  // script source. Gate the upgrade on an unguessable per-session token (carried
+  // in the dev-page URL) so a stray page on the predictable dev port can't
+  // exfiltrate the source. base64url → safe as a query value.
+  const wsToken = randomBytes(24).toString("base64url");
+  const wss = new WebSocketServer({
+    server,
+    verifyClient: (info) => {
+      try {
+        const u = new URL(info.req.url ?? "", "http://localhost");
+        return u.searchParams.get("token") === wsToken;
+      } catch {
+        return false;
+      }
+    },
+  });
   wss.on("connection", (ws: WebSocket) => {
     clients.add(ws);
     // Push the current bundle immediately so the page renders without waiting
@@ -181,7 +198,8 @@ async function dev(opts: PipelineDevOpts, folderArg?: string) {
   const pageBase = (opts.frontend ?? workspace.remote).replace(/\/?$/, "/");
   const url =
     `${pageBase}pipeline_dev?workspace=${workspace.workspaceId}` +
-    `&wm_token=${workspace.token}&folder=${encodeURIComponent(folder)}&port=${port}`;
+    `&wm_token=${workspace.token}&folder=${encodeURIComponent(folder)}&port=${port}` +
+    `&ws_token=${encodeURIComponent(wsToken)}`;
 
   server.listen(port, LISTEN_HOST, () => {
     log.info(colors.green.bold(`🚀 Pipeline dev server on ws://localhost:${port}/ws`));

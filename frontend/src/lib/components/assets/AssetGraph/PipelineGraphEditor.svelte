@@ -67,6 +67,7 @@
 		canRunByPath = false,
 		onRunByPath,
 		resolveLocalScript,
+		localScriptsVersion,
 		selectionProducers = [],
 		selectionColumnGraph,
 		schemaCanEvolve = true,
@@ -150,6 +151,9 @@
 		 * so the details pane skips the (nonexistent) deployed-script fetch. May
 		 * be async (to infer the args schema for the run form). */
 		resolveLocalScript?: (path: string) => Script | undefined | Promise<Script | undefined>
+		/** Bumped on each `pipeline dev` bundle so the open details pane re-resolves
+		 * the selected node's source on live-reload. */
+		localScriptsVersion?: unknown
 		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
 		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
@@ -461,6 +465,7 @@
 						{canRunByPath}
 						{onRunByPath}
 						{resolveLocalScript}
+						{localScriptsVersion}
 						selection={activeDraft ? undefined : editor.selection}
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{selectionColumnGraph}
