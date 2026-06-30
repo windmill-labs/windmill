@@ -1,0 +1,193 @@
+// `wmill pipeline dev [folder]` — live-preview a data pipeline from local files.
+//
+// The pipeline analog of `wmill dev` / `wmill app dev`: watch a folder of
+// `// pipeline` scripts, rebuild the asset graph from the working tree on every
+// save, and push it over a WebSocket to the `/pipeline_dev` page, which renders
+// the same graph editor the UI uses and runs the cascade via preview (no deploy).
+// Editing stays in the user's own editor; the page live-reloads.
+
+import { Command } from "@cliffy/command";
+import { colors } from "@cliffy/ansi/colors";
+import * as http from "node:http";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import process from "node:process";
+import * as open from "open";
+import { WebSocket, WebSocketServer } from "ws";
+import * as log from "../../core/log.ts";
+import { GlobalOptions } from "../../types.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace } from "../../core/context.ts";
+import {
+  mergeConfigWithConfigFile,
+  type SyncOptions,
+} from "../../core/conf.ts";
+import { listSyncCodebases } from "../../utils/codebase.ts";
+import { resolveBindPort, BIND_HOST } from "../../utils/port-probe.ts";
+import { buildLocalPipelineGraph, workspaceRoot } from "./localGraph.ts";
+
+const PORT = 3201;
+
+interface PipelineDevOpts extends GlobalOptions, SyncOptions {
+  port?: number;
+  open?: boolean;
+  defaultTs?: "bun" | "deno";
+}
+
+// Resolve the target folder: explicit arg, else auto-detect when cwd sits inside
+// `f/<folder>/…` (the supported `cd f/my_pipeline && wmill pipeline dev` form).
+function resolveFolder(root: string, folderArg?: string): string | undefined {
+  if (folderArg) return folderArg.replace(/^f\//, "").replace(/\/$/, "");
+  const rel = path.relative(root, process.cwd()).replaceAll("\\", "/");
+  if (rel === "" || rel.startsWith("..")) return undefined;
+  const segs = rel.split("/");
+  if (segs[0] === "f" && segs[1]) return segs[1];
+  return undefined;
+}
+
+async function dev(opts: PipelineDevOpts, folderArg?: string) {
+  const root = workspaceRoot();
+  const folder = resolveFolder(root, folderArg);
+  if (!folder) {
+    log.error(
+      colors.red(
+        "Could not determine the pipeline folder. Pass it explicitly " +
+          "(`wmill pipeline dev <folder>`) or run from inside an `f/<folder>` directory.",
+      ),
+    );
+    process.exit(1);
+  }
+  const folderDir = path.join(root, "f", folder);
+  if (!fs.existsSync(folderDir)) {
+    log.error(colors.red(`Folder not found on disk: ${folderDir}`));
+    process.exit(1);
+  }
+
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const merged = await mergeConfigWithConfigFile(opts);
+  const codebases = await listSyncCodebases(merged);
+
+  // Resolve relative imports from local (not-yet-deployed) content for previews.
+  // Snapshot at startup like `wmill dev`; restart to refresh. Degrades to
+  // undefined on older backends.
+  let tempScriptRefs: Record<string, string> | undefined;
+  try {
+    const { buildPreviewTempScriptRefs } = await import(
+      "../generate-metadata/generate-metadata.ts"
+    );
+    tempScriptRefs = await buildPreviewTempScriptRefs(
+      workspace,
+      merged,
+      codebases,
+      { kind: "all" },
+    );
+  } catch {
+    // best-effort
+  }
+
+  async function buildBundle() {
+    const { graph, scripts } = await buildLocalPipelineGraph({
+      root,
+      folder: folder!,
+      defaultTs: opts.defaultTs,
+    });
+    return {
+      type: "pipeline" as const,
+      folder,
+      graph,
+      scripts,
+      temp_script_refs: tempScriptRefs,
+    };
+  }
+
+  let current = await buildBundle();
+  log.info(
+    colors.blue(
+      `Watching f/${folder} — ${current.scripts.length} pipeline script(s)`,
+    ),
+  );
+
+  const clients = new Set<WebSocket>();
+  function broadcast() {
+    const msg = JSON.stringify(current);
+    for (const ws of clients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+    }
+  }
+
+  // Debounced rebuild on any change under the folder.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const watcher = fs.watch(folderDir, { recursive: true });
+  watcher.on("change", (_ev, filename) => {
+    if (filename && filename.toString().endsWith(".lock")) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(async () => {
+      timer = undefined;
+      try {
+        current = await buildBundle();
+        log.info(colors.cyan(`↻ rebuilt graph (${current.scripts.length} scripts)`));
+        broadcast();
+      } catch (e: any) {
+        log.error(colors.red(`Failed to rebuild pipeline graph: ${e.message}`));
+      }
+    }, 150);
+  });
+  watcher.on("error", (e) => log.error(colors.red(`Watcher error: ${e.message}`)));
+
+  const port = await resolveBindPort(opts.port ?? PORT, "wmill pipeline dev", {
+    info: (m) => log.info(m),
+    warn: (m) => log.warn(m),
+  });
+
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200);
+    res.end();
+  });
+  const wss = new WebSocketServer({ server });
+  wss.on("connection", (ws: WebSocket) => {
+    clients.add(ws);
+    // Push the current bundle immediately so the page renders without waiting
+    // for the first file change.
+    try {
+      ws.send(JSON.stringify(current));
+    } catch {
+      // ignore
+    }
+    ws.on("close", () => clients.delete(ws));
+    ws.on("error", () => clients.delete(ws));
+  });
+
+  const url =
+    `${workspace.remote}pipeline_dev?workspace=${workspace.workspaceId}` +
+    `&wm_token=${workspace.token}&folder=${encodeURIComponent(folder)}&port=${port}`;
+
+  server.listen(port, BIND_HOST, () => {
+    log.info(colors.green.bold(`🚀 Pipeline dev server on ws://localhost:${port}/ws`));
+    log.info(colors.gray(`Open: ${url}`));
+    if (opts.open !== false) {
+      open.default(url).catch((e: any) =>
+        log.warn(colors.yellow(`Failed to open browser: ${e.message}`)),
+      );
+    }
+  });
+
+  process.on("SIGINT", () => {
+    log.info(colors.yellow("\n🛑 Shutting down…"));
+    watcher.close();
+    for (const ws of clients) ws.close();
+    server.close();
+    process.exit(0);
+  });
+}
+
+const command = new Command()
+  .description(
+    "Live-preview a data pipeline from local files: watch an `f/<folder>` of `// pipeline` scripts, push the working-tree graph to the dev page, and run the cascade via preview (no deploy).",
+  )
+  .arguments("[folder:string]")
+  .option("--port <port:number>", "Port for the dev WebSocket server.")
+  .option("--no-open", "Do not open the browser automatically.")
+  .action(dev as any);
+
+export default command;

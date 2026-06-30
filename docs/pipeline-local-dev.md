@@ -1,0 +1,143 @@
+# Local development for Data Pipelines
+
+Status: **first iteration, draft PR.** Headless CLI paths verified offline + unit-tested;
+the live browser preview (`pipeline dev` → `/pipeline_dev`) is implemented but **not yet
+exercised against a running stack**. This document is the handoff for continuing the work.
+
+## What & why
+
+Windmill "data pipelines" are folders of scripts marked with a `// pipeline` comment, wired
+together by asset annotations (`// on <asset-uri>`, `// partitioned`, `// schedule`). Until now
+they could only be built/run in the browser at `/pipeline/<folder>` (the `PipelineGraphEditor`),
+and the CLI only inspected/ran the **deployed** workspace (`wmill pipeline list|show|run`).
+
+This adds the **local edit → preview → run** loop, the pipeline analog of `wmill dev`
+(flows/scripts) and `wmill app dev` (raw apps), usable both from a code editor and from an
+agentic loop — building a pipeline from working-tree files, seeing the same graph the UI shows,
+and running it, all **without deploying**.
+
+## The key design decision (no backend changes)
+
+Full body inference is obtained in the CLI from the **same wasm the frontend uses**:
+`windmill-parser-wasm-asset` (`parse_assets_ts | parse_assets_py | parse_assets_sql`). That wasm
+returns the entire serialized Rust `ParseAssetsOutput` — `assets` (with `r`/`w`/`rw` access)
+**and** the parsed pipeline annotations (`in_pipeline`, `triggers`, `partition`, …) in one call.
+The CLI already loads sibling wasm parsers via `loadParser()`; we just added the `-asset` dep.
+
+Running local content reuses the existing preview API:
+`runScriptPreview({ content, language, path, args: { _wmill_skip_asset_dispatch: true }, temp_script_refs })`
+per node in topological order. Data flows through real asset storage; `_wmill_skip_asset_dispatch`
+makes the client own the whole cascade so the backend dispatcher never double-fires.
+
+⇒ No new backend endpoint, no Rust changes, no TS re-port of the annotation parser.
+
+## Surfaces
+
+### Headless CLI (agentic loop) — `cli/src/commands/pipeline/`
+- `pipeline show <folder> --local` — render the DAG from working-tree files (fully offline).
+- `pipeline run <folder> --local [--from/--to/--dry-run/--json]` — run the cascade via preview of
+  local content, reusing the `boundedCascade.ts` topo/lineage engine.
+- `pipeline docs <folder> [--local]` — write `PIPELINE.md` + `AGENTS.md`/`CLAUDE.md` pointers
+  (graph + datatable schemas) so an editor/agent has the same context the UI surfaces.
+
+### Browser live-preview — `pipeline dev` + `/pipeline_dev`
+- `pipeline dev [folder]` — folder arg or cwd auto-detect; watches the folder, rebuilds the graph
+  on each save, pushes `{type:'pipeline', folder, graph, scripts, temp_script_refs}` over a
+  WebSocket (direct mode, default port 3201), opens the dev page.
+- `/pipeline_dev` route → `PipelineDevView.svelte` renders the **same** `PipelineGraphEditor`
+  (mode `view`) fed by the pushed graph; runs the cascade via preview. Editing stays in the
+  user's editor; each save live-reloads.
+
+## Files
+
+**New**
+- `cli/src/commands/pipeline/localGraph.ts` — the enabler. Walks `f/<folder>` scripts, wasm-infers
+  each (`parse_assets_<lang>`), assembles the `/assets/graph`-shaped payload (`runnables`,
+  `assets`, `edges`, `triggers`). Exports `buildLocalPipelineGraph`, `collectScripts`,
+  `inferScriptAssets`, `workspaceRoot`, and the canonical graph types.
+- `cli/src/commands/pipeline/docs.ts` — `pipeline docs`.
+- `cli/src/commands/pipeline/dev.ts` — `pipeline dev` watcher + WS server.
+- `cli/test/pipeline_local_graph_unit.test.ts` — unit tests for the builder.
+- `frontend/src/lib/components/assets/AssetGraph/cascadeRun.ts` — reusable run primitives
+  (`makeLaunch`, `makeWaitJobTerminal`, `runDownstreamCascade`, `runBoundedCascade`) wrapping
+  `cascadeOrchestrator` + `graphTraversal`.
+- `frontend/src/lib/components/assets/AssetGraph/PipelineDevView.svelte` + `frontend/src/routes/pipeline_dev/+page.svelte`.
+
+**Modified**
+- `cli/src/commands/pipeline/pipeline.ts` — `--local` on `show`/`run`; `show` split into graph
+  acquisition + `renderGraph()` + deployed-only `enrichRootMarkers()`; registers `docs`/`dev`;
+  graph types moved to `localGraph.ts`.
+- `cli/package.json` (+ `windmill-parser-wasm-asset`), `cli/package-lock.json`.
+- `system_prompts/auto-generated/*`, `cli/src/guidance/skills.gen.ts` — regenerated via
+  `python system_prompts/generate.py` (required by AGENTS.md for CLI command changes).
+
+## Language coverage
+
+`inferScriptAssets` mirrors `frontend/src/lib/infer.ts:inferAssets`: ts (bun/deno/nativets),
+python3, and SQL dialects all get wasm inference (SQL dialects route to `parse_assets_sql`; its
+comment-header annotation scan is dialect-independent). `go`/`bash` have no wasm asset parser, so
+they fall back to a minimal `// pipeline` + `// on` scan (annotation-only). Note inferred asset
+**paths must match exactly** to connect nodes: DuckDB `read_csv('s3://x')` / `COPY ... TO 's3://x'`
+and `// on s3://x` all yield path `x` (no leading slash), whereas TS `writeS3File({s3:"x"})` yields
+`/x` — so an all-DuckDB example connects cleanly; mixing TS-write with annotation-read needs care.
+
+## How to test
+
+Run the CLI from source (`alias wmilld='bun run /home/rfiszel/windmill/cli/src/main.ts'`).
+
+Headless (works directly against any remote, e.g. internal.windmill.dev / `data-pipelines`):
+```
+wmilld workspace add internal data-pipelines https://internal.windmill.dev/   # paste a token
+# build an example (connected all-DuckDB DAG):
+mkdir -p ~/pl-demo/f/demo_pipeline && cd ~/pl-demo && printf 'defaultTs: bun\n' > wmill.yaml
+#   ingest.duckdb.sql:    -- pipeline\nCOPY (SELECT 1 id,'a' name) TO 's3://demo/raw.csv';
+#   transform.duckdb.sql: -- pipeline\n-- on s3://demo/raw.csv\nCOPY (SELECT * FROM read_csv('s3://demo/raw.csv')) TO 's3://demo/clean.csv';
+#   report.duckdb.sql:    -- pipeline\n-- on s3://demo/clean.csv\nSELECT count(*) FROM read_csv('s3://demo/clean.csv');
+wmilld pipeline show demo_pipeline --local
+wmilld pipeline run  demo_pipeline --local --dry-run
+wmilld pipeline run  demo_pipeline --local          # writes real s3 assets; needs object storage
+wmilld pipeline docs demo_pipeline
+```
+Or pull real pipelines: `wmilld sync pull --yes && wmilld pipeline list && wmilld pipeline show <folder> --local`.
+
+Browser preview: the `/pipeline_dev` route isn't deployed to remotes yet, so the URL `pipeline dev`
+auto-opens (`<remote>/pipeline_dev?…`) 404s on internal. Test it by running THIS branch's frontend
+locally and opening the localhost URL:
+```
+cd frontend && REMOTE=https://internal.windmill.dev npm run dev      # or a local backend
+cd ~/pl-demo && wmilld pipeline dev demo_pipeline --no-open
+# open http://localhost:3000/pipeline_dev?workspace=data-pipelines&wm_token=<TOK>&folder=demo_pipeline&port=3201
+```
+
+## Validation status
+
+- ✅ `pipeline show --local` verified offline against a fixture (renders a connected DAG).
+- ✅ `localGraph` unit tests (3) + all 883 CLI unit tests pass.
+- ✅ CLI `tsc` clean (pipeline files); frontend `npm run check` 0 errors; svelte-autofixer clean.
+- ✅ CLI agent docs regenerated.
+- ❌ Live `pipeline dev` → `/pipeline_dev` browser preview **NOT exercised** against a running stack
+  (no backend/frontend was available). No PR screenshots captured for the same reason.
+
+## TODO for the takeover agent
+
+1. **Verify the browser preview end-to-end** (Playwright per AGENTS.md): bring up a stack, run
+   `pipeline dev`, confirm the graph matches the UI, a save live-reloads, and Run executes the
+   cascade. Attach screenshots to the PR.
+2. **Dev-page route reachability on remotes**: `/pipeline_dev` must be served by the frontend the
+   user actually opens. Either (a) document the local-frontend workflow, or (b) add a
+   `--dev-url`/`--frontend <origin>` flag to `pipeline dev` so the opened URL can target a local
+   frontend while the API/token stay pointed at the remote.
+3. **Route-page dedup**: optionally refactor `frontend/src/routes/(root)/(logged)/pipeline/[folder]/+page.svelte`
+   to consume `cascadeRun.ts` (its `launchCascadeScript`/`runDraftAwareCascade`/`waitJobTerminal`
+   are the source of the extraction) — eliminates duplication. Keep behavior identical.
+4. **Proxy mode for `pipeline dev`**: currently direct-mode only. Port `dev/dev.ts`'s
+   `startProxyServer` for embedders that need a localhost origin (e.g. Claude Code preview).
+5. **`pipeline dev` editing**: the dev page is view+run only (editing stays in the user's editor).
+   If in-browser editing with file round-trip is wanted, mirror flow-dev's `handleFlowRoundTrip`.
+6. **Asset-path normalization**: the TS-write leading-slash vs annotation/DuckDB no-slash mismatch
+   (see Language coverage) is inherited from the wasm/backend inference, not introduced here, but
+   it silently breaks lineage connection across languages — worth normalizing in the parser.
+
+## Plan reference
+
+Original plan: `/home/rfiszel/.claude/plans/tingly-wandering-whistle.md` (local to the author).

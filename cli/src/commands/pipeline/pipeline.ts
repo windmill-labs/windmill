@@ -20,7 +20,25 @@ import {
   topoOrder,
   validStarts,
 } from "./boundedCascade.ts";
+import {
+  type AssetGraph,
+  type GraphTrigger,
+  type LocalScript,
+  buildLocalPipelineGraph,
+  workspaceRoot,
+} from "./localGraph.ts";
+import {
+  mergeConfigWithConfigFile,
+  type SyncOptions,
+} from "../../core/conf.ts";
+import { listSyncCodebases } from "../../utils/codebase.ts";
+import pipelineDev from "./dev.ts";
+import { generatePipelineDocs } from "./docs.ts";
 
+// The graph payload types (AssetGraph / GraphRunnable / GraphEdge /
+// GraphTrigger) are defined in ./localGraph.ts — the canonical pipeline graph
+// module — and shared by the local (wasm-built) and deployed (apiGet) paths.
+//
 // Mirrors the asset-graph endpoint payload (backend/windmill-api-assets).
 // TODO: the checked-in generated client (cli/gen, last regenerated 2025-04)
 // predates these routes, so we raw-fetch and hand-roll the types. Once
@@ -29,39 +47,6 @@ import {
 // `apiGet` + these types with the generated `wmill.getAssetsGraph(...)`
 // (operationId getAssetsGraph) and `wmill.listPipelineFolders(...)`
 // (operationId listPipelineFolders).
-type GraphRunnable = {
-  path: string;
-  usage_kind: "script" | "flow" | "job";
-  in_pipeline?: boolean;
-};
-type GraphEdge = {
-  runnable_kind: string;
-  runnable_path: string;
-  asset_kind: string;
-  asset_path: string;
-  access_type?: "r" | "w" | "rw";
-};
-type GraphTrigger =
-  | {
-      trigger_kind: "asset";
-      asset_kind: string;
-      asset_path: string;
-      runnable_kind: string;
-      runnable_path: string;
-    }
-  | {
-      trigger_kind: string;
-      path?: string;
-      runnable_kind: string;
-      runnable_path: string;
-      missing?: boolean;
-    };
-type AssetGraph = {
-  runnables: GraphRunnable[];
-  assets: { kind: string; path: string }[];
-  edges: GraphEdge[];
-  triggers: GraphTrigger[];
-};
 
 async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(`${OpenAPI.BASE}${path}`, {
@@ -116,28 +101,94 @@ function pushTo<K, V>(map: Map<K, V[]>, key: K, val: V): void {
 }
 
 async function show(
-  opts: GlobalOptions & { json?: boolean },
+  opts: GlobalOptions & { json?: boolean; local?: boolean; defaultTs?: "bun" | "deno" },
   folder: string,
 ) {
   if (opts.json) log.setSilent(true);
-  const workspace = await resolveWorkspace(opts);
-  await requireLogin(opts);
-
   const f = folder.replace(/^f\//, "").replace(/\/$/, "");
-  const graph = await apiGet<AssetGraph>(
-    `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
-  );
+
+  // Acquire the graph: `--local` builds it from working-tree files (wasm
+  // inference, no deploy); otherwise fetch the deployed asset graph. The
+  // deployed path also enriches roots with UI-only source markers (the local
+  // path gets those from the wasm directly, so no enrichment).
+  let graph: AssetGraph;
+  let enrich: ((nativeByScript: Map<string, NativeMarker[]>, roots: string[]) => Promise<void>) | undefined;
+  if (opts.local) {
+    graph = (await buildLocalPipelineGraph({ root: workspaceRoot(), folder: f, defaultTs: opts.defaultTs })).graph;
+  } else {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+    graph = await apiGet<AssetGraph>(
+      `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
+    );
+    enrich = (nativeByScript, roots) => enrichRootMarkers(workspace.workspaceId, graph, nativeByScript, roots);
+  }
+
   if (opts.json) {
     console.log(JSON.stringify(graph));
     return;
   }
   if (graph.runnables.length === 0) {
     log.info(
-      `No pipeline scripts in f/${f}. Mark scripts with a \`// pipeline\` comment and push them.`,
+      opts.local
+        ? `No \`// pipeline\` scripts found in f/${f} locally. Mark scripts with a \`// pipeline\` comment.`
+        : `No pipeline scripts in f/${f}. Mark scripts with a \`// pipeline\` comment and push them.`,
     );
     return;
   }
 
+  await renderGraph(graph, f, enrich);
+}
+
+type NativeMarker = { kind: string; path?: string; missing?: boolean };
+
+// Deployed-only: UI-first markers (data_upload, webhook, email) have no trigger
+// row — the graph endpoint's trigger enum can't surface them, so they only exist
+// as `// on <kind>` annotations in the script body. Fetch just the root bodies
+// and lift the marker kinds the canvas would show. (Local mode skips this: the
+// wasm asset parser already returns these as triggers.)
+//
+// DRIFT RISK: this regex + MARKER_KINDS is a divergent, partial copy of the
+// canonical annotation parser. The proper fix is to have the graph endpoint emit
+// these UI-only markers as trigger rows (a backend change), after which this can
+// be deleted. Until then, keep this list in sync with the canonical parser.
+async function enrichRootMarkers(
+  workspaceId: string,
+  graph: AssetGraph,
+  nativeByScript: Map<string, NativeMarker[]>,
+  roots: string[],
+): Promise<void> {
+  const MARKER_KINDS = ["data_upload", "webhook", "email"];
+  await Promise.all(
+    roots.map(async (p) => {
+      const r = graph.runnables.find((x) => x.path === p);
+      if (r?.usage_kind !== "script") return;
+      try {
+        const script = await wmill.getScriptByPath({ workspace: workspaceId, path: p });
+        const existing = nativeByScript.get(p) ?? [];
+        for (const line of (script.content ?? "").split("\n")) {
+          const m = line.match(/^\s*(?:\/\/|--|#)\s*on\s+(\w+)\s*$/);
+          if (!m) continue;
+          const kind = m[1];
+          if (!MARKER_KINDS.includes(kind)) continue;
+          if (!existing.some((t) => t.kind === kind)) existing.push({ kind });
+        }
+        if (existing.length > 0) nativeByScript.set(p, existing);
+      } catch {
+        // body fetch is best-effort enrichment only
+      }
+    }),
+  );
+}
+
+// Index a pipeline graph and render its DAG as an ASCII tree. Shared by the
+// deployed (`show`) and local (`show --local`) paths; `enrich` lifts deployed
+// UI-only root markers when provided.
+async function renderGraph(
+  graph: AssetGraph,
+  f: string,
+  enrich?: (nativeByScript: Map<string, NativeMarker[]>, roots: string[]) => Promise<void>,
+) {
   // Index the graph: writes per script, subscribers per asset, native
   // trigger markers per script, asset subscriptions per script.
   const writesByScript = new Map<string, string[]>();
@@ -149,10 +200,7 @@ async function show(
   }
   const subsByAsset = new Map<string, string[]>();
   const subsByScript = new Map<string, string[]>();
-  const nativeByScript = new Map<
-    string,
-    { kind: string; path?: string; missing?: boolean }[]
-  >();
+  const nativeByScript = new Map<string, NativeMarker[]>();
   for (const t of graph.triggers) {
     if (t.trigger_kind === "asset") {
       const at = t as Extract<GraphTrigger, { trigger_kind: "asset" }>;
@@ -222,43 +270,9 @@ async function show(
     .filter((p) => !(subsByScript.get(p)?.length))
     .sort();
 
-  // UI-first markers (data_upload, webhook) have no trigger row — the
-  // graph endpoint's trigger enum (schedule/email/kafka/mqtt/nats/postgres/
-  // sqs/gcp) can't surface them, so they only exist as `// on <kind>`
-  // annotations in the script body. Roots are where sources matter, so fetch
-  // just those bodies and lift the marker kinds the canvas would show.
-  //
-  // DRIFT RISK: this regex + MARKER_KINDS is a divergent, partial copy of the
-  // canonical annotation parser. The proper fix is to have the graph endpoint
-  // emit these UI-only markers as trigger rows (a backend change), after which
-  // this whole Promise.all body-fetch can be deleted and read straight from
-  // the response. Until then, keep this list in sync with the canonical parser.
-  const MARKER_KINDS = ["data_upload", "webhook", "email"];
-  await Promise.all(
-    roots.map(async (p) => {
-      const r = graph.runnables.find((x) => x.path === p);
-      if (r?.usage_kind !== "script") return;
-      try {
-        const script = await wmill.getScriptByPath({
-          workspace: workspace.workspaceId,
-          path: p,
-        });
-        const existing = nativeByScript.get(p) ?? [];
-        for (const line of (script.content ?? "").split("\n")) {
-          const m = line.match(/^\s*(?:\/\/|--|#)\s*on\s+(\w+)\s*$/);
-          if (!m) continue;
-          const kind = m[1];
-          if (!MARKER_KINDS.includes(kind)) continue;
-          if (!existing.some((t) => t.kind === kind)) {
-            existing.push({ kind });
-          }
-        }
-        if (existing.length > 0) nativeByScript.set(p, existing);
-      } catch {
-        // body fetch is best-effort enrichment only
-      }
-    }),
-  );
+  // Deployed-only: lift UI-only source markers (data_upload/webhook/email) onto
+  // the roots. No-op in local mode (the wasm already emitted them as triggers).
+  if (enrich) await enrich(nativeByScript, roots);
 
   const scriptCount = graph.runnables.length;
   const assetCount = graph.assets.length;
@@ -312,11 +326,13 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
 // the lineage DAG, pure readers included — broader than the canvas cascade,
 // which dispatches subscribers only).
 async function run(
-  opts: GlobalOptions & {
+  opts: GlobalOptions & SyncOptions & {
     from?: string;
     to?: string[];
     dryRun?: boolean;
     json?: boolean;
+    local?: boolean;
+    defaultTs?: "bun" | "deno";
   },
   folder: string,
 ) {
@@ -325,9 +341,45 @@ async function run(
   await requireLogin(opts);
 
   const f = folder.replace(/^f\//, "").replace(/\/$/, "");
-  const graph = await apiGet<BCGraph>(
-    `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
-  );
+
+  // `--local` runs the working-tree scripts via preview (no deploy); the graph
+  // is built from local files. Otherwise run deployed scripts by path off the
+  // deployed asset graph. Both still execute against the remote backend, with
+  // `_wmill_skip_asset_dispatch` so the CLI owns the whole closure.
+  let graph: BCGraph;
+  let localScripts: Map<string, LocalScript> | undefined;
+  let tempScriptRefs: Record<string, string> | undefined;
+  if (opts.local) {
+    const built = await buildLocalPipelineGraph({
+      root: workspaceRoot(),
+      folder: f,
+      defaultTs: opts.defaultTs,
+    });
+    graph = built.graph;
+    localScripts = new Map(built.scripts.map((s) => [s.path, s]));
+    // Resolve relative imports from local (not-yet-deployed) content so a script
+    // that imports a sibling workspace lib previews against local edits. Same
+    // trick as `wmill dev` / `wmill app dev`; degrades to undefined gracefully.
+    try {
+      const merged = await mergeConfigWithConfigFile(opts);
+      const codebases = await listSyncCodebases(merged);
+      const { buildPreviewTempScriptRefs } = await import(
+        "../generate-metadata/generate-metadata.ts"
+      );
+      tempScriptRefs = await buildPreviewTempScriptRefs(
+        workspace,
+        merged,
+        codebases,
+        { kind: "all" },
+      );
+    } catch {
+      // best-effort: relative imports fall back to deployed versions
+    }
+  } else {
+    graph = await apiGet<BCGraph>(
+      `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
+    );
+  }
 
   // Resolve the start: explicit --from (must be a valid start) or the folder's
   // sole valid start.
@@ -453,18 +505,38 @@ async function run(
   }
 
   // Execute in topological order, stopping on the first failure.
-  for (const path of order) {
-    if (!opts.json) log.info(colors.gray(`▶ running ${path}…`));
-    const id = await wmill.runScriptByPath({
-      workspace: workspace.workspaceId,
-      path,
-      requestBody: { _wmill_skip_asset_dispatch: true },
-    });
+  for (const nodePath of order) {
+    if (!opts.json) log.info(colors.gray(`▶ running ${nodePath}…`));
+    let id: string;
+    if (opts.local) {
+      const ls = localScripts!.get(nodePath);
+      if (!ls) {
+        throw new Error(
+          `No local file for ${nodePath} — is it a \`// pipeline\` script in f/${f}?`,
+        );
+      }
+      id = await wmill.runScriptPreview({
+        workspace: workspace.workspaceId,
+        requestBody: {
+          content: ls.content,
+          language: ls.language as any,
+          path: nodePath,
+          args: { _wmill_skip_asset_dispatch: true },
+          temp_script_refs: tempScriptRefs,
+        } as any,
+      });
+    } else {
+      id = await wmill.runScriptByPath({
+        workspace: workspace.workspaceId,
+        path: nodePath,
+        requestBody: { _wmill_skip_asset_dispatch: true },
+      });
+    }
     const ok = await waitJob(workspace.workspaceId, id);
     if (!ok) {
-      throw new Error(`Bounded run failed at ${path} (job ${id}).`);
+      throw new Error(`Bounded run failed at ${nodePath} (job ${id}).`);
     }
-    if (!opts.json) log.info(colors.green(`  ✓ ${path}`));
+    if (!opts.json) log.info(colors.green(`  ✓ ${nodePath}`));
   }
   if (!opts.json) {
     log.info(colors.green.bold(`Bounded run complete — ${order.length} script(s) succeeded.`));
@@ -484,6 +556,10 @@ const command = new Command()
   )
   .arguments("<folder:string>")
   .option("--json", "Output the raw asset graph as JSON")
+  .option(
+    "--local",
+    "Build the graph from local working-tree files (// pipeline scripts) instead of the deployed workspace — no deploy needed.",
+  )
   .action(show as any)
   .command(
     "run",
@@ -501,6 +577,21 @@ const command = new Command()
   )
   .option("--dry-run", "Print the topological run plan without executing.")
   .option("--json", "Output the plan as JSON (for piping to jq).")
-  .action(run as any);
+  .option(
+    "--local",
+    "Run the local working-tree scripts via preview (no deploy) instead of the deployed versions; the graph is built from local files.",
+  )
+  .action(run as any)
+  .command(
+    "docs",
+    "generate PIPELINE.md (+ AGENTS.md pointer) describing a folder's pipeline graph and datatable schemas, for an editor / agentic loop",
+  )
+  .arguments("<folder:string>")
+  .option(
+    "--local",
+    "Build the graph from local working-tree files instead of the deployed workspace.",
+  )
+  .action(generatePipelineDocs as any)
+  .command("dev", pipelineDev);
 
 export default command;

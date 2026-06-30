@@ -1,0 +1,273 @@
+<script lang="ts">
+	import { untrack } from 'svelte'
+	import { Loader2, Workflow } from 'lucide-svelte'
+	import { page } from '$app/state'
+	import PipelineGraphEditor from './PipelineGraphEditor.svelte'
+	import { PipelineEditorState } from './pipelineEditorState.svelte'
+	import { useActiveRunnableIds } from './activeRunnables.svelte'
+	import { makeLaunch, makeWaitJobTerminal, runDownstreamCascade } from './cascadeRun'
+	import type { AssetGraphResponse, AssetGraphSelection } from './types'
+	import { JobService, OpenAPI, type Preview } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
+
+	// A local-dev pipeline preview driven by `wmill pipeline dev`. The CLI watches
+	// an `f/<folder>` of `// pipeline` scripts, builds the asset graph from the
+	// working tree, and pushes it over a WebSocket; this page renders that graph
+	// with the same editor the UI uses and runs the cascade by PREVIEWING the
+	// pushed local content (no deploy). Editing happens in the user's own editor;
+	// each save live-reloads the graph here.
+
+	type PushedScript = { path: string; content: string; language: Preview['language'] }
+	type PipelineBundle = {
+		type: 'pipeline'
+		folder: string
+		graph: AssetGraphResponse
+		scripts: PushedScript[]
+		temp_script_refs?: Record<string, string>
+	}
+
+	const sp = page.url.searchParams
+	const token = sp.get('wm_token') ?? undefined
+	const workspace = sp.get('workspace') ?? undefined
+	const port = sp.get('port') ?? '3201'
+	const folder = sp.get('folder') ?? ''
+
+	$effect.pre(() => {
+		if (token) {
+			OpenAPI.WITH_CREDENTIALS = true
+			OpenAPI.TOKEN = token
+		}
+	})
+	$effect.pre(() => {
+		if (workspace) $workspaceStore = workspace
+	})
+
+	const EMPTY_GRAPH: AssetGraphResponse = { assets: [], runnables: [], edges: [], triggers: [] }
+
+	let bundle = $state<PipelineBundle | undefined>(undefined)
+	let wsState = $state<'connecting' | 'open' | 'closed'>('connecting')
+
+	// Externalized editor state (selection only — this view has no DB drafts; the
+	// local files are the source of truth).
+	const pe = new PipelineEditorState()
+	$effect(() => {
+		const f = folder
+		untrack(() => {
+			if (pe.folder !== f) pe.folder = f
+		})
+	})
+
+	const displayGraph = $derived((bundle?.graph ?? EMPTY_GRAPH) as AssetGraphResponse)
+	const pathPrefix = $derived(`f/${folder}/`)
+
+	// path -> pushed local content, for preview-running each node.
+	const scriptByPath = $derived(
+		new Map<string, PushedScript>((bundle?.scripts ?? []).map((s) => [s.path, s]))
+	)
+
+	// Live run state (node badges + event log), shared with the route page's poll.
+	const activeRunnables = useActiveRunnableIds(
+		() => workspace,
+		() => pathPrefix
+	)
+	let activeRunnable = $state<{ kind: 'script' | 'flow'; path: string } | undefined>(undefined)
+	let activeRunnableJobId = $state<string | undefined>(undefined)
+	$effect(() => {
+		pathPrefix
+		activeRunnables.setObserving(true)
+		return () => activeRunnables.dispose()
+	})
+	$effect(() => {
+		if (!activeRunnableJobId) return
+		const ev = activeRunnables.events.find((e) => e.id === activeRunnableJobId)
+		if (ev && (ev.status === 'success' || ev.status === 'failure')) {
+			activeRunnable = undefined
+			activeRunnableJobId = undefined
+		}
+	})
+
+	function connectWs() {
+		let socket: WebSocket | undefined
+		try {
+			wsState = 'connecting'
+			socket = new WebSocket(`ws://localhost:${port}/ws`)
+			socket.addEventListener('open', () => (wsState = 'open'))
+			socket.addEventListener('close', () => (wsState = 'closed'))
+			socket.addEventListener('error', () => (wsState = 'closed'))
+			socket.addEventListener('message', (event) => {
+				try {
+					const data = JSON.parse(event.data)
+					if (data?.type === 'pipeline') bundle = data as PipelineBundle
+				} catch {
+					// ignore malformed frames
+				}
+			})
+		} catch {
+			wsState = 'closed'
+		}
+		return () => socket?.close()
+	}
+	$effect(() => connectWs())
+
+	function resolveLocal(
+		path: string
+	): { content: string; language: Preview['language'] } | undefined {
+		const s = scriptByPath.get(path)
+		return s ? { content: s.content, language: s.language } : undefined
+	}
+
+	// Run a single node as a preview of its local content. Never fans out to
+	// downstream deployed subscribers (skip-dispatch) — single-node runs stay local.
+	async function runNode(
+		nodePath: string,
+		args: Record<string, any> = {}
+	): Promise<string | undefined> {
+		const local = resolveLocal(nodePath)
+		if (!local || !workspace) {
+			sendUserToast(`No local content for ${nodePath}`, true)
+			return undefined
+		}
+		activeRunnables.arm(`script:${nodePath}`)
+		try {
+			const jobId = await JobService.runScriptPreview({
+				workspace,
+				requestBody: {
+					content: local.content,
+					language: local.language,
+					path: nodePath,
+					args: { ...args, _wmill_skip_asset_dispatch: true },
+					...(bundle?.temp_script_refs ? { temp_script_refs: bundle.temp_script_refs } : {})
+				}
+			})
+			activeRunnable = { kind: 'script', path: nodePath }
+			activeRunnableJobId = jobId
+			return jobId
+		} catch (e: any) {
+			sendUserToast(`Run failed: ${e?.body ?? e?.message ?? e}`, true)
+			return undefined
+		}
+	}
+
+	let cascadeRunningRoot = $state<string | undefined>(undefined)
+
+	// "Run + downstream" — the client orchestrates the closure (preview each node
+	// in topological order) since the backend dispatcher only resolves deployed rows.
+	async function runCascadeFrom(rootPath: string): Promise<string | undefined> {
+		if (!workspace) return undefined
+		if (cascadeRunningRoot) {
+			sendUserToast(`A chain run from ${cascadeRunningRoot} is still in progress`, true)
+			return undefined
+		}
+		cascadeRunningRoot = rootPath
+		let rootJobId: string | undefined
+		const launch = makeLaunch({
+			workspace,
+			resolveLocal,
+			tempScriptRefs: bundle?.temp_script_refs,
+			onLaunched: (p, jobId) => {
+				activeRunnables.arm(`script:${p}`)
+				if (p === rootPath) {
+					rootJobId = jobId
+					activeRunnable = { kind: 'script', path: p }
+					activeRunnableJobId = jobId
+				}
+			}
+		})
+		try {
+			const res = await runDownstreamCascade({
+				graph: displayGraph,
+				root: rootPath,
+				launch,
+				waitTerminal: makeWaitJobTerminal(workspace)
+			})
+			if (res.cyclic.length > 0) {
+				sendUserToast(
+					`Skipped ${res.cyclic.length} script(s) on a cycle: ${res.cyclic.join(', ')}`,
+					true
+				)
+			}
+			const n = res.statuses.size
+			if (res.ok) {
+				sendUserToast(`Chain run complete — ${n} script${n === 1 ? '' : 's'} succeeded`)
+			} else {
+				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
+				sendUserToast(`Chain run failed at ${failed.map(([p]) => p).join(', ')}`, true)
+			}
+		} finally {
+			cascadeRunningRoot = undefined
+		}
+		return rootJobId
+	}
+
+	function runProducer(producer: { kind: 'script' | 'flow'; path: string; cascade?: boolean }) {
+		if (producer.kind !== 'script') return Promise.resolve(undefined)
+		return producer.cascade ? runCascadeFrom(producer.path) : runNode(producer.path)
+	}
+
+	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
+		pe.selection = s
+	}
+</script>
+
+<div class="flex flex-col h-full w-full bg-surface">
+	<div
+		class="flex items-center gap-2 px-3 py-1.5 border-b border-light text-xs text-secondary shrink-0"
+	>
+		<Workflow size={14} />
+		<span class="font-mono text-emphasis truncate">f/{folder}</span>
+		<span class="text-tertiary">· local pipeline dev</span>
+		<span class="ml-auto flex items-center gap-1.5">
+			<span
+				class="inline-block w-2 h-2 rounded-full {wsState === 'open'
+					? 'bg-green-500'
+					: wsState === 'connecting'
+						? 'bg-yellow-500'
+						: 'bg-red-500'}"
+			></span>
+			<span class="text-tertiary"
+				>{wsState === 'open'
+					? 'watching'
+					: wsState === 'connecting'
+						? 'connecting…'
+						: 'disconnected'}</span
+			>
+		</span>
+	</div>
+	<div class="flex-1 min-h-0">
+		{#if !bundle}
+			<div class="h-full flex items-center justify-center gap-2 text-tertiary">
+				<Loader2 size={18} class="animate-spin" />
+				<span>Connecting to <code>wmill pipeline dev</code>…</span>
+			</div>
+		{:else if displayGraph.runnables.length === 0}
+			<div class="h-full flex items-center justify-center text-sm text-tertiary px-4 text-center">
+				No <code class="mx-1">// pipeline</code> scripts found in f/{folder}. Mark a script with a
+				bare
+				<code class="mx-1">// pipeline</code> comment.
+			</div>
+		{:else}
+			<PipelineGraphEditor
+				editor={pe}
+				{folder}
+				{displayGraph}
+				mode="view"
+				{workspace}
+				{pathPrefix}
+				{activeRunnable}
+				activeRunnableIds={activeRunnables.ids}
+				runStates={activeRunnables.states}
+				eventLogEvents={activeRunnables.events}
+				onRunProducer={runProducer}
+				onRunByPath={(path, args) => runNode(path, args)}
+				canRunByPath
+				onRunCompleted={() => {
+					activeRunnable = undefined
+					activeRunnableJobId = undefined
+				}}
+				onSelect={handleCanvasSelect}
+				onClose={() => (pe.selection = undefined)}
+			/>
+		{/if}
+	</div>
+</div>
