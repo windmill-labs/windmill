@@ -761,8 +761,12 @@ pub(crate) async fn delete_workspace(
     }
 
     let mut tx = db.begin().await?;
-    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
-        require_super_admin(&db, &authed.email).await?;
+    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
+        && !is_super_admin_email(&db, &authed.email).await?
+    {
+        return Err(Error::PermissionDenied(
+            "Deleting this workspace requires being the fork's owner or a superadmin".to_string(),
+        ));
     }
 
     // Don't hard-delete a workspace that still has a dev workspace paired to it: the FK is
@@ -801,8 +805,10 @@ pub(crate) async fn delete_workspace(
         .fetch_optional(&mut *tx)
         .await?
         .unwrap_or(false);
-        if !is_prod_admin {
-            require_super_admin(&db, &authed.email).await?;
+        if !is_prod_admin && !is_super_admin_email(&db, &authed.email).await? {
+            return Err(Error::PermissionDenied(format!(
+                "Deleting dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
+            )));
         }
     }
 
@@ -1045,8 +1051,13 @@ pub async fn drop_forked_datatable_databases(
     // Same permission check as delete_workspace: fork owner or super admin
     let is_fork = workspace_is_fork(&db, &w_id).await?;
     let mut tx = db.begin().await?;
-    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
-        require_super_admin(&db, &authed.email).await?;
+    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
+        && !is_super_admin_email(&db, &authed.email).await?
+    {
+        return Err(Error::PermissionDenied(
+            "Dropping forked datatable databases requires being the fork's owner or a superadmin"
+                .to_string(),
+        ));
     }
     tx.commit().await?;
 

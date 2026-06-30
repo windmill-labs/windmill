@@ -5362,8 +5362,10 @@ async fn attach_dev_workspace(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
-    if !is_admin_of_dev {
-        require_super_admin(&db, &authed.email).await?;
+    if !is_admin_of_dev && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+        return Err(Error::PermissionDenied(format!(
+            "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
+        )));
     }
 
     ensure_no_existing_dev_workspace(&db, &prod_w_id).await?;
@@ -5628,8 +5630,12 @@ async fn archive_workspace(
         .fetch_optional(&db)
         .await?
         .unwrap_or(false);
-        if !is_prod_admin {
-            require_super_admin(&db, &authed.email).await?;
+        if !is_prod_admin
+            && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await?
+        {
+            return Err(Error::PermissionDenied(format!(
+                "Archiving dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
+            )));
         }
     }
 
