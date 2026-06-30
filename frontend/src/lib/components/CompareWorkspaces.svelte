@@ -188,6 +188,43 @@
 		}
 	}
 
+	// Collect `$var:` variable references from a resource value (mirrors the backend `collect_var_refs`).
+	function collectVarRefs(value: unknown, out: string[]) {
+		if (typeof value === 'string') {
+			if (value.startsWith('$var:')) out.push(value.slice('$var:'.length))
+		} else if (Array.isArray(value)) {
+			for (const v of value) collectVarRefs(v, out)
+		} else if (value && typeof value === 'object') {
+			for (const v of Object.values(value)) collectVarRefs(v, out)
+		}
+	}
+
+	// Seed a resource's linked `$var:` variables into the target environment, copying each one's value
+	// (incl. secrets) only where the target lacks it (create-only). Mirrors the backend's
+	// `mark_linked_variables_ws_specific` cascade so a seeded resource resolves its references and its
+	// secrets stay per-environment. Returns the paths that failed to seed.
+	async function seedMissingLinkedVars(
+		resourcePath: string,
+		from: string,
+		to: string
+	): Promise<string[]> {
+		const resource = await ResourceService.getResource({ workspace: from, path: resourcePath })
+		const refs: string[] = []
+		collectVarRefs(resource.value, refs)
+		const failed: string[] = []
+		for (const varPath of Array.from(new Set(refs))) {
+			if (await VariableService.existsVariable({ workspace: to, path: varPath })) continue
+			const res = await deployItem({
+				kind: 'variable' as Kind,
+				path: varPath,
+				workspaceFrom: from,
+				workspaceTo: to
+			})
+			if (!res.success) failed.push(varPath)
+		}
+		return failed
+	}
+
 	// Seed a workspace-specific item onto a side that lacks it, copying its current value (incl.
 	// secret values). Strictly create-only: markers can be one-sided (a pin can fail on a locked
 	// side), so a missing marker doesn't prove the item is missing — re-check actual existence and,
@@ -216,6 +253,11 @@
 				onChanged?.()
 				return
 			}
+			// A resource owns its `$var:` secrets, so seed any linked variables the target lacks before
+			// creating the resource — otherwise it would reference variables that don't exist there.
+			const linkedFailed =
+				kindCast === 'resource' ? await seedMissingLinkedVars(it.path, from, to) : []
+
 			const res = await deployItem({
 				kind: it.item_kind as Kind,
 				path: it.path,
@@ -226,11 +268,19 @@
 				sendUserToast(`Failed to create ${it.path} in ${to}: ${res.error ?? 'unknown error'}`, true)
 				return
 			}
+			// Marking the resource cascades to mark the now-present linked variables workspace-specific.
 			await WorkspaceService.setWsSpecific({
 				workspace: to,
 				requestBody: { item_kind: kindCast, path: it.path, value: true }
 			})
-			sendUserToast(`Created ${it.path} in ${to}`)
+			if (linkedFailed.length > 0) {
+				sendUserToast(
+					`Created ${it.path} in ${to}, but these linked variables could not be seeded: ${linkedFailed.join(', ')}`,
+					true
+				)
+			} else {
+				sendUserToast(`Created ${it.path} in ${to}`)
+			}
 			await loadPinned()
 			onChanged?.()
 		} catch (e) {
