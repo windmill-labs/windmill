@@ -5232,10 +5232,13 @@ async fn create_workspace_fork(
     .execute(&mut *tx)
     .await?;
 
-    // Optionally bring the parent's members into the fork (a shared dev env). Done before the explicit
-    // creator insert below so the creator — who is a parent member — is copied with full metadata
+    // Optionally bring the parent's members into the fork (a shared dev env). Dev-only: it's part of the
+    // dev-workspace feature (and the frontend only offers it there), so the backend enforces it rather
+    // than trusting the client — copying the parent's whole team into an ordinary throwaway fork isn't
+    // intended. Dev creation is already admin-gated, so this is transitively admin-only too. Done before
+    // the explicit creator insert below so the creator (a parent member) is copied with full metadata
     // (operator/role/is_service_account/added_via), not the bare row the insert alone would leave.
-    if nw.copy_members {
+    if nw.copy_members && nw.is_dev_workspace {
         copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id).await?;
     }
 
@@ -8420,10 +8423,11 @@ async fn set_ws_specific(
         )));
     }
 
-    // Reject a malformed path with a 400 before `require_owner_of_path`, which indexes the `u/<user>`
-    // / `f/<folder>` segments and would otherwise panic (500) on a path like `u` with no segment.
+    // Reject a malformed path with a 400 before the auth check, which indexes the leading segments and
+    // would otherwise panic (500) on a path like `u` with no segment. Accept all three shared path
+    // shapes Windmill uses — `u/<user>`, `f/<folder>`, `g/<group>` (e.g. seeded `g/all/...` resources).
     let segs: Vec<&str> = body.path.split('/').collect();
-    if segs.len() < 2 || !matches!(segs[0], "u" | "f") || segs[1].is_empty() {
+    if segs.len() < 2 || !matches!(segs[0], "u" | "f" | "g") || segs[1].is_empty() {
         return Err(Error::BadRequest(format!(
             "Invalid {} path: {}",
             body.item_kind, body.path
