@@ -5546,6 +5546,10 @@ pub(crate) async fn archive_workspace_impl(
     db: &DB,
     w_id: &str,
     username: &str,
+    // When archiving a dev workspace, its parent prod. The pairing teardown (clear is_dev + drop the
+    // prod's lock) is folded into the same transaction as `deleted = true` so it's atomic with the
+    // archive — a later failure can't strand a half-archived dev that's still flagged/locked.
+    dev_lock_parent: Option<&str>,
 ) -> Result<(usize, usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
@@ -5586,6 +5590,30 @@ pub(crate) async fn archive_workspace_impl(
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", w_id)
         .execute(&mut *tx)
         .await?;
+
+    if let Some(prod) = dev_lock_parent {
+        // Dissolve the dev pairing atomically with the archive: clear the canonical-dev flag (so the
+        // archived row no longer occupies the parent's one-dev slot), and drop the prod's lock unless a
+        // replacement dev already holds it (NOT EXISTS sees the just-cleared flag within this tx, so the
+        // row being archived doesn't count).
+        sqlx::query!(
+            "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2
+             AND NOT EXISTS (
+                 SELECT 1 FROM workspace
+                 WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false
+             )",
+            prod,
+            DEV_WORKSPACE_LOCK_RULE_NAME
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     tx.commit().await?;
 
@@ -5659,37 +5687,13 @@ async fn archive_workspace(
         }
     }
 
+    // The dev pairing teardown (clear is_dev + drop the prod lock) runs inside archive_workspace_impl's
+    // transaction, atomically with `deleted = true`.
     let (schedules_count, canceled_count, deleted_tokens_count) =
-        archive_workspace_impl(&db, &w_id, &authed.username).await?;
+        archive_workspace_impl(&db, &w_id, &authed.username, dev_lock_parent.as_deref()).await?;
 
     // Audit log
     let mut tx = db.begin().await?;
-    if let Some(ref prod) = dev_lock_parent {
-        // Archiving a dev dissolves the pairing: clear its canonical-dev flag (mirrors detach) so the
-        // archived row no longer occupies the parent's one-dev slot. Otherwise a replacement dev plus a
-        // later unarchive would yield two active is_dev rows for the same parent and hit the unique
-        // index instead of a recoverable state.
-        sqlx::query!(
-            "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        // archive_workspace_impl already committed `deleted = true` in a separate transaction, so a
-        // replacement dev could have been created and re-locked the prod in that window. Only drop the
-        // lock if no active dev remains for the prod — otherwise we'd remove the replacement's lock.
-        sqlx::query!(
-            "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2
-             AND NOT EXISTS (
-                 SELECT 1 FROM workspace
-                 WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false
-             )",
-            prod,
-            DEV_WORKSPACE_LOCK_RULE_NAME
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
     let mut audit_params = HashMap::new();
     audit_params.insert("disabled_schedules", schedules_count.to_string());
     audit_params.insert("canceled_jobs", canceled_count.to_string());
@@ -5767,21 +5771,6 @@ async fn unarchive_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
-    // Defense-in-depth for a row archived before archive cleared its dev flag: if it is still flagged
-    // as a dev but its parent already has an active dev (a replacement created meanwhile), bring it
-    // back as a plain fork rather than a second canonical dev, which would violate the one-dev-per-
-    // parent unique index. Run before flipping `deleted` so the EXISTS check excludes this row.
-    sqlx::query!(
-        r#"UPDATE workspace w SET is_dev_workspace = false
-           WHERE w.id = $1 AND w.is_dev_workspace AND EXISTS (
-               SELECT 1 FROM workspace other
-               WHERE other.parent_workspace_id = w.parent_workspace_id
-                 AND other.is_dev_workspace AND other.deleted = false AND other.id <> w.id
-           )"#,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
     sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;

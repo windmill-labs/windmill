@@ -719,7 +719,7 @@ pub(crate) async fn change_workspace_id(
     // Note: schedules were already moved to new workspace, so this will find 0 schedules
     info!("Archiving old workspace");
     let (_schedules_count, canceled_count, _deleted_tokens_count) =
-        archive_workspace_impl(&db, &old_id, &authed.username).await?;
+        archive_workspace_impl(&db, &old_id, &authed.username, None).await?;
 
     info!(
         "Workspace id change completed: moved {} to {}, archived old workspace",
