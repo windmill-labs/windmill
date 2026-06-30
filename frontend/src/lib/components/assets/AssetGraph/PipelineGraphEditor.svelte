@@ -147,8 +147,9 @@
 		canRunByPath?: boolean
 		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
 		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
-		 * so the details pane skips the (nonexistent) deployed-script fetch. */
-		resolveLocalScript?: (path: string) => Script | undefined
+		 * so the details pane skips the (nonexistent) deployed-script fetch. May
+		 * be async (to infer the args schema for the run form). */
+		resolveLocalScript?: (path: string) => Script | undefined | Promise<Script | undefined>
 		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
 		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph

@@ -11,6 +11,7 @@
 	import { JobService, OpenAPI, type Preview, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { inferArgs } from '$lib/infer'
 
 	// A local-dev pipeline preview driven by `wmill pipeline dev`. The CLI watches
 	// an `f/<folder>` of `// pipeline` scripts, builds the asset graph from the
@@ -69,19 +70,25 @@
 
 	// Selecting a node must render its working-tree source + Run button, NOT
 	// fetch the deployed script (this pipeline is local-only — that fetch 404s).
-	// Synthesize a read-only `Script` from the pushed content. The details pane
-	// only reads path/language/content/schema; args inference is a follow-up, so
-	// the run form starts from an empty schema (fine for no-arg DuckDB nodes).
-	function resolveLocalScript(path: string): Script | undefined {
+	// Synthesize a read-only `Script` from the pushed content and infer its args
+	// schema (same wasm the script editor uses) so a parameterized node shows its
+	// run-form inputs. The details pane only reads path/language/content/schema.
+	async function resolveLocalScript(path: string): Promise<Script | undefined> {
 		const s = scriptByPath.get(path)
 		if (!s) return undefined
+		const schema = emptySchema()
+		try {
+			await inferArgs(s.language as any, s.content ?? '', schema)
+		} catch {
+			// Inference failure (unsupported lang / parse error) → no inputs, still runnable.
+		}
 		return {
 			hash: '',
 			path,
 			summary: '',
 			description: '',
 			content: s.content,
-			schema: emptySchema(),
+			schema,
 			is_template: false,
 			extra_perms: {},
 			language: s.language as Script['language'],
@@ -124,14 +131,34 @@
 		}
 	})
 
-	function connectWs() {
+	// Connect to the `wmill pipeline dev` WS, auto-reconnecting while mounted —
+	// the dev server may bounce (the agent/user restarts it after changing config
+	// or the folder), and the page should recover without a manual reload.
+	$effect(() => {
+		const _port = port
 		let socket: WebSocket | undefined
-		try {
+		let retry: ReturnType<typeof setTimeout> | undefined
+		let disposed = false
+
+		function scheduleReconnect() {
+			if (disposed) return
+			wsState = 'closed'
+			if (retry) return
+			retry = setTimeout(() => {
+				retry = undefined
+				open()
+			}, 1500)
+		}
+		function open() {
+			if (disposed) return
 			wsState = 'connecting'
-			socket = new WebSocket(`ws://localhost:${port}/ws`)
+			try {
+				socket = new WebSocket(`ws://localhost:${_port}/ws`)
+			} catch {
+				scheduleReconnect()
+				return
+			}
 			socket.addEventListener('open', () => (wsState = 'open'))
-			socket.addEventListener('close', () => (wsState = 'closed'))
-			socket.addEventListener('error', () => (wsState = 'closed'))
 			socket.addEventListener('message', (event) => {
 				try {
 					const data = JSON.parse(event.data)
@@ -140,12 +167,16 @@
 					// ignore malformed frames
 				}
 			})
-		} catch {
-			wsState = 'closed'
+			socket.addEventListener('close', scheduleReconnect)
+			socket.addEventListener('error', () => socket?.close())
 		}
-		return () => socket?.close()
-	}
-	$effect(() => connectWs())
+		open()
+		return () => {
+			disposed = true
+			if (retry) clearTimeout(retry)
+			socket?.close()
+		}
+	})
 
 	function resolveLocal(
 		path: string

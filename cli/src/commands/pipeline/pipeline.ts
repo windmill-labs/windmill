@@ -384,7 +384,12 @@ async function run(
   // Resolve the start: explicit --from (must be a valid start) or the folder's
   // sole valid start.
   const starts = validStarts(graph);
-  let start: string;
+  // `runAll` = no `--from` on a multi-root pipeline (fan-in): run the whole
+  // pipeline in topological order rather than forcing a single start, the way
+  // `dbt run` (no `--select`) runs the entire project. `--to` still needs an
+  // explicit `--from` since bounding is relative to one start.
+  let runAll = false;
+  let start: string | undefined;
   if (opts.from) {
     const resolved = resolveToken(graph, opts.from);
     if (!resolved) {
@@ -412,9 +417,12 @@ async function run(
     throw new Error(
       `No schedule or manual root in f/${f} to start a bounded run from.`,
     );
+  } else if ((opts.to ?? []).length === 0) {
+    // Multiple roots, no `--from`, no `--to` → run the whole pipeline.
+    runAll = true;
   } else {
     throw new Error(
-      `f/${f} has ${starts.size} possible starts — pass --from <script>. Candidates: ${scriptsOf(starts).sort().join(", ")}`,
+      `f/${f} has ${starts.size} possible starts — pass --from <script> when using --to. Candidates: ${scriptsOf(starts).sort().join(", ")}`,
     );
   }
 
@@ -452,13 +460,18 @@ async function run(
   let selectedScripts: Set<string>;
   let reachableEnds: string[] = [];
   let droppedEnds: string[] = [];
-  if (ends.length === 0) {
+  if (runAll) {
+    // Whole pipeline: every `// pipeline` script, globally topo-ordered below.
+    selectedScripts = new Set(
+      graph.runnables.filter((r) => r.usage_kind === "script").map((r) => r.path),
+    );
+  } else if (ends.length === 0) {
     // No bound → full read-aware downstream of start (pure readers included).
-    const all = new Set(descendants(dag, start));
-    all.add(start);
+    const all = new Set(descendants(dag, start!));
+    all.add(start!);
     selectedScripts = new Set(scriptsOf(all));
   } else {
-    const res = boundedSet(dag, start, ends);
+    const res = boundedSet(dag, start!, ends);
     reachableEnds = res.reachableEnds;
     droppedEnds = res.droppedEnds;
     for (const d of droppedEnds) {
@@ -478,7 +491,7 @@ async function run(
     // `--to` must not look like a clean plan that silently runs only the start.
     console.log(
       JSON.stringify({
-        start: scriptPathOf(start),
+        start: runAll ? null : scriptPathOf(start!),
         ends: ends.map(idLabel),
         reachableEnds: reachableEnds.map(idLabel),
         droppedEnds: droppedEnds.map(idLabel),
@@ -497,7 +510,7 @@ async function run(
     if (!opts.json) {
       log.info(
         colors.bold(`Bounded run plan — ${order.length} script${order.length === 1 ? "" : "s"}`) +
-          colors.dim(` (from ${shortName(scriptPathOf(start))})`),
+          colors.dim(runAll ? ` (whole pipeline)` : ` (from ${shortName(scriptPathOf(start!))})`),
       );
       order.forEach((p, i) => log.info(`  ${i + 1}. ${p}`));
     }

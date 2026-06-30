@@ -165,6 +165,24 @@ export async function generatePipelineDocs(
     : await fetchDeployedGraph(workspace.workspaceId, f);
 
   if (graph.runnables.length === 0) {
+    // The deployed graph is empty — but a user/agent in a working tree may have
+    // local `// pipeline` scripts not yet deployed. Point them at --local rather
+    // than leaving them thinking the folder is empty.
+    if (!opts.local) {
+      try {
+        const localCount =
+          (await buildLocalPipelineGraph({ root, folder: f, defaultTs: opts.defaultTs })).graph
+            .runnables.length;
+        if (localCount > 0) {
+          log.info(
+            `No deployed pipeline scripts in f/${f}, but ${localCount} \`// pipeline\` script(s) exist in the local working tree — run \`wmill pipeline docs ${f} --local\` to document those.`,
+          );
+          return;
+        }
+      } catch {
+        // best-effort hint; fall through to the generic message
+      }
+    }
     log.info(`No pipeline scripts in f/${f}.`);
     return;
   }

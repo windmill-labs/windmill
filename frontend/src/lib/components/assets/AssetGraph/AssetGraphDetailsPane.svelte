@@ -52,8 +52,9 @@
 		// working-tree content instead of fetching the deployed script (there is
 		// none — the pipeline is local-only). Returns a read-only `Script` so the
 		// pane renders the source + an ENABLED Run button (unlike `draftScript`,
-		// which is intentionally not-runnable until deployed).
-		resolveLocalScript?: (path: string) => Script | undefined
+		// which is intentionally not-runnable until deployed). May be async so the
+		// caller can infer the args schema for the run form.
+		resolveLocalScript?: (path: string) => Script | undefined | Promise<Script | undefined>
 		workspace: string
 		onclose: () => void
 		// Optional: dismiss the pane while preserving the current selection /
@@ -402,7 +403,7 @@
 			if (draft) return undefined
 			if (!sel || sel.kind !== 'runnable' || sel.runnable_kind !== 'script') return undefined
 			// Local-dev: serve the working-tree script (no deployed row exists).
-			const local = resolveLocalScript?.(sel.path)
+			const local = await resolveLocalScript?.(sel.path)
 			if (local) return local
 			return await ScriptService.getScriptByPath({ workspace: ws, path: sel.path })
 		}
