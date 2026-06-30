@@ -406,7 +406,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
             )
         }
         ObjectSettings::Gcs(gcs) => {
-            if gcs.service_account_key.is_empty() {
+            // Mirror `build_gcs_client`'s blank-key check (shared predicate): a blank/`{}` key falls
+            // back to the instance's ambient credentials there, so it must be rejected here too —
+            // otherwise an untrusted caller could probe with the server's identity (the very
+            // SSRF/credential-exfil this function guards against).
+            if windmill_object_store::gcs_service_account_key_is_blank(&gcs.service_account_key) {
                 return Err(error::Error::NotAuthorized(
                     "Testing GCS storage without a service account key requires a super admin"
                         .to_string(),
@@ -2185,6 +2189,26 @@ mod object_storage_test_hardening {
                 .await
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_gcs_blank_service_account_key() {
+        // A blank key makes build_gcs_client fall back to the instance's ambient credentials, so an
+        // untrusted caller must not be allowed to test with it. The `serviceAccountKey` field is
+        // serialized via serde's `as_string` (`to_string` of the JSON value), so the settings UI's
+        // "no key" empty object arrives as `"{}"` and a null as `"null"` — both must be rejected.
+        for key in [serde_json::json!({}), serde_json::json!(null)] {
+            let settings: ObjectSettings = serde_json::from_value(serde_json::json!({
+                "type": "Gcs",
+                "bucket": "b",
+                "serviceAccountKey": key
+            }))
+            .unwrap();
+            assert!(
+                validate_object_storage_test(&settings).await.is_err(),
+                "blank key {key:?} should be rejected"
+            );
+        }
     }
 
     fn ip(s: &str) -> IpAddr {

@@ -408,6 +408,14 @@ async fn list_scripts(
                 .and_then(|s| s.as_str())
                 .filter(|s| !s.is_empty() && *s != row.path.as_str())
                 .map(|s| s.to_string());
+            // A draft-only pipeline node (`// pipeline`) has no deployed row to carry
+            // auto_kind, so compute it from the draft content — mirroring the create
+            // path — so the home page folds it into its pipeline like a deployed member.
+            let auto_kind = v
+                .get("content")
+                .and_then(|s| s.as_str())
+                .filter(|c| parse_pipeline_annotations(c).in_pipeline)
+                .map(|_| "pipeline".to_string());
             rows.push(ListableScript {
                 hash: ScriptHash(0),
                 path: row.path,
@@ -429,7 +437,7 @@ async fn list_scripts(
                 draft_only: Some(true),
                 has_deploy_errors: false,
                 ws_error_handler_muted: None,
-                auto_kind: None,
+                auto_kind,
                 use_codebase: false,
                 deployment_msg: None,
                 kind,
