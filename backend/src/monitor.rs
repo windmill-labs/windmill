@@ -3127,13 +3127,40 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                 continue;
             }
 
-            match windmill_store::resources::get_git_repo_head_for_autopull(
+            let head = match windmill_store::resources::get_git_repo_head_for_autopull(
                 db,
                 &row.workspace_id,
                 &repo.git_repo_resource_path,
             )
             .await
             {
+                Ok(Some(h)) => Ok(Some(h)),
+                // App-backed repos store a tokenless URL, so the ls-remote head
+                // check can't authenticate and returns None. Poll the head over
+                // the GitHub API with a minted installation token instead. This
+                // is the polling fallback/safety-net for auto- and polling-mode
+                // app repos whose webhook isn't live (unreachable instance,
+                // missing permission, or a dropped delivery). `webhook`-mode
+                // repos are skipped above and stay webhook-only.
+                Ok(None) => {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
+                            db,
+                            &row.workspace_id,
+                            &repo.git_repo_resource_path,
+                        )
+                        .await
+                    }
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Ok(None)
+                    }
+                }
+                Err(e) => Err(e),
+            };
+
+            match head {
                 Ok(Some((git_ref, sha))) => {
                     // Shared reconcile (also used by the webhook receiver):
                     // checks should_pull, enqueues, and records status/failure.
@@ -3153,7 +3180,6 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                         );
                     }
                 }
-                // GitHub-App repo: synced via webhook (phase 2), nothing to poll.
                 Ok(None) => {}
                 Err(e) => {
                     windmill_git_sync::record_auto_pull_failure(
@@ -3161,7 +3187,7 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                         &row.workspace_id,
                         &repo.git_repo_resource_path,
                         &auto_pull.last_synced_sha,
-                        format!("ls-remote failed: {e}"),
+                        format!("head check failed: {e}"),
                     )
                     .await;
                 }
