@@ -15,7 +15,8 @@
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
 	import { usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { findCanonicalDevWorkspace, workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import { resource } from 'runed'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -59,7 +60,6 @@
 
 	// The dev-workspace option is only offered when forking a root workspace that doesn't already
 	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
-	let existingDevWorkspace = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
 	let currentWorkspaceEntry = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	// Require the current workspace to be loaded before treating it as a root: a missing entry must
 	// not read as root (it would offer invalid dev creation while the workspace list is still loading).
@@ -68,7 +68,17 @@
 	let currentIsRoot = $derived(
 		!!currentWorkspaceEntry && !workspaceIsFork($workspaceStore, $userWorkspaces)
 	)
-	let canDesignateDevWorkspace = $derived(currentIsRoot && !existingDevWorkspace)
+	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
+	// so the client workspace list can't see it and would offer an invalid "create dev" action.
+	const hasDevWorkspaceResource = resource(
+		() => (currentIsRoot ? $workspaceStore : undefined),
+		async (ws) => (ws ? await WorkspaceService.hasDevWorkspace({ workspace: ws }) : false)
+	)
+	// Offer dev designation only once the server confirms there's no dev yet; stay conservative (no
+	// offer) while the check is loading.
+	let canDesignateDevWorkspace = $derived(
+		currentIsRoot && hasDevWorkspaceResource.current === false
+	)
 	let currentWorkspaceName = $derived(
 		currentWorkspaceEntry?.name ?? $workspaceStore ?? 'the root workspace'
 	)

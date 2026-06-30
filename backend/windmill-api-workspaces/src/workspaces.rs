@@ -155,6 +155,7 @@ pub fn workspaced_service() -> Router {
         .route("/create_fork", post(create_workspace_fork))
         .route("/attach_dev_workspace", post(attach_dev_workspace))
         .route("/detach_dev_workspace", post(detach_dev_workspace))
+        .route("/has_dev_workspace", get(has_dev_workspace))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
         .route(
@@ -655,6 +656,24 @@ async fn exists_workspace(
     .await?
     .unwrap_or(false);
     tx.commit().await?;
+    Ok(Json(exists))
+}
+
+/// Whether this workspace already has an active canonical dev workspace. The create-fork UI can't
+/// rely on the caller's workspace list to decide this — a dev paired to this prod may exist that the
+/// caller isn't a member of — so it asks the server, which sees all children.
+async fn has_dev_workspace(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<bool> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false)",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
     Ok(Json(exists))
 }
 
@@ -5645,6 +5664,16 @@ async fn archive_workspace(
     // Audit log
     let mut tx = db.begin().await?;
     if let Some(ref prod) = dev_lock_parent {
+        // Archiving a dev dissolves the pairing: clear its canonical-dev flag (mirrors detach) so the
+        // archived row no longer occupies the parent's one-dev slot. Otherwise a replacement dev plus a
+        // later unarchive would yield two active is_dev rows for the same parent and hit the unique
+        // index instead of a recoverable state.
+        sqlx::query!(
+            "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
             prod,
@@ -5730,6 +5759,21 @@ async fn unarchive_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
+    // Defense-in-depth for a row archived before archive cleared its dev flag: if it is still flagged
+    // as a dev but its parent already has an active dev (a replacement created meanwhile), bring it
+    // back as a plain fork rather than a second canonical dev, which would violate the one-dev-per-
+    // parent unique index. Run before flipping `deleted` so the EXISTS check excludes this row.
+    sqlx::query!(
+        r#"UPDATE workspace w SET is_dev_workspace = false
+           WHERE w.id = $1 AND w.is_dev_workspace AND EXISTS (
+               SELECT 1 FROM workspace other
+               WHERE other.parent_workspace_id = w.parent_workspace_id
+                 AND other.is_dev_workspace AND other.deleted = false AND other.id <> w.id
+           )"#,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;

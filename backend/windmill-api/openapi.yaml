@@ -1242,6 +1242,22 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/has_dev_workspace:
+    get:
+      summary: whether this workspace already has an active canonical dev workspace
+      operationId: hasDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: whether a dev workspace exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /workspaces/exists:
     post:
       summary: exists workspace
