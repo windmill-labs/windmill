@@ -159,6 +159,9 @@
 			bounded: ReadonlySet<string>
 		}
 		onPickEnd?: (canvasNodeId: string) => void
+		/** Hide the minimap when the canvas is too narrow for it to be worth the
+		 * space (e.g. stacked layout in a side panel). Defaults to shown. */
+		showMinimap?: boolean
 	}
 	let {
 		graph,
@@ -184,7 +187,8 @@
 		validStartPaths,
 		onStartBoundedRun,
 		boundPick,
-		onPickEnd
+		onPickEnd,
+		showMinimap = true
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -1021,19 +1025,21 @@
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
-		<MiniMap
-			pannable
-			zoomable
-			class="!bg-surface !mb-10"
-			nodeColor={(n) =>
-				n.type === 'asset'
-					? 'rgb(96 165 250 / 0.5)'
-					: n.type === 'trigger'
-						? 'rgb(251 191 36 / 0.5)'
-						: 'rgb(52 211 153 / 0.5)'}
-			nodeStrokeColor="transparent"
-			maskColor="rgb(0 0 0 / 0.2)"
-		/>
+		{#if showMinimap}
+			<MiniMap
+				pannable
+				zoomable
+				class="!bg-surface !mb-10"
+				nodeColor={(n) =>
+					n.type === 'asset'
+						? 'rgb(96 165 250 / 0.5)'
+						: n.type === 'trigger'
+							? 'rgb(251 191 36 / 0.5)'
+							: 'rgb(52 211 153 / 0.5)'}
+				nodeStrokeColor="transparent"
+				maskColor="rgb(0 0 0 / 0.2)"
+			/>
+		{/if}
 	</SvelteFlow>
 </div>
 

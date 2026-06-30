@@ -3,13 +3,14 @@
 	import { Loader2, Workflow } from 'lucide-svelte'
 	import { page } from '$app/state'
 	import PipelineGraphEditor from './PipelineGraphEditor.svelte'
+	import PipelineActivityPanel from './PipelineActivityPanel.svelte'
 	import { PipelineEditorState } from './pipelineEditorState.svelte'
 	import { useActiveRunnableIds } from './activeRunnables.svelte'
 	import { makeLaunch, makeWaitJobTerminal, runDownstreamCascade } from './cascadeRun'
 	import type { AssetGraphResponse, AssetGraphSelection } from './types'
-	import { JobService, OpenAPI, type Preview } from '$lib/gen'
+	import { JobService, OpenAPI, type Preview, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 
 	// A local-dev pipeline preview driven by `wmill pipeline dev`. The CLI watches
 	// an `f/<folder>` of `// pipeline` scripts, builds the asset graph from the
@@ -66,6 +67,33 @@
 		new Map<string, PushedScript>((bundle?.scripts ?? []).map((s) => [s.path, s]))
 	)
 
+	// Selecting a node must render its working-tree source + Run button, NOT
+	// fetch the deployed script (this pipeline is local-only — that fetch 404s).
+	// Synthesize a read-only `Script` from the pushed content. The details pane
+	// only reads path/language/content/schema; args inference is a follow-up, so
+	// the run form starts from an empty schema (fine for no-arg DuckDB nodes).
+	function resolveLocalScript(path: string): Script | undefined {
+		const s = scriptByPath.get(path)
+		if (!s) return undefined
+		return {
+			hash: '',
+			path,
+			summary: '',
+			description: '',
+			content: s.content,
+			schema: emptySchema(),
+			is_template: false,
+			extra_perms: {},
+			language: s.language as Script['language'],
+			kind: 'script',
+			created_by: '',
+			created_at: '',
+			archived: false,
+			deleted: false,
+			starred: false
+		} as unknown as Script
+	}
+
 	// Live run state (node badges + event log), shared with the route page's poll.
 	const activeRunnables = useActiveRunnableIds(
 		() => workspace,
@@ -73,6 +101,15 @@
 	)
 	let activeRunnable = $state<{ kind: 'script' | 'flow'; path: string } | undefined>(undefined)
 	let activeRunnableJobId = $state<string | undefined>(undefined)
+
+	// Activity-panel cross-highlighting: hovering/expanding a run row emphasizes
+	// its node(s) on the canvas (same wiring the route page uses).
+	let activityHoverPaths = $state<string[]>([])
+	let activitySelectPaths = $state<string[]>([])
+
+	// Collapse the details/activity pane to give the graph full width/height —
+	// works in both side-by-side and stacked layouts.
+	let panelHidden = $state(false)
 	$effect(() => {
 		pathPrefix
 		activeRunnables.setObserving(true)
@@ -258,8 +295,13 @@
 				activeRunnableIds={activeRunnables.ids}
 				runStates={activeRunnables.states}
 				eventLogEvents={activeRunnables.events}
+				hoveredPaths={activityHoverPaths}
+				selectedRunPaths={activitySelectPaths}
+				{panelHidden}
+				onTogglePanelHidden={() => (panelHidden = !panelHidden)}
 				onRunProducer={runProducer}
 				onRunByPath={(path, args) => runNode(path, args)}
+				{resolveLocalScript}
 				canRunByPath
 				onRunCompleted={() => {
 					activeRunnable = undefined
@@ -267,7 +309,16 @@
 				}}
 				onSelect={handleCanvasSelect}
 				onClose={() => (pe.selection = undefined)}
-			/>
+			>
+				{#snippet idlePane()}
+					<PipelineActivityPanel
+						events={activeRunnables.events}
+						liveOnly
+						onHoverRun={(p) => (activityHoverPaths = p ?? [])}
+						onSelectRun={(p) => (activitySelectPaths = p ?? [])}
+					/>
+				{/snippet}
+			</PipelineGraphEditor>
 		{/if}
 	</div>
 </div>

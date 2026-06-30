@@ -48,6 +48,12 @@
 		// `selection` when present. Used by the pipeline + menu so a new
 		// pipeline script opens inline instead of navigating to /scripts/add.
 		draftScript?: Script | undefined
+		// Local-dev preview (`/pipeline_dev`): resolve a selected node to its
+		// working-tree content instead of fetching the deployed script (there is
+		// none — the pipeline is local-only). Returns a read-only `Script` so the
+		// pane renders the source + an ENABLED Run button (unlike `draftScript`,
+		// which is intentionally not-runnable until deployed).
+		resolveLocalScript?: (path: string) => Script | undefined
 		workspace: string
 		onclose: () => void
 		// Optional: dismiss the pane while preserving the current selection /
@@ -219,6 +225,7 @@
 	let {
 		selection,
 		draftScript,
+		resolveLocalScript,
 		workspace,
 		onclose,
 		onHide,
@@ -394,6 +401,9 @@
 		async ([ws, sel, draft]) => {
 			if (draft) return undefined
 			if (!sel || sel.kind !== 'runnable' || sel.runnable_kind !== 'script') return undefined
+			// Local-dev: serve the working-tree script (no deployed row exists).
+			const local = resolveLocalScript?.(sel.path)
+			if (local) return local
 			return await ScriptService.getScriptByPath({ workspace: ws, path: sel.path })
 		}
 	)
