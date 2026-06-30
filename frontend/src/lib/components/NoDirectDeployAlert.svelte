@@ -50,8 +50,9 @@
 					</p>
 					<div>
 						<Button
+							btnClasses="w-auto"
 							size="xs"
-							variant="default"
+							variant="accent"
 							startIcon={{ icon: GitFork }}
 							onclick={() => {
 								if (canonicalDev) switchWorkspace(canonicalDev.id)
