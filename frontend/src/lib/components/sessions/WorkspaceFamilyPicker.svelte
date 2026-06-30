@@ -27,7 +27,7 @@
 	import { Badge } from '$lib/components/common'
 	import { Building, Check, GitFork, Plus } from 'lucide-svelte'
 
-	type PendingFork = { id: string; name: string }
+	type PendingFork = { parent_workspace_id: string; id: string; name: string }
 	type ForkRequest = { parent_workspace_id: string; id: string; name: string }
 
 	let {
@@ -272,7 +272,9 @@
 		const wasOpen = lastDropdownOpen
 		lastDropdownOpen = dropdownOpen
 		if (dropdownOpen && !wasOpen && pendingFork && !creatingFork && showCreateFork) {
-			void enterCreateMode(pendingFork.name)
+			// Preserve which source the fork was staged from (root vs dev); without this the re-entry
+			// defaults to the dev and silently re-parents a "Fork from <root>" request.
+			void enterCreateMode(pendingFork.name, pendingFork.parent_workspace_id === root?.id)
 		}
 	})
 </script>
