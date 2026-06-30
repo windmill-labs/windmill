@@ -54,6 +54,11 @@ export function getRawAppPrompt(): string {
   return prompts.RAW_APP_BASE;
 }
 
+// Helper for data pipeline authoring (chat consumers)
+export function getPipelinePrompt(): string {
+  return prompts.PIPELINE_BASE;
+}
+
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).
 // Pass a language to get only that SDK; omit it to get both.
 export function getDatatableSdkReference(language?: string): string {

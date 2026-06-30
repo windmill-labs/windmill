@@ -28,6 +28,7 @@
 	import FlowEditorView from './FlowEditorView.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
+	import PipelineEditorView from './PipelineEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionForkBar from './SessionForkBar.svelte'
 	import SessionDraftBar from './SessionDraftBar.svelte'
@@ -265,7 +266,8 @@
 	{@const hasTarget =
 		session.target?.kind === 'flow' ||
 		session.target?.kind === 'script' ||
-		session.target?.kind === 'raw_app'}
+		session.target?.kind === 'raw_app' ||
+		session.target?.kind === 'pipeline'}
 	{@const hasEditor = mountEditor && hasTarget && editorVisible}
 
 	{#snippet inputPreface()}
@@ -471,6 +473,13 @@
 							path={session.target.path}
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
+							isActiveSession={sessionState.currentSessionId === sessionId}
+						/>
+					{:else if session.target.kind === 'pipeline'}
+						<PipelineEditorView
+							{runtime}
+							path={session.target.path}
+							workspaceId={effectiveWorkspaceId}
 							isActiveSession={sessionState.currentSessionId === sessionId}
 						/>
 					{/if}

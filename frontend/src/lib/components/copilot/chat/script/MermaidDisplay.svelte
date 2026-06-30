@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { randomUUID } from '$lib/utils/uuid'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
+	import { Button } from '$lib/components/common'
+	import { copyToClipboard } from '$lib/utils'
+	import { ClipboardCopy } from 'lucide-svelte'
 
 	let { code }: { code: string } = $props()
 
@@ -52,9 +55,22 @@
 </script>
 
 {#if showSvg}
-	<div class="p-2 flex justify-center overflow-x-auto">
-		<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-		{@html svg}
+	<div class="relative">
+		<Button
+			wrapperClasses="absolute top-2 right-2 z-20"
+			onclick={() => copyToClipboard(code)}
+			color="light"
+			size="xs2"
+			startIcon={{
+				icon: ClipboardCopy
+			}}
+			iconOnly
+			title="Copy to clipboard"
+		/>
+		<div class="p-2 flex justify-center overflow-x-auto">
+			<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+			{@html svg}
+		</div>
 	</div>
 {:else}
 	<!-- Fallback while loading or when rendering fails: show the raw source -->
