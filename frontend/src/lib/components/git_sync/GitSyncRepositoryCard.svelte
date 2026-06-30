@@ -21,6 +21,7 @@
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 	import { ResourceService, VariableService } from '$lib/gen'
 
 	let {
@@ -64,6 +65,15 @@
 		} else if (repo.auto_pull) {
 			repo.auto_pull = { ...repo.auto_pull, enabled: false }
 		}
+	}
+
+	// Delivery mode shown in the selector. The backend also has a webhook-only
+	// mode; it's surfaced as "auto" (webhook with polling fallback) here.
+	function deliveryMode(): 'auto' | 'polling' {
+		return repo?.auto_pull?.mode === 'polling' ? 'polling' : 'auto'
+	}
+	function setDeliveryMode(mode: 'auto' | 'polling') {
+		if (repo?.auto_pull) repo.auto_pull = { ...repo.auto_pull, mode }
 	}
 
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
@@ -503,41 +513,41 @@
 				</GitSyncFilterSettings>
 
 				{#if !repo.isUnsavedConnection}
-					<div class="flex justify-between items-start">
-						<!-- Display mode settings as prominent text -->
-						<div class="flex-1 mr-4">
-							<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} />
+					{#if !emptyString(repo.git_repo_resource_path) && !repo.legacyImported}
+						<!-- Direction 1: Windmill -> Git (commit/push on deploy) -->
+						<div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
+							<div class="flex justify-between items-start gap-4">
+								<div class="flex-1">
+									<div class="text-sm font-semibold text-emphasis mb-1">
+										Push to Git on deploy (Windmill → Git)
+									</div>
+									<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} />
+								</div>
+								<Button
+									size="xs"
+									variant="default"
+									onclick={() => idx !== null && gitSyncContext.showPushModal(idx)}
+									startIcon={{ icon: Upload }}
+								>
+									Push to repo
+								</Button>
+							</div>
 						</div>
 
-						<!-- Manual sync section for existing repos -->
-						{#if !emptyString(repo.git_repo_resource_path) && !repo.legacyImported}
-							<div class="flex flex-col">
-								<div class="text-sm text-secondary mb-2">Manual workspace content sync</div>
-								<div class="flex gap-2">
-									<Button
-										size="xs"
-										variant="default"
-										onclick={() => idx !== null && gitSyncContext.showPullModal(idx)}
-										startIcon={{ icon: Download }}
-									>
-										Pull from repo
-									</Button>
-									<Button
-										size="xs"
-										variant="default"
-										onclick={() => idx !== null && gitSyncContext.showPushModal(idx)}
-										startIcon={{ icon: Upload }}
-									>
-										Push to repo
-									</Button>
-								</div>
-							</div>
-						{/if}
-					</div>
-
-					<!-- Automatic deployment from Git (repo to workspace) -->
-					{#if !emptyString(repo.git_repo_resource_path) && !repo.legacyImported}
+						<!-- Direction 2: Git -> Windmill (pull / auto-deploy) -->
 						<div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
+							<div class="flex justify-between items-start gap-4 mb-2">
+								<div class="text-sm font-semibold text-emphasis">Pull from Git (Git → Windmill)</div
+								>
+								<Button
+									size="xs"
+									variant="default"
+									onclick={() => idx !== null && gitSyncContext.showPullModal(idx)}
+									startIcon={{ icon: Download }}
+								>
+									Pull from repo
+								</Button>
+							</div>
 							<Toggle
 								checked={repo.auto_pull?.enabled ?? false}
 								options={{
@@ -549,6 +559,18 @@
 							/>
 							{#if repo.auto_pull?.enabled}
 								{@const viaWebhook = repo.auto_pull?.webhook_id != null}
+								<div class="mt-3 max-w-sm">
+									<div class="text-2xs font-semibold text-secondary mb-1">Delivery</div>
+									<Select
+										items={[
+											{ label: 'Webhook with polling fallback', value: 'auto' },
+											{ label: 'Polling only (air-gapped)', value: 'polling' }
+										]}
+										bind:value={() => deliveryMode(), (v) => setDeliveryMode(v)}
+										clearable={false}
+										size="sm"
+									/>
+								</div>
 								<div class="text-2xs text-secondary mt-2">
 									{#if repo.auto_pull?.last_pull_status}
 										{#if repo.auto_pull.last_pull_status.success}
@@ -570,6 +592,19 @@
 											? 'Connected via webhook. New commits to the tracked branch deploy instantly.'
 											: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 									{/if}
+								</div>
+								{#if repo.auto_pull?.webhook_error}
+									<div class="mt-2">
+										<Alert type="warning" title="Falling back to polling" size="xs">
+											{repo.auto_pull.webhook_error}
+										</Alert>
+									</div>
+								{/if}
+								<div class="mt-2">
+									<Alert type="info" title="Already pulling with a GitHub Action?" size="xs">
+										If you previously set up a GitHub Action to push changes into Windmill, remove
+										it now so the two don't fight over deploys.
+									</Alert>
 								</div>
 							{/if}
 						</div>

@@ -199,7 +199,11 @@ export function createGitSyncContext(workspace: string) {
 			exclude_types_override: [],
 			legacyImported: false,
 			isUnsavedConnection: true,
-			collapsed: false
+			collapsed: false,
+			// New connections default to pulling changes from Git (webhook with a
+			// polling fallback). Existing repos load without auto_pull and stay off
+			// until an admin opts in, so upgrades never start auto-deploying.
+			auto_pull: { enabled: true, mode: 'auto' }
 		})
 		gitSyncTestJobs.push({
 			jobId: '',

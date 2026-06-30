@@ -28848,6 +28848,8 @@ components:
           format: int64
         webhook_secret:
           type: string
+        webhook_error:
+          type: string
         last_synced_sha:
           type: object
           additionalProperties:

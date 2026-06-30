@@ -342,6 +342,12 @@ pub struct AutoPullSettings {
     /// HMAC secret for the repo webhook, encrypted at rest (managed-app, phase 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_secret: Option<String>,
+    /// Why the repo has no active webhook while one was requested (auto/webhook
+    /// mode): instance base URL unset, app missing the webhook permission, etc.
+    /// Surfaced in the UI as a "falling back to polling" warning; `None` when the
+    /// webhook is live or the repo is polling-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_error: Option<String>,
     /// Last synced commit sha per tracked git ref (e.g. `refs/heads/main`).
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub last_synced_sha: std::collections::HashMap<String, String>,
