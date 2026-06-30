@@ -108,7 +108,7 @@ function clearEphemeralSecretVariableDraftValues(workspace: string): void {
 	secretVariableDraftValues.delete(workspace)
 }
 
-function itemKindFor(
+export function itemKindFor(
 	type: WorkspaceItemType,
 	triggerKind?: TriggerKind
 ): UserDraftItemKind | undefined {
@@ -377,10 +377,25 @@ export async function readGlobalDraftValue<V>(
 	return (await fetchBackendDraftValue(workspace, itemKind, storagePath)) as V | undefined
 }
 
+// `itemKind` + `storagePath` are the canonical identity of the persisted draft
+// (NOT item.path, which is the friendly display path). Callers use them to record
+// the chat's modified-items mask.
 export type DraftPersistResult =
-	| { status: 'saved'; item: WorkspaceItem }
-	| { status: 'conflict'; item: WorkspaceItem; serverTimestamp?: string }
-	| { status: 'error'; item: WorkspaceItem; message: string }
+	| { status: 'saved'; item: WorkspaceItem; itemKind: UserDraftItemKind; storagePath: string }
+	| {
+			status: 'conflict'
+			item: WorkspaceItem
+			itemKind: UserDraftItemKind
+			storagePath: string
+			serverTimestamp?: string
+	  }
+	| {
+			status: 'error'
+			item: WorkspaceItem
+			itemKind: UserDraftItemKind
+			storagePath: string
+			message: string
+	  }
 
 // Persist a built draft value. `UserDraft.seed` reflects it into an open editor's
 // cell WITHOUT a double-POST (no-ops if no cell; its seedNextWrite suppresses the
@@ -417,14 +432,20 @@ export async function persistGlobalDraft(
 	// the chat "saved" while the DB-backed source of truth was never updated.
 	const saveState = UserDraftDbSyncer.getState({ workspace, itemKind, path: storagePath })
 	if (saveState.state === 'failed') {
-		return { status: 'error', item, message: saveState.failureMessage ?? 'Draft save failed' }
+		return {
+			status: 'error',
+			item,
+			itemKind,
+			storagePath,
+			message: saveState.failureMessage ?? 'Draft save failed'
+		}
 	}
 	const conflict = opts.force
 		? undefined
 		: UserDraftDbSyncer.getConflict({ workspace, itemKind, path: storagePath }).conflict
 	return conflict
-		? { status: 'conflict', item, serverTimestamp: conflict.serverTimestamp }
-		: { status: 'saved', item }
+		? { status: 'conflict', item, itemKind, storagePath, serverTimestamp: conflict.serverTimestamp }
+		: { status: 'saved', item, itemKind, storagePath }
 }
 
 export async function getGlobalDraft(

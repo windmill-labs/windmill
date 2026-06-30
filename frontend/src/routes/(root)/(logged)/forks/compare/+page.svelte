@@ -19,6 +19,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$lib/navigation'
+	import { readChatModifiedItems } from '$lib/components/copilot/chat/HistoryManager.svelte'
 
 	type CompareMode = 'fork' | 'draft'
 
@@ -46,6 +47,30 @@
 	// merged toggle (CompareModeToggle, rendered inside each card) reports its
 	// selection here; the page only swaps which comparison component is shown.
 	let forkDirection = $state<'deploy_to' | 'update'>('deploy_to')
+
+	// When reached via a session's Review button (`from_session=<chatId>`), preselect
+	// only the items that chat modified. The mask is the chat's stored
+	// `${UserDraftItemKind}:${storagePath}` set; undefined for a legacy chat (no
+	// stored mask) → the children fall back to selecting all deployable items.
+	const fromChatId = page.url.searchParams.get('from_session')
+	let chatMask = $state<Set<string> | undefined>(undefined)
+	// The mask loads asynchronously, while the resolved value can legitimately be
+	// undefined (legacy chat). The children must not run their select-all default
+	// until the mask is known, else they'd race it and select everything. Ready
+	// immediately when there's no session to read from.
+	let chatMaskReady = $state(!fromChatId)
+	$effect(() => {
+		if (!fromChatId) return
+		untrack(() => {
+			void readChatModifiedItems(fromChatId)
+				.then((arr) => {
+					chatMask = arr ? new Set(arr) : undefined
+				})
+				.finally(() => {
+					chatMaskReady = true
+				})
+		})
+	})
 
 	function selectMode(v: 'deploy_to' | 'update' | 'draft') {
 		if (v === 'draft') {
@@ -251,6 +276,8 @@
 			{deployCount}
 			{updateCount}
 			{draftCount}
+			{chatMask}
+			{chatMaskReady}
 			onModeSelected={selectMode}
 		/>
 	{:else if parentWorkspaceId}
@@ -263,6 +290,8 @@
 			{updateCount}
 			{draftCount}
 			{draftKeys}
+			{chatMask}
+			{chatMaskReady}
 			onChanged={refreshCounts}
 			onModeSelected={selectMode}
 		/>

@@ -114,6 +114,7 @@ import {
 	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
+	itemKindFor,
 	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
@@ -2779,6 +2780,7 @@ function finishAppDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -2791,6 +2793,7 @@ function finishDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
@@ -4547,6 +4550,17 @@ async function deleteWorkspaceItem(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
+	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
+	// by the same (itemKind, storagePath) as writes so it joins the draft/fork lists.
+	const deletedKind = itemKindFor(type, triggerKind)
+	if (deletedKind) {
+		toolCallbacks.onItemModified?.(
+			deletedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,

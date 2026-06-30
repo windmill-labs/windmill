@@ -56,6 +56,7 @@
 	import { base } from '$lib/base'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
+	import { diffInMask } from './sessions/modifiedItemsMask'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
 
 	interface Props {
@@ -75,6 +76,14 @@
 		 * out of the default selection — deploying/updating moves the deployed
 		 * version, not the draft. The page derives this from the fork drafts. */
 		draftKeys?: Set<string>
+		/** When set (reached via a session's Review button), preselect only the
+		 * diffs this chat caused (matched via diffInMask). The deploy_to default
+		 * narrows to these; the update direction (parent→fork) preselects nothing,
+		 * since it's never chat-caused. All rows are still shown. */
+		chatMask?: Set<string>
+		/** False while the (async) chatMask is still loading. The select-all default
+		 * waits for this so it doesn't race the mask. Defaults to true. */
+		chatMaskReady?: boolean
 		/** Selecting `draft` asks the page to swap us out for CompareDrafts;
 		 * deploy_to/update are handled internally but reported so the page can
 		 * remember the direction. */
@@ -93,6 +102,8 @@
 		updateCount = 0,
 		draftCount = 0,
 		draftKeys = new Set<string>(),
+		chatMask,
+		chatMaskReady = true,
 		onModeSelected,
 		onChanged
 	}: Props = $props()
@@ -502,11 +513,19 @@
 		// to parent" flow. The user picks them à la carte by clicking the row.
 		// Items with a pending draft are also left out by default: the deployed
 		// version (not the draft) is what moves, so we make the user opt in.
+		// The update direction (parent→fork) is never something the chat caused, so
+		// when scoped to a chat's items (chatMask set) preselect nothing there.
+		if (chatMask && !mergeIntoParent) {
+			selectedItems = []
+			return
+		}
 		const filtered = selectableDiffs.filter((d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d))
 		const conflictSafe = mergeIntoParent
 			? filtered
 			: filtered.filter((d) => !(d.ahead > 0 && d.behind > 0))
-		selectedItems = conflictSafe
+		// When reached from a session's Review, narrow the default to this chat's items.
+		const scoped = chatMask ? conflictSafe.filter((d) => diffInMask(d, chatMask)) : conflictSafe
+		selectedItems = scoped
 			.map((d) => getItemKey(d))
 			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
 	}
@@ -558,7 +577,7 @@
 
 	// Auto-select items on initial load
 	$effect(() => {
-		if (comparison?.diffs && !hasAutoSelected && selectableDiffs.length > 0) {
+		if (comparison?.diffs && !hasAutoSelected && chatMaskReady && selectableDiffs.length > 0) {
 			selectDefault()
 			hasAutoSelected = true
 		}

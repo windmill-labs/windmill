@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import type { UserDraftItemKind } from '$lib/gen'
 	export type DiffStatus = 'added' | 'removed' | 'modified' | 'conflict'
 	// One changed item. `status` drives the dot/badge; `ahead`/`behind` are
 	// optional (fork-only) and only render when present.
@@ -15,6 +16,17 @@
 		/** Summary supplied by the data source. Preferred over the one derived
 		 * from the loaded diff value, and shown before that value loads. */
 		summary?: string
+		/** The item has an unsaved draft on top of its deployed state — drives a
+		 * "Draft" marker so a not-yet-deployed change is distinguishable from one
+		 * already deployed in the fork. */
+		hasDraft?: boolean
+		/** Never-deployed draft → the marker reads "Draft only" instead of "Draft". */
+		draftOnly?: boolean
+		/** Draft authors, for the shared DraftBadge's avatar circles. */
+		draftUsers?: { username?: string | null }[]
+		/** The draft's user-draft itemKind, so DraftBadge labels the kind correctly
+		 * (e.g. "app" not "script"). */
+		draftItemKind?: UserDraftItemKind
 		/** Explicit unique row identity, overriding the default `kind/path`. For a
 		 * row whose `kind/path` isn't unique on its own (a pipeline-bundle node
 		 * shares `script/<path>` with a standalone script draft at the same path)
@@ -42,6 +54,8 @@
 	import { goto } from '$lib/navigation'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import { userStore } from '$lib/stores'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
 	import {
 		rawAppDiffToItems,
@@ -192,6 +206,8 @@
 			if (d.kind === 'raw_app') {
 				const loaded = loadedDiffs[itemKey(d)]
 				if (loaded?.state === 'ready') {
+					// A drafted raw app shows ONE Draft marker at its tree root (via
+					// appRootMeta.hasDraft), not on each expanded file row.
 					out.push(
 						...rawAppDiffToItems(
 							d.path,
@@ -264,7 +280,11 @@
 			if (d.kind !== 'raw_app') continue
 			m.set(displayPathOf(d), {
 				summaryKey: itemKey(d),
-				summary: 'summary' in d ? d.summary : undefined
+				summary: 'summary' in d ? d.summary : undefined,
+				hasDraft: 'hasDraft' in d ? d.hasDraft : undefined,
+				draftOnly: 'draftOnly' in d ? d.draftOnly : undefined,
+				draftUsers: 'draftUsers' in d ? d.draftUsers : undefined,
+				draftItemKind: 'draftItemKind' in d ? d.draftItemKind : undefined
 			})
 		}
 		return m
@@ -445,6 +465,16 @@
 					>
 						{appSummary ?? node.name}
 					</span>
+					{#if node.app.hasDraft}
+						<DraftBadge
+							iconOnly
+							is_draft
+							draft_only={node.app.draftOnly ?? false}
+							draft_users={node.app.draftUsers ?? []}
+							itemKind={node.app.draftItemKind}
+							currentUsername={$userStore?.username}
+						/>
+					{/if}
 					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
 					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
 				</summary>
@@ -506,7 +536,20 @@
 				scrollToDiff(d)
 			}}
 			onmouseenter={() => setHoverHighlight(key)}
-		/>
+		>
+			{#snippet extras()}
+				{#if 'hasDraft' in d && d.hasDraft}
+					<DraftBadge
+						iconOnly
+						is_draft
+						draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
+						draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
+						itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
+						currentUsername={$userStore?.username}
+					/>
+				{/if}
+			{/snippet}
+		</WorkspaceItemRow>
 	{/if}
 {/snippet}
 
@@ -646,6 +689,15 @@
 											{/if}
 											{#if d.behind && d.behind > 0}
 												<span class="text-2xs text-secondary">{d.behind} behind</span>
+											{/if}
+											{#if 'hasDraft' in d && d.hasDraft}
+												<DraftBadge
+													is_draft
+													draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
+													draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
+													itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
+													currentUsername={$userStore?.username}
+												/>
 											{/if}
 											<Badge color={statusBadgeColor(status)}>
 												<StatusIcon class="w-3 h-3 inline mr-0.5" />
