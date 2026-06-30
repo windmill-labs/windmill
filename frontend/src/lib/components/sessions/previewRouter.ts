@@ -12,7 +12,9 @@ import {
 	ScrollText
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
-import type { WorkspaceItem } from '$lib/components/workspacePicker'
+import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
+import type { SessionTarget } from './sessionState.svelte'
+import type { SessionTargetKind } from './sessionRuntime.svelte'
 
 /** What the preview breadcrumb picker can route to: a static workspace page
  * or a workspace item (script/flow/app). The sessions page turns either into
@@ -55,4 +57,50 @@ export function stripBase(path: string): string {
 export function matchPreviewPage(path: string): PreviewPage | undefined {
 	const clean = stripBase(path)
 	return PREVIEW_PAGES.find((p) => p.path === clean)
+}
+
+export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
+
+// Parse a preview URL/pathname into the workspace item it edits, or null for a
+// non-item page (home, runs, …). Shared by the breadcrumb (drill segments) and
+// the tab resolver below so both agree on what counts as an item route.
+export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null {
+	const p = stripBase(fullPath)
+	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(?:edit|get)\/(.+)$/)
+	if (!m) return null
+	const itemPath = decodeURIComponent(m[2])
+	if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath }
+	if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath }
+	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath }
+	return { kind: 'app', raw_app: false, itemPath }
+}
+
+// How a preview tab should render: as an in-process live editor (sharing the
+// session runtime's store) or as an iframe fallback. Only the three kinds with
+// existing editor wrappers — and only the tab matching the session's target —
+// resolve to 'editor'; everything else (static pages, regular drag-and-drop
+// apps, any other item) stays an iframe.
+export type PreviewSlot =
+	| { kind: 'editor'; editorKind: SessionTargetKind; path: string }
+	| { kind: 'iframe' }
+
+export function resolvePreviewTab(url: string, target: SessionTarget | undefined): PreviewSlot {
+	const route = parsePreviewItemRoute(url)
+	if (!route) return { kind: 'iframe' }
+	const editorKind: SessionTargetKind | undefined =
+		route.kind === 'script'
+			? 'script'
+			: route.kind === 'flow'
+				? 'flow'
+				: route.kind === 'app' && route.raw_app
+					? 'raw_app'
+					: undefined
+	if (!editorKind) return { kind: 'iframe' }
+	// SessionRuntime holds one load slot per kind, so only the tab pointing at the
+	// session's own target claims it as a live editor; any other item previews as
+	// an iframe (the "one live editor per session" rule).
+	if (!target || target.kind !== editorKind || target.path !== route.itemPath) {
+		return { kind: 'iframe' }
+	}
+	return { kind: 'editor', editorKind, path: route.itemPath }
 }

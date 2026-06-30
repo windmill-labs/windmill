@@ -23,13 +23,16 @@
 	import { randomUUID } from '$lib/utils/uuid'
 	import { goto } from '$lib/navigation'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
+	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import {
 		createSession,
 		selectSession,
 		sessionState,
 		setSessionTabs,
 		setSessionPreviewCollapsed,
-		type SessionPreviewTab
+		setSessionTarget,
+		type SessionPreviewTab,
+		type SessionTarget
 	} from '$lib/components/sessions/sessionState.svelte'
 	import {
 		getOrCreateRuntime,
@@ -41,7 +44,7 @@
 	import {
 		sessionPreviewUrl,
 		sessionPreviewSeedUrl,
-		withMenuHidden
+		sessionTargetHref
 	} from '$lib/components/sessions/sessionMode.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
@@ -50,14 +53,10 @@
 		matchPreviewPage,
 		pageKey,
 		stripBase,
+		parsePreviewItemRoute,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
-	import {
-		editPathFor,
-		leafKeyFor,
-		type WorkspaceItem,
-		type WorkspaceItemKind
-	} from '$lib/components/workspacePicker'
+	import { editPathFor, leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -271,17 +270,16 @@
 	// deployed, or deleted. Mutating tools share a verb prefix; read/test/navigate
 	// tools (read_*, get_*, list_*, test_run_*, open_preview, …) don't match and
 	// so don't trigger a reload.
-	const tabFrames: Record<string, HTMLIFrameElement | undefined> = {}
+	// Each mounted tab is hosted by a PreviewTabHost; reload() is uniform across
+	// kinds — the iframe fallback reloads the frame, a live editor no-ops (its
+	// shared runtime store already reflects the chat's edits).
+	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 	const MUTATING_TOOL_RE = /^(write_|patch_|delete_|deploy_|discard_|set_|create_|update_|remove_)/
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
 	function reloadAllTabs() {
 		for (const tab of tabs) {
 			if (!mountedTabIds.has(tab.id)) continue
-			try {
-				tabFrames[tab.id]?.contentWindow?.location.reload()
-			} catch {
-				// Cross-navigation timing — skip; the next mutation reloads again.
-			}
+			tabHosts[tab.id]?.reload()
 		}
 	}
 	$effect(() => {
@@ -301,19 +299,7 @@
 	// segments when the preview is sitting on a script/flow/app route — for any
 	// other page (home, runs, …) there's no item to drill into, so we fall back
 	// to the plain path.
-	type ParsedRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
-	function parseItemRoute(fullPath: string): ParsedRoute | null {
-		const p = stripBase(fullPath)
-		const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(?:edit|get)\/(.+)$/)
-		if (!m) return null
-		const itemPath = decodeURIComponent(m[2])
-		if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath }
-		if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath }
-		if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath }
-		return { kind: 'app', raw_app: false, itemPath }
-	}
-
-	const parsedRoute = $derived(parseItemRoute(displayPath))
+	const parsedRoute = $derived(parsePreviewItemRoute(displayPath))
 
 	// Split the item path into breadcrumb dirs + leaf, mirroring EditorHeader:
 	// scope (`f/<folder>` | `u/<user>`) → subfolders → item name.
@@ -378,10 +364,64 @@
 	function tabLabel(url: string): string {
 		const page = matchPreviewPage(url)
 		if (page) return page.label
-		const parsed = parseItemRoute(url)
+		const parsed = parsePreviewItemRoute(url)
 		if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
 		return stripBase(url)
 	}
+
+	// The active session's runtime backs every live-editor preview tab. Idempotent
+	// — the arrival effect and the warm SessionWrapper already created it.
+	const activeRuntime = $derived(activeSession ? getOrCreateRuntime(activeSession) : undefined)
+
+	// A link click inside a live editor (e.g. a subflow reference) re-points the
+	// session's target so the runtime loads the new item, then steers the active
+	// tab to it. Mirrors SessionWrapper.pickEditorTarget; legacy drag-and-drop
+	// apps have no preview wrapper, so they open in the standalone editor.
+	function navigateEditorTo(item: WorkspaceItem) {
+		if (item.kind === 'app' && !item.raw_app) {
+			goto(`${base}/apps/edit/${item.path}`)
+			return
+		}
+		const id = activeSession?.id
+		if (id) {
+			const kind = item.kind === 'app' ? 'raw_app' : item.kind
+			setSessionTarget(id, { kind, path: item.path }, item.summary)
+		}
+		navigatePreviewTo({ type: 'item', item })
+	}
+
+	// Re-point the active tab at an editor target: make it the session target (so
+	// the runtime hosts it live) and steer the tab's url to the editor route, which
+	// flips the seam from iframe → live editor component.
+	function promoteActiveTabToEditor(target: SessionTarget) {
+		const id = activeSession?.id
+		if (!id) return
+		const url = sessionTargetHref(target)
+		if (!url) return
+		setSessionTarget(id, target)
+		const t = tabs.find((x) => x.id === activeTabId)
+		if (!t) return
+		t.url = url
+		t.loc = url
+		persistTabs()
+	}
+
+	// A preview iframe that navigates to an editor route posts up to us instead of
+	// booting the editor inside the frame (see the logged layout's beforeNavigate).
+	// Promote the active tab — the navigating frame is the visible one the user
+	// just clicked in.
+	$effect(() => {
+		function onMessage(e: MessageEvent) {
+			if (e.origin !== window.location.origin) return
+			const d = e.data
+			if (!d || d.type !== 'wm.session.openEditor') return
+			if (d.kind !== 'script' && d.kind !== 'flow' && d.kind !== 'raw_app') return
+			if (typeof d.path !== 'string') return
+			promoteActiveTabToEditor({ kind: d.kind, path: d.path })
+		}
+		window.addEventListener('message', onMessage)
+		return () => window.removeEventListener('message', onMessage)
+	})
 </script>
 
 <div class="h-full flex flex-col min-h-0">
@@ -593,22 +633,22 @@
 									</Popover>
 								</div>
 
-								<!-- One iframe per tab, stacked and visibility-toggled so every
-								     tab stays mounted (switching never reloads). -->
+								<!-- One host per tab, stacked and visibility-toggled so every tab
+								     stays mounted (switching never reloads). Each host renders a
+								     live editor (script/flow/raw_app target) or an iframe fallback. -->
 								<div class="relative flex-1 min-h-0">
 									{#each tabs as tab (tab.id)}
-										{#if mountedTabIds.has(tab.id)}
-											<iframe
-												bind:this={tabFrames[tab.id]}
-												src={withMenuHidden(tab.url)}
-												onload={(e) => onTabLoad(tab, e.currentTarget as HTMLIFrameElement)}
-												title="Session preview: {tabLabel(tab.loc)}"
-												class="absolute inset-0 w-full h-full border-0 bg-surface {tab.id ===
-												activeTabId
-													? 'z-10 opacity-100 pointer-events-auto'
-													: 'z-0 opacity-0 pointer-events-none'}"
-											></iframe>
-										{/if}
+										<PreviewTabHost
+											bind:this={tabHosts[tab.id]}
+											{tab}
+											session={activeSession}
+											runtime={activeRuntime}
+											active={tab.id === activeTabId}
+											mounted={mountedTabIds.has(tab.id)}
+											label={tabLabel(tab.loc)}
+											onNavigate={navigateEditorTo}
+											onLoad={(frame) => onTabLoad(tab, frame)}
+										/>
 									{/each}
 									{#if tabs.length === 0}
 										<!-- New session with nothing to preview: an empty state with a

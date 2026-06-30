@@ -71,6 +71,7 @@
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
+	import { parsePreviewItemRoute } from '$lib/components/sessions/previewRouter'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
@@ -193,8 +194,58 @@
 		}
 	}
 
+	// True when this window is a sessions-preview iframe (embedded + nomenubar,
+	// which the preview always sets and stickies — see the menu-hide block above).
+	function isSessionPreviewEmbed(): boolean {
+		if (!embedded) return false
+		try {
+			return sessionStorage.getItem('nomenubar_embedded') === 'true'
+		} catch {
+			return false
+		}
+	}
+
+	// Map a navigation target to the session editor it should open as a component,
+	// or undefined for anything without a live-editor wrapper (regular apps, pages,
+	// /get viewers). Only /edit routes — the wrappers are editors.
+	function previewEditorTarget(
+		url: URL | undefined
+	): { kind: 'script' | 'flow' | 'raw_app'; path: string } | undefined {
+		if (!url || !/\/(scripts|flows|apps_raw)\/edit\//.test(url.pathname)) return undefined
+		const route = parsePreviewItemRoute(url.pathname)
+		if (!route) return undefined
+		const kind =
+			route.kind === 'script'
+				? 'script'
+				: route.kind === 'flow'
+					? 'flow'
+					: route.raw_app
+						? 'raw_app'
+						: undefined
+		return kind ? { kind, path: route.itemPath } : undefined
+	}
+
 	beforeNavigate((navigation) => {
 		menuOpen = false
+
+		// Inside a sessions-preview iframe, hand an editor-route navigation up to the
+		// parent so it mounts the in-process editor (sharing the session runtime)
+		// instead of booting a second, disconnected editor in this frame. Cancel so
+		// the heavy editor never mounts here at all. Runs before the apps_raw reload
+		// below so a raw-app editor promotes rather than full-reloading the iframe.
+		if (isSessionPreviewEmbed()) {
+			const target = previewEditorTarget(navigation.to?.url)
+			if (target) {
+				navigation.cancel()
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openEditor', kind: target.kind, path: target.path },
+						window.location.origin
+					)
+				} catch {}
+				return
+			}
+		}
 
 		// Force page reload when navigating to /apps_raw/add or /apps_raw/edit
 		// This ensures the cross-origin isolation headers are fetched from the server
