@@ -199,6 +199,50 @@
 		}
 	}
 
+	// Create the item on the target from the source value, strictly create-only: the backend create
+	// endpoints reject an existing path (`check_path_conflict`), so unlike `deployItem` — which updates
+	// on conflict — this never overwrites a target created concurrently. Returns 'created', 'conflict'
+	// (already present on the target), or throws for a real error.
+	async function createItemOnly(
+		kind: 'resource' | 'variable',
+		path: string,
+		from: string,
+		to: string
+	): Promise<'created' | 'conflict'> {
+		try {
+			if (kind === 'resource') {
+				const r = await ResourceService.getResource({ workspace: from, path })
+				await ResourceService.createResource({
+					workspace: to,
+					requestBody: {
+						path,
+						value: r.value ?? '',
+						description: r.description ?? '',
+						resource_type: r.resource_type
+					}
+				})
+			} else {
+				const v = await VariableService.getVariable({ workspace: from, path, decryptSecret: true })
+				await VariableService.createVariable({
+					workspace: to,
+					requestBody: {
+						path,
+						value: v.value ?? '',
+						is_secret: v.is_secret ?? false,
+						description: v.description ?? ''
+					}
+				})
+			}
+			return 'created'
+		} catch (e: any) {
+			// The backend rejects an existing path with "<Resource|Variable> <path> already exists".
+			const body =
+				typeof e?.body === 'string' ? e.body : (e?.body?.error?.message ?? e?.message ?? '')
+			if (String(body).includes('already exists')) return 'conflict'
+			throw e
+		}
+	}
+
 	// Seed a resource's linked `$var:` variables into the target environment, copying each one's value
 	// (incl. secrets) only where the target lacks it (create-only). Mirrors the backend's
 	// `mark_linked_variables_ws_specific` cascade so a seeded resource resolves its references and its
@@ -214,13 +258,13 @@
 		const failed: string[] = []
 		for (const varPath of Array.from(new Set(refs))) {
 			if (await VariableService.existsVariable({ workspace: to, path: varPath })) continue
-			const res = await deployItem({
-				kind: 'variable' as Kind,
-				path: varPath,
-				workspaceFrom: from,
-				workspaceTo: to
-			})
-			if (!res.success) failed.push(varPath)
+			try {
+				// 'created' and 'conflict' (now present, created concurrently) are both the desired end
+				// state; only a real error counts as a failure to seed.
+				await createItemOnly('variable', varPath, from, to)
+			} catch (e) {
+				failed.push(varPath)
+			}
 		}
 		return failed
 	}
@@ -266,22 +310,19 @@
 				return
 			}
 
-			const res = await deployItem({
-				kind: it.item_kind as Kind,
-				path: it.path,
-				workspaceFrom: from,
-				workspaceTo: to
-			})
-			if (!res.success) {
-				sendUserToast(`Failed to create ${it.path} in ${to}: ${res.error ?? 'unknown error'}`, true)
-				return
-			}
-			// Marking the resource cascades to mark the now-present linked variables workspace-specific.
+			// Create-only: a 'conflict' means the target appeared between the existence check above and
+			// the create, so it was left untouched rather than overwritten.
+			const result = await createItemOnly(kindCast, it.path, from, to)
+			// Marking cascades to mark a resource's now-present linked variables workspace-specific.
 			await WorkspaceService.setWsSpecific({
 				workspace: to,
 				requestBody: { item_kind: kindCast, path: it.path, value: true }
 			})
-			sendUserToast(`Created ${it.path} in ${to}`)
+			sendUserToast(
+				result === 'conflict'
+					? `${it.path} already exists in ${to}, marked it workspace-specific instead of overwriting`
+					: `Created ${it.path} in ${to}`
+			)
 			await loadPinned()
 			onChanged?.()
 		} catch (e) {
