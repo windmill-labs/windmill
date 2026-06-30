@@ -599,58 +599,65 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             sslmode: sslmode.map(|s| s.to_string()),
             dbname: "mydb".to_string(),
             root_certificate_pem: root_cert.map(|s| s.to_string()),
-            trust_cert: None,
+            accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
         }
     }
 
-    /// Returns whether the connector enforces verification for the given config
-    /// (trust_cert off).
-    fn verifies(sslmode: Option<&str>, root_cert: Option<&str>) -> bool {
+    /// Whether the connector enforces certificate verification for the given config.
+    fn verifies(
+        sslmode: Option<&str>,
+        root_cert: Option<&str>,
+        accept_invalid_certs: Option<bool>,
+    ) -> bool {
         let mut builder = native_tls::TlsConnector::builder();
-        PgDatabase::configure_pg_tls_verification(&mut builder, sslmode, root_cert, false).unwrap()
-    }
-
-    #[test]
-    fn verify_modes_enforce_verification_without_a_custom_cert() {
-        // The fix: verify-ca / verify-full must verify against the OS trust store
-        // even when no root certificate is supplied (previously silently disabled).
-        assert!(verifies(Some("verify-full"), None));
-        assert!(verifies(Some("verify-ca"), None));
-        // An empty pem string is treated as "no custom root", not as a disable.
-        assert!(verifies(Some("verify-full"), Some("")));
-        assert!(verifies(Some("verify-ca"), Some("")));
-    }
-
-    #[test]
-    fn verify_modes_accept_a_custom_cert() {
-        assert!(verifies(Some("verify-full"), Some(VALID_PEM)));
-        assert!(verifies(Some("verify-ca"), Some(VALID_PEM)));
-    }
-
-    #[test]
-    fn require_skips_verification_unless_a_cert_is_supplied() {
-        // require keeps its libpq meaning: encrypt without verifying identity...
-        assert!(!verifies(Some("require"), None));
-        assert!(!verifies(Some("require"), Some("")));
-        assert!(!verifies(None, None));
-        // ...unless a root certificate was explicitly provided.
-        assert!(verifies(Some("require"), Some(VALID_PEM)));
-    }
-
-    #[test]
-    fn trust_cert_disables_verification_for_any_mode() {
-        // The grandfather/escape flag forces accept-any, overriding verify-*.
-        let mut builder = native_tls::TlsConnector::builder();
-        let verified = PgDatabase::configure_pg_tls_verification(
+        PgDatabase::configure_pg_tls_verification(
             &mut builder,
-            Some("verify-full"),
-            None,
-            true,
+            sslmode,
+            root_cert,
+            accept_invalid_certs,
         )
-        .unwrap();
-        assert!(!verified);
+        .unwrap()
+    }
+
+    #[test]
+    fn verify_modes_enforce_verification_when_explicitly_requested() {
+        // accept_invalid_certs=Some(false) is what newly created resources carry: it
+        // verifies even with no custom cert (against the OS trust store).
+        assert!(verifies(Some("verify-full"), None, Some(false)));
+        assert!(verifies(Some("verify-ca"), None, Some(false)));
+        assert!(verifies(Some("verify-full"), Some(""), Some(false)));
+        assert!(verifies(Some("verify-full"), Some(VALID_PEM), Some(false)));
+        assert!(verifies(Some("verify-ca"), Some(VALID_PEM), Some(false)));
+    }
+
+    #[test]
+    fn verify_modes_unset_fall_back_to_legacy_behavior() {
+        // Unset (None): verify iff a root cert is present — preserves the behavior of
+        // resources that predate the flag (incl. git-synced), so upgrades don't break.
+        assert!(!verifies(Some("verify-full"), None, None));
+        assert!(!verifies(Some("verify-ca"), None, None));
+        assert!(!verifies(Some("verify-full"), Some(""), None));
+        assert!(verifies(Some("verify-full"), Some(VALID_PEM), None));
+        assert!(verifies(Some("verify-ca"), Some(VALID_PEM), None));
+    }
+
+    #[test]
+    fn accept_invalid_certs_true_disables_verification_for_verify_modes() {
+        assert!(!verifies(Some("verify-full"), Some(VALID_PEM), Some(true)));
+        assert!(!verifies(Some("verify-ca"), None, Some(true)));
+    }
+
+    #[test]
+    fn accept_invalid_certs_is_ignored_outside_verify_modes() {
+        // require never consults the flag: it verifies iff a cert is present, and
+        // encrypts-without-verifying otherwise, regardless of accept_invalid_certs.
+        assert!(!verifies(Some("require"), None, Some(false)));
+        assert!(!verifies(Some("require"), None, Some(true)));
+        assert!(!verifies(None, None, Some(true)));
+        assert!(verifies(Some("require"), Some(VALID_PEM), Some(true)));
+        assert!(verifies(Some("require"), Some(VALID_PEM), None));
     }
 
     #[test]
@@ -660,7 +667,7 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             &mut builder,
             Some("verify-full"),
             Some("not a certificate"),
-            false,
+            Some(false),
         );
         assert!(err.is_err());
     }
@@ -707,11 +714,12 @@ pub struct PgDatabase {
     pub sslmode: Option<String>,
     pub dbname: String,
     pub root_certificate_pem: Option<String>,
-    /// When true, accept any server certificate (no chain or hostname check),
-    /// overriding sslmode. Lets an operator opt a single resource out of the
-    /// verification that verify-ca/verify-full otherwise enforce. Matches the
-    /// `trust_cert` field on the ms_sql_server resource type.
-    pub trust_cert: Option<bool>,
+    /// Only meaningful for sslmode verify-ca/verify-full. `Some(true)` accepts any
+    /// server certificate (no chain or hostname check); `Some(false)` enforces
+    /// verification. `None` falls back to legacy behavior — verify only when a root
+    /// certificate is present — so resources that predate this flag (including
+    /// git-synced ones, whose source never sets it) keep working unchanged.
+    pub accept_invalid_certs: Option<bool>,
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
 }
@@ -810,25 +818,21 @@ impl PgDatabase {
     ///   require / other — encrypt without verifying identity, unless a root
     ///                     certificate is supplied (then verify the chain).
     ///
-    /// Verification uses the OS trust store plus any supplied root certificate.
-    /// Returns false when the connector was set to accept any certificate, so
-    /// callers can surface that an unverified connection is being made.
-    /// The `trust_cert` resource flag forces the legacy accept-anything behavior
-    /// regardless of sslmode.
+    /// `accept_invalid_certs` only applies to verify-ca/verify-full: `Some(true)`
+    /// accepts any certificate, `Some(false)` enforces verification, and `None`
+    /// falls back to the legacy behavior — verify only when a root certificate is
+    /// present — so resources predating the flag (including git-synced ones, whose
+    /// source never sets it) keep working unchanged. Verification uses the OS trust
+    /// store plus any supplied root certificate. Returns false when the connector
+    /// was set to accept any certificate, so callers can surface that an unverified
+    /// connection is being made.
     fn configure_pg_tls_verification(
         builder: &mut native_tls::TlsConnectorBuilder,
         sslmode: Option<&str>,
         root_certificate_pem: Option<&str>,
-        trust_cert: bool,
+        accept_invalid_certs: Option<bool>,
     ) -> Result<bool, error::Error> {
         use native_tls::Certificate;
-
-        if trust_cert {
-            builder
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true);
-            return Ok(false);
-        }
 
         let custom_root = match root_certificate_pem {
             Some(pem) if !pem.is_empty() => Some(
@@ -839,22 +843,27 @@ impl PgDatabase {
         };
 
         match sslmode {
-            Some("verify-full") => {
+            Some("verify-full") | Some("verify-ca") => {
+                // Unset falls back to the legacy behavior: verify iff a cert is present.
+                if accept_invalid_certs.unwrap_or(custom_root.is_none()) {
+                    builder
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true);
+                    return Ok(false);
+                }
                 if let Some(cert) = custom_root {
                     builder.add_root_certificate(cert);
                 }
-                Ok(true)
-            }
-            Some("verify-ca") => {
-                if let Some(cert) = custom_root {
-                    builder.add_root_certificate(cert);
+                if sslmode == Some("verify-ca") {
+                    // verify-ca verifies the chain but, per libpq, not the hostname.
+                    builder.danger_accept_invalid_hostnames(true);
                 }
-                builder.danger_accept_invalid_hostnames(true);
                 Ok(true)
             }
             _ => {
-                // "require": encrypt but do not verify identity, unless an explicit
-                // root certificate was supplied (then verify the chain).
+                // "require": accept_invalid_certs does not apply. Encrypt but do not
+                // verify identity, unless an explicit root certificate was supplied
+                // (then verify the chain).
                 if let Some(cert) = custom_root {
                     builder.add_root_certificate(cert);
                     Ok(true)
@@ -882,12 +891,23 @@ impl PgDatabase {
         if ssl_mode_is_require {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
-            Self::configure_pg_tls_verification(
+            let verified = Self::configure_pg_tls_verification(
                 &mut connector,
                 self.sslmode.as_deref(),
                 self.root_certificate_pem.as_deref(),
-                self.trust_cert.unwrap_or(false),
+                self.accept_invalid_certs,
             )?;
+            if !verified
+                && matches!(
+                    self.sslmode.as_deref(),
+                    Some("verify-ca") | Some("verify-full")
+                )
+            {
+                tracing::warn!(
+                    "Postgres connection with sslmode={} is not verifying the server certificate (accept_invalid_certs is set, or no root certificate is configured and the resource predates that flag). Set accept_invalid_certs=false or provide root_certificate_pem to enforce verification.",
+                    self.sslmode.as_deref().unwrap_or("")
+                );
+            }
 
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
@@ -947,10 +967,10 @@ impl PgDatabase {
             &mut connector,
             self.sslmode.as_deref(),
             self.root_certificate_pem.as_deref(),
-            self.trust_cert.unwrap_or(false),
+            self.accept_invalid_certs,
         )?;
         if !verified {
-            tracing::warn!("IAM RDS auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (or set sslmode=verify-full) to enforce verification.");
+            tracing::warn!("IAM RDS auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
         }
 
         tracing::info!("Creating new IAM RDS connection to {}", &self.host);
@@ -1015,7 +1035,7 @@ impl PgDatabase {
             dbname,
             sslmode,
             root_certificate_pem: None,
-            trust_cert: None,
+            accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
         })
