@@ -946,14 +946,18 @@
 				/>
 			{/if}
 			{#if !readOnly && isScriptView && script && !atLatestSavePoint}
+				{@const isCreate = isDraft && !script?.hash}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: Save }}
 					onclick={save}
 					disabled={saving}
+					title={isCreate
+						? 'Deploy this new script to the workspace'
+						: 'Deploy your changes to this script'}
 				>
-					{saving ? 'Saving…' : isDraft && !script?.hash ? 'Create' : 'Save'}
+					{saving ? 'Deploying…' : 'Deploy'}
 				</Button>
 			{/if}
 			{#if onHide}

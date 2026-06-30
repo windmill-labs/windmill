@@ -690,7 +690,10 @@
 					/>
 				</Label>
 				<Label label="Service Account Key">
-					<span class="text-primary text-2xs">JSON content of the service account key file</span>
+					<span class="text-primary text-2xs">
+						JSON content of the service account key file. Leave empty to use the instance's ambient
+						credentials (e.g. GKE Workload Identity / the GCP metadata server).
+					</span>
 					{#if hasServiceAccountKey && !showServiceAccountKey}
 						<div class="flex items-center gap-3 mt-1">
 							<span class="text-tertiary text-xs">
