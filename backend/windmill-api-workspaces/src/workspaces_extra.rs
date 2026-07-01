@@ -726,10 +726,13 @@ pub(crate) async fn change_workspace_id(
     tx.commit().await?;
 
     // The children's parent_workspace_id changed (old root -> new root); invalidate their fork-parent
-    // routing cache so jobs route under the renamed root rather than the old (archived) one until the
-    // 300s TTL would otherwise expire.
+    // routing cache and their billing-workspace mapping so jobs route + meter under the renamed root
+    // rather than the old (archived) one, instead of waiting for the caches' TTLs. Deeper descendants
+    // (fork-of-fork) self-heal via the 60s billing-cache TTL.
     for child in &reparented_children {
         windmill_queue::tags::invalidate_fork_parent_cache(child);
+        #[cfg(feature = "cloud")]
+        windmill_common::workspaces::invalidate_billing_workspace_cache(child);
     }
 
     // Archive old workspace: disable schedules, cancel remaining jobs, set deleted=true

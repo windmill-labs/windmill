@@ -5166,29 +5166,31 @@ async fn apply_forked_datatable(
     Ok(())
 }
 
-/// Cloud-only guard for creating a fork/dev workspace. Forks piggyback on the parent's plan (a fork
-/// inherits the root's premium and meters its usage into the root's bill), so forking is limited to
-/// premium workspaces and capped at `MAX_FORKS_PER_SEAT` per paid (developer) seat of the root.
+/// Cloud: require the fork/dev's root (billing) workspace be premium; returns the resolved root id.
 #[cfg(feature = "cloud")]
-async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()> {
-    use windmill_common::workspaces::{
-        count_paid_seats, count_workspace_forks, get_billing_workspace_id, get_team_plan_status,
-    };
-
-    let root = get_billing_workspace_id(db, parent_workspace_id).await?;
-
-    if !get_team_plan_status(db, &root).await?.premium {
+async fn require_cloud_fork_premium(db: &DB, parent_workspace_id: &str) -> Result<String> {
+    let root =
+        windmill_common::workspaces::get_billing_workspace_id(db, parent_workspace_id).await?;
+    if !windmill_common::workspaces::get_team_plan_status(db, &root)
+        .await?
+        .premium
+    {
         return Err(Error::BadRequest(
             "Creating a fork or dev workspace on the cloud requires a paid team plan. Upgrade the workspace first.".to_string(),
         ));
     }
+    Ok(root)
+}
 
-    let seats = count_paid_seats(db, &root).await?;
+/// Cloud: reject if `root` already holds its full per-seat allotment of forks/dev workspaces.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_count(db: &DB, root: &str) -> Result<()> {
+    let seats = windmill_common::workspaces::count_paid_seats(db, root).await?;
     let per_seat = *MAX_FORKS_PER_SEAT;
     // Any premium workspace has at least one paid seat, so floor the seat count at 1.
     let allowed = seats.max(1) * per_seat;
 
-    let existing = count_workspace_forks(db, &root).await?;
+    let existing = windmill_common::workspaces::count_workspace_forks(db, root).await?;
     if existing >= allowed {
         return Err(Error::BadRequest(format!(
             "Maximum number of forks reached ({existing}/{allowed}): a plan with {seats} paid seat(s) allows {per_seat} fork(s) per seat. Delete an existing fork or add seats to create more."
@@ -5196,6 +5198,15 @@ async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()
     }
 
     Ok(())
+}
+
+/// Cloud-only guard for creating a fork/dev workspace. Forks piggyback on the parent's plan (a fork
+/// inherits the root's premium and meters its usage into the root's bill), so forking is limited to
+/// premium workspaces and capped at `MAX_FORKS_PER_SEAT` per paid (developer) seat of the root.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()> {
+    let root = require_cloud_fork_premium(db, parent_workspace_id).await?;
+    enforce_cloud_fork_count(db, &root).await
 }
 
 async fn create_workspace_fork(
@@ -5373,12 +5384,18 @@ async fn attach_dev_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    // Attaching reparents an existing standalone workspace under prod (one dev per prod, admin-gated)
-    // and it then draws prod's plan and counts as a fork of it, so hold it to the same premium +
-    // per-seat cap as creating a fork (also blocks attaching when MAX_FORKS_PER_SEAT is 0).
+    // Attaching reparents a workspace under prod (one dev per prod, admin-gated) and it then draws
+    // prod's plan, so hold it to the same premium requirement as creating a fork. Only enforce the
+    // per-seat count when the attach actually adds a new workspace to the family: re-designating a
+    // workspace already under this root as its dev doesn't increase the descendant count.
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        enforce_cloud_fork_cap(&db, &prod_w_id).await?;
+        let root = require_cloud_fork_premium(&db, &prod_w_id).await?;
+        if windmill_common::workspaces::get_billing_workspace_id(&db, &req.dev_workspace_id).await?
+            != root
+        {
+            enforce_cloud_fork_count(&db, &root).await?;
+        }
     }
 
     let dev_w_id = req.dev_workspace_id;
@@ -6434,6 +6451,11 @@ async fn change_workspace_color(
 }
 
 async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
+    // A fork's executions meter against its billing root, so report the root's usage here too;
+    // otherwise the free-execs indicator would show the fork's own (often 0) count while enforcement
+    // applies the root's shared quota. Off-fork this resolves to `w_id` itself.
+    #[cfg(feature = "cloud")]
+    let w_id = windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?;
     let usage = sqlx::query_scalar!(
         "
     SELECT usage.usage FROM usage
