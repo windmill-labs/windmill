@@ -195,7 +195,21 @@ fn build_materialized_query(
     for s in plan.setup.iter_mut() {
         *s = substitute(s);
     }
-    let strategy = if m.append {
+    let strategy = if m.scd2 {
+        // SCD2 needs a natural key to identify an entity across versions, and its
+        // diff/close/open shape has no partition-scoped form in v1.
+        let key = m.unique_key.clone().ok_or_else(|| {
+            Error::ExecutionErr(
+                "materialize scd2: requires a natural key — add `key=<col>`".to_string(),
+            )
+        })?;
+        if partitioned {
+            return Err(Error::ExecutionErr(
+                "materialize scd2: `// partitioned` is not supported with scd2 in v1".to_string(),
+            ));
+        }
+        MaterializeStrategy::Scd2 { key, track: m.track.clone(), close_deleted: m.close_deleted }
+    } else if m.append {
         MaterializeStrategy::Append
     } else if let Some(uk) = m.unique_key {
         MaterializeStrategy::Merge { unique_key: uk }
@@ -1518,6 +1532,88 @@ mod tests {
         // The declaration comment is gone (wrap strips line comments) — which is
         // exactly why the sig must come from the original, not the rewrite.
         assert!(!rewritten.contains("-- $file"));
+    }
+
+    // SCD2 managed mode wraps the SELECT into the diff → close-old → open-new
+    // shape (unit-covered in the parser's codegen tests); here we pin the
+    // executor-level wiring: the natural key flows through and the wrap is
+    // generated (not the manual track-only path).
+    #[test]
+    fn materialize_scd2_wraps_with_history() {
+        // Primary spelling: `key=<col> history` on a merge.
+        let script = "-- materialize ducklake://main/dim key=id history track=name\n\
+                      SELECT id, name FROM dl.src";
+        let (rewritten, _) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("scd2 is managed — must rewrite");
+        assert!(
+            rewritten.contains("valid_from"),
+            "adds SCD2 columns:\n{rewritten}"
+        );
+        assert!(rewritten.contains("is_current"));
+        assert!(
+            rewritten.contains("_wm_scd2_changed"),
+            "captures changed keys"
+        );
+        assert!(
+            rewritten.contains("UPDATE _wm_target.dim SET valid_to"),
+            "closes prior version"
+        );
+        assert!(
+            rewritten.contains("CREATE VIEW IF NOT EXISTS _wm_target.dim_current"),
+            "emits the consumer-convenience current view"
+        );
+        // default is soft-delete — no deleted-key set without `deletes=close`
+        assert!(!rewritten.contains("_wm_scd2_deleted"));
+        assert!(!rewritten.contains("MERGE INTO"));
+    }
+
+    #[test]
+    fn materialize_scd2_deletes_close_wires_through() {
+        let script = "-- materialize ducklake://main/dim key=id history deletes=close\n\
+                      SELECT id, name FROM dl.src";
+        let (rewritten, _) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("scd2 is managed — must rewrite");
+        assert!(
+            rewritten.contains("_wm_scd2_deleted"),
+            "deletes=close adds the vanished-key set + close:\n{rewritten}"
+        );
+    }
+
+    #[test]
+    fn materialize_scd2_requires_key() {
+        let script = "-- materialize scd2 ducklake://main/dim\nSELECT id, name FROM dl.src";
+        let err = match build_materialized_query(script, None, &std::collections::HashMap::new()) {
+            Err(e) => e,
+            Ok(_) => panic!("scd2 without key must error"),
+        };
+        assert!(
+            format!("{err}").contains("requires a natural key"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn materialize_scd2_rejects_partitioned() {
+        let script = "-- pipeline\n-- partitioned daily\n\
+                      -- materialize scd2 ducklake://main/dim key=id\nSELECT id, name FROM dl.src";
+        let err = match build_materialized_query(
+            script,
+            Some("2026-07-01"),
+            &std::collections::HashMap::new(),
+        ) {
+            Err(e) => e,
+            Ok(_) => panic!("partitioned + scd2 must error"),
+        };
+        assert!(
+            format!("{err}").contains("not supported with scd2"),
+            "got: {err}"
+        );
     }
 
     // Tests for parse_attach_db_resource function
