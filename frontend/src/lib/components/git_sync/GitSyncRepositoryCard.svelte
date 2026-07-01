@@ -79,6 +79,8 @@
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
 	let resourceInfo = $state<{ url?: string; error?: string } | null>(null)
 	let loadingResourceInfo = $state(false)
+	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
+	let isGithubApp = $state(false)
 
 	// Update target branch when repository changes
 	$effect(() => {
@@ -121,6 +123,7 @@
 					if (!abortController.signal.aborted && resource?.value) {
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
+						isGithubApp = value?.is_github_app === true
 						let gitUrl = value?.url || value?.git_url
 
 						if (gitUrl && typeof gitUrl === 'string') {
@@ -521,7 +524,7 @@
 									<div class="text-sm font-semibold text-emphasis mb-1">
 										Push to Git on deploy (Windmill → Git)
 									</div>
-									<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} />
+									<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} active />
 								</div>
 								<Button
 									size="xs"
@@ -536,7 +539,7 @@
 
 						<!-- Direction 2: Git -> Windmill (pull / auto-deploy) -->
 						<div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
-							<div class="flex justify-between items-start gap-4 mb-2">
+							<div class="flex justify-between items-start gap-4">
 								<div class="text-sm font-semibold text-emphasis">Pull from Git (Git → Windmill)</div
 								>
 								<Button
@@ -559,18 +562,29 @@
 							/>
 							{#if repo.auto_pull?.enabled}
 								{@const viaWebhook = repo.auto_pull?.webhook_id != null}
-								<div class="mt-3 max-w-sm">
-									<div class="text-2xs font-semibold text-secondary mb-1">Delivery</div>
-									<Select
-										items={[
-											{ label: 'Webhook with polling fallback', value: 'auto' },
-											{ label: 'Polling only (air-gapped)', value: 'polling' }
-										]}
-										bind:value={() => deliveryMode(), (v) => setDeliveryMode(v)}
-										clearable={false}
-										size="sm"
-									/>
-								</div>
+								{#if isGithubApp}
+									<div class="mt-3 max-w-sm">
+										<div class="text-2xs font-semibold text-secondary mb-1">Delivery</div>
+										<Select
+											items={[
+												{ label: 'Webhook with polling fallback', value: 'auto' },
+												{ label: 'Polling only (air-gapped)', value: 'polling' }
+											]}
+											bind:value={() => deliveryMode(), (v) => setDeliveryMode(v)}
+											clearable={false}
+											size="sm"
+										/>
+									</div>
+								{:else}
+									<div class="text-2xs text-secondary mt-2">
+										Instant webhook sync requires the
+										<a
+											href="https://www.windmill.dev/docs/advanced/git_sync"
+											target="_blank"
+											class="text-blue-500 hover:underline">GitHub App</a
+										> (managed or GitHub Enterprise Server). Token-based repositories poll instead.
+									</div>
+								{/if}
 								<div class="text-2xs text-secondary mt-2">
 									{#if repo.auto_pull?.last_pull_status}
 										{#if repo.auto_pull.last_pull_status.success}
@@ -593,7 +607,7 @@
 											: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 									{/if}
 								</div>
-								{#if repo.auto_pull?.webhook_error}
+								{#if isGithubApp && repo.auto_pull?.webhook_error}
 									<div class="mt-2">
 										<Alert type="warning" title="Falling back to polling" size="xs">
 											{repo.auto_pull.webhook_error}
