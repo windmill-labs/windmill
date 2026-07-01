@@ -47,6 +47,8 @@
 		GitMerge,
 		Loader2,
 		Minus,
+		PanelRightClose,
+		PanelRightOpen,
 		Pencil,
 		Plus,
 		User
@@ -67,7 +69,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
-	import { untrack, type Snippet } from 'svelte'
+	import { tick, untrack, type Snippet } from 'svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
 
 	// Read-only, multi-item before/after diff viewer with a file tree. The data
@@ -105,6 +107,10 @@
 	let searchQuery = $state('')
 	let diffStyle = $state<'sbs' | 'inline'>('sbs')
 	const inlineDiff = $derived(diffStyle === 'inline')
+	// Collapse the right-hand diff panel to browse the file tree at full width;
+	// a per-row "open diff" action (or clicking a row) re-expands it and jumps
+	// to that item.
+	let rightPanelCollapsed = $state(false)
 
 	export function open() {
 		// Reset per-item caches so an edit-then-reopen doesn't show stale
@@ -113,6 +119,7 @@
 		loadedDiffs = {}
 		summaries = {}
 		mountedRows = {}
+		rightPanelCollapsed = false
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
 	}
@@ -322,6 +329,17 @@
 		el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 	}
 
+	// Reveal a diff from the file tree: highlight the row, expand the diff panel
+	// if it's collapsed (waiting a tick for it to mount), then scroll to it.
+	async function revealDiff(d: DisplayDiff, key?: string) {
+		if (key) highlightedKey = key
+		if (rightPanelCollapsed) {
+			rightPanelCollapsed = false
+			await tick()
+		}
+		scrollToDiff(d)
+	}
+
 	// ── Keyboard nav (matches WorkspaceItemDrillPicker) ─────────────────────
 	let folderOpen: Record<string, boolean> = $state({})
 	function isFolderOpen(key: string): boolean {
@@ -370,7 +388,7 @@
 		const entry = entryByKey.get(highlightedKey)
 		if (!entry) return
 		if (entry.type === 'file') {
-			scrollToDiff(entry.data)
+			void revealDiff(entry.data)
 		} else {
 			folderOpen[entry.key] = !isFolderOpen(entry.key)
 		}
@@ -467,7 +485,6 @@
 					</span>
 					{#if node.app.hasDraft}
 						<DraftBadge
-							iconOnly
 							is_draft
 							draft_only={node.app.draftOnly ?? false}
 							draft_users={node.app.draftUsers ?? []}
@@ -519,37 +536,53 @@
 		<!-- Folders place their icon at the base padding (depth*12+8) — the chevron
 		     now sits at the row's end, not the front. WorkspaceItemRow adds its own
 		     12px base, so indent = depth*12-4 lines a file's icon up with sibling
-		     folder icons. Keep in sync with the folder summary. -->
-		<WorkspaceItemRow
-			kind={d.kind as any}
-			iconPath={d.path}
-			baseClass="py-1.5"
-			singleLine
-			summary={summaries[key] ?? ('summary' in d ? d.summary : undefined)}
-			secondary={node.name}
-			highlighted={key === highlightedKey}
-			navKey={key}
-			indent={depth * 12 - 4}
-			title={displayPathOf(d)}
-			onclick={() => {
-				highlightedKey = key
-				scrollToDiff(d)
-			}}
-			onmouseenter={() => setHoverHighlight(key)}
-		>
-			{#snippet extras()}
-				{#if 'hasDraft' in d && d.hasDraft}
-					<DraftBadge
-						iconOnly
-						is_draft
-						draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
-						draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
-						itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
-						currentUsername={$userStore?.username}
-					/>
-				{/if}
-			{/snippet}
-		</WorkspaceItemRow>
+		     folder icons. Keep in sync with the folder summary. The reveal button is
+		     an absolutely-positioned sibling (not nested in the row's <button>, which
+		     would be invalid) that surfaces on hover. -->
+		<div class="relative group/reveal">
+			<WorkspaceItemRow
+				kind={d.kind as any}
+				iconPath={d.path}
+				baseClass="py-1.5"
+				singleLine
+				summary={summaries[key] ?? ('summary' in d ? d.summary : undefined)}
+				secondary={node.name}
+				highlighted={key === highlightedKey}
+				navKey={key}
+				indent={depth * 12 - 4}
+				title={displayPathOf(d)}
+				onclick={() => revealDiff(d, key)}
+				onmouseenter={() => setHoverHighlight(key)}
+			>
+				{#snippet extras()}
+					{#if 'hasDraft' in d && d.hasDraft}
+						<DraftBadge
+							is_draft
+							draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
+							draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
+							itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
+							currentUsername={$userStore?.username}
+						/>
+					{/if}
+					<!-- Reserve width for the reveal button so its overlay never covers
+					     the draft badge or path text on hover. -->
+					<span class="w-5 shrink-0" aria-hidden="true"></span>
+				{/snippet}
+			</WorkspaceItemRow>
+			<button
+				type="button"
+				title="Open diff"
+				aria-label="Open diff"
+				class="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center p-1 rounded text-tertiary opacity-0 group-hover/reveal:opacity-100 focus:opacity-100 hover:text-primary hover:bg-surface-selected transition-opacity"
+				onmousedown={(e) => e.preventDefault()}
+				onclick={(e) => {
+					e.stopPropagation()
+					void revealDiff(d, key)
+				}}
+			>
+				<PanelRightOpen size={13} />
+			</button>
+		</div>
 	{/if}
 {/snippet}
 
@@ -583,6 +616,16 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
+			{#if diffs.length > 0}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: rightPanelCollapsed ? PanelRightOpen : PanelRightClose }}
+					title={rightPanelCollapsed ? 'Show diff panel' : 'Hide diff panel'}
+					onclick={() => (rightPanelCollapsed = !rightPanelCollapsed)}
+				/>
+			{/if}
 			<Button
 				variant="accent"
 				unifiedSize="sm"
@@ -597,7 +640,9 @@
 				<aside
 					bind:this={sidebarRoot}
 					onmousemove={() => (mouseActive = true)}
-					class="flex-none w-56 border-r border-light flex flex-col min-h-0"
+					class="{rightPanelCollapsed
+						? 'flex-1'
+						: 'flex-none w-72 border-r border-light'} flex flex-col min-h-0"
 				>
 					<div class="px-3 pt-3 pb-2 shrink-0">
 						<!-- Raw input (not the design-system TextInput) on purpose: this is a
@@ -626,136 +671,138 @@
 					</div>
 				</aside>
 			{/if}
-			<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
-				<div class="px-3 pt-3 pb-4 flex flex-col gap-3">
-					{#if loading && diffs.length === 0}
-						<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
-							<Loader2 class="w-4 h-4 animate-spin" />
-							Loading comparison...
-						</div>
-					{:else if error}
-						<div class="text-sm text-red-600 dark:text-red-400 py-4">{error}</div>
-					{:else if notice}
-						<div class="text-sm text-secondary py-4">{notice}</div>
-					{:else if diffs.length === 0}
-						<div class="text-sm text-secondary py-4">{emptyMessage}</div>
-					{:else if filteredDiffs.length === 0}
-						<div class="text-sm text-secondary py-4">No files match "{searchQuery}".</div>
-					{:else}
-						<div class="flex flex-col gap-2">
-							{#each filteredDiffs as d (itemKey(d))}
-								{@const key = itemKey(d)}
-								{@const status = d.status}
-								{@const StatusIcon = statusIcons[status]}
-								{@const loaded = loadedDiffs[key]}
-								<!-- A synthesized raw-app item (file or runnable) links to its
+			{#if !rightPanelCollapsed}
+				<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
+					<div class="px-3 pt-3 pb-4 flex flex-col gap-3">
+						{#if loading && diffs.length === 0}
+							<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
+								<Loader2 class="w-4 h-4 animate-spin" />
+								Loading comparison...
+							</div>
+						{:else if error}
+							<div class="text-sm text-red-600 dark:text-red-400 py-4">{error}</div>
+						{:else if notice}
+							<div class="text-sm text-secondary py-4">{notice}</div>
+						{:else if diffs.length === 0}
+							<div class="text-sm text-secondary py-4">{emptyMessage}</div>
+						{:else if filteredDiffs.length === 0}
+							<div class="text-sm text-secondary py-4">No files match "{searchQuery}".</div>
+						{:else}
+							<div class="flex flex-col gap-2">
+								{#each filteredDiffs as d (itemKey(d))}
+									{@const key = itemKey(d)}
+									{@const status = d.status}
+									{@const StatusIcon = statusIcons[status]}
+									{@const loaded = loadedDiffs[key]}
+									<!-- A synthesized raw-app item (file or runnable) links to its
 								     owning app's editor. -->
-								{@const editUrl =
-									'appPath' in d
-										? editUrlFor?.({ ...d, kind: 'raw_app', path: d.appPath })
-										: editUrlFor?.(d)}
-								{@const dpath = displayPathOf(d)}
-								<details
-									open
-									id={rowId(d)}
-									class="border border-light rounded-md bg-surface scroll-mt-2"
-									ontoggle={(e) => onDetailsToggle(d, e)}
-								>
-									<summary
-										class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden border-b border-transparent rounded-md relative before:content-[''] before:absolute before:inset-0 before:bg-surface-hover before:opacity-0 before:pointer-events-none before:transition-opacity hover:before:opacity-100"
+									{@const editUrl =
+										'appPath' in d
+											? editUrlFor?.({ ...d, kind: 'raw_app', path: d.appPath })
+											: editUrlFor?.(d)}
+									{@const dpath = displayPathOf(d)}
+									<details
+										open
+										id={rowId(d)}
+										class="border border-light rounded-md bg-surface scroll-mt-2"
+										ontoggle={(e) => onDetailsToggle(d, e)}
 									>
-										<ChevronDown
-											class="w-3.5 h-3.5 shrink-0 text-tertiary transition-transform chevron"
-										/>
-										<RowIcon kind={d.kind as any} path={d.path} size={14} />
-										<div class="min-w-0 flex-1">
-											{#if editUrl}
-												<ExternalEditLink
-													href={editUrl}
-													title={dpath}
-													class="text-xs text-primary font-mono truncate"
-												>
-													<span class="truncate">{dpath}</span>
-												</ExternalEditLink>
-											{:else}
-												<div class="text-xs text-primary font-mono truncate" title={dpath}>
-													{dpath}
-												</div>
-											{/if}
-										</div>
-										<div class="shrink-0 flex items-center gap-2">
-											{#if d.ahead && d.ahead > 0}
-												<span class="text-2xs text-secondary">{d.ahead} ahead</span>
-											{/if}
-											{#if d.behind && d.behind > 0}
-												<span class="text-2xs text-secondary">{d.behind} behind</span>
-											{/if}
-											{#if 'hasDraft' in d && d.hasDraft}
-												<DraftBadge
-													is_draft
-													draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
-													draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
-													itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
-													currentUsername={$userStore?.username}
-												/>
-											{/if}
-											<Badge color={statusBadgeColor(status)}>
-												<StatusIcon class="w-3 h-3 inline mr-0.5" />
-												{status}
-											</Badge>
-										</div>
-									</summary>
-									<div
-										class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
-									>
-										{#if !mountedRows[key]}
-											<!-- Defer the Monaco mount until this block scrolls near the
+										<summary
+											class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden border-b border-transparent rounded-md relative before:content-[''] before:absolute before:inset-0 before:bg-surface-hover before:opacity-0 before:pointer-events-none before:transition-opacity hover:before:opacity-100"
+										>
+											<ChevronDown
+												class="w-3.5 h-3.5 shrink-0 text-tertiary transition-transform chevron"
+											/>
+											<RowIcon kind={d.kind as any} path={d.path} size={14} />
+											<div class="min-w-0 flex-1">
+												{#if editUrl}
+													<ExternalEditLink
+														href={editUrl}
+														title={dpath}
+														class="text-xs text-primary font-mono truncate"
+													>
+														<span class="truncate">{dpath}</span>
+													</ExternalEditLink>
+												{:else}
+													<div class="text-xs text-primary font-mono truncate" title={dpath}>
+														{dpath}
+													</div>
+												{/if}
+											</div>
+											<div class="shrink-0 flex items-center gap-2">
+												{#if d.ahead && d.ahead > 0}
+													<span class="text-2xs text-secondary">{d.ahead} ahead</span>
+												{/if}
+												{#if d.behind && d.behind > 0}
+													<span class="text-2xs text-secondary">{d.behind} behind</span>
+												{/if}
+												{#if 'hasDraft' in d && d.hasDraft}
+													<DraftBadge
+														is_draft
+														draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
+														draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
+														itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
+														currentUsername={$userStore?.username}
+													/>
+												{/if}
+												<Badge color={statusBadgeColor(status)}>
+													<StatusIcon class="w-3 h-3 inline mr-0.5" />
+													{status}
+												</Badge>
+											</div>
+										</summary>
+										<div
+											class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
+										>
+											{#if !mountedRows[key]}
+												<!-- Defer the Monaco mount until this block scrolls near the
 											     viewport, so an exploded many-file app doesn't mount every
 											     editor at once. -->
-											<div
-												use:lazyMount={key}
-												class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
-											>
-												<Loader2 class="w-3.5 h-3.5 animate-spin" />
-												Diff loads on scroll…
-											</div>
-										{:else if d.kind === 'raw_app_file'}
-											<!-- DiffRow.kind is a plain string, so the kind check doesn't narrow
+												<div
+													use:lazyMount={key}
+													class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
+												>
+													<Loader2 class="w-3.5 h-3.5 animate-spin" />
+													Diff loads on scroll…
+												</div>
+											{:else if d.kind === 'raw_app_file'}
+												<!-- DiffRow.kind is a plain string, so the kind check doesn't narrow
 											     the union — assert the synthetic file item. -->
-											{@const rawFile = d as RawAppFileItem}
-											<WorkspaceItemDiffViewer kind="raw_app_file" {rawFile} {inlineDiff} />
-										{:else if 'appPath' in d}
-											<!-- Synthesized runnable: render script-style (Content + Metadata),
+												{@const rawFile = d as RawAppFileItem}
+												<WorkspaceItemDiffViewer kind="raw_app_file" {rawFile} {inlineDiff} />
+											{:else if 'appPath' in d}
+												<!-- Synthesized runnable: render script-style (Content + Metadata),
 											     forcing `script` so flow runnables don't hit FlowDiffViewer. -->
-											{@const runnable = d as RawAppRunnableItem}
-											<WorkspaceItemDiffViewer
-												kind="script"
-												originalRaw={runnable.originalRaw}
-												currentRaw={runnable.currentRaw}
-												{inlineDiff}
-											/>
-										{:else if !loaded || loaded.state === 'loading'}
-											<div class="flex items-center gap-2 text-xs text-secondary p-3">
-												<Loader2 class="w-3.5 h-3.5 animate-spin" />
-												Loading diff…
-											</div>
-										{:else if loaded.state === 'error'}
-											<div class="text-xs text-red-600 dark:text-red-400">{loaded.error}</div>
-										{:else if loaded.state === 'ready'}
-											<WorkspaceItemDiffViewer
-												kind={d.kind}
-												originalRaw={loaded.before}
-												currentRaw={loaded.after}
-												{inlineDiff}
-											/>
-										{/if}
-									</div>
-								</details>
-							{/each}
-						</div>
-					{/if}
-				</div></main
-			>
+												{@const runnable = d as RawAppRunnableItem}
+												<WorkspaceItemDiffViewer
+													kind="script"
+													originalRaw={runnable.originalRaw}
+													currentRaw={runnable.currentRaw}
+													{inlineDiff}
+												/>
+											{:else if !loaded || loaded.state === 'loading'}
+												<div class="flex items-center gap-2 text-xs text-secondary p-3">
+													<Loader2 class="w-3.5 h-3.5 animate-spin" />
+													Loading diff…
+												</div>
+											{:else if loaded.state === 'error'}
+												<div class="text-xs text-red-600 dark:text-red-400">{loaded.error}</div>
+											{:else if loaded.state === 'ready'}
+												<WorkspaceItemDiffViewer
+													kind={d.kind}
+													originalRaw={loaded.before}
+													currentRaw={loaded.after}
+													{inlineDiff}
+												/>
+											{/if}
+										</div>
+									</details>
+								{/each}
+							</div>
+						{/if}
+					</div></main
+				>
+			{/if}
 		</div>
 	</DrawerContent>
 </Drawer>
