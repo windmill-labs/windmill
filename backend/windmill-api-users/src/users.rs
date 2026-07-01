@@ -240,6 +240,11 @@ pub struct UserInfo {
     pub folders_owners: Vec<String>,
     pub name: Option<String>,
     pub is_service_account: bool,
+    // True when this row is a superadmin viewing a workspace they are not a
+    // member of (so `is_admin`/`role` reflect the superadmin fallback, not an
+    // actual membership). Always false for real member rows.
+    #[serde(default)]
+    pub non_member: bool,
 }
 
 #[derive(FromRow, Serialize)]
@@ -729,6 +734,7 @@ async fn whoami(
                 .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
             is_service_account: false,
+            non_member: true,
         }))
     }
 }
@@ -893,6 +899,7 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
             .filter_map(|x| if x.2 { Some(x.0) } else { None })
             .collect(),
         is_service_account: usr.is_service_account,
+        non_member: false,
     }))
 }
 

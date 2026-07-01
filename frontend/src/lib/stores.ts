@@ -31,8 +31,8 @@ export interface UserExt {
 	folders_owners: string[]
 	is_service_account?: boolean
 	impersonating_email?: string
-	// 'superadmin' when the user is a superadmin viewing a workspace they are not a member of
-	role?: string | null
+	// true when the user is a superadmin viewing a workspace they are not a member of
+	non_member?: boolean
 }
 
 export interface UserWorkspace {

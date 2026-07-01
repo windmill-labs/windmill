@@ -52,7 +52,7 @@
 				{$userStore?.email}
 			</p>
 			<span class="text-xs text-primary flex flex-row gap-2 items-center">
-				{#if $userStore?.role === 'superadmin'}
+				{#if $userStore?.non_member}
 					Superadmin, not a member of this workspace <Crown size={14} />
 				{:else if $userStore?.is_admin}
 					Admin of this workspace <Crown size={14} />
@@ -60,7 +60,7 @@
 					Operator in this workspace <ServerCog size={14} />
 				{/if}
 			</span>
-			{#if $userStore?.role === 'superadmin' && $userStore?.username}
+			{#if $userStore?.non_member && $userStore?.username}
 				<span class="text-xs text-tertiary block mt-1">
 					You act as <span class="font-medium">{$userStore.username}</span> here
 				</span>
