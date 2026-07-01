@@ -106,20 +106,24 @@ pub async fn generate_instance_username_for_all_users(db: &DB) -> error::Result<
 /// 120s auth caches, so this deliberately does not add another email->username
 /// cache (which would only help the cold JWT-mint / job-perms paths while risking
 /// cross-DB contamination in the shared-process integration tests).
-pub async fn get_instance_username_or_fallback_to_email<'e, E>(db: E, email: &str) -> String
+///
+/// A DB error is propagated rather than swallowed into the email fallback: falling
+/// back to the email on a transient failure would reintroduce the very email leak
+/// this path exists to prevent, so callers fail closed instead.
+pub async fn get_instance_username_or_fallback_to_email<'e, E>(
+    db: E,
+    email: &str,
+) -> error::Result<String>
 where
     E: sqlx::PgExecutor<'e>,
 {
-    match sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", email)
+    let derived = sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", email)
         .fetch_optional(db)
-        .await
-    {
-        Ok(Some(Some(username))) => username,
-        // No derived username (automate_username_creation off), or a transient DB
-        // error: fall back to the email for this call. On error we intentionally
-        // do not persist anything, so the next call retries.
-        _ => email.to_string(),
-    }
+        .await?
+        .flatten();
+    // No derived username (automate_username_creation disabled) → fall back to the
+    // email. This is the only legitimate fallback; a query error propagates above.
+    Ok(derived.unwrap_or_else(|| email.to_string()))
 }
 
 pub async fn get_instance_username_or_create_pending<'c>(

@@ -421,23 +421,32 @@ impl AuthCache {
                                             })
                                         }
                                         None if super_admin => {
-                                            let username =
-                                                get_instance_username_or_fallback_to_email(
-                                                    &self.db, &email,
-                                                )
-                                                .await;
-                                            Some(ApiAuthed {
-                                                email,
-                                                username,
-                                                is_admin: super_admin,
-                                                is_operator: false,
-                                                groups: vec![],
-                                                folders: vec![],
-                                                scopes,
-                                                username_override,
-                                                token_prefix: Some(safe_token_prefix(token)),
-                                                read_only,
-                                            })
+                                            // Fail closed on a DB error rather than
+                                            // letting the email leak in as the username.
+                                            match get_instance_username_or_fallback_to_email(
+                                                &self.db, &email,
+                                            )
+                                            .await
+                                            {
+                                                Ok(username) => Some(ApiAuthed {
+                                                    email,
+                                                    username,
+                                                    is_admin: super_admin,
+                                                    is_operator: false,
+                                                    groups: vec![],
+                                                    folders: vec![],
+                                                    scopes,
+                                                    username_override,
+                                                    token_prefix: Some(safe_token_prefix(token)),
+                                                    read_only,
+                                                }),
+                                                Err(e) => {
+                                                    tracing::error!(
+                                                        "Failed to resolve instance username for superadmin {email}: {e:#}"
+                                                    );
+                                                    None
+                                                }
+                                            }
                                         }
                                         None => None,
                                     }
