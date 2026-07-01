@@ -121,6 +121,38 @@ function closure(adj: Map<string, Set<string>>, start: string): Set<string> {
 export const descendants = (dag: LineageDag, n: string): Set<string> => closure(dag.down, n);
 export const ancestors = (dag: LineageDag, n: string): Set<string> => closure(dag.up, n);
 
+/**
+ * Nodes reachable from `starts` over the lineage DAG, treating `barriers` as cut
+ * points: a barrier node is neither included NOR traversed through. So a node
+ * reachable ONLY via a barrier is excluded, while one also reachable via another
+ * path stays. Used for whole-pipeline runs to keep event handlers AND their
+ * event-only downstream closure out (subtracting only the handler would leave a
+ * consumer whose producer was skipped, which topoOrder would then run with
+ * missing/stale inputs).
+ */
+export function reachableCutting(
+  dag: LineageDag,
+  starts: Iterable<string>,
+  barriers: Set<string>,
+): Set<string> {
+  const seen = new Set<string>();
+  const queue: string[] = [];
+  for (const s of starts) {
+    if (barriers.has(s) || seen.has(s)) continue;
+    seen.add(s);
+    queue.push(s);
+  }
+  while (queue.length > 0) {
+    const n = queue.shift()!;
+    for (const next of dag.down.get(n) ?? []) {
+      if (barriers.has(next) || seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return seen;
+}
+
 export type BoundedResult = {
   nodes: Set<string>;
   reachableEnds: string[];

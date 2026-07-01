@@ -16,6 +16,9 @@ import {
   topoOrder,
   validStarts,
   eventTriggerScripts,
+  reachableCutting,
+  isScriptNode,
+  scriptPathOf,
 } from "../src/commands/pipeline/boundedCascade.ts";
 
 type W = [script: string, asset: string];
@@ -126,6 +129,35 @@ test("eventTriggerScripts: event handlers, incl. ones that also subscribe (desce
   const ev = eventTriggerScripts(g);
   expect(ev.has(sn("evt"))).toBe(true); // excluded from a whole-pipeline run despite being a descendant
   expect(ev.has(sn("a"))).toBe(false);
+});
+
+test("reachableCutting: drops barrier + its exclusive downstream, keeps alt-path nodes", () => {
+  // root_a → x → handler(kafka) → y → consumer ; root_b → z ; (variant: consumer also ← z)
+  const g = graph({
+    scripts: ["root_a", "root_b", "handler", "consumer"],
+    writes: [["root_a", "x"], ["root_b", "z"], ["handler", "y"]],
+    subs: [["handler", "x"], ["consumer", "y"]],
+    native: [["kafka", "handler"]],
+  });
+  const dag = buildLineageDag(g);
+  const scripts = (s: Set<string>) =>
+    new Set([...s].filter(isScriptNode).map(scriptPathOf));
+
+  // consumer only reachable via the event handler → both excluded
+  expect(scripts(reachableCutting(dag, validStarts(g), eventTriggerScripts(g)))).toEqual(
+    new Set(["root_a", "root_b"]),
+  );
+
+  // now consumer also reads z (a non-event path via root_b) → it stays
+  const g2 = graph({
+    scripts: ["root_a", "root_b", "handler", "consumer"],
+    writes: [["root_a", "x"], ["root_b", "z"], ["handler", "y"]],
+    subs: [["handler", "x"], ["consumer", "y"], ["consumer", "z"]],
+    native: [["kafka", "handler"]],
+  });
+  expect(
+    scripts(reachableCutting(buildLineageDag(g2), validStarts(g2), eventTriggerScripts(g2))),
+  ).toEqual(new Set(["root_a", "root_b", "consumer"]));
 });
 
 test("assetUriToNodeId maps s3 → s3object, others verbatim", () => {
