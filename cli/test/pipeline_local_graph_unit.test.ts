@@ -170,13 +170,13 @@ test("`// tag <worker>` is carried on the pushed script for preview routing", as
 test("go/bash fallback: leading-header `// on` only, options stripped, no body phantoms", async () => {
   await withFolder(
     {
-      // header annotations (one with a trailing option) + a body comment that
-      // must NOT become a phantom trigger.
+      // header annotations (incl. `// tag`, one `// on` with a trailing option) +
+      // a body comment that must NOT become a phantom trigger.
       "ingest.go":
-        `// pipeline\n// on s3://demo/raw.csv debounce=5s\npackage inner\nfunc main() {\n\t// on s3://demo/PHANTOM.csv\n}\n`,
+        `// pipeline\n// tag heavy\n// on s3://demo/raw.csv debounce=5s\npackage inner\nfunc main() {\n\t// on s3://demo/PHANTOM.csv\n}\n`,
     },
     async (root, folder) => {
-      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
       const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
         (typeof graph.triggers)[number],
         { trigger_kind: "asset" }
@@ -186,6 +186,9 @@ test("go/bash fallback: leading-header `// on` only, options stripped, no body p
       // the trailing `debounce=5s` option is stripped from the asset path
       expect(ats[0].asset_path).toBe("demo/raw.csv");
       expect(graph.assets.some((a) => a.path.includes("PHANTOM"))).toBe(false);
+      // `// tag` is recovered by the fallback too (routes the preview)
+      expect(scripts.find((s) => s.path === "f/mypipe/ingest")?.tag).toBe("heavy");
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/ingest")?.tag).toBe("heavy");
     },
   );
 });

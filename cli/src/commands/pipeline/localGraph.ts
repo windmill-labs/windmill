@@ -178,10 +178,11 @@ function commentPrefix(language: string): string {
 
 // Minimal annotation scan for languages without a wasm asset parser (go, bash).
 // Deliberately a SUBSET of the canonical parsers (backend
-// `parse_pipeline_annotations`, frontend `parsePipelineAnnotations.ts`): it only
-// recovers `// pipeline` membership and `// on <asset-uri | native-kind>` so the
-// node and its trigger edges still appear in the graph. Body-inferred I/O for
-// these languages is out of scope (see plan); annotate explicitly to get edges.
+// `parse_pipeline_annotations`, frontend `parsePipelineAnnotations.ts`): it
+// recovers `// pipeline` membership, `// on <asset-uri | native-kind>`, and
+// `// tag <worker-tag>` (routing affects execution) so the node, its trigger
+// edges, and its worker tag still appear. Body-inferred I/O for these languages
+// is out of scope (see plan); annotate explicitly to get edges.
 const NATIVE_KINDS = new Set([
   "schedule",
   "webhook",
@@ -207,6 +208,13 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
     if (!trimmed.startsWith(raw)) break;
     if (line.match(new RegExp(`^\\s*${p}\\s*pipeline\\s*$`))) {
       out.in_pipeline = true;
+      continue;
+    }
+    // `// tag <worker-tag>` — routes the preview; cheap to scan and it affects
+    // execution, so recover it here too (the wasm path already carries it).
+    const tag = line.match(new RegExp(`^\\s*${p}\\s*tag\\s+(.+?)\\s*$`));
+    if (tag) {
+      out.tag = tag[1].trim();
       continue;
     }
     const on = line.match(new RegExp(`^\\s*${p}\\s*on\\s+(.+?)\\s*$`));
