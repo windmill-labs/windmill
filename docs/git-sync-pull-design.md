@@ -288,13 +288,20 @@ and the deploy UI can link directly to the PR. The merge side is already
 covered by §7 routing (push event on the target branch). The documented actions
 remain valid for customers who want CI in the path.
 
+> Implementation note: PR creation landed in the **webhook handler**
+> (`handle_github_git_sync_event`, `wm_deploy/**` + `wm-fork/**` → `ensure_pull_request`),
+> not the deployment callback — the parent's webhook already receives the branch
+> push. Fork specifics (configure at the parent, fan-out pull to forks) are in
+> Phase 5.
+
 ## 12. Later: PR diff preview checks
 
 With `pull_request` events (webhook tier) and `checks: write`: on PR
 opened/synchronized, run the existing `dry_run: true` pull and post the diff
 summary as a check run. This replicates the CI dry-run preview with zero
 customer CI and completes the "Cloudflare Pages" experience: install app →
-merges deploy, PRs show a Windmill diff. Explicitly out of scope for v1.
+merges deploy, PRs show a Windmill diff. The commit-level "Deploying… →
+Deployed" status (the other half of the Cloudflare feel) is Phase 6.
 
 ## 13. Coverage vs documented setups
 
@@ -304,7 +311,7 @@ merges deploy, PRs show a Windmill diff. Explicitly out of scope for v1.
 | Multi-repo primary/secondary             | per-repo toggle; secondaries stay push-only           |
 | Promotion mode, single instance          | §7 promotion routing + §11 PR creation                |
 | Promotion mode, cross-instance           | each instance triggers independently — strictly better than CI (no cross-instance tokens/URLs) |
-| Workspace forks (`wm-fork/**`)           | §7 fork routing + §11 — ship last, most edge cases    |
+| Workspace forks (`wm-fork/**`)           | §7 fork routing + Phase 5 (parent-level fork auto-sync)|
 | PR dry-run preview                       | §12 (optional follow-up)                              |
 | Local dev, git as entry point            | ordinary push events; nothing special                 |
 | Customers with real CI gates             | unchanged; pull triggers are idempotent and coexist   |
@@ -442,6 +449,147 @@ Frontend:
 
 - Subscribe `pull_request` events; on open/synchronize run the existing
   `dry_run: true` pull and post the diff as a check run (`checks: write`).
+
+### Phase 5 — fork auto-sync, configured at the parent (replaces the `*-to-forks` GitHub Actions) — implemented
+
+**Today's behavior (the premise).** `create_workspace_fork` copies the parent's
+resources (so the `git_repository` resource lands in the fork) and members, and
+via `clone_workspace_data` → `update_workspace_settings` it *also* copies the
+parent's `git_app_installations` and `git_sync` (keeping the first sync-mode
+repo — WIN-1559). So a fork already inherits the push-direction config and the
+installation, and can push to git on deploy with the parent's app.
+
+What a fork must **not** inherit is the new `auto_pull` block: it carries the
+parent's `webhook_id`/`webhook_secret` (a repo webhook is per-repo and owned by
+the parent, so a fork turning auto-pull off would delete the *parent's* hook),
+and it would make the fork self-poll on top of the parent's fan-out. So
+`update_workspace_settings` strips `auto_pull` (and the parent-level `fork_*`
+flags) from the copied repo. The fork keeps push + installation (unchanged); the
+parent drives fork pulls. This is what `push-on-merge-to-forks` and
+`open-pr-on-fork-commit` did externally with a shared `WMILL_TOKEN` in CI.
+
+**Design decision: configure both fork behaviors at the _parent_ workspace, not
+per fork.** This matches the GitHub Action model (configured once at the repo,
+loops over forks) and needs zero per-fork setup — no fork resource, installation,
+webhook, or `git_sync` config. It applies to current *and* future forks, uses a
+single credential (the parent's installation), and keeps every credential
+server-side (no token is ever copied into a fork — strictly safer than today's
+PAT-resource copy). Two toggles live in the parent repo card, shown only when the
+parent is app-backed and is not itself a fork:
+
+1. **Open PRs for fork deploys** (`open-pr-on-fork-commit` parity). Already
+   mostly wired: a fork's deploy pushes `wm-fork/<parent>/<id>` to the shared
+   repo, GitHub delivers to the **parent's** webhook, and
+   `handle_github_git_sync_event` already matches `wm-fork/**` and calls
+   `ensure_pull_request`. Work here is just to **gate** that branch on the new
+   parent flag (today it fires whenever the parent webhook exists). No per-fork
+   webhook.
+
+2. **Keep forks in sync with the tracked branch** (`push-on-merge-to-forks`
+   parity — the one genuinely new piece). When the parent's tracked branch
+   updates (the parent's existing webhook/poll already detects it), fan out:
+   enumerate forks and enqueue a pull into each, cloning with the **parent's**
+   installation token and applying to each fork workspace. One credential, N
+   targets — mirrors the Action's single `WMILL_TOKEN` pushing to all forks.
+
+Backend (EE):
+
+- Settings: add parent-level flags to `GitRepositorySettings` (e.g.
+  `fork_open_prs: bool`, `fork_pull_sync: bool`), off by default.
+- PR gate: in `handle_github_git_sync_event`, guard the `wm-fork/**`
+  `ensure_pull_request` branch on `fork_open_prs`.
+- Fan-out: after the parent reconcile decides to pull the tracked branch, if
+  `fork_pull_sync`, enumerate forks —
+  `SELECT id FROM workspace WHERE parent_workspace_id = $1 AND NOT deleted` — and
+  enqueue a pull per fork via `enqueue_git_pull_job`. Target = the fork
+  workspace; run as the fork's admin (reuse the existing admin resolution);
+  per-`(repo, fork)` concurrency + `[WM]`/sha guards apply per fork.
+
+> Implementation note — how the fork pull authenticates. The fan-out lands in
+> `reconcile_and_enqueue_pull` (so it covers both the webhook and poller paths),
+> best-effort per fork. The fork pull job runs *in the fork* with the parent's
+> `git_repo_resource_path`; the fork's copied `git_repository` resource supplies
+> the (identical) URL, and the token is minted from the fork's inherited
+> `git_app_installations` copy. As a safety net (in case a fork ever lacks an
+> installation), `get_github_app_token_internal` also falls back to the parent:
+> when a workspace has no `git_app_installations`, it retries the lookup on its
+> `parent_workspace_id`. Fork pulls carry no deploy check and never re-fan-out.
+
+Frontend:
+
+- Two toggles in the parent `GitSyncRepositoryCard.svelte`, gated on app-backed
+  and `!isFork`, with a one-line note that they apply to all forks of this
+  workspace. Off by default.
+
+Perms: gate the toggles on parent-workspace admin (whoever edits the parent's
+`git_sync`) — the same bar as "who set up the repo secret + workflow." No
+per-fork authorization; matches the current Action ergonomics.
+
+Non-goals for v1: per-fork opt-out (default is all forks; add an exclusion list
+later if asked); per-fork include/exclude filters (v1 applies the parent's).
+
+### Phase 6 — live deploy status check on the commit (Cloudflare-style) — implemented
+
+Replicate the Cloudflare Pages deploy status: a **check run** that appears in the
+commit/PR checks strip, starting `in_progress` ("Deploying…") and flipping to
+`completed`/`success` ("Deployed"). This is *not* a GitHub Action — it's posted
+via the Checks API, so it reuses the Phase 4 machinery
+(`create_check_run`/`update_check_run`) and the `checks: write` grant already
+requested. No new permission, no customer CI. The check lands on the head commit
+of the tracked branch — exactly where Cloudflare's "Deployed to production" sits.
+
+Today the deploy path posts nothing back: `create_check_run`
+(`"status": "in_progress"`) and `update_check_run`
+(`"status": "completed"` + conclusion + output) already exist and are used for
+the PR **dry-run** diff, but the real deploy pull (tracked-branch push/merge)
+doesn't create one. Phase 6 runs that same two-step on the deploy path.
+
+Flow:
+
+1. On a tracked-branch push/poll that triggers a deploy pull, `create_check_run`
+   on the head sha: name **"Windmill"** (vs "Windmill diff" for PR checks),
+   `in_progress`, title "Deploying…", with a **`details_url`** to the Windmill
+   run / workspace. Keep the returned `check_run_id`.
+2. Thread `check_run_id` + `repo_url` into the pull job — same marker channel as
+   the PR dry-run (add a `__git_sync_deploy_check` marker distinct from the
+   PR-check marker so the completion hook knows which kind).
+3. On completion (generalize `maybe_post_git_sync_pr_check` in
+   `result_processor.rs`), `update_check_run` → `completed`, conclusion
+   `success` ("Deployed N changes to `<workspace>`" / "In sync, no changes") or
+   `failure` with the error summary.
+
+Backend (EE) touch points:
+
+- `create_check_run`: add a caller-supplied name + a `details_url` param (small
+  signature change; PR path keeps "Windmill diff").
+- Deploy trigger (tracked-branch case in `handle_github_git_sync_event`, plus the
+  poller reconcile): best-effort create the `in_progress` check and carry the id
+  into the job payload. App-backed only; never block the deploy on it.
+- Completion hook: handle the deploy-check marker alongside the PR-check marker.
+
+> Implementation note. The `in_progress` check is created inside
+> `reconcile_and_enqueue_pull` (one place covers both the webhook and poller
+> paths), best-effort and app-backed-only, then threaded to the pull job as a
+> `__git_sync_deploy_check` marker. `create_check_run` gained `name` +
+> `details_url` + `output_title` (the PR path keeps `"Windmill diff"`, no
+> details/output). The completion hook `maybe_post_git_sync_pr_check` was
+> generalized to `maybe_post_git_sync_check`, reading either marker. If the pull
+> can't even be enqueued, the in-progress check is closed as failed so it doesn't
+> hang. Fork fan-out pulls (phase 5) intentionally skip the deploy check.
+
+Gating / edges: app-backed only (needs the installation token + `checks: write`;
+PAT/polling repos skip silently); skip self-caused/no-op pulls (`[WM]`/bot,
+sha unchanged) so it doesn't post a check for Windmill's own commits; one check
+per `(repo, head_sha, workspace)` — when several workspaces pull the same commit,
+name each with its workspace to disambiguate.
+
+Optional richer variant — GitHub **Deployments / Environments**. Instead of (or
+alongside) the check run, create a Deployment (`POST /repos/.../deployments`) +
+status (`POST /repos/.../deployments/{id}/statuses`) so the deploy shows in the
+repo's **Environments** timeline ("Production → Deployed"). Needs
+`deployments: write` — a *new* grant and another approval nag — so keep it
+opt-in / later. The check-run version is the cheap default and matches the visual
+Cloudflare parity without a new permission.
 
 ## 16. Alternatives considered
 

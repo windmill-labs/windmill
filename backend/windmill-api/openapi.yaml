@@ -28805,6 +28805,10 @@ components:
             $ref: "#/components/schemas/GitSyncObjectType"
         auto_pull:
           $ref: "#/components/schemas/AutoPullSettings"
+        fork_open_prs:
+          type: boolean
+        fork_pull_sync:
+          type: boolean
       required:
         - git_repo_resource_path
 

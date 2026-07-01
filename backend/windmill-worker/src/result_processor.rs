@@ -723,124 +723,197 @@ pub async fn handle_receive_completed_job(
     }
 }
 
-/// Phase 4: when a git-sync dry-run pull (carrying the `__git_sync_pr_check`
-/// marker) completes, post the resulting diff to its GitHub check run.
+/// A git-sync check run threaded through a pull job: the PR diff preview (phase 4)
+/// or the live deploy status (phase 6). Both markers carry the same shape.
 #[cfg(all(feature = "enterprise", feature = "private"))]
-async fn maybe_post_git_sync_pr_check(
+#[derive(serde::Deserialize)]
+struct GitSyncCheck {
+    check_run_id: i64,
+    repo_url: String,
+}
+
+/// Parsed diff summary from a (dry-run or real) pull result. `None` when the
+/// result can't be parsed into the expected shape.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn parse_git_sync_changes(result_raw: &str) -> Option<(Vec<(String, String)>, bool)> {
+    use serde::Deserialize;
+    #[derive(Deserialize)]
+    struct Change {
+        #[serde(rename = "type")]
+        change_type: String,
+        path: String,
+    }
+    #[derive(Deserialize)]
+    struct SettingsDiff {
+        #[serde(rename = "hasChanges", default)]
+        has_changes: bool,
+    }
+    #[derive(Deserialize)]
+    struct SyncResponse {
+        #[serde(default)]
+        changes: Vec<Change>,
+        #[serde(default, rename = "settingsDiffResult")]
+        settings_diff_result: Option<SettingsDiff>,
+    }
+    let resp = serde_json::from_str::<SyncResponse>(result_raw).ok()?;
+    let settings_changed = resp
+        .settings_diff_result
+        .map(|s| s.has_changes)
+        .unwrap_or(false);
+    Some((
+        resp.changes
+            .into_iter()
+            .map(|c| (c.change_type, c.path))
+            .collect(),
+        settings_changed,
+    ))
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (change_type, path) in changes.iter().take(100) {
+        lines.push(format!("- `{}` {}", change_type, path));
+    }
+    if changes.len() > 100 {
+        lines.push(format!("- ... and {} more", changes.len() - 100));
+    }
+    lines
+}
+
+/// When a git-sync pull job carrying a check marker completes, post the outcome
+/// to its GitHub check run: the PR diff preview (`__git_sync_pr_check`, phase 4)
+/// or the live deploy status (`__git_sync_deploy_check`, phase 6).
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_post_git_sync_check(
     db: &DB,
     job_id: &uuid::Uuid,
     workspace_id: &str,
     success: bool,
     result_raw: &str,
 ) {
-    use serde::Deserialize;
-
-    // Only git-sync dry-run jobs carry this marker; everything else no-ops.
-    let marker: Option<serde_json::Value> = match sqlx::query_scalar!(
-        "SELECT args->'__git_sync_pr_check' FROM v2_job WHERE id = $1",
+    // Only git-sync pull jobs carry one of these markers; everything else no-ops.
+    let row = match sqlx::query!(
+        r#"SELECT args->'__git_sync_pr_check' AS "pr", args->'__git_sync_deploy_check' AS "deploy"
+           FROM v2_job WHERE id = $1"#,
         job_id
     )
     .fetch_optional(db)
     .await
     {
-        Ok(v) => v.flatten(),
+        Ok(r) => r,
         Err(e) => {
-            tracing::error!("git pr-check: failed to read job args: {e:#}");
+            tracing::error!("git sync-check: failed to read job args: {e:#}");
             return;
         }
     };
-    let Some(marker) = marker else {
+    let Some(row) = row else {
+        return;
+    };
+    // A PR dry-run and a deploy pull are mutually exclusive markers.
+    let (is_deploy, marker) = match (row.pr, row.deploy) {
+        (Some(pr), _) => (false, pr),
+        (None, Some(deploy)) => (true, deploy),
+        (None, None) => return,
+    };
+    let Ok(check) = serde_json::from_value::<GitSyncCheck>(marker) else {
         return;
     };
 
-    #[derive(Deserialize)]
-    struct PrCheck {
-        check_run_id: i64,
-        repo_url: String,
-    }
-    let Ok(pr) = serde_json::from_value::<PrCheck>(marker) else {
-        return;
-    };
-
-    let (conclusion, title, summary): (&str, String, String) = if !success {
-        (
-            "failure",
-            "Windmill diff failed".to_string(),
-            "The dry-run pull to compute the diff failed. See the job in Windmill for details."
-                .to_string(),
-        )
-    } else {
-        #[derive(Deserialize)]
-        struct DryRunChange {
-            #[serde(rename = "type")]
-            change_type: String,
-            path: String,
-        }
-        #[derive(Deserialize)]
-        struct SettingsDiff {
-            #[serde(rename = "hasChanges", default)]
-            has_changes: bool,
-        }
-        #[derive(Deserialize)]
-        struct SyncResponse {
-            #[serde(default)]
-            changes: Vec<DryRunChange>,
-            #[serde(default, rename = "settingsDiffResult")]
-            settings_diff_result: Option<SettingsDiff>,
-        }
-        match serde_json::from_str::<SyncResponse>(result_raw) {
-            Ok(resp) => {
-                let settings_changed = resp
-                    .settings_diff_result
-                    .map(|s| s.has_changes)
-                    .unwrap_or(false);
-                if resp.changes.is_empty() && !settings_changed {
+    let (conclusion, title, summary): (&str, String, String) = if is_deploy {
+        // Phase 6: real deploy pull -> "Deployed N changes" / "In sync" / failure.
+        if !success {
+            (
+                "failure",
+                "Deploy failed".to_string(),
+                "Deploying the latest commit failed. See the job in Windmill for details."
+                    .to_string(),
+            )
+        } else {
+            match parse_git_sync_changes(result_raw) {
+                Some((changes, settings_changed)) if changes.is_empty() && !settings_changed => (
+                    "success",
+                    "In sync".to_string(),
+                    format!(
+                        "No changes to deploy to `{}` from this commit.",
+                        workspace_id
+                    ),
+                ),
+                Some((changes, settings_changed)) => {
+                    let mut lines = vec![format!(
+                        "Deployed {} change(s) to `{}`:\n",
+                        changes.len(),
+                        workspace_id
+                    )];
+                    lines.extend(format_change_list(&changes));
+                    if settings_changed {
+                        lines.push("\nWorkspace settings also changed.".to_string());
+                    }
                     (
                         "success",
-                        "In sync".to_string(),
-                        "Merging this PR would make no changes to the workspace.".to_string(),
+                        format!("Deployed {} change(s)", changes.len()),
+                        lines.join("\n"),
                     )
-                } else {
+                }
+                None => (
+                    "success",
+                    "Deployed".to_string(),
+                    format!("Windmill deployed the latest commit to `{}`.", workspace_id),
+                ),
+            }
+        }
+    } else {
+        // Phase 4: dry-run diff preview for a PR.
+        if !success {
+            (
+                "failure",
+                "Windmill diff failed".to_string(),
+                "The dry-run pull to compute the diff failed. See the job in Windmill for details."
+                    .to_string(),
+            )
+        } else {
+            match parse_git_sync_changes(result_raw) {
+                Some((changes, settings_changed)) if changes.is_empty() && !settings_changed => (
+                    "success",
+                    "In sync".to_string(),
+                    "Merging this PR would make no changes to the workspace.".to_string(),
+                ),
+                Some((changes, settings_changed)) => {
                     let mut lines = vec![format!(
                         "Merging this PR would apply {} change(s) to the workspace:\n",
-                        resp.changes.len()
+                        changes.len()
                     )];
-                    for c in resp.changes.iter().take(100) {
-                        lines.push(format!("- `{}` {}", c.change_type, c.path));
-                    }
-                    if resp.changes.len() > 100 {
-                        lines.push(format!("- ... and {} more", resp.changes.len() - 100));
-                    }
+                    lines.extend(format_change_list(&changes));
                     if settings_changed {
                         lines.push("\nWorkspace settings would also change.".to_string());
                     }
                     (
                         "neutral",
-                        format!("{} change(s) to deploy", resp.changes.len()),
+                        format!("{} change(s) to deploy", changes.len()),
                         lines.join("\n"),
                     )
                 }
+                None => (
+                    "neutral",
+                    "Diff computed".to_string(),
+                    "Windmill computed a diff but could not summarize it.".to_string(),
+                ),
             }
-            Err(_) => (
-                "neutral",
-                "Diff computed".to_string(),
-                "Windmill computed a diff but could not summarize it.".to_string(),
-            ),
         }
     };
 
     if let Err(e) = windmill_common::git_sync_ee::update_check_run(
         db,
         workspace_id,
-        &pr.repo_url,
-        pr.check_run_id,
+        &check.repo_url,
+        check.check_run_id,
         conclusion,
         &title,
         &summary,
     )
     .await
     {
-        tracing::error!("git pr-check: failed to update check run: {e:#}");
+        tracing::error!("git sync-check: failed to update check run: {e:#}");
     }
 }
 
@@ -931,7 +1004,7 @@ pub async fn process_completed_job(
         .await?;
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
-            maybe_post_git_sync_pr_check(db, &job_id, &workspace_id, true, result.get()).await;
+            maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
         }
 
         // Asset-trigger fan-out: best-effort, never propagates errors.
@@ -1042,7 +1115,7 @@ pub async fn process_completed_job(
         };
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
-            maybe_post_git_sync_pr_check(db, &job.id, &job.workspace_id, false, result.get()).await;
+            maybe_post_git_sync_check(db, &job.id, &job.workspace_id, false, result.get()).await;
         }
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {

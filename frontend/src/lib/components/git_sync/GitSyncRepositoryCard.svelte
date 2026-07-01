@@ -17,7 +17,7 @@
 	import DetectionFlow from './DetectionFlow.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { fade } from 'svelte/transition'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -74,6 +74,21 @@
 	}
 	function setDeliveryMode(mode: 'auto' | 'polling') {
 		if (repo?.auto_pull) repo.auto_pull = { ...repo.auto_pull, mode }
+	}
+
+	// Parent-level fork auto-sync (phase 5). Configured on the parent workspace's
+	// repo and applied to all of its forks, so hide it when the current workspace
+	// is itself a fork.
+	const currentWorkspaceData = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	const isFork = $derived(
+		($workspaceStore?.startsWith('wm-fork-') ?? false) &&
+			!!currentWorkspaceData?.parent_workspace_id
+	)
+	function setForkOpenPrs(v: boolean) {
+		if (repo) repo.fork_open_prs = v
+	}
+	function setForkPullSync(v: boolean) {
+		if (repo) repo.fork_pull_sync = v
 	}
 
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
@@ -620,6 +635,34 @@
 										it now so the two don't fight over deploys.
 									</Alert>
 								</div>
+								{#if isGithubApp && !isFork}
+									<!-- Parent-level fork auto-sync (applies to all forks of this workspace) -->
+									<div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
+										<div class="text-sm font-semibold text-emphasis">Forks of this workspace</div>
+										<div class="text-2xs text-secondary mb-2">
+											Applies to every fork of this workspace using this workspace's GitHub App
+											installation. Replaces the fork GitHub Actions.
+										</div>
+										<Toggle
+											checked={repo.fork_open_prs ?? false}
+											options={{
+												right: 'Open a PR when a fork deploys',
+												rightTooltip:
+													'When a fork deploys, Windmill opens a pull request from its wm-fork/** branch to the tracked branch of the shared repository.'
+											}}
+											on:change={(e) => setForkOpenPrs(e.detail)}
+										/>
+										<Toggle
+											checked={repo.fork_pull_sync ?? false}
+											options={{
+												right: 'Keep forks in sync with the tracked branch',
+												rightTooltip:
+													"When the tracked branch updates, Windmill pulls the new content into every fork of this workspace, using the parent's installation."
+											}}
+											on:change={(e) => setForkPullSync(e.detail)}
+										/>
+									</div>
+								{/if}
 							{/if}
 						</div>
 					{/if}

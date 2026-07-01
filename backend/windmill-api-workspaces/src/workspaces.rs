@@ -4327,6 +4327,18 @@ async fn update_workspace_settings(
         .into_iter()
         .filter(|r| !r.use_individual_branch.unwrap_or(false))
         .take(1)
+        .map(|mut r| {
+            // Auto-pull is parent-owned and must not be inherited: the fork would
+            // otherwise carry the parent's webhook id (turning off auto-pull on the
+            // fork would delete the parent's webhook) and would self-pull on top of
+            // the parent's fork_pull_sync fan-out. The push-direction config and the
+            // installation are still inherited (unchanged behavior); the parent
+            // drives fork pulls. fork_* flags are parent-level, so clear them too.
+            r.auto_pull = None;
+            r.fork_open_prs = false;
+            r.fork_pull_sync = false;
+            r
+        })
         .collect();
 
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
