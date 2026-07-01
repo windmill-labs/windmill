@@ -211,10 +211,12 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
       continue;
     }
     // `// tag <worker-tag>` — routes the preview; cheap to scan and it affects
-    // execution, so recover it here too (the wasm path already carries it).
-    const tag = line.match(new RegExp(`^\\s*${p}\\s*tag\\s+(.+?)\\s*$`));
+    // execution, so recover it here too (the wasm path already carries it). A
+    // worker tag is a single token — match `\S+` (not `.+`) so trailing prose
+    // (`// tag gpu for heavy jobs`) can't smuggle a bogus multi-word tag.
+    const tag = line.match(new RegExp(`^\\s*${p}\\s*tag\\s+(\\S+)\\s*$`));
     if (tag) {
-      out.tag = tag[1].trim();
+      out.tag = tag[1];
       continue;
     }
     const on = line.match(new RegExp(`^\\s*${p}\\s*on\\s+(.+?)\\s*$`));

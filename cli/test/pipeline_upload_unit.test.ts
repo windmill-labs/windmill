@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   devUploadKey,
+  parseS3Uri,
   parseUploadBinding,
   s3Arg,
   s3ObjectParams,
@@ -69,7 +70,22 @@ test("devUploadKey: key scoped by script path + param so basenames don't clobber
 });
 
 test("s3Arg: shapes the S3Object run-arg", () => {
-  expect(s3Arg("file", "wmilldev/pipeline/analytics/events.csv")).toEqual({
+  expect(s3Arg("file", { s3: "wmilldev/pipeline/analytics/events.csv" })).toEqual({
     file: { s3: "wmilldev/pipeline/analytics/events.csv" },
   });
+  expect(s3Arg("file", { s3: "k", storage: "secondary" })).toEqual({
+    file: { s3: "k", storage: "secondary" },
+  });
+});
+
+test("parseS3Uri: authority is the named storage (empty ⇒ default)", () => {
+  // named storage: s3://<storage>/<key>
+  expect(parseS3Uri("s3://secondary/2026/events.csv")).toEqual({
+    s3: "2026/events.csv",
+    storage: "secondary",
+  });
+  // empty authority ⇒ default storage
+  expect(parseS3Uri("s3:///events.csv")).toEqual({ s3: "events.csv" });
+  // no `/` after the scheme → no authority to name a storage; whole rest is the key
+  expect(parseS3Uri("s3://events.csv")).toEqual({ s3: "events.csv" });
 });

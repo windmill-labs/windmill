@@ -40,6 +40,7 @@ import { generatePipelineDocs } from "./docs.ts";
 import {
   type UploadBinding,
   devUploadKey,
+  parseS3Uri,
   parseUploadBinding,
   s3Arg,
   s3ObjectParams,
@@ -187,6 +188,44 @@ async function enrichRootMarkers(
         if (existing.length > 0) nativeByScript.set(p, existing);
       } catch {
         // body fetch is best-effort enrichment only
+      }
+    }),
+  );
+}
+
+// The deployed `/assets/graph` omits `data_upload`/`webhook`/`email` trigger rows
+// (marker-only annotations with no trigger table), so on the deployed `run` path
+// `validStarts`/`nonAutorunTriggerScripts` can't see them and would auto-run such
+// an entrypoint with empty args. Recover them from the script bodies — the same
+// body-scan the deployed `show` path uses (`enrichRootMarkers`) — and inject
+// trigger rows so the run selection cuts them like the `--local` graph does.
+async function enrichDeployedNonAutorunTriggers(
+  workspaceId: string,
+  graph: BCGraph,
+): Promise<void> {
+  const MARKER_KINDS = new Set(["data_upload", "webhook", "email"]);
+  const scripts = (graph.runnables ?? []).filter((r) => r.usage_kind === "script");
+  await Promise.all(
+    scripts.map(async (r) => {
+      const known = new Set(
+        (graph.triggers ?? [])
+          .filter((t) => t.runnable_path === r.path && MARKER_KINDS.has(t.trigger_kind))
+          .map((t) => t.trigger_kind),
+      );
+      try {
+        const script = await wmill.getScriptByPath({ workspace: workspaceId, path: r.path });
+        for (const line of (script.content ?? "").split("\n")) {
+          const m = line.match(/^\s*(?:\/\/|--|#)\s*on\s+(\w+)\s*$/);
+          if (!m || !MARKER_KINDS.has(m[1]) || known.has(m[1])) continue;
+          known.add(m[1]);
+          graph.triggers.push({
+            trigger_kind: m[1],
+            runnable_kind: "script",
+            runnable_path: r.path,
+          });
+        }
+      } catch {
+        // best-effort: a fetch failure just leaves the row absent (prior behaviour)
       }
     }),
   );
@@ -380,22 +419,25 @@ async function resolveUploadArgs(
     if (param in args) {
       throw new Error(`--upload binds ${scriptPath}:${param} more than once.`);
     }
-    let key: string;
+    let obj: { s3: string; storage?: string };
     if (binding.source.startsWith("s3://")) {
-      key = binding.source.slice("s3://".length);
+      // `s3://<storage>/<key>` — keep the named storage (authority) so the worker
+      // downloads from the right store, not `{ s3: "<storage>/<key>" }`.
+      obj = parseS3Uri(binding.source);
     } else {
       const buf = await readFile(binding.source);
       // Key scoped by script + param so distinct sources sharing a basename
       // (across scripts or params) don't clobber each other in the store.
-      key = devUploadKey(scriptPath, param, binding.source);
+      const key = devUploadKey(scriptPath, param, binding.source);
       await wmill.fileUpload({
         workspace: workspaceId,
         fileKey: key,
         requestBody: new Blob([buf]) as any,
       });
       log.info(colors.gray(`  ↑ ${binding.source} → s3://${key}`));
+      obj = { s3: key };
     }
-    Object.assign(args, s3Arg(param, key));
+    Object.assign(args, s3Arg(param, obj));
   }
   return args;
 }
@@ -457,6 +499,10 @@ async function run(
     graph = await apiGet<BCGraph>(
       `/w/${workspace.workspaceId}/assets/graph?folder=${encodeURIComponent(f)}&asset_kinds=${ASSET_KINDS}`,
     );
+    // Recover marker-only `data_upload`/`webhook`/`email` triggers the graph
+    // endpoint can't emit, so input-only entrypoints are cut here as they are
+    // under `--local` (else they'd auto-run empty).
+    await enrichDeployedNonAutorunTriggers(workspace.workspaceId, graph);
   }
 
   // `--upload <script>[:<param>]=<file|s3://key>` binds an object to a
@@ -585,7 +631,6 @@ async function run(
     selectedScripts = new Set(scriptsOf(reachableCutting(dag, [start!], barriers)));
   } else {
     const res = boundedSet(dag, start!, ends);
-    reachableEnds = res.reachableEnds;
     droppedEnds = res.droppedEnds;
     for (const d of droppedEnds) {
       log.warn(`end '${idLabel(d)}' is not downstream of the start — ignored.`);
@@ -596,6 +641,19 @@ async function run(
     selectedScripts = new Set(
       scriptsOf([...res.nodes].filter((n) => reachable.has(n))),
     );
+    // An end that boundedSet reached but the barrier cut removed is NOT satisfied:
+    // report it as dropped (not reachable) and warn, so `--json`/the plan don't
+    // claim a bound was met when its only path ran through a skipped handler.
+    for (const e of res.reachableEnds) {
+      if (reachable.has(e)) {
+        reachableEnds.push(e);
+      } else {
+        droppedEnds.push(e);
+        log.warn(
+          `end '${idLabel(e)}' is only reachable through a skipped input/event handler — not run (bind it with --upload to include it).`,
+        );
+      }
+    }
   }
 
   const { order, cyclic } = topoOrder(graph, selectedScripts);

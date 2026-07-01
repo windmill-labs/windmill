@@ -193,6 +193,23 @@ test("go/bash fallback: leading-header `// on` only, options stripped, no body p
   );
 });
 
+test("go/bash fallback: a multi-word `// tag` is rejected (single token only)", async () => {
+  // A worker tag is one token; trailing prose must NOT smuggle a bogus tag that
+  // would route the preview to a non-existent worker.
+  await withFolder(
+    {
+      "single.go": `// pipeline\n// tag gpu\npackage inner\nfunc main() {}\n`,
+      "multi.go": `// pipeline\n// tag gpu for heavy jobs\npackage inner\nfunc main() {}\n`,
+    },
+    async (root, folder) => {
+      const { scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(scripts.find((s) => s.path === "f/mypipe/single")?.tag).toBe("gpu");
+      // multi-word → no tag (default worker), not "gpu for heavy jobs"
+      expect(scripts.find((s) => s.path === "f/mypipe/multi")?.tag).toBeUndefined();
+    },
+  );
+});
+
 test("`# volume:` producer connects to its `# on volume://` consumer", async () => {
   // Volume annotations are parsed separately from the wasm body parser (mirrors
   // the frontend/backend); without that pass the producer has no write edge.

@@ -43,7 +43,25 @@ export function devUploadKey(scriptPath: string, param: string, source: string):
   return `wmilldev/pipeline/${scriptPath}/${param}/${basename(source)}`;
 }
 
-/** The S3Object run-arg (`{ <param>: { s3: <key> } }`). */
-export function s3Arg(param: string, key: string): Record<string, { s3: string }> {
-  return { [param]: { s3: key } };
+export type S3Object = { s3: string; storage?: string };
+
+/**
+ * Parse an `s3://<storage>/<key>` source into an S3Object. The authority is the
+ * named storage (empty ⇒ default), matching Windmill's canonical round-trip
+ * (`{ s3, storage }` ⇄ `s3://<storage>/<key>`, `s3:///key` for default). A source
+ * with no `/` after the scheme has no authority to name a storage, so the whole
+ * remainder is the key in the default store.
+ */
+export function parseS3Uri(source: string): S3Object {
+  const rest = source.slice("s3://".length);
+  const slash = rest.indexOf("/");
+  if (slash < 0) return { s3: rest };
+  const storage = rest.slice(0, slash);
+  const key = rest.slice(slash + 1);
+  return storage ? { s3: key, storage } : { s3: key };
+}
+
+/** The S3Object run-arg (`{ <param>: <S3Object> }`). */
+export function s3Arg(param: string, obj: S3Object): Record<string, S3Object> {
+  return { [param]: obj };
 }
