@@ -60,9 +60,12 @@
 					Operator in this workspace <ServerCog size={14} />
 				{/if}
 			</span>
-			{#if $userStore?.non_member && $userStore?.username}
+			{#if $userStore?.non_member}
 				<span class="text-xs text-tertiary block mt-1">
-					You act as <span class="font-medium">{$userStore.username}</span> here
+					You are not a member, but as a superadmin you can access this workspace. You act here
+					under the username
+					<span class="font-mono font-medium text-primary">{$userStore?.username}</span>
+					with admin permissions.
 				</span>
 			{/if}
 		</div>
