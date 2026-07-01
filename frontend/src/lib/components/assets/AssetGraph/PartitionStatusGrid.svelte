@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { OpenAPI } from '$lib/gen'
+	import { OpenAPI, AssetService, type MaterializedPartition } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Loader2, RefreshCw, History } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils'
@@ -13,23 +13,9 @@
 	}
 	let { path, workspace }: Props = $props()
 
-	type MaterializedPartition = {
-		partition: string
-		status: 'running' | 'materialized' | 'failed'
-		snapshot_id?: number | null
-		row_count?: number | null
-		materialized_at: string
-		error?: string | null
-	}
-
-	let partitions = resource([() => workspace, () => path], async ([ws, p], _prev, { signal }) => {
+	let partitions = resource([() => workspace, () => path], async ([ws, p]) => {
 		if (!ws || !p) return [] as MaterializedPartition[]
-		const res = await fetch(
-			`${OpenAPI.BASE ?? ''}/w/${ws}/assets/partitions?path=${encodeURIComponent(p)}`,
-			{ credentials: 'include', signal }
-		)
-		if (!res.ok) throw new Error(`GET /assets/partitions → ${res.status}`)
-		return (await res.json()) as MaterializedPartition[]
+		return await AssetService.listAssetPartitions({ workspace: ws, path: p })
 	})
 
 	let backfillOpen = $state(false)
@@ -42,11 +28,16 @@
 
 	async function onBackfill(from: string, to: string) {
 		// The fan-out runner is an enterprise feature; the dialog only submits
-		// when licensed. This posts the intent to the (EE) backfill endpoint.
+		// when licensed. This posts the intent to the (EE) backfill endpoint — a raw
+		// fetch since it's not in the OSS OpenAPI, so carry the bearer token
+		// explicitly (matches how `/pipeline_dev` authenticates: no session cookie).
+		const token = OpenAPI.TOKEN
+		const authHeader: Record<string, string> =
+			typeof token === 'string' && token ? { Authorization: `Bearer ${token}` } : {}
 		const res = await fetch(`${OpenAPI.BASE ?? ''}/w/${workspace}/assets/backfill`, {
 			method: 'POST',
 			credentials: 'include',
-			headers: { 'content-type': 'application/json' },
+			headers: { 'content-type': 'application/json', ...authHeader },
 			body: JSON.stringify({ path, from, to })
 		})
 		if (!res.ok) throw new Error(`backfill → ${res.status}`)

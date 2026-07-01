@@ -21355,6 +21355,54 @@ paths:
                       format: int64
                       description: Number of pipeline-member scripts in the folder
 
+  /w/{workspace}/assets/partitions:
+    get:
+      summary: List materialized partitions for a ducklake asset
+      operationId: listAssetPartitions
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-partition materialization status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MaterializedPartition"
+
+  /w/{workspace}/assets/asset_schemas:
+    get:
+      summary: List captured output-schema versions for a ducklake asset
+      operationId: listAssetSchemas
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: captured schema versions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetSchemaVersion"
+
   /w/{workspace}/volumes/list:
     get:
       summary: List all volumes in the workspace
@@ -29434,6 +29482,65 @@ components:
         - ducklake
         - datatable
         - volume
+    MaterializedPartition:
+      type: object
+      required: [asset_kind, asset_path, partition, status, materialized_at]
+      properties:
+        asset_kind:
+          $ref: "#/components/schemas/AssetKind"
+        asset_path:
+          type: string
+        partition:
+          type: string
+        status:
+          type: string
+          enum: [running, materialized, failed]
+        snapshot_id:
+          type: integer
+          format: int64
+          nullable: true
+        row_count:
+          type: integer
+          format: int64
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        materialized_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+    AssetSchemaVersion:
+      type: object
+      required: [version, columns, captured_at]
+      properties:
+        version:
+          type: integer
+          format: int64
+        columns:
+          type: array
+          items:
+            type: object
+            required: [name, type]
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+        snapshot_id:
+          type: integer
+          format: int64
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        captured_at:
+          type: string
+          format: date-time
     Asset:
       type: object
       properties:
