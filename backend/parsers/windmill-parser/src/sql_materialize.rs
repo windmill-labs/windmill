@@ -489,9 +489,10 @@ impl<'a> MaterializeCodegen<'a> {
     ///  3. close the prior open version of those keys (`UPDATE` — not `MERGE`:
     ///     DuckLake's MERGE is the unreliable path, plain UPDATE works);
     ///  4. open a new current version from the snapshot;
-    ///  5. (re)create the `<dim>_current` convenience view — inside the same
-    ///     transaction so it doesn't advance the DuckLake snapshot past the data
-    ///     write the summary records.
+    ///  5. create the `<dim>_current` convenience view once (`IF NOT EXISTS`),
+    ///     inside the same transaction so it doesn't advance the DuckLake snapshot
+    ///     past the data write the summary records (and so an unchanged rerun,
+    ///     whose UPDATE/INSERT touch no rows, stays a true no-op).
     ///
     /// Close/open match keys with `IS NOT DISTINCT FROM` (via a correlated
     /// `EXISTS`), not `key IN (…)`: SQL `IN` never matches `NULL`, so a `NULL`
@@ -571,16 +572,22 @@ impl<'a> MaterializeCodegen<'a> {
             ),
             // Consumer convenience: a `<dim>_current` view (the live slice) so the
             // common "just the latest version" read needs no `WHERE is_current`,
-            // and downstream scripts can `// on` / read it directly. Created inside
-            // the write transaction: `CREATE OR REPLACE VIEW` is a catalog change
-            // that itself advances the DuckLake snapshot, so leaving it outside
-            // would make the summary's `max(snapshot_id)` record the view DDL
-            // instead of the data write. For the effective-dated payoff, consumers
-            // `ASOF JOIN <dim> ON fact.key = dim.<key> AND fact.ts >= dim.valid_from`.
-            // The `<dim>_current` name is reserved: if a real table by that name
-            // already exists, this errors (can't replace a table with a view) and
-            // rolls back with the transaction. Documented as a reserved suffix.
-            format!("CREATE OR REPLACE VIEW {t}_current AS SELECT * FROM {t} WHERE {ic};"),
+            // and downstream scripts can `// on` / read it directly. For the
+            // effective-dated payoff, consumers `ASOF JOIN <dim> ON fact.key =
+            // dim.<key> AND fact.ts >= dim.valid_from`.
+            //
+            // `CREATE VIEW IF NOT EXISTS` (not `OR REPLACE`), created inside the
+            // write transaction, on purpose: the view definition never changes
+            // (`SELECT * WHERE is_current` always reflects live data), and a
+            // catalog write advances the DuckLake snapshot — so `OR REPLACE` on
+            // every run would (a) advance the snapshot on an otherwise no-op
+            // unchanged run and (b) make the summary's `max(snapshot_id)` record
+            // the view DDL instead of the data write. `IF NOT EXISTS` creates it
+            // once (folded into the first data-write snapshot) and is a true no-op
+            // afterwards. The `<dim>_current` name is reserved: if a real table by
+            // that name already exists, `IF NOT EXISTS` skips silently (no view,
+            // no error) — documented as a reserved suffix.
+            format!("CREATE VIEW IF NOT EXISTS {t}_current AS SELECT * FROM {t} WHERE {ic};"),
             "COMMIT;".to_string(),
         ]
     }
@@ -1289,11 +1296,11 @@ mod tests {
             "true AS is_current FROM (SELECT id, name FROM dl.src) s WHERE EXISTS \
              (SELECT 1 FROM _wm_scd2_changed c WHERE c.\"id\" IS NOT DISTINCT FROM s.\"id\");"
         ));
-        // consumer-convenience `<dim>_current` view, created INSIDE the txn so it
-        // doesn't advance the snapshot past the data write
+        // consumer-convenience `<dim>_current` view: `IF NOT EXISTS` (created once,
+        // no-op on unchanged reruns) and INSIDE the txn (folded into the write snapshot)
         assert_eq!(
             st[5],
-            "CREATE OR REPLACE VIEW _wm_target.dim_scd2_current AS SELECT * FROM _wm_target.dim_scd2 WHERE is_current;"
+            "CREATE VIEW IF NOT EXISTS _wm_target.dim_scd2_current AS SELECT * FROM _wm_target.dim_scd2 WHERE is_current;"
         );
         assert_eq!(st[6], "COMMIT;");
         // no fragile constructs: no MERGE INTO, and no NULL-dropping `IN (SELECT`

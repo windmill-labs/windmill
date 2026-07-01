@@ -1562,7 +1562,7 @@ mod tests {
             "closes prior version"
         );
         assert!(
-            rewritten.contains("CREATE OR REPLACE VIEW _wm_target.dim_current"),
+            rewritten.contains("CREATE VIEW IF NOT EXISTS _wm_target.dim_current"),
             "emits the consumer-convenience current view"
         );
         assert!(!rewritten.contains("MERGE INTO"));

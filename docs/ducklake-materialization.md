@@ -74,8 +74,9 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
     names in this mode — a SELECT that already projects one fails at run time —
     and the `<dim>_current` suffix is reserved for the companion view (below), so
     don't separately materialize a table by that name in the same lake (the view
-    is created inside the write transaction, so such a collision rolls the whole
-    run back rather than leaving a half-applied write).
+    is created `IF NOT EXISTS` inside the write transaction, so such a collision
+    is skipped silently — the `_current` convenience is simply absent — rather
+    than erroring).
   - **Key should be non-null.** A `NULL` natural key is ill-formed for a
     dimension; the codegen matches keys null-safely so a `NULL`-key row is
     materialized rather than silently dropped, but you should enforce it with
