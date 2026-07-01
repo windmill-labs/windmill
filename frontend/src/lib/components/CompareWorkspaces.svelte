@@ -703,21 +703,32 @@
 		deselectAll()
 
 		// If every selected item deployed cleanly and the direction was
-		// merge-into-parent, close any open deployment request for this fork.
+		// merge-into-parent, resolve any open deployment request for this fork.
 		if (!anyFailed && mergeIntoParent) {
 			try {
 				const open = await WorkspaceService.getOpenDeploymentRequest({
 					workspace: currentWorkspaceId
 				})
 				if (open) {
-					await WorkspaceService.closeDeploymentRequestMerged({
-						workspace: currentWorkspaceId,
-						id: open.id
-					})
-					deploymentRequestPanel?.refresh()
+					if (comparison?.all_ahead_items_visible) {
+						await WorkspaceService.closeDeploymentRequestMerged({
+							workspace: currentWorkspaceId,
+							id: open.id
+						})
+						deploymentRequestPanel?.refresh()
+					} else {
+						// Hidden ahead changes remain: those items are excluded from the
+						// list and stay undeployed, so this deploy is only partial. Closing
+						// the request as "merged" (which marks its comments obsolete and
+						// notifies requester/assignees of a merge) would be a lie — leave it
+						// open so someone with full access can finish it.
+						sendUserToast(
+							'Deployed the changes visible to you. The deployment request stays open because some ahead changes are hidden from you and were not deployed.'
+						)
+					}
 				}
 			} catch (e) {
-				console.error('Failed to close open deployment request after merge', e)
+				console.error('Failed to resolve open deployment request after merge', e)
 			}
 		}
 
