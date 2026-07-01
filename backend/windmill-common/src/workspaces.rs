@@ -189,6 +189,19 @@ pub fn validate_dev_workspace_id(id: &str) -> error::Result<()> {
     validate_workspace_branch_id(id, false)
 }
 
+/// The `workspace.name` column is `character varying(50)`, so a name longer than 50 characters
+/// triggers a raw `value too long for type character varying(50)` SQL error on insert. Validate
+/// up front to return a clear message instead.
+pub fn validate_workspace_name(name: &str) -> error::Result<()> {
+    if name.chars().count() > 50 {
+        return Err(Error::BadRequest(format!(
+            "Workspace name is too long ({} chars). Maximum length is 50 characters.",
+            name.chars().count()
+        )));
+    }
+    Ok(())
+}
+
 fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::Result<()> {
     if id.is_empty() {
         return Err(Error::BadRequest(

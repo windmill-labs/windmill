@@ -44,9 +44,9 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
-    validate_dev_workspace_id, validate_fork_workspace_id, DataTable, DataTableCatalogResourceType,
-    DataTableForkBehavior, ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
-    WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
+    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -3845,6 +3845,8 @@ async fn create_workspace(
         }
     }
 
+    validate_workspace_name(&nw.name)?;
+
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     check_w_id_conflict(&mut tx, &nw.id).await?;
@@ -5021,6 +5023,7 @@ async fn create_workspace_fork_branch(
     } else {
         validate_fork_workspace_id(&nw.id)?;
     }
+    validate_workspace_name(&nw.name)?;
 
     // Fail before creating any git branch so a name conflict doesn't leave a
     // dangling branch on the synced repos.
@@ -5170,6 +5173,7 @@ async fn create_workspace_fork(
     } else {
         validate_fork_workspace_id(&nw.id)?;
     }
+    validate_workspace_name(&nw.name)?;
     // Check the id conflict before the CE workspace-count limit so that
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.
