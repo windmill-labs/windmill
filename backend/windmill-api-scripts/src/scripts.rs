@@ -1349,14 +1349,16 @@ async fn create_script_internal<'c>(
     let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
         let kind = windmill_common::assets::asset_kind_from_parser(m.target_kind);
         let mut a = effective_assets.unwrap_or_default();
-        // Produced assets: the managed table, plus — for scd2 — the
+        // Produced assets: the managed table, plus — for managed scd2 — the
         // `<dim>_current` companion view the runtime (re)creates each run.
         // Registering the view as a write asset lets `// on
         // ducklake://…/<dim>_current` subscribers be dispatched by the cascade
         // (which fans out from these deploy-time asset rows); without it a
-        // subscriber on the view would silently never fire.
+        // subscriber on the view would silently never fire. Gated on `!manual`:
+        // manual mode owns its own DDL and short-circuits before the scd2 codegen
+        // (no view is created), so registering it there would be a false edge.
         let mut targets = vec![m.target_path.clone()];
-        if m.scd2 {
+        if m.scd2 && !m.manual {
             targets.push(format!("{}_current", m.target_path));
         }
         for path in targets {
