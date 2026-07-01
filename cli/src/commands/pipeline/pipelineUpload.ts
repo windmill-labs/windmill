@@ -34,9 +34,13 @@ export function s3ObjectParams(schema: any): string[] {
   return Object.keys(props).filter((k) => props[k]?.format === "resource-s3_object");
 }
 
-/** Deterministic dev object key for a local sample bound to a pipeline folder. */
-export function devUploadKey(folder: string, source: string): string {
-  return `wmilldev/pipeline/${folder}/${basename(source)}`;
+/**
+ * Deterministic dev object key for a local sample bound to a script's param.
+ * Scoped by script path + param so two different sources that share a basename
+ * (across scripts or params) resolve to distinct keys instead of clobbering.
+ */
+export function devUploadKey(scriptPath: string, param: string, source: string): string {
+  return `wmilldev/pipeline/${scriptPath}/${param}/${basename(source)}`;
 }
 
 /** The S3Object run-arg (`{ <param>: { s3: <key> } }`). */

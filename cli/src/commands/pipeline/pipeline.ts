@@ -12,7 +12,6 @@ import {
   type BCGraph,
   boundedSet,
   buildLineageDag,
-  descendants,
   nonAutorunTriggerScripts,
   reachableCutting,
   resolveToken,
@@ -341,17 +340,17 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
 // S3Object parameter (explicit `:param`, else the script's sole S3Object arg)
 // and turn the source into an object key — an `s3://` source is used as-is, a
 // local path is uploaded to the workspace store under a deterministic dev key.
-async function resolveUploadArg(
-  binding: UploadBinding,
+async function resolveUploadArgs(
+  bindings: UploadBinding[],
   scriptPath: string,
   workspaceId: string,
   local: boolean | undefined,
   localScripts: Map<string, LocalScript> | undefined,
-  folder: string,
 ): Promise<Record<string, any>> {
-  let param = binding.param;
-  if (!param) {
-    let schema: any;
+  // Fetch the schema at most once, and only when a binding omits `:param`.
+  let schema: any | undefined;
+  const loadSchema = async (): Promise<any> => {
+    if (schema) return schema;
     if (local) {
       const ls = localScripts?.get(scriptPath);
       if (!ls) {
@@ -361,30 +360,44 @@ async function resolveUploadArg(
     } else {
       schema = (await wmill.getScriptByPath({ workspace: workspaceId, path: scriptPath })).schema;
     }
-    const params = s3ObjectParams(schema);
-    if (params.length === 1) param = params[0];
-    else if (params.length === 0) {
-      throw new Error(`${scriptPath} declares no S3Object parameter to bind --upload to.`);
-    } else {
-      throw new Error(
-        `${scriptPath} has multiple S3Object parameters (${params.join(", ")}) — pick one with --upload ${binding.scriptTok}:<param>=${binding.source}`,
-      );
+    return schema;
+  };
+
+  const args: Record<string, any> = {};
+  for (const binding of bindings) {
+    let param = binding.param;
+    if (!param) {
+      const params = s3ObjectParams(await loadSchema());
+      if (params.length === 1) param = params[0];
+      else if (params.length === 0) {
+        throw new Error(`${scriptPath} declares no S3Object parameter to bind --upload to.`);
+      } else {
+        throw new Error(
+          `${scriptPath} has multiple S3Object parameters (${params.join(", ")}) — pick one with --upload ${binding.scriptTok}:<param>=${binding.source}`,
+        );
+      }
     }
+    if (param in args) {
+      throw new Error(`--upload binds ${scriptPath}:${param} more than once.`);
+    }
+    let key: string;
+    if (binding.source.startsWith("s3://")) {
+      key = binding.source.slice("s3://".length);
+    } else {
+      const buf = await readFile(binding.source);
+      // Key scoped by script + param so distinct sources sharing a basename
+      // (across scripts or params) don't clobber each other in the store.
+      key = devUploadKey(scriptPath, param, binding.source);
+      await wmill.fileUpload({
+        workspace: workspaceId,
+        fileKey: key,
+        requestBody: new Blob([buf]) as any,
+      });
+      log.info(colors.gray(`  ↑ ${binding.source} → s3://${key}`));
+    }
+    Object.assign(args, s3Arg(param, key));
   }
-  let key: string;
-  if (binding.source.startsWith("s3://")) {
-    key = binding.source.slice("s3://".length);
-  } else {
-    const buf = await readFile(binding.source);
-    key = devUploadKey(folder, binding.source);
-    await wmill.fileUpload({
-      workspace: workspaceId,
-      fileKey: key,
-      requestBody: new Blob([buf]) as any,
-    });
-    log.info(colors.gray(`  ↑ ${binding.source} → s3://${key}`));
-  }
-  return s3Arg(param, key);
+  return args;
 }
 
 async function run(
@@ -448,8 +461,9 @@ async function run(
 
   // `--upload <script>[:<param>]=<file|s3://key>` binds an object to a
   // data_upload/webhook entry point so it becomes a runnable start (and its
-  // downstream is no longer cut) — the arg is injected at execution.
-  const boundBindingByPath = new Map<string, UploadBinding>();
+  // downstream is no longer cut) — the arg is injected at execution. Repeatable
+  // per script (accumulated) so a multi-S3Object entry can bind each param.
+  const boundBindingsByPath = new Map<string, UploadBinding[]>();
   const boundNodeIds = new Set<string>();
   for (const spec of opts.upload ?? []) {
     const binding = parseUploadBinding(spec);
@@ -465,7 +479,8 @@ async function run(
       }
       throw new Error(`--upload '${binding.scriptTok}' matched no script in f/${f}.`);
     }
-    boundBindingByPath.set(scriptPathOf(id), binding);
+    const p = scriptPathOf(id);
+    (boundBindingsByPath.get(p) ?? boundBindingsByPath.set(p, []).get(p)!).push(binding);
     boundNodeIds.add(id);
   }
 
@@ -545,27 +560,27 @@ async function run(
   const idLabel = (id: string): string => (id.startsWith("script:") ? scriptPathOf(id) : id);
 
   const dag = buildLineageDag(graph);
+  // CUT the selection at scripts whose trigger needs caller-supplied input or
+  // per-event fanout (kafka/mqtt/nats/postgres/sqs/gcp/email/webhook/data_upload):
+  // they can't run with empty args, so no run mode — whole-pipeline, single-root,
+  // or bounded — may schedule them, nor a downstream consumer that only such a
+  // handler feeds (it would get missing/stale inputs). `--upload`-bound handlers
+  // are un-gated (they get their input at execution) so drop out of the barrier set.
+  const barriers = new Set(
+    [...nonAutorunTriggerScripts(graph)].filter((id) => !boundNodeIds.has(id)),
+  );
   let selectedScripts: Set<string>;
   let reachableEnds: string[] = [];
   let droppedEnds: string[] = [];
   if (runAll) {
     // Whole pipeline = everything reachable from the valid starts (schedule/manual
-    // roots), but CUT at scripts whose trigger needs caller-supplied input or
-    // per-event fanout (kafka/mqtt/nats/postgres/sqs/gcp/email/webhook/data_upload).
-    // They can't run with empty args, and cutting — rather than just deleting the
-    // handler after a descendant union — also drops its downstream, so `pipeline
-    // run <folder>` never runs a consumer whose skipped producer would leave it
-    // with missing/stale inputs. A node also reachable via another path still runs.
-    // `--upload`-bound handlers are un-gated: they get their input at execution.
-    const barriers = new Set(
-      [...nonAutorunTriggerScripts(graph)].filter((id) => !boundNodeIds.has(id)),
-    );
+    // roots), cutting at the barriers above. A node reachable via another,
+    // non-barrier path still runs.
     selectedScripts = new Set(scriptsOf(reachableCutting(dag, starts, barriers)));
   } else if (ends.length === 0) {
-    // No bound → full read-aware downstream of start (pure readers included).
-    const all = new Set(descendants(dag, start!));
-    all.add(start!);
-    selectedScripts = new Set(scriptsOf(all));
+    // No bound → full read-aware downstream of start (pure readers included),
+    // still cut at barriers so an event/upload descendant isn't run empty.
+    selectedScripts = new Set(scriptsOf(reachableCutting(dag, [start!], barriers)));
   } else {
     const res = boundedSet(dag, start!, ends);
     reachableEnds = res.reachableEnds;
@@ -573,7 +588,12 @@ async function run(
     for (const d of droppedEnds) {
       log.warn(`end '${idLabel(d)}' is not downstream of the start — ignored.`);
     }
-    selectedScripts = new Set(scriptsOf(res.nodes));
+    // Intersect the bounded window with the barrier-cut closure from the start so
+    // a barrier (or a node only reachable through one) inside the window is dropped.
+    const reachable = reachableCutting(dag, [start!], barriers);
+    selectedScripts = new Set(
+      scriptsOf([...res.nodes].filter((n) => reachable.has(n))),
+    );
   }
 
   const { order, cyclic } = topoOrder(graph, selectedScripts);
@@ -584,8 +604,8 @@ async function run(
   // A `--upload` whose script fell outside the selection is a no-op the user
   // should know about, rather than silently ignored.
   const orderSet = new Set(order);
-  const boundInOrder = [...boundBindingByPath.keys()].filter((p) => orderSet.has(p)).sort();
-  for (const p of boundBindingByPath.keys()) {
+  const boundInOrder = [...boundBindingsByPath.keys()].filter((p) => orderSet.has(p)).sort();
+  for (const p of boundBindingsByPath.keys()) {
     if (!orderSet.has(p)) log.warn(`--upload for ${p} is unused — it isn't in the run selection.`);
   }
 
@@ -618,7 +638,7 @@ async function run(
           colors.dim(runAll ? ` (whole pipeline)` : ` (from ${shortName(scriptPathOf(start!))})`),
       );
       order.forEach((p, i) =>
-        log.info(`  ${i + 1}. ${p}${boundBindingByPath.has(p) ? colors.dim(" (← --upload)") : ""}`),
+        log.info(`  ${i + 1}. ${p}${boundBindingsByPath.has(p) ? colors.dim(" (← --upload)") : ""}`),
       );
     }
     return;
@@ -631,13 +651,12 @@ async function run(
   for (const nodePath of boundInOrder) {
     uploadArgs.set(
       nodePath,
-      await resolveUploadArg(
-        boundBindingByPath.get(nodePath)!,
+      await resolveUploadArgs(
+        boundBindingsByPath.get(nodePath)!,
         nodePath,
         workspace.workspaceId,
         opts.local,
         localScripts,
-        f,
       ),
     );
   }
@@ -724,7 +743,7 @@ const command = new Command()
   )
   .option(
     "--upload <binding:string>",
-    "Bind an object to a data_upload/webhook entry point so it runs in the cascade: <script>[:<param>]=<local-file|s3://key>. Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.",
+    "Bind an object to a data_upload/webhook entry point so it runs in the cascade, as SCRIPT[:PARAM]=SOURCE (SOURCE is a local file or an s3://key). Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.",
     { collect: true },
   )
   .action(run as any)

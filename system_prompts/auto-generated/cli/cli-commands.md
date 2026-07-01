@@ -426,7 +426,7 @@ inspect asset-driven pipelines (scripts marked `// pipeline`, wired by `// on <s
   - `--dry-run` - Print the topological run plan without executing.
   - `--json` - Output the plan as JSON (for piping to jq).
   - `--local` - Run the local working-tree scripts via preview (no deploy) instead of the deployed versions; the graph is built from local files.
-  - `--upload <binding:string>` - Bind an object to a data_upload/webhook entry point so it runs in the cascade: <script>[:<param>]=<local-file|s3://key>. Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.
+  - `--upload <binding:string>` - Bind an object to a data_upload/webhook entry point so it runs in the cascade, as SCRIPT[:PARAM]=SOURCE (SOURCE is a local file or an s3://key). Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.
 - `pipeline docs <folder:string>` - generate PIPELINE.md (+ AGENTS.md pointer) describing a folder's pipeline graph and datatable schemas, for an editor / agentic loop
   - `--local` - Build the graph from local working-tree files instead of the deployed workspace.
 - `pipeline dev [folder:string]` - Live-preview a data pipeline from local files: watch an `f/<folder>` of `// pipeline` scripts, push the working-tree graph to the dev page, and run the cascade via preview (no deploy).

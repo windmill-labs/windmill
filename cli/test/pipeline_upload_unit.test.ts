@@ -55,12 +55,16 @@ test("s3ObjectParams: only resource-s3_object properties, in declaration order",
   expect(s3ObjectParams(undefined)).toEqual([]);
 });
 
-test("devUploadKey: deterministic folder-scoped key from the source basename", () => {
-  expect(devUploadKey("analytics", "./fixtures/events.csv")).toBe(
-    "wmilldev/pipeline/analytics/events.csv",
+test("devUploadKey: key scoped by script path + param so basenames don't clobber", () => {
+  expect(devUploadKey("f/analytics/ingest", "file", "./fixtures/events.csv")).toBe(
+    "wmilldev/pipeline/f/analytics/ingest/file/events.csv",
   );
-  expect(devUploadKey("analytics", "/abs/path/to/data.parquet")).toBe(
-    "wmilldev/pipeline/analytics/data.parquet",
+  // same basename, different script/param → distinct keys
+  expect(devUploadKey("f/analytics/other", "file", "/abs/events.csv")).toBe(
+    "wmilldev/pipeline/f/analytics/other/file/events.csv",
+  );
+  expect(devUploadKey("f/analytics/ingest", "backup", "/abs/events.csv")).toBe(
+    "wmilldev/pipeline/f/analytics/ingest/backup/events.csv",
   );
 });
 
