@@ -1297,10 +1297,16 @@ async fn create_script_internal<'c>(
             // but the executor parses the signature from the un-wrapped script, so
             // `$name` references in the SELECT stay bound at run time.
         }
-        // `key=` (merge) and `append` are mutually exclusive reconciliation
-        // strategies; append (INSERT-only) wins. Surface the conflict rather
-        // than silently dropping the dedup the author may have intended.
-        if m.unique_key.is_some() && m.append {
+        // Reconciliation strategies are mutually exclusive; surface a conflict
+        // rather than silently dropping behavior the author may have intended.
+        // Precedence must mirror the runtime (`duckdb_executor` strategy
+        // derivation): scd2 (`history`) > append > merge (`key=`) > replace.
+        if m.scd2 && m.append {
+            tracing::warn!(
+                "script {}: both `history`/`scd2` and `append` set on // materialize; history wins (SCD2), append ignored",
+                ns.path
+            );
+        } else if m.unique_key.is_some() && m.append {
             tracing::warn!(
                 "script {}: both `key=` and `append` set on // materialize; append wins (INSERT-only, no dedup)",
                 ns.path
