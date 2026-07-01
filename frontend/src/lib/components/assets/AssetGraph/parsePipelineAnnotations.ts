@@ -264,6 +264,8 @@ function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 	const key = opts.get('key')
 	const uniqueKey = key && key !== '' ? key : undefined
 	// `track=<c1,c2,…>` (scd2): comma-separated tracked columns; empty ⇒ all.
+	// The value is whitespace-terminated (like every `=`-option), so it must have
+	// no spaces (`track=a,b`, not `track=a, b` — the rest is dropped).
 	const track = (opts.get('track') ?? '')
 		.split(',')
 		.map((c) => c.trim())

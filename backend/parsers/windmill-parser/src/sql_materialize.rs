@@ -564,6 +564,10 @@ impl<'a> MaterializeCodegen<'a> {
             // (`CREATE OR REPLACE`); catalog metadata, so it lives outside the
             // write transaction. For the effective-dated payoff, consumers `ASOF
             // JOIN <dim> ON fact.key = dim.<key> AND fact.ts >= dim.valid_from`.
+            // The `<dim>_current` name is reserved: if a real table by that name
+            // already exists, `CREATE OR REPLACE VIEW` errors (can't replace a
+            // table with a view) — after the history commit above, so the write
+            // still landed. Documented as a reserved suffix rather than guarded.
             format!("CREATE OR REPLACE VIEW {t}_current AS SELECT * FROM {t} WHERE {ic};"),
         ]
     }

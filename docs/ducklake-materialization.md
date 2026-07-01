@@ -70,8 +70,19 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   self-consistent. Keys absent from the SELECT stay current (soft delete). v1 is
   **non-partitioned only** (`// partitioned` + history is rejected). Unlike
   `manual`, it is managed, so `// data_test` and schema capture work.
-  `valid_from`/`valid_to`/`is_current` are **reserved** column names in this mode
-  — a SELECT that already projects one of them fails at run time (v1 constraint).
+  - **Reserved names.** `valid_from`/`valid_to`/`is_current` are reserved column
+    names in this mode — a SELECT that already projects one fails at run time —
+    and the `<dim>_current` suffix is reserved for the companion view (below), so
+    don't separately materialize a table by that name in the same lake.
+  - **`track=` takes no spaces.** Like every `=`-option in the annotation grammar
+    (which is whitespace-tokenized), the `track=` value must be a bare
+    comma-separated list with no spaces: `track=name,tier`, not `track=name, tier`
+    (a space ends the value and the rest is silently ignored).
+  - **Schema is frozen at first run** (persist-and-mutate, like `merge`/`append`):
+    the history table is `CREATE TABLE IF NOT EXISTS`, so adding/removing a
+    projected column later fails the run — an append-only history can't retroactively
+    reshape closed versions. Changing the SELECT's columns needs a manual rebuild
+    (the `replace` strategy is the only one that re-derives schema each run).
   - **Consumer convenience.** Each run (re)creates a `<dim>_current` view (`WHERE
     is_current`) in the same catalog, so the common "latest version" read needs no
     filter and downstream scripts can `// on ducklake://…/<dim>_current`. The

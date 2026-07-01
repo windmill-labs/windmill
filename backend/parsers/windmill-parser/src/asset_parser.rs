@@ -855,6 +855,8 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
     let unique_key = opts.get("key").filter(|k| !k.is_empty()).cloned();
     // `track=<c1,c2,…>` (scd2 only): comma-separated columns whose change opens a
     // new version. Empty entries dropped; an empty list ⇒ track all non-key cols.
+    // Like every `=`-option here the value is whitespace-terminated, so the list
+    // must contain no spaces (`track=a,b`, not `track=a, b` — the rest is dropped).
     let track = opts
         .get("track")
         .map(|v| {
