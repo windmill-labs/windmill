@@ -20,7 +20,6 @@
 	import PreviewRouterPicker, {
 		type Scope
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
-	import { randomUUID } from '$lib/utils/uuid'
 	import { goto } from '$lib/navigation'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
@@ -28,11 +27,7 @@
 		createSession,
 		selectSession,
 		sessionState,
-		setSessionTabs,
-		setSessionPreviewCollapsed,
-		setSessionTarget,
-		type SessionPreviewTab,
-		type SessionTarget
+		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
 	import {
 		getOrCreateRuntime,
@@ -41,11 +36,6 @@
 		promoteEditorWarm
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
-	import {
-		sessionPreviewUrl,
-		sessionPreviewSeedUrl,
-		sessionTargetHref
-	} from '$lib/components/sessions/sessionMode.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { base } from '$lib/base'
@@ -56,7 +46,7 @@
 		parsePreviewItemRoute,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
-	import { editPathFor, leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -145,120 +135,52 @@
 
 	// Preview panel: a tiny tabbed browser over Windmill. Every tab stays mounted
 	// (stacked, visibility-toggled, like the warm chat sessions) so switching
-	// preserves each previewed page's scroll/edit state.
-	const previewUrl = $derived(sessionPreviewUrl(activeSession))
+	// preserves each previewed page's scroll/edit state. The tab model lives on
+	// the active session's runtime (previewTabs) — one live copy that both this
+	// page (renderer) and the chat's open_preview tool drive — so there's no
+	// page-local tab state to seed from IndexedDB or reconcile against the tool.
+	//
+	// Pure read (not getOrCreateRuntime): creating a runtime mutates the global
+	// `runtimes` map, which is forbidden inside a $derived. The arrival effect
+	// creates it in effect context; getRuntime reads the SvelteMap reactively so
+	// this re-derives the moment it lands.
+	const activeRuntime = $derived(activeSession ? getRuntime(activeSession.id) : undefined)
+	const owner = $derived(activeRuntime?.previewTabs)
 
-	// Each tab tracks two URLs: `url` is what we *command* the iframe to load
-	// (changes only on an explicit navigate — breadcrumb pick / new tab), `loc`
-	// is the *observed* location reported back on load. Keeping them separate is
-	// what lets a tab stay mounted: navigating inside the iframe updates `loc`
-	// only, so the `src`-bound `url` doesn't change and the frame never reloads.
-	type PreviewTab = SessionPreviewTab
-	let tabs = $state<PreviewTab[]>([])
-	let activeTabId = $state('session')
-	const activeTab = $derived(tabs.find((t) => t.id === activeTabId) ?? tabs[0])
-	// Lazy-mount: a tab's iframe only renders once its id lands here (on first
-	// activation), then stays — so restoring a session with N saved tabs boots
-	// just the active one instead of N full Windmill apps at once.
+	// Lazy-mount gate: a tab's iframe only renders once its id lands here (on
+	// first activation), then stays — so restoring a session with N saved tabs
+	// boots just the active one instead of N full Windmill apps at once. Pure
+	// "has this iframe been created yet" DOM bookkeeping, so it stays page-local
+	// while the owner holds the tab identity. Mount the owner's active tab
+	// whenever it changes, and clear on session change so a prior session's tab
+	// ids (incl. the shared 'session' pinned id) don't leak in.
 	const mountedTabIds = new SvelteSet<string>()
-	// On session change, restore the session's saved tabs from IndexedDB; if it
-	// has none yet, seed a single pinned tab on the session's own view.
+	let mountedForSession: string | undefined
 	$effect(() => {
-		const s = activeSession
+		const sid = activeSession?.id
+		const o = owner
+		const activeId = o?.activeId
+		if (!sid || !o) return
 		untrack(() => {
-			const seedUrl = sessionPreviewSeedUrl(s)
-			if (s?.previewTabs && s.previewTabs.length > 0) {
-				tabs = s.previewTabs.map((t) => ({ ...t }))
-				const saved = s.activePreviewTabId
-				activeTabId = saved && tabs.some((t) => t.id === saved) ? saved : tabs[0].id
-			} else if (seedUrl) {
-				tabs = [{ id: 'session', url: seedUrl, loc: seedUrl, pinned: true }]
-				activeTabId = 'session'
-			} else {
-				// New session with nothing to preview yet — no default tab (don't
-				// fall back to iframing the home page). The preview panel shows an
-				// empty state with the "+" picker to open one.
-				tabs = []
-				activeTabId = ''
+			if (mountedForSession !== sid) {
+				mountedForSession = sid
+				mountedTabIds.clear()
 			}
-			mountedTabIds.clear()
-			mountedTabIds.add(activeTabId)
-			// Restore this session's persisted preview-panel layout. Default when the
-			// user hasn't set one: collapsed for a fresh session with nothing to
-			// preview (chat gets full width), open once it has a preview tab.
-			previewCollapsed = s?.previewCollapsed ?? tabs.length === 0
+			if (activeId) mountedTabIds.add(activeId)
 		})
 	})
 
-	// The open_preview tool mutates the session's *persisted* tab model directly
-	// (so it works for backgrounded sessions too). When the tool targets the
-	// session currently on screen, mirror its additions into the live tab list.
-	// Additive only: the page owns removals/reorders and write-behinds the full
-	// set every 400ms, so reconciling more than new-tab + active-id would let this
-	// fight that write-behind and clobber local-only state (in-tab `loc`/`url`).
-	$effect(() => {
-		const s = activeSession
-		const persisted = s?.previewTabs
-		const wantActive = s?.activePreviewTabId
-		const wantCollapsed = s?.previewCollapsed
-		untrack(() => {
-			if (!s) return
-			if (persisted) {
-				for (const pt of persisted) {
-					if (!tabs.some((t) => t.id === pt.id)) tabs.push({ ...pt })
-				}
-			}
-			if (wantActive && wantActive !== activeTabId && tabs.some((t) => t.id === wantActive)) {
-				activeTabId = wantActive
-				mountedTabIds.add(wantActive)
-			}
-			// open_preview clears previewCollapsed to reveal the just-opened tab.
-			// Only mirror the explicit `false` (undefined = "unset", leave as-is).
-			if (wantCollapsed === false && previewCollapsed) previewCollapsed = false
-		})
-	})
-
-	// Write-behind tab state onto the session record (debounced — `loc` churns as
-	// the user browses inside a tab). The session id is captured in the closure so
-	// a pending write always lands on the session it was scheduled for.
-	let persistHandle: ReturnType<typeof setTimeout> | undefined
-	function persistTabs() {
-		const id = activeSession?.id
-		if (!id) return
-		const snapshot = tabs.map((t) => ({ id: t.id, url: t.url, loc: t.loc, pinned: t.pinned }))
-		const active = activeTabId
-		clearTimeout(persistHandle)
-		persistHandle = setTimeout(() => setSessionTabs(id, snapshot, active), 400)
-	}
-
-	function targetUrl(target: PreviewTarget): string {
-		return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
-	}
 	function selectTab(id: string) {
-		activeTabId = id
+		owner?.select(id)
 		mountedTabIds.add(id)
 		activeTabPickerOpen = false
-		persistTabs()
 	}
 	function openInNewTab(target: PreviewTarget) {
-		const id = randomUUID()
-		const url = targetUrl(target)
-		tabs.push({ id, url, loc: url })
-		activeTabId = id
-		mountedTabIds.add(id)
-		activeTabPickerOpen = false
-		persistTabs()
+		owner?.open(target)
 	}
 	function closeTab(id: string) {
-		const idx = tabs.findIndex((t) => t.id === id)
-		if (idx < 0 || tabs[idx].pinned) return
-		tabs.splice(idx, 1)
+		owner?.close(id)
 		mountedTabIds.delete(id)
-		if (activeTabId === id) {
-			activeTabId = (tabs[idx] ?? tabs[idx - 1] ?? tabs[0])?.id ?? 'session'
-			mountedTabIds.add(activeTabId)
-		}
-		persistTabs()
 	}
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -267,27 +189,22 @@
 	let emptyStateNewTabOpen = $state(false)
 
 	let fullscreen = $state(false)
-	// Collapse the preview panel to give the chat the full width. Per-session:
-	// restored from the session record on switch and written back on toggle.
-	let previewCollapsed = $state(false)
-	function setPreviewCollapsed(collapsed: boolean) {
-		previewCollapsed = collapsed
-		const id = activeSession?.id
-		if (id) setSessionPreviewCollapsed(id, collapsed)
-	}
+	// Collapse the preview panel to give the chat the full width. Per-session and
+	// owned by the runtime's previewTabs (restored on switch, written back on
+	// toggle) so it survives session switches with the rest of the tab model.
+	const previewCollapsed = $derived(owner?.collapsed ?? false)
 
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
-	const displayPath = $derived(activeTab?.loc ?? activeTab?.url ?? previewUrl)
-	function onTabLoad(tab: PreviewTab, frame: HTMLIFrameElement) {
+	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
+	function onTabLoad(tab: SessionPreviewTab, frame: HTMLIFrameElement) {
 		try {
 			const loc = frame.contentWindow?.location
 			if (!loc) return
 			// Drop the injected `nomenubar` flag so the breadcrumb stays readable.
 			const u = new URL(loc.href)
 			u.searchParams.delete('nomenubar')
-			tab.loc = u.pathname + u.search
-			persistTabs()
+			owner?.observeLocation(tab.id, u.pathname + u.search)
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.
@@ -305,7 +222,7 @@
 	const MUTATING_TOOL_RE = /^(write_|patch_|delete_|deploy_|discard_|set_|create_|update_|remove_)/
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
 	function reloadAllTabs() {
-		for (const tab of tabs) {
+		for (const tab of owner?.tabs ?? []) {
 			if (!mountedTabIds.has(tab.id)) continue
 			tabHosts[tab.id]?.reload()
 		}
@@ -377,15 +294,10 @@
 	)
 	let activeTabPickerOpen = $state(false)
 
-	// Breadcrumb picks steer the *active* tab; the "+" picker opens new ones.
-	// Set `loc` too so the breadcrumb updates immediately, before the reload.
+	// Breadcrumb picks steer the *active* tab; the "+" picker opens new ones. An
+	// editable item also becomes the session's live editor (owner.navigate).
 	function navigatePreviewTo(target: PreviewTarget) {
-		const t = tabs.find((x) => x.id === activeTabId)
-		if (!t) return
-		const url = targetUrl(target)
-		t.url = url
-		t.loc = url
-		persistTabs()
+		owner?.navigate(target)
 	}
 
 	// Short tab label: a known page's name, else the item's leaf name, else path.
@@ -397,47 +309,22 @@
 		return stripBase(url)
 	}
 
-	// The active session's runtime backs every live-editor preview tab. Idempotent
-	// — the arrival effect and the warm SessionWrapper already created it.
-	const activeRuntime = $derived(activeSession ? getOrCreateRuntime(activeSession) : undefined)
-
 	// A link click inside a live editor (e.g. a subflow reference) re-points the
-	// session's target so the runtime loads the new item, then steers the active
-	// tab to it. Mirrors SessionWrapper.pickEditorTarget; legacy drag-and-drop
-	// apps have no preview wrapper, so they open in the standalone editor.
+	// active tab, which — for an editable item — makes it the session's live
+	// editor via owner.navigate. Legacy drag-and-drop apps have no preview
+	// wrapper, so they open in the standalone editor instead.
 	function navigateEditorTo(item: WorkspaceItem) {
 		if (item.kind === 'app' && !item.raw_app) {
 			goto(`${base}/apps/edit/${item.path}`)
 			return
 		}
-		const id = activeSession?.id
-		if (id) {
-			const kind = item.kind === 'app' ? 'raw_app' : item.kind
-			setSessionTarget(id, { kind, path: item.path }, item.summary)
-		}
-		navigatePreviewTo({ type: 'item', item })
-	}
-
-	// Re-point the active tab at an editor target: make it the session target (so
-	// the runtime hosts it live) and steer the tab's url to the editor route, which
-	// flips the seam from iframe → live editor component.
-	function promoteActiveTabToEditor(target: SessionTarget) {
-		const id = activeSession?.id
-		if (!id) return
-		const url = sessionTargetHref(target)
-		if (!url) return
-		setSessionTarget(id, target)
-		const t = tabs.find((x) => x.id === activeTabId)
-		if (!t) return
-		t.url = url
-		t.loc = url
-		persistTabs()
+		owner?.navigate({ type: 'item', item })
 	}
 
 	// A preview iframe that navigates to an editor route posts up to us instead of
 	// booting the editor inside the frame (see the logged layout's beforeNavigate).
-	// Promote the active tab — the navigating frame is the visible one the user
-	// just clicked in.
+	// Retarget the active tab — the navigating frame is the visible one the user
+	// just clicked in — which flips its seam from iframe → live editor.
 	$effect(() => {
 		function onMessage(e: MessageEvent) {
 			if (e.origin !== window.location.origin) return
@@ -445,7 +332,11 @@
 			if (!d || d.type !== 'wm.session.openEditor') return
 			if (d.kind !== 'script' && d.kind !== 'flow' && d.kind !== 'raw_app') return
 			if (typeof d.path !== 'string') return
-			promoteActiveTabToEditor({ kind: d.kind, path: d.path })
+			const item: WorkspaceItem =
+				d.kind === 'raw_app'
+					? { kind: 'app', raw_app: true, path: d.path, summary: '' }
+					: { kind: d.kind, path: d.path, summary: '' }
+			owner?.navigate({ type: 'item', item })
 		}
 		window.addEventListener('message', onMessage)
 		return () => window.removeEventListener('message', onMessage)
@@ -529,7 +420,7 @@
 									     the tab strip keeps the full width. -->
 									<button
 										type="button"
-										onclick={() => setPreviewCollapsed(true)}
+										onclick={() => owner?.setCollapsed(true)}
 										title="Collapse preview"
 										aria-label="Collapse preview"
 										class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
@@ -542,7 +433,7 @@
 								     corner to mirror the collapse control. -->
 								<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
 									<a
-										href={activeTab?.url ?? previewUrl}
+										href={owner?.activeTab?.url ?? `${base}/`}
 										title="Open full page"
 										aria-label="Open full page"
 										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
@@ -571,14 +462,14 @@
 										? 'pl-1.5'
 										: 'pl-9'} pr-16"
 								>
-									{#each tabs as tab (tab.id)}
+									{#each owner?.tabs ?? [] as tab (tab.id)}
 										<div
 											class="group/tab flex items-center gap-1 shrink-0 max-w-[14rem] h-6 pl-2 pr-1 rounded-md text-xs border transition-colors {tab.id ===
-											activeTabId
+											owner?.activeId
 												? 'bg-surface text-primary border-light'
 												: 'text-secondary border-transparent hover:bg-surface-hover'}"
 										>
-											{#if tab.id === activeTabId}
+											{#if tab.id === owner?.activeId}
 												<!-- Active tab doubles as its own breadcrumb picker. -->
 												<Popover
 													placement="bottom-start"
@@ -665,20 +556,20 @@
 								     stays mounted (switching never reloads). Each host renders a
 								     live editor (script/flow/raw_app target) or an iframe fallback. -->
 								<div class="relative flex-1 min-h-0">
-									{#each tabs as tab (tab.id)}
+									{#each owner?.tabs ?? [] as tab (tab.id)}
 										<PreviewTabHost
 											bind:this={tabHosts[tab.id]}
 											{tab}
 											session={activeSession}
 											runtime={activeRuntime}
-											active={tab.id === activeTabId}
+											active={tab.id === owner?.activeId}
 											mounted={mountedTabIds.has(tab.id)}
 											label={tabLabel(tab.loc)}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => onTabLoad(tab, frame)}
 										/>
 									{/each}
-									{#if tabs.length === 0}
+									{#if (owner?.tabs.length ?? 0) === 0}
 										<!-- New session with nothing to preview: an empty state with a
 										     picker to open one, instead of defaulting to the home page. -->
 										<div
@@ -733,7 +624,7 @@
 						unifiedSize="sm"
 						startIcon={{ icon: PanelRightOpen }}
 						title="Open side panel"
-						onclick={() => setPreviewCollapsed(false)}
+						onclick={() => owner?.setCollapsed(false)}
 					>
 						Open side panel
 					</Button>

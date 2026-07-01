@@ -3,10 +3,8 @@ import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
 	decideSessionLifecycle,
-	describeSessionPreview,
 	deriveForkStatus,
 	isForkSession,
-	openSessionPreviewTab,
 	renameSession,
 	setGeneratedSessionSummary,
 	sessionState,
@@ -342,77 +340,5 @@ describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
 
 	it('unknown status (workspace absent from the queried set) → no-op, never a delete', () => {
 		expect(decideSessionLifecycle(mk(), undefined)).toEqual({ action: 'noop' })
-	})
-})
-
-describe('openSessionPreviewTab', () => {
-	beforeEach(() => {
-		sessionState.sessions = []
-	})
-
-	it('returns no-session for an unknown session', () => {
-		expect(openSessionPreviewTab('missing', { kind: 'script', path: 'u/me/foo' }).status).toBe(
-			'no-session'
-		)
-	})
-
-	it('opens a tab, points the target at the item, makes it active, and reveals the panel', () => {
-		sessionState.sessions = [session({ id: 's1', previewCollapsed: true })]
-		const res = openSessionPreviewTab('s1', { kind: 'script', path: 'u/me/foo' })
-		expect(res.status).toBe('opened')
-		const s = sessionState.sessions[0]
-		expect(s.target).toEqual({ kind: 'script', path: 'u/me/foo' })
-		expect(s.previewTabs).toHaveLength(1)
-		expect(s.previewTabs![0].url).toBe('/scripts/edit/u/me/foo')
-		expect(s.activePreviewTabId).toBe(s.previewTabs![0].id)
-		// A collapsed (fresh) session must be revealed, else the tab opens unseen.
-		expect(s.previewCollapsed).toBe(false)
-	})
-
-	it('focuses the existing tab instead of duplicating when the item is already shown', () => {
-		sessionState.sessions = [session({ id: 's1' })]
-		const first = openSessionPreviewTab('s1', { kind: 'script', path: 'u/me/foo' })
-		expect(first.status).toBe('opened')
-		const firstId = sessionState.sessions[0].previewTabs![0].id
-		sessionState.sessions[0].activePreviewTabId = 'someOtherTab'
-		const res = openSessionPreviewTab('s1', { kind: 'script', path: 'u/me/foo' })
-		expect(res.status).toBe('focused')
-		expect(sessionState.sessions[0].previewTabs).toHaveLength(1)
-		expect(sessionState.sessions[0].activePreviewTabId).toBe(firstId)
-	})
-
-	it('opens a second tab and repoints the live editor for a different item', () => {
-		sessionState.sessions = [session({ id: 's1' })]
-		openSessionPreviewTab('s1', { kind: 'script', path: 'u/me/foo' })
-		const res = openSessionPreviewTab('s1', { kind: 'flow', path: 'u/me/bar' })
-		expect(res.status).toBe('opened')
-		const s = sessionState.sessions[0]
-		expect(s.previewTabs).toHaveLength(2)
-		expect(s.target).toEqual({ kind: 'flow', path: 'u/me/bar' })
-	})
-})
-
-describe('describeSessionPreview', () => {
-	beforeEach(() => {
-		sessionState.sessions = []
-	})
-
-	it('reports the unavailable state for an unknown session', () => {
-		expect(describeSessionPreview('missing')).toContain('No active session')
-	})
-
-	it('reports no tabs when the session has none', () => {
-		sessionState.sessions = [session({ id: 's1' })]
-		expect(describeSessionPreview('s1')).toContain('No preview tabs')
-	})
-
-	it('lists tabs, marks the active one, and flags the live editor', () => {
-		sessionState.sessions = [session({ id: 's1' })]
-		openSessionPreviewTab('s1', { kind: 'script', path: 'u/me/foo' })
-		const out = describeSessionPreview('s1')
-		expect(out).toContain('1 preview tab')
-		expect(out).toContain('script "u/me/foo"')
-		expect(out).toContain('live editor')
-		expect(out).toContain('active')
 	})
 })

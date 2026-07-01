@@ -15,9 +15,6 @@ import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
-import { randomUUID } from '$lib/utils/uuid'
-import { sessionTargetHref } from './sessionMode.svelte'
-import { matchPreviewPage, parsePreviewItemRoute, resolvePreviewTab, stripBase } from './previewRouter'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -739,67 +736,6 @@ export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabI
 	s.previewTabs = tabs.map((t) => ({ ...t }))
 	s.activePreviewTabId = activeTabId
 	void putSession(s)
-}
-
-// Open — or focus, if already shown — a preview tab for an editor target, and
-// make it the session's live editor. Canonical mutation behind the `open_preview`
-// AI tool. It writes the persisted tab model (previewTabs / activePreviewTabId)
-// rather than any page-local state, so it works for a backgrounded session too;
-// the sessions page mirrors the addition into its live tab list when the session
-// is active. One live editor per session, so it points `target` at the item — a
-// tab showing that item then resolves to the in-process editor (resolvePreviewTab)
-// instead of an iframe.
-export function openSessionPreviewTab(
-	id: string,
-	target: SessionTarget
-): { status: 'opened' | 'focused' | 'no-session'; kind: SessionTarget['kind']; path: string } {
-	const s = sessionState.sessions.find((x) => x.id === id)
-	const url = sessionTargetHref(target)
-	if (!s || !url) return { status: 'no-session', kind: target.kind, path: target.path }
-	s.target = target
-	// Opening a preview must reveal the panel — a fresh session starts collapsed,
-	// so without this the tab opens behind a collapsed panel and the user sees
-	// nothing change.
-	s.previewCollapsed = false
-	const tabs = s.previewTabs ? s.previewTabs.map((t) => ({ ...t })) : []
-	// resolvePreviewTab(url, target) is 'editor' exactly for the tab showing
-	// `target`'s item, so it doubles as the dedupe test.
-	const existing = tabs.find((t) => resolvePreviewTab(t.url, target).kind === 'editor')
-	if (existing) {
-		s.activePreviewTabId = existing.id
-		void putSession(s)
-		return { status: 'focused', kind: target.kind, path: target.path }
-	}
-	const tab: SessionPreviewTab = { id: randomUUID(), url, loc: url }
-	tabs.push(tab)
-	s.previewTabs = tabs
-	s.activePreviewTabId = tab.id
-	void putSession(s)
-	return { status: 'opened', kind: target.kind, path: target.path }
-}
-
-// Human-readable summary of a session's open preview tabs, for the
-// `get_preview_status` AI tool. The panel is multi-tab now, so it reports every
-// tab, marks the active one, and notes which shows the session's live editor.
-export function describeSessionPreview(id: string): string {
-	const s = sessionState.sessions.find((x) => x.id === id)
-	if (!s) return 'No active session; the preview panel is unavailable.'
-	const tabs = s.previewTabs ?? []
-	if (tabs.length === 0) return 'No preview tabs are open in the side panel.'
-	const lines = tabs.map((t) => {
-		const where = t.loc || t.url
-		const page = matchPreviewPage(where)
-		const route = parsePreviewItemRoute(where)
-		const label = page
-			? `page "${page.label}"`
-			: route
-				? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
-				: stripBase(where)
-		const live = resolvePreviewTab(t.url, s.target).kind === 'editor' ? ', live editor' : ''
-		const active = t.id === s.activePreviewTabId ? ', active' : ''
-		return `- ${label}${live}${active}`
-	})
-	return `${tabs.length} preview tab${tabs.length === 1 ? '' : 's'} open in the side panel:\n${lines.join('\n')}`
 }
 
 // Persist whether the preview panel is collapsed for this session. Fire-and-forget

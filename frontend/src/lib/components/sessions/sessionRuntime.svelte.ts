@@ -31,16 +31,23 @@ import { emptySchema, type StateStore } from '$lib/utils'
 import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
-	describeSessionPreview,
 	ensureChatIdsSeeded,
 	getEffectiveWorkspaceId,
 	materializeTransient,
-	openSessionPreviewTab,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
+	setSessionPreviewCollapsed,
+	setSessionTabs,
+	setSessionTarget,
 	type Session
 } from './sessionState.svelte'
+import {
+	SessionPreviewTabs,
+	describePreview,
+	hydratePreviewTabs,
+	previewTargetForSessionTarget
+} from './sessionPreviewTabs.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -81,6 +88,10 @@ export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 export interface SessionRuntime {
 	readonly sessionId: string
 	readonly manager: AIChatManager
+	// Single live owner of this session's preview tabs. Both the sessions page
+	// (renderer) and the open_preview/get_preview_status tools cross it, so the
+	// tab model has one copy instead of page-local + persisted + legacy seed.
+	readonly previewTabs: SessionPreviewTabs
 	// Pipeline target state — persists across editor hide/show (the pane unmounts
 	// on hide, so this can't be component-local) and across session switches.
 	readonly pipelineEditorState: PipelineEditorState
@@ -320,6 +331,19 @@ function createRuntime(session: Session): SessionRuntime {
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
 	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
+	// Hydrate the preview-tab owner from the session record (the durable backing);
+	// from here on the owner is the single live copy and writes back through the
+	// adapter. setSessionTabs / setSessionPreviewCollapsed / setSessionTarget stay
+	// the low-level record writers (each no-ops the write-behind for a transient
+	// session until it materialises).
+	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
+		persist: (snap) => {
+			setSessionTabs(session.id, snap.tabs, snap.activeId)
+			setSessionPreviewCollapsed(session.id, snap.collapsed)
+		},
+		setTarget: (target) => setSessionTarget(session.id, target)
+	})
+
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
 	// the pane unmounts on hide, and a component-local store would be discarded.
@@ -359,6 +383,7 @@ function createRuntime(session: Session): SessionRuntime {
 	return {
 		sessionId: session.id,
 		manager,
+		previewTabs,
 		slot(kind: SessionTargetKind): LoadSlot {
 			return kind === 'flow' ? flowSlot : kind === 'script' ? scriptSlot : rawAppSlot
 		},
@@ -831,10 +856,15 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
 	}
-	const result = openSessionPreviewTab(sessionId, { kind, path })
-	if (result.status === 'no-session') {
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) {
 		return 'Error: no active session to open the preview in.'
 	}
+	const target = previewTargetForSessionTarget(kind, path)
+	if (!target) {
+		return `Error: ${kind} targets cannot be shown in the preview panel.`
+	}
+	const result = getOrCreateRuntime(session).previewTabs.open(target)
 	promoteEditorWarm(sessionId)
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`
@@ -847,7 +877,10 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 setGetPreviewStatusHandler((callerSessionId) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return 'No active session; the preview panel is unavailable.'
-	return describeSessionPreview(sessionId)
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return 'No active session; the preview panel is unavailable.'
+	const owner = getOrCreateRuntime(session).previewTabs
+	return describePreview(owner.tabs, owner.activeId, session.target)
 })
 
 // After a chat deploy, reload the calling session's preview — only if it's open
