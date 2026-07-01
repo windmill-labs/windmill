@@ -25,6 +25,7 @@ import {
 } from "../../core/conf.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 import { resolveBindPort } from "../../utils/port-probe.ts";
+import { getConfigDirPath } from "../../../windmill-utils-internal/src/config/config.ts";
 import { buildLocalPipelineGraph, workspaceRoot } from "./localGraph.ts";
 
 const PORT = 3201;
@@ -39,6 +40,32 @@ interface PipelineDevOpts extends GlobalOptions, SyncOptions {
   open?: boolean;
   defaultTs?: "bun" | "deno";
   frontend?: string;
+}
+
+// The WS token gates access to local source. Persist it per-port under the
+// user-private config dir (0600) so a `pipeline dev` restart on the same port
+// reuses it — an already-open `/pipeline_dev` page auto-reconnecting with the
+// token from its URL then survives the restart, instead of every upgrade being
+// rejected by `verifyClient` until the freshly printed URL is reopened. Falls
+// back to an ephemeral token if the config dir can't be read/written.
+async function stableWsToken(port: number): Promise<string> {
+  let tokenFile: string | undefined;
+  try {
+    tokenFile = path.join(await getConfigDirPath(), `pipeline-dev-${port}.token`);
+    const existing = fs.readFileSync(tokenFile, "utf-8").trim();
+    if (existing) return existing;
+  } catch {
+    // no reusable token file yet (or config dir unavailable) — mint a fresh one
+  }
+  const token = randomBytes(24).toString("base64url");
+  if (tokenFile) {
+    try {
+      fs.writeFileSync(tokenFile, token, { mode: 0o600 });
+    } catch {
+      // best-effort persistence; fall back to the in-memory token
+    }
+  }
+  return token;
 }
 
 // Resolve the target folder: explicit arg, else auto-detect when cwd sits inside
@@ -165,7 +192,9 @@ async function dev(opts: PipelineDevOpts, folderArg?: string) {
   // script source. Gate the upgrade on an unguessable per-session token (carried
   // in the dev-page URL) so a stray page on the predictable dev port can't
   // exfiltrate the source. base64url → safe as a query value.
-  const wsToken = randomBytes(24).toString("base64url");
+  // Stable per-port across restarts so an already-open page reconnects after a
+  // CLI restart (see stableWsToken), not just after a transient WS drop.
+  const wsToken = await stableWsToken(port);
   const wss = new WebSocketServer({
     server,
     verifyClient: (info) => {
