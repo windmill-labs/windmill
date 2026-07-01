@@ -129,6 +129,9 @@
 			if (repo?.git_repo_resource_path && !repo.isUnsavedConnection && $workspaceStore) {
 				loadingResourceInfo = true
 				resourceInfo = null
+				// Clear stale app state up front so a resource change or a failed
+				// fetch can't leave webhook/fork controls showing for the wrong repo.
+				isGithubApp = false
 				try {
 					const resource = await ResourceService.getResource({
 						workspace: $workspaceStore,
@@ -201,6 +204,7 @@
 				}
 			} else {
 				resourceInfo = null
+				isGithubApp = false
 			}
 		}
 

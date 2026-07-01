@@ -375,7 +375,7 @@ pub struct AutoPullStatus {
 /// Stored inside `GitRepositorySettings` (workspace_settings.git_sync JSONB).
 /// Webhook fields are populated in phase 2; phase 1 exercises the polling path
 /// only, but the full shape is defined up front to avoid a second schema change.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AutoPullSettings {
     pub enabled: bool,
     #[serde(default)]
@@ -401,6 +401,25 @@ pub struct AutoPullSettings {
     pub last_synced_sha: std::collections::HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_pull_status: Option<AutoPullStatus>,
+}
+
+// Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
+impl std::fmt::Debug for AutoPullSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AutoPullSettings")
+            .field("enabled", &self.enabled)
+            .field("mode", &self.mode)
+            .field("poll_interval_s", &self.poll_interval_s)
+            .field("webhook_id", &self.webhook_id)
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .field("webhook_error", &self.webhook_error)
+            .field("last_synced_sha", &self.last_synced_sha)
+            .field("last_pull_status", &self.last_pull_status)
+            .finish()
+    }
 }
 
 /// Default polling interval when a webhook is not active.

@@ -3092,6 +3092,19 @@ pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
 }
 
 #[cfg(feature = "private")]
+lazy_static::lazy_static! {
+    /// Last auto-pull poll time (unix secs) per `workspace|repo_path`, so each repo
+    /// is only probed once per its effective interval instead of every ~60s tick.
+    /// Bounded by the number of auto-pull repos; stale entries for removed repos are
+    /// harmless.
+    static ref AUTO_PULL_LAST_POLL: std::sync::Mutex<std::collections::HashMap<String, i64>> =
+        std::sync::Mutex::new(std::collections::HashMap::new());
+}
+
+/// Slack (seconds) subtracted from the effective interval so a repo whose interval
+/// equals the ~60s tick isn't skipped by tick jitter.
+const AUTO_PULL_POLL_SLACK_S: i64 = 30;
+
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
     use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
 
@@ -3125,6 +3138,21 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
             };
             if !auto_pull.enabled || auto_pull.mode == AutoPullMode::Webhook {
                 continue;
+            }
+
+            // Honor the repo's effective poll interval (relaxed to ~10 min when a
+            // webhook is live) instead of probing every ~60s tick.
+            let interval_s = auto_pull.effective_poll_interval_s() as i64;
+            let poll_key = format!("{}|{}", row.workspace_id, repo.git_repo_resource_path);
+            let now = chrono::Utc::now().timestamp();
+            {
+                let mut last = AUTO_PULL_LAST_POLL.lock().unwrap();
+                if let Some(&t) = last.get(&poll_key) {
+                    if now - t < interval_s - AUTO_PULL_POLL_SLACK_S {
+                        continue;
+                    }
+                }
+                last.insert(poll_key, now);
             }
 
             let head = match windmill_store::resources::get_git_repo_head_for_autopull(

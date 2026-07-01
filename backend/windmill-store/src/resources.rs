@@ -2850,6 +2850,17 @@ pub async fn get_git_repo_head_for_autopull(
     let git_resource: GitRepositoryResource = serde_json::from_value(value)
         .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
 
+    // The SSH identity is supplied per-call in the authed commit-hash path; the
+    // background poller has none, so an SSH remote can't authenticate here. Fail
+    // with an actionable message instead of a confusing ls-remote auth error —
+    // these repos should use an HTTPS token URL or the GitHub App for auto-pull.
+    let url = git_resource.url.trim_start();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(Error::BadRequest(
+            "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
+        ));
+    }
+
     let ref_spec = git_resource
         .branch
         .as_deref()

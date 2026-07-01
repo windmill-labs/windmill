@@ -750,18 +750,23 @@ fn parse_git_sync_changes(result_raw: &str) -> Option<(Vec<(String, String)>, bo
     }
     #[derive(Deserialize)]
     struct SyncResponse {
-        #[serde(default)]
-        changes: Vec<Change>,
-        #[serde(default, rename = "settingsDiffResult")]
+        changes: Option<Vec<Change>>,
+        #[serde(rename = "settingsDiffResult")]
         settings_diff_result: Option<SettingsDiff>,
     }
     let resp = serde_json::from_str::<SyncResponse>(result_raw).ok()?;
+    // A result carrying neither field isn't a recognizable diff; return None so the
+    // caller falls back to the unsummarized path instead of a false "in sync".
+    if resp.changes.is_none() && resp.settings_diff_result.is_none() {
+        return None;
+    }
     let settings_changed = resp
         .settings_diff_result
         .map(|s| s.has_changes)
         .unwrap_or(false);
     Some((
         resp.changes
+            .unwrap_or_default()
             .into_iter()
             .map(|c| (c.change_type, c.path))
             .collect(),
@@ -779,6 +784,50 @@ fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
         lines.push(format!("- ... and {} more", changes.len() - 100));
     }
     lines
+}
+
+#[cfg(all(test, feature = "enterprise", feature = "private"))]
+mod git_sync_check_tests {
+    use super::{format_change_list, parse_git_sync_changes};
+
+    #[test]
+    fn parse_empty_changes_is_in_sync() {
+        // Present-but-empty diff → a real "in sync" result, not None.
+        let (changes, settings) = parse_git_sync_changes(r#"{"changes":[]}"#).unwrap();
+        assert!(changes.is_empty());
+        assert!(!settings);
+    }
+
+    #[test]
+    fn parse_missing_fields_is_none() {
+        // Neither field present → unrecognizable, falls back to the caller's path.
+        assert!(parse_git_sync_changes("{}").is_none());
+    }
+
+    #[test]
+    fn parse_unparseable_is_none() {
+        assert!(parse_git_sync_changes("not json").is_none());
+    }
+
+    #[test]
+    fn parse_changes_and_settings() {
+        let (changes, settings) = parse_git_sync_changes(
+            r#"{"changes":[{"type":"edited","path":"f/a"}],"settingsDiffResult":{"hasChanges":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(changes, vec![("edited".to_string(), "f/a".to_string())]);
+        assert!(settings);
+    }
+
+    #[test]
+    fn format_truncates_over_100() {
+        let changes: Vec<(String, String)> = (0..150)
+            .map(|i| ("edited".to_string(), format!("f/{i}")))
+            .collect();
+        let lines = format_change_list(&changes);
+        assert_eq!(lines.len(), 101);
+        assert_eq!(lines.last().unwrap(), "- ... and 50 more");
+    }
 }
 
 /// When a git-sync pull job carrying a check marker completes, post the outcome
