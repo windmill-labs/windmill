@@ -23929,7 +23929,7 @@ components:
         role:
           type: string
           nullable: true
-          description: "Workspace role. Set to 'superadmin' when the user is a superadmin viewing a workspace they are not a member of."
+          description: "Workspace role of the user (e.g. admin, developer, operator), or 'superadmin' when the user is a superadmin viewing a workspace they are not a member of."
       required:
         - email
         - username

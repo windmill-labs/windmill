@@ -699,7 +699,11 @@ async fn whoami(
 ) -> JsonResult<UserInfo> {
     let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
     let user = get_user(&w_id, &username, &db).await?;
-    if let Some(user) = user {
+    // Only treat the row as "this user is a member" when its email matches; the
+    // derived username is instance-unique so a match on a different email should
+    // never happen, but guard against it so a non-member superadmin is never
+    // shown another member's identity/role.
+    if let Some(user) = user.filter(|u| u.email == email) {
         Ok(Json(user))
     } else {
         Ok(Json(UserInfo {

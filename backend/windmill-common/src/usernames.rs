@@ -15,14 +15,7 @@ use crate::DB;
 lazy_static::lazy_static! {
     pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
     pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z][a-zA-Z_0-9]*$"#).unwrap();
-
-    // email -> instance-derived username, used on hot auth paths that are not
-    // already behind the token-level auth cache.
-    static ref INSTANCE_USERNAME_CACHE: quick_cache::sync::Cache<String, (String, std::time::Instant)> =
-        quick_cache::sync::Cache::new(500);
 }
-
-const INSTANCE_USERNAME_CACHE_TTL_SECS: u64 = 120;
 
 pub async fn generate_instance_wide_unique_username<'c>(
     tx: &mut Transaction<'c, Postgres>,
@@ -108,27 +101,25 @@ pub async fn generate_instance_username_for_all_users(db: &DB) -> error::Result<
 /// of leaking the raw email address downstream (as job/script author, audit
 /// actor, etc.). Falls back to the email when no derived username exists (the few
 /// instances that keep `automate_username_creation` disabled).
+///
+/// The hot callers (token auth, `fetch_api_authed`) are already behind their own
+/// 120s auth caches, so this deliberately does not add another email->username
+/// cache (which would only help the cold JWT-mint / job-perms paths while risking
+/// cross-DB contamination in the shared-process integration tests).
 pub async fn get_instance_username_or_fallback_to_email<'e, E>(db: E, email: &str) -> String
 where
     E: sqlx::PgExecutor<'e>,
 {
-    if let Some((username, cached_at)) = INSTANCE_USERNAME_CACHE.get(email) {
-        if cached_at.elapsed().as_secs() < INSTANCE_USERNAME_CACHE_TTL_SECS {
-            return username;
-        }
-    }
-    let username = sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", email)
+    match sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", email)
         .fetch_optional(db)
         .await
-        .ok()
-        .flatten()
-        .flatten()
-        .unwrap_or_else(|| email.to_string());
-    INSTANCE_USERNAME_CACHE.insert(
-        email.to_string(),
-        (username.clone(), std::time::Instant::now()),
-    );
-    username
+    {
+        Ok(Some(Some(username))) => username,
+        // No derived username (automate_username_creation off), or a transient DB
+        // error: fall back to the email for this call. On error we intentionally
+        // do not persist anything, so the next call retries.
+        _ => email.to_string(),
+    }
 }
 
 pub async fn get_instance_username_or_create_pending<'c>(
