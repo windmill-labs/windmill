@@ -20,7 +20,12 @@ import type { AssetGraphResponse } from './types'
 export const CASCADE_POLL_INTERVAL_MS = 1000
 export const CASCADE_JOB_TIMEOUT_MS = 30 * 60 * 1000
 
-export type LocalScriptContent = { content: string; language: Preview['language'] }
+export type LocalScriptContent = {
+	content: string
+	language: Preview['language']
+	// `// tag <worker-tag>` — routes the preview to that worker (deployed parity).
+	tag?: string
+}
 
 // Poll a launched cascade job to a terminal state. Capped so a never-terminating
 // job can't pin a run guard forever; on timeout it throws, surfaced as a chain
@@ -72,6 +77,7 @@ export function makeLaunch(opts: {
 					language: local.language,
 					path,
 					args: { _wmill_skip_asset_dispatch: true },
+					...(local.tag ? { tag: local.tag } : {}),
 					...(opts.tempScriptRefs ? { temp_script_refs: opts.tempScriptRefs } : {})
 				}
 			})

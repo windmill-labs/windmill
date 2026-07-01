@@ -152,6 +152,21 @@ test("defaultTs (from wmill.yaml) drives bare `.ts` runtime — deno, not always
   );
 });
 
+test("`// tag <worker>` is carried on the pushed script for preview routing", async () => {
+  await withFolder(
+    {
+      "gpu_job.duckdb.sql": `-- pipeline\n-- tag gpu\nSELECT 1;\n`,
+      "plain.duckdb.sql": `-- pipeline\nSELECT 2;\n`,
+    },
+    async (root, folder) => {
+      const { scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(scripts.find((s) => s.path === "f/mypipe/gpu_job")?.tag).toBe("gpu");
+      // a node without `// tag` carries no tag (→ default worker)
+      expect(scripts.find((s) => s.path === "f/mypipe/plain")?.tag).toBeUndefined();
+    },
+  );
+});
+
 test("go/bash fallback: leading-header `// on` only, options stripped, no body phantoms", async () => {
   await withFolder(
     {

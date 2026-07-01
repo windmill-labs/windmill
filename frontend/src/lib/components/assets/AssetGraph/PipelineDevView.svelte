@@ -20,7 +20,12 @@
 	// pushed local content (no deploy). Editing happens in the user's own editor;
 	// each save live-reloads the graph here.
 
-	type PushedScript = { path: string; content: string; language: Preview['language'] }
+	type PushedScript = {
+		path: string
+		content: string
+		language: Preview['language']
+		tag?: string
+	}
 	type PipelineBundle = {
 		type: 'pipeline'
 		folder: string
@@ -184,9 +189,9 @@
 
 	function resolveLocal(
 		path: string
-	): { content: string; language: Preview['language'] } | undefined {
+	): { content: string; language: Preview['language']; tag?: string } | undefined {
 		const s = scriptByPath.get(path)
-		return s ? { content: s.content, language: s.language } : undefined
+		return s ? { content: s.content, language: s.language, tag: s.tag } : undefined
 	}
 
 	// Run a single node as a preview of its local content. Never fans out to
@@ -209,6 +214,7 @@
 					language: local.language,
 					path: nodePath,
 					args: { ...args, _wmill_skip_asset_dispatch: true },
+					...(local.tag ? { tag: local.tag } : {}),
 					...(bundle?.temp_script_refs ? { temp_script_refs: bundle.temp_script_refs } : {})
 				}
 			})

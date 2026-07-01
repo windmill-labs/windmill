@@ -67,7 +67,14 @@ export type AssetGraph = {
   triggers: GraphTrigger[];
 };
 
-export type LocalScript = { path: string; content: string; language: string };
+export type LocalScript = {
+  path: string;
+  content: string;
+  language: string;
+  // `// tag <worker-tag>` — routes the preview to that worker tag, matching the
+  // deployed pipeline. Undefined → default worker.
+  tag?: string;
+};
 
 // Raw shape of the wasm `parse_assets_<lang>` JSON output (a serialized Rust
 // `ParseAssetsOutput`). `triggers` is internally tagged on `kind`
@@ -88,6 +95,8 @@ type ParseAssetsRaw = {
   // the wasm asset parser). The body (a bare trailing SELECT) writes nothing
   // inferable, so the producer's output edge comes from here, not from `assets`.
   materialize?: { target_kind: string; target_path: string };
+  // `// tag <worker-tag>` — the worker tag the deployed pipeline routes to.
+  tag?: string;
 };
 
 // Mirror `inferAssets` (frontend/src/lib/infer.ts): only ts / py / sql have a
@@ -352,7 +361,9 @@ export async function buildLocalPipelineGraph(args: {
   for (const s of all) {
     const out = await inferScriptAssets(s.content, s.language);
     if (!out.in_pipeline) continue; // not a pipeline member
-    pipelineScripts.push(s);
+    // Carry the parsed `// tag` so previews route to the same worker the
+    // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
+    pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
     const mat = out.materialize;
     runnables.push({
       path: s.path,

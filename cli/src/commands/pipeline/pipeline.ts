@@ -547,6 +547,8 @@ async function run(
           path: nodePath,
           args: { _wmill_skip_asset_dispatch: true },
           temp_script_refs: tempScriptRefs,
+          // `// tag` routes to the same worker the deployed pipeline would.
+          ...(ls.tag ? { tag: ls.tag } : {}),
         } as any,
       });
     } else {
