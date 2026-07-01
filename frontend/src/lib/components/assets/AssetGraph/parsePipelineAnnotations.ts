@@ -78,7 +78,8 @@ export type RetrySpec = {
 // MaterializeSpec. Managed by default (the runtime generates the write DDL
 // around a single SELECT); `manual` opts out (the script writes its own DDL,
 // track-only). `append` / `key` / `history` / `track` are managed-mode strategy
-// options; `key=<col> history` (or the `scd2` alias) selects SCD type-2 history.
+// options; `key=<col> history` (or the `scd2` alias) selects SCD type-2 history,
+// and `deletes=close` opts scd2 into hard-delete-close.
 export type MaterializeSpec = {
 	targetKind: AssetKind
 	targetPath: string
@@ -92,6 +93,8 @@ export type MaterializeSpec = {
 	scd2?: boolean
 	// SCD2 tracked columns (change ⇒ new version); empty ⇒ all non-key columns
 	track?: string[]
+	// SCD2 hard-delete-close (`deletes=close`): close absent keys; absent === false
+	closeDeleted?: boolean
 }
 
 // `// data_test <kind> …` — a data-quality assertion run against the
@@ -233,7 +236,7 @@ function parseAssetSyntaxDefault(s: string): PipelineTriggerAsset | undefined {
 // managed mode; a leading `scd2` word is an alias for the `history` flag; the
 // next token is the target asset URI (default-syntax shorthands enabled); the
 // remainder are strategy options (`append` flag, `key=<col>`, `history` flag,
-// `track=<c1,c2,…>`). Missing/empty target → undefined (dropped).
+// `track=<c1,c2,…>`, `deletes=close`). Missing/empty target → undefined (dropped).
 function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 	// One optional leading mode keyword: `manual` (track-only) or `scd2` (an alias
 	// for the `history` flag below).
@@ -270,7 +273,19 @@ function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 		.split(',')
 		.map((c) => c.trim())
 		.filter((c) => c !== '')
-	return { targetKind: asset.kind, targetPath: asset.path, manual, append, uniqueKey, scd2, track }
+	// `deletes=close` (scd2 only) opts into hard-delete-close; any other value
+	// (or absence) keeps the soft-delete default.
+	const closeDeleted = opts.get('deletes') === 'close'
+	return {
+		targetKind: asset.kind,
+		targetPath: asset.path,
+		manual,
+		append,
+		uniqueKey,
+		scd2,
+		track,
+		closeDeleted
+	}
 }
 
 // A single bare identifier token (column name). Rejects empty / multi-token

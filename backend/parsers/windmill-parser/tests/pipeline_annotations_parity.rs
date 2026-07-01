@@ -63,6 +63,8 @@ struct ExpectedMaterialize {
     scd2: bool,
     #[serde(default)]
     track: Vec<String>,
+    #[serde(default)]
+    close_deleted: bool,
 }
 
 #[derive(Deserialize)]
@@ -197,6 +199,10 @@ fn pipeline_annotation_fixtures_match() {
                 assert_eq!(m.unique_key, e.unique_key, "{ctx}: materialize key");
                 assert_eq!(m.scd2, e.scd2, "{ctx}: materialize scd2");
                 assert_eq!(m.track, e.track, "{ctx}: materialize track");
+                assert_eq!(
+                    m.close_deleted, e.close_deleted,
+                    "{ctx}: materialize close_deleted"
+                );
             }
             (got, want) => panic!(
                 "{ctx}: materialize mismatch — got {:?}, want present={}",

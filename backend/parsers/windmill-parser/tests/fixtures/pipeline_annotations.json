@@ -254,8 +254,8 @@
 		}
 	},
 	{
-		"name": "materialize scd2 via history flag with key and track",
-		"code": "// pipeline\n// materialize ducklake://analytics/dim_customer key=id history track=name,tier\nSELECT 1;",
+		"name": "materialize scd2 via history flag with key, track and deletes=close",
+		"code": "// pipeline\n// materialize ducklake://analytics/dim_customer key=id history track=name,tier deletes=close\nSELECT 1;",
 		"expected": {
 			"in_pipeline": true,
 			"asset_triggers": [],
@@ -269,7 +269,8 @@
 				"target_path": "analytics/dim_customer",
 				"unique_key": "id",
 				"scd2": true,
-				"track": ["name", "tier"]
+				"track": ["name", "tier"],
+				"close_deleted": true
 			}
 		}
 	},

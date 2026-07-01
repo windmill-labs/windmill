@@ -128,9 +128,10 @@ current rows to close changed versions and open new ones (dbt's `strategy='check
 shape — `track=` is the check-columns list; empty ⇒ all non-key columns). Because
 it's a managed strategy (not a new output kind), it inherits `// data_test` and
 schema capture, and each run (re)creates a `<dim>_current` view; consumers get
-effective-dated joins via native `ASOF JOIN … >= valid_from`. v1 is non-partitioned
-and soft-deletes (keys absent from the SELECT stay current); hard-delete/CDC and
-partitioned history are follow-ups. See `ducklake-materialization.md`.
+effective-dated joins via native `ASOF JOIN … >= valid_from`. Deletes follow dbt:
+soft by default (absent keys stay current), or `deletes=close` for
+`hard_deletes=close`. v1 is non-partitioned; partitioned history is a follow-up.
+See `ducklake-materialization.md`.
 
 ### 5. Selective execution grammar
 

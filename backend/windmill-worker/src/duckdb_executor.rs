@@ -208,7 +208,7 @@ fn build_materialized_query(
                 "materialize scd2: `// partitioned` is not supported with scd2 in v1".to_string(),
             ));
         }
-        MaterializeStrategy::Scd2 { key, track: m.track.clone() }
+        MaterializeStrategy::Scd2 { key, track: m.track.clone(), close_deleted: m.close_deleted }
     } else if m.append {
         MaterializeStrategy::Append
     } else if let Some(uk) = m.unique_key {
@@ -1565,7 +1565,24 @@ mod tests {
             rewritten.contains("CREATE VIEW IF NOT EXISTS _wm_target.dim_current"),
             "emits the consumer-convenience current view"
         );
+        // default is soft-delete — no deleted-key set without `deletes=close`
+        assert!(!rewritten.contains("_wm_scd2_deleted"));
         assert!(!rewritten.contains("MERGE INTO"));
+    }
+
+    #[test]
+    fn materialize_scd2_deletes_close_wires_through() {
+        let script = "-- materialize ducklake://main/dim key=id history deletes=close\n\
+                      SELECT id, name FROM dl.src";
+        let (rewritten, _) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("scd2 is managed — must rewrite");
+        assert!(
+            rewritten.contains("_wm_scd2_deleted"),
+            "deletes=close adds the vanished-key set + close:\n{rewritten}"
+        );
     }
 
     #[test]

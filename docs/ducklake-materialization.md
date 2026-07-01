@@ -60,16 +60,22 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
 - **`key=<col>`** → MERGE (dedup within slice, SCD type 1 — overwrites history);
   **`append`** → INSERT-only; neither → DELETE-by-partition + INSERT (replace).
   `append` wins over `key` if both are given (deploy warning).
-- **`key=<col> history [track=<c1,c2,…>]`** → upgrades the keyed merge to managed
-  SCD **type 2** history (the leading keyword `scd2` is an alias). The SELECT is
-  the *current snapshot* (one row per `key`), and the runtime adds
+- **`key=<col> history [track=<c1,c2,…>] [deletes=close]`** → upgrades the keyed
+  merge to managed SCD **type 2** history (the leading keyword `scd2` is an alias).
+  The SELECT is the *current snapshot* (one row per `key`), and the runtime adds
   `valid_from`/`valid_to`/`is_current`; a change to any tracked column (`track=`,
   default all non-key) closes the prior version and opens a new one, keeping full
   history. Diff → close-old (`UPDATE`) → open-new (`INSERT`) in one transaction;
   the effective timestamp is the transaction clock (`now()`), so a run is
-  self-consistent. Keys absent from the SELECT stay current (soft delete). v1 is
-  **non-partitioned only** (`// partitioned` + history is rejected). Unlike
-  `manual`, it is managed, so `// data_test` and schema capture work.
+  self-consistent. v1 is **non-partitioned only** (`// partitioned` + history is
+  rejected). Unlike `manual`, it is managed, so `// data_test` and schema capture
+  work.
+  - **Deletes.** By default a key that disappears from the snapshot stays current
+    (soft delete — dbt's `hard_deletes=ignore`). `deletes=close` opts into
+    hard-delete-close: the vanished key's current version is closed (`valid_to`
+    set, `is_current=false`) with no new version — dbt's `hard_deletes=close`. If
+    that key later reappears in the snapshot it opens a fresh version, leaving a
+    validity gap between the delete and the reactivation (correct SCD2).
   - **Reserved names.** `valid_from`/`valid_to`/`is_current` are reserved column
     names in this mode — a SELECT that already projects one fails at run time —
     and the `<dim>_current` suffix is reserved for the companion view (below), so

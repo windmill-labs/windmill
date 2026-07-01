@@ -237,7 +237,8 @@ pub struct RetrySpec {
 // snapshot (one row per key), and a change to any tracked column (`track=`,
 // default all non-key) closes the prior version and opens a new one, keeping full
 // history (`valid_from`/`valid_to`/`is_current`). The leading keyword `scd2` is a
-// recognized alias for `history`.
+// recognized alias for `history`. `deletes=close` (scd2 only) also closes a key
+// that disappears from the snapshot; default leaves absent keys current.
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct MaterializeSpec {
     pub target_kind: AssetKind,
@@ -257,6 +258,11 @@ pub struct MaterializeSpec {
     pub scd2: bool,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub track: Vec<String>,
+    // scd2 only: `deletes=close` opts into hard-delete-close — a key that
+    // disappears from the snapshot has its current version closed (dbt's
+    // `hard_deletes=close`). Default (false) leaves absent keys current.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub close_deleted: bool,
 }
 
 // `// data_test <kind> …` — a data-quality assertion run against the
@@ -820,9 +826,10 @@ fn parse_retry_spec(s: &str) -> Option<RetrySpec> {
 // `history` flag. The next whitespace token is the target asset URI
 // (default-syntax shorthands enabled, so `ducklake` → `ducklake://main`); the
 // remainder are strategy options — bare `append`, bare `history` (SCD type-2 on
-// a keyed merge), `key=<col>` (merge/scd2 key), and `track=<c1,c2,…>` (scd2
-// tracked columns) — which apply to managed mode only. A missing/empty target
-// yields `None` (the annotation is dropped, fail-safe).
+// a keyed merge), `key=<col>` (merge/scd2 key), `track=<c1,c2,…>` (scd2 tracked
+// columns), and `deletes=close` (scd2 hard-delete-close) — which apply to managed
+// mode only. A missing/empty target yields `None` (the annotation is dropped,
+// fail-safe).
 fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
     // One optional leading mode keyword: `manual` (escape hatch, track-only) or
     // `scd2` (alias for the `history` flag below). A missing keyword is the
@@ -866,6 +873,9 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    // `deletes=close` (scd2 only) opts into hard-delete-close; any other value
+    // (or absence) keeps the soft-delete default.
+    let close_deleted = opts.get("deletes").map(|v| v == "close").unwrap_or(false);
     Some(MaterializeSpec {
         target_kind,
         target_path: path.to_string(),
@@ -874,6 +884,7 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
         unique_key,
         scd2,
         track,
+        close_deleted,
     })
 }
 
@@ -1525,6 +1536,23 @@ mod pipeline_annotation_tests {
         assert!(m.scd2);
         assert_eq!(m.unique_key.as_deref(), Some("id"));
         assert!(m.track.is_empty());
+        // soft-delete default
+        assert!(!m.close_deleted);
+    }
+
+    #[test]
+    fn materialize_scd2_deletes_close_opt() {
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/dim key=id history deletes=close",
+        );
+        let m = out.materialize.expect("materialize");
+        assert!(m.scd2);
+        assert!(m.close_deleted);
+        // any other value keeps the soft-delete default
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/dim key=id history deletes=ignore",
+        );
+        assert!(!out.materialize.expect("materialize").close_deleted);
     }
 
     #[test]
