@@ -434,8 +434,8 @@
 								<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
 									<a
 										href={owner?.activeTab?.url ?? `${base}/`}
-										title="Open full page"
-										aria-label="Open full page"
+										title="Open in workspace"
+										aria-label="Open in workspace"
 										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
 									>
 										<ExternalLink size={14} />
