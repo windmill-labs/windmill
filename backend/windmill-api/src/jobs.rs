@@ -7602,26 +7602,32 @@ async fn run_dynamic_select(
         ));
     }
 
+    if !is_valid_entrypoint_name(&request.entrypoint_function) {
+        return Err(error::Error::BadRequest(format!(
+            "Invalid entrypoint_function {:?}: must match \
+             ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
+             not starting with a digit)",
+            request.entrypoint_function
+        )));
+    }
+
+    // Deployed scripts keep their normal deployed-run path (a `script` job, resolved below by
+    // push_script_job_by_path_into_queue). Deployed flows and inline snippets have no deployed
+    // runnable, so they run their dyn-select code as a `preview`; the flow carries its path and
+    // worker tag so its option-fetching job lines up with the script run.
     let dynamic_input: DynamicInput;
+    let runnable_path: Option<String>;
+    let mut tag: Option<String> = None;
 
     match request.runnable_ref {
         DynamicSelectRunnableRef::Deployed { path, runnable_kind } => match runnable_kind {
             RunnableKind::Script => {
-                if !is_valid_entrypoint_name(&request.entrypoint_function) {
-                    return Err(error::Error::BadRequest(format!(
-                        "Invalid entrypoint_function {:?}: must match \
-                         ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
-                         not starting with a digit)",
-                        request.entrypoint_function
-                    )));
-                }
                 let mut script_args = request.args.unwrap_or_default();
                 script_args.insert(
-                    "_ENTRYPOINT_OVERRIDE".to_string(),
+                    ENTRYPOINT_OVERRIDE.to_string(),
                     serde_json::value::to_raw_value(&request.entrypoint_function)?,
                 );
-
-                let push_args = PushArgsOwned { extra: None, args: script_args.clone() };
+                let push_args = PushArgsOwned { extra: None, args: script_args };
 
                 let (uuid, _, _) = push_script_job_by_path_into_queue(
                     authed.clone(),
@@ -7631,7 +7637,7 @@ async fn run_dynamic_select(
                     w_id.clone(),
                     StripPath(path),
                     run_query.clone(),
-                    push_args.clone(),
+                    push_args,
                     None,
                 )
                 .await?;
@@ -7639,12 +7645,39 @@ async fn run_dynamic_select(
                 return Ok((StatusCode::CREATED, uuid.to_string()).into_response());
             }
             RunnableKind::Flow => {
-                // Runs the deployed flow's dynamic-select code. Enforce the same
-                // path-scoped check the script branch gets via
-                // push_script_job_by_path_into_queue, so a token not scoped to this
-                // flow cannot trigger its code through dynamic select.
+                // Runs the deployed flow's dynamic-select code. Path-scoped so a token not
+                // scoped to this flow cannot trigger its code through dynamic select.
                 check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
                 let mut conn = user_db.clone().begin(&authed).await?;
+
+                // Read the flow's tag under RLS. This runs on every request (including the
+                // cache hit below), so it doubles as the access check and routes the
+                // option-fetching preview to the flow's worker group, matching the script branch.
+                let Some(flow_tag) = sqlx::query_scalar!(
+                    "SELECT tag FROM flow WHERE workspace_id = $1 AND path = $2",
+                    &w_id,
+                    &path
+                )
+                .fetch_optional(&mut *conn)
+                .await?
+                else {
+                    conn.commit().await?;
+                    let exists = sqlx::query_scalar!(
+                        "SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 LIMIT 1",
+                        &w_id,
+                        &path
+                    )
+                    .fetch_optional(&db)
+                    .await?
+                    .is_some();
+                    if exists {
+                        return Err(error::Error::NotAuthorized(format!(
+                            "You are not authorized to access this flow: {path}"
+                        )));
+                    }
+                    return Err(Error::NotFound(format!("Flow not found at path {path}")));
+                };
+                tag = flow_tag;
 
                 let dynamic_input_res = match DYNAMIC_INPUT_CACHE.get(&format!("{}:{}", w_id, path))
                 {
@@ -7688,20 +7721,33 @@ async fn run_dynamic_select(
                 conn.commit().await?;
 
                 dynamic_input = dynamic_input_res;
+                runnable_path = Some(path);
             }
         },
         DynamicSelectRunnableRef::Inline { code, lang: language } => {
             // Inline dynamic select runs arbitrary, request-supplied code; require the broad
             // jobs:run scope so a narrowly-scoped token cannot escape its scope. The Deployed
-            // branches are path-scoped instead (scripts via push_script_job_by_path_into_queue,
-            // flows via the check_scopes above).
+            // branches are path-scoped instead.
             check_scopes(&authed, || format!("jobs:run"))?;
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),
             };
+            runnable_path = None;
         }
     }
+
+    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
+    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
+    // inline (tag is None); the script branch checked this inside its helper and returned above.
+    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+
+    // Invoke the dyn-select entrypoint instead of `main`.
+    let mut args = request.args.unwrap_or_default();
+    args.insert(
+        ENTRYPOINT_OVERRIDE.to_string(),
+        serde_json::value::to_raw_value(&request.entrypoint_function)?,
+    );
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -7713,7 +7759,7 @@ async fn run_dynamic_select(
         JobPayload::Code(RawCode {
             hash: None,
             content: dynamic_input.x_windmill_dyn_select_code,
-            path: None,
+            path: runnable_path,
             language: dynamic_input.x_windmill_dyn_select_lang,
             lock: None,
             cache_ttl: None,
@@ -7722,9 +7768,11 @@ async fn run_dynamic_select(
             concurrency_settings: ConcurrencySettings::default().into(),
             debouncing_settings: DebouncingSettings::default(),
             modules: None,
+            // RawCode.tag is ignored by the queue path (`JobPayload::Code` destructures it as
+            // `tag: _`); the effective tag is the `tag` argument to `push` below.
             tag: None,
         }),
-        PushArgs::from(&request.args.unwrap_or_default()),
+        PushArgs::from(&args),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -7739,7 +7787,8 @@ async fn run_dynamic_select(
         false,
         None,
         true,
-        None,
+        // Deployed flow → the flow's worker tag; inline → `None` (language default).
+        tag,
         run_query.timeout,
         None,
         None,
