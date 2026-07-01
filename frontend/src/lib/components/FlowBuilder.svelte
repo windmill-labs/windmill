@@ -89,6 +89,7 @@
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import { openEditorInSession } from './sessions/sessionSwitch.svelte'
+	import { isGlobalAiEnabled } from './copilot/chat/global/gate'
 	import { BROWSER } from 'esm-env'
 	import type { GraphModuleState } from './graph'
 	import { validateRetryConfig } from '$lib/utils'
@@ -1242,9 +1243,10 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={async () => {
-						// Inside the session preview iframe, opening a nested session would be
-						// broken — fall back to the inline flow chat panel there.
-						if (BROWSER && window.self !== window.top) {
+						// Without the sessions dev flag, or inside the session preview iframe
+						// (a nested session would be broken), fall back to the inline flow
+						// chat panel instead of routing to the gated /sessions page.
+						if (!isGlobalAiEnabled() || (BROWSER && window.self !== window.top)) {
 							aiChatManager.toggleOpen()
 							return
 						}

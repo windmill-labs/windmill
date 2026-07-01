@@ -18,7 +18,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
-	import { userWorkspaces, workspaceStore, userStore, superadmin } from '$lib/stores'
+	import { userWorkspaces, workspaceStore, userStore, superadmin, devopsRole } from '$lib/stores'
 
 	let {
 		isCollapsed = false,
@@ -57,13 +57,19 @@
 					}
 				]
 			: []),
-		{
-			displayName: 'Instance settings',
-			icon: Settings,
-			action: () => goto(SUPERADMIN_SETTINGS_HASH)
-		},
+		...($superadmin
+			? [
+					{
+						displayName: 'Instance settings',
+						icon: Settings,
+						action: () => goto(SUPERADMIN_SETTINGS_HASH)
+					}
+				]
+			: []),
 		{ displayName: 'Workers', icon: ServerCog, href: `${base}/workers` },
-		{ displayName: 'Logs', icon: Logs, href: `${base}/audit_logs` },
+		...($devopsRole || $userStore?.is_admin
+			? [{ displayName: 'Logs', icon: Logs, href: `${base}/audit_logs` }]
+			: []),
 		{
 			displayName: 'Help',
 			icon: HelpCircle,

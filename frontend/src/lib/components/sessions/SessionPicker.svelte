@@ -16,6 +16,7 @@
 		Trash2
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
@@ -680,19 +681,22 @@
 										forkStatus={forkStatusFor(session)}
 									/>
 								{/if}
-								<!-- svelte-ignore a11y_autofocus -->
-								<input
-									type="text"
+								<TextInput
 									bind:value={renameDraft}
-									onkeydown={(e) => {
-										if (e.key === 'Enter') commitRename()
-										else if (e.key === 'Escape') cancelRename()
+									size="xs"
+									unifiedHeight={false}
+									class="flex-1 min-w-0 !bg-transparent !border-0 !border-transparent !shadow-none focus:!ring-0 px-0 text-xs font-normal text-primary"
+									inputProps={{
+										type: 'text',
+										placeholder: 'Untitled session',
+										autofocus: true,
+										spellcheck: false,
+										onkeydown: (e) => {
+											if (e.key === 'Enter') commitRename()
+											else if (e.key === 'Escape') cancelRename()
+										},
+										onblur: commitRename
 									}}
-									onblur={commitRename}
-									placeholder="Untitled session"
-									autofocus
-									spellcheck="false"
-									class="flex-1 min-w-0 bg-transparent border-0 outline-none text-xs font-normal text-primary"
 								/>
 							</span>
 						{:else}

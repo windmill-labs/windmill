@@ -91,10 +91,16 @@
 	}
 
 	// Family-only picker: list the workspace families (roots), never their
-	// forks. Fork selection moved to the global breadcrumb (WorkspaceBreadcrumb).
+	// forks. Fork selection moves to WorkspaceScopeHeader/WorkspaceFamilyPicker,
+	// rendered alongside this menu in the sidebar.
+	//
+	// strictWorkspaceSelect is used on standalone pages (e.g. svix webhook
+	// creation) that render this menu with no scope header, so there forks must
+	// stay directly selectable — list the full hierarchy.
 	const familyWorkspaces = $derived.by(() => {
 		if (!$userWorkspaces) return []
-		return buildWorkspaceHierarchy($userWorkspaces).filter((w) => w.depth === 0)
+		const hierarchy = buildWorkspaceHierarchy($userWorkspaces)
+		return strictWorkspaceSelect ? hierarchy : hierarchy.filter((w) => w.depth === 0)
 	})
 
 	function findRoot(id: string | undefined): UserWorkspace | undefined {

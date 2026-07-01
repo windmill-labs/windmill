@@ -741,6 +741,21 @@
 												class="!text-xs"
 												shortcut={`${getModifierKey()}k`}
 											/>
+											{#if !globalAiEnabled}
+												<!-- Global Ask-AI pane. When the sessions dev flag is on it is
+												     replaced by SessionModeSwitch, so it only shows in prod. -->
+												<MenuButton
+													stopPropagationOnClick={true}
+													on:click={() => aiChatManager.toggleOpen()}
+													isCollapsed={false}
+													icon={WandSparkles}
+													iconProps={{ forceDarkMode: true }}
+													label="Ask AI"
+													class="!text-xs"
+													iconClasses="!text-ai"
+													shortcut={`${getModifierKey()}L`}
+												/>
+											{/if}
 										</div>
 
 										<SidebarContent
@@ -828,6 +843,21 @@
 										class="!text-xs"
 										shortcut={`${getModifierKey()}k`}
 									/>
+									{#if !globalAiEnabled}
+										<!-- Global Ask-AI pane. When the sessions dev flag is on it is
+										     replaced by SessionModeSwitch, so it only shows in prod. -->
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => aiChatManager.toggleOpen()}
+											{isCollapsed}
+											icon={WandSparkles}
+											iconProps={{ forceDarkMode: true }}
+											label="Ask AI"
+											class="!text-xs"
+											iconClasses="!text-ai"
+											shortcut={`${getModifierKey()}L`}
+										/>
+									{/if}
 								</div>
 
 								<SidebarContent
@@ -1002,7 +1032,7 @@
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={true}
+				disableAi={globalAiEnabled ? true : sessionMode}
 				{isCollapsed}
 				isMobile={innerWidth < 768}
 				onMenuOpen={() => {
