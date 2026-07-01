@@ -327,7 +327,7 @@ pub async fn eval_timeout_quickjs(
 }
 
 #[cfg(feature = "quickjs")]
-const QUICKJS_MEMORY_LIMIT: usize = 32 * 1024 * 1024;
+const QUICKJS_MEMORY_LIMIT: usize = 256 * 1024 * 1024;
 
 #[cfg(feature = "quickjs")]
 async fn eval_quickjs_inner(
