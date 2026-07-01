@@ -125,6 +125,13 @@
 	let activeRunnable = $state<{ kind: 'script' | 'flow'; path: string } | undefined>(undefined)
 	let activeRunnableJobId = $state<string | undefined>(undefined)
 
+	// Drive the selected node's runs pane (AssetRunsPanel): a just-launched
+	// preview is `runsPendingJobId` (shown immediately), and bumping
+	// `runsRefreshKey` re-fetches the list — mirrors the route page so a local run
+	// appears + selects in the pane instead of only updating the node badge.
+	let runsPendingJobId = $state<string | undefined>(undefined)
+	let runsRefreshKey = $state(0)
+
 	// Activity-panel cross-highlighting: hovering/expanding a run row emphasizes
 	// its node(s) on the canvas (same wiring the route page uses).
 	let activityHoverPaths = $state<string[]>([])
@@ -144,6 +151,10 @@
 		if (ev && (ev.status === 'success' || ev.status === 'failure')) {
 			activeRunnable = undefined
 			activeRunnableJobId = undefined
+			// The job reached a terminal state — refetch the runs pane so it shows
+			// the completed run + result, and drop the pending placeholder.
+			runsPendingJobId = undefined
+			runsRefreshKey += 1
 		}
 	})
 
@@ -228,6 +239,8 @@
 			})
 			activeRunnable = { kind: 'script', path: nodePath }
 			activeRunnableJobId = jobId
+			runsPendingJobId = jobId
+			runsRefreshKey += 1
 			return jobId
 		} catch (e: any) {
 			sendUserToast(`Run failed: ${e?.body ?? e?.message ?? e}`, true)
@@ -257,6 +270,8 @@
 					rootJobId = jobId
 					activeRunnable = { kind: 'script', path: p }
 					activeRunnableJobId = jobId
+					runsPendingJobId = jobId
+					runsRefreshKey += 1
 				}
 			}
 		})
@@ -341,6 +356,8 @@
 				{workspace}
 				{pathPrefix}
 				{activeRunnable}
+				{runsPendingJobId}
+				{runsRefreshKey}
 				activeRunnableIds={activeRunnables.ids}
 				runStates={activeRunnables.states}
 				eventLogEvents={activeRunnables.events}
