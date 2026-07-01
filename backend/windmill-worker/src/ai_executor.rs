@@ -35,7 +35,7 @@ use windmill_common::{
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue, ToolValue},
+    flows::{AgentTool, FlowModule, FlowModuleValue, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::get_full_hub_script_by_path,
@@ -156,14 +156,20 @@ pub async fn handle_ai_agent_job(
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
     // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
-    let args = match build_args_map(job, client, conn).await? {
+    let local_args = match build_args_map(job, client, conn).await? {
         Some(transformed) => transformed,
         None => job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
     };
-    let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
 
-    // Handle dry_run mode - check credentials without making API calls
-    if args.credentials_check {
+    // Handle dry_run mode - check credentials without making API calls.
+    // The credentials check is always invoked inline (provider present, no agent link and no
+    // parent flow), so it resolves before any flow/agent-resource context is fetched.
+    let is_credentials_check = local_args
+        .get("credentials_check")
+        .map(|v| v.get().trim() == "true")
+        .unwrap_or(false);
+    if is_credentials_check {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
         return handle_credentials_check(&args.provider).await;
     }
 
@@ -249,12 +255,73 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
-    let FlowModuleValue::AIAgent { tools, omit_output_from_conversation, .. } =
-        module.get_value()?
+    let FlowModuleValue::AIAgent {
+        tools: module_tools, omit_output_from_conversation, agent, ..
+    } = module.get_value()?
     else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
+    };
+
+    // Hybrid linking: when the step references a saved `ai_agent` resource, the brain config
+    // (provider/model/system prompt/etc.) and the tool set come from that resource; only the
+    // flow-local inputs (user_message/user_attachments) come from the step. When not linked, the
+    // brain is the step's resolved input_transforms and the tools are the module's own.
+    // v1 boundary: a linked agent's tools come wholly from the resource; per-tool flow-context
+    // wiring is a fast-follow.
+    let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        let resource_value = client
+            .get_resource_value_interpolated::<serde_json::Value>(
+                agent_path,
+                Some(job.id.to_string()),
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
+            })?;
+        let mut config = match resource_value {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        // Overlay flow-local inputs onto the agent brain.
+        for key in ["user_message", "user_attachments"] {
+            if let Some(v) = local_args.get(key) {
+                config.insert(
+                    key.to_string(),
+                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
+                );
+            }
+        }
+        // A linked agent is rigid: brain and tools come wholly from the resource. To diverge, the
+        // step must be unlinked (forked), at which point the config is copied into the step.
+        let tools = match config.remove("tools") {
+            Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid tools in ai_agent resource {agent_path}: {e}"
+                ))
+            })?,
+            None => Vec::new(),
+        };
+        let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(config))
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid ai_agent resource config {agent_path}: {e}"
+                ))
+            })?;
+        (args, tools)
+    } else {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
+        (args, module_tools)
     };
 
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
