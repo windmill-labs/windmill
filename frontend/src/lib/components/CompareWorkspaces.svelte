@@ -897,6 +897,28 @@
 		azure_trigger: 'Azure trigger',
 		email_trigger: 'Email trigger'
 	}
+
+	// Human label for a diff kind, lowercased for inline use in the hidden-items
+	// summary ("2 scripts, 1 http route").
+	function hiddenKindLabel(kind: string): string {
+		const base: Record<string, string> = {
+			script: 'script',
+			flow: 'flow',
+			app: 'app',
+			raw_app: 'app',
+			resource: 'resource',
+			variable: 'variable',
+			resource_type: 'resource type',
+			folder: 'folder'
+		}
+		return base[kind] ?? KIND_DISPLAY_NAMES[kind]?.toLowerCase() ?? kind
+	}
+
+	function formatHiddenByKind(byKind: Record<string, number>): string {
+		return Object.entries(byKind)
+			.map(([kind, n]) => `${n} ${hiddenKindLabel(kind)}${n !== 1 ? 's' : ''}`)
+			.join(', ')
+	}
 </script>
 
 {#if $workspaceStore != currentWorkspaceId}
@@ -1085,13 +1107,31 @@
 							</span>
 						</Alert>
 					{/if}
-					{#if mergeIntoParent ? !comparison.all_ahead_items_visible : !comparison.all_behind_items_visible}
+					{@const hiddenDir = mergeIntoParent ? comparison.hidden_ahead : comparison.hidden_behind}
+					{#if hiddenDir.items.length > 0}
+						<!-- Caller is an admin of this side, so the dropped items are provably
+						     stale/phantom diff rows (they can see every real item). List them with
+						     paths — useful for debugging the "why is this fork ahead" question. -->
+						<Alert title="Hidden diff rows (visible to you as admin)" type="info" class="my-2">
+							{hiddenDir.items.length}
+							{mergeIntoParent ? 'ahead' : 'behind'} item{hiddenDir.items.length !== 1 ? 's' : ''}
+							{hiddenDir.items.length !== 1 ? 'are' : 'is'} excluded from the list below — they are not
+							resolvable as live items and are most likely stale/phantom diff rows:
+							<ul class="mt-1 font-mono text-2xs">
+								{#each hiddenDir.items as it}
+									<li>{hiddenKindLabel(it.kind)} · {it.path}</li>
+								{/each}
+							</ul>
+						</Alert>
+					{:else if mergeIntoParent ? !comparison.all_ahead_items_visible : !comparison.all_behind_items_visible}
 						<Alert title="Some changes are hidden from you" type="warning" class="my-2">
-							{mergeIntoParent
-								? 'Some of the changes this fork is ahead by'
-								: 'Some of the changes this fork is behind by'} are not visible to your user and are
-							excluded from the list below. You can still {mergeIntoParent ? 'deploy' : 'update'} the
-							items you can see — share this page with someone who has full access to include the rest.
+							{hiddenDir.total}
+							{mergeIntoParent ? 'ahead' : 'behind'} item{hiddenDir.total !== 1 ? 's' : ''}
+							({formatHiddenByKind(hiddenDir.by_kind)})
+							{hiddenDir.total !== 1 ? 'are' : 'is'} not visible to your user and
+							{hiddenDir.total !== 1 ? 'are' : 'is'} excluded from the list below. You can still
+							{mergeIntoParent ? 'deploy' : 'update'} the items you can see — share this page with someone
+							who has full access to include the rest.
 						</Alert>
 					{/if}
 				{/snippet}

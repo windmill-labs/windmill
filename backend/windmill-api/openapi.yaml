@@ -29330,6 +29330,8 @@ components:
         - skipped_comparison
         - diffs
         - summary
+        - hidden_ahead
+        - hidden_behind
       properties:
         all_ahead_items_visible:
           type: boolean
@@ -29348,6 +29350,46 @@ components:
         summary:
           $ref: "#/components/schemas/CompareSummary"
           description: Summary statistics of the comparison
+        hidden_ahead:
+          $ref: "#/components/schemas/HiddenItemsSummary"
+          description: Ahead items excluded from `diffs` because they are not visible to the caller
+        hidden_behind:
+          $ref: "#/components/schemas/HiddenItemsSummary"
+          description: Behind items excluded from `diffs` because they are not visible to the caller
+
+    HiddenItemsSummary:
+      type: object
+      required:
+        - total
+        - by_kind
+        - items
+      properties:
+        total:
+          type: integer
+          description: Total number of hidden items on this side
+        by_kind:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of hidden items keyed by item kind (always populated)
+        items:
+          type: array
+          description: Kind and path of each hidden item; only populated when the caller is an admin of the relevant side (empty otherwise)
+          items:
+            $ref: "#/components/schemas/HiddenItem"
+
+    HiddenItem:
+      type: object
+      required:
+        - kind
+        - path
+      properties:
+        kind:
+          type: string
+          description: Type of the hidden item
+        path:
+          type: string
+          description: Path of the hidden item
 
     WorkspaceItemDiff:
       type: object
