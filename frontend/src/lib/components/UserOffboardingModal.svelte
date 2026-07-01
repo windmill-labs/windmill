@@ -43,6 +43,7 @@
 	let ownedCount = $derived(preview ? countPaths(preview.owned) : 0)
 	let onBehalfCount = $derived(preview ? countPaths(preview.executing_on_behalf) : 0)
 	let hasItems = $derived(ownedCount > 0 || onBehalfCount > 0)
+	let canReassignHere = $derived(hasItems && users.length > 0)
 
 	let reassignTo = $derived(
 		targetKind === 'user'
@@ -236,7 +237,7 @@
 					{/if}
 
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						{#if hasItems || deleteUser}
+						{#if deleteUser || canReassignHere}
 							<Button
 								disabled={submitting || !canSubmit}
 								onclick={submit}
