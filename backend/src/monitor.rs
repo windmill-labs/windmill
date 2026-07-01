@@ -2994,6 +2994,17 @@ pub async fn monitor_db(
         }
     };
 
+    // Poll git-sync repositories for new commits and pull them into the
+    // workspace (repo → Windmill auto-pull). Runs every 2 iterations (~60s).
+    let git_auto_pull_f = async {
+        #[cfg(feature = "private")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(2) {
+            if let Some(db) = conn.as_sql() {
+                poll_git_auto_pull(db).await;
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -3021,7 +3032,200 @@ pub async fn monitor_db(
         manage_audit_partitions_f,
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
+        git_auto_pull_f,
     );
+}
+
+/// Advisory lock id ensuring only one server replica runs the git auto-pull
+/// poll at a time (adjacent to RESTART_LOCK_ID used for restart coordination).
+#[cfg(feature = "private")]
+const GIT_AUTO_PULL_LOCK_ID: i64 = 737_483_921;
+
+/// Poll every git-sync repository with auto-pull enabled and enqueue a pull when
+/// the tracked branch has new commits (repo → Windmill direction).
+///
+/// Runs on a single replica at a time (advisory lock) and only on
+/// Enterprise-licensed instances. Detection is `git ls-remote`; GitHub-App
+/// repositories are skipped here and sync via webhooks instead (phase 2).
+#[cfg(feature = "private")]
+pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
+    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return;
+    }
+
+    let mut lock_conn = match db.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("git auto-pull: failed to acquire connection: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(GIT_AUTO_PULL_LOCK_ID)
+        .fetch_one(&mut *lock_conn)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("git auto-pull: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        // Another replica is already polling this tick.
+        return;
+    }
+
+    if let Err(e) = poll_git_auto_pull_inner(db).await {
+        tracing::error!("git auto-pull: poll error: {e:#}");
+    }
+
+    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(GIT_AUTO_PULL_LOCK_ID)
+        .execute(&mut *lock_conn)
+        .await
+    {
+        tracing::error!("git auto-pull: advisory unlock failed: {e:#}");
+    }
+}
+
+#[cfg(feature = "private")]
+lazy_static::lazy_static! {
+    /// Last auto-pull poll time (unix secs) per `workspace|repo_path`, so each repo
+    /// is only probed once per its effective interval instead of every ~60s tick.
+    /// Bounded by the number of auto-pull repos; stale entries for removed repos are
+    /// harmless.
+    static ref AUTO_PULL_LAST_POLL: std::sync::Mutex<std::collections::HashMap<String, i64>> =
+        std::sync::Mutex::new(std::collections::HashMap::new());
+}
+
+/// Slack (seconds) subtracted from the effective interval so a repo whose interval
+/// equals the ~60s tick isn't skipped by tick jitter.
+#[cfg(feature = "private")]
+const AUTO_PULL_POLL_SLACK_S: i64 = 30;
+
+#[cfg(feature = "private")]
+async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
+
+    let rows = sqlx::query!(
+        r#"SELECT workspace_id, git_sync
+           FROM workspace_settings
+           WHERE git_sync IS NOT NULL
+             AND git_sync->'repositories' @> '[{"auto_pull": {"enabled": true}}]'::jsonb"#
+    )
+    .fetch_all(db)
+    .await?;
+
+    for row in rows {
+        let Some(git_sync) = row.git_sync else {
+            continue;
+        };
+        let settings: WorkspaceGitSyncSettings = match serde_json::from_value(git_sync) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    "git auto-pull: invalid git_sync settings for workspace {}: {e}",
+                    row.workspace_id
+                );
+                continue;
+            }
+        };
+
+        for repo in &settings.repositories {
+            let Some(auto_pull) = &repo.auto_pull else {
+                continue;
+            };
+            if !auto_pull.enabled || auto_pull.mode == AutoPullMode::Webhook {
+                continue;
+            }
+
+            // Honor the repo's effective poll interval (relaxed to ~10 min when a
+            // webhook is live) instead of probing every ~60s tick.
+            let interval_s = auto_pull.effective_poll_interval_s() as i64;
+            let poll_key = format!("{}|{}", row.workspace_id, repo.git_repo_resource_path);
+            let now = chrono::Utc::now().timestamp();
+            {
+                let mut last = AUTO_PULL_LAST_POLL.lock().unwrap();
+                if let Some(&t) = last.get(&poll_key) {
+                    if now - t < interval_s - AUTO_PULL_POLL_SLACK_S {
+                        continue;
+                    }
+                }
+                last.insert(poll_key, now);
+            }
+
+            let head = match windmill_store::resources::get_git_repo_head_for_autopull(
+                db,
+                &row.workspace_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                Ok(Some(h)) => Ok(Some(h)),
+                // App-backed repos store a tokenless URL, so the ls-remote head
+                // check can't authenticate and returns None. Poll the head over
+                // the GitHub API with a minted installation token instead. This
+                // is the polling fallback/safety-net for auto- and polling-mode
+                // app repos whose webhook isn't live (unreachable instance,
+                // missing permission, or a dropped delivery). `webhook`-mode
+                // repos are skipped above and stay webhook-only.
+                Ok(None) => {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
+                            db,
+                            &row.workspace_id,
+                            &repo.git_repo_resource_path,
+                        )
+                        .await
+                    }
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Ok(None)
+                    }
+                }
+                Err(e) => Err(e),
+            };
+
+            match head {
+                Ok(Some((git_ref, sha))) => {
+                    // Shared reconcile (also used by the webhook receiver):
+                    // checks should_pull, enqueues, and records status/failure.
+                    if let Err(e) = windmill_git_sync::reconcile_and_enqueue_pull(
+                        db,
+                        &row.workspace_id,
+                        repo,
+                        &git_ref,
+                        &sha,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "git auto-pull: reconcile failed for {}/{}: {e:#}",
+                            row.workspace_id,
+                            repo.git_repo_resource_path
+                        );
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    windmill_git_sync::record_auto_pull_failure(
+                        db,
+                        &row.workspace_id,
+                        &repo.git_repo_resource_path,
+                        &auto_pull.last_synced_sha,
+                        format!("head check failed: {e}"),
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {

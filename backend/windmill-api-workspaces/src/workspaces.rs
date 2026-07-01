@@ -708,6 +708,21 @@ async fn list_workspaces(
     Ok(Json(workspaces))
 }
 
+/// Strip the server-only webhook HMAC secret from a `git_sync` blob before it is
+/// returned to a client. The UI never needs it; it stays (encrypted) in the DB.
+fn redact_git_sync_webhook_secrets(git_sync: &mut serde_json::Value) {
+    if let Some(repos) = git_sync
+        .get_mut("repositories")
+        .and_then(|r| r.as_array_mut())
+    {
+        for repo in repos {
+            if let Some(auto_pull) = repo.get_mut("auto_pull").and_then(|a| a.as_object_mut()) {
+                auto_pull.remove("webhook_secret");
+            }
+        }
+    }
+}
+
 async fn get_settings(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -764,8 +779,12 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
+
+    if let Some(git_sync) = settings.git_sync.as_mut() {
+        redact_git_sync_webhook_secrets(git_sync);
+    }
 
     Ok(Json(settings))
 }
@@ -2750,12 +2769,54 @@ async fn edit_git_sync_repository(
         .find(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     if let Some(existing_repo) = repo_found {
-        // Update existing repository
-        *existing_repo = new_config.repository;
+        // Update existing repository, but preserve server-owned auto-pull state
+        // (synced sha, last pull status, webhook id/secret) so a settings save
+        // from the UI cannot revert what the poller/webhook layer wrote.
+        let mut updated = new_config.repository;
+        match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
+            (Some(new_ap), Some(old_ap)) => {
+                new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                new_ap.last_pull_status = old_ap.last_pull_status.clone();
+                new_ap.webhook_id = old_ap.webhook_id;
+                new_ap.webhook_secret = old_ap.webhook_secret.clone();
+            }
+            // UI omitted auto_pull (e.g. older client): keep existing config.
+            (None, Some(_)) => {
+                updated.auto_pull = existing_repo.auto_pull.clone();
+            }
+            _ => {}
+        }
+        *existing_repo = updated;
     } else {
         // Repository doesn't exist, add it as a new repository
         git_sync_settings.repositories.push(new_config.repository);
     }
+
+    // Create or remove the repo's GitHub webhook to match its auto-pull config
+    // (phase 2). Best-effort: a failure falls back to polling and never fails the
+    // settings save. The hook id/secret it writes are persisted by the UPDATE
+    // below; if that save doesn't commit, the just-created hook is rolled back so a
+    // settings save can never leave an orphaned webhook.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let created_webhook_id: Option<i64> = {
+        let mut created = None;
+        if let Some(repo) = git_sync_settings
+            .repositories
+            .iter_mut()
+            .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
+        {
+            let before = repo.auto_pull.as_ref().and_then(|a| a.webhook_id);
+            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
+            {
+                tracing::warn!("git auto-pull: webhook sync error: {}", e);
+            }
+            // A hook that existed before wasn't created by this call, so don't roll it back.
+            if before.is_none() {
+                created = repo.auto_pull.as_ref().and_then(|a| a.webhook_id);
+            }
+        }
+        created
+    };
 
     // Clean up legacy workspace-level settings if all repos are migrated
     cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
@@ -2764,15 +2825,37 @@ async fn edit_git_sync_repository(
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
-    sqlx::query!(
-        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
-        serialized_config,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    let save_result: std::result::Result<(), sqlx::Error> = async {
+        sqlx::query!(
+            "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+            serialized_config,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await
+    }
+    .await;
 
-    tx.commit().await?;
+    if let Err(e) = save_result {
+        // Settings never persisted — delete any webhook we just created so its
+        // id/secret (which were never saved) don't leave an orphan on GitHub.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if let Some(hook_id) = created_webhook_id {
+            if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
+                &db,
+                &w_id,
+                &new_config.git_repo_resource_path,
+            )
+            .await
+            {
+                let _ =
+                    windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id)
+                        .await;
+            }
+        }
+        return Err(e.into());
+    }
 
     // Trigger git sync for individual repository update/add
     handle_deployment_metadata(
@@ -4363,6 +4446,18 @@ async fn update_workspace_settings(
         .into_iter()
         .filter(|r| !r.use_individual_branch.unwrap_or(false))
         .take(1)
+        .map(|mut r| {
+            // Auto-pull is parent-owned and must not be inherited: the fork would
+            // otherwise carry the parent's webhook id (turning off auto-pull on the
+            // fork would delete the parent's webhook) and would self-pull on top of
+            // the parent's fork_pull_sync fan-out. The push-direction config and the
+            // installation are still inherited (unchanged behavior); the parent
+            // drives fork pulls. fork_* flags are parent-level, so clear them too.
+            r.auto_pull = None;
+            r.fork_open_prs = false;
+            r.fork_pull_sync = false;
+            r
+        })
         .collect();
 
     let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)

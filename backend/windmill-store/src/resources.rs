@@ -2796,6 +2796,82 @@ async fn get_repo_latest_commit_hash(
     Ok(commit_hash)
 }
 
+/// Resolve a workspace git-sync repository and return its current head commit
+/// for the tracked branch, for background auto-pull polling (no authed user).
+///
+/// Returns `Ok(Some((ref_spec, sha)))` for a pollable repo, or `Ok(None)` for
+/// repos that cannot be polled in-process — currently GitHub-App-backed repos,
+/// which authenticate via an installation token at clone time and sync via
+/// webhooks instead. Credentials embedded in the resource URL (including
+/// `$var:` references) are resolved with the system identity, bypassing
+/// per-user ACLs, since the poller runs without an authenticated request.
+pub async fn get_git_repo_head_for_autopull(
+    db: &DB,
+    w_id: &str,
+    git_repo_resource_path: &str,
+) -> Result<Option<(String, String)>> {
+    use windmill_common::db::DbWithOptAuthed;
+
+    let resource_path = git_repo_resource_path
+        .strip_prefix("$res:")
+        .unwrap_or(git_repo_resource_path);
+
+    let dba: DbWithOptAuthed<'_, ApiAuthed> = DbWithOptAuthed::DB {
+        db: db.clone(),
+        audit_author: windmill_common::audit::AuditAuthor {
+            username: "git_sync_auto_pull".to_string(),
+            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
+            username_override: None,
+            token_prefix: None,
+        },
+    };
+
+    // allow_cache=true so repeated polls reuse the interpolated value instead of
+    // re-decrypting any `$var:` secret in the URL (and writing an audit row) on
+    // every tick.
+    let value =
+        get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true)
+            .await?
+            .ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "Git repository resource '{}' not found",
+                    resource_path
+                ))
+            })?;
+
+    if value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+
+    let git_resource: GitRepositoryResource = serde_json::from_value(value)
+        .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
+
+    // The SSH identity is supplied per-call in the authed commit-hash path; the
+    // background poller has none, so an SSH remote can't authenticate here. Fail
+    // with an actionable message instead of a confusing ls-remote auth error —
+    // these repos should use an HTTPS token URL or the GitHub App for auto-pull.
+    let url = git_resource.url.trim_start();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(Error::BadRequest(
+            "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
+        ));
+    }
+
+    let ref_spec = git_resource
+        .branch
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("HEAD")
+        .to_string();
+
+    let sha = get_repo_latest_commit_hash(&git_resource, None).await?;
+    Ok(Some((ref_spec, sha)))
+}
+
 #[cfg(all(
     feature = "enterprise",
     any(feature = "nats", feature = "kafka", feature = "sqs_trigger")

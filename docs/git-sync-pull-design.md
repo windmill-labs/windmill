@@ -1,0 +1,628 @@
+# Design: Automatic git → Windmill sync (pull-based)
+
+Status: draft for review — exploration on branch `explore-git-sync-improvements`
+
+## 1. Problem
+
+Git sync is guided and automatic in one direction only. Windmill → repo is fully
+managed: every deploy enqueues a `deploymentcallback` job that runs the hub sync
+script and commits to the repo. The reverse direction (repo → Windmill) requires
+each customer to install a GitHub Action that runs `wmill sync push` with a
+long-lived Windmill token stored as a repo secret, against an instance URL that
+GitHub-hosted runners must be able to reach.
+
+This breaks down because each customer runs their own instance:
+
+| Customer setup                      | GH runner → instance | GitHub webhook → instance | Instance → GitHub |
+| ----------------------------------- | -------------------- | ------------------------- | ----------------- |
+| Windmill cloud                      | ✅                   | ✅                        | ✅                |
+| Self-hosted, public URL             | ✅                   | ✅                        | ✅                |
+| Self-hosted behind VPN/firewall     | ❌                   | ❌                        | ✅                |
+| GHES on the same private network    | ❌ (github.com runners) | ✅                     | ✅                |
+
+Only instance → GitHub outbound works for everyone. The current GH Action design
+sits in the worst column; it also requires manual workflow-file installation,
+token provisioning, and ongoing maintenance per customer.
+
+## 2. Current state (what already exists)
+
+The building blocks are mostly shipped:
+
+- **Instance-side pull already works.** `PullWorkspaceModal.svelte` runs the hub
+  init script (`hubPaths.gitInitRepo`) with `pull: true`, `dry_run` preview, and
+  `use_promotion_overrides` as a worker job. It clones the repo with the repo
+  credentials and applies the diff to the workspace. It is manual-only today.
+- **Managed GitHub App.** `windmill-sync-helper` (github.com / *.ghe.com) is
+  installed by the customer; installation tokens are minted by the customer
+  portal (`windmill-customer-service`, route `/github_sync/token`) against a JWT
+  the instance stores per installation (`workspace_settings.git_app_installations`,
+  token logic in `backend/windmill-common/src/git_sync_ee.rs`). The portal is
+  stateless: it keeps no installation registry and receives no webhooks.
+- **Self-managed app for GHES.** Customers create their own GitHub App; app id +
+  private key live in instance settings (`GhesAppSettings.svelte`,
+  `get_self_managed_installation_token`). The current setup checklist tells the
+  customer to leave the app webhook **inactive**.
+- **Webhook machinery.** The native GitHub trigger already creates/deletes repo
+  webhooks via the REST API (`windmill-native-triggers/src/github/external.rs`)
+  and GitHub HMAC (`X-Hub-Signature-256`) verification exists in
+  `windmill-trigger-http/src/http_trigger_auth.rs`.
+- **Loop prevention convention.** Windmill-authored commits carry a `[WM]`
+  prefix so CI can ignore them.
+- **Promotion plumbing.** The CLI implements `--promotion <branch>` resolving
+  `promotionOverrides` from `wmill.yaml`; the pull job already accepts
+  `use_promotion_overrides`. PR creation on `wm_deploy/**` branches is done by a
+  documented GH Action (`gh pr create`), not by Windmill.
+
+What is missing is only the **trigger** (push event → pull job), the **routing**
+(event ref → workspace), and **PR creation** moving instance-side for
+promotion/fork parity.
+
+## 3. Goals / non-goals
+
+Goals:
+
+- Zero-CI automatic repo → Windmill deployment: install app, pick repo, done.
+- Works for every connectivity profile, degrading gracefully from instant
+  (webhook) to near-real-time (polling).
+- Cover all documented setups: basic sync, multi-repo, promotion mode
+  (single- and cross-instance), workspace forks, local-dev git entry.
+- No new credentials handed to GitHub (no Windmill tokens as repo secrets).
+- Coexist with customer CI: customers who keep the GH Action lose nothing.
+
+Non-goals (this design):
+
+- Replacing customer CI pipelines (tests, lint, custom gates).
+- A central event-relay through the portal (delivering the managed app's
+  webhook centrally and forwarding to instances). Considered and rejected for
+  v1 in favor of programmatic repo webhooks; the portal stays a stateless token
+  minter. See §16 for the comparison.
+- GitLab/Bitbucket/Azure DevOps parity. The polling tier covers them
+  credential-wise; their webhook tiers are follow-ups.
+
+## 4. Design overview
+
+```mermaid
+flowchart LR
+  subgraph GitHub
+    R[Repo] -- "push event" --> W[repo webhook<br/>created via API]
+  end
+  subgraph Instance
+    W -- "HMAC-verified POST" --> E["/api/w/:ws/github_app/push_webhook"]
+    P[poller<br/>git ls-remote / schedule] --> REC
+    E --> REC[reconcile:<br/>ref match? sha moved?<br/>debounce]
+    REC --> J[pull job<br/>existing hub script, pull:true]
+    J --> WS[(workspace)]
+  end
+```
+
+One principle drives the security model: **webhooks and polls are hints, the
+pull is authoritative.** A trigger never carries content; it only causes the
+instance to compare the remote HEAD against `last_synced_sha` using its own
+credentials and enqueue the existing pull job if the branch moved. A forged or
+replayed trigger can only cause a cheap no-op reconcile.
+
+## 5. Trigger tier 1 — webhooks
+
+### 5.1 Managed app (github.com, GHE Cloud orgs)
+
+A GitHub App's own webhook URL is fixed app-wide (it points at the portal), so
+per-instance delivery uses **repository webhooks** created dynamically with the
+installation token (`POST /repos/{owner}/{repo}/hooks`). Requires adding the
+**Repository webhooks: read & write** permission to `windmill-sync-helper`
+(see §9).
+
+Flow when a repo is connected (or auto-pull is enabled on an existing repo):
+
+1. Instance generates a per-repo secret, stored in the repo's git-sync settings.
+2. Instance creates the webhook via API: events `["push"]` (later
+   `"pull_request"`, §11), URL
+   `{base_url}/api/w/{workspace}/github_app/push_webhook/{repo_settings_id}`,
+   secret set.
+3. GitHub immediately delivers a `ping` event. If the ping is not received
+   within ~10 s, the instance deletes the hook and falls back to polling,
+   surfacing "instance not reachable from GitHub — using polling (interval Xm)"
+   in the UI. This doubles as an automatic reachability test; no guessing about
+   firewalls.
+4. Incoming deliveries are verified with `X-Hub-Signature-256` against the
+   stored secret (reuse the HMAC code from `http_trigger_auth.rs`), then handed
+   to the reconciler (§7).
+
+Webhook lifecycle: deleted when the repo is disconnected or auto-pull disabled
+(reuse the delete pattern from `workspace_integrations.rs`); recreated on
+settings change; orphan hooks are detectable via `GET /repos/.../hooks` filtered
+by our URL prefix.
+
+### 5.2 Self-managed app (GHES, *.ghe.com data residency)
+
+The customer owns the app, so the **app-level webhook** can point directly at
+the instance — no repo hooks needed, one webhook covers all installed repos:
+
+- `GhesAppSettings` gains a "Webhook secret" field; the setup checklist changes
+  from "Uncheck Active under Webhook" to "set webhook URL to
+  `{base_url}/api/github_app/webhook` (instance-global endpoint), subscribe to
+  Push events, paste this generated secret".
+- The instance-global endpoint verifies HMAC with the instance-level secret and
+  routes by repo full name + installation to matching workspaces (the routing
+  data is in `workspace_settings`).
+- GHES typically shares a network with the instance, so this works **air-gapped**
+  — the hardest github.com case is the easiest GHES case.
+
+Polish (optional, recommended): replace the 8-step manual app-creation checklist
+with the [GitHub App Manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest)
+(supported on GHES), which pre-configures permissions, events, and webhook
+URL/secret in one click and eliminates checklist drift.
+
+## 6. Trigger tier 2 — polling fallback
+
+For private instances, plain token/SSH credentials (no app), and
+permission-not-yet-approved installs:
+
+- Per auto-pull-enabled repo, on a configurable interval (default 60 s,
+  surfaced in settings), run `git ls-remote <repo> <tracked refs>` and compare
+  against `last_synced_sha` per ref. `ls-remote` is a single cheap round-trip;
+  no clone.
+- Implemented as an internal scheduled task keyed by repo settings id (not a
+  user-visible schedule), running on workers like other background jobs.
+- Polling is also the safety net under webhooks (missed deliveries, GitHub
+  outages): when a webhook is active, the poll interval relaxes (e.g. 10 min)
+  rather than turning off. This is the ArgoCD model: poll for correctness,
+  webhook for latency.
+
+## 7. Reconcile and pull semantics
+
+Routing — an event/poll result is `(repo, ref, head_sha, sender)`:
+
+- **Tracked branch** (basic sync): ref equals the repo settings branch →
+  pull into the owning workspace.
+- **Promotion target branch**: ref equals a repo's promotion target → pull with
+  `use_promotion_overrides: true` (resolves `promotionOverrides` from
+  `wmill.yaml`, mirroring CLI `--promotion`).
+- **Fork branches** `wm-fork/<parent-branch>/<fork-name>`: parse the branch
+  name, route to the fork workspace if it exists; ignore (log) if not.
+- **Anything else**: ignore.
+- Matching keys on repo + `workspace_id` — never `base_url` (avoids the known
+  internal-vs-public URL mismatch that breaks CLI workspace matching).
+- One repo may match several workspaces (team partitioning with different path
+  filters): fan out, each workspace pulls with its own filters; `wmill.yaml` in
+  the repo stays authoritative for include/exclude.
+
+Loop prevention (pull → deploys → deployment callback → commit → push event):
+
+1. Skip events whose sender is the app bot (`windmill-sync-helper[bot]` /
+   the GHES app's bot) or whose head commit message carries the `[WM]` prefix.
+2. Compare `head_sha` to `last_synced_sha` before enqueuing; the pull job
+   records the synced sha on success.
+3. Deploys applied by the pull job are tagged so the deployment callback can
+   skip the no-op commit (belt and braces — the diff should be empty anyway).
+
+Concurrency and debounce:
+
+- At most one pull job per (repo, workspace) at a time; rapid pushes coalesce
+  (same pattern as the 5 s deploy-callback batching, keyed on repo).
+- Pulls and in-flight Windmill → repo commits on the same branch serialize on
+  the same key to avoid races.
+
+Execution: reuse the existing pull path of the hub init script for v1. Two known
+fragilities to fix as part of making this an unattended automation:
+
+- The hub script pins a `windmill-cli` version; pin lag has caused 422s against
+  newer backends. The automated path must pin the CLI to the instance's own
+  version (or the pull logic moves into the backend natively as a v2).
+- Failures must be visible: pull jobs appear in the runs list like deployment
+  callbacks today (`/runs?job_kinds=deploymentcallbacks` equivalent), plus a
+  per-repo "last sync" status chip in git-sync settings and the workspace error
+  handler firing on repeated failures.
+
+## 8. Settings and schema
+
+Per-repo (`GitRepositorySettings`, `workspace_settings.git_sync`):
+
+```text
+auto_pull:           Option<AutoPullSettings>
+  enabled:           bool
+  mode:              "webhook" | "polling" | "auto"   (auto = try webhook, fall back)
+  poll_interval_s:   Option<u32>                       (default 60; 600 when webhook active)
+  webhook_id:        Option<i64>                       (GitHub hook id, managed app)
+  webhook_secret:    Option<String>                    (encrypted; per-repo, managed app)
+  last_synced_sha:   Option<map<ref, sha>>             (per tracked ref)
+  last_pull_status:  Option<...>                       (sha, time, job id, error)
+```
+
+Instance-level (GHES app config): `webhook_secret` alongside app id/private key.
+
+No new tables; everything extends existing JSONB settings. A migration is only
+needed if we decide `last_synced_sha`/status churn doesn't belong in
+`workspace_settings` (alternative: small `git_sync_pull_state` table keyed by
+workspace + repo path — decide at implementation review).
+
+New instance endpoints (EE):
+
+- `POST /api/w/{workspace}/github_app/push_webhook/{repo_settings_id}` —
+  per-repo hook receiver (managed app), HMAC-verified, returns 202.
+- `POST /api/github_app/webhook` — instance-global receiver (self-managed app),
+  HMAC-verified, routes internally.
+- Both are unauthenticated-but-verified endpoints; rate-limited; bodies are
+  treated as hints only (§4).
+
+## 9. GitHub App permission migration
+
+New permissions needed, bundled into **one** update (each update re-prompts
+every existing installation's org admin):
+
+| Permission                  | Used for                                  | Phase |
+| --------------------------- | ----------------------------------------- | ----- |
+| Repository webhooks: write  | dynamic repo hook create/delete           | 1     |
+| Pull requests: write        | instance-side PR creation (promotion/forks) | 2   |
+| Checks: write               | PR diff preview checks                    | 3     |
+
+Rollout behavior: until an org approves, webhook creation fails with a
+distinguishable error → the instance shows "approval pending" and stays on
+polling. Nothing breaks; latency is the only cost. The self-managed (GHES)
+checklist/manifest gains the same permissions — no central approval involved.
+
+## 10. Setup UX
+
+The git-sync wizard (`DetectionFlow` / repo card) gains a third guided
+direction after the existing "test connection" and "initialize repo" steps:
+
+- Toggle: **"Automatically deploy changes from Git"** (per repo).
+- On enable: try webhook (ping self-test) → show resulting mode and latency
+  ("instant via webhook" / "polling every 60s — instance not reachable from
+  GitHub"), with a re-test button.
+- The success modal's current "set up GitHub Actions" doc link becomes the
+  advanced/CI path, not the default instruction.
+- Promotion-mode repos additionally show "PRs will be opened by Windmill"
+  once §11 lands.
+
+## 11. Promotion & forks parity: PR creation moves instance-side
+
+Today two documented GH Actions exist only to call `gh pr create`:
+
+- on push to `wm_deploy/**` (promotion mode),
+- on fork-branch commits (workspace forks).
+
+Both move into the deployment callback: after pushing the branch, open (or
+reopen) the PR via the installation token (`POST /repos/.../pulls`), targeting
+the promotion/parent branch. Benefits: one less customer-installed workflow,
+and the deploy UI can link directly to the PR. The merge side is already
+covered by §7 routing (push event on the target branch). The documented actions
+remain valid for customers who want CI in the path.
+
+> Implementation note: PR creation landed in the **webhook handler**
+> (`handle_github_git_sync_event`, `wm_deploy/**` + `wm-fork/**` → `ensure_pull_request`),
+> not the deployment callback — the parent's webhook already receives the branch
+> push. Fork specifics (configure at the parent, fan-out pull to forks) are in
+> Phase 5.
+
+## 12. Later: PR diff preview checks
+
+With `pull_request` events (webhook tier) and `checks: write`: on PR
+opened/synchronized, run the existing `dry_run: true` pull and post the diff
+summary as a check run. This replicates the CI dry-run preview with zero
+customer CI and completes the "Cloudflare Pages" experience: install app →
+merges deploy, PRs show a Windmill diff. The commit-level "Deploying… →
+Deployed" status (the other half of the Cloudflare feel) is Phase 6.
+
+## 13. Coverage vs documented setups
+
+| Documented setup                         | Covered by                                            |
+| ---------------------------------------- | ----------------------------------------------------- |
+| Basic git sync (workspace ↔ branch)      | §5/§6 trigger + existing pull job                     |
+| Multi-repo primary/secondary             | per-repo toggle; secondaries stay push-only           |
+| Promotion mode, single instance          | §7 promotion routing + §11 PR creation                |
+| Promotion mode, cross-instance           | each instance triggers independently — strictly better than CI (no cross-instance tokens/URLs) |
+| Workspace forks (`wm-fork/**`)           | §7 fork routing + Phase 5 (parent-level fork auto-sync)|
+| PR dry-run preview                       | §12 (optional follow-up)                              |
+| Local dev, git as entry point            | ordinary push events; nothing special                 |
+| Customers with real CI gates             | unchanged; pull triggers are idempotent and coexist   |
+
+## 14. Migration of existing users
+
+The defining advantage of the repo-webhook approach: **existing git-sync users
+already have the managed app installed.** Migration is "grant one incremental
+permission," not "reconnect." The windmill → repo direction uses the app's
+`Contents: write` grant, which the new `Repository webhooks: write` permission
+does not touch — so nothing existing breaks whether or not a user migrates.
+
+Existing installs are enumerable from `workspace_settings.git_app_installations`
+(each `GitInstallation` carries `installation_id`, `account_id`, and
+`github_base_url`: `None` = managed github.com app, `Some` = self-managed/GHES).
+That split is the migration cohort boundary.
+
+**Cohort A — managed app, already installed (the majority).** Only gap is the
+`Repository webhooks: write` grant. GitHub keeps the old grants working while the
+new permission sits pending approval, so migration is lazy and never-blocking:
+
+1. Ship the app permission update + `auto_pull` settings defaulting **off**.
+   Zero observable change until a user opts in.
+2. Each managed-app repo gets an "Automatically deploy changes from Git" toggle
+   in the existing settings UI.
+3. On enable, the instance attempts webhook creation:
+   - **403 (approval pending)** → surface a deep link to the org's app
+     installation page to approve the new permission, and **start polling
+     immediately** so auto-pull works right now. The user is never blocked on
+     a GitHub org admin.
+   - **Success** → ping self-test → webhook mode (or polling if unreachable).
+4. The instance does not need to *hear* the approval. The
+   `installation` / `new_permissions_accepted` event goes to the app webhook
+   (the portal), not the instance — irrelevant here. The instance just retries
+   webhook creation on its next poll cycle and silently upgrades polling →
+   webhook once the grant lands. No portal state, no callback plumbing.
+
+**Cohort B — no app (plain `git_repository` resource, token/SSH).** Nothing to
+approve; flipping the toggle goes straight to polling with existing credentials.
+Optional upsell: "install the Windmill GitHub App for instant sync."
+
+**Cohort C — self-managed / GHES (`github_base_url: Some`).** Customer owns the
+app, so there is no central approval. App-level webhooks need no extra
+permission — migration is one documented step: paste the instance webhook URL +
+generated secret into their app settings (the `GhesAppSettings` checklist flips
+"leave webhook inactive" → "set this URL + secret"). Usually works air-gapped.
+
+Cross-cutting:
+
+- **Opt-in, not auto-flipped.** Do not silently enable pull on existing repos:
+  some are backup/secondary push-only targets, or hold content the owner does
+  not want deployed back. Surface a prominent "New: deploy automatically from
+  Git" prompt instead.
+- **Existing CI coexists.** A user already running `wmill sync push` via GH
+  Action keeps it; sha-idempotent triggers make double-firing harmless. Optional
+  cleanup: detect the workflow file via the Contents API and offer one-click
+  removal once webhook pull is confirmed.
+- **The unavoidable cost.** The permission bump nags *every* managed-app
+  installation (even users who never enable auto-pull) with a "requesting
+  updated permissions" prompt until approved or dismissed. No way around it for
+  a single shared app. Mitigation is clear permission-purpose copy; the nag is
+  cosmetic and does not break existing sync.
+- **Capability gating precedent.** `GitRepositorySettings::is_script_meets_min_version`
+  already gates behavior on the pinned hub-script version — a "this install's
+  app grant supports webhooks" capability flag fits the same pattern.
+
+## 15. Implementation plan
+
+Staged so each phase is independently shippable and reviewable. Phase 1 alone
+delivers automatic pull for every customer; webhooks are a latency upgrade.
+
+### Phase 1 — polling + reconcile + settings + UX (no app/permission changes)
+
+Backend (EE):
+
+- `GitRepositorySettings` (`backend/windmill-common/src/workspaces.rs`): add
+  `auto_pull: Option<AutoPullSettings>` (§8). Non-breaking JSONB addition.
+- Reconcile + enqueue: new function mirroring `push_git_sync_job`
+  (`windmill-git-sync/src/git_sync_ee.rs:896`) — given `(repo, ref, head_sha)`,
+  resolve matching workspace(s), compare against `last_synced_sha`, and enqueue
+  the pull job with the same 5 s debounce machinery. The pull job for v1 is the
+  existing `gitInitRepo` hub script run with `pull: true` (mirror the payload
+  `PullWorkspaceModal.svelte` already sends); record the synced sha on success.
+- Poller: register a periodic task in `backend/src/monitor.rs` (alongside the
+  other `tokio::time::interval` loops) that, per auto-pull-enabled repo, runs
+  `git ls-remote` for the tracked refs and feeds changes into the reconciler.
+- Pin the hub-script CLI to the instance version for the unattended path
+  (UI git-sync runs a version-pinned `windmill-cli`; pin lag has caused 422s
+  against newer backends).
+
+Frontend:
+
+- `GitSyncRepositoryCard.svelte`: per-repo "Automatically deploy changes from
+  Git" toggle + last-sync status chip; polling interval input.
+- Demote the `GitSyncSuccessModal.svelte` "set up GitHub Actions" link to an
+  advanced/CI option.
+
+Validation: pull jobs visible in the runs list; error handler fires on repeated
+failure. Tests: reconcile routing + sha-compare + loop-prevention (sender/`[WM]`).
+
+### Phase 2 — webhooks (managed app + GHES)
+
+Ops (precedes code): update `windmill-sync-helper` to request
+`Repository webhooks: write` (bundle `Pull requests: write` + `Checks: write`
+now too, to avoid a second nag for phases 3–4). Update permission-purpose copy.
+
+Backend (EE):
+
+- Receiver endpoints (§8): `POST /api/w/{workspace}/github_app/push_webhook/{id}`
+  (managed) and `POST /api/github_app/webhook` (instance-global, GHES), both
+  HMAC-verified — reuse `X-Hub-Signature-256` validation from
+  `windmill-trigger-http/src/http_trigger_auth.rs`; routes added to
+  `git_sync_ee.rs` `workspaced_service` / `global_service`.
+- Webhook create/delete via installation token — reuse the REST pattern from
+  `windmill-native-triggers/src/github/external.rs` and the delete pattern from
+  `workspace_integrations.rs`. Ping self-test with reachability fallback (§5.1).
+- Lazy approval retry + 403 detection feeding the migration UX (§14 cohort A).
+
+Frontend:
+
+- Toggle now reports resulting mode/latency + re-test button; approval-pending
+  deep link.
+- `GhesAppSettings.svelte`: webhook-secret field + updated checklist (and,
+  optional, the App Manifest one-click flow, §5.2).
+
+### Phase 3 — PR creation instance-side (promotion/fork parity)
+
+- In the deployment callback (`windmill-git-sync/src/git_sync_ee.rs`), after
+  pushing a `wm_deploy/**` or fork branch, open/reopen the PR via the
+  installation token (`POST /repos/.../pulls`). Replaces the two documented
+  `gh pr create` actions; docs updated to mark them optional.
+- Fork-branch routing edge cases (§7) hardened here.
+
+### Phase 4 — PR diff preview checks (optional)
+
+- Subscribe `pull_request` events; on open/synchronize run the existing
+  `dry_run: true` pull and post the diff as a check run (`checks: write`).
+
+### Phase 5 — fork auto-sync, configured at the parent (replaces the `*-to-forks` GitHub Actions) — implemented
+
+**Today's behavior (the premise).** `create_workspace_fork` copies the parent's
+resources (so the `git_repository` resource lands in the fork) and members, and
+via `clone_workspace_data` → `update_workspace_settings` it *also* copies the
+parent's `git_app_installations` and `git_sync` (keeping the first sync-mode
+repo — WIN-1559). So a fork already inherits the push-direction config and the
+installation, and can push to git on deploy with the parent's app.
+
+What a fork must **not** inherit is the new `auto_pull` block: it carries the
+parent's `webhook_id`/`webhook_secret` (a repo webhook is per-repo and owned by
+the parent, so a fork turning auto-pull off would delete the *parent's* hook),
+and it would make the fork self-poll on top of the parent's fan-out. So
+`update_workspace_settings` strips `auto_pull` (and the parent-level `fork_*`
+flags) from the copied repo. The fork keeps push + installation (unchanged); the
+parent drives fork pulls. This is what `push-on-merge-to-forks` and
+`open-pr-on-fork-commit` did externally with a shared `WMILL_TOKEN` in CI.
+
+**Design decision: configure both fork behaviors at the _parent_ workspace, not
+per fork.** This matches the GitHub Action model (configured once at the repo,
+loops over forks) and needs zero per-fork setup — no fork resource, installation,
+webhook, or `git_sync` config. It applies to current *and* future forks, uses a
+single credential (the parent's installation), and keeps every credential
+server-side (no token is ever copied into a fork — strictly safer than today's
+PAT-resource copy). Two toggles live in the parent repo card, shown only when the
+parent is app-backed and is not itself a fork:
+
+1. **Open PRs for fork deploys** (`open-pr-on-fork-commit` parity). Already
+   mostly wired: a fork's deploy pushes `wm-fork/<parent>/<id>` to the shared
+   repo, GitHub delivers to the **parent's** webhook, and
+   `handle_github_git_sync_event` already matches `wm-fork/**` and calls
+   `ensure_pull_request`. Work here is just to **gate** that branch on the new
+   parent flag (today it fires whenever the parent webhook exists). No per-fork
+   webhook.
+
+2. **Keep forks in sync with the tracked branch** (`push-on-merge-to-forks`
+   parity — the one genuinely new piece). When the parent's tracked branch
+   updates (the parent's existing webhook/poll already detects it), fan out:
+   enumerate forks and enqueue a pull into each, cloning with the **parent's**
+   installation token and applying to each fork workspace. One credential, N
+   targets — mirrors the Action's single `WMILL_TOKEN` pushing to all forks.
+
+Backend (EE):
+
+- Settings: add parent-level flags to `GitRepositorySettings` (e.g.
+  `fork_open_prs: bool`, `fork_pull_sync: bool`), off by default.
+- PR gate: in `handle_github_git_sync_event`, guard the `wm-fork/**`
+  `ensure_pull_request` branch on `fork_open_prs`.
+- Fan-out: after the parent reconcile decides to pull the tracked branch, if
+  `fork_pull_sync`, enumerate forks —
+  `SELECT id FROM workspace WHERE parent_workspace_id = $1 AND NOT deleted` — and
+  enqueue a pull per fork via `enqueue_git_pull_job`. Target = the fork
+  workspace; run as the fork's admin (reuse the existing admin resolution);
+  per-`(repo, fork)` concurrency + `[WM]`/sha guards apply per fork.
+
+> Implementation note — how the fork pull authenticates. The fan-out lands in
+> `reconcile_and_enqueue_pull` (so it covers both the webhook and poller paths),
+> best-effort per fork. The fork pull job runs *in the fork* with the parent's
+> `git_repo_resource_path`; the fork's copied `git_repository` resource supplies
+> the (identical) URL, and the token is minted from the fork's inherited
+> `git_app_installations` copy. As a safety net (in case a fork ever lacks an
+> installation), `get_github_app_token_internal` also falls back to the parent:
+> when a workspace has no `git_app_installations`, it retries the lookup on its
+> `parent_workspace_id`. Fork pulls carry no deploy check and never re-fan-out.
+
+Frontend:
+
+- Two toggles in the parent `GitSyncRepositoryCard.svelte`, gated on app-backed
+  and `!isFork`, with a one-line note that they apply to all forks of this
+  workspace. Off by default.
+
+Perms: gate the toggles on parent-workspace admin (whoever edits the parent's
+`git_sync`) — the same bar as "who set up the repo secret + workflow." No
+per-fork authorization; matches the current Action ergonomics.
+
+Non-goals for v1: per-fork opt-out (default is all forks; add an exclusion list
+later if asked); per-fork include/exclude filters (v1 applies the parent's).
+
+### Phase 6 — live deploy status check on the commit (Cloudflare-style) — implemented
+
+Replicate the Cloudflare Pages deploy status: a **check run** that appears in the
+commit/PR checks strip, starting `in_progress` ("Deploying…") and flipping to
+`completed`/`success` ("Deployed"). This is *not* a GitHub Action — it's posted
+via the Checks API, so it reuses the Phase 4 machinery
+(`create_check_run`/`update_check_run`) and the `checks: write` grant already
+requested. No new permission, no customer CI. The check lands on the head commit
+of the tracked branch — exactly where Cloudflare's "Deployed to production" sits.
+
+Today the deploy path posts nothing back: `create_check_run`
+(`"status": "in_progress"`) and `update_check_run`
+(`"status": "completed"` + conclusion + output) already exist and are used for
+the PR **dry-run** diff, but the real deploy pull (tracked-branch push/merge)
+doesn't create one. Phase 6 runs that same two-step on the deploy path.
+
+Flow:
+
+1. On a tracked-branch push/poll that triggers a deploy pull, `create_check_run`
+   on the head sha: name **"Windmill"** (vs "Windmill diff" for PR checks),
+   `in_progress`, title "Deploying…", with a **`details_url`** to the Windmill
+   run / workspace. Keep the returned `check_run_id`.
+2. Thread `check_run_id` + `repo_url` into the pull job — same marker channel as
+   the PR dry-run (add a `__git_sync_deploy_check` marker distinct from the
+   PR-check marker so the completion hook knows which kind).
+3. On completion (generalize `maybe_post_git_sync_pr_check` in
+   `result_processor.rs`), `update_check_run` → `completed`, conclusion
+   `success` ("Deployed N changes to `<workspace>`" / "In sync, no changes") or
+   `failure` with the error summary.
+
+Backend (EE) touch points:
+
+- `create_check_run`: add a caller-supplied name + a `details_url` param (small
+  signature change; PR path keeps "Windmill diff").
+- Deploy trigger (tracked-branch case in `handle_github_git_sync_event`, plus the
+  poller reconcile): best-effort create the `in_progress` check and carry the id
+  into the job payload. App-backed only; never block the deploy on it.
+- Completion hook: handle the deploy-check marker alongside the PR-check marker.
+
+> Implementation note. The `in_progress` check is created inside
+> `reconcile_and_enqueue_pull` (one place covers both the webhook and poller
+> paths), best-effort and app-backed-only, then threaded to the pull job as a
+> `__git_sync_deploy_check` marker. `create_check_run` gained `name` +
+> `details_url` + `output_title` (the PR path keeps `"Windmill diff"`, no
+> details/output). The completion hook `maybe_post_git_sync_pr_check` was
+> generalized to `maybe_post_git_sync_check`, reading either marker. If the pull
+> can't even be enqueued, the in-progress check is closed as failed so it doesn't
+> hang. Fork fan-out pulls (phase 5) intentionally skip the deploy check.
+
+Gating / edges: app-backed only (needs the installation token + `checks: write`;
+PAT/polling repos skip silently); skip self-caused/no-op pulls (`[WM]`/bot,
+sha unchanged) so it doesn't post a check for Windmill's own commits; one check
+per `(repo, head_sha, workspace)` — when several workspaces pull the same commit,
+name each with its workspace to disambiguate.
+
+Optional richer variant — GitHub **Deployments / Environments**. Instead of (or
+alongside) the check run, create a Deployment (`POST /repos/.../deployments`) +
+status (`POST /repos/.../deployments/{id}/statuses`) so the deploy shows in the
+repo's **Environments** timeline ("Production → Deployed"). Needs
+`deployments: write` — a *new* grant and another approval nag — so keep it
+opt-in / later. The check-run version is the cheap default and matches the visual
+Cloudflare parity without a new permission.
+
+## 16. Alternatives considered
+
+**Portal as webhook proxy (the rejected "option 2").** Subscribe the managed app
+to push events — delivered centrally to `stats.windmill.dev` — and forward them
+to instances. Its only genuine advantages are (a) zero-friction enablement for
+existing installs, since app-level events need no new permission (no per-org
+approval, unlike repo-webhook creation), and (b) central delivery observability.
+Against that: it does **not** improve reachability (the portal forwards to the
+same instance URL GitHub would hit, so private instances need polling either
+way); app-level events fire for every push to every installed repo, org-wide, so
+portal cost scales with customers' total push volume rather than synced repos;
+the portal becomes stateful (installation→instance registry) and
+availability-coupled, losing its current stateless-token-minter property; full
+push payloads (commit messages, author emails) transit Windmill infrastructure;
+and the instance cannot verify portal signatures, whereas repo webhooks get
+per-repo HMAC. The one advantage that stings — the permission-bump nag — is
+mitigated contextually (approval shown in settings on enable) and covered by
+polling until approved. A narrow portal variant (portal stores events; private
+instances poll `/github_sync/events` with their existing installation JWT) is
+the only thing that would lower latency for unreachable instances; parked unless
+demanded.
+
+## 17. Open questions
+
+- Does `last_synced_sha`/pull-status churn stay in `workspace_settings` JSONB
+  or move to a dedicated table? (Write frequency vs settings-blob contention.)
+- Exact debounce window for pull coalescing (reuse 5 s like deploy callbacks,
+  or longer since clones are heavier?).
+- Should phase 1 polling default to on for newly connected repos, or strictly
+  opt-in? (Opt-in proposed; revisit after adoption data.)
+- GHE Cloud orgs with IP allowlists: confirm hook deliveries to customer
+  instances aren't filtered; the ping self-test catches it operationally either
+  way.
+- v2: move pull execution from the hub script into the backend natively
+  (removes CLI pinning and hub round-trip entirely)?

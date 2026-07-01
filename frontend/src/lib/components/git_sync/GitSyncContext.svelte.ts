@@ -179,7 +179,10 @@ export function createGitSyncContext(workspace: string) {
 			use_individual_branch: repo.use_individual_branch,
 			group_by_folder: repo.group_by_folder,
 			settings: repo.settings,
-			exclude_types_override: repo.exclude_types_override
+			exclude_types_override: repo.exclude_types_override,
+			auto_pull: repo.auto_pull,
+			fork_open_prs: repo.fork_open_prs,
+			fork_pull_sync: repo.fork_pull_sync
 		}
 	}
 
@@ -198,7 +201,11 @@ export function createGitSyncContext(workspace: string) {
 			exclude_types_override: [],
 			legacyImported: false,
 			isUnsavedConnection: true,
-			collapsed: false
+			collapsed: false,
+			// New connections default to pulling changes from Git (webhook with a
+			// polling fallback). Existing repos load without auto_pull and stay off
+			// until an admin opts in, so upgrades never start auto-deploying.
+			auto_pull: { enabled: true, mode: 'auto' }
 		})
 		gitSyncTestJobs.push({
 			jobId: '',
@@ -501,7 +508,10 @@ export function createGitSyncContext(workspace: string) {
 					use_individual_branch: repoToSave.use_individual_branch,
 					group_by_folder: repoToSave.group_by_folder,
 					settings: repoToSave.settings,
-					exclude_types_override: repoToSave.exclude_types_override
+					exclude_types_override: repoToSave.exclude_types_override,
+					auto_pull: repoToSave.auto_pull,
+					fork_open_prs: repoToSave.fork_open_prs,
+					fork_pull_sync: repoToSave.fork_pull_sync
 				}
 			}
 		})

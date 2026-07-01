@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            (elem->>'installation_id')::bigint as installation_id,\n            elem->>'github_base_url' as github_base_url\n        FROM workspace_settings,\n        LATERAL jsonb_array_elements(git_app_installations) AS elem\n        WHERE workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "installation_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "github_base_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "0bb3de62f920a4f6c5da6f0a7bfc780a5ac35fa7639c4ee3a449b693add24241"
+}

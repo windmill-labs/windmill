@@ -250,6 +250,7 @@ windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
 windmill-git-sync.workspace = true
+windmill-store.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
 windmill-api-scripts.workspace = true
