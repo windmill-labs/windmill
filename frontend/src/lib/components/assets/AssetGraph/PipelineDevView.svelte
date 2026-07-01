@@ -7,6 +7,7 @@
 	import { PipelineEditorState } from './pipelineEditorState.svelte'
 	import { useActiveRunnableIds } from './activeRunnables.svelte'
 	import { makeLaunch, makeWaitJobTerminal, runDownstreamCascade } from './cascadeRun'
+	import { assetProducers } from './graphTraversal'
 	import type { AssetGraphResponse, AssetGraphSelection } from './types'
 	import { JobService, OpenAPI, type Preview, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -72,23 +73,11 @@
 	const pathPrefix = $derived(`f/${folder}/`)
 
 	// Producers of the selected asset — the local scripts that write it (`w`/`rw`
-	// edge, incl. the `// materialize` target). Mirrors the route page so the
-	// details pane shows the producer + its runs instead of "No producer for this
-	// asset" (which only holds for the deployed graph, absent here).
-	const selectionProducers = $derived.by(() => {
-		const sel = pe.selection
-		if (!sel || sel.kind !== 'asset') return []
-		return displayGraph.edges
-			.filter((e) => {
-				const access = e.access_type ?? 'r'
-				return (
-					(access === 'w' || access === 'rw') &&
-					e.asset_kind === sel.asset_kind &&
-					e.asset_path === sel.path
-				)
-			})
-			.map((e) => ({ kind: e.runnable_kind as 'script' | 'flow', path: e.runnable_path }))
-	})
+	// edge, incl. the `// materialize` target). Shared `assetProducers` keeps this
+	// in lockstep with the route page so the details pane shows the producer + its
+	// runs instead of "No producer for this asset" (which only holds for the
+	// deployed graph, absent here).
+	const selectionProducers = $derived(assetProducers(displayGraph, pe.selection))
 
 	// path -> pushed local content, for preview-running each node.
 	const scriptByPath = $derived(

@@ -37,7 +37,8 @@
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import {
 		computeDownstreamClosure,
-		computeInducedSchedule
+		computeInducedSchedule,
+		assetProducers
 	} from '$lib/components/assets/AssetGraph/graphTraversal'
 	import { runCascade, runSelection } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
 	import {
@@ -1620,20 +1621,7 @@
 	// runs panel can list jobs for the right scripts. We include drafts —
 	// running a draft via runScriptPreview creates a `preview`-kind job at
 	// the same path, which the panel's listing query picks up.
-	let selectionProducers = $derived.by(() => {
-		const sel = pe.selection
-		if (!sel || sel.kind !== 'asset') return []
-		return graphWithDraft.edges
-			.filter((e) => {
-				const access = e.access_type ?? 'r'
-				return (
-					(access === 'w' || access === 'rw') &&
-					e.asset_kind === sel.asset_kind &&
-					e.asset_path === sel.path
-				)
-			})
-			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
-	})
+	let selectionProducers = $derived(assetProducers(graphWithDraft, pe.selection))
 
 	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
 	// or a draft is actively edited) so the pane blanks out like the other
