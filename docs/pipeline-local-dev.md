@@ -38,7 +38,12 @@ makes the client own the whole cascade so the backend dispatcher never double-fi
 ### Headless CLI (agentic loop) — `cli/src/commands/pipeline/`
 - `pipeline show <folder> --local` — render the DAG from working-tree files (fully offline).
 - `pipeline run <folder> --local [--from/--to/--dry-run/--json]` — run the cascade via preview of
-  local content, reusing the `boundedCascade.ts` topo/lineage engine.
+  local content, reusing the `boundedCascade.ts` topo/lineage engine. Scripts whose only trigger
+  needs caller input or per-event fanout (`data_upload`/`webhook`/kafka/…) are skipped by default.
+- `pipeline run … --upload <script>[:<param>]=<local-file|s3://key>` — bind an object to a
+  `data_upload`/`webhook` entry point so it (and its downstream) runs: a local path is uploaded to
+  the workspace store, an `s3://` source is used as-is, and the target S3Object arg is inferred when
+  the script declares exactly one (else name it with `:<param>`). Repeatable.
 - `pipeline docs <folder> [--local]` — write `PIPELINE.md` + `AGENTS.md`/`CLAUDE.md` pointers
   (graph + datatable schemas) so an editor/agent has the same context the UI surfaces.
 

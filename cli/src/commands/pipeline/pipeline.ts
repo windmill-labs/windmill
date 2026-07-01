@@ -34,8 +34,17 @@ import {
   type SyncOptions,
 } from "../../core/conf.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
+import { inferSchema } from "../../utils/metadata.ts";
+import { readFile } from "node:fs/promises";
 import pipelineDev from "./dev.ts";
 import { generatePipelineDocs } from "./docs.ts";
+import {
+  type UploadBinding,
+  devUploadKey,
+  parseUploadBinding,
+  s3Arg,
+  s3ObjectParams,
+} from "./pipelineUpload.ts";
 
 // The graph payload types (AssetGraph / GraphRunnable / GraphEdge /
 // GraphTrigger) are defined in ./localGraph.ts — the canonical pipeline graph
@@ -328,6 +337,56 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
 // `--to`, runs the full read-aware downstream of `--from` (every descendant in
 // the lineage DAG, pure readers included — broader than the canvas cascade,
 // which dispatches subscribers only).
+// Resolve one `--upload` binding to the run-arg it injects: pick the target
+// S3Object parameter (explicit `:param`, else the script's sole S3Object arg)
+// and turn the source into an object key — an `s3://` source is used as-is, a
+// local path is uploaded to the workspace store under a deterministic dev key.
+async function resolveUploadArg(
+  binding: UploadBinding,
+  scriptPath: string,
+  workspaceId: string,
+  local: boolean | undefined,
+  localScripts: Map<string, LocalScript> | undefined,
+  folder: string,
+): Promise<Record<string, any>> {
+  let param = binding.param;
+  if (!param) {
+    let schema: any;
+    if (local) {
+      const ls = localScripts?.get(scriptPath);
+      if (!ls) {
+        throw new Error(`No local file for ${scriptPath} to infer its S3Object parameter.`);
+      }
+      schema = (await inferSchema(ls.language as any, ls.content, {}, scriptPath)).schema;
+    } else {
+      schema = (await wmill.getScriptByPath({ workspace: workspaceId, path: scriptPath })).schema;
+    }
+    const params = s3ObjectParams(schema);
+    if (params.length === 1) param = params[0];
+    else if (params.length === 0) {
+      throw new Error(`${scriptPath} declares no S3Object parameter to bind --upload to.`);
+    } else {
+      throw new Error(
+        `${scriptPath} has multiple S3Object parameters (${params.join(", ")}) — pick one with --upload ${binding.scriptTok}:<param>=${binding.source}`,
+      );
+    }
+  }
+  let key: string;
+  if (binding.source.startsWith("s3://")) {
+    key = binding.source.slice("s3://".length);
+  } else {
+    const buf = await readFile(binding.source);
+    key = devUploadKey(folder, binding.source);
+    await wmill.fileUpload({
+      workspace: workspaceId,
+      fileKey: key,
+      requestBody: new Blob([buf]) as any,
+    });
+    log.info(colors.gray(`  ↑ ${binding.source} → s3://${key}`));
+  }
+  return s3Arg(param, key);
+}
+
 async function run(
   opts: GlobalOptions & SyncOptions & {
     from?: string;
@@ -335,6 +394,7 @@ async function run(
     dryRun?: boolean;
     json?: boolean;
     local?: boolean;
+    upload?: string[];
     defaultTs?: "bun" | "deno";
   },
   folder: string,
@@ -386,9 +446,32 @@ async function run(
     );
   }
 
+  // `--upload <script>[:<param>]=<file|s3://key>` binds an object to a
+  // data_upload/webhook entry point so it becomes a runnable start (and its
+  // downstream is no longer cut) — the arg is injected at execution.
+  const boundBindingByPath = new Map<string, UploadBinding>();
+  const boundNodeIds = new Set<string>();
+  for (const spec of opts.upload ?? []) {
+    const binding = parseUploadBinding(spec);
+    const id = resolveToken(graph, binding.scriptTok);
+    if (!id || !id.startsWith("script:")) {
+      const matches = graph.runnables.filter(
+        (r) => r.usage_kind === "script" && (r.path.split("/").pop() ?? r.path) === binding.scriptTok,
+      );
+      if (matches.length > 1) {
+        throw new Error(
+          `--upload '${binding.scriptTok}' matches multiple scripts (${matches.map((r) => r.path).sort().join(", ")}) — use the full path.`,
+        );
+      }
+      throw new Error(`--upload '${binding.scriptTok}' matched no script in f/${f}.`);
+    }
+    boundBindingByPath.set(scriptPathOf(id), binding);
+    boundNodeIds.add(id);
+  }
+
   // Resolve the start: explicit --from (must be a valid start) or the folder's
-  // sole valid start.
-  const starts = validStarts(graph);
+  // sole valid start. `--upload`-bound scripts join the valid starts.
+  const starts = new Set([...validStarts(graph), ...boundNodeIds]);
   // `runAll` = no `--from` on a multi-root pipeline (fan-in): run the whole
   // pipeline in topological order rather than forcing a single start, the way
   // `dbt run` (no `--select`) runs the entire project. `--to` still needs an
@@ -473,7 +556,11 @@ async function run(
     // handler after a descendant union — also drops its downstream, so `pipeline
     // run <folder>` never runs a consumer whose skipped producer would leave it
     // with missing/stale inputs. A node also reachable via another path still runs.
-    selectedScripts = new Set(scriptsOf(reachableCutting(dag, starts, nonAutorunTriggerScripts(graph))));
+    // `--upload`-bound handlers are un-gated: they get their input at execution.
+    const barriers = new Set(
+      [...nonAutorunTriggerScripts(graph)].filter((id) => !boundNodeIds.has(id)),
+    );
+    selectedScripts = new Set(scriptsOf(reachableCutting(dag, starts, barriers)));
   } else if (ends.length === 0) {
     // No bound → full read-aware downstream of start (pure readers included).
     const all = new Set(descendants(dag, start!));
@@ -494,6 +581,14 @@ async function run(
     log.warn(`Skipping ${cyclic.length} script(s) on a dependency cycle: ${cyclic.sort().join(", ")}`);
   }
 
+  // A `--upload` whose script fell outside the selection is a no-op the user
+  // should know about, rather than silently ignored.
+  const orderSet = new Set(order);
+  const boundInOrder = [...boundBindingByPath.keys()].filter((p) => orderSet.has(p)).sort();
+  for (const p of boundBindingByPath.keys()) {
+    if (!orderSet.has(p)) log.warn(`--upload for ${p} is unused — it isn't in the run selection.`);
+  }
+
   if (opts.json) {
     // Surface reachable/dropped ends so a machine-readable plan reflects the
     // same trimming the human-facing warning does — a resolved-but-unreachable
@@ -506,6 +601,7 @@ async function run(
         droppedEnds: droppedEnds.map(idLabel),
         order,
         cyclic,
+        uploads: boundInOrder,
       }),
     );
   }
@@ -521,14 +617,35 @@ async function run(
         colors.bold(`Bounded run plan — ${order.length} script${order.length === 1 ? "" : "s"}`) +
           colors.dim(runAll ? ` (whole pipeline)` : ` (from ${shortName(scriptPathOf(start!))})`),
       );
-      order.forEach((p, i) => log.info(`  ${i + 1}. ${p}`));
+      order.forEach((p, i) =>
+        log.info(`  ${i + 1}. ${p}${boundBindingByPath.has(p) ? colors.dim(" (← --upload)") : ""}`),
+      );
     }
     return;
+  }
+
+  // Resolve `--upload` bindings to their injected args up front (uploading any
+  // local sources) so a bad path / missing S3Object param fails before we start
+  // launching jobs.
+  const uploadArgs = new Map<string, Record<string, any>>();
+  for (const nodePath of boundInOrder) {
+    uploadArgs.set(
+      nodePath,
+      await resolveUploadArg(
+        boundBindingByPath.get(nodePath)!,
+        nodePath,
+        workspace.workspaceId,
+        opts.local,
+        localScripts,
+        f,
+      ),
+    );
   }
 
   // Execute in topological order, stopping on the first failure.
   for (const nodePath of order) {
     if (!opts.json) log.info(colors.gray(`▶ running ${nodePath}…`));
+    const nodeArgs = { _wmill_skip_asset_dispatch: true, ...(uploadArgs.get(nodePath) ?? {}) };
     let id: string;
     if (opts.local) {
       const ls = localScripts!.get(nodePath);
@@ -543,7 +660,7 @@ async function run(
           content: ls.content,
           language: ls.language as any,
           path: nodePath,
-          args: { _wmill_skip_asset_dispatch: true },
+          args: nodeArgs,
           temp_script_refs: tempScriptRefs,
           // `// tag` routes to the same worker the deployed pipeline would.
           ...(ls.tag ? { tag: ls.tag } : {}),
@@ -553,7 +670,7 @@ async function run(
       id = await wmill.runScriptByPath({
         workspace: workspace.workspaceId,
         path: nodePath,
-        requestBody: { _wmill_skip_asset_dispatch: true },
+        requestBody: nodeArgs,
       });
     }
     const ok = await waitJob(workspace.workspaceId, id);
@@ -604,6 +721,11 @@ const command = new Command()
   .option(
     "--local",
     "Run the local working-tree scripts via preview (no deploy) instead of the deployed versions; the graph is built from local files.",
+  )
+  .option(
+    "--upload <binding:string>",
+    "Bind an object to a data_upload/webhook entry point so it runs in the cascade: <script>[:<param>]=<local-file|s3://key>. Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.",
+    { collect: true },
   )
   .action(run as any)
   .command(
