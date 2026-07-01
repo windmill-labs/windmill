@@ -309,7 +309,7 @@
 										different user/folder.</p
 									>
 									<ul class="text-xs list-disc list-inside max-h-32 overflow-y-auto">
-										{#each conflicts as conflict (conflict)}
+										{#each conflicts as conflict, i (i)}
 											<li>{conflict}</li>
 										{/each}
 									</ul>
