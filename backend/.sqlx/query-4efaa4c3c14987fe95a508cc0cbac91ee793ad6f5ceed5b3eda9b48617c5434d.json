@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) as \"username?\",\n                  d.created_at as \"draft_saved_at!\"\n           FROM draft d\n           LEFT JOIN usr u\n                  ON u.workspace_id = d.workspace_id\n                 AND u.email = d.email\n           LEFT JOIN password p\n                  ON p.email = d.email\n                 AND p.super_admin = true\n           WHERE d.workspace_id = $1\n             AND d.path = $2\n             AND d.typ = $3\n             AND (d.email IS NULL OR d.email <> $4)\n           ORDER BY d.email NULLS LAST",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "draft_saved_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "4efaa4c3c14987fe95a508cc0cbac91ee793ad6f5ceed5b3eda9b48617c5434d"
+}

@@ -94,6 +94,38 @@ pub async fn generate_instance_username_for_all_users(db: &DB) -> error::Result<
     Ok(())
 }
 
+/// Resolve the username to use for a user (typically a superadmin) accessing a
+/// workspace they are not a member of. When instance-wide username derivation is
+/// enabled (`automate_username_creation`, the default on almost all instances),
+/// `password.username` is populated, so we return that derived username instead
+/// of leaking the raw email address downstream (as job/script author, audit
+/// actor, etc.). Falls back to the email when no derived username exists (the few
+/// instances that keep `automate_username_creation` disabled).
+///
+/// The hot callers (token auth, `fetch_api_authed`) are already behind their own
+/// 120s auth caches, so this deliberately does not add another email->username
+/// cache (which would only help the cold JWT-mint / job-perms paths while risking
+/// cross-DB contamination in the shared-process integration tests).
+///
+/// A DB error is propagated rather than swallowed into the email fallback: falling
+/// back to the email on a transient failure would reintroduce the very email leak
+/// this path exists to prevent, so callers fail closed instead.
+pub async fn get_instance_username_or_fallback_to_email<'e, E>(
+    db: E,
+    email: &str,
+) -> error::Result<String>
+where
+    E: sqlx::PgExecutor<'e>,
+{
+    let derived = sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", email)
+        .fetch_optional(db)
+        .await?
+        .flatten();
+    // No derived username (automate_username_creation disabled) → fall back to the
+    // email. This is the only legitimate fallback; a query error propagates above.
+    Ok(derived.unwrap_or_else(|| email.to_string()))
+}
+
 pub async fn get_instance_username_or_create_pending<'c>(
     tx: &mut Transaction<'c, Postgres>,
     email: &str,

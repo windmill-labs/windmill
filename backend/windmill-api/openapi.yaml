@@ -23974,6 +23974,9 @@ components:
             - $ref: "#/components/schemas/UserSource"
         is_service_account:
           type: boolean
+        non_member:
+          type: boolean
+          description: "True when this is a superadmin viewing a workspace they are not a member of (is_admin/role reflect the superadmin fallback, not an actual membership)."
       required:
         - email
         - username
