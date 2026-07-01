@@ -488,7 +488,17 @@ impl<'a> MaterializeCodegen<'a> {
     ///     diff after it would see a different set;
     ///  3. close the prior open version of those keys (`UPDATE` — not `MERGE`:
     ///     DuckLake's MERGE is the unreliable path, plain UPDATE works);
-    ///  4. open a new current version from the snapshot.
+    ///  4. open a new current version from the snapshot;
+    ///  5. (re)create the `<dim>_current` convenience view — inside the same
+    ///     transaction so it doesn't advance the DuckLake snapshot past the data
+    ///     write the summary records.
+    ///
+    /// Close/open match keys with `IS NOT DISTINCT FROM` (via a correlated
+    /// `EXISTS`), not `key IN (…)`: SQL `IN` never matches `NULL`, so a `NULL`
+    /// natural key would be flagged as changed yet silently skipped by both the
+    /// close and the open, dropping the row. Null-safe matching materializes it
+    /// instead (a `NULL` key is still ill-formed for a dimension — guard it with
+    /// `// data_test not_null <key>` — but it must not vanish).
     ///
     /// Keys present in the table but absent from the SELECT are left current
     /// (soft delete — dbt's `hard_deletes=ignore` default; closing on absence is
@@ -551,24 +561,27 @@ impl<'a> MaterializeCodegen<'a> {
             "BEGIN TRANSACTION;".to_string(),
             format!(
                 "UPDATE {t} SET {vt} = {ts}, {ic} = false \
-                 WHERE {ic} AND {k} IN (SELECT {k} FROM {changed});"
+                 WHERE {ic} AND EXISTS (SELECT 1 FROM {changed} \
+                 WHERE {changed}.{k} IS NOT DISTINCT FROM {t}.{k});"
             ),
             format!(
-                "INSERT INTO {t} SELECT *, {ts} AS {vf}, CAST(NULL AS TIMESTAMP) AS {vt}, \
-                 true AS {ic} FROM ({sel}) WHERE {k} IN (SELECT {k} FROM {changed});"
+                "INSERT INTO {t} SELECT s.*, {ts} AS {vf}, CAST(NULL AS TIMESTAMP) AS {vt}, \
+                 true AS {ic} FROM ({sel}) s WHERE EXISTS (SELECT 1 FROM {changed} c \
+                 WHERE c.{k} IS NOT DISTINCT FROM s.{k});"
             ),
-            "COMMIT;".to_string(),
             // Consumer convenience: a `<dim>_current` view (the live slice) so the
             // common "just the latest version" read needs no `WHERE is_current`,
-            // and downstream scripts can `// on` / read it directly. Idempotent
-            // (`CREATE OR REPLACE`); catalog metadata, so it lives outside the
-            // write transaction. For the effective-dated payoff, consumers `ASOF
-            // JOIN <dim> ON fact.key = dim.<key> AND fact.ts >= dim.valid_from`.
+            // and downstream scripts can `// on` / read it directly. Created inside
+            // the write transaction: `CREATE OR REPLACE VIEW` is a catalog change
+            // that itself advances the DuckLake snapshot, so leaving it outside
+            // would make the summary's `max(snapshot_id)` record the view DDL
+            // instead of the data write. For the effective-dated payoff, consumers
+            // `ASOF JOIN <dim> ON fact.key = dim.<key> AND fact.ts >= dim.valid_from`.
             // The `<dim>_current` name is reserved: if a real table by that name
-            // already exists, `CREATE OR REPLACE VIEW` errors (can't replace a
-            // table with a view) — after the history commit above, so the write
-            // still landed. Documented as a reserved suffix rather than guarded.
+            // already exists, this errors (can't replace a table with a view) and
+            // rolls back with the transaction. Documented as a reserved suffix.
             format!("CREATE OR REPLACE VIEW {t}_current AS SELECT * FROM {t} WHERE {ic};"),
+            "COMMIT;".to_string(),
         ]
     }
 }
@@ -1261,24 +1274,31 @@ mod tests {
         assert!(st[1].contains("SELECT * FROM (SELECT id, name FROM dl.src) EXCEPT"));
         assert!(st[1].contains("SELECT * EXCLUDE (valid_from, valid_to, is_current) FROM _wm_target.dim_scd2 WHERE is_current"));
         assert_eq!(st[2], "BEGIN TRANSACTION;");
-        // close: UPDATE (not MERGE) the prior open version of changed keys
+        // close: UPDATE (not MERGE) the prior open version of changed keys, with
+        // null-safe key matching (IS NOT DISTINCT FROM, not IN — IN drops NULLs)
         assert!(st[3].starts_with("UPDATE _wm_target.dim_scd2 SET valid_to = CAST(now() AS TIMESTAMP), is_current = false"));
-        assert!(
-            st[3].contains("WHERE is_current AND \"id\" IN (SELECT \"id\" FROM _wm_scd2_changed);")
-        );
-        // open: INSERT the new current version
-        assert!(st[4].starts_with(
-            "INSERT INTO _wm_target.dim_scd2 SELECT *, CAST(now() AS TIMESTAMP) AS valid_from"
+        assert!(st[3].contains(
+            "WHERE is_current AND EXISTS (SELECT 1 FROM _wm_scd2_changed \
+             WHERE _wm_scd2_changed.\"id\" IS NOT DISTINCT FROM _wm_target.dim_scd2.\"id\");"
         ));
-        assert!(st[4].contains("true AS is_current FROM (SELECT id, name FROM dl.src) WHERE \"id\" IN (SELECT \"id\" FROM _wm_scd2_changed);"));
-        assert_eq!(st[5], "COMMIT;");
-        // consumer-convenience `<dim>_current` view (live slice), created after commit
+        // open: INSERT the new current version, null-safe key matching
+        assert!(st[4].starts_with(
+            "INSERT INTO _wm_target.dim_scd2 SELECT s.*, CAST(now() AS TIMESTAMP) AS valid_from"
+        ));
+        assert!(st[4].contains(
+            "true AS is_current FROM (SELECT id, name FROM dl.src) s WHERE EXISTS \
+             (SELECT 1 FROM _wm_scd2_changed c WHERE c.\"id\" IS NOT DISTINCT FROM s.\"id\");"
+        ));
+        // consumer-convenience `<dim>_current` view, created INSIDE the txn so it
+        // doesn't advance the snapshot past the data write
         assert_eq!(
-            st[6],
+            st[5],
             "CREATE OR REPLACE VIEW _wm_target.dim_scd2_current AS SELECT * FROM _wm_target.dim_scd2 WHERE is_current;"
         );
-        // never MERGE INTO (DuckLake MERGE is unreliable)
+        assert_eq!(st[6], "COMMIT;");
+        // no fragile constructs: no MERGE INTO, and no NULL-dropping `IN (SELECT`
         assert!(!st.iter().any(|s| s.contains("MERGE INTO")));
+        assert!(!st.iter().any(|s| s.contains("IN (SELECT")));
     }
 
     #[test]

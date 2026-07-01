@@ -73,7 +73,13 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   - **Reserved names.** `valid_from`/`valid_to`/`is_current` are reserved column
     names in this mode — a SELECT that already projects one fails at run time —
     and the `<dim>_current` suffix is reserved for the companion view (below), so
-    don't separately materialize a table by that name in the same lake.
+    don't separately materialize a table by that name in the same lake (the view
+    is created inside the write transaction, so such a collision rolls the whole
+    run back rather than leaving a half-applied write).
+  - **Key should be non-null.** A `NULL` natural key is ill-formed for a
+    dimension; the codegen matches keys null-safely so a `NULL`-key row is
+    materialized rather than silently dropped, but you should enforce it with
+    `// data_test not_null <key>`.
   - **`track=` takes no spaces.** Like every `=`-option in the annotation grammar
     (which is whitespace-tokenized), the `track=` value must be a bare
     comma-separated list with no spaces: `track=name,tier`, not `track=name, tier`
