@@ -3,10 +3,9 @@
 	import { Loader2, Play, Upload, Zap } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import PipelineRunForm from './PipelineRunForm.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { emptySchema } from '$lib/utils'
 
 	interface Props {
 		script: Script
@@ -53,12 +52,13 @@
 	// and the script actually has subscribers to fan out to.
 	let hasCascade = $derived(!!onRunCascade && downstreamCount > 0)
 
-	// Local clone for SchemaForm's bindable schema prop — the incoming
-	// script is owned by the parent and must not be mutated from here.
-	// Seeded once: the details pane keys this component on script.path, so
-	// switching scripts remounts with a fresh clone.
-	// svelte-ignore state_referenced_locally
-	let formSchema = $state<any>(structuredClone($state.snapshot(script.schema) ?? emptySchema()))
+	// The details pane keys this component on script.path only, so a same-path
+	// re-resolve (in /pipeline_dev the selected node re-resolves on every WS
+	// bundle) does NOT remount us. `PipelineRunForm` owns the SchemaForm clone and
+	// is keyed on the serialized schema below, so a local edit that adds/removes
+	// args reseeds the run form while an unchanged re-resolve keeps in-progress
+	// input (else the form could run against a stale schema with missing inputs).
+	let schemaKey = $derived(JSON.stringify(script.schema ?? null))
 
 	async function run(cascade = false) {
 		const dispatch = cascade ? onRunCascade : onRun
@@ -119,7 +119,9 @@
 								</Button>
 							</div>
 						</div>
-						<SchemaForm bind:schema={formSchema} bind:args bind:isValid compact />
+						{#key schemaKey}
+							<PipelineRunForm schema={script.schema} bind:args bind:isValid />
+						{/key}
 					</div>
 				{/if}
 				<div class="flex-1 min-h-0 overflow-auto text-xs p-3">
