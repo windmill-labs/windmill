@@ -70,8 +70,13 @@
 
 	function panzoomAction(node: HTMLElement) {
 		let instance: PanZoom | undefined
+		// Guard the async import against a close-before-resolve: without it,
+		// destroy() (instance still undefined) disposes nothing and the late
+		// .then() would build a leaked panzoom on an already-detached node.
+		let disposed = false
 		panzoomNode = node
 		import('panzoom').then(({ default: panzoom }) => {
+			if (disposed) return
 			instance = panzoom(node, {
 				bounds: true,
 				boundsPadding: 0.1,
@@ -84,6 +89,7 @@
 		})
 		return {
 			destroy() {
+				disposed = true
 				instance?.dispose()
 				panzoomInstance = undefined
 				panzoomNode = undefined
