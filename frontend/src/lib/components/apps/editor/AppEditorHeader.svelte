@@ -7,7 +7,13 @@
 	import { redo, undo } from '$lib/history.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import { enterpriseLicense, tutorialsToDo, userStore, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		tutorialsToDo,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import { getTutorialIndex } from '$lib/tutorials/config'
@@ -73,8 +79,7 @@
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -1132,10 +1137,10 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: editInForkLabel($workspaceStore, $userWorkspaces),
 										onClick: () => {
 											window.open(buildForkEditUrl('app', $appPath))
 										}

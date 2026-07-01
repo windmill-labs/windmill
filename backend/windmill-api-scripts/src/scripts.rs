@@ -1297,10 +1297,16 @@ async fn create_script_internal<'c>(
             // but the executor parses the signature from the un-wrapped script, so
             // `$name` references in the SELECT stay bound at run time.
         }
-        // `key=` (merge) and `append` are mutually exclusive reconciliation
-        // strategies; append (INSERT-only) wins. Surface the conflict rather
-        // than silently dropping the dedup the author may have intended.
-        if m.unique_key.is_some() && m.append {
+        // Reconciliation strategies are mutually exclusive; surface a conflict
+        // rather than silently dropping behavior the author may have intended.
+        // Precedence must mirror the runtime (`duckdb_executor` strategy
+        // derivation): scd2 (`history`) > append > merge (`key=`) > replace.
+        if m.scd2 && m.append {
+            tracing::warn!(
+                "script {}: both `history`/`scd2` and `append` set on // materialize; history wins (SCD2), append ignored",
+                ns.path
+            );
+        } else if m.unique_key.is_some() && m.append {
             tracing::warn!(
                 "script {}: both `key=` and `append` set on // materialize; append wins (INSERT-only, no dedup)",
                 ns.path
@@ -1343,14 +1349,28 @@ async fn create_script_internal<'c>(
     let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
         let kind = windmill_common::assets::asset_kind_from_parser(m.target_kind);
         let mut a = effective_assets.unwrap_or_default();
-        if !a.iter().any(|x| x.kind == kind && x.path == m.target_path) {
-            a.push(windmill_common::assets::AssetWithAltAccessType {
-                path: m.target_path.clone(),
-                kind,
-                access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
-                alt_access_type: None,
-                columns: None,
-            });
+        // Produced assets: the managed table, plus — for managed scd2 — the
+        // `<dim>_current` companion view the runtime (re)creates each run.
+        // Registering the view as a write asset lets `// on
+        // ducklake://…/<dim>_current` subscribers be dispatched by the cascade
+        // (which fans out from these deploy-time asset rows); without it a
+        // subscriber on the view would silently never fire. Gated on `!manual`:
+        // manual mode owns its own DDL and short-circuits before the scd2 codegen
+        // (no view is created), so registering it there would be a false edge.
+        let mut targets = vec![m.target_path.clone()];
+        if m.scd2 && !m.manual {
+            targets.push(format!("{}_current", m.target_path));
+        }
+        for path in targets {
+            if !a.iter().any(|x| x.kind == kind && x.path == path) {
+                a.push(windmill_common::assets::AssetWithAltAccessType {
+                    path,
+                    kind,
+                    access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
+                    alt_access_type: None,
+                    columns: None,
+                });
+            }
         }
         Some(a)
     } else {

@@ -254,6 +254,64 @@
 		}
 	},
 	{
+		"name": "materialize scd2 via history flag with key, track and deletes=close",
+		"code": "// pipeline\n// materialize ducklake://analytics/dim_customer key=id history track=name,tier deletes=close\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim_customer",
+				"unique_key": "id",
+				"scd2": true,
+				"track": ["name", "tier"],
+				"close_deleted": true
+			}
+		}
+	},
+	{
+		"name": "materialize scd2 keyword alias with key only (track all non-key cols)",
+		"code": "// materialize scd2 ducklake://analytics/dim key=id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim",
+				"unique_key": "id",
+				"scd2": true
+			}
+		}
+	},
+	{
+		"name": "materialize key without history is plain merge (SCD1, not scd2)",
+		"code": "// materialize ducklake://analytics/dim key=id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim",
+				"unique_key": "id"
+			}
+		}
+	},
+	{
 		"name": "materialize manual escape hatch, first value wins",
 		"code": "// materialize manual ducklake://analytics/orders_daily\n// materialize ducklake://other/x\nexport function main() {}",
 		"expected": {

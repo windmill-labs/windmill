@@ -6,6 +6,7 @@
 	interface Props {
 		workspaceColor?: string
 		isForked?: boolean
+		isDevWorkspace?: boolean
 		parentName?: string
 		size?: number
 		// Tailwind padding class for the round badge — shrink it (e.g. 'p-0.5') for
@@ -16,6 +17,7 @@
 	let {
 		workspaceColor,
 		isForked = false,
+		isDevWorkspace = false,
 		parentName,
 		size = 14,
 		padding = 'p-1.5'
@@ -29,7 +31,8 @@
 		<Tooltip>
 			{#snippet text()}
 				{#if isForked && parentName}
-					Fork of {parentName}
+					{isDevWorkspace ? 'Dev workspace of' : 'Fork of'}
+					{parentName}
 				{/if}
 			{/snippet}
 			<GitFork {size} class="flex-shrink-0" style="color: {iconColor}" />

@@ -1,0 +1,94 @@
+import { expect, test } from "bun:test";
+import {
+  devUploadKey,
+  parseS3Uri,
+  parseUploadBinding,
+  s3Arg,
+  s3ObjectParams,
+} from "../src/commands/pipeline/pipelineUpload.ts";
+
+test("parseUploadBinding: bare script + local source infers the param later", () => {
+  expect(parseUploadBinding("ingest=./fixtures/events.csv")).toEqual({
+    scriptTok: "ingest",
+    source: "./fixtures/events.csv",
+  });
+});
+
+test("parseUploadBinding: explicit :param on the left", () => {
+  expect(parseUploadBinding("f/analytics/ingest:file=./events.csv")).toEqual({
+    scriptTok: "f/analytics/ingest",
+    param: "file",
+    source: "./events.csv",
+  });
+});
+
+test("parseUploadBinding: s3:// source — its `:` is right of the first `=`, so it stays intact", () => {
+  expect(parseUploadBinding("ingest=s3://bucket/2026/events.csv")).toEqual({
+    scriptTok: "ingest",
+    source: "s3://bucket/2026/events.csv",
+  });
+  expect(parseUploadBinding("ingest:file=s3://bucket/k")).toEqual({
+    scriptTok: "ingest",
+    param: "file",
+    source: "s3://bucket/k",
+  });
+});
+
+test("parseUploadBinding: malformed specs throw", () => {
+  expect(() => parseUploadBinding("ingest")).toThrow(); // no `=`
+  expect(() => parseUploadBinding("=./x.csv")).toThrow(); // no script
+  expect(() => parseUploadBinding("ingest=")).toThrow(); // no source
+  expect(() => parseUploadBinding("ingest:=./x.csv")).toThrow(); // empty param
+  expect(() => parseUploadBinding(":file=./x.csv")).toThrow(); // empty script
+});
+
+test("s3ObjectParams: only resource-s3_object properties, in declaration order", () => {
+  const schema = {
+    properties: {
+      note: { type: "string" },
+      file: { type: "object", format: "resource-s3_object" },
+      db: { type: "object", format: "resource-postgresql" },
+      backup: { type: "object", format: "resource-s3_object" },
+    },
+  };
+  expect(s3ObjectParams(schema)).toEqual(["file", "backup"]);
+  expect(s3ObjectParams({})).toEqual([]);
+  expect(s3ObjectParams(undefined)).toEqual([]);
+});
+
+test("devUploadKey: key scoped by script path + param so basenames don't clobber", () => {
+  expect(devUploadKey("f/analytics/ingest", "file", "./fixtures/events.csv")).toBe(
+    "wmilldev/pipeline/f/analytics/ingest/file/events.csv",
+  );
+  // same basename, different script/param → distinct keys
+  expect(devUploadKey("f/analytics/other", "file", "/abs/events.csv")).toBe(
+    "wmilldev/pipeline/f/analytics/other/file/events.csv",
+  );
+  expect(devUploadKey("f/analytics/ingest", "backup", "/abs/events.csv")).toBe(
+    "wmilldev/pipeline/f/analytics/ingest/backup/events.csv",
+  );
+});
+
+test("s3Arg: shapes the S3Object run-arg", () => {
+  expect(s3Arg("file", { s3: "wmilldev/pipeline/analytics/events.csv" })).toEqual({
+    file: { s3: "wmilldev/pipeline/analytics/events.csv" },
+  });
+  expect(s3Arg("file", { s3: "k.csv", storage: "secondary" })).toEqual({
+    file: { s3: "k.csv", storage: "secondary" },
+  });
+});
+
+test("parseS3Uri: canonical `s3://<storage>/<key>` (authority is the named storage)", () => {
+  // named storage — the authority is the storage, the rest is the key
+  expect(parseS3Uri("s3://secondary/k.csv")).toEqual({ s3: "k.csv", storage: "secondary" });
+  // empty authority (`s3:///key`) ⇒ default storage, incl. nested keys
+  expect(parseS3Uri("s3:///events.csv")).toEqual({ s3: "events.csv" });
+  expect(parseS3Uri("s3:///raw/2026/events.csv")).toEqual({ s3: "raw/2026/events.csv" });
+  // named storage with a nested key
+  expect(parseS3Uri("s3://secondary/raw/2026/events.csv")).toEqual({
+    s3: "raw/2026/events.csv",
+    storage: "secondary",
+  });
+  // no `/` after the scheme → no authority; whole rest is the default-storage key
+  expect(parseS3Uri("s3://events.csv")).toEqual({ s3: "events.csv" });
+});

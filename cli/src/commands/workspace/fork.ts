@@ -186,6 +186,15 @@ async function createWorkspaceFork(
   // branch creation — a late backend rejection would leave cloned databases
   // behind.
   validateForkWorkspaceId(trueWorkspaceId);
+  // The workspace.name column is character varying(50); reject an over-long name
+  // up front (matching the name actually sent to the backend below) instead of
+  // failing late after databases are cloned and the git branch is created.
+  const effectiveName = opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId;
+  if (effectiveName.length > 50) {
+    throw new Error(
+      `Fork workspace name is too long (${effectiveName.length} chars; max 50). Choose a shorter name.`
+    );
+  }
   let alreadyExists = false;
   try {
     alreadyExists = await wmill.existsWorkspace({

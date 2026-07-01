@@ -40,6 +40,7 @@ export interface UserWorkspace {
 	color?: string
 	operator_settings?: OperatorSettings
 	parent_workspace_id?: string | null
+	is_dev_workspace?: boolean
 	disabled: boolean
 }
 

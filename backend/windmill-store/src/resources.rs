@@ -1088,21 +1088,48 @@ async fn create_resource(
         .execute(&db)
         .await?;
     }
-    sqlx::query!(
-        "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
-            VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), labels = EXCLUDED.labels",
-        w_id,
-        resource.path,
-        raw_json as sqlx::types::Json<&RawValue>,
-        resource.description,
-        resource.resource_type,
-        authed.username,
-        resource.labels.as_deref() as Option<&[String]>
-    )
-    .execute(&mut *tx)
-    .await?;
+    if update_if_exists {
+        sqlx::query!(
+            "INSERT INTO resource
+                (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
+                VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
+                DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), labels = EXCLUDED.labels",
+            w_id,
+            resource.path,
+            raw_json as sqlx::types::Json<&RawValue>,
+            resource.description,
+            resource.resource_type,
+            authed.username,
+            resource.labels.as_deref() as Option<&[String]>
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        // Create-only (the default): DO NOTHING + a row-count guard, so a path that appears between
+        // check_path_conflict above and this insert is rejected rather than overwritten. A plain
+        // DO UPDATE here would clobber a concurrently-created resource, breaking create-only callers
+        // (e.g. Compare & Deploy "Create in <other>").
+        let inserted = sqlx::query!(
+            "INSERT INTO resource
+                (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
+                VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path) DO NOTHING",
+            w_id,
+            resource.path,
+            raw_json as sqlx::types::Json<&RawValue>,
+            resource.description,
+            resource.resource_type,
+            authed.username,
+            resource.labels.as_deref() as Option<&[String]>
+        )
+        .execute(&mut *tx)
+        .await?;
+        if inserted.rows_affected() == 0 {
+            return Err(Error::BadRequest(format!(
+                "Resource {} already exists",
+                resource.path
+            )));
+        }
+    }
 
     // Mirror update_resource: Some(true) inserts, Some(false) clears (only
     // meaningful on the upsert path, since a pure create has no existing row),
@@ -1385,7 +1412,12 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
-async fn mark_linked_variables_ws_specific(
+/// Marks every variable referenced by the resource at `resource_path` as workspace-specific.
+///
+/// AUTH CONTRACT: this mutates `ws_specific` and does NOT check authorization itself. The caller
+/// MUST verify that `authed` has write access to the resource at `resource_path` in `w_id` (e.g. via
+/// `require_owner_of_path`) before calling it.
+pub async fn mark_linked_variables_ws_specific(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
     w_id: &str,
