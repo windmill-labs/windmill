@@ -2706,10 +2706,19 @@ async fn username_to_email(
     Path((w_id, username)): Path<(String, String)>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
-    // Resolve via the shared helper so a non-member superadmin's instance-derived
-    // username (not in `usr`) still resolves to their email, consistent with how
-    // `permissioned_as`/`created_by` are resolved everywhere else.
-    let email = windmill_common::users::resolve_username_to_email(&w_id, &username, &db).await?;
+    // Members only: this workspace-scoped endpoint has no superadmin/target gate,
+    // so it must NOT use the `password` superadmin fallback — otherwise any
+    // workspace-authenticated caller could turn a guessed derived username into a
+    // non-member superadmin's email. Internal callers that legitimately need the
+    // fallback (schedule/trigger/draft resolution) use `resolve_username_to_email`
+    // directly and never return the email to an arbitrary caller.
+    let email = sqlx::query_scalar!(
+        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+        &username,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
 
     let email = not_found_if_none(email, "user", username)?;
 
