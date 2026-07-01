@@ -742,7 +742,9 @@ async function run(
   // Execute in topological order, stopping on the first failure.
   for (const nodePath of order) {
     if (!opts.json) log.info(colors.gray(`▶ running ${nodePath}…`));
-    const nodeArgs = { _wmill_skip_asset_dispatch: true, ...(uploadArgs.get(nodePath) ?? {}) };
+    // Spread the internal dispatch guard LAST so an `--upload`-bound arg can't
+    // re-enable backend dispatch (the CLI owns the whole closure here).
+    const nodeArgs = { ...(uploadArgs.get(nodePath) ?? {}), _wmill_skip_asset_dispatch: true };
     let id: string;
     if (opts.local) {
       const ls = localScripts!.get(nodePath);

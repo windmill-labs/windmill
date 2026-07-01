@@ -11,7 +11,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import process from "node:process";
 import * as open from "open";
 import { WebSocket, WebSocketServer } from "ws";
@@ -56,7 +56,14 @@ async function stableWsToken(
   folder: string,
   port: number,
 ): Promise<string> {
-  const key = `${workspaceId}__${folder}__${port}`.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Hash the tuple (NUL-delimited so no value can spoof the boundary) → a
+  // collision-resistant, filesystem-safe key. A plain sanitized join would let
+  // different folders collide (`a/b` and `a_b` → same name), which would reuse a
+  // token across folders and reintroduce the cross-folder leak.
+  const key = createHash("sha256")
+    .update(`${workspaceId}\0${folder}\0${port}`)
+    .digest("hex")
+    .slice(0, 32);
   let tokenFile: string | undefined;
   try {
     tokenFile = path.join(await getConfigDirPath(), `pipeline-dev-${key}.token`);

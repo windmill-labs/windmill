@@ -69,7 +69,12 @@ export function makeLaunch(opts: {
 }): (path: string) => Promise<string> {
 	return async function launch(path: string): Promise<string> {
 		const local = opts.resolveLocal?.(path)
-		const extra = opts.argsFor?.(path) ?? {}
+		// Caller args (e.g. the run form for the cascade root) must NOT be able to
+		// re-enable backend asset dispatch while the client orchestrates the closure
+		// — that would double-run downstream / run deployed subscribers. Drop any
+		// `_wmill_skip_asset_dispatch` a caller supplied, and always spread it LAST.
+		const { _wmill_skip_asset_dispatch: _reserved, ...extra } = opts.argsFor?.(path) ?? {}
+		void _reserved
 		let jobId: string
 		if (local) {
 			if (!local.content || !local.language) {
@@ -81,7 +86,7 @@ export function makeLaunch(opts: {
 					content: local.content,
 					language: local.language,
 					path,
-					args: { _wmill_skip_asset_dispatch: true, ...extra },
+					args: { ...extra, _wmill_skip_asset_dispatch: true },
 					...(local.tag ? { tag: local.tag } : {}),
 					...(opts.tempScriptRefs ? { temp_script_refs: opts.tempScriptRefs } : {})
 				}
@@ -90,7 +95,7 @@ export function makeLaunch(opts: {
 			jobId = await JobService.runScriptByPath({
 				workspace: opts.workspace,
 				path,
-				requestBody: { _wmill_skip_asset_dispatch: true, ...extra }
+				requestBody: { ...extra, _wmill_skip_asset_dispatch: true }
 			})
 		}
 		opts.onLaunched?.(path, jobId)
