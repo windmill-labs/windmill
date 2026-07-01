@@ -1,0 +1,3 @@
+-- Irreversible data backfill: once realigned to the derived username, a favorite
+-- is indistinguishable from one legitimately created under that username, so there
+-- is nothing safe to revert. No-op.

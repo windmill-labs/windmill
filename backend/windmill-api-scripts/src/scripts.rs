@@ -211,12 +211,15 @@ async fn list_scripts(
             // Canonical reference for the draft-feature comments; flows/apps point here.
             // Per-path draft owners as a JSON array (`Json<Vec<DraftUserRef>>`); NULL -> None,
             // never an empty array. LEFT JOIN `usr` keeps orphaned drafts (user left workspace)
-            // visible with `username = None`. In the `admins` workspace username IS the email,
-            // so fall back to `d.email` there or the authed user's own draft resolves to a phantom
-            // "Legacy workspace draft"; the genuine NULL-email legacy row stays None.
-            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
+            // visible with `username = None`. A superadmin authoring in a workspace they are not
+            // a member of has no `usr` row, so fall back to their instance-derived username
+            // (`password.username`), or their email when derivation is disabled — this keeps the
+            // raw email out of the payload whenever a derived username exists. The genuine
+            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
               WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
             "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])

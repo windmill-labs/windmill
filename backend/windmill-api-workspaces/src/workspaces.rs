@@ -3901,6 +3901,21 @@ async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
     return Ok(());
 }
 
+async fn _check_nb_of_archived_workspaces(db: &DB) -> Result<()> {
+    let nb_archived = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace WHERE id != 'admins' AND deleted = true",
+    )
+    .fetch_one(db)
+    .await?;
+    if nb_archived.unwrap_or(0) >= 1 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of archived workspaces (1) without an enterprise license. Permanently delete or unarchive the existing archived workspace first"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
 async fn create_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5775,6 +5790,11 @@ async fn archive_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // CE caps the number of archived (soft-deleted) workspaces so archiving can't be used to
+    // stockpile hidden workspaces. Enforced here so a second archive is refused up front.
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_archived_workspaces(&db).await?;
+
     // If this is an attached dev workspace, archiving it leaves the prod with no active dev (the
     // unique index and user_workspaces both ignore deleted=true), so clear the prod's
     // dev_workspace_lock too. Gate it on prod-admin since it removes prod's protection rule (mirrors
@@ -5887,6 +5907,13 @@ async fn unarchive_workspace(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Unarchiving re-activates a soft-deleted workspace, so it must respect the
+    // same CE workspace-count cap as creating one. The archived workspace is
+    // deleted = true and thus excluded from the count until it is restored.
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
         .execute(&mut *tx)
@@ -7359,6 +7386,24 @@ async fn compare_workspaces(
             .iter()
             .map(|s| s.behind)
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+
+    // Blast-radius guard for the "changes not visible to your user" warning
+    // (which hides the deploy button entirely). The flag is a pure visibility
+    // guarantee — the actual deploy/update is separately authorized against the
+    // target workspace's create/update endpoints — so it must be forced true for
+    // anyone who, as a rule, sees every item on the relevant side (RLS is bypassed
+    // for admins); any diff the visibility filter dropped for them is provably a
+    // stale/phantom row, never a permission gap. Crucially the two sides live in
+    // different workspaces: ahead items are the fork's own changes (gated by the
+    // TARGET/fork admin), behind items physically live in the parent (gated by the
+    // SOURCE/parent admin). A target admin does NOT see the parent side, so it must
+    // not clear the behind flag, and vice versa. `target_admin` already folds in
+    // superadmin; `source_admin` (parent side) ORs it in explicitly.
+    let is_super_admin = windmill_common::auth::is_super_admin_email(&db, &authed.email).await?;
+    let target_admin = fork_authed.is_admin;
+    let source_admin = is_super_admin || authed.is_admin;
+    let all_ahead_items_visible = all_ahead_items_visible || target_admin;
+    let all_behind_items_visible = all_behind_items_visible || source_admin;
 
     return Ok(Json(WorkspaceComparison {
         all_ahead_items_visible,
