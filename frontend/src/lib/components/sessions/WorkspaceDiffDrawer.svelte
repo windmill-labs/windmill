@@ -703,16 +703,16 @@
 						<!-- Filter segments -->
 						<div class="px-2 pt-2 shrink-0 flex flex-wrap gap-1">
 							{#each visibleSegments as seg}
-								<button
-									type="button"
-									class="text-2xs px-2 py-1 rounded border transition-colors {model.segment ===
-									seg.id
-										? 'border-accent bg-surface-selected text-primary'
-										: 'border-light text-secondary hover:bg-surface-hover'}"
+								{@const active = model.segment === seg.id}
+								<Badge
+									small
+									clickable
+									selected={active}
+									color={active ? 'blue' : 'gray'}
 									onclick={() => model.setSegment(seg.id)}
 								>
 									{seg.label} · {model.counts[seg.id]}
-								</button>
+								</Badge>
 							{/each}
 						</div>
 						<div class="px-3 pt-2 pb-1 shrink-0">

@@ -95,8 +95,15 @@ export interface BuildInput {
 	comparison?: WorkspaceComparison
 	/** Chat-modified-items mask (`UserDraftItemKind:path`). When set, only masked
 	 *  items are included, and mask-only entries (no draft, no diff) surface as
-	 *  terminal `in_parent` "Done" rows. */
+	 *  terminal `in_parent` rows — but only when confirmed to still exist (see
+	 *  `existingKeys`). */
 	mask?: Set<string>
+	/** Mask keys confirmed to still exist in the workspace (deployed). A mask-only
+	 *  key that isn't here is treated as gone (a discarded draft) and dropped, so a
+	 *  discarded item doesn't masquerade as "in parent". Undefined → no mask-only
+	 *  rows are emitted yet (existence still resolving); callers that can't resolve
+	 *  existence simply won't show terminal rows. */
+	existingKeys?: Set<string>
 	context: SessionContext
 }
 
@@ -120,7 +127,7 @@ function stateFrom(opts: {
 }
 
 export function buildDeployItems(input: BuildInput): DeployItem[] {
-	const { draftItems, comparison, mask, context } = input
+	const { draftItems, comparison, mask, existingKeys, context } = input
 	const scopedDrafts = mask
 		? draftItems.filter((it) => mask.has(maskKey(it.kind, it.path)))
 		: draftItems
@@ -199,10 +206,13 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 	}
 
 	// 3. Mask-only items (touched by the chat, no draft, no diff) → terminal
-	//    "Done" rows so the Done segment reflects items already promoted.
+	//    `in_parent` rows, but ONLY when confirmed to still exist. A discarded
+	//    draft leaves a mask entry with no item; without this guard it would
+	//    masquerade as "in parent".
 	if (mask) {
 		for (const k of mask) {
 			if (seen.has(k)) continue
+			if (!existingKeys?.has(k)) continue
 			const sep = k.indexOf(':')
 			if (sep < 0) continue
 			const udk = k.slice(0, sep) as UserDraftItemKind
@@ -231,6 +241,41 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 		}
 	}
 
+	return out
+}
+
+/** Mask keys not covered by a current draft or fork diff — the candidates for a
+ *  terminal `in_parent` row. The reactive layer existence-checks these (in the
+ *  session workspace) to tell a deployed item from a discarded one, then feeds
+ *  the survivors back as `existingKeys`. */
+export function maskOnlyCandidates(
+	input: Omit<BuildInput, 'existingKeys'>
+): { key: string; deployKind: Kind; draftKind: UserDraftItemKind; path: string }[] {
+	const { draftItems, comparison, mask, context } = input
+	if (!mask) return []
+	const covered = new Set<string>()
+	for (const it of draftItems) {
+		const k = maskKey(it.kind, it.path)
+		if (mask.has(k)) covered.add(k)
+	}
+	if (context.isFork) {
+		for (const d of comparison?.diffs ?? []) {
+			if (!d.has_changes) continue
+			const udk = forkDiffKindToUserDraftKind(d.kind)
+			if (!udk) continue
+			const c = maskKey(udk, d.path)
+			if (mask.has(c)) covered.add(c)
+		}
+	}
+	const out: { key: string; deployKind: Kind; draftKind: UserDraftItemKind; path: string }[] = []
+	for (const k of mask) {
+		if (covered.has(k)) continue
+		const sep = k.indexOf(':')
+		if (sep < 0) continue
+		const udk = k.slice(0, sep) as UserDraftItemKind
+		const path = k.slice(sep + 1)
+		out.push({ key: k, draftKind: udk, deployKind: deployKindOf(udk, udk === 'raw_app'), path })
+	}
 	return out
 }
 

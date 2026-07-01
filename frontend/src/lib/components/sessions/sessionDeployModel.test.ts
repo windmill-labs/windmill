@@ -3,6 +3,7 @@ import type { UserDraftItemKind, WorkspaceComparison, WorkspaceItemDiff } from '
 import type { DraftItem } from '$lib/workspaceDrafts.svelte'
 import {
 	buildDeployItems,
+	maskOnlyCandidates,
 	pipelineOf,
 	actionFor,
 	diffBaseFor,
@@ -152,17 +153,55 @@ describe('buildDeployItems — scoping and Done', () => {
 		expect(items.map((i) => i.path)).toEqual(['u/a/keep'])
 	})
 
-	it('mask-only entries (no draft, no diff) surface as terminal Done rows', () => {
-		const mask = new Set([maskKey('script', 'u/a/done')])
+	it('mask-only entries that still exist surface as terminal in_parent rows', () => {
+		const key = maskKey('script', 'u/a/done')
 		const items = buildDeployItems({
 			comparison: comparison([]),
 			draftItems: [],
-			mask,
+			mask: new Set([key]),
+			existingKeys: new Set([key]),
 			context: forkCtx
 		})
 		expect(items).toHaveLength(1)
 		expect(items[0].state).toBe('in_parent')
 		expect(items[0].path).toBe('u/a/done')
+	})
+
+	it('a mask-only entry that no longer exists (discarded draft) is dropped, not shown as in_parent', () => {
+		const key = maskKey('script', 'u/a/gone')
+		// existingKeys omitted (existence unresolved) → no terminal row
+		const pending = buildDeployItems({
+			comparison: comparison([]),
+			draftItems: [],
+			mask: new Set([key]),
+			context: forkCtx
+		})
+		expect(pending).toHaveLength(0)
+		// existence resolved and the item is absent → still dropped
+		const resolved = buildDeployItems({
+			comparison: comparison([]),
+			draftItems: [],
+			mask: new Set([key]),
+			existingKeys: new Set(),
+			context: forkCtx
+		})
+		expect(resolved).toHaveLength(0)
+	})
+
+	it('maskOnlyCandidates returns keys not covered by a draft or diff', () => {
+		const cands = maskOnlyCandidates({
+			comparison: comparison([diff('script', 'u/a/infork', { ahead: 1 })]),
+			draftItems: [draft('script', 'u/a/draft')],
+			mask: new Set([
+				maskKey('script', 'u/a/infork'),
+				maskKey('script', 'u/a/draft'),
+				maskKey('trigger_schedule', 'u/a/done')
+			]),
+			context: forkCtx
+		})
+		expect(cands.map((c) => c.key)).toEqual([maskKey('trigger_schedule', 'u/a/done')])
+		// mapped to the deploy kind for the existence check
+		expect(cands[0].deployKind).toBe('schedule')
 	})
 
 	it('main (non-fork) context ignores comparison and lists drafts only', () => {
@@ -319,8 +358,13 @@ describe('diffBaseFor', () => {
 	})
 
 	it('terminal (in_parent) row → no diff', () => {
-		const mask = new Set([maskKey('script', 'u/a/done')])
-		const [item] = buildDeployItems({ draftItems: [], mask, context: forkCtx })
+		const key = maskKey('script', 'u/a/done')
+		const [item] = buildDeployItems({
+			draftItems: [],
+			mask: new Set([key]),
+			existingKeys: new Set([key]),
+			context: forkCtx
+		})
 		expect(diffBaseFor(item, forkCtx).kind).toBe('none')
 	})
 })
@@ -360,6 +404,7 @@ describe('selection', () => {
 				maskKey('script', 'u/a/readonly'),
 				maskKey('script', 'u/a/done') // mask-only → in_parent
 			]),
+			existingKeys: new Set([maskKey('script', 'u/a/done')]),
 			context: forkCtx
 		})
 		const m = byKey(items)
@@ -392,6 +437,7 @@ describe('segments', () => {
 			maskKey('script', 'u/a/draft'),
 			maskKey('script', 'u/a/done')
 		]),
+		existingKeys: new Set([maskKey('script', 'u/a/done')]),
 		context: forkCtx
 	})
 
@@ -494,8 +540,10 @@ describe('deployPlanFor', () => {
 			comparison: comparison([diff('flow', 'u/a/c', { ahead: 1, behind: 1 })]),
 			draftItems: [],
 			mask: new Set([maskKey('flow', 'u/a/c'), maskKey('script', 'u/a/done')]),
+			existingKeys: new Set([maskKey('script', 'u/a/done')]),
 			context: forkCtx
 		})
+		expect(items.some((i) => i.state === 'in_parent')).toBe(true)
 		for (const item of items) expect(deployPlanFor(item, forkCtx)).toBeUndefined()
 	})
 

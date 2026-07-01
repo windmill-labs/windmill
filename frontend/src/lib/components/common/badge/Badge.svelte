@@ -90,7 +90,7 @@
 
 	const hovers: Partial<Record<BadgeColor, string>> = {
 		gray: 'hover:bg-surface-hover',
-		blue: 'hover:bg-blue-200 dark:hover:bg-blue-700/40',
+		blue: 'hover:bg-blue-100 dark:hover:bg-blue-700/60',
 		red: 'hover:bg-red-200 dark:hover:bg-red-500/25',
 		green: 'hover:bg-green-200 dark:hover:bg-green-500/25',
 		yellow: 'hover:bg-yellow-200 dark:hover:bg-yellow-500/25',

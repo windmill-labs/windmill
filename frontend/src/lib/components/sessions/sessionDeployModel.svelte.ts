@@ -1,6 +1,7 @@
 import { UserService, WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
 import {
+	checkItemExists,
 	deleteItemInWorkspace,
 	deployItem,
 	getItemValue,
@@ -25,6 +26,7 @@ import {
 	footerSummary,
 	isOnBehalfEligible,
 	itemsInSegment,
+	maskOnlyCandidates,
 	segmentCounts,
 	selectableOf,
 	type DeployItem,
@@ -81,8 +83,42 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		parentName: getArgs().parentName
 	})
 
+	// Mask keys confirmed to still exist → allowed to show as terminal "In parent"
+	// rows (a discarded draft is a mask entry with no item, so it stays out).
+	let existingKeys = $state<Set<string> | undefined>(undefined)
+	// Existence is checked once per distinct candidate set; the signature avoids
+	// re-firing while results stream back.
+	let lastCandidateSig = ''
+	$effect(() => {
+		const cands = maskOnlyCandidates({ draftItems, comparison, mask: getArgs().mask, context })
+		const ws = getArgs().workspaceId
+		const sig = cands
+			.map((c) => c.key)
+			.sort()
+			.join(',')
+		untrack(() => {
+			if (sig === lastCandidateSig) return
+			lastCandidateSig = sig
+			if (cands.length === 0) {
+				existingKeys = new Set()
+				return
+			}
+			// A mask-only item that was deployed still exists in the session
+			// workspace (it was deployed here first); a discarded one doesn't.
+			void Promise.all(
+				cands.map((c) =>
+					checkItemExists(c.deployKind, c.path, ws)
+						.then((exists) => (exists ? c.key : null))
+						.catch(() => null)
+				)
+			).then((keys) => {
+				existingKeys = new Set(keys.filter((k): k is string => !!k))
+			})
+		})
+	})
+
 	const items = $derived(
-		buildDeployItems({ draftItems, comparison, mask: getArgs().mask, context })
+		buildDeployItems({ draftItems, comparison, mask: getArgs().mask, existingKeys, context })
 	)
 	const counts = $derived(segmentCounts(items))
 	const visibleItems = $derived(itemsInSegment(items, segment))
@@ -139,6 +175,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	/** (Re)fetch both sources and re-arm the default selection. Called on open. */
 	function load() {
 		autoSelected = false
+		// Re-check existence fresh (an item may have been deleted since last open).
+		lastCandidateSig = ''
+		existingKeys = undefined
 		void fetchDrafts()
 		if (getArgs().isFork) void fetchComparison()
 	}

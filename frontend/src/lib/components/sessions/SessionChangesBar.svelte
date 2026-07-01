@@ -11,6 +11,7 @@
 		Trash2
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
@@ -145,24 +146,18 @@
 
 {#snippet dock()}
 	<div class="flex items-center gap-1 shrink-0">
-		<button
-			type="button"
-			disabled={dockCounts.to_review === 0}
-			onclick={() => diffDrawer?.open('to_review')}
-			class="text-2xs px-2 py-1 rounded border transition-colors {dockCounts.to_review > 0
-				? 'border-blue-300 text-blue-700 hover:bg-surface-hover dark:border-blue-500/40 dark:text-blue-300'
-				: 'border-light text-tertiary cursor-default'}"
+		<Badge
+			small
+			clickable={dockCounts.to_review > 0}
+			color={dockCounts.to_review > 0 ? 'blue' : 'gray'}
+			onclick={() => dockCounts.to_review > 0 && diffDrawer?.open('to_review')}
 		>
 			{dockCounts.to_review} to review
-		</button>
+		</Badge>
 		{#if dockCounts.done > 0}
-			<button
-				type="button"
-				onclick={() => diffDrawer?.open('done')}
-				class="text-2xs px-2 py-1 rounded border border-light text-secondary hover:bg-surface-hover transition-colors"
-			>
+			<Badge small clickable color="green" onclick={() => diffDrawer?.open('done')}>
 				{dockCounts.done} in parent
-			</button>
+			</Badge>
 		{/if}
 	</div>
 {/snippet}
