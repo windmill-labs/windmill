@@ -2706,13 +2706,10 @@ async fn username_to_email(
     Path((w_id, username)): Path<(String, String)>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
-    let email = sqlx::query_scalar!(
-        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
-        &username,
-        &w_id
-    )
-    .fetch_optional(&db)
-    .await?;
+    // Resolve via the shared helper so a non-member superadmin's instance-derived
+    // username (not in `usr`) still resolves to their email, consistent with how
+    // `permissioned_as`/`created_by` are resolved everywhere else.
+    let email = windmill_common::users::resolve_username_to_email(&w_id, &username, &db).await?;
 
     let email = not_found_if_none(email, "user", username)?;
 

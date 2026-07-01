@@ -275,7 +275,7 @@
 	const INCLUDE_WITHOUT_MAIN_SETTING_NAME = 'includeWithoutMain'
 	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
 	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
-		$userStore?.is_super_admin && $userStore.username.includes('@')
+		$userStore?.non_member
 			? 'only f/*'
 			: $userStore?.is_admin || $userStore?.is_super_admin
 				? 'u/username and f/*'
