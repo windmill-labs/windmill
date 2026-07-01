@@ -79,4 +79,7 @@ test("s3UriKey: whole path is the default-storage key (nested keys kept intact)"
   // a nested default-storage key must NOT be misread as a named-storage authority
   expect(s3UriKey("s3://raw/2026/events.csv")).toBe("raw/2026/events.csv");
   expect(s3UriKey("s3://events.csv")).toBe("events.csv");
+  // canonical empty-authority default form `s3:///key` → leading slash trimmed
+  expect(s3UriKey("s3:///events.csv")).toBe("events.csv");
+  expect(s3UriKey("s3:///nested/key.csv")).toBe("nested/key.csv");
 });

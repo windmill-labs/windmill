@@ -193,6 +193,31 @@ test("go/bash fallback: leading-header `// on` only, options stripped, no body p
   );
 });
 
+test("go/bash fallback: a native marker with trailing content is rejected (parity)", async () => {
+  // The canonical parser rejects a marker line with trailing content, so the
+  // fallback must too — else a `// on data_upload f/foo` / `# on kafka topic`
+  // shows up locally as an upload/event trigger that deployed parsing drops.
+  await withFolder(
+    {
+      "bare.go": `// pipeline\n// on data_upload\npackage inner\nfunc main() {}\n`,
+      "trailing.go": `// pipeline\n// on data_upload f/foo\npackage inner\nfunc main() {}\n`,
+      "kafka.rb": `# pipeline\n# on kafka topic\nputs "hi"\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const nativeOf = (p: string) =>
+        graph.triggers
+          .filter((t) => t.trigger_kind !== "asset" && t.runnable_path === p)
+          .map((t) => t.trigger_kind);
+      // bare marker stands alone → recognized
+      expect(nativeOf("f/mypipe/bare")).toEqual(["data_upload"]);
+      // trailing content → rejected (no native trigger)
+      expect(nativeOf("f/mypipe/trailing")).toEqual([]);
+      expect(nativeOf("f/mypipe/kafka")).toEqual([]);
+    },
+  );
+});
+
 test("go/bash fallback: a multi-word `// tag` is rejected (single token only)", async () => {
   // A worker tag is one token; trailing prose must NOT smuggle a bogus tag that
   // would route the preview to a non-existent worker.

@@ -223,13 +223,18 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
     if (!on) continue;
     // The asset/native kind is the FIRST token; trailing `key=value` options
     // (e.g. `debounce=5s`) are not part of the path.
-    const firstTok = on[1].trim().split(/\s+/)[0];
+    const rest = on[1].trim();
+    const firstTok = rest.split(/\s+/)[0];
     const uri = firstTok.match(/^([a-z0-9_]+):\/\/(.+)$/i);
     if (uri) {
       const prefix = uri[1].toLowerCase();
       const kind = prefix === "s3" ? "s3object" : prefix;
       out.triggers!.push({ kind: "asset", asset_kind: kind, path: uri[2] });
-    } else if (NATIVE_KINDS.has(firstTok)) {
+    } else if (NATIVE_KINDS.has(firstTok) && rest === firstTok) {
+      // A native marker (`// on data_upload`) must stand alone: the canonical
+      // parser rejects a marker line with trailing content (`// on data_upload
+      // f/foo`, `# on kafka topic`), so match that here to keep local/deployed
+      // parity for the fallback surface.
       out.triggers!.push({ kind: firstTok });
     }
   }

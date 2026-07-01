@@ -48,10 +48,12 @@ export function devUploadKey(scriptPath: string, param: string, source: string):
  * workspace default storage — matching how pipeline `s3://` asset URIs are read
  * (`s3://a/b/c` → key `a/b/c`), so a nested default-storage key isn't misread as
  * a named-storage authority. (`--upload` sources are default-storage, like the
- * local-file upload path; named storage is out of scope.)
+ * local-file upload path; named storage is out of scope.) A leading slash — the
+ * canonical empty-authority default form `s3:///key` — is trimmed so it doesn't
+ * leak into the key.
  */
 export function s3UriKey(source: string): string {
-  return source.slice("s3://".length);
+  return source.slice("s3://".length).replace(/^\//, "");
 }
 
 /** The S3Object run-arg (`{ <param>: { s3: <key> } }`). */
