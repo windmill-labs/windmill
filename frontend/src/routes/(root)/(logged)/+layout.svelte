@@ -94,6 +94,10 @@
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = $state(false)
+	// Set by the workspace⇄session switch before it navigates, so the mobile menu
+	// drawer stays open across a mode toggle (unlike a normal link navigation,
+	// which dismisses it). Consumed once in beforeNavigate.
+	let preserveMenuOnNextNav = false
 	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
 	// Persisted nav-rail collapse preference. Only the manual toggle writes to it;
 	// the contextual auto-collapse (app-mode routes, narrow widths) mutates the
@@ -233,7 +237,11 @@
 	}
 
 	beforeNavigate((navigation) => {
-		menuOpen = false
+		if (preserveMenuOnNextNav) {
+			preserveMenuOnNextNav = false
+		} else {
+			menuOpen = false
+		}
 
 		// Inside a sessions-preview iframe, hand an editor-route navigation up to the
 		// parent so it mounts the in-process editor (sharing the session runtime)
@@ -694,7 +702,7 @@
 									style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 								>
 									<!-- Workspace picker as the drawer header (replaces the Windmill logo). -->
-									<div class="flex-shrink-0 px-2 h-12 w-40 flex items-center">
+									<div class="flex-shrink-0 px-2 h-12 w-52 flex items-center">
 										<Menubar class="w-full">
 											{#snippet children({ createMenu })}
 												<WorkspaceMenu {createMenu} />
@@ -704,28 +712,32 @@
 
 									{#if !embedded && globalAiEnabled}
 										<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
-										<div class="px-2 pb-1 w-40">
-											<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} />
+										<div class="px-2 pb-1 w-52">
+											<SessionModeSwitch
+												mode={sessionMode ? 'session' : 'nav'}
+												onToggle={() => (preserveMenuOnNextNav = true)}
+											/>
 										</div>
 									{/if}
 
 									{#if sessionMode}
 										<!-- Session mode: the session list owns the rail.
-										     w-40 cap: the drawer is max-w-min, and long session titles
-										     (nowrap before truncation) would otherwise inflate its
-										     min-content width to the full text width. -->
-										<div class="px-2 py-2 w-40">
+										     w-52 cap (matches the desktop sidebar width): the drawer is
+										     max-w-min, and long session titles (nowrap before truncation)
+										     would otherwise inflate its min-content width to the full
+										     text width. -->
+										<div class="px-2 py-2 w-52">
 											<SessionPicker isCollapsed={false} embedded />
 										</div>
 									{:else}
 										<!-- Navigation mode: the classic workspace navigation. -->
 										<!-- Workspace scope: names the active root/fork. -->
-										<div class="pt-2 w-40">
+										<div class="pt-2 w-52">
 											<WorkspaceScopeHeader isCollapsed={false} />
 										</div>
 
 										<!-- Workspace-scoped region: Home/Runs + Favorites + Search + workspace items. -->
-										<div class="px-2 pt-1 pb-2 w-40 flex flex-col gap-1">
+										<div class="px-2 pt-1 pb-2 w-52 flex flex-col gap-1">
 											{@render quickLinks(false)}
 											<Menubar>
 												{#snippet children({ createMenu })}

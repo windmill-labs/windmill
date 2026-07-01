@@ -6,10 +6,17 @@
 
 	// Which side of the switch is active. `nav` = workspace navigation (the classic
 	// app), `session` = the sessions sidebar + chat + preview.
-	let { mode, isCollapsed = false }: { mode: 'nav' | 'session'; isCollapsed?: boolean } = $props()
+	let {
+		mode,
+		isCollapsed = false,
+		// Fired right before the toggle navigates. Lets a host (e.g. the mobile menu
+		// drawer) keep itself open across the mode switch.
+		onToggle
+	}: { mode: 'nav' | 'session'; isCollapsed?: boolean; onToggle?: () => void } = $props()
 
 	function onSelected(next: 'nav' | 'session') {
 		if (next === mode) return
+		onToggle?.()
 		if (next === 'session') void enterSessionMode()
 		else void exitSessionMode()
 	}
