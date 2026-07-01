@@ -277,12 +277,18 @@
 			.replace(/^-|-$/g, '')
 	}
 
+	// Mirror the backend's fork validation so a bad name is caught before the create call rather than
+	// failing mid-creation: a workspace name is capped at 50 chars, and the derived id is prefixed with
+	// `wm-fork-` and must also stay within 50 chars (both are hard DB/git-branch limits).
 	const forkNameError = $derived.by<string | undefined>(() => {
 		const trimmed = newForkName.trim()
 		if (!trimmed) return undefined
+		if (trimmed.length > 50) return 'Name is too long (max 50 characters)'
 		const baseId = slugForkBaseId(trimmed)
 		if (!baseId) return 'Name must contain at least one letter or number'
 		const prefixed = `${WM_FORK_PREFIX}${baseId}`
+		if (prefixed.length > 50)
+			return 'Name is too long — the workspace id would exceed 50 characters'
 		const taken = new Set($userWorkspaces.map((w) => w.id))
 		if (pendingFork) taken.delete(pendingFork.id)
 		if (taken.has(prefixed)) return 'A workspace with this name already exists'

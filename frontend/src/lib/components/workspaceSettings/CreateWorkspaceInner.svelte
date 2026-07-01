@@ -121,6 +121,9 @@
 				: 'ID already exists'
 		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
 			errorId = 'ID can only contain letters, numbers and dashes and must not finish by a dash'
+		} else if (effectiveId.length > 50) {
+			// `wm-fork-` prefix included: matches the backend's 50-char (git-branch / DB) limit.
+			errorId = `ID '${effectiveId}' is too long (${effectiveId.length} chars). Maximum is 50.`
 		} else {
 			errorId = ''
 		}
