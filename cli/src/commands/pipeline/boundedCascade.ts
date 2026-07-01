@@ -168,6 +168,22 @@ export function validStarts(g: BCGraph): Set<string> {
   return out;
 }
 
+/**
+ * Script node ids that carry a row-backed event trigger (kafka/mqtt/nats/
+ * postgres/sqs/gcp/email). These fan out per-event and can't be run with empty
+ * args, so a whole-pipeline run must exclude them even when they're a lineage
+ * descendant of a valid start (not just when they're a root).
+ */
+export function eventTriggerScripts(g: BCGraph): Set<string> {
+  const out = new Set<string>();
+  for (const t of g.triggers ?? []) {
+    if (t.runnable_kind === "script" && EVENT_TRIGGER_KINDS.has(t.trigger_kind)) {
+      out.add(scriptNodeId(t.runnable_path));
+    }
+  }
+  return out;
+}
+
 /** Project a node-id set to the script paths it contains. */
 export function scriptsOf(nodes: Iterable<string>): string[] {
   const out: string[] = [];

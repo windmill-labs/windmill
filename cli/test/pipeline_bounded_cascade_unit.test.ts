@@ -15,6 +15,7 @@ import {
   scriptsOf,
   topoOrder,
   validStarts,
+  eventTriggerScripts,
 } from "../src/commands/pipeline/boundedCascade.ts";
 
 type W = [script: string, asset: string];
@@ -113,6 +114,18 @@ test("validStarts: schedule and manual roots, not events or subscribers", () => 
   expect(starts.has(sn("sched"))).toBe(true); // schedule overrides subscriber
   expect(starts.has(sn("sub"))).toBe(false); // pure subscriber
   expect(starts.has(sn("kfk"))).toBe(false); // event-only
+});
+
+test("eventTriggerScripts: event handlers, incl. ones that also subscribe (descendants)", () => {
+  const g = graph({
+    scripts: ["a", "evt"],
+    writes: [["a", "x"]],
+    subs: [["evt", "x"]], // evt is a lineage descendant of a…
+    native: [["kafka", "evt"]], // …and a kafka event handler
+  });
+  const ev = eventTriggerScripts(g);
+  expect(ev.has(sn("evt"))).toBe(true); // excluded from a whole-pipeline run despite being a descendant
+  expect(ev.has(sn("a"))).toBe(false);
 });
 
 test("assetUriToNodeId maps s3 → s3object, others verbatim", () => {

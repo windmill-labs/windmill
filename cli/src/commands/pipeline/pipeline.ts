@@ -13,6 +13,7 @@ import {
   boundedSet,
   buildLineageDag,
   descendants,
+  eventTriggerScripts,
   resolveToken,
   scriptNodeId,
   scriptPathOf,
@@ -465,16 +466,18 @@ async function run(
   let droppedEnds: string[] = [];
   if (runAll) {
     // Whole pipeline = every valid start (schedule/manual root) plus all its
-    // descendants, unioned. Deriving from `starts` (not all runnables) keeps
-    // event-trigger roots — kafka/mqtt/nats/postgres/sqs/gcp/email, which
-    // `validStarts` excludes because they fan out per-event — out of an
-    // unqualified `pipeline run <folder>`, so it never fires an event handler
-    // with empty args + side effects.
+    // descendants, unioned — then subtract event-trigger scripts. Event handlers
+    // (kafka/mqtt/nats/postgres/sqs/gcp/email) fan out per-event and can't run
+    // with empty args; `validStarts` already keeps them out of `starts`, but one
+    // can still be a lineage DESCENDANT of a valid start (it also reads an
+    // upstream asset), so it must be removed after the descendant union too — or
+    // an unqualified `pipeline run <folder>` would fire it with empty args.
     const all = new Set<string>();
     for (const s of starts) {
       all.add(s);
       for (const d of descendants(dag, s)) all.add(d);
     }
+    for (const ev of eventTriggerScripts(graph)) all.delete(ev);
     selectedScripts = new Set(scriptsOf(all));
   } else if (ends.length === 0) {
     // No bound → full read-aware downstream of start (pure readers included).

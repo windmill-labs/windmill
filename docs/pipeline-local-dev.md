@@ -98,7 +98,7 @@ mkdir -p ~/pl-demo/f/demo_pipeline && cd ~/pl-demo && printf 'defaultTs: bun\n' 
 wmilld pipeline show demo_pipeline --local
 wmilld pipeline run  demo_pipeline --local --dry-run
 wmilld pipeline run  demo_pipeline --local          # writes real s3 assets; needs object storage
-wmilld pipeline docs demo_pipeline
+wmilld pipeline docs demo_pipeline --local   # --local: document the working tree (default path queries the deployed graph)
 ```
 Or pull real pipelines: `wmilld sync pull --yes && wmilld pipeline list && wmilld pipeline show <folder> --local`.
 
