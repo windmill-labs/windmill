@@ -21,7 +21,7 @@
 </script>
 
 <div
-	class={twMerge('pb-8', wrapperClasses, handleOverflow ? 'h-full overflow-y-auto' : '')}
+	class={twMerge('pb-8', wrapperClasses, handleOverflow ? 'grow overflow-y-auto' : '')}
 	style={handleOverflow ? 'scrollbar-gutter: stable both-edges;' : ''}
 	{id}
 >
