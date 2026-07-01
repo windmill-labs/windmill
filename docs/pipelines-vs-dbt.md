@@ -49,7 +49,7 @@ Asset-centric, polyglot, annotation-driven, event-aware:
 | Data tests | No | **Shipped** (`// data_test`) |
 | Incremental materializations | No, but pick a philosophy | TODO with design decision |
 | Column lineage | No | **Shipped** (`// column`); docs site still TODO |
-| Snapshots / SCD2 | No | New output kind |
+| Snapshots / SCD2 | Yes (`key=… history`) | Managed strategy |
 | Selective execution grammar | No | UI/CLI surface |
 | Schema contracts | No, but design metadata model | TODO with design work |
 | Packages / community | Closed annotation parser starts to bind | Decide extensibility model |
@@ -117,12 +117,20 @@ buffer, and `resolveGraph` merges its `column_lineage` with the buffer's
 preview matches what deploys. The `dbt docs serve`-style static lineage *site*
 is still TODO.
 
-### 4. Snapshots / SCD2
+### 4. Snapshots / SCD2 — **shipped**
 
 dbt: `{% snapshot %}` blocks with `strategy='timestamp'` or `'check'`.
-Today: nothing. Add as a new `PipelineOutputKind` + `// snapshot strategy=
-timestamp updated_at=updated_at unique_key=id` annotation. Same shape as
-other output kinds.
+Shipped as a modifier on the keyed merge: `// materialize ducklake://<lake>/<dim>
+key=<natural_key> history [track=<c1,c2,…>]` (the leading keyword `scd2` is an
+alias). The SELECT returns the current snapshot (one row per key); the runtime
+adds `valid_from`/`valid_to`/`is_current` and, on each run, diffs against the live
+current rows to close changed versions and open new ones (dbt's `strategy='check'`
+shape — `track=` is the check-columns list; empty ⇒ all non-key columns). Because
+it's a managed strategy (not a new output kind), it inherits `// data_test` and
+schema capture, and each run (re)creates a `<dim>_current` view; consumers get
+effective-dated joins via native `ASOF JOIN … >= valid_from`. v1 is non-partitioned
+and soft-deletes (keys absent from the SELECT stay current); hard-delete/CDC and
+partitioned history are follow-ups. See `ducklake-materialization.md`.
 
 ### 5. Selective execution grammar
 

@@ -45,8 +45,9 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
 
 ```
 // materialize ducklake://analytics/orders_daily              → managed, replace (default)
-// materialize ducklake://analytics/orders_daily key=order_id → managed, merge
+// materialize ducklake://analytics/orders_daily key=order_id → managed, merge (SCD type 1)
 // materialize ducklake://analytics/orders_daily append       → managed, append
+// materialize ducklake://analytics/dim_customer key=id history → managed, SCD type 2 history
 // materialize manual ducklake://analytics/orders_daily       → track-only escape hatch
 ```
 
@@ -56,9 +57,28 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   error pointing to the `wmll.ducklake` helpers).
 - **`manual`** — escape hatch: the script writes its own DDL; Windmill only
   records state (no snapshot capture, no idempotency guarantee). Rare; explicit.
-- **`key=<col>`** → MERGE (dedup within slice); **`append`** → INSERT-only;
-  neither → DELETE-by-partition + INSERT (replace). `append` wins over `key` if
-  both are given (deploy warning).
+- **`key=<col>`** → MERGE (dedup within slice, SCD type 1 — overwrites history);
+  **`append`** → INSERT-only; neither → DELETE-by-partition + INSERT (replace).
+  `append` wins over `key` if both are given (deploy warning).
+- **`key=<col> history [track=<c1,c2,…>]`** → upgrades the keyed merge to managed
+  SCD **type 2** history (the leading keyword `scd2` is an alias). The SELECT is
+  the *current snapshot* (one row per `key`), and the runtime adds
+  `valid_from`/`valid_to`/`is_current`; a change to any tracked column (`track=`,
+  default all non-key) closes the prior version and opens a new one, keeping full
+  history. Diff → close-old (`UPDATE`) → open-new (`INSERT`) in one transaction;
+  the effective timestamp is the transaction clock (`now()`), so a run is
+  self-consistent. Keys absent from the SELECT stay current (soft delete). v1 is
+  **non-partitioned only** (`// partitioned` + history is rejected). Unlike
+  `manual`, it is managed, so `// data_test` and schema capture work.
+  `valid_from`/`valid_to`/`is_current` are **reserved** column names in this mode
+  — a SELECT that already projects one of them fails at run time (v1 constraint).
+  - **Consumer convenience.** Each run (re)creates a `<dim>_current` view (`WHERE
+    is_current`) in the same catalog, so the common "latest version" read needs no
+    filter and downstream scripts can `// on ducklake://…/<dim>_current`. The
+    effective-dated payoff is a native DuckDB `ASOF JOIN` against the history
+    table: `… ASOF JOIN <dim> d ON fact.key = d.<key> AND fact.ts >= d.valid_from`
+    returns, for each fact, the dimension version that was current at `fact.ts` —
+    something neither `merge` nor DuckLake time-travel can do in one query.
 - **`// partitioned <kind>`** — unit of work + state + backfill (separate;
   cross-cutting). Polyglot / multi-statement writes use the `wmll.ducklake`
   helpers instead of `// materialize`.
@@ -224,9 +244,12 @@ without anyone asking. This is deliberately **not** built, for three reasons:
 If a workload ever shows the consistency race in practice, pinning can be layered
 on top — the capture and the snapshot surfacing built here are its foundation.
 
-It also means **we do not build SCD2 snapshots** (gap #4 in `pipelines-vs-dbt.md`):
-DuckLake time-travel is a strictly better answer for most of what dbt's
-`{% snapshot %}` is used for. One fewer engine to write.
+This is distinct from **SCD2 history** (`// materialize … key=… history`), which *is* built:
+DuckLake time-travel answers "what did the whole table look like at snapshot N?"
+but not "give me each entity's version history as queryable rows"
+(`valid_from`/`valid_to`/`is_current`) — the shape dbt's `{% snapshot %}` produces
+and downstream dimensional queries join against. The scd2 strategy generates and
+manages that history table (see the strategy bullet above).
 
 ## Data tests (`// data_test`) — and the extensible-annotation pattern
 
