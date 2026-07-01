@@ -3,7 +3,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
-	import { Button, Badge } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -18,13 +18,12 @@
 		ArchiveRestore,
 		ArrowUpRight,
 		EllipsisVertical,
-		GitFork,
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
 		Trash2
 	} from 'lucide-svelte'
-	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
+	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import WorkspaceItemDrillPicker from '$lib/components/WorkspaceItemDrillPicker.svelte'
@@ -87,27 +86,11 @@
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
 
-	// The workspace context the session acts on: its family root (avatar + name)
-	// and, when the session runs in a fork, the fork name. Drives the "Acting on"
-	// strip in the header. `targetId` is the workspace the navigate button jumps to.
+	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
+	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the navigate button jumps to.
 	const acting = $derived.by(() => {
 		const wsId = session ? getEffectiveWorkspaceId(session) : undefined
-		if (!wsId) return undefined
-		const cur = $userWorkspaces.find((w) => w.id === wsId)
-		let root = cur
-		while (root?.parent_workspace_id) {
-			const parent = $userWorkspaces.find((w) => w.id === root!.parent_workspace_id)
-			if (!parent) break
-			root = parent
-		}
-		const isFork = !!cur && !!root && cur.id !== root.id
-		return {
-			targetId: wsId,
-			rootName: root?.name ?? wsId,
-			rootColor: root?.color,
-			forkName: isFork ? (cur?.name ?? wsId) : undefined,
-			forkIsDev: isFork ? !!cur?.is_dev_workspace : false
-		}
+		return wsId ? { targetId: wsId } : undefined
 	})
 
 	// Navigate to the workspace the session acts on: switch into it and leave
@@ -434,22 +417,11 @@
 					     the "Run in" picker (SessionWorkspaceBar) instead. -->
 					<div class="flex items-center gap-1 min-w-0 text-2xs text-tertiary">
 						<span class="shrink-0">Acting on</span>
-						<span class="inline-flex items-center gap-1 min-w-0 text-secondary">
-							<WorkspaceIcon workspaceColor={acting.rootColor} size={10} padding="p-0.5" />
-							<span class="truncate font-medium max-w-[8rem]">{acting.rootName}</span>
-						</span>
-						{#if acting.forkName}
-							<span class="shrink-0 text-tertiary">·</span>
-							<span
-								class="inline-flex items-center gap-0.5 min-w-0 rounded bg-surface-accent-selected text-accent px-1 py-0.5"
-							>
-								<GitFork size={11} class="shrink-0" />
-								<span class="truncate font-medium max-w-[8rem]">{acting.forkName}</span>
-								{#if acting.forkIsDev}
-									<Badge color="indigo" small>dev</Badge>
-								{/if}
-							</span>
-						{/if}
+						<WorkspaceScopeTrigger
+							workspaceId={acting.targetId}
+							showChevron={false}
+							class="max-w-[16rem]"
+						/>
 						<button
 							type="button"
 							onclick={navigateToActingWorkspace}

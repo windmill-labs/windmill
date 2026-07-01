@@ -5,37 +5,21 @@
 		workspaceStore,
 		globalForkModal,
 		userStore,
-		superadmin,
-		type UserWorkspace
+		superadmin
 	} from '$lib/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
-	import { Button } from '$lib/components/common'
-	import { ChevronDown, GitFork } from 'lucide-svelte'
+	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 
 	let { isCollapsed = false }: { isCollapsed?: boolean } = $props()
 
-	function findRoot(id: string | undefined, all: UserWorkspace[]): UserWorkspace | undefined {
-		if (!id) return undefined
-		let current = all.find((w) => w.id === id)
-		while (current?.parent_workspace_id) {
-			const parent = all.find((w) => w.id === current!.parent_workspace_id)
-			if (!parent) break
-			current = parent
-		}
-		return current
-	}
-
 	const effectiveId = $derived($workspaceStore ?? undefined)
-	const root = $derived(findRoot(effectiveId, $userWorkspaces))
 	const currentWs = $derived(
 		effectiveId ? $userWorkspaces.find((w) => w.id === effectiveId) : undefined
 	)
-	const isFork = $derived(!!currentWs && !!root && currentWs.id !== root.id)
-	const forkName = $derived(currentWs?.name ?? effectiveId)
 
 	// Settings link at the bottom of the picker — admin/superadmin only, scoped
 	// to the active workspace (fork or root).
@@ -85,28 +69,7 @@
 		class="min-w-0 w-full"
 	>
 		{#snippet trigger()}
-			<Button
-				variant="subtle"
-				unifiedSize="xs"
-				title={isFork ? `Fork: ${forkName}` : 'Workspace root'}
-				startIcon={isFork || isCollapsed ? { icon: GitFork } : undefined}
-				endIcon={!isCollapsed ? { icon: ChevronDown } : undefined}
-				wrapperClasses="w-full"
-				btnClasses="min-w-0 w-full rounded-md text-2xs {isCollapsed
-					? 'justify-center'
-					: 'justify-start'} {isFork
-					? 'bg-surface-accent-selected text-accent font-semibold'
-					: 'bg-surface-secondary'}"
-			>
-				{#if !isCollapsed}
-					<span class="truncate min-w-0 flex-1 text-left">
-						<span class="{isFork ? 'text-accent/80' : 'text-tertiary'} font-normal"
-							>{isFork ? 'Fork:' : 'Workspace'}</span
-						>
-						{isFork ? forkName : 'root'}
-					</span>
-				{/if}
-			</Button>
+			<WorkspaceScopeTrigger workspaceId={effectiveId} {isCollapsed} class="w-full" />
 		{/snippet}
 	</WorkspaceFamilyPicker>
 </div>

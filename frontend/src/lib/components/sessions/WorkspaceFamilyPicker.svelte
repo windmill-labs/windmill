@@ -1,15 +1,11 @@
 <script lang="ts">
 	import { tick, type Snippet } from 'svelte'
-	import {
-		enterpriseLicense,
-		userStore,
-		userWorkspaces,
-		workspaceStore,
-		type UserWorkspace
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		findWorkspaceDescendants,
-		findCanonicalDevWorkspace
+		findCanonicalDevWorkspace,
+		findWorkspaceRoot,
+		buildWorkspaceHierarchy
 	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { getUserExt } from '$lib/user'
@@ -24,7 +20,8 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { Badge } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
+	import Select from '../select/Select.svelte'
 	import { Building, Check, GitFork, Plus, Settings } from 'lucide-svelte'
 
 	type PendingFork = { parent_workspace_id: string; id: string; name: string }
@@ -76,31 +73,40 @@
 
 	const WM_FORK_PREFIX = 'wm-fork-'
 
-	function findRoot(id: string | undefined, all: UserWorkspace[]): UserWorkspace | undefined {
-		if (!id) return undefined
-		let current = all.find((w) => w.id === id)
-		while (current?.parent_workspace_id) {
-			const parent = all.find((w) => w.id === current!.parent_workspace_id)
-			if (!parent) break
-			current = parent
-		}
-		return current
-	}
-
 	const effectiveId = $derived(selectedId ?? $workspaceStore ?? undefined)
-	const root = $derived(findRoot(effectiveId, $userWorkspaces))
+	const root = $derived(findWorkspaceRoot(effectiveId, $userWorkspaces))
 	const forks = $derived(root ? findWorkspaceDescendants(root.id, $userWorkspaces) : [])
 
-	// New forks derive from the editable dev workspace when the family has one:
-	// the root (prod) is typically forking-locked, so a non-admin can't fork it,
-	// and dev holds the current code anyway. Falls back to the root otherwise.
+	// The family's canonical dev workspace, if any — still used for gating (a forking-locked root can be
+	// forked via its dev) and as a selectable base with a "dev" badge.
 	const devOfRoot = $derived(root ? findCanonicalDevWorkspace(root.id, $userWorkspaces) : undefined)
-	const forkSource = $derived(devOfRoot ?? root)
-	// In delegation mode (onRequestCreateFork) the target flow picks its own
-	// source, so keep the row generic; inline mode names the dev it forks from.
-	const createForkLabel = $derived(
-		!onRequestCreateFork && devOfRoot ? `Fork from ${devOfRoot.name}` : 'Create new fork…'
+	const createForkLabel = 'Create new fork…'
+	// Candidate bases ("targets") for a new fork: the root plus every fork/dev in the family, so a fork
+	// can itself be the base — i.e. a fork of a fork. Root first, matching the list order below.
+	const baseOptions = $derived(root ? [root, ...forks] : [])
+	// Options for the base-branch <Select>. The nesting (fork of a fork) is rendered via the Select's
+	// per-item `startSnippet` as a depth-based spacer, so the label text itself stays clean.
+	const baseItems = $derived(
+		baseOptions.map((w) => ({
+			value: w.id,
+			label: w.name,
+			subtitle: w.id === root?.id ? 'root' : w.is_dev_workspace ? 'dev workspace' : undefined
+		}))
 	)
+
+	// Depth of each workspace within its family (root = 0, its forks = 1, forks of forks = 2, …), from
+	// the shared hierarchy builder — the same one the sidebar workspace menu uses — so the list indents
+	// forks of forks under their parent the same way. `forks` is a DFS of descendants (parent before
+	// child), so indenting each row by its depth nests it under its parent.
+	const familyDepths = $derived(
+		new Map(buildWorkspaceHierarchy($userWorkspaces).map((h) => [h.workspace.id, h.depth]))
+	)
+	// Extra left padding (on top of the row's base px-3) to nest a workspace one step per depth level,
+	// matching the sidebar menu's `depth * 16px`.
+	function indentStyle(id: string): string | undefined {
+		const depth = familyDepths.get(id) ?? 0
+		return depth > 0 ? `padding-left: ${12 + depth * 16}px` : undefined
+	}
 
 	// Judge the prod root off its OWN protection rules (fetched), not the active
 	// workspace's — so it reads correctly from a dev/fork too, the same way
@@ -123,10 +129,6 @@
 	const canDeployRoot = $derived(
 		!isRuleActiveInRulesets(rootRulesets, 'DisableDirectDeployment') ||
 			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableDirectDeployment', rootUserInfo)
-	)
-	const canForkRoot = $derived(
-		!isRuleActiveInRulesets(rootRulesets, 'DisableWorkspaceForking') ||
-			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', rootUserInfo)
 	)
 	// A genuinely deploy-locked root (you can't deploy and can't bypass) is disabled regardless of
 	// whether a dev workspace exists to steer to — being deploy-locked is the gate, not dev presence.
@@ -168,41 +170,21 @@
 	const showForkUpsell = $derived(
 		forkAffordanceOpen && ceWorkspaceCapReached && !onRequestCreateFork
 	)
-	// Whether the second "Fork from <root>" create entry is shown (admins can fork the prod root
-	// directly even when the default entry forks the dev). Mirrors its render condition so keyboard
-	// nav and the row index math stay in sync. Suppressed while the root's rules are still loading,
-	// otherwise `canForkRoot` defaults true and a non-bypass user could stage a fork from a
-	// forking-locked root before the rules resolve. Never shown in delegation mode — that path stages
-	// nothing inline (no onCreateFork), so a "Fork from <root>" inline entry would be a dead row.
-	const hasCreateFromRoot = $derived(
-		showCreateFork &&
-			!onRequestCreateFork &&
-			!rootRulesetsResource.loading &&
-			!rootUserInfoResource.loading &&
-			canForkRoot &&
-			!!devOfRoot
-	)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
 	let newForkName = $state('')
 	let forkInput: TextInput | undefined = $state(undefined)
-	// Admins get a second entry to fork the prod root directly (the default forks
-	// the dev). `forkFromRoot` tracks which source the create input is for.
-	let forkFromRoot = $state(false)
-	const effectiveForkSource = $derived(forkFromRoot ? root : forkSource)
+	// The base ("target") a new fork will branch from. Defaults to the root; the user can pick any fork
+	// in the family (via the inline target selector) to create a fork of a fork.
+	let createForkBaseId = $state<string | undefined>(undefined)
 
 	// Manual keyboard navigation, modelled after SelectDropdown. melt's
 	// menu API couples Enter/Space to closing the menu, which we explicitly
 	// don't want for the "Create new fork" row — it swaps to inline input.
-	type NavRow =
-		| { kind: 'create' }
-		| { kind: 'create-from-root' }
-		| { kind: 'root'; id: string }
-		| { kind: 'fork'; id: string }
+	type NavRow = { kind: 'create' } | { kind: 'root'; id: string } | { kind: 'fork'; id: string }
 	const navRows = $derived<NavRow[]>([
 		...(showCreateFork ? [{ kind: 'create' as const }] : []),
-		...(hasCreateFromRoot ? [{ kind: 'create-from-root' as const }] : []),
 		...(root ? [{ kind: 'root' as const, id: root.id }] : []),
 		...forks.map((f) => ({ kind: 'fork' as const, id: f.id }))
 	])
@@ -214,8 +196,6 @@
 	function activateRow(row: NavRow) {
 		if (row.kind === 'create') {
 			requestCreateFork()
-		} else if (row.kind === 'create-from-root') {
-			void enterCreateMode(undefined, true)
 		} else if (row.kind === 'root') {
 			if (!rootDisabled) void pick(row.id)
 		} else if (row.kind === 'fork') {
@@ -254,8 +234,9 @@
 		await onPick(id)
 	}
 
-	async function enterCreateMode(initialName?: string, fromRoot = false) {
-		forkFromRoot = fromRoot
+	async function enterCreateMode(initialName?: string, baseId?: string) {
+		// Default the target to the root; the user can switch to any fork in the family (fork of a fork).
+		createForkBaseId = baseId ?? root?.id
 		creatingFork = true
 		newForkName = initialName ?? defaultForkName()
 		await tick()
@@ -266,7 +247,6 @@
 	function cancelCreate() {
 		creatingFork = false
 		newForkName = ''
-		forkFromRoot = false
 	}
 
 	function slugForkBaseId(name: string): string {
@@ -297,16 +277,15 @@
 
 	async function stageNewFork() {
 		const name = newForkName.trim()
-		if (!effectiveForkSource || !name || forkNameError || !onCreateFork) return
+		if (!createForkBaseId || !name || forkNameError || !onCreateFork) return
 		const baseId = slugForkBaseId(name)
 		if (!baseId) return
 		const prefixed = `${WM_FORK_PREFIX}${baseId}`
 		// Close optimistically; consumer can re-open + toast on error.
 		creatingFork = false
 		newForkName = ''
-		forkFromRoot = false
 		dropdownOpen = false
-		await onCreateFork({ parent_workspace_id: effectiveForkSource.id, id: prefixed, name })
+		await onCreateFork({ parent_workspace_id: createForkBaseId, id: prefixed, name })
 	}
 
 	function isSelected(id: string): boolean {
@@ -322,9 +301,9 @@
 		const wasOpen = lastDropdownOpen
 		lastDropdownOpen = dropdownOpen
 		if (dropdownOpen && !wasOpen && pendingFork && !creatingFork && showCreateFork) {
-			// Preserve which source the fork was staged from (root vs dev); without this the re-entry
-			// defaults to the dev and silently re-parents a "Fork from <root>" request.
-			void enterCreateMode(pendingFork.name, pendingFork.parent_workspace_id === root?.id)
+			// Preserve the base the fork was staged from; without this the re-entry defaults to the root
+			// and silently re-parents a fork that was staged off another fork.
+			void enterCreateMode(pendingFork.name, pendingFork.parent_workspace_id)
 		}
 	})
 </script>
@@ -365,24 +344,26 @@
 		{@const rowBase =
 			'px-3 py-1.5 text-xs font-normal text-primary flex flex-row gap-2 items-center text-left rounded-sm w-full'}
 		<div
-			class="bg-surface-tertiary dark:border w-64 origin-top-left rounded-lg shadow-lg focus:outline-none py-1 flex flex-col max-h-80"
+			class="bg-surface-tertiary dark:border w-80 origin-top-left rounded-lg shadow-lg focus:outline-none py-1 flex flex-col max-h-80"
 		>
 			<!-- Scrollable rows; the settings footer below stays pinned. -->
 			<div class="flex flex-col overflow-y-auto min-h-0">
 				{#if showCreateFork}
 					{#if creatingFork}
-						<div class="flex flex-col gap-1 px-2 py-1.5">
-							<div class="flex flex-row items-center gap-1.5">
-								<Plus size={14} class="shrink-0 text-tertiary" />
+						<!-- Small inline form with labels: fork name + base ("target") workspace. The base
+							     defaults to the root; picking a fork there creates a fork of a fork. -->
+						<div class="flex flex-col gap-2 px-2.5 py-2">
+							<div class="flex flex-col gap-0.5">
+								<span class="text-2xs font-normal text-hint">Fork name</span>
 								<!-- svelte-ignore a11y_autofocus -->
 								<TextInput
 									bind:this={forkInput}
 									bind:value={newForkName}
-									size="xs"
+									size="sm"
 									error={forkNameError}
-									class="flex-1 min-w-0"
+									class="w-full"
 									inputProps={{
-										placeholder: 'Fork name',
+										placeholder: 'my-fork',
 										autofocus: true,
 										'aria-invalid': forkNameError ? 'true' : undefined,
 										onkeydown: (e: KeyboardEvent) => {
@@ -398,25 +379,47 @@
 										}
 									}}
 								/>
-								<button
-									type="button"
-									aria-label="Confirm"
-									title="Stage fork"
-									onclick={() => void stageNewFork()}
-									disabled={!newForkName.trim() || !!forkNameError}
-									class="inline-flex items-center justify-center w-5 h-5 rounded text-accent hover:bg-surface-hover disabled:opacity-40 disabled:cursor-not-allowed"
+							</div>
+							<div class="flex flex-col gap-0.5">
+								<span class="text-2xs font-normal text-hint">Base workspace</span>
+								<Select
+									size="sm"
+									class="w-full"
+									disablePortal
+									placeholder="Base workspace"
+									items={baseItems}
+									bind:value={createForkBaseId}
 								>
-									<Check size={14} />
-								</button>
+									{#snippet startSnippet({ item })}
+										{@const d = familyDepths.get(item.value) ?? 0}
+										{#if d > 0}
+											<span class="inline-block shrink-0" style="width: {d * 14}px"></span>
+										{/if}
+									{/snippet}
+								</Select>
 							</div>
 							{#if forkNameError || createForkCaption}
-								<div class="pl-6">
+								<div>
 									<InputError error={forkNameError} />
 									{#if !forkNameError && createForkCaption}
 										<span class="text-2xs text-tertiary">{createForkCaption}</span>
 									{/if}
 								</div>
 							{/if}
+							<div class="flex flex-row justify-end items-center gap-1.5 pt-0.5">
+								<Button variant="subtle" unifiedSize="xs" on:click={() => cancelCreate()}>
+									Cancel
+								</Button>
+								<Button
+									variant="accent"
+									unifiedSize="xs"
+									startIcon={{ icon: Check }}
+									disabled={!newForkName.trim() || !!forkNameError}
+									on:click={() => void stageNewFork()}
+								>
+									Set as target
+								</Button>
+							</div>
 						</div>
 					{:else}
 						{@const createIdx = 0}
@@ -429,18 +432,6 @@
 							<Plus size={14} class="shrink-0 text-tertiary" />
 							<span>{createForkLabel}</span>
 						</button>
-						{#if hasCreateFromRoot}
-							{@const createFromRootIdx = 1}
-							<button
-								type="button"
-								class={`${rowBase} ${keyArrowPos === createFromRootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-								onmouseenter={() => (keyArrowPos = createFromRootIdx)}
-								onclick={() => enterCreateMode(undefined, true)}
-							>
-								<Plus size={14} class="shrink-0 text-tertiary" />
-								<span>Fork from {root?.name}</span>
-							</button>
-						{/if}
 					{/if}
 					<div class="my-1 border-t border-border-light shrink-0"></div>
 				{:else if showForkUpsell}
@@ -458,7 +449,7 @@
 				{/if}
 
 				{#if root}
-					{@const rootIdx = (showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0)}
+					{@const rootIdx = showCreateFork ? 1 : 0}
 					<button
 						type="button"
 						disabled={rootDisabled}
@@ -479,10 +470,10 @@
 					</button>
 				{/if}
 				{#each forks as f, fi (f.id)}
-					{@const forkIdx =
-						(showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0) + (root ? 1 : 0) + fi}
+					{@const forkIdx = (showCreateFork ? 1 : 0) + (root ? 1 : 0) + fi}
 					<button
 						type="button"
+						style={indentStyle(f.id)}
 						class={`${rowBase} ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
 						onmouseenter={() => (keyArrowPos = forkIdx)}
 						onclick={() => void pick(f.id)}
@@ -490,7 +481,7 @@
 						<GitFork size={14} class="shrink-0 text-tertiary" />
 						<span class="truncate">{f.name}</span>
 						{#if f.is_dev_workspace}
-							<Badge color="indigo" small>dev</Badge>
+							<Badge color="dark-blue" small class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white">dev</Badge>
 						{/if}
 					</button>
 				{/each}

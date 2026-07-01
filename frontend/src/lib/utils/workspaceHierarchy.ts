@@ -105,6 +105,25 @@ export function isRootWorkspace(workspace: UserWorkspace): boolean {
 }
 
 /**
+ * Walk up `parent_workspace_id` to the top of a workspace's family. Stops at the first ancestor not
+ * present in `allWorkspaces` (e.g. a parent the user can't see) and returns it, so the result is
+ * always the highest reachable ancestor. Returns undefined when the id itself isn't in the list.
+ */
+export function findWorkspaceRoot(
+	workspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): UserWorkspace | undefined {
+	if (!workspaceId) return undefined
+	let current = allWorkspaces.find((w) => w.id === workspaceId)
+	while (current?.parent_workspace_id) {
+		const parent = allWorkspaces.find((w) => w.id === current!.parent_workspace_id)
+		if (!parent) break
+		current = parent
+	}
+	return current
+}
+
+/**
  * Whether a workspace (by id) is a fork or dev workspace. Forks and dev workspaces both set
  * `parent_workspace_id` (a dev workspace has no `wm-fork-` id prefix), but a `wm-fork-` workspace can
  * outlive its parent (the parent FK is `ON DELETE SET NULL`), so treat the prefix as fork-ness too —
