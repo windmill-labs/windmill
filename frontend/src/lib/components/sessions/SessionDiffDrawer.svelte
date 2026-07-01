@@ -12,13 +12,11 @@
 	let {
 		workspaceId,
 		parentWorkspaceId,
-		keys,
-		chatId
+		keys
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
 		keys?: Set<string>
-		chatId?: string
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -54,19 +52,13 @@
 	}
 
 	const title = $derived(isFork ? '' : 'Drafts')
-	const reviewBase = $derived(
-		`/forks/compare?workspace_id=${encodeURIComponent(workspaceId)}${
-			chatId ? `&from_session=${encodeURIComponent(chatId)}` : ''
-		}`
-	)
-	const reviewHref = $derived(isFork ? reviewBase : `${reviewBase}&mode=draft`)
 
 	export function open(segment?: DeploySegment) {
 		inner?.open(segment)
 	}
 </script>
 
-<WorkspaceDiffDrawer bind:this={inner} {model} {title} {reviewHref} {editUrlFor}>
+<WorkspaceDiffDrawer bind:this={inner} {model} {title} {editUrlFor}>
 	{#snippet titleExtra()}
 		<div class="flex items-center gap-1.5 text-xs text-secondary min-w-0">
 			{#if isFork}

@@ -7,13 +7,11 @@
 		ChevronDown,
 		ChevronRight,
 		Folder,
-		GitMerge,
 		Loader2,
 		PanelRightClose,
 		PanelRightOpen,
 		User
 	} from 'lucide-svelte'
-	import { goto } from '$lib/navigation'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
@@ -54,15 +52,11 @@
 	let {
 		model,
 		title,
-		reviewHref,
-		reviewLabel = 'Review',
 		editUrlFor = undefined,
 		titleExtra
 	}: {
 		model: SessionDeployModel
 		title: string
-		reviewHref: string
-		reviewLabel?: string
 		/** Editor URL for a row (opens in the workspace the item lives in). */
 		editUrlFor?: (item: DeployItem) => string | undefined
 		titleExtra?: Snippet
@@ -162,9 +156,8 @@
 	}
 
 	function scrollToDiff(d: DeployItem) {
-		const el = document.getElementById(rowId(d)) as HTMLDetailsElement | null
+		const el = document.getElementById(rowId(d))
 		if (!el) return
-		el.open = true
 		el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 	}
 
@@ -426,7 +419,7 @@
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
 					title={node.fullPath}
-					class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+					class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
@@ -460,8 +453,10 @@
 					{:else if appItem}
 						{@render statePill(appItem)}
 					{/if}
-					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
-					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+					<span class="w-5 flex items-center justify-center shrink-0">
+						<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
+						<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+					</span>
 				</summary>
 			{:else}
 				<summary
@@ -469,7 +464,7 @@
 					aria-selected={isHl}
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
-					class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer text-xs font-normal font-mono text-secondary hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+					class="flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs font-normal font-mono text-secondary hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
@@ -488,8 +483,10 @@
 						<Folder size={12} class="shrink-0 text-tertiary" />
 					{/if}
 					<span class="flex-1 min-w-0 truncate" title={node.name}>{node.name}</span>
-					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
-					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+					<span class="w-5 flex items-center justify-center shrink-0">
+						<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
+						<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+					</span>
 				</summary>
 			{/if}
 			<div class="relative">
@@ -516,7 +513,7 @@
 			<WorkspaceItemRow
 				kind={d.deployKind as any}
 				iconPath={d.path}
-				baseClass="py-1.5"
+				baseClass="py-1.5 min-w-0"
 				singleLine
 				summary={d.summary}
 				secondary={node.name}
@@ -544,19 +541,21 @@
 					<span class="w-5 shrink-0" aria-hidden="true"></span>
 				{/snippet}
 			</WorkspaceItemRow>
-			<button
-				type="button"
-				title="Open diff"
-				aria-label="Open diff"
-				class="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center p-1 rounded text-tertiary opacity-0 group-hover/reveal:opacity-100 focus:opacity-100 hover:text-primary hover:bg-surface-selected transition-opacity"
-				onmousedown={(e) => e.preventDefault()}
-				onclick={(e) => {
-					e.stopPropagation()
-					void revealDiff(d, key)
-				}}
-			>
-				<PanelRightOpen size={13} />
-			</button>
+			{#if rightPanelCollapsed}
+				<button
+					type="button"
+					title="Open diff"
+					aria-label="Open diff"
+					class="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center p-1 rounded text-tertiary opacity-0 group-hover/reveal:opacity-100 focus:opacity-100 hover:text-primary hover:bg-surface-selected transition-opacity"
+					onmousedown={(e) => e.preventDefault()}
+					onclick={(e) => {
+						e.stopPropagation()
+						void revealDiff(d, key)
+					}}
+				>
+					<PanelRightOpen size={13} />
+				</button>
+			{/if}
 		</div>
 	{/if}
 {/snippet}
@@ -655,36 +654,30 @@
 					onclick={() => (rightPanelCollapsed = !rightPanelCollapsed)}
 				/>
 			{/if}
-			<Button
-				variant="accent"
-				unifiedSize="sm"
-				startIcon={{ icon: GitMerge }}
-				onclick={() => goto(reviewHref)}
-			>
-				{reviewLabel}
-			</Button>
 		{/snippet}
 		<div class="flex flex-col h-full min-h-0">
 			{#if model.context.isFork && model.context.parentWorkspaceId}
 				{@const parentTarget = model.context.parentName ?? 'parent'}
-				<div class="shrink-0 px-3 pt-3 flex flex-col gap-2">
-					{#if model.behindCount > 0}
-						<div
-							class="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-950/30"
+				{#if model.behindCount > 0}
+					<div
+						class="shrink-0 mx-3 mt-3 flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-950/30"
+					>
+						<span class="text-amber-800 dark:text-amber-300">
+							Fork is {model.behindCount} behind {parentTarget}
+						</span>
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							disabled={model.deploying}
+							onclick={() => model.updateFork()}
 						>
-							<span class="text-amber-800 dark:text-amber-300">
-								Fork is {model.behindCount} behind {parentTarget}
-							</span>
-							<Button
-								variant="default"
-								unifiedSize="xs"
-								disabled={model.deploying}
-								onclick={() => model.updateFork()}
-							>
-								Update fork
-							</Button>
-						</div>
-					{/if}
+							Update fork
+						</Button>
+					</div>
+				{/if}
+				<!-- Horizontal padding only: collapses to zero height (no gap) when the
+				     alert renders nothing, which is the case unless a rule is active. -->
+				<div class="shrink-0 px-3">
 					<ParentWorkspaceProtectionAlert
 						parentWorkspaceId={model.context.parentWorkspaceId}
 						onUpdateCanDeploy={(c) => (canDeployToParent = c)}
@@ -704,13 +697,7 @@
 						<div class="px-2 pt-2 shrink-0 flex flex-wrap gap-1">
 							{#each visibleSegments as seg}
 								{@const active = model.segment === seg.id}
-								<Badge
-									small
-									clickable
-									selected={active}
-									color={active ? 'blue' : 'gray'}
-									onclick={() => model.setSegment(seg.id)}
-								>
+								<Badge small clickable selected={active} onclick={() => model.setSegment(seg.id)}>
 									{seg.label} · {model.counts[seg.id]}
 								</Badge>
 							{/each}
@@ -740,7 +727,9 @@
 								</button>
 							</div>
 						{/if}
-						<div class="flex-1 min-h-0 overflow-y-auto pb-3 flex flex-col gap-1">
+						<div
+							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-2 pb-3 flex flex-col gap-1"
+						>
 							{#if treeModel.root.children.length > 0}
 								{#each treeModel.root.children as child}
 									{@render renderTreeNode(child, 0)}
@@ -753,7 +742,7 @@
 				{/if}
 				{#if !rightPanelCollapsed}
 					<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
-						<div class="px-3 pt-3 pb-4 flex flex-col gap-3">
+						<div class="px-3 pt-0 pb-4 flex flex-col gap-3">
 							{#if model.loading && model.items.length === 0}
 								<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
 									<Loader2 class="w-4 h-4 animate-spin" />
@@ -770,22 +759,15 @@
 									{searchQuery.trim() ? 'No files match.' : 'Nothing in this filter.'}
 								</div>
 							{:else}
-								<div class="flex flex-col gap-2">
+								<div class="-mx-3 flex flex-col divide-y divide-light border-y border-light">
 									{#each filteredItems as d (d.key)}
 										{@const action = actionFor(d, model.context)}
 										{@const editUrl = editUrlFor?.(d)}
 										{@const status = model.statusOf(d.key)}
-										<details
-											open
-											id={rowId(d)}
-											class="border border-light rounded-md bg-surface scroll-mt-2"
-										>
-											<summary
-												class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden border-b border-transparent rounded-md"
+										<div id={rowId(d)} class="bg-surface scroll-mt-2">
+											<div
+												class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 border-b border-transparent"
 											>
-												<ChevronDown
-													class="w-3.5 h-3.5 shrink-0 text-tertiary transition-transform chevron"
-												/>
 												<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
 												<div class="min-w-0 flex-1">
 													{#if editUrl}
@@ -839,7 +821,8 @@
 														{#if action.secondary?.length}
 															<Button
 																variant="subtle"
-																unifiedSize="xs"
+																unifiedSize="sm"
+																destructive
 																disabled={model.deploying}
 																onclick={() => model.discardRow(d)}
 															>
@@ -848,7 +831,7 @@
 														{/if}
 														<Button
 															variant="accent"
-															unifiedSize="xs"
+															unifiedSize="sm"
 															disabled={model.deploying || needsOb || parentBlocked}
 															title={needsOb
 																? 'Choose "run on behalf of" first'
@@ -868,13 +851,11 @@
 														</span>
 													{/if}
 												</div>
-											</summary>
-											<div
-												class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
-											>
+											</div>
+											<div class="bg-surface-tertiary overflow-hidden">
 												{@render diffBlock(d)}
 											</div>
-										</details>
+										</div>
 									{/each}
 								</div>
 							{/if}
@@ -959,9 +940,6 @@
 </Drawer>
 
 <style>
-	details:not([open]) :global(.chevron) {
-		transform: rotate(-90deg);
-	}
 	details:not([open]) > .tree-summary :global(.tree-chevron-open) {
 		display: none;
 	}

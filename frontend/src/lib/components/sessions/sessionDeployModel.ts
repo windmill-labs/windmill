@@ -354,7 +354,7 @@ function parentLabel(context: SessionContext): string {
 export function actionFor(item: DeployItem, context: SessionContext): DeployAction {
 	const discard: DeployAction = {
 		op: 'discard',
-		label: item.draftOnly ? 'Delete draft' : 'Discard',
+		label: item.draftOnly ? 'Discard draft' : 'Discard',
 		targetStage: null
 	}
 	switch (item.state) {

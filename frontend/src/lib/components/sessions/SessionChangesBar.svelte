@@ -251,7 +251,6 @@
 		workspaceId={committedId}
 		{parentWorkspaceId}
 		keys={mask}
-		chatId={session.chatId}
 	/>
 {:else if showDraftRow && committedId}
 	<div
@@ -268,6 +267,5 @@
 		bind:this={diffDrawer}
 		workspaceId={committedId}
 		keys={mask}
-		chatId={session.chatId}
 	/>
 {/if}

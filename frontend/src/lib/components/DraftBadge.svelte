@@ -203,7 +203,7 @@
 	<span class="flex -space-x-1">
 		{#each visibleUsers as u, i (i)}
 			<span
-				class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
+				class="inline-flex h-3 w-3 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
 					u
 				)}"
 				title={u.username === currentUsername ? `${fullLabel(u)} (you)` : fullLabel(u)}
@@ -213,7 +213,7 @@
 		{/each}
 		{#if overflowCount > 0}
 			<span
-				class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
+				class="inline-flex h-3 w-3 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
 				title="{overflowCount} more"
 			>
 				+{overflowCount}
@@ -243,7 +243,7 @@
 					{/if}
 				</span>
 			{:else}
-				<Badge small color="indigo">
+				<Badge small color="indigo" class="px-1 py-0 gap-0.5">
 					{#if orderedUsers.length > 0}
 						{@render circleStack()}
 					{/if}
