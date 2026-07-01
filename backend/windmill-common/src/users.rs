@@ -47,7 +47,8 @@ lazy_static::lazy_static! {
 const EMAIL_CACHE_TTL_SECS: u64 = 60;
 
 /// Get email from permissioned_as string.
-/// - "u/{username}" → lookup email from usr table (cached)
+/// - "u/{username}" → lookup email from usr table, falling back to the instance
+///   `password` table (cached)
 /// - "g/{group}" → "group-{group}@windmill.dev"
 /// - raw email → return as-is
 pub async fn get_email_from_permissioned_as<'c>(
@@ -62,13 +63,21 @@ pub async fn get_email_from_permissioned_as<'c>(
                 return Ok(email);
             }
         }
+        // Fall back to `password` when the username is not a workspace member: a
+        // superadmin acting in a workspace they are not a member of carries their
+        // instance-derived username (`password.username`), so resolving only via
+        // `usr` would otherwise yield a bogus `<username>@unknown.windmill.dev`.
         let email = sqlx::query_scalar!(
-            "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+            "SELECT COALESCE(
+                (SELECT email FROM usr WHERE username = $1 AND workspace_id = $2),
+                (SELECT email FROM password WHERE username = $1)
+            )",
             username,
             workspace_id
         )
         .fetch_optional(db)
         .await?
+        .flatten()
         .unwrap_or_else(|| format!("{}@unknown.windmill.dev", username));
         let key = (workspace_id.to_string(), username.to_string());
         EMAIL_CACHE.insert(key, (email.clone(), std::time::Instant::now()));
