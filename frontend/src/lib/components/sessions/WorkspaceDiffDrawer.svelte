@@ -32,6 +32,8 @@
 	import { tick, type Snippet } from 'svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
 	import OnBehalfOfSelector from '../OnBehalfOfSelector.svelte'
+	import ParentWorkspaceProtectionAlert from '../ParentWorkspaceProtectionAlert.svelte'
+	import DeploymentRequestPanel from '../deploymentRequest/DeploymentRequestPanel.svelte'
 	import {
 		actionFor,
 		isOnBehalfEligible,
@@ -73,6 +75,11 @@
 	// Collapse the diff panel to browse the tree at full width; a per-row action
 	// (or clicking a row) re-expands it and jumps to the item.
 	let rightPanelCollapsed = $state(false)
+	// Parent-workspace protection: when direct deploy is disallowed, the parent
+	// deploy becomes a "Request deployment" flow.
+	let canDeployToParent = $state(true)
+	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
+	let hasOpenDeploymentRequest = $state(false)
 
 	export function open() {
 		loadedDiffs = {}
@@ -643,6 +650,32 @@
 			</Button>
 		{/snippet}
 		<div class="flex flex-col h-full min-h-0">
+			{#if model.context.isFork && model.context.parentWorkspaceId}
+				{@const parentTarget = model.context.parentName ?? 'parent'}
+				<div class="shrink-0 px-3 pt-3 flex flex-col gap-2">
+					{#if model.behindCount > 0}
+						<div
+							class="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-950/30"
+						>
+							<span class="text-amber-800 dark:text-amber-300">
+								Fork is {model.behindCount} behind {parentTarget}
+							</span>
+							<Button
+								variant="default"
+								unifiedSize="xs"
+								disabled={model.deploying}
+								onclick={() => model.updateFork()}
+							>
+								Update fork
+							</Button>
+						</div>
+					{/if}
+					<ParentWorkspaceProtectionAlert
+						parentWorkspaceId={model.context.parentWorkspaceId}
+						onUpdateCanDeploy={(c) => (canDeployToParent = c)}
+					/>
+				</div>
+			{/if}
 			<div class="flex flex-row flex-1 min-h-0">
 				{#if model.items.length > 0}
 					<aside
@@ -765,6 +798,8 @@
 													{:else if action.op !== 'none'}
 														{@const needsOb =
 															action.op === 'deploy_item' && model.needsOnBehalfChoice(d)}
+														{@const parentBlocked =
+															action.targetStage === 'parent' && !canDeployToParent}
 														{#if action.op === 'deploy_item' && isOnBehalfEligible(d.deployKind) && model.context.parentWorkspaceId}
 															<OnBehalfOfSelector
 																targetWorkspace={model.context.parentWorkspaceId}
@@ -789,8 +824,12 @@
 														<Button
 															variant="accent"
 															unifiedSize="xs"
-															disabled={model.deploying || needsOb}
-															title={needsOb ? 'Choose "run on behalf of" first' : undefined}
+															disabled={model.deploying || needsOb || parentBlocked}
+															title={needsOb
+																? 'Choose "run on behalf of" first'
+																: parentBlocked
+																	? 'Direct deploy to the parent is disabled — use Request deployment'
+																	: undefined}
 															onclick={() => model.deployRow(d)}
 														>
 															{action.label}
@@ -843,19 +882,30 @@
 							>
 								Deploy {model.footer.toFork} to fork
 							</Button>
-							<Button
-								variant="accent"
-								unifiedSize="xs"
-								disabled={model.deploying ||
-									model.footer.toParent === 0 ||
-									model.hasUnselectedOnBehalf}
-								title={model.hasUnselectedOnBehalf
-									? 'Choose "run on behalf of" for the flagged items first'
-									: undefined}
-								onclick={() => model.deploySelected('parent')}
-							>
-								Deploy {model.footer.toParent} to {parentTarget}
-							</Button>
+							{#if canDeployToParent}
+								<Button
+									variant="accent"
+									unifiedSize="xs"
+									disabled={model.deploying ||
+										model.footer.toParent === 0 ||
+										model.hasUnselectedOnBehalf}
+									title={model.hasUnselectedOnBehalf
+										? 'Choose "run on behalf of" for the flagged items first'
+										: undefined}
+									onclick={() => model.deploySelected('parent')}
+								>
+									Deploy {model.footer.toParent} to {parentTarget}
+								</Button>
+							{:else}
+								<!-- Parent forbids direct deploys → route through a request. -->
+								<Button
+									variant="accent"
+									unifiedSize="xs"
+									onclick={() => deploymentRequestPanel?.openRequestDialog()}
+								>
+									{hasOpenDeploymentRequest ? 'View deployment request' : 'Request deployment'}
+								</Button>
+							{/if}
 						{:else}
 							<Button
 								variant="accent"
@@ -870,6 +920,16 @@
 				</div>
 			{/if}
 		</div>
+		{#if model.context.isFork && model.context.parentWorkspaceId}
+			<DeploymentRequestPanel
+				bind:this={deploymentRequestPanel}
+				forkWorkspaceId={model.context.currentWorkspaceId}
+				parentWorkspaceId={model.context.parentWorkspaceId}
+				currentUsername={$userStore?.username ?? ''}
+				isAdmin={$userStore?.is_admin ?? false}
+				onStateChange={(open) => (hasOpenDeploymentRequest = open)}
+			/>
+		{/if}
 	</DrawerContent>
 </Drawer>
 

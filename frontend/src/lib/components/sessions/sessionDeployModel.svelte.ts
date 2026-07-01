@@ -358,6 +358,25 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		}
 	}
 
+	// ── Behind (fork trails parent) ──────────────────────────────────────────
+	// Items the parent changed under the fork (behind, not also ahead — a
+	// conflict is left for explicit resolution). "Update fork" pulls the parent's
+	// version into the fork for each.
+	const behindItems = $derived(items.filter((i) => i.behind > 0 && i.ahead === 0))
+
+	async function updateFork() {
+		if (deploying) return
+		deploying = true
+		try {
+			const targets = behindItems.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
+			let any = false
+			for (const item of targets) if (await deployOne(item)) any = true
+			if (any) refreshData()
+		} finally {
+			deploying = false
+		}
+	}
+
 	// ── Diff values (one resolver for tree + column) ─────────────────────────
 	async function loadDiffValues(item: DeployItem): Promise<DiffValues> {
 		const base = diffBaseFor(item, context)
@@ -431,6 +450,10 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		deployRow,
 		discardRow,
 		deploySelected,
+		get behindCount() {
+			return behindItems.length
+		},
+		updateFork,
 		// On-behalf-of
 		get hasUnselectedOnBehalf() {
 			return hasUnselectedOnBehalf
