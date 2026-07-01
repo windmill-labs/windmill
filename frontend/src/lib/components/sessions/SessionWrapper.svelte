@@ -3,7 +3,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Badge } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -105,7 +105,8 @@
 			targetId: wsId,
 			rootName: root?.name ?? wsId,
 			rootColor: root?.color,
-			forkName: isFork ? (cur?.name ?? wsId) : undefined
+			forkName: isFork ? (cur?.name ?? wsId) : undefined,
+			forkIsDev: isFork ? !!cur?.is_dev_workspace : false
 		}
 	})
 
@@ -444,6 +445,9 @@
 							>
 								<GitFork size={11} class="shrink-0" />
 								<span class="truncate font-medium max-w-[8rem]">{acting.forkName}</span>
+								{#if acting.forkIsDev}
+									<Badge color="indigo" small>dev</Badge>
+								{/if}
 							</span>
 						{/if}
 						<button

@@ -12,6 +12,7 @@
 		type UserWorkspace
 	} from '$lib/stores'
 	import { Building, Plus } from 'lucide-svelte'
+	import { Badge } from '$lib/components/common'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
@@ -162,16 +163,26 @@
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
 							<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
-								<WorkspaceIcon workspaceColor={workspace.color} {isForked} {parentName} />
+								<WorkspaceIcon
+									workspaceColor={workspace.color}
+									{isForked}
+									isDevWorkspace={workspace.is_dev_workspace}
+									{parentName}
+								/>
 								<div class="min-w-0 flex-1">
-									<div
-										class={twMerge(
-											'truncate text-left text-xs font-normal',
-											isSelected ? 'text-accent' : 'text-primary'
-										)}
-										title={workspace.name}
-									>
-										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
+									<div class="flex items-center gap-1 min-w-0">
+										<div
+											class={twMerge(
+												'truncate text-left text-xs font-normal',
+												isSelected ? 'text-accent' : 'text-primary'
+											)}
+											title={workspace.name}
+										>
+											{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
+										</div>
+										{#if workspace.is_dev_workspace}
+											<Badge color="indigo" small>dev</Badge>
+										{/if}
 									</div>
 									<div
 										class={twMerge(
