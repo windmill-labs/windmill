@@ -71,6 +71,25 @@
 	const displayGraph = $derived((bundle?.graph ?? EMPTY_GRAPH) as AssetGraphResponse)
 	const pathPrefix = $derived(`f/${folder}/`)
 
+	// Producers of the selected asset — the local scripts that write it (`w`/`rw`
+	// edge, incl. the `// materialize` target). Mirrors the route page so the
+	// details pane shows the producer + its runs instead of "No producer for this
+	// asset" (which only holds for the deployed graph, absent here).
+	const selectionProducers = $derived.by(() => {
+		const sel = pe.selection
+		if (!sel || sel.kind !== 'asset') return []
+		return displayGraph.edges
+			.filter((e) => {
+				const access = e.access_type ?? 'r'
+				return (
+					(access === 'w' || access === 'rw') &&
+					e.asset_kind === sel.asset_kind &&
+					e.asset_path === sel.path
+				)
+			})
+			.map((e) => ({ kind: e.runnable_kind as 'script' | 'flow', path: e.runnable_path }))
+	})
+
 	// path -> pushed local content, for preview-running each node.
 	const scriptByPath = $derived(
 		new Map<string, PushedScript>((bundle?.scripts ?? []).map((s) => [s.path, s]))
@@ -344,6 +363,7 @@
 				onRunByPath={(path, args) => runNode(path, args)}
 				{resolveLocalScript}
 				localScriptsVersion={bundle}
+				{selectionProducers}
 				canRunByPath
 				onRunCompleted={() => {
 					activeRunnable = undefined
