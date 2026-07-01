@@ -42,16 +42,24 @@ interface PipelineDevOpts extends GlobalOptions, SyncOptions {
   frontend?: string;
 }
 
-// The WS token gates access to local source. Persist it per-port under the
-// user-private config dir (0600) so a `pipeline dev` restart on the same port
-// reuses it — an already-open `/pipeline_dev` page auto-reconnecting with the
-// token from its URL then survives the restart, instead of every upgrade being
-// rejected by `verifyClient` until the freshly printed URL is reopened. Falls
-// back to an ephemeral token if the config dir can't be read/written.
-async function stableWsToken(port: number): Promise<string> {
+// The WS token gates access to local source. Persist it under the user-private
+// config dir (0600) so a `pipeline dev` restart reuses it — an already-open
+// `/pipeline_dev` page auto-reconnecting with the token from its URL then
+// survives the restart, instead of every upgrade being rejected by
+// `verifyClient` until the freshly printed URL is reopened. Scoped by
+// workspace+folder+port (NOT port alone): a same-session restart reconnects,
+// but a *different* folder on the same port gets a different token, so a stale
+// tab from a prior folder's session can't reconnect and receive another folder's
+// source. Falls back to an ephemeral token if the config dir can't be read/written.
+async function stableWsToken(
+  workspaceId: string,
+  folder: string,
+  port: number,
+): Promise<string> {
+  const key = `${workspaceId}__${folder}__${port}`.replace(/[^a-zA-Z0-9._-]/g, "_");
   let tokenFile: string | undefined;
   try {
-    tokenFile = path.join(await getConfigDirPath(), `pipeline-dev-${port}.token`);
+    tokenFile = path.join(await getConfigDirPath(), `pipeline-dev-${key}.token`);
     const existing = fs.readFileSync(tokenFile, "utf-8").trim();
     if (existing) return existing;
   } catch {
@@ -192,9 +200,10 @@ async function dev(opts: PipelineDevOpts, folderArg?: string) {
   // script source. Gate the upgrade on an unguessable per-session token (carried
   // in the dev-page URL) so a stray page on the predictable dev port can't
   // exfiltrate the source. base64url → safe as a query value.
-  // Stable per-port across restarts so an already-open page reconnects after a
-  // CLI restart (see stableWsToken), not just after a transient WS drop.
-  const wsToken = await stableWsToken(port);
+  // Stable across restarts (scoped to workspace+folder+port) so an already-open
+  // page reconnects after a CLI restart (see stableWsToken), not just after a
+  // transient WS drop.
+  const wsToken = await stableWsToken(workspace.workspaceId, folder, port);
   const wss = new WebSocketServer({
     server,
     verifyClient: (info) => {
