@@ -1,20 +1,40 @@
-import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+import { UserService, WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
-import { getItemValue } from '$lib/utils_workspace_deploy'
-import { getDraftDiffValues } from '$lib/utils_draft_deploy'
 import {
+	deleteItemInWorkspace,
+	deployItem,
+	getItemValue,
+	getOnBehalfOf,
+	type DeployResult
+} from '$lib/utils_workspace_deploy'
+import { deployDraft, discardDraft, getDraftDiffValues } from '$lib/utils_draft_deploy'
+import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
+import { untrack } from 'svelte'
+import {
+	needsOnBehalfOfSelection,
+	type OnBehalfOfChoice,
+	type OnBehalfOfDetails
+} from '../OnBehalfOfSelector.svelte'
+import {
+	actionFor,
 	buildDeployItems,
 	defaultSelection,
+	deployPlanFor,
 	diffBaseFor,
+	discardPlanFor,
 	footerSummary,
+	isOnBehalfEligible,
 	itemsInSegment,
 	segmentCounts,
 	selectableOf,
 	type DeployItem,
+	type DeployPlanEntry,
 	type DeploySegment,
 	type FooterSummary,
 	type SessionContext
 } from './sessionDeployModel'
+
+export type DeploymentStatus = { status: 'loading' | 'deployed' | 'failed'; error?: string }
 
 // Reactive wrapper over the pure sessionDeployModel: owns the two async data
 // sources (per-user draft list + fork comparison), builds the unified item list,
@@ -146,6 +166,198 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		return list.filter(selectableOf).map((i) => i.key)
 	}
 
+	// ── On-behalf-of (fork→parent promotions of runnables/triggers) ──────────
+	// An item carries a "run on behalf of" identity in the parent. When the source
+	// (fork) item has one set, the user must choose whose identity the deployed
+	// item runs as; the deploy button is gated until they do. Ported from
+	// CompareWorkspaces. Only the deploy-to-parent direction is modelled (the
+	// session pipeline never promotes fork→parent in reverse here).
+	let onBehalfInfo = $state<Record<string, string | undefined>>({})
+	let onBehalfChoice = $state<Record<string, OnBehalfOfChoice>>({})
+	let customOnBehalf = $state<Record<string, OnBehalfOfDetails>>({})
+	let canPreserveInParent = $state(false)
+	// Non-reactive fetch guard: a stored `undefined` value (no identity) must not
+	// look "unfetched" and re-trigger the request.
+	const onBehalfFetched = new Set<string>()
+
+	function obKey(ws: string, key: string): string {
+		return `${ws}/${key}`
+	}
+	function sourceOnBehalf(item: DeployItem): string | undefined {
+		return onBehalfInfo[obKey(getArgs().workspaceId, item.key)]
+	}
+	function targetOnBehalf(item: DeployItem): string | undefined {
+		const parent = getArgs().parentWorkspaceId
+		return parent ? onBehalfInfo[obKey(parent, item.key)] : undefined
+	}
+	/** Only fork→parent promotions of eligible kinds whose source has an identity
+	 *  set, and only until the user has picked. */
+	function needsOnBehalfChoice(item: DeployItem): boolean {
+		if (item.state !== 'in_fork' || item.ahead <= 0) return false
+		if (!isOnBehalfEligible(item.deployKind)) return false
+		return (
+			needsOnBehalfOfSelection(item.deployKind, sourceOnBehalf(item)) &&
+			onBehalfChoice[item.key] === undefined
+		)
+	}
+	function resolveOnBehalf(item: DeployItem): string | undefined {
+		const choice = onBehalfChoice[item.key]
+		if (choice === 'target') return targetOnBehalf(item)
+		if (choice === 'custom') {
+			const d = customOnBehalf[item.key]
+			return isTriggerOrScheduleKind(item.deployKind) ? d?.permissionedAs : d?.email
+		}
+		// 'me' / undefined → deploying user's identity (backend default).
+		return undefined
+	}
+	function setOnBehalfChoice(key: string, choice: OnBehalfOfChoice, details?: OnBehalfOfDetails) {
+		onBehalfChoice = { ...onBehalfChoice, [key]: choice }
+		if (details) customOnBehalf = { ...customOnBehalf, [key]: details }
+	}
+
+	// Fetch source+target on-behalf identities for eligible in-fork items.
+	$effect(() => {
+		const list = items
+		const parent = getArgs().parentWorkspaceId
+		const cur = getArgs().workspaceId
+		if (!parent) return
+		untrack(() => {
+			for (const it of list) {
+				if (it.state !== 'in_fork' || !isOnBehalfEligible(it.deployKind)) continue
+				for (const ws of [cur, parent]) {
+					const wk = obKey(ws, it.key)
+					if (onBehalfFetched.has(wk)) continue
+					onBehalfFetched.add(wk)
+					void getOnBehalfOf(it.deployKind, it.path, ws)
+						.then((v) => (onBehalfInfo = { ...onBehalfInfo, [wk]: v }))
+						.catch(() => (onBehalfInfo = { ...onBehalfInfo, [wk]: undefined }))
+				}
+			}
+		})
+	})
+
+	// Whether the user may preserve an existing on-behalf identity in the parent
+	// (admin / wm_deployers) — gates the selector's "target" option.
+	$effect(() => {
+		const parent = getArgs().parentWorkspaceId
+		if (!parent) return
+		untrack(() => {
+			void UserService.whoami({ workspace: parent })
+				.then(
+					(u) => (canPreserveInParent = u.is_admin || u.groups?.includes('wm_deployers') || false)
+				)
+				.catch(() => (canPreserveInParent = false))
+		})
+	})
+
+	const hasUnselectedOnBehalf = $derived(
+		items.some((i) => selectedKeys.has(i.key) && needsOnBehalfChoice(i))
+	)
+
+	// ── Deploy execution ─────────────────────────────────────────────────────
+	// Per-item deploy state (keyed by DeployItem.key). Reassigned, not mutated.
+	let deploymentStatus = $state<Record<string, DeploymentStatus>>({})
+	let deploying = $state(false)
+	// Fork comparison recomputes asynchronously (~hundreds of ms) after a deploy,
+	// so an immediate re-fetch returns the pre-change tally — re-poll to catch up.
+	let pollTimers: ReturnType<typeof setTimeout>[] = []
+
+	function setStatus(key: string, s: DeploymentStatus | undefined) {
+		const next = { ...deploymentStatus }
+		if (s) next[key] = s
+		else delete next[key]
+		deploymentStatus = next
+	}
+
+	async function runPlan(entry: DeployPlanEntry, onBehalfOf?: string): Promise<DeployResult> {
+		const cur = getArgs().workspaceId
+		switch (entry.op) {
+			case 'deploy_draft':
+				return deployDraft(entry.draftKind!, entry.path, cur, {
+					draftOnly: entry.draftOnly,
+					rawApp: entry.rawApp
+				})
+			case 'discard':
+				return discardDraft(entry.draftKind!, entry.path, cur, entry.draftOnly, entry.legacy)
+			case 'deploy_item':
+			case 'update_fork':
+				return deployItem({
+					kind: entry.deployKind,
+					path: entry.path,
+					workspaceFrom: entry.workspaceFrom!,
+					workspaceTo: entry.workspaceTo!,
+					onBehalfOf
+				})
+			case 'delete_in_parent':
+				return deleteItemInWorkspace(entry.deployKind, entry.path, entry.workspaceTo!)
+		}
+	}
+
+	function refreshData() {
+		void fetchDrafts()
+		if (getArgs().isFork) {
+			pollTimers.forEach(clearTimeout)
+			void fetchComparison()
+			pollTimers = [800, 1800, 3500].map((d) => setTimeout(() => void fetchComparison(), d))
+		}
+	}
+
+	/** Deploy (or discard) a single item; returns whether it succeeded. */
+	async function deployOne(item: DeployItem, discard = false): Promise<boolean> {
+		const plan = discard ? discardPlanFor(item, context) : deployPlanFor(item, context)
+		if (!plan) return false
+		// Never promote an eligible item to the parent without a resolved identity.
+		if (!discard && needsOnBehalfChoice(item)) return false
+		setStatus(item.key, { status: 'loading' })
+		const res = await runPlan(plan, discard ? undefined : resolveOnBehalf(item))
+		setStatus(
+			item.key,
+			res.success ? { status: 'deployed' } : { status: 'failed', error: res.error }
+		)
+		return res.success
+	}
+
+	/** Deploy all selected, actionable rows targeting a given stage. Folders first
+	 *  (a folder must exist before items land under it), deployed rows skipped. */
+	async function deploySelected(targetStage: 'fork' | 'parent') {
+		if (deploying) return
+		deploying = true
+		try {
+			const targets = items
+				.filter((i) => selectedKeys.has(i.key))
+				.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
+				.filter((i) => {
+					const a = actionFor(i, context)
+					return a.op !== 'none' && a.targetStage === targetStage
+				})
+				.sort((a, b) => (a.deployKind === 'folder' ? -1 : 0) - (b.deployKind === 'folder' ? -1 : 0))
+			const deployed: string[] = []
+			for (const item of targets) {
+				if (await deployOne(item)) deployed.push(item.key)
+			}
+			if (deployed.length > 0) {
+				setSelected(deployed, false)
+				refreshData()
+			}
+		} finally {
+			deploying = false
+		}
+	}
+
+	async function deployRow(item: DeployItem) {
+		if (await deployOne(item)) {
+			setSelected([item.key], false)
+			refreshData()
+		}
+	}
+
+	async function discardRow(item: DeployItem) {
+		if (await deployOne(item, true)) {
+			setSelected([item.key], false)
+			refreshData()
+		}
+	}
+
 	// ── Diff values (one resolver for tree + column) ─────────────────────────
 	async function loadDiffValues(item: DeployItem): Promise<DiffValues> {
 		const base = diffBaseFor(item, context)
@@ -209,7 +421,29 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		clearSelection,
 		selectableKeysOf,
 		load,
-		loadDiffValues
+		loadDiffValues,
+		get deploying() {
+			return deploying
+		},
+		statusOf(key: string): DeploymentStatus | undefined {
+			return deploymentStatus[key]
+		},
+		deployRow,
+		discardRow,
+		deploySelected,
+		// On-behalf-of
+		get hasUnselectedOnBehalf() {
+			return hasUnselectedOnBehalf
+		},
+		get canPreserveOnBehalf() {
+			return canPreserveInParent
+		},
+		needsOnBehalfChoice,
+		onBehalfChoiceOf(key: string): OnBehalfOfChoice {
+			return onBehalfChoice[key]
+		},
+		targetOnBehalf,
+		setOnBehalfChoice
 	}
 }
 

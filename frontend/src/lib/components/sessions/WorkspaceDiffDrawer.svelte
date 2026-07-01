@@ -31,8 +31,10 @@
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
 	import { tick, type Snippet } from 'svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
+	import OnBehalfOfSelector from '../OnBehalfOfSelector.svelte'
 	import {
 		actionFor,
+		isOnBehalfEligible,
 		pipelineOf,
 		selectableOf,
 		type DeployItem,
@@ -363,6 +365,29 @@
 			></div>
 		{/each}
 	</div>
+{/snippet}
+
+{#snippet deployStatus(item: DeployItem)}
+	{@const s = model.statusOf(item.key)}
+	{#if s?.status === 'loading'}
+		<span class="inline-flex items-center gap-1 text-2xs text-secondary">
+			<Loader2 class="w-3 h-3 animate-spin" />Deploying…
+		</span>
+	{:else if s?.status === 'deployed'}
+		<Badge color="green" small>Deployed</Badge>
+	{:else if s?.status === 'failed'}
+		<span class="inline-flex items-center gap-1" title={s.error}>
+			<Badge color="red" small>Failed</Badge>
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				disabled={model.deploying}
+				onclick={() => model.deployRow(item)}
+			>
+				Retry
+			</Button>
+		</span>
+	{/if}
 {/snippet}
 
 {#snippet renderTreeNode(node: TreeNode<DeployItem>, depth: number)}
@@ -701,6 +726,7 @@
 									{#each filteredItems as d (d.key)}
 										{@const action = actionFor(d, model.context)}
 										{@const editUrl = editUrlFor?.(d)}
+										{@const status = model.statusOf(d.key)}
 										<details
 											open
 											id={rowId(d)}
@@ -734,16 +760,48 @@
 												<div class="shrink-0 flex items-center gap-2">
 													{@render pipeline(pipelineOf(d, model.context))}
 													{@render statePill(d)}
-													{#if action.op !== 'none'}
-														<!-- Deploy action is inert in S2; wired in S3. -->
+													{#if status}
+														{@render deployStatus(d)}
+													{:else if action.op !== 'none'}
+														{@const needsOb =
+															action.op === 'deploy_item' && model.needsOnBehalfChoice(d)}
+														{#if action.op === 'deploy_item' && isOnBehalfEligible(d.deployKind) && model.context.parentWorkspaceId}
+															<OnBehalfOfSelector
+																targetWorkspace={model.context.parentWorkspaceId}
+																targetValue={model.targetOnBehalf(d)}
+																selected={model.onBehalfChoiceOf(d.key)}
+																onSelect={(choice, details) =>
+																	model.setOnBehalfChoice(d.key, choice, details)}
+																kind={d.deployKind}
+																canPreserve={model.canPreserveOnBehalf}
+															/>
+														{/if}
+														{#if action.secondary?.length}
+															<Button
+																variant="subtle"
+																unifiedSize="xs"
+																disabled={model.deploying}
+																onclick={() => model.discardRow(d)}
+															>
+																{action.secondary[0].label}
+															</Button>
+														{/if}
 														<Button
 															variant="accent"
 															unifiedSize="xs"
-															disabled
-															title="Deploy wiring lands in a later stage"
+															disabled={model.deploying || needsOb}
+															title={needsOb ? 'Choose "run on behalf of" first' : undefined}
+															onclick={() => model.deployRow(d)}
 														>
 															{action.label}
 														</Button>
+													{:else if action.blockedReason}
+														<span
+															class="text-2xs text-amber-600 dark:text-amber-400"
+															title={action.blockedReason}
+														>
+															Blocked
+														</span>
 													{/if}
 												</div>
 											</summary>
@@ -760,7 +818,7 @@
 					</main>
 				{/if}
 			</div>
-			<!-- Footer: selection summary + (inert) deploy buttons -->
+			<!-- Footer: selection summary + deploy buttons -->
 			{#if model.items.length > 0}
 				{@const parentTarget = model.context.parentName ?? 'parent'}
 				<div
@@ -769,21 +827,42 @@
 					<div class="text-secondary min-w-0 truncate">
 						{#if model.context.isFork}
 							{model.footer.toFork} to fork · {model.footer.toParent} to {parentTarget} selected{#if model.footer.conflicts > 0}
-								· {model.footer.conflicts} blocked{/if}
+								· {model.footer.conflicts} blocked{/if}{#if model.hasUnselectedOnBehalf}
+								· needs on-behalf-of{/if}
 						{:else}
 							{model.footer.toParent} selected to deploy
 						{/if}
 					</div>
 					<div class="flex items-center gap-1.5 shrink-0">
 						{#if model.context.isFork}
-							<Button variant="default" unifiedSize="xs" disabled title="Wired in a later stage">
+							<Button
+								variant="default"
+								unifiedSize="xs"
+								disabled={model.deploying || model.footer.toFork === 0}
+								onclick={() => model.deploySelected('fork')}
+							>
 								Deploy {model.footer.toFork} to fork
 							</Button>
-							<Button variant="accent" unifiedSize="xs" disabled title="Wired in a later stage">
+							<Button
+								variant="accent"
+								unifiedSize="xs"
+								disabled={model.deploying ||
+									model.footer.toParent === 0 ||
+									model.hasUnselectedOnBehalf}
+								title={model.hasUnselectedOnBehalf
+									? 'Choose "run on behalf of" for the flagged items first'
+									: undefined}
+								onclick={() => model.deploySelected('parent')}
+							>
 								Deploy {model.footer.toParent} to {parentTarget}
 							</Button>
 						{:else}
-							<Button variant="accent" unifiedSize="xs" disabled title="Wired in a later stage">
+							<Button
+								variant="accent"
+								unifiedSize="xs"
+								disabled={model.deploying || model.footer.toParent === 0}
+								onclick={() => model.deploySelected('parent')}
+							>
 								Deploy {model.footer.toParent}
 							</Button>
 						{/if}
