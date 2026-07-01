@@ -629,11 +629,13 @@ async fn list_pending_invites(
 }
 
 async fn is_premium(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Path(_w_id): Path<String>,
 ) -> JsonResult<bool> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Any workspace member (not just admins) may read whether the workspace is on a paid plan: it's a
+    // single boolean, and the frontend needs it to decide whether to surface premium-gated affordances
+    // (e.g. forking) to non-admin developers too. The `_authed` extractor still enforces membership.
     #[cfg(feature = "cloud")]
     let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
         .await?
@@ -5177,7 +5179,7 @@ async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()
 
     if !get_team_plan_status(db, &root).await?.premium {
         return Err(Error::BadRequest(
-            "Forking a workspace on the cloud requires a paid team plan. Upgrade the workspace to create forks.".to_string(),
+            "Creating a fork or dev workspace on the cloud requires a paid team plan. Upgrade the workspace first.".to_string(),
         ));
     }
 
@@ -5371,16 +5373,12 @@ async fn attach_dev_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    // Attaching reparents an existing standalone workspace under prod (one dev per prod, admin-gated),
-    // so it draws prod's plan. Gate it behind prod being premium like the fork cap does.
+    // Attaching reparents an existing standalone workspace under prod (one dev per prod, admin-gated)
+    // and it then draws prod's plan and counts as a fork of it, so hold it to the same premium +
+    // per-seat cap as creating a fork (also blocks attaching when MAX_FORKS_PER_SEAT is 0).
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        let plan = windmill_common::workspaces::get_team_plan_status(&db, &prod_w_id).await?;
-        if !plan.premium {
-            return Err(Error::BadRequest(
-                "Dev workspaces on the cloud require a paid team plan.".to_string(),
-            ));
-        }
+        enforce_cloud_fork_cap(&db, &prod_w_id).await?;
     }
 
     let dev_w_id = req.dev_workspace_id;

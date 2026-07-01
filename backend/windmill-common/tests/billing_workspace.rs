@@ -112,14 +112,17 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
 
     assert_eq!(count_paid_seats(&db, "seat-root").await.unwrap(), 3);
 
-    // 2 live forks + 1 deleted fork -> count is 2.
     insert_ws(&db, "seat-fork1", Some("seat-root"), false).await;
     insert_ws(&db, "seat-fork2", Some("seat-root"), false).await;
+    // A deleted fork itself is not counted...
     insert_ws(&db, "seat-fork-deleted", Some("seat-root"), true).await;
+    // ...but a live sub-fork under it still is (deleted filter is on the outer SELECT, not the walk).
+    insert_ws(&db, "seat-deleted-child", Some("seat-fork-deleted"), false).await;
     // A grandchild fork still counts.
     insert_ws(&db, "seat-fork1-child", Some("seat-fork1"), false).await;
 
-    assert_eq!(count_workspace_forks(&db, "seat-root").await.unwrap(), 3);
+    // Live: fork1, fork2, fork1-child, deleted-child -> 4 (seat-fork-deleted excluded).
+    assert_eq!(count_workspace_forks(&db, "seat-root").await.unwrap(), 4);
     // A standalone workspace has no forks.
     assert_eq!(count_workspace_forks(&db, "seat-fork2").await.unwrap(), 0);
 }

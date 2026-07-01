@@ -358,6 +358,10 @@ lazy_static::lazy_static! {
 /// Resolve the "billing" workspace for `w_id`: the root ancestor of the fork/dev chain (the
 /// workspace whose plan and usage a fork draws from). Returns `w_id` unchanged for a standalone
 /// workspace, an unknown id, or a (malformed) cyclic chain.
+///
+/// Unauthenticated metering helper: it only reads the parent chain and returns another workspace id,
+/// so callers must already be authorized for `w_id` (or run in trusted server-side code); `w_id` is
+/// expected to be a server-side id, not raw user input.
 #[cfg(feature = "cloud")]
 pub async fn get_billing_workspace_id(db: &crate::DB, w_id: &str) -> Result<String> {
     let now = chrono::Utc::now().timestamp();
@@ -398,18 +402,24 @@ pub fn invalidate_billing_workspace_cache(w_id: &str) {
 }
 
 /// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).
+///
+/// Unauthenticated metering helper: it reads workspace hierarchy for any `root` id, so callers must
+/// already be authorized for that workspace (or run in trusted server-side code). `root` is expected
+/// to be a server-resolved id, never raw user input.
 #[cfg(feature = "cloud")]
 pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
+    // The `deleted` filter is on the outer SELECT (not the recursive step) so that a live sub-fork
+    // whose intermediate parent was soft-deleted is still counted rather than pruned with it.
     let count = sqlx::query_scalar!(
         r#"
             WITH RECURSIVE tree AS (
-                SELECT id, 0 AS depth FROM workspace WHERE id = $1
+                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1
                 UNION ALL
-                SELECT w.id, tree.depth + 1 FROM workspace w
+                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
                 JOIN tree ON w.parent_workspace_id = tree.id
-                WHERE NOT w.deleted AND tree.depth < 20
+                WHERE tree.depth < 20
             )
-            SELECT COUNT(*) AS "count!" FROM tree WHERE id != $1
+            SELECT COUNT(*) AS "count!" FROM tree WHERE id != $1 AND NOT deleted
         "#,
         root
     )
@@ -423,6 +433,9 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
 /// service-account members. Reuses billing's author/operator weighting, but counts provisioned
 /// members rather than the active-user population billing meters, so it only ever loosens the fork
 /// cap (never blocks a paid seat) — good enough for a soft guardrail.
+///
+/// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
 #[cfg(feature = "cloud")]
 pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
     let row = sqlx::query!(
