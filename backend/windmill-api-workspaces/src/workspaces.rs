@@ -3818,6 +3818,21 @@ async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
     return Ok(());
 }
 
+async fn _check_nb_of_archived_workspaces(db: &DB) -> Result<()> {
+    let nb_archived = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace WHERE id != 'admins' AND deleted = true",
+    )
+    .fetch_one(db)
+    .await?;
+    if nb_archived.unwrap_or(0) >= 1 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of archived workspaces (1) without an enterprise license. Permanently delete or unarchive the existing archived workspace first"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
 async fn create_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5675,6 +5690,11 @@ async fn archive_workspace(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // CE caps the number of archived (soft-deleted) workspaces so archiving can't be used to
+    // stockpile hidden workspaces. Enforced here so a second archive is refused up front.
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_archived_workspaces(&db).await?;
 
     // If this is an attached dev workspace, archiving it leaves the prod with no active dev (the
     // unique index and user_workspaces both ignore deleted=true), so clear the prod's
