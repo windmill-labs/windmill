@@ -67,6 +67,9 @@ type Fixture = {
 			manual?: boolean
 			append?: boolean
 			unique_key?: string | null
+			scd2?: boolean
+			track?: string[]
+			close_deleted?: boolean
 		} | null
 		// Snake_case form matching the Rust `DataTest` serde output, so the one
 		// corpus drives both sides. The TS parser emits this shape verbatim
@@ -161,6 +164,15 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 				)
 				expect(got.materialize?.uniqueKey, 'materialize key').toEqual(
 					f.expected.materialize.unique_key ?? undefined
+				)
+				expect(got.materialize?.scd2 ?? false, 'materialize scd2').toBe(
+					f.expected.materialize.scd2 ?? false
+				)
+				expect(got.materialize?.track ?? [], 'materialize track').toEqual(
+					f.expected.materialize.track ?? []
+				)
+				expect(got.materialize?.closeDeleted ?? false, 'materialize close_deleted').toBe(
+					f.expected.materialize.close_deleted ?? false
 				)
 			}
 
