@@ -1,4 +1,4 @@
-import type { UserDraftItemKind, WorkspaceComparison, WorkspaceItemDiff } from '$lib/gen'
+import type { UserDraftItemKind, WorkspaceComparison } from '$lib/gen'
 import type { DraftItem } from '$lib/workspaceDrafts.svelte'
 import type { Kind } from '$lib/utils_deployable'
 import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
@@ -101,12 +101,6 @@ export interface BuildInput {
 }
 
 // ── Build: merge draft list + fork comparison into unified items ─────────────
-
-/** Whether a fork diff represents a deletion in the fork (present in parent,
- *  gone from fork). Mirrors SessionDiffDrawer.statusOf's `removed`. */
-function isDeletion(d: WorkspaceItemDiff): boolean {
-	return d.exists_in_fork === false && d.exists_in_source !== false
-}
 
 function stateFrom(opts: {
 	hasDraft: boolean
@@ -322,12 +316,9 @@ export function actionFor(item: DeployItem, context: SessionContext): DeployActi
 		case 'draft':
 			return context.isFork
 				? { op: 'deploy_draft', label: 'Deploy to fork', targetStage: 'fork', secondary: [discard] }
-				: {
-						op: 'deploy_draft',
-						label: `Deploy to ${parentLabel(context)}`,
-						targetStage: 'parent',
-						secondary: [discard]
-					}
+				: // Main (non-fork): a draft deploys within its own workspace — there is
+					// no separate parent to name.
+					{ op: 'deploy_draft', label: 'Deploy', targetStage: 'parent', secondary: [discard] }
 		case 'in_fork':
 			// ahead → promote to parent; behind-only → the parent moved, update fork.
 			if (item.ahead > 0) {

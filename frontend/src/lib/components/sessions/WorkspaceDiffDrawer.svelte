@@ -1,56 +1,16 @@
-<script lang="ts" module>
-	import type { UserDraftItemKind } from '$lib/gen'
-	export type DiffStatus = 'added' | 'removed' | 'modified' | 'conflict'
-	// One changed item. `status` drives the dot/badge; `ahead`/`behind` are
-	// optional (fork-only) and only render when present.
-	export type DiffRow = {
-		kind: string
-		path: string
-		status: DiffStatus
-		ahead?: number
-		behind?: number
-		/** Human-facing path; defaults to `path`. Lets a draft parked at a
-		 * synthetic storage path (`…/draft_<uuid>`) show its friendly typed path
-		 * while keys, value-loading and edit links stay keyed on `path`. */
-		displayPath?: string
-		/** Summary supplied by the data source. Preferred over the one derived
-		 * from the loaded diff value, and shown before that value loads. */
-		summary?: string
-		/** The item has an unsaved draft on top of its deployed state — drives a
-		 * "Draft" marker so a not-yet-deployed change is distinguishable from one
-		 * already deployed in the fork. */
-		hasDraft?: boolean
-		/** Never-deployed draft → the marker reads "Draft only" instead of "Draft". */
-		draftOnly?: boolean
-		/** Draft authors, for the shared DraftBadge's avatar circles. */
-		draftUsers?: { username?: string | null }[]
-		/** The draft's user-draft itemKind, so DraftBadge labels the kind correctly
-		 * (e.g. "app" not "script"). */
-		draftItemKind?: UserDraftItemKind
-		/** Explicit unique row identity, overriding the default `kind/path`. For a
-		 * row whose `kind/path` isn't unique on its own (a pipeline-bundle node
-		 * shares `script/<path>` with a standalone script draft at the same path)
-		 * while `path` must stay the real edit/display target. */
-		key?: string
-	}
-</script>
-
 <script lang="ts">
-	import { buildDiffTree, type AppRootMeta, type TreeNode } from './diffTree'
+	import { buildDiffTree, type AppRootMeta, type TreeNode, type FolderNode } from './diffTree'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import {
-		AlertTriangle,
 		ChevronDown,
 		ChevronRight,
 		Folder,
 		GitMerge,
 		Loader2,
-		Minus,
 		PanelRightClose,
 		PanelRightOpen,
-		Pencil,
-		Plus,
 		User
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
@@ -69,37 +29,38 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
-	import { tick, untrack, type Snippet } from 'svelte'
+	import { tick, type Snippet } from 'svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
+	import {
+		actionFor,
+		pipelineOf,
+		selectableOf,
+		type DeployItem,
+		type DeployItemState,
+		type DeploySegment,
+		type PipelineStage
+	} from './sessionDeployModel'
+	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 
-	// Read-only, multi-item before/after diff viewer with a file tree. The data
-	// source (fork comparison vs deployed-vs-draft) is supplied by the parent
-	// wrapper via `diffs` + `loadValues`; everything here is generic rendering.
+	// The session Review & Deploy surface. Reads a unified item model (drafts +
+	// fork comparison) and renders a folder tree with lifecycle filter segments +
+	// selection (left) and a scroll-through diff column with per-block sticky
+	// headers (right). S2: everything reads/navigates; the deploy actions and
+	// footer buttons render but are inert (wired in S3).
 	let {
-		diffs,
-		loadValues,
-		loading = false,
-		error = undefined,
-		notice = undefined,
-		emptyMessage = 'No changes.',
+		model,
 		title,
 		reviewHref,
 		reviewLabel = 'Review',
 		editUrlFor = undefined,
 		titleExtra
 	}: {
-		diffs: DiffRow[]
-		loadValues: (d: DiffRow) => Promise<{ before: unknown; after: unknown }>
-		loading?: boolean
-		error?: string | undefined
-		/** Replaces the diff list with an informational message (e.g. fork
-		 * created before change tracking). */
-		notice?: string | undefined
-		emptyMessage?: string
+		model: SessionDeployModel
 		title: string
 		reviewHref: string
 		reviewLabel?: string
-		editUrlFor?: (d: DiffRow) => string | undefined
+		/** Editor URL for a row (opens in the workspace the item lives in). */
+		editUrlFor?: (item: DeployItem) => string | undefined
 		titleExtra?: Snippet
 	} = $props()
 
@@ -107,231 +68,97 @@
 	let searchQuery = $state('')
 	let diffStyle = $state<'sbs' | 'inline'>('sbs')
 	const inlineDiff = $derived(diffStyle === 'inline')
-	// Collapse the right-hand diff panel to browse the file tree at full width;
-	// a per-row "open diff" action (or clicking a row) re-expands it and jumps
-	// to that item.
+	// Collapse the diff panel to browse the tree at full width; a per-row action
+	// (or clicking a row) re-expands it and jumps to the item.
 	let rightPanelCollapsed = $state(false)
 
 	export function open() {
-		// Reset per-item caches so an edit-then-reopen doesn't show stale
-		// expanded content. The wrapper re-fetches `diffs`, which re-triggers
-		// the eager-load effect below.
 		loadedDiffs = {}
-		summaries = {}
 		mountedRows = {}
 		rightPanelCollapsed = false
+		model.load()
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
 	}
 
-	// A row in the list is either a real backend diff or a synthesized raw-app
-	// item: a file/metadata leaf (`RawAppFileItem`) or a runnable rendered as a
-	// script/flow (`RawAppRunnableItem`). All are diff-shaped, so the tree /
-	// search / count / nav operate over `DisplayDiff` uniformly.
-	type DisplayDiff = DiffRow | RawAppFileItem | RawAppRunnableItem
-
-	function itemKey(d: DisplayDiff): string {
-		// Synthetic raw-app items (files/runnables) carry their composite
-		// `<appPath>/…` path and can share kind+path with a real workspace item —
-		// e.g. a runnable rendered as `script` at `<appPath>/runnables/foo` vs a real
-		// script literally at that path. Prefix synthetic items so the {#each} key,
-		// load cache, row id and nav identity never collide with a real DiffRow.
-		if ('key' in d && d.key) return d.key
-		return ('appPath' in d ? 'rawapp:' : '') + `${d.kind}/${d.path}`
+	// ── State presentation ───────────────────────────────────────────────────
+	const STATE_META: Record<
+		DeployItemState,
+		{ label: string; color: 'blue' | 'green' | 'red' | 'orange' | 'gray' }
+	> = {
+		draft: { label: 'Draft', color: 'blue' },
+		in_fork: { label: 'In fork', color: 'blue' },
+		in_parent: { label: 'Done', color: 'green' },
+		deleted: { label: 'Deleted', color: 'red' },
+		conflict: { label: 'Conflict', color: 'orange' }
+	}
+	function stateLabel(item: DeployItem): string {
+		if (item.state === 'draft' && item.draftOnly) return 'Draft only'
+		return STATE_META[item.state].label
 	}
 
-	// Friendly path for display only; `path` stays the storage key everywhere
-	// keys/loads happen, so a never-deployed draft still loads from `…/draft_<uuid>`.
-	function displayPathOf(d: DisplayDiff): string {
-		return ('displayPath' in d ? d.displayPath : undefined) ?? d.path
-	}
+	// ── Segments ───────────────────────────────────────────────────────────
+	const SEGMENTS: { id: DeploySegment; label: string }[] = [
+		{ id: 'to_review', label: 'To review' },
+		{ id: 'drafts', label: 'Drafts' },
+		{ id: 'in_fork', label: 'In fork' },
+		{ id: 'done', label: 'Done' },
+		{ id: 'all', label: 'All' }
+	]
+	// Main (non-fork) sessions have no fork stage — hide the In-fork segment.
+	const visibleSegments = $derived(
+		model.context.isFork ? SEGMENTS : SEGMENTS.filter((s) => s.id !== 'in_fork')
+	)
 
-	const KIND_LABELS: Record<string, string> = {
-		script: 'Script',
-		flow: 'Flow',
-		app: 'App',
-		raw_app: 'Raw app',
-		raw_app_file: 'File',
-		resource: 'Resource',
-		variable: 'Variable',
-		resource_type: 'Resource type',
-		folder: 'Folder',
-		schedule: 'Schedule',
-		http_trigger: 'HTTP route',
-		websocket_trigger: 'Websocket trigger',
-		kafka_trigger: 'Kafka trigger',
-		nats_trigger: 'NATS trigger',
-		postgres_trigger: 'Postgres trigger',
-		mqtt_trigger: 'MQTT trigger',
-		sqs_trigger: 'SQS trigger',
-		gcp_trigger: 'GCP trigger',
-		azure_trigger: 'Azure trigger',
-		email_trigger: 'Email trigger'
-	}
+	// ── Rendered list: segment-filtered, then text-searched ──────────────────
+	const segmentItems = $derived(model.visibleItems)
 
-	type LoadedDiff = {
-		state: 'loading' | 'ready' | 'error'
-		error?: string
-		before?: unknown
-		after?: unknown
+	function searchableText(d: DeployItem): string {
+		return [d.displayPath, d.deployKind, d.summary ?? ''].join(' ')
 	}
-	let loadedDiffs: Record<string, LoadedDiff> = $state({})
-	let summaries: Record<string, string | undefined> = $state({})
-
-	// Lazy Monaco mount: exploding a raw app into N per-file rows would otherwise
-	// mount N DiffEditors at once. Each row's editor mounts only once its block
-	// scrolls within `MOUNT_MARGIN` of the viewport (rooted on the scroll
-	// container); `mountedRows` latches true so it never unmounts on scroll-away.
-	let mainScrollEl: HTMLElement | undefined = $state()
-	let mountedRows: Record<string, boolean> = $state({})
-	// Small look-ahead only: a large margin would catch the whole (collapsed-
-	// height) list at once, and each mount growing its block would cascade the
-	// rest into view. A modest margin mounts what's near the fold; as editors
-	// grow they push the pending blocks away, so the rest stay deferred.
-	const MOUNT_MARGIN = '200px 0px'
-	function lazyMount(node: HTMLElement, key: string) {
-		const io = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((e) => e.isIntersecting)) {
-					mountedRows[key] = true
-					io.disconnect()
-				}
-			},
-			{ root: mainScrollEl ?? null, rootMargin: MOUNT_MARGIN }
-		)
-		io.observe(node)
-		return { destroy: () => io.disconnect() }
-	}
-
-	// The rendered list: each raw_app whose value has loaded is expanded into
-	// its per-file items (so files are independent rows that flow through the
-	// tree / search / count). An unloaded raw_app stays a single placeholder row
-	// until its value arrives, then expands in place.
-	const displayDiffs = $derived.by(() => {
-		const out: DisplayDiff[] = []
-		for (const d of diffs) {
-			if (d.kind === 'raw_app') {
-				const loaded = loadedDiffs[itemKey(d)]
-				if (loaded?.state === 'ready') {
-					// A drafted raw app shows ONE Draft marker at its tree root (via
-					// appRootMeta.hasDraft), not on each expanded file row.
-					out.push(
-						...rawAppDiffToItems(
-							d.path,
-							loaded.before as RawAppish | undefined,
-							loaded.after as RawAppish | undefined,
-							displayPathOf(d)
-						)
-					)
-					continue
-				}
-			}
-			out.push(d)
-		}
-		return out
+	let searchedItems: (DeployItem & { marked?: string })[] | undefined = $state(undefined)
+	const filteredItems = $derived.by(() => {
+		const q = searchQuery.trim()
+		if (!q) return segmentItems
+		return (searchedItems ?? []) as DeployItem[]
 	})
 
-	async function loadDiffFor(d: DiffRow) {
-		const key = itemKey(d)
-		if (loadedDiffs[key]) return
-		loadedDiffs[key] = { state: 'loading' }
-		try {
-			const { before, after } = await loadValues(d)
-			loadedDiffs[key] = { state: 'ready', before, after }
-			const summary =
-				(after && typeof after === 'object' && (after as any).summary) ||
-				(before && typeof before === 'object' && (before as any).summary) ||
-				undefined
-			if (typeof summary === 'string' && summary.trim().length > 0) {
-				summaries[key] = summary
-			}
-		} catch (e) {
-			console.error('WorkspaceDiffDrawer: loadValues failed', d, e)
-			loadedDiffs[key] = { state: 'error', error: String(e) }
-		}
-	}
-
-	// Eagerly load each row (diffs render expanded). Tracks `diffs` only; the
-	// cache reads/writes are untracked so this doesn't loop on itself.
-	$effect(() => {
-		const ds = diffs
-		untrack(() => {
-			for (const d of ds) void loadDiffFor(d)
-		})
-	})
-
-	function onDetailsToggle(d: DisplayDiff, e: Event) {
-		// Synthetic raw-app items (files + runnables) carry their content
-		// already — nothing to fetch.
-		if ('appPath' in d) return
-		const target = e.currentTarget as HTMLDetailsElement | null
-		if (target?.open) void loadDiffFor(d)
-	}
-
-	function statusBadgeColor(s: DiffStatus): 'green' | 'red' | 'orange' | 'blue' {
-		if (s === 'added') return 'green'
-		if (s === 'removed') return 'red'
-		if (s === 'conflict') return 'orange'
-		return 'blue'
-	}
-
-	const statusIcons = { added: Plus, removed: Minus, modified: Pencil, conflict: AlertTriangle }
-
-	// ── File tree ───────────────────────────────────────────────────────────
-	// Friendly app path → app metadata, for tagging the matching tree folder as a
-	// raw-app root. Keyed on `displayPathOf` so it lines up with the friendly
-	// virtual paths the synthetic file items carry.
+	// ── Tree ─────────────────────────────────────────────────────────────────
 	const appRootMeta = $derived.by(() => {
 		const m = new Map<string, AppRootMeta>()
-		for (const d of diffs) {
-			if (d.kind !== 'raw_app') continue
-			m.set(displayPathOf(d), {
-				summaryKey: itemKey(d),
-				summary: 'summary' in d ? d.summary : undefined,
-				hasDraft: 'hasDraft' in d ? d.hasDraft : undefined,
-				draftOnly: 'draftOnly' in d ? d.draftOnly : undefined,
-				draftUsers: 'draftUsers' in d ? d.draftUsers : undefined,
-				draftItemKind: 'draftItemKind' in d ? d.draftItemKind : undefined
+		for (const it of model.items) {
+			if (it.deployKind !== 'raw_app') continue
+			m.set(it.displayPath, {
+				summaryKey: it.key,
+				summary: it.summary,
+				hasDraft: it.hasDraft,
+				draftOnly: it.draftOnly,
+				draftUsers: it.draftUsers,
+				draftItemKind: it.draftKind
 			})
 		}
 		return m
 	})
 
-	function searchableText(d: DisplayDiff): string {
-		const parts = [displayPathOf(d), KIND_LABELS[d.kind] ?? d.kind]
-		const s = summaries[itemKey(d)] ?? ('summary' in d ? d.summary : undefined)
-		if (s) parts.push(s)
-		return parts.join(' ')
-	}
-	let searchedDiffs: (DisplayDiff & { marked?: string })[] | undefined = $state(undefined)
-
-	const filteredDiffs = $derived.by(() => {
-		const q = searchQuery.trim()
-		if (!q) return displayDiffs
-		return (searchedDiffs ?? []) as DisplayDiff[]
-	})
-
 	const treeModel = $derived(
 		buildDiffTree(
-			filteredDiffs.map((d) => ({ key: itemKey(d), structurePath: displayPathOf(d), data: d })),
+			filteredItems.map((d) => ({ key: d.key, structurePath: d.displayPath, data: d })),
 			appRootMeta
 		)
 	)
 
-	function rowId(d: DisplayDiff): string {
-		return `ws-diff-${itemKey(d)}`
+	function rowId(d: DeployItem): string {
+		return `ws-diff-${d.key}`
 	}
 
-	function scrollToDiff(d: DisplayDiff) {
+	function scrollToDiff(d: DeployItem) {
 		const el = document.getElementById(rowId(d)) as HTMLDetailsElement | null
 		if (!el) return
 		el.open = true
 		el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 	}
 
-	// Reveal a diff from the file tree: highlight the row, expand the diff panel
-	// if it's collapsed (waiting a tick for it to mount), then scroll to it.
-	async function revealDiff(d: DisplayDiff, key?: string) {
+	async function revealDiff(d: DeployItem, key?: string) {
 		if (key) highlightedKey = key
 		if (rightPanelCollapsed) {
 			rightPanelCollapsed = false
@@ -340,16 +167,43 @@
 		scrollToDiff(d)
 	}
 
-	// ── Keyboard nav (matches WorkspaceItemDrillPicker) ─────────────────────
+	// ── Selection (folder checkbox toggles its selectable subtree) ────────────
+	function collectSelectableKeys(node: TreeNode<DeployItem>): string[] {
+		if (node.type === 'file') return selectableOf(node.data) ? [node.key] : []
+		const out: string[] = []
+		for (const child of node.children) out.push(...collectSelectableKeys(child))
+		return out
+	}
+	function folderChecks(node: FolderNode<DeployItem>): {
+		checked: boolean
+		indeterminate: boolean
+		keys: string[]
+	} {
+		const keys = collectSelectableKeys(node)
+		const sel = keys.filter((k) => model.isSelected(k)).length
+		return {
+			checked: keys.length > 0 && sel === keys.length,
+			indeterminate: sel > 0 && sel < keys.length,
+			keys
+		}
+	}
+	// Select-all operates on the visible (segment+search) selectable rows.
+	const visibleSelectableKeys = $derived(model.selectableKeysOf(filteredItems))
+	const allVisibleSelected = $derived(
+		visibleSelectableKeys.length > 0 && visibleSelectableKeys.every((k) => model.isSelected(k))
+	)
+	const selectedVisibleCount = $derived(
+		visibleSelectableKeys.filter((k) => model.isSelected(k)).length
+	)
+
+	// ── Keyboard nav ─────────────────────────────────────────────────────────
 	let folderOpen: Record<string, boolean> = $state({})
 	function isFolderOpen(key: string): boolean {
 		return folderOpen[key] ?? true
 	}
-
 	const navEntries = $derived(treeModel.order((k) => isFolderOpen(k)))
 	const navKeys = $derived(navEntries.map((e) => e.key))
 	const entryByKey = $derived(new Map(navEntries.map((e) => [e.key, e])))
-
 	let highlightedKey: string | undefined = $state(undefined)
 	let mouseActive = $state(false)
 	let searchInputEl: HTMLInputElement | undefined = $state()
@@ -357,49 +211,36 @@
 
 	$effect(() => {
 		if (navKeys.length === 0) return
-		if (!highlightedKey || !navKeys.includes(highlightedKey)) {
-			highlightedKey = navKeys[0]
-		}
+		if (!highlightedKey || !navKeys.includes(highlightedKey)) highlightedKey = navKeys[0]
 	})
-
 	function scrollHighlightIntoView() {
 		if (!sidebarRoot || !highlightedKey) return
-		const el = sidebarRoot.querySelector<HTMLElement>(
-			`[data-nav-key="${CSS.escape(highlightedKey)}"]`
-		)
-		el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+		sidebarRoot
+			.querySelector<HTMLElement>(`[data-nav-key="${CSS.escape(highlightedKey)}"]`)
+			?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 	}
-
 	function moveHighlight(delta: 1 | -1) {
 		if (navKeys.length === 0) return
 		const cur = navKeys.indexOf(highlightedKey ?? '')
-		const next = cur < 0 ? 0 : (cur + delta + navKeys.length) % navKeys.length
-		highlightedKey = navKeys[next]
+		highlightedKey = navKeys[cur < 0 ? 0 : (cur + delta + navKeys.length) % navKeys.length]
 		mouseActive = false
 		requestAnimationFrame(scrollHighlightIntoView)
 	}
-
 	function setHoverHighlight(key: string) {
 		if (mouseActive) highlightedKey = key
 	}
-
 	function activateHighlighted() {
 		if (!highlightedKey) return
 		const entry = entryByKey.get(highlightedKey)
 		if (!entry) return
-		if (entry.type === 'file') {
-			void revealDiff(entry.data)
-		} else {
-			folderOpen[entry.key] = !isFolderOpen(entry.key)
-		}
+		if (entry.type === 'file') void revealDiff(entry.data)
+		else folderOpen[entry.key] = !isFolderOpen(entry.key)
 	}
-
 	function selectKey(key: string) {
 		highlightedKey = key
 		mouseActive = false
 		requestAnimationFrame(scrollHighlightIntoView)
 	}
-
 	function handleSearchKeydown(e: KeyboardEvent) {
 		if (e.key === 'ArrowDown') {
 			e.preventDefault()
@@ -438,32 +279,106 @@
 			}
 		}
 	}
+
+	// ── Diff values (lazy Monaco mount, one resolver via the model) ──────────
+	type LoadedDiff = {
+		state: 'loading' | 'ready' | 'error'
+		error?: string
+		before?: unknown
+		after?: unknown
+	}
+	let loadedDiffs: Record<string, LoadedDiff> = $state({})
+	let mainScrollEl: HTMLElement | undefined = $state()
+	let mountedRows: Record<string, boolean> = $state({})
+	const MOUNT_MARGIN = '200px 0px'
+
+	async function loadDiffFor(item: DeployItem) {
+		if (loadedDiffs[item.key]) return
+		loadedDiffs[item.key] = { state: 'loading' }
+		try {
+			const { before, after }: DiffValues = await model.loadDiffValues(item)
+			loadedDiffs[item.key] = { state: 'ready', before, after }
+		} catch (e) {
+			console.error('WorkspaceDiffDrawer: loadDiffValues failed', item, e)
+			loadedDiffs[item.key] = { state: 'error', error: String(e) }
+		}
+	}
+
+	function lazyMount(node: HTMLElement, item: DeployItem) {
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) {
+					mountedRows[item.key] = true
+					void loadDiffFor(item)
+					io.disconnect()
+				}
+			},
+			{ root: mainScrollEl ?? null, rootMargin: MOUNT_MARGIN }
+		)
+		io.observe(node)
+		return { destroy: () => io.disconnect() }
+	}
+
+	// Raw-app blocks explode into their per-file / per-runnable sub-diffs; other
+	// kinds render one before/after viewer.
+	function rawAppItems(
+		item: DeployItem,
+		loaded: LoadedDiff
+	): (RawAppFileItem | RawAppRunnableItem)[] {
+		return rawAppDiffToItems(
+			item.path,
+			loaded.before as RawAppish | undefined,
+			loaded.after as RawAppish | undefined,
+			item.displayPath
+		)
+	}
 </script>
 
 <SearchItems
 	filter={searchQuery}
-	items={displayDiffs}
-	bind:filteredItems={searchedDiffs}
-	f={(d: DisplayDiff) => searchableText(d)}
+	items={segmentItems}
+	bind:filteredItems={searchedItems}
+	f={(d: DeployItem) => searchableText(d)}
 />
 
-{#snippet renderTreeNode(node: TreeNode<DisplayDiff>, depth: number)}
+{#snippet statePill(item: DeployItem)}
+	<Badge color={STATE_META[item.state].color} small>{stateLabel(item)}</Badge>
+{/snippet}
+
+{#snippet pipeline(stages: PipelineStage[])}
+	<div class="flex items-center gap-0.5" aria-hidden="true">
+		{#each stages as stage, i}
+			{#if i > 0}
+				<div class="w-2 h-px bg-gray-300 dark:bg-gray-600"></div>
+			{/if}
+			<div
+				class="w-2 h-2 rounded-full border {stage.status === 'done'
+					? 'bg-blue-500 border-blue-500'
+					: stage.status === 'current'
+						? 'bg-surface border-blue-500'
+						: stage.status === 'blocked'
+							? 'bg-amber-400 border-amber-500'
+							: 'bg-surface border-gray-300 dark:border-gray-600'}"
+				title={`${stage.id}: ${stage.status}`}
+			></div>
+		{/each}
+	</div>
+{/snippet}
+
+{#snippet renderTreeNode(node: TreeNode<DeployItem>, depth: number)}
 	{#if node.type === 'folder'}
 		{@const isUserScope = node.isScope && node.name.startsWith('u/')}
 		{@const fkey = node.key}
 		{@const open = isFolderOpen(fkey)}
 		{@const isHl = fkey === highlightedKey}
+		{@const checks = folderChecks(node)}
 		<details
 			{open}
 			ontoggle={(e) => (folderOpen[fkey] = (e.currentTarget as HTMLDetailsElement).open)}
 			class="select-none"
 		>
 			{#if node.app}
-				{@const appSummary = summaries[node.app.summaryKey] ?? node.app.summary}
-				<!-- Raw-app root: expandable folder, but its header reads as a normal
-				     item row (icon + label). Single line showing the summary, falling
-				     back to the short name (the tree already places it under its scope;
-				     full path on hover). The expand chevron sits at the end of the row. -->
+				{@const appItem = filteredItems.find((it) => it.key === node.app?.summaryKey)}
 				<summary
 					role="option"
 					aria-selected={isHl}
@@ -475,14 +390,23 @@
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
 				>
+					{#if appItem && selectableOf(appItem)}
+						<span onclick={(e) => e.stopPropagation()} class="shrink-0 flex items-center">
+							<Checkbox
+								checked={model.isSelected(appItem.key)}
+								onChange={() => model.toggle(appItem.key)}
+							/>
+						</span>
+					{/if}
 					<RowIcon kind="raw_app" size={12} />
 					<span
-						class="flex-1 min-w-0 truncate text-xs font-normal text-primary {appSummary
+						class="flex-1 min-w-0 truncate text-xs font-normal text-primary {node.app.summary
 							? ''
 							: 'font-mono'}"
 					>
-						{appSummary ?? node.name}
+						{node.app.summary ?? node.name}
 					</span>
+					{#if appItem}{@render statePill(appItem)}{/if}
 					{#if node.app.hasDraft}
 						<DraftBadge
 							is_draft
@@ -506,6 +430,14 @@
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
 				>
+					{#if checks.keys.length > 0}
+						<span onclick={(e) => e.stopPropagation()} class="shrink-0 flex items-center">
+							<Checkbox
+								checked={checks.checked}
+								onChange={() => model.setSelected(checks.keys, !checks.checked)}
+							/>
+						</span>
+					{/if}
 					{#if isUserScope}
 						<User size={12} class="shrink-0 text-tertiary" />
 					{:else}
@@ -517,9 +449,6 @@
 				</summary>
 			{/if}
 			<div class="relative">
-				<!-- Indent guide: a vertical rule down the left of the folder's
-				     children, at the parent chevron's midpoint (depth*12+8 + 6).
-				     Absolute so it doesn't shift the rows; clicks pass through. -->
 				<div
 					class="pointer-events-none absolute top-0 bottom-0 border-l border-light"
 					style="left: {depth * 12 + 14}px"
@@ -533,39 +462,38 @@
 	{:else}
 		{@const d = node.data}
 		{@const key = node.key}
-		<!-- Folders place their icon at the base padding (depth*12+8) — the chevron
-		     now sits at the row's end, not the front. WorkspaceItemRow adds its own
-		     12px base, so indent = depth*12-4 lines a file's icon up with sibling
-		     folder icons. Keep in sync with the folder summary. The reveal button is
-		     an absolutely-positioned sibling (not nested in the row's <button>, which
-		     would be invalid) that surfaces on hover. -->
-		<div class="relative group/reveal">
+		{@const canSelect = selectableOf(d)}
+		<div class="relative group/reveal flex items-stretch">
+			{#if canSelect}
+				<span class="shrink-0 flex items-center pl-3" style="padding-left: {depth * 12 + 8}px">
+					<Checkbox checked={model.isSelected(key)} onChange={() => model.toggle(key)} />
+				</span>
+			{/if}
 			<WorkspaceItemRow
-				kind={d.kind as any}
+				kind={d.deployKind as any}
 				iconPath={d.path}
 				baseClass="py-1.5"
 				singleLine
-				summary={summaries[key] ?? ('summary' in d ? d.summary : undefined)}
+				summary={d.summary}
 				secondary={node.name}
 				highlighted={key === highlightedKey}
 				navKey={key}
-				indent={depth * 12 - 4}
-				title={displayPathOf(d)}
+				indent={canSelect ? 0 : depth * 12 - 4}
+				title={d.displayPath}
 				onclick={() => revealDiff(d, key)}
 				onmouseenter={() => setHoverHighlight(key)}
 			>
 				{#snippet extras()}
-					{#if 'hasDraft' in d && d.hasDraft}
+					{@render statePill(d)}
+					{#if d.hasDraft}
 						<DraftBadge
 							is_draft
-							draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
-							draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
-							itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
+							draft_only={d.draftOnly}
+							draft_users={d.draftUsers ?? []}
+							itemKind={d.draftKind}
 							currentUsername={$userStore?.username}
 						/>
 					{/if}
-					<!-- Reserve width for the reveal button so its overlay never covers
-					     the draft badge or path text on hover. -->
 					<span class="w-5 shrink-0" aria-hidden="true"></span>
 				{/snippet}
 			</WorkspaceItemRow>
@@ -583,6 +511,60 @@
 				<PanelRightOpen size={13} />
 			</button>
 		</div>
+	{/if}
+{/snippet}
+
+{#snippet diffBlock(item: DeployItem)}
+	{@const loaded = loadedDiffs[item.key]}
+	{#if item.state === 'in_parent'}
+		<div class="text-2xs text-tertiary p-3">Deployed — no pending changes.</div>
+	{:else if !mountedRows[item.key]}
+		<div
+			use:lazyMount={item}
+			class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
+		>
+			<Loader2 class="w-3.5 h-3.5 animate-spin" />
+			Diff loads on scroll…
+		</div>
+	{:else if !loaded || loaded.state === 'loading'}
+		<div class="flex items-center gap-2 text-xs text-secondary p-3">
+			<Loader2 class="w-3.5 h-3.5 animate-spin" />
+			Loading diff…
+		</div>
+	{:else if loaded.state === 'error'}
+		<div class="text-xs text-red-600 dark:text-red-400 p-3">{loaded.error}</div>
+	{:else if item.deployKind === 'raw_app'}
+		<div class="flex flex-col">
+			{#each rawAppItems(item, loaded) as sub (('appPath' in sub ? 'rawapp:' : '') + sub.kind + '/' + sub.path)}
+				<div class="border-t border-light first:border-t-0">
+					<div class="px-3 py-1.5 text-2xs text-secondary font-mono truncate" title={sub.path}>
+						{sub.path}
+					</div>
+					{#if sub.kind === 'raw_app_file'}
+						<WorkspaceItemDiffViewer
+							kind="raw_app_file"
+							rawFile={sub as RawAppFileItem}
+							{inlineDiff}
+						/>
+					{:else}
+						{@const runnable = sub as RawAppRunnableItem}
+						<WorkspaceItemDiffViewer
+							kind="script"
+							originalRaw={runnable.originalRaw}
+							currentRaw={runnable.currentRaw}
+							{inlineDiff}
+						/>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{:else}
+		<WorkspaceItemDiffViewer
+			kind={item.deployKind}
+			originalRaw={loaded.before}
+			currentRaw={loaded.after}
+			{inlineDiff}
+		/>
 	{/if}
 {/snippet}
 
@@ -616,7 +598,7 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-			{#if diffs.length > 0}
+			{#if model.items.length > 0}
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
@@ -635,173 +617,178 @@
 				{reviewLabel}
 			</Button>
 		{/snippet}
-		<div class="flex flex-row h-full min-h-0">
-			{#if diffs.length > 0}
-				<aside
-					bind:this={sidebarRoot}
-					onmousemove={() => (mouseActive = true)}
-					class="{rightPanelCollapsed
-						? 'flex-1'
-						: 'flex-none w-72 border-r border-light'} flex flex-col min-h-0"
-				>
-					<div class="px-3 pt-3 pb-2 shrink-0">
-						<!-- Raw input (not the design-system TextInput) on purpose: this is a
-						     bespoke filter wired to the file tree's keyboard navigation — it
-						     needs a direct element ref to focus (the `/` shortcut) and a
-						     keydown handler that hands ArrowDown/Enter off to the tree.
-						     TextInput/ClearableInput swallow/rebubble those and don't expose
-						     the element ref. -->
-						<input
-							bind:this={searchInputEl}
-							type="search"
-							bind:value={searchQuery}
-							placeholder="Filter files..."
-							onkeydown={handleSearchKeydown}
-							class="w-full text-xs px-2 py-1 rounded border border-light bg-surface focus:outline-none focus:border-accent"
-						/>
-					</div>
-					<div class="flex-1 min-h-0 overflow-y-auto pb-3 flex flex-col gap-1">
-						{#if treeModel.root.children.length > 0}
-							{#each treeModel.root.children as child}
-								{@render renderTreeNode(child, 0)}
+		<div class="flex flex-col h-full min-h-0">
+			<div class="flex flex-row flex-1 min-h-0">
+				{#if model.items.length > 0}
+					<aside
+						bind:this={sidebarRoot}
+						onmousemove={() => (mouseActive = true)}
+						class="{rightPanelCollapsed
+							? 'flex-1'
+							: 'flex-none w-72 border-r border-light'} flex flex-col min-h-0"
+					>
+						<!-- Filter segments -->
+						<div class="px-2 pt-2 shrink-0 flex flex-wrap gap-1">
+							{#each visibleSegments as seg}
+								<button
+									type="button"
+									class="text-2xs px-2 py-1 rounded border transition-colors {model.segment ===
+									seg.id
+										? 'border-accent bg-surface-selected text-primary'
+										: 'border-light text-secondary hover:bg-surface-hover'}"
+									onclick={() => model.setSegment(seg.id)}
+								>
+									{seg.label} · {model.counts[seg.id]}
+								</button>
 							{/each}
+						</div>
+						<div class="px-3 pt-2 pb-1 shrink-0">
+							<input
+								bind:this={searchInputEl}
+								type="search"
+								bind:value={searchQuery}
+								placeholder="Filter files..."
+								onkeydown={handleSearchKeydown}
+								class="w-full text-xs px-2 py-1 rounded border border-light bg-surface focus:outline-none focus:border-accent"
+							/>
+						</div>
+						<!-- Selection bar -->
+						{#if visibleSelectableKeys.length > 0}
+							<div
+								class="px-3 pb-1 shrink-0 flex items-center justify-between text-2xs text-secondary"
+							>
+								<span>{selectedVisibleCount} of {visibleSelectableKeys.length} selected</span>
+								<button
+									type="button"
+									class="text-accent hover:underline"
+									onclick={() => model.setSelected(visibleSelectableKeys, !allVisibleSelected)}
+								>
+									{allVisibleSelected ? 'Clear' : 'Select all'}
+								</button>
+							</div>
+						{/if}
+						<div class="flex-1 min-h-0 overflow-y-auto pb-3 flex flex-col gap-1">
+							{#if treeModel.root.children.length > 0}
+								{#each treeModel.root.children as child}
+									{@render renderTreeNode(child, 0)}
+								{/each}
+							{:else}
+								<div class="text-2xs text-tertiary px-3 py-2">No matches</div>
+							{/if}
+						</div>
+					</aside>
+				{/if}
+				{#if !rightPanelCollapsed}
+					<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
+						<div class="px-3 pt-3 pb-4 flex flex-col gap-3">
+							{#if model.loading && model.items.length === 0}
+								<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
+									<Loader2 class="w-4 h-4 animate-spin" />
+									Loading comparison...
+								</div>
+							{:else if model.error}
+								<div class="text-sm text-red-600 dark:text-red-400 py-4">{model.error}</div>
+							{:else if model.notice}
+								<div class="text-sm text-secondary py-4">{model.notice}</div>
+							{:else if model.items.length === 0}
+								<div class="text-sm text-secondary py-4">No changes.</div>
+							{:else if filteredItems.length === 0}
+								<div class="text-sm text-secondary py-4">
+									{searchQuery.trim() ? 'No files match.' : 'Nothing in this filter.'}
+								</div>
+							{:else}
+								<div class="flex flex-col gap-2">
+									{#each filteredItems as d (d.key)}
+										{@const action = actionFor(d, model.context)}
+										{@const editUrl = editUrlFor?.(d)}
+										<details
+											open
+											id={rowId(d)}
+											class="border border-light rounded-md bg-surface scroll-mt-2"
+										>
+											<summary
+												class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden border-b border-transparent rounded-md"
+											>
+												<ChevronDown
+													class="w-3.5 h-3.5 shrink-0 text-tertiary transition-transform chevron"
+												/>
+												<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
+												<div class="min-w-0 flex-1">
+													{#if editUrl}
+														<ExternalEditLink
+															href={editUrl}
+															title={d.displayPath}
+															class="text-xs text-primary font-mono truncate"
+														>
+															<span class="truncate">{d.displayPath}</span>
+														</ExternalEditLink>
+													{:else}
+														<div
+															class="text-xs text-primary font-mono truncate"
+															title={d.displayPath}
+														>
+															{d.displayPath}
+														</div>
+													{/if}
+												</div>
+												<div class="shrink-0 flex items-center gap-2">
+													{@render pipeline(pipelineOf(d, model.context))}
+													{@render statePill(d)}
+													{#if action.op !== 'none'}
+														<!-- Deploy action is inert in S2; wired in S3. -->
+														<Button
+															variant="accent"
+															unifiedSize="xs"
+															disabled
+															title="Deploy wiring lands in a later stage"
+														>
+															{action.label}
+														</Button>
+													{/if}
+												</div>
+											</summary>
+											<div
+												class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
+											>
+												{@render diffBlock(d)}
+											</div>
+										</details>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					</main>
+				{/if}
+			</div>
+			<!-- Footer: selection summary + (inert) deploy buttons -->
+			{#if model.items.length > 0}
+				{@const parentTarget = model.context.parentName ?? 'parent'}
+				<div
+					class="shrink-0 border-t border-light bg-surface px-3 py-2 flex items-center justify-between gap-2 text-xs"
+				>
+					<div class="text-secondary min-w-0 truncate">
+						{#if model.context.isFork}
+							{model.footer.toFork} to fork · {model.footer.toParent} to {parentTarget} selected{#if model.footer.conflicts > 0}
+								· {model.footer.conflicts} blocked{/if}
 						{:else}
-							<div class="text-2xs text-tertiary px-3 py-2">No matches</div>
+							{model.footer.toParent} selected to deploy
 						{/if}
 					</div>
-				</aside>
-			{/if}
-			{#if !rightPanelCollapsed}
-				<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
-					<div class="px-3 pt-3 pb-4 flex flex-col gap-3">
-						{#if loading && diffs.length === 0}
-							<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
-								<Loader2 class="w-4 h-4 animate-spin" />
-								Loading comparison...
-							</div>
-						{:else if error}
-							<div class="text-sm text-red-600 dark:text-red-400 py-4">{error}</div>
-						{:else if notice}
-							<div class="text-sm text-secondary py-4">{notice}</div>
-						{:else if diffs.length === 0}
-							<div class="text-sm text-secondary py-4">{emptyMessage}</div>
-						{:else if filteredDiffs.length === 0}
-							<div class="text-sm text-secondary py-4">No files match "{searchQuery}".</div>
+					<div class="flex items-center gap-1.5 shrink-0">
+						{#if model.context.isFork}
+							<Button variant="default" unifiedSize="xs" disabled title="Wired in a later stage">
+								Deploy {model.footer.toFork} to fork
+							</Button>
+							<Button variant="accent" unifiedSize="xs" disabled title="Wired in a later stage">
+								Deploy {model.footer.toParent} to {parentTarget}
+							</Button>
 						{:else}
-							<div class="flex flex-col gap-2">
-								{#each filteredDiffs as d (itemKey(d))}
-									{@const key = itemKey(d)}
-									{@const status = d.status}
-									{@const StatusIcon = statusIcons[status]}
-									{@const loaded = loadedDiffs[key]}
-									<!-- A synthesized raw-app item (file or runnable) links to its
-								     owning app's editor. -->
-									{@const editUrl =
-										'appPath' in d
-											? editUrlFor?.({ ...d, kind: 'raw_app', path: d.appPath })
-											: editUrlFor?.(d)}
-									{@const dpath = displayPathOf(d)}
-									<details
-										open
-										id={rowId(d)}
-										class="border border-light rounded-md bg-surface scroll-mt-2"
-										ontoggle={(e) => onDetailsToggle(d, e)}
-									>
-										<summary
-											class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden border-b border-transparent rounded-md relative before:content-[''] before:absolute before:inset-0 before:bg-surface-hover before:opacity-0 before:pointer-events-none before:transition-opacity hover:before:opacity-100"
-										>
-											<ChevronDown
-												class="w-3.5 h-3.5 shrink-0 text-tertiary transition-transform chevron"
-											/>
-											<RowIcon kind={d.kind as any} path={d.path} size={14} />
-											<div class="min-w-0 flex-1">
-												{#if editUrl}
-													<ExternalEditLink
-														href={editUrl}
-														title={dpath}
-														class="text-xs text-primary font-mono truncate"
-													>
-														<span class="truncate">{dpath}</span>
-													</ExternalEditLink>
-												{:else}
-													<div class="text-xs text-primary font-mono truncate" title={dpath}>
-														{dpath}
-													</div>
-												{/if}
-											</div>
-											<div class="shrink-0 flex items-center gap-2">
-												{#if d.ahead && d.ahead > 0}
-													<span class="text-2xs text-secondary">{d.ahead} ahead</span>
-												{/if}
-												{#if d.behind && d.behind > 0}
-													<span class="text-2xs text-secondary">{d.behind} behind</span>
-												{/if}
-												{#if 'hasDraft' in d && d.hasDraft}
-													<DraftBadge
-														is_draft
-														draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
-														draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
-														itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
-														currentUsername={$userStore?.username}
-													/>
-												{/if}
-												<Badge color={statusBadgeColor(status)}>
-													<StatusIcon class="w-3 h-3 inline mr-0.5" />
-													{status}
-												</Badge>
-											</div>
-										</summary>
-										<div
-											class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
-										>
-											{#if !mountedRows[key]}
-												<!-- Defer the Monaco mount until this block scrolls near the
-											     viewport, so an exploded many-file app doesn't mount every
-											     editor at once. -->
-												<div
-													use:lazyMount={key}
-													class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
-												>
-													<Loader2 class="w-3.5 h-3.5 animate-spin" />
-													Diff loads on scroll…
-												</div>
-											{:else if d.kind === 'raw_app_file'}
-												<!-- DiffRow.kind is a plain string, so the kind check doesn't narrow
-											     the union — assert the synthetic file item. -->
-												{@const rawFile = d as RawAppFileItem}
-												<WorkspaceItemDiffViewer kind="raw_app_file" {rawFile} {inlineDiff} />
-											{:else if 'appPath' in d}
-												<!-- Synthesized runnable: render script-style (Content + Metadata),
-											     forcing `script` so flow runnables don't hit FlowDiffViewer. -->
-												{@const runnable = d as RawAppRunnableItem}
-												<WorkspaceItemDiffViewer
-													kind="script"
-													originalRaw={runnable.originalRaw}
-													currentRaw={runnable.currentRaw}
-													{inlineDiff}
-												/>
-											{:else if !loaded || loaded.state === 'loading'}
-												<div class="flex items-center gap-2 text-xs text-secondary p-3">
-													<Loader2 class="w-3.5 h-3.5 animate-spin" />
-													Loading diff…
-												</div>
-											{:else if loaded.state === 'error'}
-												<div class="text-xs text-red-600 dark:text-red-400">{loaded.error}</div>
-											{:else if loaded.state === 'ready'}
-												<WorkspaceItemDiffViewer
-													kind={d.kind}
-													originalRaw={loaded.before}
-													currentRaw={loaded.after}
-													{inlineDiff}
-												/>
-											{/if}
-										</div>
-									</details>
-								{/each}
-							</div>
+							<Button variant="accent" unifiedSize="xs" disabled title="Wired in a later stage">
+								Deploy {model.footer.toParent}
+							</Button>
 						{/if}
-					</div></main
-				>
+					</div>
+				</div>
 			{/if}
 		</div>
 	</DrawerContent>
