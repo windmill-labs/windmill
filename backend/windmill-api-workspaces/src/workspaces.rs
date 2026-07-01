@@ -6948,6 +6948,27 @@ pub struct WorkspaceComparison {
     pub skipped_comparison: bool,
     pub diffs: Vec<WorkspaceDiffRow>,
     pub summary: CompareSummary,
+    /// Items that exist in the diff but were dropped from `diffs` because they
+    /// are not visible to the caller (excluded from the partial deploy). Split
+    /// by direction: `hidden_ahead` lives in the fork, `hidden_behind` in the
+    /// parent. `by_kind`/`total` are always populated (aggregate, no names);
+    /// `items` (kind+path) is only filled for a caller who is admin of that side
+    /// — never leak the paths of items the ACL is hiding from a regular user.
+    pub hidden_ahead: HiddenItemsSummary,
+    pub hidden_behind: HiddenItemsSummary,
+}
+
+#[derive(Serialize, Default)]
+pub struct HiddenItemsSummary {
+    pub total: usize,
+    pub by_kind: std::collections::BTreeMap<String, usize>,
+    pub items: Vec<HiddenItem>,
+}
+
+#[derive(Serialize)]
+pub struct HiddenItem {
+    pub kind: String,
+    pub path: String,
 }
 
 #[derive(Serialize, Default)]
@@ -7032,6 +7053,8 @@ async fn compare_workspaces(
             skipped_comparison,
             diffs: vec![],
             summary: Default::default(),
+            hidden_ahead: Default::default(),
+            hidden_behind: Default::default(),
         }));
     }
 
@@ -7313,12 +7336,51 @@ async fn compare_workspaces(
     let all_ahead_items_visible = all_ahead_items_visible || sees_all_items;
     let all_behind_items_visible = all_behind_items_visible || sees_all_items;
 
+    // Items dropped by the visibility filter (in confirmed_diffs but not in the
+    // returned visible_diffs). Surface what the partial deploy excludes: aggregate
+    // counts by kind for everyone, but kind+path only to a caller who `sees_all_items`
+    // (superadmin, or admin of the source AND the fork). For them a dropped item is
+    // provably a phantom/stale row, not an ACL-hidden secret, so no path leaks —
+    // fork-admin alone is not enough (a fork-deleted ahead item lives only in the
+    // parent, whose path a non-parent-admin must not see).
+    let visible_keys: HashSet<(&str, &str)> = visible_diffs
+        .iter()
+        .map(|d| (d.kind.as_str(), d.path.as_str()))
+        .collect();
+    let mut hidden_ahead = HiddenItemsSummary::default();
+    let mut hidden_behind = HiddenItemsSummary::default();
+    for d in &confirmed_diffs {
+        if visible_keys.contains(&(d.kind.as_str(), d.path.as_str())) {
+            continue;
+        }
+        if d.ahead > 0 {
+            hidden_ahead.total += 1;
+            *hidden_ahead.by_kind.entry(d.kind.clone()).or_default() += 1;
+            if sees_all_items {
+                hidden_ahead
+                    .items
+                    .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
+            }
+        }
+        if d.behind > 0 {
+            hidden_behind.total += 1;
+            *hidden_behind.by_kind.entry(d.kind.clone()).or_default() += 1;
+            if sees_all_items {
+                hidden_behind
+                    .items
+                    .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
+            }
+        }
+    }
+
     return Ok(Json(WorkspaceComparison {
         all_ahead_items_visible,
         all_behind_items_visible,
         skipped_comparison: false,
         diffs: visible_diffs,
         summary,
+        hidden_ahead,
+        hidden_behind,
     }));
 }
 
