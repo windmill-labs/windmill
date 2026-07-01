@@ -209,8 +209,9 @@ export async function generatePipelineDocs(
   await writeFile(path.join(folderDir, "PIPELINE.md"), md, "utf-8");
 
   // PIPELINE.md is ours to own. AGENTS.md / CLAUDE.md are commonly user-authored,
-  // so only write the pointer when the file is absent or already a generated
-  // pointer (contains "@PIPELINE.md") — never clobber hand-written instructions.
+  // so write the pointer only when the file is ABSENT or is byte-for-byte the
+  // exact pointer we generate — never clobber hand-written instructions, even a
+  // file that merely references `@PIPELINE.md` alongside its own content.
   const written = ["PIPELINE.md"];
   const pointers: Array<[string, string]> = [
     ["AGENTS.md", `See @PIPELINE.md for this pipeline's graph, assets, and how to run it.\n`],
@@ -219,12 +220,18 @@ export async function generatePipelineDocs(
   for (const [name, content] of pointers) {
     const p = path.join(folderDir, name);
     if (existsSync(p)) {
+      let existing: string;
       try {
-        if (!readFileSync(p, "utf-8").includes("@PIPELINE.md")) {
-          log.warn(colors.yellow(`Kept existing f/${f}/${name} (not a generated pointer)`));
-          continue;
-        }
+        existing = readFileSync(p, "utf-8");
       } catch {
+        continue;
+      }
+      // Anything other than our exact generated pointer is treated as
+      // hand-written and preserved (writing when identical is a no-op anyway).
+      if (existing.trim() !== content.trim()) {
+        log.warn(
+          colors.yellow(`Kept existing f/${f}/${name} (hand-written — not the generated pointer)`),
+        );
         continue;
       }
     }
