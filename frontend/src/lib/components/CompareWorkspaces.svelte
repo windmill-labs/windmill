@@ -1085,22 +1085,13 @@
 							</span>
 						</Alert>
 					{/if}
-					{#if !comparison.all_ahead_items_visible || !comparison.all_behind_items_visible}
-						<Alert
-							title="This fork has changes not visible to your user"
-							type="warning"
-							class="my-2"
-						>
-							{#if !comparison.all_ahead_items_visible && !comparison.all_behind_items_visible}
-								This fork is ahead and behind its parent
-							{:else if !comparison.all_behind_items_visible}
-								This fork is behind of its parent
-							{:else if !comparison.all_ahead_items_visible}
-								This fork is ahead of its parent
-							{/if}
-							and some of the changes are not visible by you. Only a user with access to the whole context
-							may deploy or update this fork. You can share the link to this page to someone with proper
-							permissions to get it deployed.
+					{#if mergeIntoParent ? !comparison.all_ahead_items_visible : !comparison.all_behind_items_visible}
+						<Alert title="Some changes are hidden from you" type="warning" class="my-2">
+							{mergeIntoParent
+								? 'Some of the changes this fork is ahead by'
+								: 'Some of the changes this fork is behind by'} are not visible to your user and are
+							excluded from the list below. You can still {mergeIntoParent ? 'deploy' : 'update'} the
+							items you can see — share this page with someone who has full access to include the rest.
 						</Alert>
 					{/if}
 				{/snippet}
@@ -1285,44 +1276,46 @@
 							<div></div>
 
 							<div class="flex flex-col items-end gap-2">
-								{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-									<div class="flex items-center gap-2">
-										{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
-											<Button
-												variant="default"
-												startIcon={{ icon: UserPlus }}
-												on:click={() => deploymentRequestPanel?.openRequestDialog()}
-											>
-												Request deployment
-											</Button>
-										{/if}
+								<!-- Always show the deploy footer: only the items visible to the user are
+								     listed and selectable, so a partial-visibility user deploys the subset they
+								     can see. The hidden items are surfaced by the non-blocking banner above,
+								     not by removing the action. -->
+								<div class="flex items-center gap-2">
+									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
 										<Button
-											variant="accent"
-											disabled={selectedItems.length === 0 ||
-												deploying ||
-												(hasBehindChanges && !allowBehindChangesOverride) ||
-												(mergeIntoParent && !canDeployToParent) ||
-												hasUnselectedOnBehalfOf}
-											loading={deploying}
-											on:click={requestDeploy}
+											variant="default"
+											startIcon={{ icon: UserPlus }}
+											on:click={() => deploymentRequestPanel?.openRequestDialog()}
 										>
-											{mergeIntoParent ? 'Deploy' : 'Update'}
-											{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-											{#if selectedConflicts != 0}
-												({selectedConflicts} conflicts)
-											{/if}
+											Request deployment
 										</Button>
-									</div>
-									{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
-										<span class="text-xs text-yellow-600">
-											You must set the "on behalf of" user for all items before deploying
-											<Tooltip class="text-yellow-600">
-												The "run on behalf of" field defines which user's permissions will be
-												applied during execution. Make sure this is set to an appropriate user
-												before deploying.
-											</Tooltip>
-										</span>
 									{/if}
+									<Button
+										variant="accent"
+										disabled={selectedItems.length === 0 ||
+											deploying ||
+											(hasBehindChanges && !allowBehindChangesOverride) ||
+											(mergeIntoParent && !canDeployToParent) ||
+											hasUnselectedOnBehalfOf}
+										loading={deploying}
+										on:click={requestDeploy}
+									>
+										{mergeIntoParent ? 'Deploy' : 'Update'}
+										{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+										{#if selectedConflicts != 0}
+											({selectedConflicts} conflicts)
+										{/if}
+									</Button>
+								</div>
+								{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
+									<span class="text-xs text-yellow-600">
+										You must set the "on behalf of" user for all items before deploying
+										<Tooltip class="text-yellow-600">
+											The "run on behalf of" field defines which user's permissions will be applied
+											during execution. Make sure this is set to an appropriate user before
+											deploying.
+										</Tooltip>
+									</span>
 								{/if}
 
 								{#if deploymentErrorMessage != ''}
