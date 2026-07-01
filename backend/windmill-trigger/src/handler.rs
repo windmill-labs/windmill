@@ -905,6 +905,26 @@ async fn delete_trigger<T: TriggerCrud>(
 
     tx.commit().await?;
 
+    // Reset the fork/parent workspace_diff tally for this path, exactly as
+    // create/update and every other kind's delete does. Without this a deleted
+    // trigger leaves its cached `has_changes=true` diff row behind: the compare
+    // trusts it (triggers aren't re-validated like scripts/flows), then drops it
+    // as it no longer exists in the table — a phantom "ahead" item that reads as
+    // "changes not visible to your user" and hides the deploy button, even for
+    // superadmins. Re-tallying sets has_changes=NULL so the next compare
+    // re-evaluates and corrects/removes the row.
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &workspace_id,
+        T::get_deployed_object(path.to_string(), None),
+        Some(format!("{} '{}' deleted", T::DEPLOYMENT_NAME, path)),
+        true,
+        None,
+    )
+    .await?;
+
     // Trigger gone for everyone: wipe ALL users' drafts at this path; see scripts.rs.
     delete_all_drafts_for_path(&db, &workspace_id, T::user_draft_item_kind(), path).await?;
 

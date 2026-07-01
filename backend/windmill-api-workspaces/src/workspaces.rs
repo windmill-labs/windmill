@@ -7292,6 +7292,24 @@ async fn compare_workspaces(
             .map(|s| s.behind)
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
 
+    // Blast-radius guard for the "changes not visible to your user" warning
+    // (which hides the deploy button entirely). The flag is a pure visibility
+    // guarantee — the actual deploy/update is separately authorized against the
+    // target workspace's create/update endpoints — so it must be forced true for
+    // anyone who, as a rule, sees every item on the relevant side (RLS is bypassed
+    // for admins); any diff the visibility filter dropped for them is provably a
+    // stale/phantom row, never a permission gap. Crucially the two sides live in
+    // different workspaces: ahead items are the fork's own changes (gated by the
+    // TARGET/fork admin), behind items physically live in the parent (gated by the
+    // SOURCE/parent admin). A target admin does NOT see the parent side, so it must
+    // not clear the behind flag, and vice versa. `target_admin` already folds in
+    // superadmin; `source_admin` (parent side) ORs it in explicitly.
+    let is_super_admin = windmill_common::auth::is_super_admin_email(&db, &authed.email).await?;
+    let target_admin = fork_authed.is_admin;
+    let source_admin = is_super_admin || authed.is_admin;
+    let all_ahead_items_visible = all_ahead_items_visible || target_admin;
+    let all_behind_items_visible = all_behind_items_visible || source_admin;
+
     return Ok(Json(WorkspaceComparison {
         all_ahead_items_visible,
         all_behind_items_visible,

@@ -1399,7 +1399,9 @@ async fn test_delete_fork_purges_workspace_diff(db: Pool<Postgres>) -> anyhow::R
     // Delete the fork through the real handler.
     let delete_response = client
         .client()
-        .delete(&format!("{base_url}/workspaces/delete/wm-fork-test-workspace"))
+        .delete(&format!(
+            "{base_url}/workspaces/delete/wm-fork-test-workspace"
+        ))
         .send()
         .await?;
     assert!(
@@ -1517,6 +1519,125 @@ async fn test_create_fork_purges_stale_diff_state(db: Pool<Postgres>) -> anyhow:
         leftover_skip,
         Some(0),
         "stale skip_workspace_diff_tally row must be purged on fork creation"
+    );
+
+    Ok(())
+}
+
+/// Regression: a stale/phantom trigger diff row must never block a privileged
+/// user's deploy. Triggers (unlike scripts/flows) are not re-validated by
+/// `compare_workspaces`, so a cached `has_changes=true` row for a trigger that
+/// no longer exists in the table is trusted, then dropped by the visibility
+/// filter (the row is gone) — flipping `all_ahead_items_visible` to false and
+/// hiding the deploy button. This used to happen even for a superadmin, because
+/// the item's absence is indistinguishable from a permission-hidden item.
+///
+/// The blast-radius guard forces the flag true for anyone who sees the relevant
+/// side in full: a target/fork admin (or superadmin) for ahead items. A regular
+/// user with no such visibility still gets the (conservative) warning, since we
+/// cannot tell a phantom from a genuine permission gap on their behalf.
+///
+/// The diff row and visibility query are OSS, so this runs on any build (no
+/// tally needed — the row is inserted directly, mimicking a delete that left the
+/// diff behind).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_phantom_trigger_shortfuse(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let superadmin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // Fork of test-workspace (INSERT directly; we only need the pair to exist).
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Phantom rows: cached diffs for http_triggers with no backing row (the exact
+    // state a trigger delete used to leave behind before it reset the tally). One
+    // ahead (fork side), one behind (source side) so both guard branches are hit.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/ghost', 'http_trigger', 1, 0, true, false, true),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/ghost_behind', 'http_trigger', 0, 1, true, true, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    // Superadmin: the guard forces `all_ahead_items_visible = true`, and the
+    // non-existent trigger is not surfaced as a diff.
+    let comparison: serde_json::Value = superadmin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "phantom trigger row must not trip the 'not visible' warning for a superadmin: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(true),
+        "phantom behind trigger row must not trip the warning for a superadmin: {comparison}"
+    );
+    assert!(
+        !comparison["diffs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "f/rt/ghost" || d["path"] == "f/rt/ghost_behind"),
+        "non-existent triggers must not be surfaced as diffs: {comparison}"
+    );
+
+    // Non-superadmin, non-fork-admin member of the source: no full-visibility
+    // guarantee, so the warning still (conservatively) fires.
+    let comparison: serde_json::Value = non_admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(false),
+        "a user without full visibility must not be short-circuited by the guard: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(false),
+        "the behind-side guard must not fire for a non-admin either: {comparison}"
     );
 
     Ok(())
