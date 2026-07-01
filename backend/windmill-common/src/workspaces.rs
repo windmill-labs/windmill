@@ -419,8 +419,10 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
     Ok(count)
 }
 
-/// Paid (developer) seats of a workspace: `ceil(developers + operators/2)`, excluding disabled and
-/// service-account members. Mirrors the cloud billing seat calculation.
+/// Approximate paid seats of a workspace as `ceil(developers + operators/2)`, excluding disabled and
+/// service-account members. Reuses billing's author/operator weighting, but counts provisioned
+/// members rather than the active-user population billing meters, so it only ever loosens the fork
+/// cap (never blocks a paid seat) — good enough for a soft guardrail.
 #[cfg(feature = "cloud")]
 pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
     let row = sqlx::query!(
