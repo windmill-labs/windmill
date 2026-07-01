@@ -1,18 +1,24 @@
 <script lang="ts">
 	import { onMount } from 'svelte'
 	import YAML from 'yaml'
+	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import Button from '../common/button/Button.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import Modal2 from '../common/modal/Modal2.svelte'
+	import FileInput from '../common/fileInput/FileInput.svelte'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
-	import Label from '../Label.svelte'
 	import autosize from '$lib/autosize'
+	import { conditionalMelt } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { WorkspaceService } from '$lib/gen'
-	import { FolderUp, Plus, Trash2 } from 'lucide-svelte'
+	import { ChevronDown, ClipboardPaste, FolderUp, Plus, Trash2 } from 'lucide-svelte'
 
 	type SkillListItem = { name: string; description: string }
 	type SkillUpload = { name: string; description: string; instructions: string }
+	// `webkitRelativePath` (folder picker) and `path` (drag-and-drop, set by
+	// FileInput's tree traversal) both carry the file's location in the folder.
+	type FileWithPath = File & { path?: string }
 
 	// `<root>/<skill>/SKILL.md` is 3 path segments; SKILL.md files nested deeper
 	// are likely vendored/incidental and are skipped so importing a parent dir
@@ -30,11 +36,15 @@
 	const textEncoder = new TextEncoder()
 	const SAMPLE_SKILL_PLACEHOLDER =
 		'---\nname: my-skill\ndescription: what this skill helps with\n---\n\n# My skill\n\nInstructions for the assistant…'
+	const menuItemClass =
+		'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'
 
 	let skills: SkillListItem[] = $state([])
 	let uploading: boolean = $state(false)
 	let pasteContent: string = $state('')
+	let pasteModalOpen: boolean = $state(false)
 	let dirInput: HTMLInputElement | undefined = $state(undefined)
+	let folderInput: FileInput | undefined = $state(undefined)
 	let toDelete: string | undefined = $state(undefined)
 	let pendingImport: SkillUpload[] | undefined = $state(undefined)
 	let pendingSkipped: string[] = $state([])
@@ -47,6 +57,27 @@
 			.map((s) => s.name)
 			.join(', ')
 		return p.length > 12 ? `${shown}, … (+${p.length - 12} more)` : shown
+	})
+
+	// melt dropdown for the "+ Add skills" button: arrow-key nav, outside/escape
+	// close and focus management come for free.
+	const {
+		elements: { trigger: addMenuTrigger, menu: addMenu, item: addMenuItem },
+		states: { open: addMenuOpen }
+	} = createDropdownMenu({
+		positioning: { placement: 'bottom-end', gutter: 4, fitViewport: true },
+		loop: true,
+		forceVisible: true
+	})
+
+	// attach the menu trigger to the design-system <Button>'s DOM node so it keeps
+	// its styling — melt element stores are callable on a node like `use:melt`.
+	let addTriggerEl: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
+	$effect(() => {
+		const el = addTriggerEl
+		if (!el) return
+		const applied = conditionalMelt(el, addMenuTrigger as any) as { destroy?: () => void }
+		return applied?.destroy
 	})
 
 	async function loadList(workspace: string | undefined) {
@@ -201,21 +232,22 @@
 		}
 		if (await uploadSkills([parsed])) {
 			pasteContent = ''
+			pasteModalOpen = false
 		}
 	}
 
-	async function onDirSelected(event: Event) {
-		const target = event.target as HTMLInputElement
-		const files = Array.from(target.files ?? [])
-		// Reset early so re-selecting the same folder re-fires `change`.
-		if (dirInput) dirInput.value = ''
-
+	/**
+	 * Filter a folder's files down to in-depth SKILL.md, read them, and stage the
+	 * result for confirmation. Shared by the folder picker (populated state) and
+	 * the drag-and-drop zone (empty state).
+	 */
+	async function processFolderFiles(files: FileWithPath[]) {
 		// Pick SKILL.md files within the depth limit BEFORE reading any content,
 		// so a huge tree never gets read in full.
 		const skipped: string[] = []
-		const eligible: File[] = []
+		const eligible: FileWithPath[] = []
 		for (const f of files) {
-			const path = f.webkitRelativePath || f.name
+			const path = f.path || f.webkitRelativePath || f.name
 			const segments = path.split('/')
 			if (segments[segments.length - 1]?.toLowerCase() !== 'skill.md') continue
 			if (segments.length > MAX_SKILL_DEPTH) {
@@ -244,7 +276,7 @@
 
 		const map: Record<string, string> = {}
 		for (const f of eligible) {
-			map[f.webkitRelativePath || f.name] = await f.text()
+			map[f.path || f.webkitRelativePath || f.name] = await f.text()
 		}
 		const { skills: parsed, skipped: parseSkipped } = collectSkills(map)
 		const allSkipped = [...skipped, ...parseSkipped]
@@ -258,6 +290,25 @@
 		// Confirm before writing — the import can pull in several skills at once.
 		pendingSkipped = allSkipped
 		pendingImport = parsed
+	}
+
+	async function onDirSelected(event: Event) {
+		const target = event.target as HTMLInputElement
+		const files = Array.from(target.files ?? []) as FileWithPath[]
+		// Reset early so re-selecting the same folder re-fires `change`.
+		if (dirInput) dirInput.value = ''
+		await processFolderFiles(files)
+	}
+
+	async function onFolderDropped(files: FileWithPath[] | undefined) {
+		// `clearFiles()` below re-dispatches `change` with no files; ignoring that
+		// echo here is what stops it from re-entering and recursing forever.
+		if (!files?.length) return
+		const captured = files
+		// Keep the zone a dropzone rather than letting FileInput render the
+		// selected-files list; the ConfirmationModal is the real confirmation step.
+		folderInput?.clearFiles()
+		await processFolderFiles(captured)
 	}
 
 	async function deleteSkill(name: string) {
@@ -282,54 +333,90 @@
 	})
 </script>
 
+{#snippet pasteZone()}
+	<textarea
+		bind:value={pasteContent}
+		placeholder={SAMPLE_SKILL_PLACEHOLDER}
+		class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary font-mono text-xs resize-y"
+		rows="5"
+		use:autosize
+	></textarea>
+	{#if pasteContent.trim()}
+		<div class="flex justify-end mt-2">
+			<Button
+				onclick={addPastedSkill}
+				variant="default"
+				unifiedSize="sm"
+				startIcon={{ icon: Plus }}
+				disabled={uploading}
+			>
+				Add skill
+			</Button>
+		</div>
+	{/if}
+{/snippet}
+
 <SettingCard
 	label="Custom skills"
 	description="Add your own skills to the AI Chat. The expected format is the same as Claude or Codex."
 >
 	<div class="flex flex-col gap-3 pt-1">
-		<Label label="Paste a SKILL.md file">
-			<textarea
-				bind:value={pasteContent}
-				placeholder={SAMPLE_SKILL_PLACEHOLDER}
-				class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary font-mono text-xs resize-y"
-				rows="5"
-				use:autosize
-			></textarea>
-			<div class="flex justify-end mt-2">
+		{#if skills.length === 0}
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
+				<div class="flex flex-col gap-1">
+					<span class="text-xs font-medium text-secondary">Import a folder of skills</span>
+					<FileInput
+						bind:this={folderInput}
+						folderOnly
+						multiple
+						hideIcon
+						disabled={uploading}
+						class="h-full"
+						on:change={(e) => onFolderDropped(e.detail)}
+					>
+						<FolderUp size={20} class="text-tertiary" />
+						<span>Drag a folder here, or click to pick</span>
+					</FileInput>
+				</div>
+				<div class="flex flex-col gap-1">
+					<span class="text-xs font-medium text-secondary">Paste a skill</span>
+					{@render pasteZone()}
+				</div>
+			</div>
+		{:else}
+			<div class="flex justify-end">
 				<Button
-					onclick={addPastedSkill}
+					bind:element={addTriggerEl}
+					{...$addMenuTrigger}
 					variant="default"
 					unifiedSize="sm"
 					startIcon={{ icon: Plus }}
-					disabled={!pasteContent.trim() || uploading}
-				>
-					Add skill
-				</Button>
-			</div>
-		</Label>
-
-		<Label label="Import a folder of skills">
-			<div class="flex mt-1">
-				<Button
-					onclick={() => dirInput?.click()}
-					variant="default"
-					unifiedSize="sm"
-					startIcon={{ icon: FolderUp }}
+					endIcon={{ icon: ChevronDown }}
 					disabled={uploading}
 				>
-					{uploading ? 'Importing…' : 'Import folder'}
+					Add skills
 				</Button>
+				{#if $addMenuOpen}
+					<div
+						use:melt={$addMenu}
+						class="z-[6000] flex flex-col gap-0.5 p-1 w-64 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+					>
+						<button use:melt={$addMenuItem} class={menuItemClass} onclick={() => dirInput?.click()}>
+							<FolderUp size={16} class="shrink-0 text-tertiary" />
+							<span class="text-xs font-medium text-primary">Import a folder of skills</span>
+						</button>
+						<button
+							use:melt={$addMenuItem}
+							class={menuItemClass}
+							onclick={() => (pasteModalOpen = true)}
+						>
+							<ClipboardPaste size={16} class="shrink-0 text-tertiary" />
+							<span class="text-xs font-medium text-primary">Paste a skill</span>
+						</button>
+					</div>
+				{/if}
 			</div>
-			<input
-				bind:this={dirInput}
-				type="file"
-				style="display: none;"
-				onchange={onDirSelected}
-				{...{ webkitdirectory: true, directory: true }}
-			/>
-		</Label>
 
-		{#if skills.length > 0}
 			<div class="rounded-md border divide-y">
 				{#each skills as skill (skill.name)}
 					<div class="flex items-center justify-between gap-4 px-3 py-2">
@@ -351,6 +438,21 @@
 		{/if}
 	</div>
 </SettingCard>
+
+<!-- Hidden folder picker fired by the dropdown's "Import a folder of skills". -->
+<input
+	bind:this={dirInput}
+	type="file"
+	style="display: none;"
+	onchange={onDirSelected}
+	{...{ webkitdirectory: true, directory: true }}
+/>
+
+<Modal2 title="Paste a skill" bind:isOpen={pasteModalOpen} fixedWidth="sm" fixedHeight="adaptive">
+	<div class="w-full flex flex-col">
+		{@render pasteZone()}
+	</div>
+</Modal2>
 
 <ConfirmationModal
 	open={pendingImport !== undefined}
