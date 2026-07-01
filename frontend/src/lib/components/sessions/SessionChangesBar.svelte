@@ -13,15 +13,13 @@
 	import { Button } from '$lib/components/common'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
-	import { goto } from '$lib/navigation'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { deriveForkStatus, sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
-	import SessionDiffButton from './SessionDiffButton.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { maskKey, forkDiffKindToUserDraftKind } from './modifiedItemsMask'
+	import { buildDeployItems, segmentCounts, type SessionContext } from './sessionDeployModel'
 
 	// Unified session bar: replaces the separate draft + fork bars. It surfaces
 	// what the CURRENT chat changed — drafts it wrote and (in a fork) items it
@@ -68,12 +66,9 @@
 	// (old behavior). A Set (even empty) → filter to just this chat's items.
 	const mask = $derived(runtime?.manager.modifiedItems)
 
-	// Draft Count from the shared Workspace Drafts resource (fetches on mount and
-	// on every Server-Draft invalidation), filtered to the chat's mask when tracked.
+	// Workspace Drafts (fetches on mount and on every Server-Draft invalidation);
+	// scoped to the chat's mask inside the deploy model below.
 	const drafts = useWorkspaceDrafts(() => committedId)
-	const draftCount = $derived(
-		mask ? drafts.items.filter((d) => mask.has(maskKey(d.kind, d.path))).length : drafts.count
-	)
 
 	// Fork comparison lives on the shared SessionRuntime cache. The status icon
 	// reflects the fork's REAL relationship to its parent (ahead/diverged/in-sync).
@@ -124,45 +119,56 @@
 	})
 
 	let diffDrawer: SessionDiffDrawer | undefined = $state(undefined)
-	// Count for the single diff button: the deduped union of drafts and deployed-
-	// ahead items (an item can be both — the unified drawer shows it once). Deduped
-	// in canonical mask-key space so the count matches the drawer's rows, in both
-	// the tracked (mask) and legacy (show-all) cases.
-	const unifiedCount = $derived.by(() => {
-		const set = new Set<string>()
-		for (const d of drafts.items) {
-			const k = maskKey(d.kind, d.path)
-			if (!mask || mask.has(k)) set.add(k)
-		}
-		for (const d of comparison?.diffs ?? []) {
-			if (!d.has_changes) continue
-			const udk = forkDiffKindToUserDraftKind(d.kind)
-			if (!udk) continue
-			const k = maskKey(udk, d.path)
-			if (!mask || mask.has(k)) set.add(k)
-		}
-		return set.size
-	})
 
-	function openReview() {
-		if (!committedId || isUnavailable) return
-		const params = new URLSearchParams({ workspace_id: committedId })
-		// Lets the compare page read this chat's mask and preselect its items.
-		if (session.chatId) params.set('from_session', session.chatId)
-		// Open the draft view when there are draft-stage changes (or in a non-fork
-		// session, which only has the draft view); otherwise the fork deploy view.
-		if (draftCount > 0 || !isFork) params.set('mode', 'draft')
-		goto(`/forks/compare?${params.toString()}`)
-	}
+	// The dock counts mirror the drawer's lifecycle segments — computed from the
+	// same pure model over this chat's drafts + fork comparison, so a count button
+	// opens the drawer preset to exactly that filter.
+	const context = $derived<SessionContext>({
+		isFork,
+		currentWorkspaceId: committedId ?? '',
+		parentWorkspaceId,
+		parentName: parentWorkspace?.name ?? parentWorkspaceId
+	})
+	const dockItems = $derived(
+		committedId ? buildDeployItems({ draftItems: drafts.items, comparison, mask, context }) : []
+	)
+	const dockCounts = $derived(segmentCounts(dockItems))
 
 	// Whether to render at all. Fork sessions always show the bar (it carries the
 	// fork identity and surfaces the unavailable banner); non-fork sessions show
-	// only when this chat has drafts to review.
+	// only when this chat has something to review.
 	const showForkRow = $derived(
 		forksAllowed && isFork && !!sessionWorkspace && !!parentWorkspace && !!parentWorkspaceId
 	)
-	const showDraftRow = $derived(!isFork && draftCount > 0)
+	const showDraftRow = $derived(!isFork && dockCounts.to_review > 0)
 </script>
+
+{#snippet dock()}
+	<div class="flex items-center gap-1 shrink-0">
+		<button
+			type="button"
+			disabled={dockCounts.to_review === 0}
+			onclick={() => diffDrawer?.open('to_review')}
+			class="text-2xs px-2 py-1 rounded border transition-colors {dockCounts.to_review > 0
+				? 'border-blue-300 text-blue-700 hover:bg-surface-hover dark:border-blue-500/40 dark:text-blue-300'
+				: 'border-light text-tertiary cursor-default'}"
+		>
+			{dockCounts.to_review} to review
+		</button>
+		{#if dockCounts.done > 0}
+			<button
+				type="button"
+				onclick={() => diffDrawer?.open('done')}
+				class="text-2xs px-2 py-1 rounded border border-light text-secondary hover:bg-surface-hover transition-colors"
+			>
+				{dockCounts.done} done
+			</button>
+		{/if}
+		<Button variant="default" unifiedSize="xs" onclick={() => diffDrawer?.open('to_review')}>
+			Review
+		</Button>
+	</div>
+{/snippet}
 
 {#if committedId && isUnavailable}
 	<!-- Committed workspace is no longer in the user's list (deleted, archived,
@@ -245,15 +251,7 @@
 				{parentWorkspace?.name}
 			</span>
 		</div>
-		<div class="flex items-center gap-1 shrink-0">
-			<SessionDiffButton
-				count={unifiedCount}
-				disabled={unifiedCount === 0}
-				title="View changes from this chat"
-				onclick={() => diffDrawer?.open()}
-			/>
-			<Button variant="default" unifiedSize="xs" onclick={openReview}>Review</Button>
-		</div>
+		{@render dock()}
 	</div>
 
 	<SessionDiffDrawer
@@ -269,14 +267,9 @@
 	>
 		<div class="flex items-center gap-1.5 min-w-0">
 			<span class="inline-flex shrink-0"><Pencil class="w-3.5 h-3.5 text-secondary" /></span>
-			<span class="truncate text-secondary">
-				{draftCount} draft{draftCount === 1 ? '' : 's'}
-			</span>
+			<span class="truncate text-secondary">Changes</span>
 		</div>
-		<div class="flex items-center gap-1 shrink-0">
-			<SessionDiffButton count={draftCount} onclick={() => diffDrawer?.open()} />
-			<Button variant="default" unifiedSize="xs" onclick={openReview}>Review</Button>
-		</div>
+		{@render dock()}
 	</div>
 
 	<SessionDiffDrawer

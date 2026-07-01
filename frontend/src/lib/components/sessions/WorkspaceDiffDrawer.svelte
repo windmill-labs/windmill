@@ -81,10 +81,11 @@
 	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
 	let hasOpenDeploymentRequest = $state(false)
 
-	export function open() {
+	export function open(segment?: DeploySegment) {
 		loadedDiffs = {}
 		mountedRows = {}
 		rightPanelCollapsed = false
+		if (segment) model.setSegment(segment)
 		model.load()
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)

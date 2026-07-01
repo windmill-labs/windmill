@@ -3,7 +3,7 @@
 	import { ArrowRight, GitFork, Pencil } from 'lucide-svelte'
 	import { userWorkspaces } from '$lib/stores'
 	import { useSessionDeployModel } from './sessionDeployModel.svelte'
-	import type { DeployItem } from './sessionDeployModel'
+	import type { DeployItem, DeploySegment } from './sessionDeployModel'
 
 	// Session Review & Deploy drawer. Builds the unified deploy model (drafts +
 	// fork comparison) and hands it to WorkspaceDiffDrawer, which renders the tree
@@ -59,8 +59,8 @@
 	)
 	const reviewHref = $derived(isFork ? reviewBase : `${reviewBase}&mode=draft`)
 
-	export function open() {
-		inner?.open()
+	export function open(segment?: DeploySegment) {
+		inner?.open(segment)
 	}
 </script>
 
