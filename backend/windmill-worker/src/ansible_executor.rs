@@ -941,7 +941,9 @@ remote_tmp={job_dir}/.ansible/tmp
 /// Read a colon-separated path list (e.g. `roles_path`, `collections_path`) from
 /// the `[defaults]` section of an ansible.cfg. Returns the raw entries as written,
 /// unresolved. Deliberately minimal: no inline-comment or continuation handling,
-/// which ansible's configparser also does not apply to these values.
+/// which ansible's configparser also does not apply to these values. `key` and `=`
+/// or `:` as the delimiter are both matched (Python configparser accepts either),
+/// with the value itself split on `:` (`os.pathsep`).
 fn parse_ansible_cfg_path_list(content: &str, key: &str) -> Option<Vec<String>> {
     let mut in_defaults = false;
     for line in content.lines() {
@@ -955,7 +957,12 @@ fn parse_ansible_cfg_path_list(content: &str, key: &str) -> Option<Vec<String>> 
         if !in_defaults || trimmed.starts_with('#') || trimmed.starts_with(';') {
             continue;
         }
-        if let Some((k, v)) = trimmed.split_once('=') {
+        // configparser delimits key/value on the first `=` or `:`, whichever
+        // comes first; the remaining `:` in the value are path separators.
+        let sep = trimmed.find('=').into_iter().chain(trimmed.find(':')).min();
+        if let Some(sep) = sep {
+            let (k, rest) = trimmed.split_at(sep);
+            let v = &rest[1..];
             if k.trim().eq_ignore_ascii_case(key) {
                 let entries: Vec<String> = v
                     .split(':')
@@ -1057,7 +1064,10 @@ async fn build_ansible_cfg_override_envs(
         "ANSIBLE_COLLECTIONS_PATH".to_string(),
         resolve_and_prepend_path(
             job_dir.to_string(),
-            parse_ansible_cfg_path_list(&cfg_content, "collections_path"),
+            // Also probe the deprecated plural ini alias; env vars replace (not
+            // merge) the cfg value, so a repo using it would otherwise be dropped.
+            parse_ansible_cfg_path_list(&cfg_content, "collections_path")
+                .or_else(|| parse_ansible_cfg_path_list(&cfg_content, "collections_paths")),
             cfg_dir,
         ),
     ));
@@ -2065,6 +2075,25 @@ roles_path = ignored/section
     }
 
     #[test]
+    fn test_parse_ansible_cfg_path_list_colon_delimiter() {
+        // configparser accepts `:` as a key/value delimiter, and the value can
+        // itself be a `:`-separated list.
+        let cfg = "\
+[defaults]
+roles_path: my_roles
+collections_path : a/col:b/col
+";
+        assert_eq!(
+            parse_ansible_cfg_path_list(cfg, "roles_path"),
+            Some(vec!["my_roles".to_string()])
+        );
+        assert_eq!(
+            parse_ansible_cfg_path_list(cfg, "collections_path"),
+            Some(vec!["a/col".to_string(), "b/col".to_string()])
+        );
+    }
+
+    #[test]
     fn test_resolve_and_prepend_path() {
         // No repo entries: only Windmill's install dir.
         assert_eq!(
@@ -2213,6 +2242,28 @@ roles_path = ignored/section
         assert_eq!(
             map.get("ANSIBLE_COLLECTIONS_PATH").map(|s| s.as_str()),
             Some(job_dir)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_ansible_cfg_override_envs_collections_paths_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let repo_dir = dir.path().join("delegate_git_repository");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let cfg_path = repo_dir.join("ansible.cfg");
+        // Deprecated plural alias must still be picked up so the repo's collections
+        // are not silently dropped when the env override replaces the cfg value.
+        std::fs::write(&cfg_path, "[defaults]\ncollections_paths = my_cols\n").unwrap();
+
+        let envs =
+            build_ansible_cfg_override_envs(cfg_path.to_str().unwrap(), job_dir, false, None)
+                .await
+                .unwrap();
+        let map: std::collections::HashMap<_, _> = envs.into_iter().collect();
+        assert_eq!(
+            map.get("ANSIBLE_COLLECTIONS_PATH"),
+            Some(&format!("{job_dir}:{}/my_cols", repo_dir.to_str().unwrap()))
         );
     }
 }
