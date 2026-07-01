@@ -33,10 +33,20 @@ export type GraphRunnable = {
   path: string;
   usage_kind: "script" | "flow" | "job";
   in_pipeline?: boolean;
-  // `// materialize <asset>` target — the script's declared output, mirrored
-  // from the deployed graph so the UI anchors column lineage / the materialize
-  // badge to it (the producer write-edge is emitted separately).
+  // Annotation metadata the shared canvas renders as badges / lineage. Mirrors
+  // the deployed graph's runnable node (frontend `AssetGraphRunnableNode`) so the
+  // local-dev graph is the same surface as the deployed one for annotated scripts.
+  partition_kind?: string;
+  freshness?: string;
+  tag?: string;
+  retry?: { count: number; delay?: string };
+  data_tests?: unknown[];
+  column_lineage?: unknown[];
+  // `// materialize <asset>` target + strategy — the script's declared output,
+  // so the UI anchors column lineage / the materialize badge to it (the producer
+  // write-edge is emitted separately).
   materialize_target?: { kind: string; path: string };
+  materialize_strategy?: "replace" | "append" | "merge";
 };
 export type GraphEdge = {
   runnable_kind: string;
@@ -94,9 +104,21 @@ type ParseAssetsRaw = {
   // `// materialize [manual] <asset> …` — managed-materialize target (emitted by
   // the wasm asset parser). The body (a bare trailing SELECT) writes nothing
   // inferable, so the producer's output edge comes from here, not from `assets`.
-  materialize?: { target_kind: string; target_path: string };
+  materialize?: {
+    target_kind: string;
+    target_path: string;
+    manual?: boolean;
+    append?: boolean;
+    unique_key?: string;
+  };
   // `// tag <worker-tag>` — the worker tag the deployed pipeline routes to.
   tag?: string;
+  // Other annotation metadata the deployed graph carries onto its runnable nodes.
+  partition?: { kind: string };
+  freshness?: { duration: string };
+  retry?: { count: number; delay?: string };
+  data_tests?: unknown[];
+  column_lineage?: unknown[];
 };
 
 // Mirror `inferAssets` (frontend/src/lib/infer.ts): only ts / py / sql have a
@@ -365,11 +387,31 @@ export async function buildLocalPipelineGraph(args: {
     // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
     pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
     const mat = out.materialize;
+    // Managed-materialize write strategy, derived like the deployed graph
+    // (append → append; key=<col> → merge; else replace). Manual mode has no
+    // managed strategy.
+    const materialize_strategy =
+      mat && !mat.manual
+        ? mat.append
+          ? "append"
+          : mat.unique_key
+            ? "merge"
+            : "replace"
+        : undefined;
     runnables.push({
       path: s.path,
       usage_kind: "script",
       in_pipeline: true,
+      ...(out.partition ? { partition_kind: out.partition.kind } : {}),
+      ...(out.freshness ? { freshness: out.freshness.duration } : {}),
+      ...(out.tag ? { tag: out.tag } : {}),
+      ...(out.retry ? { retry: out.retry } : {}),
+      ...(out.data_tests && out.data_tests.length > 0 ? { data_tests: out.data_tests } : {}),
+      ...(out.column_lineage && out.column_lineage.length > 0
+        ? { column_lineage: out.column_lineage }
+        : {}),
       ...(mat ? { materialize_target: { kind: mat.target_kind, path: mat.target_path } } : {}),
+      ...(materialize_strategy ? { materialize_strategy } : {}),
     });
 
     for (const a of out.assets ?? []) {
