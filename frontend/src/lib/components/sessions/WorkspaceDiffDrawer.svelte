@@ -98,7 +98,7 @@
 	> = {
 		draft: { label: 'Draft', color: 'blue' },
 		in_fork: { label: 'In fork', color: 'blue' },
-		in_parent: { label: 'Done', color: 'green' },
+		in_parent: { label: 'In parent', color: 'green' },
 		deleted: { label: 'Deleted', color: 'red' },
 		conflict: { label: 'Conflict', color: 'orange' }
 	}
@@ -112,7 +112,7 @@
 		{ id: 'to_review', label: 'To review' },
 		{ id: 'drafts', label: 'Drafts' },
 		{ id: 'in_fork', label: 'In fork' },
-		{ id: 'done', label: 'Done' },
+		{ id: 'done', label: 'In parent' },
 		{ id: 'all', label: 'All' }
 	]
 	// Main (non-fork) sessions have no fork stage — hide the In-fork segment.
@@ -352,7 +352,15 @@
 />
 
 {#snippet statePill(item: DeployItem)}
-	<Badge color={STATE_META[item.state].color} small>{stateLabel(item)}</Badge>
+	<Badge
+		color={STATE_META[item.state].color}
+		small
+		title={item.state === 'in_parent'
+			? `Deployed in the parent workspace: ${model.context.parentName ?? ''}`
+			: undefined}
+	>
+		{stateLabel(item)}
+	</Badge>
 {/snippet}
 
 {#snippet pipeline(stages: PipelineStage[])}
@@ -439,8 +447,9 @@
 					>
 						{node.app.summary ?? node.name}
 					</span>
-					{#if appItem}{@render statePill(appItem)}{/if}
 					{#if node.app.hasDraft}
+						<!-- A drafted item is fully described by the avatar DraftBadge; the
+						     plain state pill would be a redundant second badge. -->
 						<DraftBadge
 							is_draft
 							draft_only={node.app.draftOnly ?? false}
@@ -448,6 +457,8 @@
 							itemKind={node.app.draftItemKind}
 							currentUsername={$userStore?.username}
 						/>
+					{:else if appItem}
+						{@render statePill(appItem)}
 					{/if}
 					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
 					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
@@ -517,8 +528,9 @@
 				onmouseenter={() => setHoverHighlight(key)}
 			>
 				{#snippet extras()}
-					{@render statePill(d)}
 					{#if d.hasDraft}
+						<!-- A drafted item is fully described by the avatar DraftBadge; the
+						     plain state pill would be a redundant second badge. -->
 						<DraftBadge
 							is_draft
 							draft_only={d.draftOnly}
@@ -526,6 +538,8 @@
 							itemKind={d.draftKind}
 							currentUsername={$userStore?.username}
 						/>
+					{:else}
+						{@render statePill(d)}
 					{/if}
 					<span class="w-5 shrink-0" aria-hidden="true"></span>
 				{/snippet}
@@ -684,7 +698,7 @@
 						onmousemove={() => (mouseActive = true)}
 						class="{rightPanelCollapsed
 							? 'flex-1'
-							: 'flex-none w-72 border-r border-light'} flex flex-col min-h-0"
+							: 'flex-none w-96 border-r border-light'} flex flex-col min-h-0"
 					>
 						<!-- Filter segments -->
 						<div class="px-2 pt-2 shrink-0 flex flex-wrap gap-1">
@@ -793,7 +807,17 @@
 												</div>
 												<div class="shrink-0 flex items-center gap-2">
 													{@render pipeline(pipelineOf(d, model.context))}
-													{@render statePill(d)}
+													{#if d.hasDraft}
+														<DraftBadge
+															is_draft
+															draft_only={d.draftOnly}
+															draft_users={d.draftUsers ?? []}
+															itemKind={d.draftKind}
+															currentUsername={$userStore?.username}
+														/>
+													{:else}
+														{@render statePill(d)}
+													{/if}
 													{#if status}
 														{@render deployStatus(d)}
 													{:else if action.op !== 'none'}

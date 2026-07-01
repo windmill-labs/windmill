@@ -161,12 +161,9 @@
 				onclick={() => diffDrawer?.open('done')}
 				class="text-2xs px-2 py-1 rounded border border-light text-secondary hover:bg-surface-hover transition-colors"
 			>
-				{dockCounts.done} done
+				{dockCounts.done} in parent
 			</button>
 		{/if}
-		<Button variant="default" unifiedSize="xs" onclick={() => diffDrawer?.open('to_review')}>
-			Review
-		</Button>
 	</div>
 {/snippet}
 
