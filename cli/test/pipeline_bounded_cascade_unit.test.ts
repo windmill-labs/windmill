@@ -15,7 +15,7 @@ import {
   scriptsOf,
   topoOrder,
   validStarts,
-  eventTriggerScripts,
+  nonAutorunTriggerScripts,
   reachableCutting,
   isScriptNode,
   scriptPathOf,
@@ -105,29 +105,39 @@ test("boundedSet drops ends not downstream of start", () => {
   expect([...res.nodes]).toEqual([sn("c")]);
 });
 
-test("validStarts: schedule and manual roots, not events or subscribers", () => {
+test("validStarts: schedule and manual roots, not events/uploads/webhooks or subscribers", () => {
   const g = graph({
-    scripts: ["a", "sub", "sched", "kfk"],
+    scripts: ["a", "sub", "sched", "kfk", "upl", "hook"],
     writes: [["a", "x"]],
     subs: [["sub", "x"], ["sched", "x"]],
-    native: [["schedule", "sched"], ["kafka", "kfk"]],
+    native: [
+      ["schedule", "sched"],
+      ["kafka", "kfk"],
+      ["data_upload", "upl"],
+      ["webhook", "hook"],
+    ],
   });
   const starts = validStarts(g);
   expect(starts.has(sn("a"))).toBe(true); // manual root
   expect(starts.has(sn("sched"))).toBe(true); // schedule overrides subscriber
   expect(starts.has(sn("sub"))).toBe(false); // pure subscriber
   expect(starts.has(sn("kfk"))).toBe(false); // event-only
+  // data_upload / webhook need caller-supplied input → not auto-run roots
+  expect(starts.has(sn("upl"))).toBe(false);
+  expect(starts.has(sn("hook"))).toBe(false);
 });
 
-test("eventTriggerScripts: event handlers, incl. ones that also subscribe (descendants)", () => {
+test("nonAutorunTriggerScripts: event + upload/webhook handlers, incl. subscribers (descendants)", () => {
   const g = graph({
-    scripts: ["a", "evt"],
+    scripts: ["a", "evt", "upl"],
     writes: [["a", "x"]],
-    subs: [["evt", "x"]], // evt is a lineage descendant of a…
-    native: [["kafka", "evt"]], // …and a kafka event handler
+    subs: [["evt", "x"], ["upl", "x"]], // both are lineage descendants of a…
+    native: [["kafka", "evt"], ["data_upload", "upl"]], // …and input-requiring handlers
   });
-  const ev = eventTriggerScripts(g);
-  expect(ev.has(sn("evt"))).toBe(true); // excluded from a whole-pipeline run despite being a descendant
+  const ev = nonAutorunTriggerScripts(g);
+  // excluded from a whole-pipeline run despite being descendants
+  expect(ev.has(sn("evt"))).toBe(true);
+  expect(ev.has(sn("upl"))).toBe(true);
   expect(ev.has(sn("a"))).toBe(false);
 });
 
@@ -144,7 +154,7 @@ test("reachableCutting: drops barrier + its exclusive downstream, keeps alt-path
     new Set([...s].filter(isScriptNode).map(scriptPathOf));
 
   // consumer only reachable via the event handler → both excluded
-  expect(scripts(reachableCutting(dag, validStarts(g), eventTriggerScripts(g)))).toEqual(
+  expect(scripts(reachableCutting(dag, validStarts(g), nonAutorunTriggerScripts(g)))).toEqual(
     new Set(["root_a", "root_b"]),
   );
 
@@ -156,7 +166,7 @@ test("reachableCutting: drops barrier + its exclusive downstream, keeps alt-path
     native: [["kafka", "handler"]],
   });
   expect(
-    scripts(reachableCutting(buildLineageDag(g2), validStarts(g2), eventTriggerScripts(g2))),
+    scripts(reachableCutting(buildLineageDag(g2), validStarts(g2), nonAutorunTriggerScripts(g2))),
   ).toEqual(new Set(["root_a", "root_b", "consumer"]));
 });
 

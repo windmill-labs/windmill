@@ -40,10 +40,14 @@ export const isScriptNode = (id: string): boolean => id.startsWith(SCRIPT_PREFIX
 export const scriptPathOf = (id: string): string => id.slice(SCRIPT_PREFIX.length);
 const assetNodeId = (kind: string, path: string): string => `${kind}:${path}`;
 
-// Native trigger kinds that fan out per-event — never bounded-run starts.
-// `webhook` / `data_upload` have no trigger row in the graph payload, so a root
-// whose only entry is one of those reads as a manual root.
-const EVENT_TRIGGER_KINDS = new Set([
+// Native trigger kinds whose scripts must NOT be auto-run by the CLI cascade:
+// event triggers fan out per external event, and `webhook`/`data_upload` are UI
+// entrypoints that need caller-supplied input (a request body / an uploaded
+// S3Object) — previewing any of them with empty args runs the wrong thing.
+// The deployed graph omits `webhook`/`data_upload` rows, but the local graph
+// emits them, so a `// on data_upload` script would otherwise read as a manual
+// root and get auto-run without its upload argument.
+const NON_AUTORUN_TRIGGER_KINDS = new Set([
   "kafka",
   "mqtt",
   "nats",
@@ -51,6 +55,8 @@ const EVENT_TRIGGER_KINDS = new Set([
   "sqs",
   "gcp",
   "email",
+  "webhook",
+  "data_upload",
 ]);
 
 /** Resolve an asset URI (`datatable://x`, `s3://b/k`, …) to its node id. */
@@ -183,33 +189,33 @@ export function boundedSet(dag: LineageDag, start: string, ends: string[]): Boun
 export function validStarts(g: BCGraph): Set<string> {
   const subscribers = new Set<string>();
   const scheduleScripts = new Set<string>();
-  const eventScripts = new Set<string>();
+  const nonAutorunScripts = new Set<string>();
   for (const t of g.triggers ?? []) {
     if (t.runnable_kind !== "script") continue;
     if (t.trigger_kind === "asset") subscribers.add(t.runnable_path);
     else if (t.trigger_kind === "schedule") scheduleScripts.add(t.runnable_path);
-    else if (EVENT_TRIGGER_KINDS.has(t.trigger_kind)) eventScripts.add(t.runnable_path);
+    else if (NON_AUTORUN_TRIGGER_KINDS.has(t.trigger_kind)) nonAutorunScripts.add(t.runnable_path);
   }
   const out = new Set<string>();
   for (const r of g.runnables ?? []) {
     if (r.usage_kind !== "script") continue;
     const p = r.path;
     if (scheduleScripts.has(p)) out.add(scriptNodeId(p));
-    else if (!subscribers.has(p) && !eventScripts.has(p)) out.add(scriptNodeId(p));
+    else if (!subscribers.has(p) && !nonAutorunScripts.has(p)) out.add(scriptNodeId(p));
   }
   return out;
 }
 
 /**
- * Script node ids that carry a row-backed event trigger (kafka/mqtt/nats/
- * postgres/sqs/gcp/email). These fan out per-event and can't be run with empty
- * args, so a whole-pipeline run must exclude them even when they're a lineage
- * descendant of a valid start (not just when they're a root).
+ * Script node ids that carry a trigger requiring caller-supplied input or
+ * per-event fanout (kafka/mqtt/nats/postgres/sqs/gcp/email/webhook/data_upload).
+ * These can't be run with empty args, so a whole-pipeline run must exclude them
+ * even when they're a lineage descendant of a valid start (not just a root).
  */
-export function eventTriggerScripts(g: BCGraph): Set<string> {
+export function nonAutorunTriggerScripts(g: BCGraph): Set<string> {
   const out = new Set<string>();
   for (const t of g.triggers ?? []) {
-    if (t.runnable_kind === "script" && EVENT_TRIGGER_KINDS.has(t.trigger_kind)) {
+    if (t.runnable_kind === "script" && NON_AUTORUN_TRIGGER_KINDS.has(t.trigger_kind)) {
       out.add(scriptNodeId(t.runnable_path));
     }
   }

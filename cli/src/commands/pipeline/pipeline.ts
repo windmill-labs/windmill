@@ -13,7 +13,7 @@ import {
   boundedSet,
   buildLineageDag,
   descendants,
-  eventTriggerScripts,
+  nonAutorunTriggerScripts,
   reachableCutting,
   resolveToken,
   scriptNodeId,
@@ -467,13 +467,13 @@ async function run(
   let droppedEnds: string[] = [];
   if (runAll) {
     // Whole pipeline = everything reachable from the valid starts (schedule/manual
-    // roots), but CUT at event-trigger scripts (kafka/mqtt/nats/postgres/sqs/gcp/
-    // email). They fan out per-event and can't run with empty args, and cutting —
-    // rather than just deleting the handler after a descendant union — also drops
-    // its event-only downstream, so `pipeline run <folder>` never runs a consumer
-    // whose skipped producer would leave it with missing/stale inputs. A node also
-    // reachable via a non-event path still runs.
-    selectedScripts = new Set(scriptsOf(reachableCutting(dag, starts, eventTriggerScripts(graph))));
+    // roots), but CUT at scripts whose trigger needs caller-supplied input or
+    // per-event fanout (kafka/mqtt/nats/postgres/sqs/gcp/email/webhook/data_upload).
+    // They can't run with empty args, and cutting — rather than just deleting the
+    // handler after a descendant union — also drops its downstream, so `pipeline
+    // run <folder>` never runs a consumer whose skipped producer would leave it
+    // with missing/stale inputs. A node also reachable via another path still runs.
+    selectedScripts = new Set(scriptsOf(reachableCutting(dag, starts, nonAutorunTriggerScripts(graph))));
   } else if (ends.length === 0) {
     // No bound → full read-aware downstream of start (pure readers included).
     const all = new Set(descendants(dag, start!));
