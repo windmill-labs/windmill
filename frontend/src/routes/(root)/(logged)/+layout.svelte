@@ -751,10 +751,13 @@
 												? 0
 												: numUnacknowledgedCriticalAlerts}
 										/>
-										<div class="px-2 pb-2">
-											<SettingsMenu isCollapsed={false} />
-										</div>
 									{/if}
+
+									<!-- Settings dropdown stays across both modes; session mode just hides
+									     the workspace-settings entry. -->
+									<div class="px-2 pb-2">
+										<SettingsMenu isCollapsed={false} hideWorkspaceSettings={sessionMode} />
+									</div>
 								</div>
 							</div>
 						</div>
@@ -835,11 +838,13 @@
 										? 0
 										: numUnacknowledgedCriticalAlerts}
 								/>
-
-								<div class="px-2 pb-1">
-									<SettingsMenu {isCollapsed} />
-								</div>
 							{/if}
+
+							<!-- Settings dropdown stays across both modes; session mode just hides
+							     the workspace-settings entry. -->
+							<div class="px-2 pb-1">
+								<SettingsMenu {isCollapsed} hideWorkspaceSettings={sessionMode} />
+							</div>
 
 							<div class="flex-shrink-0 flex px-4 pb-3.5">
 								<button

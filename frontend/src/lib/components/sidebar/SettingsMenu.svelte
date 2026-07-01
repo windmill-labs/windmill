@@ -7,25 +7,48 @@
 		HelpCircle,
 		LogOut,
 		ChevronDown,
-		Building
+		Building,
+		Moon,
+		Sun
 	} from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
 	import { userWorkspaces, workspaceStore, userStore, superadmin } from '$lib/stores'
 
-	let { isCollapsed = false }: { isCollapsed?: boolean } = $props()
+	let {
+		isCollapsed = false,
+		// Session mode drops the workspace-settings entry (the rail's global
+		// workspace context doesn't apply to a session's own forked workspace),
+		// but keeps the rest of the menu available.
+		hideWorkspaceSettings = false
+	}: { isCollapsed?: boolean; hideWorkspaceSettings?: boolean } = $props()
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
 
+	let darkMode = $state(false)
+	function toggleDarkMode() {
+		if (!document.documentElement.classList.contains('dark')) {
+			document.documentElement.classList.add('dark')
+			window.localStorage.setItem('dark-mode', 'dark')
+		} else {
+			document.documentElement.classList.remove('dark')
+			window.localStorage.setItem('dark-mode', 'light')
+		}
+	}
+
 	// Account / instance actions gathered under one "Settings" dropdown, shared by
 	// the session rail and the global sidebar so both expose the same entry point.
+	// The dropdown opens upward, so bottom-to-top the settings read: Instance,
+	// Workspace, User.
 	const items = $derived<Item[]>([
-		...(canManageWorkspace
+		{ displayName: 'User', icon: User, action: () => goto(USER_SETTINGS_HASH) },
+		...(canManageWorkspace && !hideWorkspaceSettings
 			? [
 					{
 						displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
@@ -34,7 +57,6 @@
 					}
 				]
 			: []),
-		{ displayName: 'User', icon: User, action: () => goto(USER_SETTINGS_HASH) },
 		{
 			displayName: 'Instance settings',
 			icon: Settings,
@@ -48,7 +70,13 @@
 			href: 'https://www.windmill.dev/docs/intro',
 			hrefTarget: '_blank'
 		},
-		{ displayName: 'Logout', icon: LogOut, action: () => logout(), separatorTop: true }
+		{
+			displayName: 'Switch theme',
+			icon: darkMode ? Sun : Moon,
+			action: () => toggleDarkMode(),
+			separatorTop: true
+		},
+		{ displayName: 'Logout', icon: LogOut, action: () => logout() }
 	])
 </script>
 
@@ -67,3 +95,5 @@
 		</span>
 	{/snippet}
 </DropdownV2>
+
+<DarkModeObserver bind:darkMode />
