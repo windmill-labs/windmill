@@ -15,11 +15,11 @@
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
 	let parentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === parentWorkspaceId))
-	// A fork must have a parent to compare/merge against. Treating the wm-fork-
-	// prefix alone as "is a fork" renders a parentless "Fork of ()" banner when
-	// the parent linkage was dropped (e.g. by a workspace id change), so require
-	// both, matching the forks/compare page.
-	let isFork = $derived(($workspaceStore?.startsWith('wm-fork-') ?? false) && !!parentWorkspaceId)
+	// Detect fork/dev workspaces by their parent link, not the `wm-fork-` id prefix (dev
+	// workspaces have an ordinary, prefix-less id). Keying on the parent (rather than the
+	// prefix) also avoids a parentless "Fork of ()" banner when the linkage is dropped.
+	let isFork = $derived(parentWorkspaceId != null)
+	let isDevWorkspace = $derived(currentWorkspaceData?.is_dev_workspace ?? false)
 
 	// Drafts in this fork. When the fork is otherwise in sync with its parent, a
 	// user with only pending drafts should still get the draft CTA (mirrors the
@@ -170,7 +170,8 @@
 					<GitFork class="w-4 h-4 text-accent" />
 					<div class="text-sm">
 						<span class="font-medium text-blue-900 dark:text-blue-100">
-							Fork of <b>{parentWorkspaceData?.name}</b> ({parentWorkspaceId})
+							{isDevWorkspace ? 'Dev workspace of' : 'Fork of'}
+							<b>{parentWorkspaceData?.name}</b> ({parentWorkspaceId})
 						</span>
 					</div>
 

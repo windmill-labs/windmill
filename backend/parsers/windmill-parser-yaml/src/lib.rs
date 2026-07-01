@@ -269,6 +269,12 @@ pub struct DelegateToGitRepoDetails {
     pub commit: Option<String>,
     pub inventories_location: Option<String>,
     pub vars_location: Option<String>,
+    /// Path (relative to the cloned repo root) of an `ansible.cfg` to use as the
+    /// effective config for the run. When set, Windmill points `ANSIBLE_CONFIG` at
+    /// it so the repo's own settings (roles paths, inventory plugins, callbacks…)
+    /// apply, and only injects the settings that depend on runtime state it alone
+    /// controls (temp/home dirs, vault password) on top.
+    pub ansible_cfg: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub install_requirements: bool,
 }
@@ -629,6 +635,10 @@ fn extract_delegate_to_git_repo_details(value: &Yaml) -> Option<DelegateToGitRep
                 .get(&Yaml::String("vars_location".to_string()))
                 .and_then(|s| s.as_str())
                 .map(|s| s.to_string());
+            let ansible_cfg = v
+                .get(&Yaml::String("ansible_cfg".to_string()))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
             let install_requirements = v
                 .get(&Yaml::String("install_requirements".to_string()))
                 .and_then(|s| s.as_bool())
@@ -640,6 +650,7 @@ fn extract_delegate_to_git_repo_details(value: &Yaml) -> Option<DelegateToGitRep
                 commit,
                 inventories_location,
                 vars_location,
+                ansible_cfg,
                 install_requirements,
             });
         }
@@ -1047,6 +1058,39 @@ delegate_to_git_repo:
         let d = reqs.unwrap().delegate_to_git_repo.unwrap();
         assert!(!d.install_requirements);
         assert_eq!(d.playbook.as_deref(), Some("site.yml"));
+    }
+
+    #[test]
+    fn test_parse_delegate_ansible_cfg() {
+        let p = r#"
+---
+delegate_to_git_repo:
+  resource: u/admin/repo
+  playbook: site.yml
+  ansible_cfg: config/ansible.cfg
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let d = reqs.unwrap().delegate_to_git_repo.unwrap();
+        assert_eq!(d.ansible_cfg.as_deref(), Some("config/ansible.cfg"));
+    }
+
+    #[test]
+    fn test_parse_delegate_ansible_cfg_absent() {
+        let p = r#"
+---
+delegate_to_git_repo:
+  resource: u/admin/repo
+  playbook: site.yml
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let d = reqs.unwrap().delegate_to_git_repo.unwrap();
+        assert_eq!(d.ansible_cfg, None);
     }
 
     #[test]

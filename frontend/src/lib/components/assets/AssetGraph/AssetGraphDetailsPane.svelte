@@ -48,6 +48,18 @@
 		// `selection` when present. Used by the pipeline + menu so a new
 		// pipeline script opens inline instead of navigating to /scripts/add.
 		draftScript?: Script | undefined
+		// Local-dev preview (`/pipeline_dev`): resolve a selected node to its
+		// working-tree content instead of fetching the deployed script (there is
+		// none — the pipeline is local-only). Returns a read-only `Script` so the
+		// pane renders the source + an ENABLED Run button (unlike `draftScript`,
+		// which is intentionally not-runnable until deployed). May be async so the
+		// caller can infer the args schema for the run form.
+		resolveLocalScript?: (path: string) => Script | undefined | Promise<Script | undefined>
+		// Bump this whenever `resolveLocalScript`'s backing content changes (a
+		// `pipeline dev` live-reload pushes a new bundle). It's in the `scriptRes`
+		// key so the open pane re-resolves the selected node's source even though
+		// `selection` is unchanged — otherwise the pane sticks on stale content.
+		localScriptsVersion?: unknown
 		workspace: string
 		onclose: () => void
 		// Optional: dismiss the pane while preserving the current selection /
@@ -215,10 +227,16 @@
 		// NO _wmill_skip_asset_dispatch, so the backend asset-trigger
 		// dispatcher cascades downstream for real.
 		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Run the open script AND its downstream closure with the form args (dev
+		// preview only — the client orchestrates the chain). Unset on the deployed
+		// pane, whose single run already cascades via the backend dispatcher.
+		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
 	}
 	let {
 		selection,
 		draftScript,
+		resolveLocalScript,
+		localScriptsVersion,
 		workspace,
 		onclose,
 		onHide,
@@ -250,7 +268,8 @@
 		mode = 'edit',
 		onRequestEdit,
 		canRunByPath = false,
-		onRunByPath
+		onRunByPath,
+		onRunCascadeByPath
 	}: Props = $props()
 
 	let readOnly = $derived(mode !== 'edit')
@@ -390,10 +409,13 @@
 	// When `draftScript` is provided we bypass the fetch entirely and edit
 	// it locally; saving calls ScriptService.createScript to deploy it.
 	let scriptRes = resource(
-		[() => workspace, () => selection, () => draftScript],
+		[() => workspace, () => selection, () => draftScript, () => localScriptsVersion],
 		async ([ws, sel, draft]) => {
 			if (draft) return undefined
 			if (!sel || sel.kind !== 'runnable' || sel.runnable_kind !== 'script') return undefined
+			// Local-dev: serve the working-tree script (no deployed row exists).
+			const local = await resolveLocalScript?.(sel.path)
+			if (local) return local
 			return await ScriptService.getScriptByPath({ workspace: ws, path: sel.path })
 		}
 	)
@@ -946,14 +968,18 @@
 				/>
 			{/if}
 			{#if !readOnly && isScriptView && script && !atLatestSavePoint}
+				{@const isCreate = isDraft && !script?.hash}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: Save }}
 					onclick={save}
 					disabled={saving}
+					title={isCreate
+						? 'Deploy this new script to the workspace'
+						: 'Deploy your changes to this script'}
 				>
-					{saving ? 'Saving…' : isDraft && !script?.hash ? 'Create' : 'Save'}
+					{saving ? 'Deploying…' : 'Deploy'}
 				</Button>
 			{/if}
 			{#if onHide}
@@ -1087,6 +1113,8 @@
 					{isDraft}
 					canRun={canRunByPath}
 					onRun={onRunByPath}
+					onRunCascade={onRunCascadeByPath}
+					downstreamCount={downstreamSubscribers}
 					{runsRefreshKey}
 					{runsPendingJobId}
 					onRunCompleted={() => {

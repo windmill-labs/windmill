@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.744.0](https://github.com/windmill-labs/windmill/compare/v1.743.0...v1.744.0) (2026-07-01)
+
+
+### Features
+
+* add copy-to-clipboard button to rendered Mermaid diagrams in AI chat ([#9838](https://github.com/windmill-labs/windmill/issues/9838)) ([a27e814](https://github.com/windmill-labs/windmill/commit/a27e814a03c615259381eaf684aa90d56569b0af))
+* add dev workspaces paired with a lockable prod workspace ([#9793](https://github.com/windmill-labs/windmill/issues/9793)) ([b4b0c6a](https://github.com/windmill-labs/windmill/commit/b4b0c6a93e52152251fadefe319773faf42549b2))
+* **ansible:** support repo-provided ansible.cfg in delegate_to_git_repo ([#9851](https://github.com/windmill-labs/windmill/issues/9851)) ([68bf0da](https://github.com/windmill-labs/windmill/commit/68bf0daf5815307cda6ce23214dd5159b6aa33b4))
+* **licensing:** enforce offline license seat cap ([#9845](https://github.com/windmill-labs/windmill/issues/9845)) ([83f3d7f](https://github.com/windmill-labs/windmill/commit/83f3d7f910b331c09f60cc9ff556728afa3dec07))
+* **object-store:** make GCS service account key optional for Workload Identity ([#9842](https://github.com/windmill-labs/windmill/issues/9842)) ([83ed011](https://github.com/windmill-labs/windmill/commit/83ed011e264f20ffa66a7bf933f2fe3615cf6b67))
+* **pipeline:** local development for data pipelines (CLI --local + pipeline dev preview) ([#9840](https://github.com/windmill-labs/windmill/issues/9840)) ([74f579e](https://github.com/windmill-labs/windmill/commit/74f579e6d9ef08e74460f904a4c22ed9d6a3b5b0))
+* **pipelines:** add managed SCD2 history materialize strategy ([#9850](https://github.com/windmill-labs/windmill/issues/9850)) ([5a66127](https://github.com/windmill-labs/windmill/commit/5a661279a3690e2393b9b16996f5d1a5a509259c))
+
+
+### Bug Fixes
+
+* **ai-chat:** replay anthropic turns verbatim to keep thinking valid ([#9843](https://github.com/windmill-labs/windmill/issues/9843)) ([a37a144](https://github.com/windmill-labs/windmill/commit/a37a144e81cf6b3de935688a617e9d0e1756004a))
+* grant dispatch_event table to windmill roles ([#9852](https://github.com/windmill-labs/windmill/issues/9852)) ([f05b50d](https://github.com/windmill-labs/windmill/commit/f05b50d29ac2fdbb808a97057fb92c8e425b4a2f))
+* grant workspace_diff, materialized_partition, debounce_stale_data to windmill roles ([#9853](https://github.com/windmill-labs/windmill/issues/9853)) ([293647d](https://github.com/windmill-labs/windmill/commit/293647de4c13cb8468cbd81ff1924cba90e164b4))
+* honor verify-ca/verify-full sslmode for postgres connections ([#9835](https://github.com/windmill-labs/windmill/issues/9835)) ([bf6be96](https://github.com/windmill-labs/windmill/commit/bf6be967fa8c74e1299cf63f813c1cfa34b97f3e))
+* **mcp:** stop double-escaping string query params in build_query_string ([#9855](https://github.com/windmill-labs/windmill/issues/9855)) ([1c46f89](https://github.com/windmill-labs/windmill/commit/1c46f899ca03edf62053f4f14d65b4eabff4255d))
+* **s3_proxy:** preserve URL-encoding on Hive-partition proxy writes ([#9848](https://github.com/windmill-labs/windmill/issues/9848)) ([6b79bdd](https://github.com/windmill-labs/windmill/commit/6b79bddd42fe55f891c17cb71a7e36ee31337bac))
+* validate workspace name length (max 50 chars) on create and fork ([#9854](https://github.com/windmill-labs/windmill/issues/9854)) ([b52972d](https://github.com/windmill-labs/windmill/commit/b52972d0de89004e98d18241d238ca028e4eecba))
+
+## [1.743.0](https://github.com/windmill-labs/windmill/compare/v1.742.0...v1.743.0) (2026-06-29)
+
+
+### Features
+
+* **home:** redesign create-new popover and home header ([#9827](https://github.com/windmill-labs/windmill/issues/9827)) ([2493eaf](https://github.com/windmill-labs/windmill/commit/2493eaf031f30072637a297398674e761f039005))
+* **pipeline:** AI-chat data-pipeline editor (route + in-session) + home surfacing ([#9805](https://github.com/windmill-labs/windmill/issues/9805)) ([c910278](https://github.com/windmill-labs/windmill/commit/c91027824be1f1f49cdd14148baf6aad092a1dd0))
+
+
+### Bug Fixes
+
+* **gcp:** require token verification for authenticated push delivery ([#9834](https://github.com/windmill-labs/windmill/issues/9834)) ([9b65161](https://github.com/windmill-labs/windmill/commit/9b65161c643bf3f120d2ebd82f786c17233a971b))
+
 ## [1.742.0](https://github.com/windmill-labs/windmill/compare/v1.741.0...v1.742.0) (2026-06-28)
 
 

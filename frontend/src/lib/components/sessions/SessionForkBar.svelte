@@ -11,9 +11,9 @@
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { goto } from '$lib/navigation'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { deriveForkStatus, sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
@@ -54,7 +54,7 @@
 	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar.
 	// When forking isn't available the diff/review surface is moot.
 	const forksAllowed = $derived(
-		!isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'
+		!isCloudHosted() && canCreateFork($userStore) && $workspaceStore !== 'admins'
 	)
 
 	let diffDrawer: ForkDiffDrawer | undefined = $state(undefined)

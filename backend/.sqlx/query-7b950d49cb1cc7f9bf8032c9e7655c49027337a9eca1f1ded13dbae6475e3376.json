@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parent_workspace_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "7b950d49cb1cc7f9bf8032c9e7655c49027337a9eca1f1ded13dbae6475e3376"
+}

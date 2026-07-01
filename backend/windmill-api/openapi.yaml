@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.742.0
+  version: 1.744.0
   title: Windmill API
 
   contact:
@@ -1183,6 +1183,89 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/attach_dev_workspace:
+    post:
+      summary: attach an existing workspace as the dev workspace of this (prod) workspace
+      operationId: attachDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_id:
+                  type: string
+                lock_prod_deploy:
+                  type: boolean
+                lock_prod_forking:
+                  type: boolean
+              required:
+                - dev_workspace_id
+      responses:
+        "200":
+          description: dev workspace attached
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/detach_dev_workspace:
+    post:
+      summary: detach the dev workspace from this (prod) workspace
+      operationId: detachDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_id:
+                  type: string
+              required:
+                - dev_workspace_id
+      responses:
+        "200":
+          description: dev workspace detached
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_dev_workspace:
+    get:
+      summary: this workspace's active canonical dev workspace, if any
+      operationId: getDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the dev workspace, or null if none
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                required:
+                  - id
+                  - name
 
   /workspaces/exists:
     post:
@@ -6237,6 +6320,42 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/workspaces/set_ws_specific:
+    post:
+      summary: mark or unmark an item as workspace-specific
+      operationId: setWsSpecific
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_kind:
+                  type: string
+                  enum:
+                    - resource
+                    - variable
+                path:
+                  type: string
+                value:
+                  type: boolean
+              required:
+                - item_kind
+                - path
+                - value
+      responses:
+        "200":
+          description: workspace-specific flag updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
@@ -21355,6 +21474,54 @@ paths:
                       format: int64
                       description: Number of pipeline-member scripts in the folder
 
+  /w/{workspace}/assets/partitions:
+    get:
+      summary: List materialized partitions for a ducklake asset
+      operationId: listAssetPartitions
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-partition materialization status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MaterializedPartition"
+
+  /w/{workspace}/assets/asset_schemas:
+    get:
+      summary: List captured output-schema versions for a ducklake asset
+      operationId: listAssetSchemas
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: captured schema versions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetSchemaVersion"
+
   /w/{workspace}/volumes/list:
     get:
       summary: List all volumes in the workspace
@@ -27756,6 +27923,8 @@ components:
               parent_workspace_id:
                 type: string
                 nullable: true
+              is_dev_workspace:
+                type: boolean
               created_by:
                 type: string
                 nullable: true
@@ -27766,6 +27935,7 @@ components:
               - name
               - username
               - color
+              - is_dev_workspace
               - disabled
       required:
         - email
@@ -27807,6 +27977,18 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+        is_dev_workspace:
+          type: boolean
+          description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
+        lock_prod_deploy:
+          type: boolean
+          description: "When creating a dev workspace, lock the parent (prod) against direct deployment"
+        lock_prod_forking:
+          type: boolean
+          description: "When creating a dev workspace, prevent forking the parent (prod)"
+        copy_members:
+          type: boolean
+          description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
       required:
         - id
         - name
@@ -29491,6 +29673,65 @@ components:
         - ducklake
         - datatable
         - volume
+    MaterializedPartition:
+      type: object
+      required: [asset_kind, asset_path, partition, status, materialized_at]
+      properties:
+        asset_kind:
+          $ref: "#/components/schemas/AssetKind"
+        asset_path:
+          type: string
+        partition:
+          type: string
+        status:
+          type: string
+          enum: [running, materialized, failed]
+        snapshot_id:
+          type: integer
+          format: int64
+          nullable: true
+        row_count:
+          type: integer
+          format: int64
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        materialized_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+    AssetSchemaVersion:
+      type: object
+      required: [version, columns, captured_at]
+      properties:
+        version:
+          type: integer
+          format: int64
+        columns:
+          type: array
+          items:
+            type: object
+            required: [name, type]
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+        snapshot_id:
+          type: integer
+          format: int64
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        captured_at:
+          type: string
+          format: date-time
     Asset:
       type: object
       properties:

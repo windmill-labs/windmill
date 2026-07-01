@@ -29,13 +29,21 @@
 	// dispatcher. Not a real input: shown as a badge instead of a table row,
 	// but kept in the expanded JSON drawer and download.
 	const SKIP_ASSET_DISPATCH_ARG = '_wmill_skip_asset_dispatch'
+	// Internal map (path -> content digest) injected by local-dev previews so
+	// relative imports resolve from not-yet-deployed local content. Same
+	// treatment: badge, not a noisy table row.
+	const TEMP_SCRIPT_REFS_ARG = '_TEMP_SCRIPT_REFS'
+	const INTERNAL_ARGS = [SKIP_ASSET_DISPATCH_ARG, TEMP_SCRIPT_REFS_ARG]
 
 	let skippedAssetDispatch = $derived(
 		args != undefined && typeof args === 'object' && args[SKIP_ASSET_DISPATCH_ARG] === true
 	)
+	let hasTempScriptRefs = $derived(
+		args != undefined && typeof args === 'object' && args[TEMP_SCRIPT_REFS_ARG] != undefined
+	)
 	let displayArgs = $derived(
 		args != undefined && typeof args === 'object'
-			? Object.fromEntries(Object.entries(args).filter(([k]) => k !== SKIP_ASSET_DISPATCH_ARG))
+			? Object.fromEntries(Object.entries(args).filter(([k]) => !INTERNAL_ARGS.includes(k)))
 			: args
 	)
 
@@ -102,6 +110,15 @@ ${Object.entries(displayArgs)
 								title="This run was started with {SKIP_ASSET_DISPATCH_ARG} and did not auto-trigger downstream asset consumers"
 							>
 								asset dispatch skipped
+							</Badge>
+						{/if}
+						{#if hasTempScriptRefs}
+							<Badge
+								color="gray"
+								verySmall
+								title="This preview carried {TEMP_SCRIPT_REFS_ARG} so relative imports resolve from local (not-yet-deployed) script content"
+							>
+								local import refs
 							</Badge>
 						{/if}
 					</Cell>

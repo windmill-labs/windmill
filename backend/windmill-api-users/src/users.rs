@@ -1552,6 +1552,15 @@ async fn update_user(
     }
 
     if let Some(d) = eu.disabled {
+        #[cfg(feature = "enterprise")]
+        if !d {
+            if let Some(msg) =
+                windmill_common::ee_oss::check_seat_cap_for_reactivation(&db, &email_to_update)
+                    .await?
+            {
+                return Err(Error::BadRequest(msg));
+            }
+        }
         sqlx::query_scalar!(
             "UPDATE password SET disabled = $1 WHERE email = $2",
             d,

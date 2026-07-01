@@ -8,11 +8,19 @@ const FORK_PARENT_CACHE_TTL_SECS: u64 = 300;
 
 lazy_static::lazy_static! {
     // Cache of fork workspace id -> (parent_workspace_id, cached_at).
-    // `parent_workspace_id` is essentially immutable once a fork is created, so a multi-minute TTL
-    // is safe. `None` means the lookup found no parent (or the DB call failed); we still cache it
-    // briefly so that forks missing a parent do not hammer the DB.
+    // `parent_workspace_id` is stable for the lifetime of a fork EXCEPT across attach/detach of a
+    // dev workspace, which set/keep it; those paths call `invalidate_fork_parent_cache` so routing
+    // doesn't lag. `None` means the lookup found no parent (or the DB call failed); we still cache
+    // it briefly so that forks missing a parent do not hammer the DB.
     static ref FORK_PARENT_CACHE: quick_cache::sync::Cache<String, (Option<String>, std::time::Instant)> =
         quick_cache::sync::Cache::new(500);
+}
+
+/// Drop the cached fork->parent mapping for a workspace. Call after mutating `parent_workspace_id`
+/// (attaching/detaching a dev workspace) so per-workspace job tags resolve to the new parent
+/// immediately instead of after the cache TTL.
+pub fn invalidate_fork_parent_cache(workspace_id: &str) {
+    FORK_PARENT_CACHE.remove(workspace_id);
 }
 
 /// Returns `Some(effective_workspace_tag_id)` if jobs of `workspace_id` should use workspace-
@@ -26,16 +34,14 @@ pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Optio
         return None;
     }
 
-    let is_fork = workspace_id.starts_with(WM_FORK_PREFIX);
-
-    // For forks, always resolve to the parent workspace id; regular workspaces avoid the lookup.
-    let effective_ws_id: String = if is_fork {
-        lookup_fork_parent(workspace_id, db)
-            .await
-            .unwrap_or_else(|| workspace_id.to_string()) // no parent found -> fall back to fork's own id
-    } else {
-        workspace_id.to_string()
-    };
+    // Resolve to the parent workspace id when the workspace is a fork or dev workspace (both set
+    // parent_workspace_id). The lookup caches its `None` result, so non-forks stay cheap after warmup
+    // (and the common case is already short-circuited by the global toggle above).
+    let parent = lookup_fork_parent(workspace_id, db).await;
+    // A `wm-fork-` workspace can outlive its parent (the FK is `ON DELETE SET NULL`), so keep
+    // treating the prefix as fork-ness for the `-fork` suffix even when the parent link is gone.
+    let is_fork = parent.is_some() || workspace_id.starts_with(WM_FORK_PREFIX);
+    let effective_ws_id: String = parent.unwrap_or_else(|| workspace_id.to_string());
 
     // Whitelist check is against the resolved (parent) id so that including a parent in the
     // whitelist transparently covers all of its forks.
@@ -62,8 +68,10 @@ pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Optio
     })
 }
 
-/// Returns the parent workspace id for a fork, or `None` if the fork has no parent set (or the
-/// DB lookup failed). Backed by a short-TTL cache to avoid a DB round-trip per job push.
+/// Returns the parent workspace id for a fork, or `None` if the fork has no parent set. Backed by a
+/// short-TTL cache to avoid a DB round-trip per job push. A transient DB error returns `None` for
+/// this call but is NOT cached, so the next push retries instead of misrouting a (prefix-less) dev
+/// workspace's jobs for the whole TTL.
 async fn lookup_fork_parent(fork_id: &str, db: &Pool<Postgres>) -> Option<String> {
     if let Some((parent, cached_at)) = FORK_PARENT_CACHE.get(fork_id) {
         if cached_at.elapsed().as_secs() < FORK_PARENT_CACHE_TTL_SECS {
@@ -78,8 +86,11 @@ async fn lookup_fork_parent(fork_id: &str, db: &Pool<Postgres>) -> Option<String
     .fetch_optional(db)
     .await
     {
-        Ok(Some(Some(parent))) => Some(parent),
-        _ => None,
+        Ok(opt) => opt.flatten(),
+        Err(e) => {
+            tracing::warn!("failed to look up fork parent for {fork_id}: {e:#}");
+            return None;
+        }
     };
 
     FORK_PARENT_CACHE.insert(

@@ -10,7 +10,13 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
-	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userStore,
+		userWorkspaces,
+		workspaceStore,
+		usedTriggerKinds
+	} from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -92,8 +98,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
 
@@ -732,9 +737,13 @@
 			})
 		}
 
-		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+		if (
+			!untrack(() => newFlow) &&
+			!isCloudHosted() &&
+			editInForkAllowed($workspaceStore, $userWorkspaces)
+		) {
 			dropdownItems.push({
-				label: 'Edit in workspace fork',
+				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
 			})
 		}

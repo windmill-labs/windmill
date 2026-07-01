@@ -49,6 +49,7 @@ export interface AssetGraphRunnableNode {
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.
+	// AI-built nodes are plain drafts too (no separate pending/approval state).
 	unsaved?: boolean
 }
 

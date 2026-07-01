@@ -938,6 +938,143 @@ remote_tmp={job_dir}/.ansible/tmp
     Ok(())
 }
 
+/// Read a colon-separated path list (e.g. `roles_path`, `collections_path`) from
+/// the `[defaults]` section of an ansible.cfg. Returns the raw entries as written,
+/// unresolved. Deliberately minimal: no inline-comment or continuation handling,
+/// which ansible's configparser also does not apply to these values. `key` and `=`
+/// or `:` as the delimiter are both matched (Python configparser accepts either),
+/// with the value itself split on `:` (`os.pathsep`).
+fn parse_ansible_cfg_path_list(content: &str, key: &str) -> Option<Vec<String>> {
+    let mut in_defaults = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_defaults = trimmed[1..trimmed.len() - 1]
+                .trim()
+                .eq_ignore_ascii_case("defaults");
+            continue;
+        }
+        if !in_defaults || trimmed.starts_with('#') || trimmed.starts_with(';') {
+            continue;
+        }
+        // configparser delimits key/value on the first `=` or `:`, whichever
+        // comes first; the remaining `:` in the value are path separators.
+        let sep = trimmed.find('=').into_iter().chain(trimmed.find(':')).min();
+        if let Some(sep) = sep {
+            let (k, rest) = trimmed.split_at(sep);
+            let v = &rest[1..];
+            if k.trim().eq_ignore_ascii_case(key) {
+                let entries: Vec<String> = v
+                    .split(':')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+                return (!entries.is_empty()).then_some(entries);
+            }
+        }
+    }
+    None
+}
+
+/// Prepend Windmill's dependency install dir to the repo cfg's declared path list.
+/// Relative entries from the repo cfg are resolved against `cfg_dir` to match how
+/// ansible resolves them relative to the config file's own directory.
+fn resolve_and_prepend_path(
+    base: String,
+    repo_entries: Option<Vec<String>>,
+    cfg_dir: &str,
+) -> String {
+    let mut paths = vec![base];
+    if let Some(entries) = repo_entries {
+        for e in entries {
+            if e.starts_with('/') || e.starts_with('~') {
+                paths.push(e);
+            } else {
+                paths.push(format!("{cfg_dir}/{e}"));
+            }
+        }
+    }
+    paths.join(":")
+}
+
+/// Build the environment overrides applied when delegating to a git repo that
+/// ships its own ansible.cfg. See the call site for the layering rationale.
+async fn build_ansible_cfg_override_envs(
+    cfg_path: &str,
+    job_dir: &str,
+    vault_password_file_exists: bool,
+    reqs: Option<&AnsibleRequirements>,
+) -> error::Result<Vec<(String, String)>> {
+    let mut envs = vec![
+        ("ANSIBLE_CONFIG".to_string(), cfg_path.to_string()),
+        // Runtime-bound: reference the ephemeral job dir, cannot be set statically.
+        ("ANSIBLE_HOME".to_string(), format!("{job_dir}/.ansible")),
+        (
+            "ANSIBLE_LOCAL_TEMP".to_string(),
+            format!("{job_dir}/.ansible/tmp"),
+        ),
+        (
+            "ANSIBLE_REMOTE_TEMP".to_string(),
+            format!("{job_dir}/.ansible/tmp"),
+        ),
+    ];
+
+    // Vault: Windmill manages the secret, so its config wins over the repo cfg.
+    if vault_password_file_exists {
+        envs.push((
+            "ANSIBLE_VAULT_PASSWORD_FILE".to_string(),
+            format!("{job_dir}/{WINDMILL_ANSIBLE_PASSWORD_FILENAME}"),
+        ));
+    }
+    if let Some(vault_ids) = reqs.map(|r| &r.vault_id).filter(|v| !v.is_empty()) {
+        // Defense in depth: entries are validated at parse time, but re-check
+        // here since they are interpolated raw into the env value.
+        for vault_id in vault_ids {
+            validate_vault_id(vault_id)?;
+        }
+        envs.push((
+            "ANSIBLE_VAULT_IDENTITY_LIST".to_string(),
+            vault_ids.join(","),
+        ));
+    }
+
+    // Dependency search paths: additive. Windmill installs galaxy roles into
+    // `{job_dir}/roles` and collections into `{job_dir}`; prepend those to the
+    // repo cfg's declared paths so both Windmill-installed and repo deps resolve.
+    let cfg_dir = std::path::Path::new(cfg_path)
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or(job_dir);
+    let cfg_content = tokio::fs::read_to_string(cfg_path).await.map_err(|e| {
+        windmill_common::error::Error::internal_err(format!(
+            "Failed to read delegated ansible.cfg at `{cfg_path}`: {e}"
+        ))
+    })?;
+
+    envs.push((
+        "ANSIBLE_ROLES_PATH".to_string(),
+        resolve_and_prepend_path(
+            format!("{job_dir}/roles"),
+            parse_ansible_cfg_path_list(&cfg_content, "roles_path"),
+            cfg_dir,
+        ),
+    ));
+    envs.push((
+        "ANSIBLE_COLLECTIONS_PATH".to_string(),
+        resolve_and_prepend_path(
+            job_dir.to_string(),
+            // Also probe the deprecated plural ini alias; env vars replace (not
+            // merge) the cfg value, so a repo using it would otherwise be dropped.
+            parse_ansible_cfg_path_list(&cfg_content, "collections_path")
+                .or_else(|| parse_ansible_cfg_path_list(&cfg_content, "collections_paths")),
+            cfg_dir,
+        ),
+    ));
+
+    Ok(envs)
+}
+
 pub async fn get_git_ssh_cmd(
     reqs: &AnsibleRequirements,
     job_dir: &str,
@@ -1136,6 +1273,9 @@ pub async fn handle_ansible_job(
 
     let mut nsjail_extra_mounts = vec![];
     let mut playbook_override = None;
+    // Absolute path of a repo-provided `ansible.cfg` to use as the effective
+    // config, set when `delegate_to_git_repo.ansible_cfg` is provided.
+    let mut ansible_config_override: Option<String> = None;
 
     if let Some(r) = reqs.as_ref() {
         nsjail_extra_mounts = create_file_resources(
@@ -1301,6 +1441,23 @@ pub async fn handle_ansible_job(
                 inventories.push(format!("{}/{}", &repo.target_path, inv));
             }
 
+            if let Some(cfg_rel) = delegated_git_repo.ansible_cfg.as_ref() {
+                let cfg_rel = interpolate_template(
+                    cfg_rel,
+                    interpolated_args.as_ref(),
+                    "delegate_to_git_repo.ansible_cfg",
+                )?;
+                validate_relative_path(&cfg_rel, "delegate_to_git_repo.ansible_cfg")?;
+                let cfg_path = format!("{}/{}/{}", job_dir, &repo.target_path, cfg_rel);
+                if !tokio::fs::try_exists(&cfg_path).await.unwrap_or(false) {
+                    return Err(windmill_common::error::Error::BadRequest(format!(
+                        "delegate_to_git_repo.ansible_cfg: no ansible.cfg found in the cloned repo at `{}/{}`",
+                        &repo.target_path, cfg_rel
+                    )));
+                }
+                ansible_config_override = Some(cfg_path);
+            }
+
             if delegated_git_repo.install_requirements {
                 install_requirements_from_cloned_repo(
                     &repo.target_path,
@@ -1450,6 +1607,32 @@ pub async fn handle_ansible_job(
 
     create_ansible_cfg(reqs.as_ref(), job_dir, vault_password_file_exists)?;
 
+    // When the run delegates to a git repo that ships its own ansible.cfg, that
+    // file becomes the effective config (ansible loads exactly one config file and
+    // does not merge). These env vars layer Windmill's runtime-bound settings back
+    // on top — env vars outrank ansible.cfg. Only applied on the non-sandboxed
+    // path: git-repo delegation clones into `job_dir` which the nsjail profile does
+    // not mount, so it already requires DISABLE_NSJAIL.
+    let ansible_env_overrides = match ansible_config_override.as_ref() {
+        Some(cfg_path) => {
+            if is_sandboxing_enabled() {
+                tracing::warn!(
+                    "delegate_to_git_repo.ansible_cfg is set but sandboxing is enabled; \
+                     git-repo delegation requires DISABLE_NSJAIL, the ansible.cfg override \
+                     will not take effect"
+                );
+            }
+            build_ansible_cfg_override_envs(
+                cfg_path,
+                job_dir,
+                vault_password_file_exists,
+                reqs.as_ref(),
+            )
+            .await?
+        }
+        None => vec![],
+    };
+
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     let additional_python_paths_folders = additional_python_paths.join(":");
@@ -1560,6 +1743,7 @@ fi
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
+            .envs(ansible_env_overrides)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1855,5 +2039,231 @@ mod tests {
         // Defense-in-depth boundary: a poisoned entry must error before any config is written.
         assert!(create_ansible_cfg(Some(&reqs), job_dir, false).is_err());
         assert!(!dir.path().join("ansible.cfg").exists());
+    }
+
+    #[test]
+    fn test_parse_ansible_cfg_path_list() {
+        let cfg = "\
+[defaults]
+roles_path = roles:extra/roles
+collections_path=/opt/collections
+host_key_checking = False
+
+[inventory]
+roles_path = ignored/section
+";
+        assert_eq!(
+            parse_ansible_cfg_path_list(cfg, "roles_path"),
+            Some(vec!["roles".to_string(), "extra/roles".to_string()])
+        );
+        assert_eq!(
+            parse_ansible_cfg_path_list(cfg, "collections_path"),
+            Some(vec!["/opt/collections".to_string()])
+        );
+        // Keys only in another section are not picked up.
+        assert_eq!(parse_ansible_cfg_path_list(cfg, "library"), None);
+    }
+
+    #[test]
+    fn test_parse_ansible_cfg_path_list_ignores_comments() {
+        let cfg = "\
+[defaults]
+# roles_path = commented
+; roles_path = also_commented
+";
+        assert_eq!(parse_ansible_cfg_path_list(cfg, "roles_path"), None);
+    }
+
+    #[test]
+    fn test_parse_ansible_cfg_path_list_colon_delimiter() {
+        // configparser accepts `:` as a key/value delimiter, and the value can
+        // itself be a `:`-separated list.
+        let cfg = "\
+[defaults]
+roles_path: my_roles
+collections_path : a/col:b/col
+";
+        assert_eq!(
+            parse_ansible_cfg_path_list(cfg, "roles_path"),
+            Some(vec!["my_roles".to_string()])
+        );
+        assert_eq!(
+            parse_ansible_cfg_path_list(cfg, "collections_path"),
+            Some(vec!["a/col".to_string(), "b/col".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_resolve_and_prepend_path() {
+        // No repo entries: only Windmill's install dir.
+        assert_eq!(
+            resolve_and_prepend_path("/job/roles".to_string(), None, "/job/repo"),
+            "/job/roles"
+        );
+        // Relative repo entries resolve against the cfg dir; absolute/~ kept as-is.
+        assert_eq!(
+            resolve_and_prepend_path(
+                "/job/roles".to_string(),
+                Some(vec![
+                    "roles".to_string(),
+                    "/abs/roles".to_string(),
+                    "~/r".to_string()
+                ]),
+                "/job/repo/config"
+            ),
+            "/job/roles:/job/repo/config/roles:/abs/roles:~/r"
+        );
+    }
+
+    fn ansible_playbook_available() -> bool {
+        std::process::Command::new("ansible-playbook")
+            .arg("--version")
+            .output()
+            .is_ok()
+    }
+
+    /// End-to-end: with a delegated repo that ships its own `ansible.cfg` pointing
+    /// `roles_path` at an in-repo directory, the override env vars must make the
+    /// real `ansible-playbook` resolve a role it otherwise cannot. Requires the
+    /// `ansible-playbook` binary; self-skips when absent (e.g. standard CI). Run on
+    /// a worker devbox with `cargo test -p windmill-worker --features python`.
+    #[tokio::test]
+    async fn test_ansible_cfg_override_resolves_repo_roles_e2e() {
+        if !ansible_playbook_available() {
+            eprintln!(
+                "SKIP test_ansible_cfg_override_resolves_repo_roles_e2e: ansible-playbook not found on PATH"
+            );
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let repo = dir.path().join(DELEGATE_GIT_REPO_TARGET);
+        let role_tasks = repo.join("my_roles/greet/tasks");
+        std::fs::create_dir_all(&role_tasks).unwrap();
+
+        std::fs::write(
+            repo.join("ansible.cfg"),
+            "[defaults]\nroles_path = my_roles\n",
+        )
+        .unwrap();
+        std::fs::write(
+            role_tasks.join("main.yml"),
+            "- debug:\n    msg: \"hello from greet role\"\n",
+        )
+        .unwrap();
+        let play = "- hosts: localhost\n  connection: local\n  gather_facts: false\n  roles:\n    - greet\n";
+        std::fs::write(repo.join("play.yml"), play).unwrap();
+
+        // Windmill's own generated cfg (the negative-control config that exists today).
+        create_ansible_cfg(None, job_dir, false).unwrap();
+
+        let playbook = format!("{DELEGATE_GIT_REPO_TARGET}/play.yml");
+        let run = |envs: Vec<(String, String)>| {
+            std::process::Command::new("ansible-playbook")
+                .arg(&playbook)
+                .current_dir(job_dir)
+                .envs(envs)
+                .output()
+                .unwrap()
+        };
+
+        // Negative control: today's behavior (Windmill cfg via cwd, no override) —
+        // the role lives in the repo subdir and is not found.
+        let cfg_path = repo.join("ansible.cfg");
+        let before = run(vec![]);
+        assert!(
+            !before.status.success(),
+            "without the override the repo role must NOT resolve; stdout={}",
+            String::from_utf8_lossy(&before.stdout)
+        );
+
+        // With the override: ANSIBLE_CONFIG points at the repo cfg and roles_path
+        // is honored, so the role runs.
+        let envs =
+            build_ansible_cfg_override_envs(cfg_path.to_str().unwrap(), job_dir, false, None)
+                .await
+                .unwrap();
+        let after = run(envs);
+        let stdout = String::from_utf8_lossy(&after.stdout);
+        assert!(
+            after.status.success() && stdout.contains("hello from greet role"),
+            "with the override the repo role must resolve; status={:?} stdout={stdout} stderr={}",
+            after.status,
+            String::from_utf8_lossy(&after.stderr)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_ansible_cfg_override_envs() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let repo_dir = dir.path().join("delegate_git_repository");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let cfg_path = repo_dir.join("ansible.cfg");
+        std::fs::write(&cfg_path, "[defaults]\nroles_path = my_roles\n").unwrap();
+        let cfg_path = cfg_path.to_str().unwrap();
+
+        let reqs = AnsibleRequirements {
+            vault_id: vec!["dev@vault_pass.txt".to_string()],
+            ..Default::default()
+        };
+        let envs = build_ansible_cfg_override_envs(cfg_path, job_dir, true, Some(&reqs))
+            .await
+            .unwrap();
+        let map: std::collections::HashMap<_, _> = envs.into_iter().collect();
+
+        assert_eq!(
+            map.get("ANSIBLE_CONFIG").map(|s| s.as_str()),
+            Some(cfg_path)
+        );
+        assert_eq!(
+            map.get("ANSIBLE_HOME"),
+            Some(&format!("{job_dir}/.ansible"))
+        );
+        assert_eq!(
+            map.get("ANSIBLE_VAULT_PASSWORD_FILE"),
+            Some(&format!("{job_dir}/{WINDMILL_ANSIBLE_PASSWORD_FILENAME}"))
+        );
+        assert_eq!(
+            map.get("ANSIBLE_VAULT_IDENTITY_LIST").map(|s| s.as_str()),
+            Some("dev@vault_pass.txt")
+        );
+        // Windmill's `{job_dir}/roles` is prepended to the repo cfg's own path,
+        // which is resolved against the cfg directory.
+        assert_eq!(
+            map.get("ANSIBLE_ROLES_PATH"),
+            Some(&format!(
+                "{job_dir}/roles:{}/my_roles",
+                repo_dir.to_str().unwrap()
+            ))
+        );
+        // No collections_path in the repo cfg → only Windmill's job dir.
+        assert_eq!(
+            map.get("ANSIBLE_COLLECTIONS_PATH").map(|s| s.as_str()),
+            Some(job_dir)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_ansible_cfg_override_envs_collections_paths_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let repo_dir = dir.path().join("delegate_git_repository");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let cfg_path = repo_dir.join("ansible.cfg");
+        // Deprecated plural alias must still be picked up so the repo's collections
+        // are not silently dropped when the env override replaces the cfg value.
+        std::fs::write(&cfg_path, "[defaults]\ncollections_paths = my_cols\n").unwrap();
+
+        let envs =
+            build_ansible_cfg_override_envs(cfg_path.to_str().unwrap(), job_dir, false, None)
+                .await
+                .unwrap();
+        let map: std::collections::HashMap<_, _> = envs.into_iter().collect();
+        assert_eq!(
+            map.get("ANSIBLE_COLLECTIONS_PATH"),
+            Some(&format!("{job_dir}:{}/my_cols", repo_dir.to_str().unwrap()))
+        );
     }
 }

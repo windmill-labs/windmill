@@ -327,19 +327,44 @@ fn snippet(stmt: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// How a (partition of a) materialized table is reconciled on each run.
-/// Derived at deploy from `unique_key`/`append`: `append` → `Append`, else
-/// `unique_key` → `Merge`, else `Replace`.
+/// Derived at deploy from the annotation: `key=<col> history` (or the `scd2`
+/// alias) → `Scd2`, else `append` → `Append`, else `unique_key` → `Merge`, else
+/// `Replace`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaterializeStrategy {
     /// DELETE the current partition, then INSERT — partition becomes exactly
     /// what the SELECT returned. Full-refresh of the slice.
     Replace,
     /// Upsert within the slice on `unique_key` (delete-by-key + insert); rows
-    /// absent from the SELECT are left in place.
+    /// absent from the SELECT are left in place. This is SCD type 1: a changed
+    /// row overwrites the prior value, keeping no history.
     Merge { unique_key: String },
     /// INSERT only — immutable event-log semantics.
     Append,
+    /// Slowly Changing Dimension type 2: the SELECT is the *current* snapshot
+    /// (one row per `key`); a change to any tracked column closes the prior
+    /// version (`valid_to`/`is_current=false`) and opens a new one, so the full
+    /// history is preserved. `track` empty ⇒ every non-key column is tracked.
+    /// `close_deleted` (opt-in `deletes=close`) also closes the current version
+    /// of a key that disappears from the snapshot (dbt's `hard_deletes=close`);
+    /// default (false) leaves absent keys current (soft delete).
+    /// Unpartitioned only (the worker rejects `// partitioned` + scd2).
+    Scd2 { key: String, track: Vec<String>, close_deleted: bool },
 }
+
+/// SCD2 metadata columns appended to the managed history table. Fixed names so
+/// the generated diff/close/open SQL and any `// data_test` on them agree.
+const SCD2_VALID_FROM: &str = "valid_from";
+const SCD2_VALID_TO: &str = "valid_to";
+const SCD2_IS_CURRENT: &str = "is_current";
+/// Connection-local temp table holding the keys whose version must be rotated
+/// this run (changed + new). Captured before the write so the close and the
+/// open see the same set. `_wm_` prefix so it never collides with user tables.
+const SCD2_CHANGED_KEYS: &str = "_wm_scd2_changed";
+/// Connection-local temp table holding the keys that disappeared from the
+/// snapshot this run (present-and-current in the table, absent from the SELECT).
+/// Only used when `close_deleted` (`deletes=close`) is set.
+const SCD2_DELETED_KEYS: &str = "_wm_scd2_deleted";
 
 /// Inputs to materialization codegen, all resolved at run time by the worker.
 /// Pure: produces SQL text; executes nothing.
@@ -376,6 +401,13 @@ impl<'a> MaterializeCodegen<'a> {
         let pcol = self.partition_col;
         let pval = self.partition_value_sql;
         let mut out = Vec::new();
+
+        // SCD2 has a shape unlike the DELETE/INSERT strategies (diff → close old
+        // → open new) and does not support partitioning (rejected at the worker),
+        // so it is generated up front by its own helper.
+        if let MaterializeStrategy::Scd2 { key, track, close_deleted } = &self.strategy {
+            return self.scd2_statements(key, track, *close_deleted);
+        }
 
         // Whole-table replace: rebuild the table to match the SELECT's *current*
         // schema each run with one atomic `CREATE OR REPLACE` (which DuckLake
@@ -441,7 +473,157 @@ impl<'a> MaterializeCodegen<'a> {
                 ));
                 out.push(format!("INSERT INTO {t} {source};"));
             }
+            // Handled by the early return above (scd2 has no partitioned form).
+            MaterializeStrategy::Scd2 { .. } => unreachable!("scd2 handled before this match"),
         }
+        out.push("COMMIT;".to_string());
+        out
+    }
+
+    /// SCD2 codegen: the incoming SELECT is the *current desired snapshot* (one
+    /// row per `key`); we diff it against the live current rows, close the prior
+    /// version of every changed/new key, and open a fresh one — so history is
+    /// kept. `track` empty ⇒ every non-key column is tracked for change
+    /// detection.
+    ///
+    /// Shape (all one transaction for the mutation, mirroring the other
+    /// strategies so a partial failure leaves the prior snapshot intact):
+    ///  1. bootstrap the table (business columns + `valid_from/valid_to/
+    ///     is_current`), idempotent;
+    ///  2. capture changed+new keys into a connection-local temp table *before*
+    ///     the write — the close below flips `is_current`, so recomputing the
+    ///     diff after it would see a different set;
+    ///  3. close the prior open version of those keys (`UPDATE` — not `MERGE`:
+    ///     DuckLake's MERGE is the unreliable path, plain UPDATE works);
+    ///  3b. when `close_deleted`, also capture the keys that vanished from the
+    ///     snapshot and close their current version (no reopen) — dbt's
+    ///     `hard_deletes=close`;
+    ///  4. open a new current version from the snapshot;
+    ///  5. create the `<dim>_current` convenience view once (`IF NOT EXISTS`),
+    ///     inside the same transaction so it doesn't advance the DuckLake snapshot
+    ///     past the data write the summary records (and so an unchanged rerun,
+    ///     whose UPDATE/INSERT touch no rows, stays a true no-op).
+    ///
+    /// Close/open match keys with `IS NOT DISTINCT FROM` (via a correlated
+    /// `EXISTS`), not `key IN (…)`: SQL `IN` never matches `NULL`, so a `NULL`
+    /// natural key would be flagged as changed yet silently skipped by both the
+    /// close and the open, dropping the row. Null-safe matching materializes it
+    /// instead (a `NULL` key is still ill-formed for a dimension — guard it with
+    /// `// data_test not_null <key>` — but it must not vanish).
+    ///
+    /// Without `close_deleted`, keys present in the table but absent from the
+    /// SELECT are left current (soft delete — dbt's `hard_deletes=ignore` default;
+    /// with `close_deleted` they are closed instead — see step 3b). The effective
+    /// timestamp is `now()`, which DuckDB fixes to
+    /// the transaction start, so `valid_from`/`valid_to` are consistent within a
+    /// run without a nondeterministic per-statement clock.
+    ///
+    /// Reserved columns: `valid_from`/`valid_to`/`is_current` are appended to the
+    /// user's SELECT with these fixed names (kept clean so consumers write
+    /// `WHERE is_current` / `ASOF JOIN … >= valid_from`). A SELECT that already
+    /// projects one of them is a v1 constraint violation — the bootstrap then
+    /// produces a duplicate output column and the run fails at execution
+    /// (documented; not statically checkable here since the SELECT's columns
+    /// aren't known at codegen time).
+    fn scd2_statements(&self, key: &str, track: &[String], close_deleted: bool) -> Vec<String> {
+        let t = self.target_qualified;
+        let sel = self.select_sql;
+        let k = quote_ident(key);
+        let vf = SCD2_VALID_FROM;
+        let vt = SCD2_VALID_TO;
+        let ic = SCD2_IS_CURRENT;
+        let changed = SCD2_CHANGED_KEYS;
+        let deleted = SCD2_DELETED_KEYS;
+        // Transaction-stable effective timestamp (see doc above). Cast to plain
+        // TIMESTAMP so it matches the bootstrapped column type (now() is TZ-aware).
+        let ts = "CAST(now() AS TIMESTAMP)";
+
+        // Projection compared to detect change. Empty `track` ⇒ all business
+        // columns via `* EXCLUDE (<scd cols>)` on the table side (which carries
+        // the extra metadata columns) and `*` on the snapshot side. An explicit
+        // `track` ⇒ key + those columns on both sides. `EXCEPT` treats NULLs as
+        // equal, so an unchanged NULL is not read as a change.
+        let (src_proj, tgt_proj) = if track.is_empty() {
+            (
+                format!("SELECT * FROM ({sel})"),
+                format!("SELECT * EXCLUDE ({vf}, {vt}, {ic}) FROM {t} WHERE {ic}"),
+            )
+        } else {
+            let cols = std::iter::once(key)
+                .chain(track.iter().map(String::as_str))
+                .map(quote_ident)
+                .collect::<Vec<_>>()
+                .join(", ");
+            (
+                format!("SELECT {cols} FROM ({sel})"),
+                format!("SELECT {cols} FROM {t} WHERE {ic}"),
+            )
+        };
+
+        let mut out = vec![
+            format!(
+                "CREATE TABLE IF NOT EXISTS {t} AS SELECT *, \
+                 CAST(NULL AS TIMESTAMP) AS {vf}, \
+                 CAST(NULL AS TIMESTAMP) AS {vt}, \
+                 CAST(NULL AS BOOLEAN) AS {ic} FROM ({sel}) WHERE false;"
+            ),
+            format!(
+                "CREATE OR REPLACE TEMP TABLE {changed} AS \
+                 SELECT {k} FROM ({src_proj} EXCEPT {tgt_proj});"
+            ),
+        ];
+        // Hard-delete-close (`deletes=close`): the keys that vanished from the
+        // snapshot — present-and-current in the table, absent from the SELECT.
+        // Captured before the transaction (like `changed`) and disjoint from it (a
+        // key is either in the snapshot or not), so the two closes never overlap.
+        if close_deleted {
+            out.push(format!(
+                "CREATE OR REPLACE TEMP TABLE {deleted} AS \
+                 SELECT {k} FROM (SELECT {k} FROM {t} WHERE {ic} EXCEPT SELECT {k} FROM ({sel}));"
+            ));
+        }
+        out.push("BEGIN TRANSACTION;".to_string());
+        out.push(format!(
+            "UPDATE {t} SET {vt} = {ts}, {ic} = false \
+             WHERE {ic} AND EXISTS (SELECT 1 FROM {changed} \
+             WHERE {changed}.{k} IS NOT DISTINCT FROM {t}.{k});"
+        ));
+        // Close vanished keys — no matching INSERT below, so they close without
+        // reopening. A key that later reappears isn't in `WHERE is_current`, so the
+        // `changed` diff treats it as new and opens a fresh version (a validity gap
+        // between the delete and the reactivation — correct SCD2).
+        if close_deleted {
+            out.push(format!(
+                "UPDATE {t} SET {vt} = {ts}, {ic} = false \
+                 WHERE {ic} AND EXISTS (SELECT 1 FROM {deleted} \
+                 WHERE {deleted}.{k} IS NOT DISTINCT FROM {t}.{k});"
+            ));
+        }
+        out.push(format!(
+            "INSERT INTO {t} SELECT s.*, {ts} AS {vf}, CAST(NULL AS TIMESTAMP) AS {vt}, \
+             true AS {ic} FROM ({sel}) s WHERE EXISTS (SELECT 1 FROM {changed} c \
+             WHERE c.{k} IS NOT DISTINCT FROM s.{k});"
+        ));
+        out.push(
+            // Consumer convenience: a `<dim>_current` view (the live slice) so the
+            // common "just the latest version" read needs no `WHERE is_current`,
+            // and downstream scripts can `// on` / read it directly. For the
+            // effective-dated payoff, consumers `ASOF JOIN <dim> ON fact.key =
+            // dim.<key> AND fact.ts >= dim.valid_from`.
+            //
+            // `CREATE VIEW IF NOT EXISTS` (not `OR REPLACE`), created inside the
+            // write transaction, on purpose: the view definition never changes
+            // (`SELECT * WHERE is_current` always reflects live data), and a
+            // catalog write advances the DuckLake snapshot — so `OR REPLACE` on
+            // every run would (a) advance the snapshot on an otherwise no-op
+            // unchanged run and (b) make the summary's `max(snapshot_id)` record
+            // the view DDL instead of the data write. `IF NOT EXISTS` creates it
+            // once (folded into the first data-write snapshot) and is a true no-op
+            // afterwards. The `<dim>_current` name is reserved: if a real table by
+            // that name already exists, `IF NOT EXISTS` skips silently (no view,
+            // no error) — documented as a reserved suffix.
+            format!("CREATE VIEW IF NOT EXISTS {t}_current AS SELECT * FROM {t} WHERE {ic};"),
+        );
         out.push("COMMIT;".to_string());
         out
     }
@@ -1109,6 +1291,131 @@ mod tests {
                     .to_string()
             ]
         );
+    }
+
+    #[test]
+    fn codegen_scd2_default_track_closes_old_opens_new() {
+        // Empty `track` ⇒ diff on all business columns via `* EXCLUDE (scd cols)`.
+        let cg = MaterializeCodegen {
+            target_qualified: "_wm_target.dim_scd2",
+            select_sql: "SELECT id, name FROM dl.src",
+            partition_col: "_wm_partition",
+            partition_value_sql: "''",
+            partitioned: false,
+            strategy: MaterializeStrategy::Scd2 {
+                key: "id".to_string(),
+                track: vec![],
+                close_deleted: false,
+            },
+        };
+        let st = cg.statements();
+        // bootstrap adds the three SCD metadata columns
+        assert!(st[0].starts_with("CREATE TABLE IF NOT EXISTS _wm_target.dim_scd2 AS SELECT *,"));
+        assert!(st[0].contains("AS valid_from"));
+        assert!(st[0].contains("AS valid_to"));
+        assert!(st[0].contains("AS is_current"));
+        // changed-key set captured before the transaction, all cols compared
+        assert!(
+            st[1].contains("CREATE OR REPLACE TEMP TABLE _wm_scd2_changed AS SELECT \"id\" FROM")
+        );
+        assert!(st[1].contains("SELECT * FROM (SELECT id, name FROM dl.src) EXCEPT"));
+        assert!(st[1].contains("SELECT * EXCLUDE (valid_from, valid_to, is_current) FROM _wm_target.dim_scd2 WHERE is_current"));
+        assert_eq!(st[2], "BEGIN TRANSACTION;");
+        // close: UPDATE (not MERGE) the prior open version of changed keys, with
+        // null-safe key matching (IS NOT DISTINCT FROM, not IN — IN drops NULLs)
+        assert!(st[3].starts_with("UPDATE _wm_target.dim_scd2 SET valid_to = CAST(now() AS TIMESTAMP), is_current = false"));
+        assert!(st[3].contains(
+            "WHERE is_current AND EXISTS (SELECT 1 FROM _wm_scd2_changed \
+             WHERE _wm_scd2_changed.\"id\" IS NOT DISTINCT FROM _wm_target.dim_scd2.\"id\");"
+        ));
+        // open: INSERT the new current version, null-safe key matching
+        assert!(st[4].starts_with(
+            "INSERT INTO _wm_target.dim_scd2 SELECT s.*, CAST(now() AS TIMESTAMP) AS valid_from"
+        ));
+        assert!(st[4].contains(
+            "true AS is_current FROM (SELECT id, name FROM dl.src) s WHERE EXISTS \
+             (SELECT 1 FROM _wm_scd2_changed c WHERE c.\"id\" IS NOT DISTINCT FROM s.\"id\");"
+        ));
+        // consumer-convenience `<dim>_current` view: `IF NOT EXISTS` (created once,
+        // no-op on unchanged reruns) and INSIDE the txn (folded into the write snapshot)
+        assert_eq!(
+            st[5],
+            "CREATE VIEW IF NOT EXISTS _wm_target.dim_scd2_current AS SELECT * FROM _wm_target.dim_scd2 WHERE is_current;"
+        );
+        assert_eq!(st[6], "COMMIT;");
+        // no fragile constructs: no MERGE INTO, and no NULL-dropping `IN (SELECT`
+        assert!(!st.iter().any(|s| s.contains("MERGE INTO")));
+        assert!(!st.iter().any(|s| s.contains("IN (SELECT")));
+        // soft-delete default: no deleted-key set, no second close
+        assert!(!st.iter().any(|s| s.contains("_wm_scd2_deleted")));
+    }
+
+    #[test]
+    fn codegen_scd2_explicit_track_projects_key_and_tracked_cols() {
+        let cg = MaterializeCodegen {
+            target_qualified: "_wm_target.dim",
+            select_sql: "SELECT id, name, addr FROM dl.src",
+            partition_col: "_wm_partition",
+            partition_value_sql: "''",
+            partitioned: false,
+            strategy: MaterializeStrategy::Scd2 {
+                key: "id".to_string(),
+                track: vec!["name".to_string()],
+                close_deleted: false,
+            },
+        };
+        let st = cg.statements();
+        // only key + tracked cols are compared (addr changes don't rotate a version)
+        assert!(st[1].contains("SELECT \"id\", \"name\" FROM (SELECT id, name, addr FROM dl.src) EXCEPT SELECT \"id\", \"name\" FROM _wm_target.dim WHERE is_current"));
+    }
+
+    #[test]
+    fn codegen_scd2_close_deleted_adds_deleted_set_and_second_close() {
+        let cg = MaterializeCodegen {
+            target_qualified: "_wm_target.dim",
+            select_sql: "SELECT id, name FROM dl.src",
+            partition_col: "_wm_partition",
+            partition_value_sql: "''",
+            partitioned: false,
+            strategy: MaterializeStrategy::Scd2 {
+                key: "id".to_string(),
+                track: vec![],
+                close_deleted: true,
+            },
+        };
+        let st = cg.statements();
+        // the deleted-key set: current keys absent from the snapshot, captured
+        // before the transaction (like `changed`)
+        assert!(st.iter().any(|s| s.contains(
+            "CREATE OR REPLACE TEMP TABLE _wm_scd2_deleted AS SELECT \"id\" FROM \
+             (SELECT \"id\" FROM _wm_target.dim WHERE is_current EXCEPT SELECT \"id\" FROM (SELECT id, name FROM dl.src));"
+        )));
+        // a second close UPDATE against the deleted set (null-safe), and NO INSERT
+        // that reopens deleted keys (the only INSERT filters on `_wm_scd2_changed`)
+        assert!(st
+            .iter()
+            .any(|s| s.starts_with("UPDATE _wm_target.dim SET valid_to")
+                && s.contains(
+                    "EXISTS (SELECT 1 FROM _wm_scd2_deleted \
+                WHERE _wm_scd2_deleted.\"id\" IS NOT DISTINCT FROM _wm_target.dim.\"id\");"
+                )));
+        assert_eq!(
+            st.iter().filter(|s| s.starts_with("INSERT INTO")).count(),
+            1
+        );
+        assert!(st
+            .iter()
+            .find(|s| s.starts_with("INSERT INTO"))
+            .unwrap()
+            .contains("_wm_scd2_changed"));
+        // the deleted close is inside the transaction (between BEGIN and COMMIT)
+        let begin = st.iter().position(|s| s == "BEGIN TRANSACTION;").unwrap();
+        let commit = st.iter().position(|s| s == "COMMIT;").unwrap();
+        let del_close = st
+            .iter()
+            .position(|s| s.starts_with("UPDATE") && s.contains("_wm_scd2_deleted"))
+            .unwrap();
+        assert!(begin < del_close && del_close < commit);
     }
 
     #[test]

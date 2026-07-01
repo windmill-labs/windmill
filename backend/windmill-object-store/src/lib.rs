@@ -494,6 +494,23 @@ fn build_azure_blob_client(
     return Ok(Arc::new(store));
 }
 
+/// Whether a GCS `service_account_key` carries no static credentials, in which case the client
+/// should fall back to the instance's ambient credentials (GKE Workload Identity / metadata server)
+/// instead of being handed an unparseable key. Besides an empty/whitespace string, the settings UI
+/// stores "no key" as an empty JSON object `{}` (and `serde_json` may yield `null`), so treat those
+/// as absent too. Shared with the connectivity-test SSRF guard so both agree on what "no key" means.
+pub fn gcs_service_account_key_is_blank(service_account_key: &str) -> bool {
+    let trimmed = service_account_key.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    match serde_json::from_str::<serde_json::Value>(trimmed) {
+        Ok(serde_json::Value::Null) => true,
+        Ok(serde_json::Value::Object(map)) => map.is_empty(),
+        _ => false,
+    }
+}
+
 #[cfg(feature = "parquet")]
 async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<dyn ObjectStore>> {
     let gcs_resource = gcs_resource_ref.clone();
@@ -509,7 +526,12 @@ async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<d
         )
         .with_bucket_name(gcs_resource.bucket);
 
-    store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    // A blank key means no static credentials: let the builder fall back to the metadata server
+    // (InstanceCredentialProvider) so GKE Workload Identity / ambient credentials work. Passing a
+    // blank/`{}` key to `with_service_account_key` would instead fail to parse.
+    if !gcs_service_account_key_is_blank(&gcs_resource.service_account_key) {
+        store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    }
 
     let store = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store_builder.build()))
         .map_err(|panic_info| {
@@ -1701,6 +1723,40 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("GCS is not supported"));
+    }
+
+    #[test]
+    fn test_gcs_service_account_key_is_blank() {
+        for blank in ["", "   ", "\n\t", "{}", "  {}  ", "null"] {
+            assert!(
+                gcs_service_account_key_is_blank(blank),
+                "{blank:?} should be treated as no key"
+            );
+        }
+        for present in ["{\"client_email\":\"x@y.z\"}", "not json"] {
+            assert!(
+                !gcs_service_account_key_is_blank(present),
+                "{present:?} should be treated as a key"
+            );
+        }
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_build_gcs_client_blank_key_uses_instance_credentials() {
+        // A blank service account key must not be passed to `with_service_account_key`
+        // (which would fail to parse): the builder should fall back to instance credentials
+        // (GKE Workload Identity / metadata server) and construct successfully. `{}` is the
+        // settings UI's representation of "no key".
+        for key in ["", "   ", "{}"] {
+            let resource =
+                GcsResource { bucket: "bucket".to_string(), service_account_key: key.to_string() };
+            assert!(
+                build_gcs_client(&resource).await.is_ok(),
+                "blank key {:?} should build via instance credentials",
+                key
+            );
+        }
     }
 
     #[test]

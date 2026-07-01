@@ -30,7 +30,8 @@
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
-	const isFork = $derived(!!parentWorkspaceId && currentWorkspaceId?.startsWith('wm-fork-'))
+	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id prefix.
+	const isFork = $derived(!!parentWorkspaceId)
 
 	// Mode is seeded from the URL (?mode=draft|fork). `draft` is valid for any
 	// workspace, so it resolves immediately. `fork` is only valid for an actual

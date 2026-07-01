@@ -15,6 +15,11 @@
 		/** Summary supplied by the data source. Preferred over the one derived
 		 * from the loaded diff value, and shown before that value loads. */
 		summary?: string
+		/** Explicit unique row identity, overriding the default `kind/path`. For a
+		 * row whose `kind/path` isn't unique on its own (a pipeline-bundle node
+		 * shares `script/<path>` with a standalone script draft at the same path)
+		 * while `path` must stay the real edit/display target. */
+		key?: string
 	}
 </script>
 
@@ -110,6 +115,7 @@
 		// e.g. a runnable rendered as `script` at `<appPath>/runnables/foo` vs a real
 		// script literally at that path. Prefix synthetic items so the {#each} key,
 		// load cache, row id and nav identity never collide with a real DiffRow.
+		if ('key' in d && d.key) return d.key
 		return ('appPath' in d ? 'rawapp:' : '') + `${d.kind}/${d.path}`
 	}
 
