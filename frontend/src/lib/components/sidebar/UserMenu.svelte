@@ -52,12 +52,19 @@
 				{$userStore?.email}
 			</p>
 			<span class="text-xs text-primary flex flex-row gap-2 items-center">
-				{#if $userStore?.is_admin}
+				{#if $userStore?.role === 'superadmin'}
+					Superadmin, not a member of this workspace <Crown size={14} />
+				{:else if $userStore?.is_admin}
 					Admin of this workspace <Crown size={14} />
 				{:else if $userStore?.operator}
 					Operator in this workspace <ServerCog size={14} />
 				{/if}
 			</span>
+			{#if $userStore?.role === 'superadmin' && $userStore?.username}
+				<span class="text-xs text-tertiary block mt-1">
+					You act as <span class="font-medium">{$userStore.username}</span> here
+				</span>
+			{/if}
 		</div>
 		<div class="py-1">
 			<MenuItem href={USER_SETTINGS_HASH} class={itemClass} {item}>

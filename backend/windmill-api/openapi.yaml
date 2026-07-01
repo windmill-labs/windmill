@@ -23926,6 +23926,10 @@ components:
             - $ref: "#/components/schemas/UserSource"
         is_service_account:
           type: boolean
+        role:
+          type: string
+          nullable: true
+          description: "Workspace role. Set to 'superadmin' when the user is a superadmin viewing a workspace they are not a member of."
       required:
         - email
         - username

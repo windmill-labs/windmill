@@ -30,6 +30,7 @@ use windmill_common::{
     },
     error::{Error, JsonResult},
     jwt,
+    usernames::get_instance_username_or_fallback_to_email,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
 
@@ -419,18 +420,25 @@ impl AuthCache {
                                                 read_only,
                                             })
                                         }
-                                        None if super_admin => Some(ApiAuthed {
-                                            email: email.clone(),
-                                            username: email,
-                                            is_admin: super_admin,
-                                            is_operator: false,
-                                            groups: vec![],
-                                            folders: vec![],
-                                            scopes,
-                                            username_override,
-                                            token_prefix: Some(safe_token_prefix(token)),
-                                            read_only,
-                                        }),
+                                        None if super_admin => {
+                                            let username =
+                                                get_instance_username_or_fallback_to_email(
+                                                    &self.db, &email,
+                                                )
+                                                .await;
+                                            Some(ApiAuthed {
+                                                email,
+                                                username,
+                                                is_admin: super_admin,
+                                                is_operator: false,
+                                                groups: vec![],
+                                                folders: vec![],
+                                                scopes,
+                                                username_override,
+                                                token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
+                                            })
+                                        }
                                         None => None,
                                     }
                                 } else {

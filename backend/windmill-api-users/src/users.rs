@@ -704,8 +704,8 @@ async fn whoami(
     } else {
         Ok(Json(UserInfo {
             workspace_id: w_id,
-            email: email.clone(),
-            username: email,
+            email,
+            username,
             name: None,
             is_admin,
             is_super_admin: is_admin,
