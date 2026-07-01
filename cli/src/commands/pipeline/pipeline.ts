@@ -40,10 +40,10 @@ import { generatePipelineDocs } from "./docs.ts";
 import {
   type UploadBinding,
   devUploadKey,
+  parseS3Uri,
   parseUploadBinding,
   s3Arg,
   s3ObjectParams,
-  s3UriKey,
 } from "./pipelineUpload.ts";
 
 // The graph payload types (AssetGraph / GraphRunnable / GraphEdge /
@@ -439,23 +439,24 @@ async function resolveUploadArgs(
     if (param in args) {
       throw new Error(`--upload binds ${scriptPath}:${param} more than once.`);
     }
-    let key: string;
+    let obj: { s3: string; storage?: string };
     if (binding.source.startsWith("s3://")) {
-      // Default-storage object key (whole path); see s3UriKey.
-      key = s3UriKey(binding.source);
+      // Canonical `s3://<storage>/<key>`; keeps named storage (see parseS3Uri).
+      obj = parseS3Uri(binding.source);
     } else {
       const buf = await readFile(binding.source);
       // Key scoped by script + param so distinct sources sharing a basename
       // (across scripts or params) don't clobber each other in the store.
-      key = devUploadKey(scriptPath, param, binding.source);
+      const key = devUploadKey(scriptPath, param, binding.source);
       await wmill.fileUpload({
         workspace: workspaceId,
         fileKey: key,
         requestBody: new Blob([buf]) as any,
       });
       log.info(colors.gray(`  ↑ ${binding.source} → s3://${key}`));
+      obj = { s3: key };
     }
-    Object.assign(args, s3Arg(param, key));
+    Object.assign(args, s3Arg(param, obj));
   }
   return args;
 }

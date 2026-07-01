@@ -43,20 +43,25 @@ export function devUploadKey(scriptPath: string, param: string, source: string):
   return `wmilldev/pipeline/${scriptPath}/${param}/${basename(source)}`;
 }
 
+export type S3Object = { s3: string; storage?: string };
+
 /**
- * Object key from an `s3://<key>` source. The whole remainder is the key in the
- * workspace default storage — matching how pipeline `s3://` asset URIs are read
- * (`s3://a/b/c` → key `a/b/c`), so a nested default-storage key isn't misread as
- * a named-storage authority. (`--upload` sources are default-storage, like the
- * local-file upload path; named storage is out of scope.) A leading slash — the
- * canonical empty-authority default form `s3:///key` — is trimmed so it doesn't
- * leak into the key.
+ * Parse an `s3://<storage>/<key>` source into an S3Object, matching Windmill's
+ * canonical `parseS3Object` (frontend `utils.ts`): the authority is the named
+ * storage — empty ⇒ default — and the rest is the object key. So
+ * `s3://secondary/k.csv` → `{ s3: "k.csv", storage: "secondary" }`, and the
+ * default-storage form is `s3:///key` (empty authority), including nested keys
+ * (`s3:///raw/2026/events.csv`). A source with no `/` after the scheme has no
+ * authority, so the whole remainder is the key in the default store.
  */
-export function s3UriKey(source: string): string {
-  return source.slice("s3://".length).replace(/^\//, "");
+export function parseS3Uri(source: string): S3Object {
+  const m = source.match(/^s3:\/\/([^/]*)\/(.*)$/);
+  if (!m) return { s3: source.slice("s3://".length) };
+  const storage = m[1] || undefined;
+  return storage ? { s3: m[2], storage } : { s3: m[2] };
 }
 
-/** The S3Object run-arg (`{ <param>: { s3: <key> } }`). */
-export function s3Arg(param: string, key: string): Record<string, { s3: string }> {
-  return { [param]: { s3: key } };
+/** The S3Object run-arg (`{ <param>: <S3Object> }`). */
+export function s3Arg(param: string, obj: S3Object): Record<string, S3Object> {
+  return { [param]: obj };
 }
