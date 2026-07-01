@@ -98,6 +98,30 @@ describe('hydratePreviewTabs', () => {
 		).toBe(true)
 		expect(hydratePreviewTabs({ previewCollapsed: false }).collapsed).toBe(false)
 	})
+
+	it('drops malformed saved tabs and duplicate ids, defaulting loc to url', () => {
+		const snap = hydratePreviewTabs({
+			previewTabs: [
+				{ id: 'a', url: '/x' } as SessionPreviewTab,
+				{ id: '', url: '/no-id', loc: '/no-id' },
+				{ id: 'b', url: '', loc: '' },
+				{ id: 'a', url: '/dupe', loc: '/dupe' }
+			],
+			activePreviewTabId: 'a'
+		})
+		expect(snap.tabs).toEqual([{ id: 'a', url: '/x', loc: '/x' }])
+		expect(snap.activeId).toBe('a')
+	})
+
+	it('falls back to the target seed when every saved tab is malformed', () => {
+		const snap = hydratePreviewTabs({
+			previewTabs: [{ id: '', url: '', loc: '' }],
+			target: { kind: 'script', path: 'u/me/foo' }
+		})
+		expect(snap.tabs).toHaveLength(1)
+		expect(snap.tabs[0].pinned).toBe(true)
+		expect(snap.activeId).toBe('session')
+	})
 })
 
 describe('previewTargetForSessionTarget', () => {
@@ -212,6 +236,20 @@ describe('SessionPreviewTabs.navigate', () => {
 		o.navigate(pageTarget)
 		expect(o.tabs[0].url).toBe('/runs')
 		expect(targets).toEqual([])
+	})
+
+	it('focuses the tab already hosting the item instead of duplicating the editor', () => {
+		const { adapter } = makeAdapter()
+		const o = owner({}, adapter)
+		o.open(scriptTarget)
+		const editorTabId = o.activeId
+		o.open(pageTarget)
+		const pageTabId = o.activeId
+		o.navigate(scriptTarget)
+		expect(o.activeId).toBe(editorTabId)
+		expect(o.tabs).toHaveLength(2)
+		// The page tab must keep its own url — only focus moved.
+		expect(o.tabs.find((t) => t.id === pageTabId)?.url).toBe('/runs')
 	})
 })
 

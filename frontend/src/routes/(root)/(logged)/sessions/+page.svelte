@@ -148,14 +148,31 @@
 	const owner = $derived(activeRuntime?.previewTabs)
 
 	// Lazy-mount gate: a tab's iframe only renders once its id lands here (on
-	// first activation), then stays — so restoring a session with N saved tabs
-	// boots just the active one instead of N full Windmill apps at once. Pure
-	// "has this iframe been created yet" DOM bookkeeping, so it stays page-local
-	// while the owner holds the tab identity. Mount the owner's active tab
-	// whenever it changes, and clear on session change so a prior session's tab
-	// ids (incl. the shared 'session' pinned id) don't leak in.
+	// first activation) — so restoring a session with N saved tabs boots just
+	// the active one instead of N full Windmill apps at once. Pure "has this
+	// iframe been created yet" DOM bookkeeping, so it stays page-local while
+	// the owner holds the tab identity. Mount the owner's active tab whenever
+	// it changes, and clear on session change so a prior session's tab ids
+	// (incl. the shared 'session' pinned id) don't leak in.
+	//
+	// MRU-capped at MAX_MOUNTED_TABS: each mounted tab is a full Windmill app
+	// (iframe) — without a cap a long-lived session accumulates one per tab
+	// ever activated. An evicted tab stays in the strip and simply remounts on
+	// its next activation, same as the lazy-mount path.
+	const MAX_MOUNTED_TABS = 5
 	const mountedTabIds = new SvelteSet<string>()
 	let mountedForSession: string | undefined
+	function mountTab(id: string) {
+		// Delete-then-add moves the id to the MRU end; evict from the LRU front,
+		// never the tab just activated.
+		mountedTabIds.delete(id)
+		mountedTabIds.add(id)
+		while (mountedTabIds.size > MAX_MOUNTED_TABS) {
+			const oldest = mountedTabIds.values().next().value
+			if (oldest === undefined || oldest === id) break
+			mountedTabIds.delete(oldest)
+		}
+	}
 	$effect(() => {
 		const sid = activeSession?.id
 		const o = owner
@@ -166,13 +183,13 @@
 				mountedForSession = sid
 				mountedTabIds.clear()
 			}
-			if (activeId) mountedTabIds.add(activeId)
+			if (activeId) mountTab(activeId)
 		})
 	})
 
 	function selectTab(id: string) {
 		owner?.select(id)
-		mountedTabIds.add(id)
+		mountTab(id)
 		activeTabPickerOpen = false
 	}
 	function openInNewTab(target: PreviewTarget) {

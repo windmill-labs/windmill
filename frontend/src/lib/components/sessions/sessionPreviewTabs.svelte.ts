@@ -74,9 +74,16 @@ export function hydratePreviewTabs(session: {
 	previewCollapsed?: boolean
 	target?: SessionTarget
 }): PreviewTabsSnapshot {
-	const saved = session.previewTabs
-	if (saved && saved.length > 0) {
-		const tabs = saved.map((t) => ({ ...t }))
+	// Saved tabs come straight from IndexedDB — drop malformed records (missing
+	// id/url) and duplicate ids, which would break the page's keyed {#each}.
+	const seen = new Set<string>()
+	const tabs: SessionPreviewTab[] = []
+	for (const t of session.previewTabs ?? []) {
+		if (!t?.id || !t?.url || seen.has(t.id)) continue
+		seen.add(t.id)
+		tabs.push({ ...t, loc: t.loc ?? t.url })
+	}
+	if (tabs.length > 0) {
 		const wantActive = session.activePreviewTabId
 		const activeId = wantActive && tabs.some((t) => t.id === wantActive) ? wantActive : tabs[0].id
 		return { tabs, activeId, collapsed: session.previewCollapsed ?? false }
@@ -167,7 +174,21 @@ export class SessionPreviewTabs {
 		const t = this.#tabs.find((x) => x.id === this.#activeId)
 		if (!t) return
 		const editorTarget = editorTargetFor(target)
-		if (editorTarget) this.#adapter.setTarget(editorTarget)
+		if (editorTarget) {
+			this.#adapter.setTarget(editorTarget)
+			// Same dedupe as open(): if another tab already hosts `target` as the
+			// live editor, focus it instead of re-pointing this one — two tabs
+			// resolving 'editor' for one target would mount two editor instances
+			// on the same runtime slot.
+			const existing = this.#tabs.find(
+				(x) => resolvePreviewTab(x.url, editorTarget).kind === 'editor'
+			)
+			if (existing && existing.id !== t.id) {
+				this.#activeId = existing.id
+				this.#flush()
+				return
+			}
+		}
 		const url = targetUrl(target)
 		t.url = url
 		t.loc = url
