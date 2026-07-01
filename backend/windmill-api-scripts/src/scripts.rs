@@ -1349,14 +1349,26 @@ async fn create_script_internal<'c>(
     let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
         let kind = windmill_common::assets::asset_kind_from_parser(m.target_kind);
         let mut a = effective_assets.unwrap_or_default();
-        if !a.iter().any(|x| x.kind == kind && x.path == m.target_path) {
-            a.push(windmill_common::assets::AssetWithAltAccessType {
-                path: m.target_path.clone(),
-                kind,
-                access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
-                alt_access_type: None,
-                columns: None,
-            });
+        // Produced assets: the managed table, plus — for scd2 — the
+        // `<dim>_current` companion view the runtime (re)creates each run.
+        // Registering the view as a write asset lets `// on
+        // ducklake://…/<dim>_current` subscribers be dispatched by the cascade
+        // (which fans out from these deploy-time asset rows); without it a
+        // subscriber on the view would silently never fire.
+        let mut targets = vec![m.target_path.clone()];
+        if m.scd2 {
+            targets.push(format!("{}_current", m.target_path));
+        }
+        for path in targets {
+            if !a.iter().any(|x| x.kind == kind && x.path == path) {
+                a.push(windmill_common::assets::AssetWithAltAccessType {
+                    path,
+                    kind,
+                    access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
+                    alt_access_type: None,
+                    columns: None,
+                });
+            }
         }
         Some(a)
     } else {
