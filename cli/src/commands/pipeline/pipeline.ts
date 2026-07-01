@@ -40,10 +40,10 @@ import { generatePipelineDocs } from "./docs.ts";
 import {
   type UploadBinding,
   devUploadKey,
-  parseS3Uri,
   parseUploadBinding,
   s3Arg,
   s3ObjectParams,
+  s3UriKey,
 } from "./pipelineUpload.ts";
 
 // The graph payload types (AssetGraph / GraphRunnable / GraphEdge /
@@ -164,13 +164,31 @@ type NativeMarker = { kind: string; path?: string; missing?: boolean };
 // canonical annotation parser. The proper fix is to have the graph endpoint emit
 // these UI-only markers as trigger rows (a backend change), after which this can
 // be deleted. Until then, keep this list in sync with the canonical parser.
+const MARKER_KINDS = new Set(["data_upload", "webhook", "email"]);
+
+// Recover marker-only native triggers (`// on data_upload`/`webhook`/`email`) from
+// a deployed script body — they have no trigger row for the graph endpoint to
+// emit. Scans the LEADING comment header only (stops at the first non-comment
+// line, blank lines allowed) like the canonical/fallback annotation parsers, so a
+// body comment can't inject a phantom trigger.
+export function recoverHeaderMarkers(content: string): string[] {
+  const found: string[] = [];
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    if (!trimmed.startsWith("//") && !trimmed.startsWith("--") && !trimmed.startsWith("#")) break;
+    const m = line.match(/^\s*(?:\/\/|--|#)\s*on\s+(\w+)\s*$/);
+    if (m && MARKER_KINDS.has(m[1]) && !found.includes(m[1])) found.push(m[1]);
+  }
+  return found;
+}
+
 async function enrichRootMarkers(
   workspaceId: string,
   graph: AssetGraph,
   nativeByScript: Map<string, NativeMarker[]>,
   roots: string[],
 ): Promise<void> {
-  const MARKER_KINDS = ["data_upload", "webhook", "email"];
   await Promise.all(
     roots.map(async (p) => {
       const r = graph.runnables.find((x) => x.path === p);
@@ -178,11 +196,7 @@ async function enrichRootMarkers(
       try {
         const script = await wmill.getScriptByPath({ workspace: workspaceId, path: p });
         const existing = nativeByScript.get(p) ?? [];
-        for (const line of (script.content ?? "").split("\n")) {
-          const m = line.match(/^\s*(?:\/\/|--|#)\s*on\s+(\w+)\s*$/);
-          if (!m) continue;
-          const kind = m[1];
-          if (!MARKER_KINDS.includes(kind)) continue;
+        for (const kind of recoverHeaderMarkers(script.content ?? "")) {
           if (!existing.some((t) => t.kind === kind)) existing.push({ kind });
         }
         if (existing.length > 0) nativeByScript.set(p, existing);
@@ -203,7 +217,6 @@ async function enrichDeployedNonAutorunTriggers(
   workspaceId: string,
   graph: BCGraph,
 ): Promise<void> {
-  const MARKER_KINDS = new Set(["data_upload", "webhook", "email"]);
   const scripts = (graph.runnables ?? []).filter((r) => r.usage_kind === "script");
   await Promise.all(
     scripts.map(async (r) => {
@@ -212,20 +225,27 @@ async function enrichDeployedNonAutorunTriggers(
           .filter((t) => t.runnable_path === r.path && MARKER_KINDS.has(t.trigger_kind))
           .map((t) => t.trigger_kind),
       );
+      let script;
       try {
-        const script = await wmill.getScriptByPath({ workspace: workspaceId, path: r.path });
-        for (const line of (script.content ?? "").split("\n")) {
-          const m = line.match(/^\s*(?:\/\/|--|#)\s*on\s+(\w+)\s*$/);
-          if (!m || !MARKER_KINDS.has(m[1]) || known.has(m[1])) continue;
-          known.add(m[1]);
-          graph.triggers.push({
-            trigger_kind: m[1],
-            runnable_kind: "script",
-            runnable_path: r.path,
-          });
-        }
-      } catch {
-        // best-effort: a fetch failure just leaves the row absent (prior behaviour)
+        script = await wmill.getScriptByPath({ workspace: workspaceId, path: r.path });
+      } catch (e: any) {
+        // Fail CLOSED: if we can't read a script's body we can't rule out a
+        // marker-only input trigger, so aborting is safer than auto-running it
+        // with empty args. (The `show` enrichment stays best-effort — it only
+        // affects the rendered tree, not what runs.)
+        throw new Error(
+          `Could not verify triggers for ${r.path} (${e?.body ?? e?.message ?? e}) — ` +
+            `aborting so an input-only entrypoint isn't run with empty args; retry once resolved.`,
+        );
+      }
+      for (const kind of recoverHeaderMarkers(script.content ?? "")) {
+        if (known.has(kind)) continue;
+        known.add(kind);
+        graph.triggers.push({
+          trigger_kind: kind,
+          runnable_kind: "script",
+          runnable_path: r.path,
+        });
       }
     }),
   );
@@ -419,25 +439,23 @@ async function resolveUploadArgs(
     if (param in args) {
       throw new Error(`--upload binds ${scriptPath}:${param} more than once.`);
     }
-    let obj: { s3: string; storage?: string };
+    let key: string;
     if (binding.source.startsWith("s3://")) {
-      // `s3://<storage>/<key>` — keep the named storage (authority) so the worker
-      // downloads from the right store, not `{ s3: "<storage>/<key>" }`.
-      obj = parseS3Uri(binding.source);
+      // Default-storage object key (whole path); see s3UriKey.
+      key = s3UriKey(binding.source);
     } else {
       const buf = await readFile(binding.source);
       // Key scoped by script + param so distinct sources sharing a basename
       // (across scripts or params) don't clobber each other in the store.
-      const key = devUploadKey(scriptPath, param, binding.source);
+      key = devUploadKey(scriptPath, param, binding.source);
       await wmill.fileUpload({
         workspace: workspaceId,
         fileKey: key,
         requestBody: new Blob([buf]) as any,
       });
       log.info(colors.gray(`  ↑ ${binding.source} → s3://${key}`));
-      obj = { s3: key };
     }
-    Object.assign(args, s3Arg(param, obj));
+    Object.assign(args, s3Arg(param, key));
   }
   return args;
 }

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import {
   devUploadKey,
-  parseS3Uri,
   parseUploadBinding,
   s3Arg,
   s3ObjectParams,
+  s3UriKey,
 } from "../src/commands/pipeline/pipelineUpload.ts";
 
 test("parseUploadBinding: bare script + local source infers the param later", () => {
@@ -70,22 +70,13 @@ test("devUploadKey: key scoped by script path + param so basenames don't clobber
 });
 
 test("s3Arg: shapes the S3Object run-arg", () => {
-  expect(s3Arg("file", { s3: "wmilldev/pipeline/analytics/events.csv" })).toEqual({
+  expect(s3Arg("file", "wmilldev/pipeline/analytics/events.csv")).toEqual({
     file: { s3: "wmilldev/pipeline/analytics/events.csv" },
-  });
-  expect(s3Arg("file", { s3: "k", storage: "secondary" })).toEqual({
-    file: { s3: "k", storage: "secondary" },
   });
 });
 
-test("parseS3Uri: authority is the named storage (empty ⇒ default)", () => {
-  // named storage: s3://<storage>/<key>
-  expect(parseS3Uri("s3://secondary/2026/events.csv")).toEqual({
-    s3: "2026/events.csv",
-    storage: "secondary",
-  });
-  // empty authority ⇒ default storage
-  expect(parseS3Uri("s3:///events.csv")).toEqual({ s3: "events.csv" });
-  // no `/` after the scheme → no authority to name a storage; whole rest is the key
-  expect(parseS3Uri("s3://events.csv")).toEqual({ s3: "events.csv" });
+test("s3UriKey: whole path is the default-storage key (nested keys kept intact)", () => {
+  // a nested default-storage key must NOT be misread as a named-storage authority
+  expect(s3UriKey("s3://raw/2026/events.csv")).toBe("raw/2026/events.csv");
+  expect(s3UriKey("s3://events.csv")).toBe("events.csv");
 });
