@@ -2797,7 +2797,7 @@ async fn edit_git_sync_repository(
     // settings save. The hook id/secret it writes are persisted by the UPDATE
     // below; if that save doesn't commit, the just-created hook is rolled back so a
     // settings save can never leave an orphaned webhook.
-    #[cfg(feature = "enterprise")]
+    #[cfg(all(feature = "enterprise", feature = "private"))]
     let created_webhook_id: Option<i64> = {
         let mut created = None;
         if let Some(repo) = git_sync_settings
@@ -2840,7 +2840,7 @@ async fn edit_git_sync_repository(
     if let Err(e) = save_result {
         // Settings never persisted — delete any webhook we just created so its
         // id/secret (which were never saved) don't leave an orphan on GitHub.
-        #[cfg(feature = "enterprise")]
+        #[cfg(all(feature = "enterprise", feature = "private"))]
         if let Some(hook_id) = created_webhook_id {
             if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
                 &db,

@@ -3103,8 +3103,10 @@ lazy_static::lazy_static! {
 
 /// Slack (seconds) subtracted from the effective interval so a repo whose interval
 /// equals the ~60s tick isn't skipped by tick jitter.
+#[cfg(feature = "private")]
 const AUTO_PULL_POLL_SLACK_S: i64 = 30;
 
+#[cfg(feature = "private")]
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
     use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
 
