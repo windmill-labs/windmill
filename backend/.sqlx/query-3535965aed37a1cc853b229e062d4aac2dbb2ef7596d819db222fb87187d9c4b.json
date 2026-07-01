@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM skip_workspace_diff_tally WHERE workspace_id IN ('test-workspace', 'wm-fork-guard-test')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "3535965aed37a1cc853b229e062d4aac2dbb2ef7596d819db222fb87187d9c4b"
+}
