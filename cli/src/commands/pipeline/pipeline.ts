@@ -564,10 +564,12 @@ async function run(
   // per-event fanout (kafka/mqtt/nats/postgres/sqs/gcp/email/webhook/data_upload):
   // they can't run with empty args, so no run mode — whole-pipeline, single-root,
   // or bounded — may schedule them, nor a downstream consumer that only such a
-  // handler feeds (it would get missing/stale inputs). `--upload`-bound handlers
-  // are un-gated (they get their input at execution) so drop out of the barrier set.
+  // handler feeds (it would get missing/stale inputs). Exclude `starts` from the
+  // barriers: a valid start (a schedule/manual root, or an `--upload`-bound
+  // handler) runs with its own input even if it ALSO carries a non-autorun
+  // trigger — cutting it would drop a legitimately-scheduled root and its chain.
   const barriers = new Set(
-    [...nonAutorunTriggerScripts(graph)].filter((id) => !boundNodeIds.has(id)),
+    [...nonAutorunTriggerScripts(graph)].filter((id) => !starts.has(id)),
   );
   let selectedScripts: Set<string>;
   let reachableEnds: string[] = [];

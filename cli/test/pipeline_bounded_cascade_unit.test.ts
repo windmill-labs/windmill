@@ -127,6 +127,33 @@ test("validStarts: schedule and manual roots, not events/uploads/webhooks or sub
   expect(starts.has(sn("hook"))).toBe(false);
 });
 
+test("a scheduled root with a secondary data_upload trigger stays a start and isn't cut", () => {
+  // Regression: the barrier set must exclude valid starts, else a script with
+  // both `// on schedule` and `// on data_upload` resolves as the start yet is
+  // also a barrier, so reachableCutting skips it → empty run plan.
+  const g = graph({
+    scripts: ["sched_upload", "consumer"],
+    writes: [["sched_upload", "x"]],
+    subs: [["consumer", "x"]],
+    native: [
+      ["schedule", "sched_upload"],
+      ["data_upload", "sched_upload"],
+    ],
+  });
+  const starts = validStarts(g);
+  expect(starts.has(sn("sched_upload"))).toBe(true); // schedule wins over the upload trigger
+  // Mirror run()'s barrier set: nonAutorun handlers minus the valid starts.
+  const barriers = new Set([...nonAutorunTriggerScripts(g)].filter((id) => !starts.has(id)));
+  expect(barriers.has(sn("sched_upload"))).toBe(false); // the scheduled root is protected
+  const sel = new Set(
+    [...reachableCutting(buildLineageDag(g), starts, barriers)]
+      .filter(isScriptNode)
+      .map(scriptPathOf),
+  );
+  expect(sel.has("sched_upload")).toBe(true); // runs on its schedule path…
+  expect(sel.has("consumer")).toBe(true); // …and its downstream isn't cut off
+});
+
 test("nonAutorunTriggerScripts: event + upload/webhook handlers, incl. subscribers (descendants)", () => {
   const g = graph({
     scripts: ["a", "evt", "upl"],
