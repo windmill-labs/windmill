@@ -764,7 +764,7 @@ workspace related commands
   - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
   - `--from-branch <branch:string>` - Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch `wmill workspace fork` offers this interactively; from a base branch it creates a fresh fork branch.
   - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.
-- `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
+- `workspace delete-fork <fork_name:string>` - Delete a forked workspace
   - `-y --yes` - Skip confirmation prompt
 - `workspace merge` - Compare and deploy changes between a fork and its parent workspace
   - `--direction <direction:string>` - Deploy direction: to-parent or to-fork
