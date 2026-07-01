@@ -5,6 +5,7 @@ import { createLongHash } from '$lib/editorLangUtils'
 import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import type { PersistedContextUsage } from './tokenUsage'
+import type { ItemOp } from '$lib/components/sessions/modifiedItemsMask'
 
 // Base IndexedDB name; userScopedDb namespaces the effective DB by the logged-in
 // user's email so chat messages are never physically shared across users on a
@@ -31,6 +32,11 @@ interface ChatSchema extends IDBSchema {
 			// chats predating this feature → consumers fall back to showing all
 			// workspace drafts; a defined array (even empty) means "tracked".
 			modifiedItems?: string[]
+			// Parallel to `modifiedItems`: `[key, op]` pairs recording the operation
+			// (add/edit/delete) each tool performed, so the Edits dock shows the true
+			// change type. Optional and independent — absent on chats predating it
+			// (the dock falls back to the fork↔parent existence heuristic per item).
+			modifiedItemOps?: [string, ItemOp][]
 		}
 	}
 }
@@ -130,6 +136,7 @@ export default class HistoryManager {
 			sessionId?: string
 			contextUsage?: PersistedContextUsage
 			modifiedItems?: string[]
+			modifiedItemOps?: [string, ItemOp][]
 		}
 	> = $state({})
 
@@ -207,11 +214,16 @@ export default class HistoryManager {
 		return this.savedChats[id]?.modifiedItems
 	}
 
+	getModifiedItemOps(id: string): [string, ItemOp][] | undefined {
+		return this.savedChats[id]?.modifiedItemOps
+	}
+
 	async saveChat(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
 		contextUsage?: number,
-		modifiedItems?: string[]
+		modifiedItems?: string[],
+		modifiedItemOps?: [string, ItemOp][]
 	) {
 		if (displayMessages.length > 0) {
 			// Compaction replaces the original first message with a summary boundary.
@@ -242,7 +254,8 @@ export default class HistoryManager {
 				// Only persist when the caller passes a defined array. Loaded legacy
 				// chats keep their accumulator undefined, so we never retroactively
 				// stamp them with [] (which would flip them to the filtered view).
-				...(modifiedItems !== undefined ? { modifiedItems } : {})
+				...(modifiedItems !== undefined ? { modifiedItems } : {}),
+				...(modifiedItemOps !== undefined ? { modifiedItemOps } : {})
 			}
 			this.savedChats = {
 				...this.savedChats,
@@ -258,9 +271,10 @@ export default class HistoryManager {
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
 		contextUsage?: number,
-		modifiedItems?: string[]
+		modifiedItems?: string[],
+		modifiedItemOps?: [string, ItemOp][]
 	) {
-		await this.saveChat(displayMessages, messages, contextUsage, modifiedItems)
+		await this.saveChat(displayMessages, messages, contextUsage, modifiedItems, modifiedItemOps)
 		this.currentChatId = createLongHash()
 	}
 

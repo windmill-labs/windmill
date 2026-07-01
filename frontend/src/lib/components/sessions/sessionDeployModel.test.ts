@@ -4,21 +4,21 @@ import type { DraftItem } from '$lib/workspaceDrafts.svelte'
 import {
 	buildDeployItems,
 	maskOnlyCandidates,
+	badgeOf,
+	changeOpOf,
 	pipelineOf,
 	actionFor,
 	diffBaseFor,
 	isOnBehalfEligible,
-	selectableOf,
-	defaultSelection,
 	inSegment,
 	segmentCounts,
-	footerSummary,
+	conflictCount,
 	deployPlanFor,
 	discardPlanFor,
 	type DeployItem,
 	type SessionContext
 } from './sessionDeployModel'
-import { maskKey } from './modifiedItemsMask'
+import { maskKey, mergeItemOp } from './modifiedItemsMask'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -71,41 +71,52 @@ function byKey(items: DeployItem[]): Map<string, DeployItem> {
 	return new Map(items.map((i) => [i.key, i]))
 }
 
-// ── buildDeployItems: merge + state derivation ──────────────────────────────
+// ── buildDeployItems: merge + axis derivation ───────────────────────────────
 
-describe('buildDeployItems — state derivation', () => {
-	it('a draft-only item is state=draft, exists nowhere yet', () => {
+describe('buildDeployItems — axis derivation', () => {
+	it('a draft-only item is local, parent=sync, not done, exists nowhere yet', () => {
 		const items = buildDeployItems({
 			draftItems: [draft('script', 'u/a/foo', { draft_only: true })],
 			context: mainCtx
 		})
 		expect(items).toHaveLength(1)
-		expect(items[0].state).toBe('draft')
+		expect(items[0].local).toBe(true)
+		expect(items[0].parent).toBe('sync')
+		expect(items[0].done).toBe(false)
 		expect(items[0].draftOnly).toBe(true)
 		expect(items[0].existsInParent).toBe(false)
 	})
 
-	it('a fork diff ahead-only (no draft) is state=in_fork', () => {
+	it('a fork diff ahead-only (no draft) is parent=ahead, not local', () => {
 		const items = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/foo', { ahead: 2, behind: 0 })]),
 			draftItems: [],
 			context: forkCtx
 		})
-		expect(items[0].state).toBe('in_fork')
-		expect(items[0].hasDraft).toBe(false)
+		expect(items[0].parent).toBe('ahead')
+		expect(items[0].local).toBe(false)
 		expect(items[0].ahead).toBe(2)
 	})
 
-	it('ahead AND behind is state=conflict', () => {
+	it('ahead AND behind is parent=conflict', () => {
 		const items = buildDeployItems({
 			comparison: comparison([diff('flow', 'u/a/bar', { ahead: 1, behind: 1 })]),
 			draftItems: [],
 			context: forkCtx
 		})
-		expect(items[0].state).toBe('conflict')
+		expect(items[0].parent).toBe('conflict')
 	})
 
-	it('removed in fork (present in parent) is state=deleted', () => {
+	it('behind-only fork diff (parent moved, fork did not) falls to parent=sync', () => {
+		const items = buildDeployItems({
+			comparison: comparison([diff('script', 'u/a/beh', { ahead: 0, behind: 2 })]),
+			draftItems: [],
+			context: forkCtx
+		})
+		expect(items[0].parent).toBe('sync')
+	})
+
+	it('removed in fork (present in parent) is removed=true, parent=ahead', () => {
 		const items = buildDeployItems({
 			comparison: comparison([
 				diff('script', 'u/a/gone', { ahead: 1, exists_in_fork: false, exists_in_source: true })
@@ -113,18 +124,19 @@ describe('buildDeployItems — state derivation', () => {
 			draftItems: [],
 			context: forkCtx
 		})
-		expect(items[0].state).toBe('deleted')
+		expect(items[0].removed).toBe(true)
+		expect(items[0].parent).toBe('ahead')
 	})
 
-	it('a pending draft on a deployed fork item takes precedence → state=draft, merged to ONE row', () => {
+	it('a pending draft on a deployed fork item keeps both axes, merged to ONE row', () => {
 		const items = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/foo', { ahead: 1, behind: 0 })]),
 			draftItems: [draft('script', 'u/a/foo')],
 			context: forkCtx
 		})
 		expect(items).toHaveLength(1)
-		expect(items[0].state).toBe('draft')
-		expect(items[0].hasDraft).toBe(true)
+		expect(items[0].local).toBe(true)
+		expect(items[0].parent).toBe('ahead')
 		expect(items[0].key).toBe(maskKey('script', 'u/a/foo'))
 	})
 
@@ -137,7 +149,7 @@ describe('buildDeployItems — state derivation', () => {
 		expect(items).toHaveLength(1)
 		expect(items[0].deployKind).toBe('schedule')
 		expect(items[0].draftKind).toBe('trigger_schedule')
-		expect(items[0].hasDraft).toBe(true)
+		expect(items[0].local).toBe(true)
 	})
 })
 
@@ -153,7 +165,7 @@ describe('buildDeployItems — scoping and Done', () => {
 		expect(items.map((i) => i.path)).toEqual(['u/a/keep'])
 	})
 
-	it('mask-only entries that still exist surface as terminal in_parent rows', () => {
+	it('mask-only entries that still exist surface as terminal done rows', () => {
 		const key = maskKey('script', 'u/a/done')
 		const items = buildDeployItems({
 			comparison: comparison([]),
@@ -163,13 +175,13 @@ describe('buildDeployItems — scoping and Done', () => {
 			context: forkCtx
 		})
 		expect(items).toHaveLength(1)
-		expect(items[0].state).toBe('in_parent')
+		expect(items[0].done).toBe(true)
+		expect(items[0].parent).toBe('sync')
 		expect(items[0].path).toBe('u/a/done')
 	})
 
-	it('a mask-only entry that no longer exists (discarded draft) is dropped, not shown as in_parent', () => {
+	it('a mask-only entry that no longer exists (discarded draft) is dropped', () => {
 		const key = maskKey('script', 'u/a/gone')
-		// existingKeys omitted (existence unresolved) → no terminal row
 		const pending = buildDeployItems({
 			comparison: comparison([]),
 			draftItems: [],
@@ -177,7 +189,6 @@ describe('buildDeployItems — scoping and Done', () => {
 			context: forkCtx
 		})
 		expect(pending).toHaveLength(0)
-		// existence resolved and the item is absent → still dropped
 		const resolved = buildDeployItems({
 			comparison: comparison([]),
 			draftItems: [],
@@ -200,7 +211,6 @@ describe('buildDeployItems — scoping and Done', () => {
 			context: forkCtx
 		})
 		expect(cands.map((c) => c.key)).toEqual([maskKey('trigger_schedule', 'u/a/done')])
-		// mapped to the deploy kind for the existence check
 		expect(cands[0].deployKind).toBe('schedule')
 	})
 
@@ -211,7 +221,7 @@ describe('buildDeployItems — scoping and Done', () => {
 			context: mainCtx
 		})
 		expect(items.map((i) => i.path)).toEqual(['u/a/d'])
-		expect(items[0].state).toBe('draft')
+		expect(items[0].local).toBe(true)
 	})
 
 	it('resource_type / folder diffs (no UserDraftItemKind) are skipped', () => {
@@ -224,6 +234,146 @@ describe('buildDeployItems — scoping and Done', () => {
 	})
 })
 
+// ── badgeOf: single badge by priority ────────────────────────────────────────
+
+describe('badgeOf', () => {
+	function only(diffs: WorkspaceItemDiff[], drafts: DraftItem[] = []): DeployItem {
+		return buildDeployItems({
+			comparison: comparison(diffs),
+			draftItems: drafts,
+			context: forkCtx
+		})[0]
+	}
+
+	it('draft-only → draft', () => {
+		expect(badgeOf(only([], [draft('script', 'u/a/d')]))).toBe('draft')
+	})
+	it('ahead (no draft) → ahead', () => {
+		expect(badgeOf(only([diff('script', 'u/a/a', { ahead: 1 })]))).toBe('ahead')
+	})
+	it('behind-only (parent moved, fork untouched) is not a badge state → none', () => {
+		expect(badgeOf(only([diff('script', 'u/a/b', { ahead: 0, behind: 2 })]))).toBe('none')
+	})
+	it('conflict wins over a pending draft', () => {
+		const it = only([diff('flow', 'u/a/c', { ahead: 1, behind: 1 })], [draft('flow', 'u/a/c')])
+		expect(it.local).toBe(true)
+		expect(badgeOf(it)).toBe('conflict')
+	})
+	it('draft wins over ahead (losing axis hidden from the badge)', () => {
+		const it = only([diff('script', 'u/a/da', { ahead: 1 })], [draft('script', 'u/a/da')])
+		expect(it.parent).toBe('ahead')
+		expect(badgeOf(it)).toBe('draft')
+	})
+	it('done → deployed', () => {
+		const key = maskKey('script', 'u/a/done')
+		const [it] = buildDeployItems({
+			draftItems: [],
+			mask: new Set([key]),
+			existingKeys: new Set([key]),
+			context: forkCtx
+		})
+		expect(badgeOf(it)).toBe('deployed')
+	})
+	it('a clean in-sync row → none; a done row → deployed (op, not status, carries delete)', () => {
+		const cleanSync = { local: false, parent: 'sync', done: false, removed: false } as DeployItem
+		expect(badgeOf(cleanSync)).toBe('none')
+		const done = { local: false, parent: 'sync', done: true, removed: false } as DeployItem
+		expect(badgeOf(done)).toBe('deployed')
+	})
+})
+
+// ── changeOpOf: add / delete / modify (orthogonal to the status badge) ────────
+
+describe('changeOpOf', () => {
+	it('a pending deletion (present in parent, gone from fork) → delete', () => {
+		const [item] = buildDeployItems({
+			comparison: comparison([
+				diff('script', 'u/a/gone', { ahead: 1, exists_in_fork: false, exists_in_source: true })
+			]),
+			draftItems: [],
+			context: forkCtx
+		})
+		expect(item.parent).toBe('ahead') // status is still "ahead" of the parent
+		expect(changeOpOf(item)).toBe('delete') // the operation is a delete
+	})
+
+	it('a never-deployed draft → add', () => {
+		const [item] = buildDeployItems({
+			draftItems: [draft('script', 'u/a/new', { draft_only: true })],
+			context: mainCtx
+		})
+		expect(changeOpOf(item)).toBe('add')
+	})
+
+	it('a fork item the parent does not have yet → add', () => {
+		const [item] = buildDeployItems({
+			comparison: comparison([
+				diff('script', 'u/a/fresh', { ahead: 1, exists_in_fork: true, exists_in_source: false })
+			]),
+			draftItems: [],
+			context: forkCtx
+		})
+		expect(changeOpOf(item)).toBe('add')
+	})
+
+	it('an edit to an item present on both sides → modify', () => {
+		const [item] = buildDeployItems({
+			comparison: comparison([diff('script', 'u/a/edit', { ahead: 1 })]),
+			draftItems: [draft('script', 'u/a/edit')],
+			context: forkCtx
+		})
+		expect(changeOpOf(item)).toBe('modify')
+	})
+
+	it('the recorded session op wins over the existence heuristic', () => {
+		// A session-created item deployed to the parent now exists on BOTH sides, so
+		// the existence heuristic would say "modify" — but the tool op says "add".
+		const key = maskKey('script', 'u/a/created')
+		const [item] = buildDeployItems({
+			comparison: comparison([diff('script', 'u/a/created', { ahead: 1 })]),
+			draftItems: [],
+			mask: new Set([key]),
+			maskOps: new Map([[key, 'add']]),
+			context: forkCtx
+		})
+		expect(item.existsInParent).toBe(true) // heuristic would say 'modify'
+		expect(item.sessionOp).toBe('add')
+		expect(changeOpOf(item)).toBe('add')
+	})
+
+	it("session op 'edit' maps to modify", () => {
+		const key = maskKey('script', 'u/a/e')
+		const [item] = buildDeployItems({
+			comparison: comparison([diff('script', 'u/a/e', { ahead: 1 })]),
+			draftItems: [],
+			mask: new Set([key]),
+			maskOps: new Map([[key, 'edit']]),
+			context: forkCtx
+		})
+		expect(changeOpOf(item)).toBe('modify')
+	})
+})
+
+describe('mergeItemOp — net op precedence (delete > add > edit)', () => {
+	it('create then edit stays add', () => {
+		expect(mergeItemOp('add', 'edit')).toBe('add')
+	})
+	it('edit then delete becomes delete', () => {
+		expect(mergeItemOp('edit', 'delete')).toBe('delete')
+	})
+	it('create then delete becomes delete', () => {
+		expect(mergeItemOp('add', 'delete')).toBe('delete')
+	})
+	it('first sighting keeps the incoming op', () => {
+		expect(mergeItemOp(undefined, 'add')).toBe('add')
+		expect(mergeItemOp(undefined, 'edit')).toBe('edit')
+		expect(mergeItemOp(undefined, 'delete')).toBe('delete')
+	})
+	it('plain edit then edit stays edit', () => {
+		expect(mergeItemOp('edit', 'edit')).toBe('edit')
+	})
+})
+
 // ── pipeline ────────────────────────────────────────────────────────────────
 
 describe('pipelineOf', () => {
@@ -232,16 +382,13 @@ describe('pipelineOf', () => {
 	}
 
 	it('fork draft: draft current, fork+parent todo', () => {
-		const [item] = buildDeployItems({
-			draftItems: [draft('script', 'u/a/f')],
-			context: forkCtx
-		})
+		const [item] = buildDeployItems({ draftItems: [draft('script', 'u/a/f')], context: forkCtx })
 		expect(pipelineOf(item, forkCtx).map((s) => s.id)).toEqual(['draft', 'fork', 'parent'])
 		expect(stage(item, forkCtx, 'draft')).toBe('current')
 		expect(stage(item, forkCtx, 'fork')).toBe('todo')
 	})
 
-	it('in_fork: draft done, fork current', () => {
+	it('ahead (in fork): draft done, fork current', () => {
 		const [item] = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/f')]),
 			draftItems: [],
@@ -259,6 +406,17 @@ describe('pipelineOf', () => {
 			context: forkCtx
 		})
 		expect(stage(item, forkCtx, 'fork')).toBe('blocked')
+	})
+
+	it('done: every stage done', () => {
+		const key = maskKey('script', 'u/a/done')
+		const [item] = buildDeployItems({
+			draftItems: [],
+			mask: new Set([key]),
+			existingKeys: new Set([key]),
+			context: forkCtx
+		})
+		expect(pipelineOf(item, forkCtx).every((s) => s.status === 'done')).toBe(true)
 	})
 
 	it('main context is a 2-stage draft→parent pipeline', () => {
@@ -279,7 +437,7 @@ describe('actionFor', () => {
 		expect(a.secondary?.[0].op).toBe('discard')
 	})
 
-	it('in_fork → Deploy to <parent name>', () => {
+	it('ahead → Deploy to <parent name>', () => {
 		const [item] = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/f', { ahead: 1 })]),
 			draftItems: [],
@@ -291,24 +449,36 @@ describe('actionFor', () => {
 		expect(a.targetStage).toBe('parent')
 	})
 
-	it('behind-only in_fork → Update fork', () => {
-		const [item] = buildDeployItems({
-			comparison: comparison([diff('script', 'u/a/f', { ahead: 0, behind: 2 })]),
-			draftItems: [],
-			context: forkCtx
-		})
-		expect(actionFor(item, forkCtx).op).toBe('update_fork')
-	})
-
-	it('conflict → op none with a blocked reason', () => {
+	it('conflict → no action (no safe one-click resolve; reconciled manually)', () => {
 		const [item] = buildDeployItems({
 			comparison: comparison([diff('flow', 'u/a/c', { ahead: 1, behind: 1 })]),
 			draftItems: [],
 			context: forkCtx
 		})
+		expect(actionFor(item, forkCtx).op).toBe('none')
+	})
+
+	it('conflict has no action even when the item also has a pending draft', () => {
+		const [item] = buildDeployItems({
+			comparison: comparison([diff('flow', 'u/a/cd', { ahead: 1, behind: 1 })]),
+			draftItems: [draft('flow', 'u/a/cd')],
+			context: forkCtx
+		})
+		expect(item.local).toBe(true)
+		expect(actionFor(item, forkCtx).op).toBe('none')
+	})
+
+	it('removed (ahead) → Delete in <parent>', () => {
+		const [item] = buildDeployItems({
+			comparison: comparison([
+				diff('script', 'u/a/gone', { ahead: 1, exists_in_fork: false, exists_in_source: true })
+			]),
+			draftItems: [],
+			context: forkCtx
+		})
 		const a = actionFor(item, forkCtx)
-		expect(a.op).toBe('none')
-		expect(a.blockedReason).toBeTruthy()
+		expect(a.op).toBe('delete_in_parent')
+		expect(a.label).toBe('Delete in test-ai-sessions')
 	})
 
 	it('main draft deploys straight to parent', () => {
@@ -323,6 +493,17 @@ describe('actionFor', () => {
 			context: forkCtx
 		})
 		expect(actionFor(item, { ...forkCtx, parentName: undefined }).label).toBe('Deploy to parent')
+	})
+
+	it('done → op none', () => {
+		const key = maskKey('script', 'u/a/done')
+		const [item] = buildDeployItems({
+			draftItems: [],
+			mask: new Set([key]),
+			existingKeys: new Set([key]),
+			context: forkCtx
+		})
+		expect(actionFor(item, forkCtx).op).toBe('none')
 	})
 })
 
@@ -343,7 +524,7 @@ describe('diffBaseFor', () => {
 		}
 	})
 
-	it('in_fork row → fork↔parent base carrying both workspace ids', () => {
+	it('ahead row → fork↔parent base carrying both workspace ids', () => {
 		const [item] = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/f', { ahead: 1 })]),
 			draftItems: [],
@@ -357,7 +538,7 @@ describe('diffBaseFor', () => {
 		}
 	})
 
-	it('terminal (in_parent) row → no diff', () => {
+	it('terminal (done) row → no diff', () => {
 		const key = maskKey('script', 'u/a/done')
 		const [item] = buildDeployItems({
 			draftItems: [],
@@ -382,58 +563,18 @@ describe('isOnBehalfEligible', () => {
 	})
 })
 
-// ── selection ───────────────────────────────────────────────────────────────
-
-describe('selection', () => {
-	it('conflicts and done rows are not selectable; drafts need own+write', () => {
-		const items = buildDeployItems({
-			comparison: comparison([
-				diff('script', 'u/a/infork', { ahead: 1 }),
-				diff('flow', 'u/a/conflict', { ahead: 1, behind: 1 })
-			]),
-			draftItems: [
-				draft('script', 'u/a/mine'),
-				draft('script', 'u/a/theirs', { mine: false }),
-				draft('script', 'u/a/readonly', { can_write: false })
-			],
-			mask: new Set([
-				maskKey('script', 'u/a/infork'),
-				maskKey('flow', 'u/a/conflict'),
-				maskKey('script', 'u/a/mine'),
-				maskKey('script', 'u/a/theirs'),
-				maskKey('script', 'u/a/readonly'),
-				maskKey('script', 'u/a/done') // mask-only → in_parent
-			]),
-			existingKeys: new Set([maskKey('script', 'u/a/done')]),
-			context: forkCtx
-		})
-		const m = byKey(items)
-		expect(selectableOf(m.get(maskKey('script', 'u/a/infork'))!)).toBe(true)
-		expect(selectableOf(m.get(maskKey('flow', 'u/a/conflict'))!)).toBe(false)
-		expect(selectableOf(m.get(maskKey('script', 'u/a/mine'))!)).toBe(true)
-		expect(selectableOf(m.get(maskKey('script', 'u/a/theirs'))!)).toBe(false)
-		expect(selectableOf(m.get(maskKey('script', 'u/a/readonly'))!)).toBe(false)
-		expect(selectableOf(m.get(maskKey('script', 'u/a/done'))!)).toBe(false)
-	})
-
-	it('defaultSelection checks exactly the selectable rows', () => {
-		const items = buildDeployItems({
-			comparison: comparison([diff('flow', 'u/a/conflict', { ahead: 1, behind: 1 })]),
-			draftItems: [draft('script', 'u/a/mine'), draft('script', 'u/a/theirs', { mine: false })],
-			context: forkCtx
-		})
-		expect(new Set(defaultSelection(items))).toEqual(new Set([maskKey('script', 'u/a/mine')]))
-	})
-})
-
-// ── segments ────────────────────────────────────────────────────────────────
+// ── segments (bar readout counts) ─────────────────────────────────────────────
 
 describe('segments', () => {
 	const items = buildDeployItems({
-		comparison: comparison([diff('script', 'u/a/infork', { ahead: 1 })]),
+		comparison: comparison([
+			diff('script', 'u/a/ahead', { ahead: 1 }),
+			diff('flow', 'u/a/conflict', { ahead: 1, behind: 1 })
+		]),
 		draftItems: [draft('script', 'u/a/draft', { draft_only: true })],
 		mask: new Set([
-			maskKey('script', 'u/a/infork'),
+			maskKey('script', 'u/a/ahead'),
+			maskKey('flow', 'u/a/conflict'),
 			maskKey('script', 'u/a/draft'),
 			maskKey('script', 'u/a/done')
 		]),
@@ -441,45 +582,19 @@ describe('segments', () => {
 		context: forkCtx
 	})
 
-	it('assigns each item to its lifecycle bucket', () => {
+	it('to_review excludes done; done isolates terminal', () => {
 		const m = byKey(items)
-		expect(inSegment(m.get(maskKey('script', 'u/a/draft'))!, 'drafts')).toBe(true)
-		expect(inSegment(m.get(maskKey('script', 'u/a/infork'))!, 'in_fork')).toBe(true)
 		expect(inSegment(m.get(maskKey('script', 'u/a/done'))!, 'done')).toBe(true)
+		expect(inSegment(m.get(maskKey('script', 'u/a/done'))!, 'to_review')).toBe(false)
+		expect(inSegment(m.get(maskKey('script', 'u/a/ahead'))!, 'to_review')).toBe(true)
 	})
 
-	it('to_review excludes done; all includes everything', () => {
+	it('segmentCounts has the 3-segment shape; conflictCount tallies conflicts', () => {
 		const counts = segmentCounts(items)
-		expect(counts.all).toBe(3)
+		expect(counts.all).toBe(4)
 		expect(counts.done).toBe(1)
-		expect(counts.to_review).toBe(2)
-		expect(counts.drafts).toBe(1)
-		expect(counts.in_fork).toBe(1)
-	})
-})
-
-// ── footer ──────────────────────────────────────────────────────────────────
-
-describe('footerSummary', () => {
-	it('groups the selection by deploy target and counts on-behalf-eligible parent promotions', () => {
-		const items = buildDeployItems({
-			comparison: comparison([
-				diff('script', 'u/a/toparent', { ahead: 1 }),
-				diff('resource', 'u/a/res', { ahead: 1 })
-			]),
-			draftItems: [draft('script', 'u/a/tofork')],
-			mask: new Set([
-				maskKey('script', 'u/a/toparent'),
-				maskKey('resource', 'u/a/res'),
-				maskKey('script', 'u/a/tofork')
-			]),
-			context: forkCtx
-		})
-		const all = new Set(items.map((i) => i.key))
-		const s = footerSummary(items, all, forkCtx)
-		expect(s.toFork).toBe(1) // the draft
-		expect(s.toParent).toBe(2) // script + resource in-fork promotions
-		expect(s.onBehalfEligible).toBe(1) // only the script promotion, not the resource
+		expect(counts.to_review).toBe(3)
+		expect(conflictCount(items)).toBe(1)
 	})
 })
 
@@ -498,7 +613,7 @@ describe('deployPlanFor', () => {
 		expect(p.draftOnly).toBe(true)
 	})
 
-	it('in_fork ahead → deploy_item fork→parent', () => {
+	it('ahead → deploy_item fork→parent', () => {
 		const [item] = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/f', { ahead: 1 })]),
 			draftItems: [],
@@ -510,19 +625,17 @@ describe('deployPlanFor', () => {
 		expect(p.workspaceTo).toBe('parent')
 	})
 
-	it('behind-only → update_fork parent→fork', () => {
+	it('conflict → no plan (reconciled manually, never auto-deployed)', () => {
 		const [item] = buildDeployItems({
-			comparison: comparison([diff('script', 'u/a/f', { ahead: 0, behind: 2 })]),
+			comparison: comparison([diff('flow', 'u/a/c', { ahead: 1, behind: 1 })]),
 			draftItems: [],
 			context: forkCtx
 		})
-		const p = deployPlanFor(item, forkCtx)!
-		expect(p.op).toBe('update_fork')
-		expect(p.workspaceFrom).toBe('parent')
-		expect(p.workspaceTo).toBe('wm-fork-f')
+		expect(item.parent).toBe('conflict')
+		expect(deployPlanFor(item, forkCtx)).toBeUndefined()
 	})
 
-	it('deletion → delete_in_parent targeting the parent', () => {
+	it('removal → delete_in_parent targeting the parent', () => {
 		const [item] = buildDeployItems({
 			comparison: comparison([
 				diff('script', 'u/a/gone', { ahead: 1, exists_in_fork: false, exists_in_source: true })
@@ -535,16 +648,16 @@ describe('deployPlanFor', () => {
 		expect(p.workspaceTo).toBe('parent')
 	})
 
-	it('terminal and conflict rows have no plan', () => {
-		const items = buildDeployItems({
-			comparison: comparison([diff('flow', 'u/a/c', { ahead: 1, behind: 1 })]),
+	it('terminal (done) rows have no plan', () => {
+		const key = maskKey('script', 'u/a/done')
+		const [item] = buildDeployItems({
 			draftItems: [],
-			mask: new Set([maskKey('flow', 'u/a/c'), maskKey('script', 'u/a/done')]),
-			existingKeys: new Set([maskKey('script', 'u/a/done')]),
+			mask: new Set([key]),
+			existingKeys: new Set([key]),
 			context: forkCtx
 		})
-		expect(items.some((i) => i.state === 'in_parent')).toBe(true)
-		for (const item of items) expect(deployPlanFor(item, forkCtx)).toBeUndefined()
+		expect(item.done).toBe(true)
+		expect(deployPlanFor(item, forkCtx)).toBeUndefined()
 	})
 
 	it('discardPlanFor only applies to drafts and carries the legacy flag', () => {
@@ -557,11 +670,11 @@ describe('deployPlanFor', () => {
 		expect(p.legacy).toBe(true)
 		expect(p.workspaceTo).toBe('wm-fork-f')
 
-		const [inFork] = buildDeployItems({
+		const [ahead] = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/g', { ahead: 1 })]),
 			draftItems: [],
 			context: forkCtx
 		})
-		expect(discardPlanFor(inFork, forkCtx)).toBeUndefined()
+		expect(discardPlanFor(ahead, forkCtx)).toBeUndefined()
 	})
 })

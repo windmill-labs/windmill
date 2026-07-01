@@ -1,15 +1,5 @@
 <script lang="ts">
-	import {
-		Archive,
-		ArrowRight,
-		GitCompareArrows,
-		GitFork,
-		GitPullRequestArrow,
-		GitPullRequestClosed,
-		MoveRight,
-		Pencil,
-		Trash2
-	} from 'lucide-svelte'
+	import { Archive, GitPullRequestClosed, MoveRight, Pencil, Trash2 } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
@@ -20,7 +10,12 @@
 	import { getRuntime } from './sessionRuntime.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { buildDeployItems, segmentCounts, type SessionContext } from './sessionDeployModel'
+	import {
+		buildDeployItems,
+		conflictCount,
+		segmentCounts,
+		type SessionContext
+	} from './sessionDeployModel'
 
 	// Unified session bar: replaces the separate draft + fork bars. It surfaces
 	// what the CURRENT chat changed — drafts it wrote and (in a fork) items it
@@ -66,6 +61,9 @@
 	// undefined = legacy/untracked chat → fall back to showing every draft/diff
 	// (old behavior). A Set (even empty) → filter to just this chat's items.
 	const mask = $derived(runtime?.manager.modifiedItems)
+	// Parallel per-item op map (add/edit/delete) so the dock shows the true change
+	// type; undefined for legacy chats → dock falls back to the existence heuristic.
+	const maskOps = $derived(runtime?.manager.modifiedItemOps)
 
 	// Workspace Drafts (fetches on mount and on every Server-Draft invalidation);
 	// scoped to the chat's mask inside the deploy model below.
@@ -90,6 +88,10 @@
 		if (!runtime || !committedId || !parentWorkspaceId) return
 		runtime.invalidateForkComparison()
 		void runtime.ensureForkComparison(parentWorkspaceId, committedId)
+		// A fork *deletion* only lands in the comparison via an async backend tally
+		// (~300ms after the turn), and produces no draft — so the immediate fetch
+		// above races it. Re-poll (700ms/2200ms) so deletions surface reliably.
+		runtime.scheduleForkComparisonRefresh()
 	}
 
 	// Refresh both the draft list and the fork comparison when the AI finishes a
@@ -121,9 +123,8 @@
 
 	let diffDrawer: SessionDiffDrawer | undefined = $state(undefined)
 
-	// The dock counts mirror the drawer's lifecycle segments — computed from the
-	// same pure model over this chat's drafts + fork comparison, so a count button
-	// opens the drawer preset to exactly that filter.
+	// The dock counts are computed from the same pure model over this chat's drafts
+	// + fork comparison; the readout mirrors the drawer's item states.
 	const context = $derived<SessionContext>({
 		isFork,
 		currentWorkspaceId: committedId ?? '',
@@ -131,32 +132,40 @@
 		parentName: parentWorkspace?.name ?? parentWorkspaceId
 	})
 	const dockItems = $derived(
-		committedId ? buildDeployItems({ draftItems: drafts.items, comparison, mask, context }) : []
+		committedId
+			? buildDeployItems({ draftItems: drafts.items, comparison, mask, maskOps, context })
+			: []
 	)
 	const dockCounts = $derived(segmentCounts(dockItems))
+	const dockConflicts = $derived(conflictCount(dockItems))
 
-	// Whether to render at all. Fork sessions always show the bar (it carries the
-	// fork identity and surfaces the unavailable banner); non-fork sessions show
-	// only when this chat has something to review.
-	const showForkRow = $derived(
-		forksAllowed && isFork && !!sessionWorkspace && !!parentWorkspace && !!parentWorkspaceId
+	// One "Edits" bar for both fork and non-fork sessions, shown when this chat
+	// edited anything. The fork's own name / sync status no longer lives on the bar
+	// — it's inside the modal (SessionDiffDrawer's title). Fork sessions still need
+	// the forking gate + a resolvable fork/parent pair.
+	const showBar = $derived(
+		!!committedId &&
+			dockItems.length > 0 &&
+			(!isFork || (forksAllowed && !!sessionWorkspace && !!parentWorkspace && !!parentWorkspaceId))
 	)
-	const showDraftRow = $derived(!isFork && dockCounts.to_review > 0)
 </script>
 
 {#snippet dock()}
+	{@const toReview = Math.max(0, dockCounts.to_review - dockConflicts)}
 	<div class="flex items-center gap-1 shrink-0">
-		<Badge
-			small
-			clickable={dockCounts.to_review > 0}
-			color={dockCounts.to_review > 0 ? 'blue' : 'gray'}
-			onclick={() => dockCounts.to_review > 0 && diffDrawer?.open('to_review')}
-		>
-			{dockCounts.to_review} to review
-		</Badge>
+		{#if toReview > 0}
+			<Badge small clickable color="blue" onclick={() => diffDrawer?.open()}>
+				{toReview} to review
+			</Badge>
+		{/if}
+		{#if dockConflicts > 0}
+			<Badge small clickable color="red" onclick={() => diffDrawer?.open()}>
+				{dockConflicts} conflict{dockConflicts === 1 ? '' : 's'}
+			</Badge>
+		{/if}
 		{#if dockCounts.done > 0}
-			<Badge small clickable color="green" onclick={() => diffDrawer?.open('done')}>
-				{dockCounts.done} in parent
+			<Badge small clickable color="green" onclick={() => diffDrawer?.open()}>
+				{dockCounts.done} done
 			</Badge>
 		{/if}
 	</div>
@@ -207,41 +216,15 @@
 			</Button>
 		</div>
 	</div>
-{:else if showForkRow && parentWorkspaceId && committedId}
-	{@const StatusIcon =
-		forkStatus === 'ahead'
-			? GitPullRequestArrow
-			: forkStatus === 'diverged'
-				? GitCompareArrows
-				: GitFork}
-	{@const statusColor =
-		forkStatus === 'ahead'
-			? 'text-blue-500'
-			: forkStatus === 'diverged'
-				? 'text-amber-500'
-				: 'text-secondary'}
-	{@const statusTitle =
-		forkStatus === 'ahead'
-			? 'Ahead of parent'
-			: forkStatus === 'diverged'
-				? 'Diverged from parent'
-				: forkStatus === 'in_sync'
-					? 'In sync with parent'
-					: 'Fork'}
+{:else if showBar && committedId}
+	<!-- The "Edits" bar: what the AI changed this session. Fork identity / sync
+	     status lives inside the modal, not here. -->
 	<div
 		class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
 	>
-		<div class="flex items-center gap-1.5 min-w-0">
-			<span title={statusTitle} class="inline-flex shrink-0">
-				<StatusIcon class="w-3.5 h-3.5 {statusColor}" />
-			</span>
-			<span class="truncate text-secondary" title={sessionWorkspace?.name}>
-				{sessionWorkspace?.name}
-			</span>
-			<ArrowRight class="w-3 h-3 shrink-0 text-tertiary" />
-			<span class="truncate text-secondary" title={parentWorkspace?.name}>
-				{parentWorkspace?.name}
-			</span>
+		<div class="flex items-center gap-1.5 min-w-0" title="Edited by the chat during this session">
+			<Pencil class="w-3.5 h-3.5 shrink-0 text-secondary" />
+			<span class="truncate text-secondary font-medium">Edits</span>
 		</div>
 		{@render dock()}
 	</div>
@@ -250,22 +233,8 @@
 		bind:this={diffDrawer}
 		workspaceId={committedId}
 		{parentWorkspaceId}
+		sessionId={session.id}
 		keys={mask}
-	/>
-{:else if showDraftRow && committedId}
-	<div
-		class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
-	>
-		<div class="flex items-center gap-1.5 min-w-0">
-			<span class="inline-flex shrink-0"><Pencil class="w-3.5 h-3.5 text-secondary" /></span>
-			<span class="truncate text-secondary">Changes</span>
-		</div>
-		{@render dock()}
-	</div>
-
-	<SessionDiffDrawer
-		bind:this={diffDrawer}
-		workspaceId={committedId}
-		keys={mask}
+		keyOps={maskOps}
 	/>
 {/if}

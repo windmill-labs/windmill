@@ -44,9 +44,9 @@ import {
 	buildSummaryMessageContent
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
-import { SvelteSet } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { UserDraftItemKind } from '$lib/gen'
-import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
+import { maskKey, mergeItemOp, type ItemOp } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
 import { chatDraft, expanded } from './chatDraft'
@@ -352,16 +352,25 @@ export class AIChatManager {
 	// show-all bar. A SvelteSet (even empty) = tracked. Reactive so the session
 	// bar updates as tools record mid-turn.
 	modifiedItems = $state<SvelteSet<string> | undefined>(undefined)
+	// Parallel to `modifiedItems`: the operation each tool performed on the item
+	// (add/edit/delete), so the Edits dock shows add/delete/modify by what the tool
+	// DID rather than by fork↔parent existence (which flips once deployed). Same
+	// lifecycle as `modifiedItems`; absent on legacy chats → the dock falls back to
+	// the existence heuristic.
+	modifiedItemOps = $state<SvelteMap<string, ItemOp> | undefined>(undefined)
 
 	// Start tracking for a brand-new session chat (empty = "tracked, nothing yet").
 	initModifiedItemsTracking() {
 		this.modifiedItems = new SvelteSet()
+		this.modifiedItemOps = new SvelteMap()
 	}
 
 	// Record an item an AI tool call created/edited/deleted. No-op when untracked
 	// (the global singleton never initialises the set), so it stays unaffected.
-	recordModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
-		this.modifiedItems?.add(maskKey(itemKind, storagePath))
+	recordModifiedItem(itemKind: UserDraftItemKind, storagePath: string, op: ItemOp) {
+		const key = maskKey(itemKind, storagePath)
+		this.modifiedItems?.add(key)
+		this.modifiedItemOps?.set(key, mergeItemOp(this.modifiedItemOps.get(key), op))
 	}
 
 	// Workspace AI skills (name + description) advertised in the GLOBAL system
@@ -1658,7 +1667,8 @@ export class AIChatManager {
 				this.displayMessages,
 				this.messages,
 				this.contextUsage,
-				this.modifiedItems ? [...this.modifiedItems] : undefined
+				this.modifiedItems ? [...this.modifiedItems] : undefined,
+				this.modifiedItemOps ? [...this.modifiedItemOps] : undefined
 			)
 
 			this.currentReply = ''
@@ -1699,7 +1709,8 @@ export class AIChatManager {
 						this.displayMessages,
 						this.messages,
 						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined
+						this.modifiedItems ? [...this.modifiedItems] : undefined,
+						this.modifiedItemOps ? [...this.modifiedItemOps] : undefined
 					)
 				}
 			}
@@ -1787,7 +1798,7 @@ export class AIChatManager {
 					requestConfirmation: this.requestConfirmation,
 					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
 					requestUserQuestion: this.requestUserQuestion,
-					onItemModified: (kind, path) => this.recordModifiedItem(kind, path)
+					onItemModified: (kind, path, op) => this.recordModifiedItem(kind, path, op)
 				}
 			}
 
@@ -1827,7 +1838,8 @@ export class AIChatManager {
 					this.displayMessages,
 					this.messages,
 					this.contextUsage,
-					this.modifiedItems ? [...this.modifiedItems] : undefined
+					this.modifiedItems ? [...this.modifiedItems] : undefined,
+					this.modifiedItemOps ? [...this.modifiedItemOps] : undefined
 				)
 				// Still counts as the saved first turn — skipping the hook here would
 				// permanently miss it (the next turn isn't "first" anymore).
@@ -1862,7 +1874,8 @@ export class AIChatManager {
 						this.displayMessages,
 						this.messages,
 						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined
+						this.modifiedItems ? [...this.modifiedItems] : undefined,
+						this.modifiedItemOps ? [...this.modifiedItemOps] : undefined
 					)
 				}
 				if (!wasAborted) {
@@ -1886,7 +1899,8 @@ export class AIChatManager {
 					this.displayMessages,
 					this.messages,
 					this.contextUsage,
-					this.modifiedItems ? [...this.modifiedItems] : undefined
+					this.modifiedItems ? [...this.modifiedItems] : undefined,
+					this.modifiedItemOps ? [...this.modifiedItemOps] : undefined
 				)
 				// Only this branch is a clean send: the queued-message flush below
 				// auto-sends the next message after it (set after saveChat so a
@@ -1915,7 +1929,8 @@ export class AIChatManager {
 						this.displayMessages,
 						this.messages,
 						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined
+						this.modifiedItems ? [...this.modifiedItems] : undefined,
+						this.modifiedItemOps ? [...this.modifiedItemOps] : undefined
 					)
 				} catch (saveErr) {
 					console.error('Failed to persist partial chat after error', saveErr)
@@ -2049,7 +2064,8 @@ export class AIChatManager {
 			this.displayMessages,
 			this.messages,
 			this.contextUsage,
-			this.modifiedItems ? [...this.modifiedItems] : undefined
+			this.modifiedItems ? [...this.modifiedItems] : undefined,
+			this.modifiedItemOps ? [...this.modifiedItemOps] : undefined
 		)
 		this.displayMessages = []
 		this.messages = []
@@ -2080,6 +2096,13 @@ export class AIChatManager {
 			if (this.isSessionChat) {
 				const stored = this.historyManager.getModifiedItems(id)
 				this.modifiedItems = stored !== undefined ? new SvelteSet(stored) : undefined
+				// Ops are best-effort: a tracked chat saved before ops existed has the
+				// keys but no ops → empty map, and the dock falls back to the existence
+				// heuristic per-item.
+				this.modifiedItemOps =
+					stored !== undefined
+						? new SvelteMap(this.historyManager.getModifiedItemOps(id))
+						: undefined
 			}
 			this.#automaticScroll = true
 		}

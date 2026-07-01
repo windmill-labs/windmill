@@ -68,6 +68,9 @@ doesn't steal focus from a sibling search input (matches the picker).
 		href?: string
 		onclick?: () => void
 		onmouseenter?: () => void
+		/** Change-operation overlay forwarded to the type icon (add = colored +,
+		 * delete = red glyph + red −). */
+		iconOp?: 'add' | 'delete'
 		/** Right-side adornments (status dot, badges, …). The `group` class
 		 * is always applied to the root so the snippet can use
 		 * `group-hover:*` utilities to reveal hover-only affordances. */
@@ -90,6 +93,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 		href,
 		onclick,
 		onmouseenter,
+		iconOp,
 		extras,
 		uniformHeight = false,
 		singleLine = false
@@ -107,7 +111,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 </script>
 
 {#snippet body()}
-	<RowIcon {kind} {triggerKind} path={iconPath} size={12} />
+	<RowIcon {kind} {triggerKind} path={iconPath} size={12} op={iconOp} />
 	<div class={contentClass}>
 		{#if singleLine}
 			<!-- `||` not `??`: an empty-string summary (some draft rows carry `''`)

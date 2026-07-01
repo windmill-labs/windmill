@@ -79,6 +79,7 @@ import {
 } from '../shared'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import type { ContextElement } from '../context'
+import type { ItemOp } from '$lib/components/sessions/modifiedItemsMask'
 import { getDatatableTools } from '../datatableTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
@@ -2776,11 +2777,12 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 function finishAppDraftWrite(
 	result: DraftPersistResult,
 	ctx: WriteDraftCtx,
+	op: ItemOp,
 	onSaved: () => { content: string; message: string }
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
-	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath, op)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -2793,7 +2795,7 @@ function finishDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
-	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath, existed ? 'edit' : 'add')
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
@@ -3352,7 +3354,7 @@ async function initApp(
 	}
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
+	return finishAppDraftWrite(result, ctx, 'add', () => ({
 		content: `Saved app "${path}" draft (${framework})`,
 		message: `Initialized a per-user draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (saved server-side, not a deployed workspace item). Use write_app_file / write_app_runnable to evolve it.`
 	}))
@@ -3657,7 +3659,7 @@ async function writeAppFile(
 	const { value } = await loadAppDraftValue(args.path, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
 	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
+	return finishAppDraftWrite(result, ctx, 'edit', () => ({
 		content: `Updated ${target.filePath} in app "${args.path}"`,
 		message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
 	}))
@@ -3687,7 +3689,7 @@ async function deleteAppFile(
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
 	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
+	return finishAppDraftWrite(result, ctx, 'edit', () => ({
 		content: `Removed ${target.filePath} from app "${args.path}"`,
 		message: `Removed "${target.filePath}" from draft app "${args.path}".`
 	}))
@@ -3761,7 +3763,7 @@ async function patchAppFile(
 	}
 
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
+	return finishAppDraftWrite(result, ctx, 'edit', () => ({
 		content: `Patched ${target.filePath} in app "${path}"`,
 		message: `Patched "${target.filePath}" in draft app "${path}".`
 	}))
@@ -3794,7 +3796,7 @@ async function writeAppRunnable(
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
+	return finishAppDraftWrite(result, ctx, 'edit', () => ({
 		content: `Updated runnable "${key}" in app "${path}"`,
 		message: `Updated draft app "${path}" with runnable "${key}".`
 	}))
@@ -3818,7 +3820,7 @@ async function deleteAppRunnable(
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
 	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
+	return finishAppDraftWrite(result, ctx, 'edit', () => ({
 		content: `Removed runnable "${key}" from app "${path}"`,
 		message: `Removed runnable "${key}" from draft app "${path}".`
 	}))
@@ -4558,7 +4560,8 @@ async function deleteWorkspaceItem(
 	if (deletedKind) {
 		toolCallbacks.onItemModified?.(
 			deletedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
+			'delete'
 		)
 	}
 

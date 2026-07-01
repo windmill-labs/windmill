@@ -15,6 +15,8 @@
 		Folder,
 		LayoutDashboard,
 		Mail,
+		Minus,
+		Plus,
 		Route,
 		Unplug,
 		Workflow
@@ -61,9 +63,18 @@
 		 * extension-specific icon. */
 		path?: string | undefined
 		size?: number
+		/** Change-operation overlay: `add` renders a + in the icon's own color;
+		 * `delete` turns the whole glyph red and renders a red −. */
+		op?: 'add' | 'delete' | undefined
 	}
 
-	let { kind, triggerKind = undefined, path = undefined, size = 16 }: Props = $props()
+	let {
+		kind,
+		triggerKind = undefined,
+		path = undefined,
+		size = 16,
+		op = undefined
+	}: Props = $props()
 
 	// Map per-kind backend names (e.g. `kafka_trigger`) to the legacy short
 	// names the icon switch already handles, so we don't have to duplicate cases.
@@ -83,52 +94,81 @@
 	let effectiveKind = $derived(
 		kind === 'trigger' && triggerKind ? triggerKind : (PER_KIND_TO_SHORT[kind] ?? kind)
 	)
+
+	// Per-kind default color (mirrors the branch colors below) so the op overlay
+	// can match the glyph, and a delete can recolor both to red in one place.
+	const KIND_COLOR: Record<string, string> = {
+		flow: 'text-teal-500',
+		app: 'text-orange-500',
+		raw_app: 'text-orange-500',
+		script: 'text-blue-500',
+		data_pipeline: 'text-indigo-500'
+	}
+	let glyphColor = $derived(
+		op === 'delete'
+			? 'text-red-500 dark:text-red-400'
+			: (KIND_COLOR[effectiveKind] ?? 'text-gray-400')
+	)
+	let markSize = $derived(Math.max(8, Math.round(size * 0.7)))
 </script>
 
-<div class="flex justify-center items-center" title={effectiveKind}>
+<div class="relative flex justify-center items-center" title={effectiveKind}>
 	{#if effectiveKind === 'flow'}
-		<BarsStaggered {size} class="text-teal-500" />
+		<BarsStaggered {size} class={glyphColor} />
 	{:else if effectiveKind === 'app' || effectiveKind === 'raw_app'}
-		<LayoutDashboard {size} class="text-orange-500" />
+		<LayoutDashboard {size} class={glyphColor} />
 	{:else if effectiveKind === 'raw_app_file'}
 		<FileIcon name={path ?? ''} {size} />
 	{:else if effectiveKind === 'script'}
-		<Code2 {size} class="text-blue-500" />
+		<Code2 {size} class={glyphColor} />
 	{:else if effectiveKind === 'variable'}
-		<DollarSign {size} class="text-gray-400" />
+		<DollarSign {size} class={glyphColor} />
 	{:else if effectiveKind === 'resource'}
-		<Boxes {size} class="text-gray-400" />
+		<Boxes {size} class={glyphColor} />
 	{:else if effectiveKind === 'resource_type'}
 		<div style="width: {size}px; height: {size}px;" class="bg-gray-100 rounded-full"></div>
 	{:else if effectiveKind === 'folder'}
-		<Folder {size} class="text-gray-400" />
+		<Folder {size} class={glyphColor} />
 	{:else if effectiveKind === 'schedule' || effectiveKind === 'schedules'}
-		<Calendar {size} class="text-gray-400" />
+		<Calendar {size} class={glyphColor} />
 	{:else if effectiveKind === 'routes'}
-		<Route {size} class="text-gray-400" />
+		<Route {size} class={glyphColor} />
 	{:else if effectiveKind === 'websockets'}
-		<Unplug {size} class="text-gray-400" />
+		<Unplug {size} class={glyphColor} />
 	{:else if effectiveKind === 'postgres'}
-		<Database {size} class="text-gray-400" />
+		<Database {size} class={glyphColor} />
 	{:else if effectiveKind === 'kafka'}
-		<KafkaIcon {size} class="text-gray-400" />
+		<KafkaIcon {size} class={glyphColor} />
 	{:else if effectiveKind === 'nats'}
-		<NatsIcon {size} class="text-gray-400" />
+		<NatsIcon {size} class={glyphColor} />
 	{:else if effectiveKind === 'mqtt'}
-		<MqttIcon {size} class="text-gray-400" />
+		<MqttIcon {size} class={glyphColor} />
 	{:else if effectiveKind === 'sqs'}
-		<AwsIcon {size} class="text-gray-400" />
+		<AwsIcon {size} class={glyphColor} />
 	{:else if effectiveKind === 'gcp'}
 		<GoogleCloudIcon {size} />
 	{:else if effectiveKind === 'azure'}
 		<AzureIcon {size} />
 	{:else if effectiveKind === 'emails'}
-		<Mail {size} class="text-gray-400" />
+		<Mail {size} class={glyphColor} />
 	{:else if effectiveKind === 'trigger'}
-		<Calendar {size} class="text-gray-400" />
+		<Calendar {size} class={glyphColor} />
 	{:else if effectiveKind === 'data_pipeline'}
-		<Workflow {size} class="text-indigo-500" />
+		<Workflow {size} class={glyphColor} />
 	{:else}
 		<div style="width: {size}px;"></div>
+	{/if}
+	{#if op}
+		<!-- Change-op mark in the icon's own color (red for delete), on a bg-surface
+		     ring so it stays legible over the glyph. -->
+		<span
+			class="absolute -bottom-1 -right-1 flex items-center justify-center rounded-full bg-surface {glyphColor}"
+		>
+			{#if op === 'add'}
+				<Plus size={markSize} strokeWidth={3.5} />
+			{:else}
+				<Minus size={markSize} strokeWidth={3.5} />
+			{/if}
+		</span>
 	{/if}
 </div>

@@ -15,6 +15,7 @@
 	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
+	import { checkDeployPermission, type DeployPermission } from '$lib/utils_workspace_deploy'
 	import { type DraftItem, useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
 	import { userStore } from '$lib/stores'
@@ -274,6 +275,17 @@
 
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
+
+	// Whether the user may deploy drafts into this workspace — fills the
+	// `RestrictDeployToDeployers` (+ operator) gap via the shared util, same as the
+	// fork compare page and the session review drawer. Fail-open while resolving.
+	let deployPerm = $state<DeployPermission>({ ok: true })
+	$effect(() => {
+		const ws = currentWorkspaceId
+		untrack(() => {
+			void checkDeployPermission(ws).then((p) => (deployPerm = p))
+		})
+	})
 	// Select all on the first non-empty load (deploy-all is the common intent);
 	// only once, so a refetch after a deploy doesn't re-select the leftovers.
 	let hasAutoSelected = $state(false)
@@ -711,15 +723,19 @@
 			{/snippet}
 
 			{#snippet footer()}
-				<div class="flex items-center justify-end">
+				<div class="flex flex-col items-end gap-2">
 					<Button
 						variant="accent"
-						disabled={selectedCount === 0 || deploying}
+						disabled={selectedCount === 0 || deploying || !deployPerm.ok}
+						title={!deployPerm.ok ? deployPerm.reason : undefined}
 						loading={deploying}
 						onClick={deploySelected}
 					>
 						Deploy {selectedCount} draft{selectedCount !== 1 ? 's' : ''}
 					</Button>
+					{#if !deployPerm.ok}
+						<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
+					{/if}
 				</div>
 			{/snippet}
 		</WorkspaceDeployLayout>

@@ -1,11 +1,13 @@
 import { UserService, WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
 import {
+	checkDeployPermission,
 	checkItemExists,
 	deleteItemInWorkspace,
 	deployItem,
 	getItemValue,
 	getOnBehalfOf,
+	type DeployPermission,
 	type DeployResult
 } from '$lib/utils_workspace_deploy'
 import { deployDraft, discardDraft, getDraftDiffValues } from '$lib/utils_draft_deploy'
@@ -17,35 +19,25 @@ import {
 	type OnBehalfOfDetails
 } from '../OnBehalfOfSelector.svelte'
 import {
-	actionFor,
 	buildDeployItems,
-	defaultSelection,
 	deployPlanFor,
 	diffBaseFor,
 	discardPlanFor,
-	footerSummary,
 	isOnBehalfEligible,
-	itemsInSegment,
 	maskOnlyCandidates,
-	segmentCounts,
-	selectableOf,
 	type DeployItem,
 	type DeployPlanEntry,
-	type DeploySegment,
-	type FooterSummary,
 	type SessionContext
 } from './sessionDeployModel'
+import type { ItemOp } from './modifiedItemsMask'
 
 export type DeploymentStatus = { status: 'loading' | 'deployed' | 'failed'; error?: string }
 
 // Reactive wrapper over the pure sessionDeployModel: owns the two async data
-// sources (per-user draft list + fork comparison), builds the unified item list,
-// and holds the drawer's selection + active-segment state. The diff-value loader
-// lives here too so both the tree and the diff column read one resolver (it
-// replaces SessionDiffDrawer's inline loadUnifiedValues/loadDraftValues).
-//
-// S2: read + selection only. Deploy execution (deployPlanFor → deployItem/
-// deployDraft/…) and on-behalf/behind gating land in S3/S4.
+// sources (per-user draft list + fork comparison) and builds the unified item
+// list. The diff-value loader lives here too so both the tree and the diff column
+// read one resolver. The dock is granular per-item deploy (deployRow/discardRow);
+// there is no in-dock batch/selection — that moved to the compare page.
 
 export interface SessionDeployModelArgs {
 	workspaceId: string
@@ -54,6 +46,8 @@ export interface SessionDeployModelArgs {
 	isFork: boolean
 	/** Chat-modified-items mask; undefined shows every draft/diff. */
 	mask?: Set<string>
+	/** Per-key operation (add/edit/delete) from the chat, parallel to `mask`. */
+	maskOps?: ReadonlyMap<string, ItemOp>
 }
 
 export interface DiffValues {
@@ -68,13 +62,6 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	let forkLoading = $state(false)
 	let draftError = $state<string | undefined>(undefined)
 	let forkError = $state<string | undefined>(undefined)
-
-	// Selection is a plain key Set; reassigned (not mutated) so Svelte tracks it.
-	let selectedKeys = $state<Set<string>>(new Set())
-	let segment = $state<DeploySegment>('to_review')
-	// One-shot default selection: don't re-check rows the user deselected after a
-	// later refetch. Reset by load() so reopening re-defaults.
-	let autoSelected = false
 
 	const context = $derived<SessionContext>({
 		isFork: getArgs().isFork,
@@ -118,11 +105,15 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	})
 
 	const items = $derived(
-		buildDeployItems({ draftItems, comparison, mask: getArgs().mask, existingKeys, context })
+		buildDeployItems({
+			draftItems,
+			comparison,
+			mask: getArgs().mask,
+			maskOps: getArgs().maskOps,
+			existingKeys,
+			context
+		})
 	)
-	const counts = $derived(segmentCounts(items))
-	const visibleItems = $derived(itemsInSegment(items, segment))
-	const footer = $derived(footerSummary(items, selectedKeys, context))
 
 	const loading = $derived(context.isFork ? draftLoading || forkLoading : draftLoading)
 	const error = $derived(context.isFork ? (forkError ?? draftError) : draftError)
@@ -131,13 +122,6 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			? 'This fork was created before change tracking was added — diffs are not available.'
 			: undefined
 	)
-
-	// Seed the default selection (all selectable) once the first item set loads.
-	$effect(() => {
-		if (autoSelected || items.length === 0) return
-		selectedKeys = new Set(defaultSelection(items))
-		autoSelected = true
-	})
 
 	async function fetchDrafts() {
 		draftLoading = true
@@ -172,37 +156,13 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		}
 	}
 
-	/** (Re)fetch both sources and re-arm the default selection. Called on open. */
+	/** (Re)fetch both sources. Called on open. */
 	function load() {
-		autoSelected = false
 		// Re-check existence fresh (an item may have been deleted since last open).
 		lastCandidateSig = ''
 		existingKeys = undefined
 		void fetchDrafts()
 		if (getArgs().isFork) void fetchComparison()
-	}
-
-	// ── Selection ──────────────────────────────────────────────────────────
-	function isSelected(key: string): boolean {
-		return selectedKeys.has(key)
-	}
-	function setSelected(keys: string[], on: boolean) {
-		const next = new Set(selectedKeys)
-		for (const k of keys) {
-			if (on) next.add(k)
-			else next.delete(k)
-		}
-		selectedKeys = next
-	}
-	function toggle(key: string) {
-		setSelected([key], !selectedKeys.has(key))
-	}
-	function clearSelection() {
-		selectedKeys = new Set()
-	}
-	/** Selectable keys among a set of items (drives select-all / subtree checks). */
-	function selectableKeysOf(list: DeployItem[]): string[] {
-		return list.filter(selectableOf).map((i) => i.key)
 	}
 
 	// ── On-behalf-of (fork→parent promotions of runnables/triggers) ──────────
@@ -232,7 +192,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	/** Only fork→parent promotions of eligible kinds whose source has an identity
 	 *  set, and only until the user has picked. */
 	function needsOnBehalfChoice(item: DeployItem): boolean {
-		if (item.state !== 'in_fork' || item.ahead <= 0) return false
+		if (item.parent !== 'ahead' || item.local) return false
 		if (!isOnBehalfEligible(item.deployKind)) return false
 		return (
 			needsOnBehalfOfSelection(item.deployKind, sourceOnBehalf(item)) &&
@@ -262,7 +222,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		if (!parent) return
 		untrack(() => {
 			for (const it of list) {
-				if (it.state !== 'in_fork' || !isOnBehalfEligible(it.deployKind)) continue
+				if (it.parent !== 'ahead' || it.local || !isOnBehalfEligible(it.deployKind)) continue
 				for (const ws of [cur, parent]) {
 					const wk = obKey(ws, it.key)
 					if (onBehalfFetched.has(wk)) continue
@@ -289,9 +249,30 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		})
 	})
 
-	const hasUnselectedOnBehalf = $derived(
-		items.some((i) => selectedKeys.has(i.key) && needsOnBehalfChoice(i))
-	)
+	// ── Deploy permission per target workspace (fork + parent) ───────────────
+	// Preflight the shared checkDeployPermission (operator / RestrictDeployToDeployers)
+	// for each target workspace so the button disables with a reason instead of
+	// failing on click. `ok` defaults true while resolving (fail-open).
+	let deployPerms = $state<Record<string, DeployPermission>>({})
+	const deployPermFetched = new Set<string>()
+
+	$effect(() => {
+		const cur = getArgs().workspaceId
+		const parent = getArgs().parentWorkspaceId
+		untrack(() => {
+			for (const ws of parent ? [cur, parent] : [cur]) {
+				if (!ws || deployPermFetched.has(ws)) continue
+				deployPermFetched.add(ws)
+				void checkDeployPermission(ws).then(
+					(perm) => (deployPerms = { ...deployPerms, [ws]: perm })
+				)
+			}
+		})
+	})
+
+	function deployPermission(ws: string | undefined): DeployPermission {
+		return (ws && deployPerms[ws]) || { ok: true }
+	}
 
 	// ── Deploy execution ─────────────────────────────────────────────────────
 	// Per-item deploy state (keyed by DeployItem.key). Reassigned, not mutated.
@@ -319,7 +300,6 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			case 'discard':
 				return discardDraft(entry.draftKind!, entry.path, cur, entry.draftOnly, entry.legacy)
 			case 'deploy_item':
-			case 'update_fork':
 				return deployItem({
 					kind: entry.deployKind,
 					path: entry.path,
@@ -341,12 +321,21 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		}
 	}
 
+	/** The workspace a plan writes into — the current workspace for a draft deploy
+	 *  (deployed in place), the target workspace otherwise. */
+	function planTargetWorkspace(entry: DeployPlanEntry): string | undefined {
+		return entry.op === 'deploy_draft' ? getArgs().workspaceId : entry.workspaceTo
+	}
+
 	/** Deploy (or discard) a single item; returns whether it succeeded. */
 	async function deployOne(item: DeployItem, discard = false): Promise<boolean> {
 		const plan = discard ? discardPlanFor(item, context) : deployPlanFor(item, context)
 		if (!plan) return false
 		// Never promote an eligible item to the parent without a resolved identity.
 		if (!discard && needsOnBehalfChoice(item)) return false
+		// Don't attempt a deploy we know the user can't make (operator / deployer
+		// rule) — the UI disables it too; this is the guard behind that.
+		if (!discard && !deployPermission(planTargetWorkspace(plan)).ok) return false
 		setStatus(item.key, { status: 'loading' })
 		const res = await runPlan(plan, discard ? undefined : resolveOnBehalf(item))
 		setStatus(
@@ -356,64 +345,12 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		return res.success
 	}
 
-	/** Deploy all selected, actionable rows targeting a given stage. Folders first
-	 *  (a folder must exist before items land under it), deployed rows skipped. */
-	async function deploySelected(targetStage: 'fork' | 'parent') {
-		if (deploying) return
-		deploying = true
-		try {
-			const targets = items
-				.filter((i) => selectedKeys.has(i.key))
-				.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-				.filter((i) => {
-					const a = actionFor(i, context)
-					return a.op !== 'none' && a.targetStage === targetStage
-				})
-				.sort((a, b) => (a.deployKind === 'folder' ? -1 : 0) - (b.deployKind === 'folder' ? -1 : 0))
-			const deployed: string[] = []
-			for (const item of targets) {
-				if (await deployOne(item)) deployed.push(item.key)
-			}
-			if (deployed.length > 0) {
-				setSelected(deployed, false)
-				refreshData()
-			}
-		} finally {
-			deploying = false
-		}
-	}
-
 	async function deployRow(item: DeployItem) {
-		if (await deployOne(item)) {
-			setSelected([item.key], false)
-			refreshData()
-		}
+		if (await deployOne(item)) refreshData()
 	}
 
 	async function discardRow(item: DeployItem) {
-		if (await deployOne(item, true)) {
-			setSelected([item.key], false)
-			refreshData()
-		}
-	}
-
-	// ── Behind (fork trails parent) ──────────────────────────────────────────
-	// Items the parent changed under the fork (behind, not also ahead — a
-	// conflict is left for explicit resolution). "Update fork" pulls the parent's
-	// version into the fork for each.
-	const behindItems = $derived(items.filter((i) => i.behind > 0 && i.ahead === 0))
-
-	async function updateFork() {
-		if (deploying) return
-		deploying = true
-		try {
-			const targets = behindItems.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-			let any = false
-			for (const item of targets) if (await deployOne(item)) any = true
-			if (any) refreshData()
-		} finally {
-			deploying = false
-		}
+		if (await deployOne(item, true)) refreshData()
 	}
 
 	// ── Diff values (one resolver for tree + column) ─────────────────────────
@@ -446,15 +383,6 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		get items() {
 			return items
 		},
-		get visibleItems() {
-			return visibleItems
-		},
-		get counts() {
-			return counts
-		},
-		get footer(): FooterSummary {
-			return footer
-		},
 		get loading() {
 			return loading
 		},
@@ -467,17 +395,6 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		get context() {
 			return context
 		},
-		get segment() {
-			return segment
-		},
-		setSegment(s: DeploySegment) {
-			segment = s
-		},
-		isSelected,
-		toggle,
-		setSelected,
-		clearSelection,
-		selectableKeysOf,
 		load,
 		loadDiffValues,
 		get deploying() {
@@ -486,17 +403,11 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		statusOf(key: string): DeploymentStatus | undefined {
 			return deploymentStatus[key]
 		},
+		/** Whether the user may deploy into a workspace (fork or parent). */
+		deployPermission,
 		deployRow,
 		discardRow,
-		deploySelected,
-		get behindCount() {
-			return behindItems.length
-		},
-		updateFork,
 		// On-behalf-of
-		get hasUnselectedOnBehalf() {
-			return hasUnselectedOnBehalf
-		},
 		get canPreserveOnBehalf() {
 			return canPreserveInParent
 		},

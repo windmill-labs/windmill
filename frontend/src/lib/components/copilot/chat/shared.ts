@@ -4,6 +4,7 @@ import type {
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import type { UserDraftItemKind } from '$lib/gen'
+import type { ItemOp } from '$lib/components/sessions/modifiedItemsMask'
 
 /**
  * Special module IDs used throughout the flow system
@@ -761,9 +762,10 @@ export interface ToolCallbacks {
 		question: UserQuestionDisplay
 	) => Promise<string | undefined>
 	/** Records a workspace item the tool call created/edited/deleted, by its
-	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
-	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */
-	onItemModified?: (itemKind: UserDraftItemKind, storagePath: string) => void
+	 * canonical (itemKind, storagePath) and the operation performed. Session chats
+	 * wire this to accumulate the chat's modified-items mask + per-item op; the
+	 * global side-panel chat omits it (no-op). */
+	onItemModified?: (itemKind: UserDraftItemKind, storagePath: string, op: ItemOp) => void
 }
 
 export function createToolDef(

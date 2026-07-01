@@ -35,10 +35,12 @@
 
 	import type { Kind } from '$lib/utils_deployable'
 	import {
+		checkDeployPermission,
 		deployItem,
 		deleteItemInWorkspace,
 		getItemValue,
 		getOnBehalfOf,
+		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
 	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
@@ -567,6 +569,21 @@
 		fetchPermissions()
 	})
 
+	// Can the user actually deploy into the target workspace? Fills the frontend
+	// gap for the `RestrictDeployToDeployers` rule (+ operator), shared with the
+	// session review drawer via the same checkDeployPermission util. Cached per
+	// workspace; `deployPerm` tracks whichever side the current direction targets.
+	let deployPerms = $state<Record<string, DeployPermission>>({})
+	const deployPermFetched = new Set<string>()
+	$effect(() => {
+		for (const ws of [currentWorkspaceId, parentWorkspaceId]) {
+			if (!ws || deployPermFetched.has(ws)) continue
+			deployPermFetched.add(ws)
+			void checkDeployPermission(ws).then((p) => (deployPerms = { ...deployPerms, [ws]: p }))
+		}
+	})
+	let deployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+
 	// Fetch summaries and on_behalf_of_email when comparison data loads
 	$effect(() => {
 		if (comparison?.diffs) {
@@ -1061,7 +1078,9 @@
 												deploying ||
 												(hasBehindChanges && !allowBehindChangesOverride) ||
 												(mergeIntoParent && !canDeployToParent) ||
+												!deployPerm.ok ||
 												hasUnselectedOnBehalfOf}
+											title={!deployPerm.ok ? deployPerm.reason : undefined}
 											loading={deploying}
 											on:click={requestDeploy}
 										>
@@ -1072,6 +1091,9 @@
 											{/if}
 										</Button>
 									</div>
+									{#if !deployPerm.ok}
+										<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
+									{/if}
 									{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
 										<span class="text-xs text-yellow-600">
 											You must set the "on behalf of" user for all items before deploying

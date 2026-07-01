@@ -1,21 +1,18 @@
 <script lang="ts">
-	import { buildDiffTree, type AppRootMeta, type TreeNode, type FolderNode } from './diffTree'
+	import { buildDiffTree, type AppRootMeta, type TreeNode } from './diffTree'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import {
+		AlertTriangle,
 		ChevronDown,
 		ChevronRight,
+		ExternalLink,
 		Folder,
 		Loader2,
-		PanelRightClose,
-		PanelRightOpen,
 		User
 	} from 'lucide-svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
-	import DraftBadge from '$lib/components/DraftBadge.svelte'
-	import { userStore } from '$lib/stores'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
 	import {
 		rawAppDiffToItems,
@@ -27,95 +24,97 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
-	import { tick, type Snippet } from 'svelte'
+	import type { Snippet } from 'svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
 	import OnBehalfOfSelector from '../OnBehalfOfSelector.svelte'
 	import ParentWorkspaceProtectionAlert from '../ParentWorkspaceProtectionAlert.svelte'
-	import DeploymentRequestPanel from '../deploymentRequest/DeploymentRequestPanel.svelte'
 	import {
 		actionFor,
+		badgeOf,
+		changeOpOf,
 		isOnBehalfEligible,
 		pipelineOf,
-		selectableOf,
+		type BadgeKind,
 		type DeployItem,
-		type DeployItemState,
-		type DeploySegment,
 		type PipelineStage
 	} from './sessionDeployModel'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 
-	// The session Review & Deploy surface. Reads a unified item model (drafts +
-	// fork comparison) and renders a folder tree with lifecycle filter segments +
-	// selection (left) and a scroll-through diff column with per-block sticky
-	// headers (right). S2: everything reads/navigates; the deploy actions and
-	// footer buttons render but are inert (wired in S3).
+	// The session "Edits" surface. Reads a unified item model (drafts + fork
+	// comparison, scoped to what this session edited) and renders a folder tree
+	// (left) plus a scroll-through diff column with per-block sticky headers
+	// (right). Deploy is granular per-item; batch/PR flows are handed to the
+	// compare page via the drift banner + footer links.
 	let {
 		model,
 		title,
 		editUrlFor = undefined,
-		titleExtra
+		titleExtra,
+		compareSessionHref
 	}: {
 		model: SessionDeployModel
 		title: string
 		/** Editor URL for a row (opens in the workspace the item lives in). */
 		editUrlFor?: (item: DeployItem) => string | undefined
 		titleExtra?: Snippet
+		/** Compare page for this session's edits (footer) — preselected via
+		 *  `from_session`. Where "deploy all / request review" happens. */
+		compareSessionHref?: string
 	} = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let searchQuery = $state('')
 	let diffStyle = $state<'sbs' | 'inline'>('sbs')
 	const inlineDiff = $derived(diffStyle === 'inline')
-	// Collapse the diff panel to browse the tree at full width; a per-row action
-	// (or clicking a row) re-expands it and jumps to the item.
-	let rightPanelCollapsed = $state(false)
-	// Parent-workspace protection: when direct deploy is disallowed, the parent
-	// deploy becomes a "Request deployment" flow.
+	// Parent-workspace protection: when direct deploy is disallowed, the per-row
+	// parent deploy is blocked and the user routes through the compare page.
 	let canDeployToParent = $state(true)
-	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
-	let hasOpenDeploymentRequest = $state(false)
 
-	export function open(segment?: DeploySegment) {
+	export function open() {
 		loadedDiffs = {}
 		mountedRows = {}
-		rightPanelCollapsed = false
-		if (segment) model.setSegment(segment)
 		model.load()
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
 	}
 
-	// ── State presentation ───────────────────────────────────────────────────
-	const STATE_META: Record<
-		DeployItemState,
-		{ label: string; color: 'blue' | 'green' | 'red' | 'orange' | 'gray' }
+	// ── Badge presentation ─────────────────────────────────────────────────────
+	// The single parent-comparison badge, by priority (conflict > draft > ahead).
+	// `draft` renders as a plain indigo pill (New draft / Draft); `none` renders nothing.
+	// Colors: ahead=green, conflict=red, deployed=purple.
+	const BADGE_META: Record<
+		Exclude<BadgeKind, 'draft' | 'none'>,
+		{ label: string; color: 'green' | 'red' | 'violet' }
 	> = {
-		draft: { label: 'Draft', color: 'blue' },
-		in_fork: { label: 'In fork', color: 'blue' },
-		in_parent: { label: 'In parent', color: 'green' },
-		deleted: { label: 'Deleted', color: 'red' },
-		conflict: { label: 'Conflict', color: 'orange' }
+		ahead: { label: 'Ahead', color: 'green' },
+		conflict: { label: 'Conflict', color: 'red' },
+		deployed: { label: 'Deployed', color: 'violet' }
 	}
-	function stateLabel(item: DeployItem): string {
-		if (item.state === 'draft' && item.draftOnly) return 'Draft only'
-		return STATE_META[item.state].label
+	// One footprint for every status pill (draft / ahead / conflict / deployed) so
+	// they line up at a compact, uniform size.
+	const STATUS_BADGE_CLASS = 'px-1.5 py-0.5 gap-0.5 text-2xs'
+	// Change-operation for the type-icon overlay: only add/delete get a mark; a
+	// plain modification shows the bare icon.
+	function iconOpOf(item: DeployItem): 'add' | 'delete' | undefined {
+		const op = changeOpOf(item)
+		return op === 'modify' ? undefined : op
+	}
+	// Active-dot accent for the pipeline indicator, colored by the row's badge.
+	function dotAccent(badge: BadgeKind): { border: string; bg: string } {
+		switch (badge) {
+			case 'conflict':
+				return { border: 'border-red-500', bg: 'bg-red-500' }
+			case 'ahead':
+				return { border: 'border-green-500', bg: 'bg-green-500' }
+			case 'draft':
+				return { border: 'border-indigo-500', bg: 'bg-indigo-500' }
+			default:
+				return { border: 'border-blue-500', bg: 'bg-blue-500' }
+		}
 	}
 
-	// ── Segments ───────────────────────────────────────────────────────────
-	const SEGMENTS: { id: DeploySegment; label: string }[] = [
-		{ id: 'to_review', label: 'To review' },
-		{ id: 'drafts', label: 'Drafts' },
-		{ id: 'in_fork', label: 'In fork' },
-		{ id: 'done', label: 'In parent' },
-		{ id: 'all', label: 'All' }
-	]
-	// Main (non-fork) sessions have no fork stage — hide the In-fork segment.
-	const visibleSegments = $derived(
-		model.context.isFork ? SEGMENTS : SEGMENTS.filter((s) => s.id !== 'in_fork')
-	)
-
-	// ── Rendered list: segment-filtered, then text-searched ──────────────────
-	const segmentItems = $derived(model.visibleItems)
+	// ── Rendered list: all session items, then text-searched (no filter tabs) ──
+	const segmentItems = $derived(model.items)
 
 	function searchableText(d: DeployItem): string {
 		return [d.displayPath, d.deployKind, d.summary ?? ''].join(' ')
@@ -161,43 +160,10 @@
 		el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 	}
 
-	async function revealDiff(d: DeployItem, key?: string) {
+	function revealDiff(d: DeployItem, key?: string) {
 		if (key) highlightedKey = key
-		if (rightPanelCollapsed) {
-			rightPanelCollapsed = false
-			await tick()
-		}
 		scrollToDiff(d)
 	}
-
-	// ── Selection (folder checkbox toggles its selectable subtree) ────────────
-	function collectSelectableKeys(node: TreeNode<DeployItem>): string[] {
-		if (node.type === 'file') return selectableOf(node.data) ? [node.key] : []
-		const out: string[] = []
-		for (const child of node.children) out.push(...collectSelectableKeys(child))
-		return out
-	}
-	function folderChecks(node: FolderNode<DeployItem>): {
-		checked: boolean
-		indeterminate: boolean
-		keys: string[]
-	} {
-		const keys = collectSelectableKeys(node)
-		const sel = keys.filter((k) => model.isSelected(k)).length
-		return {
-			checked: keys.length > 0 && sel === keys.length,
-			indeterminate: sel > 0 && sel < keys.length,
-			keys
-		}
-	}
-	// Select-all operates on the visible (segment+search) selectable rows.
-	const visibleSelectableKeys = $derived(model.selectableKeysOf(filteredItems))
-	const allVisibleSelected = $derived(
-		visibleSelectableKeys.length > 0 && visibleSelectableKeys.every((k) => model.isSelected(k))
-	)
-	const selectedVisibleCount = $derived(
-		visibleSelectableKeys.filter((k) => model.isSelected(k)).length
-	)
 
 	// ── Keyboard nav ─────────────────────────────────────────────────────────
 	let folderOpen: Record<string, boolean> = $state({})
@@ -344,19 +310,44 @@
 	f={(d: DeployItem) => searchableText(d)}
 />
 
-{#snippet statePill(item: DeployItem)}
-	<Badge
-		color={STATE_META[item.state].color}
-		small
-		title={item.state === 'in_parent'
-			? `Deployed in the parent workspace: ${model.context.parentName ?? ''}`
-			: undefined}
-	>
-		{stateLabel(item)}
+{#snippet badgePill(item: DeployItem, badge: Exclude<BadgeKind, 'draft' | 'none'>)}
+	{@const parentTarget = model.context.parentName ?? 'the parent'}
+	{@const hint =
+		badge === 'ahead'
+			? `Deployed in this fork but not yet in ${parentTarget} — deploy it to promote the change`
+			: badge === 'deployed'
+				? `Deployed in ${parentTarget}`
+				: undefined}
+	<Badge color={BADGE_META[badge].color} small class={STATUS_BADGE_CLASS} title={hint}>
+		{BADGE_META[badge].label}
 	</Badge>
 {/snippet}
 
-{#snippet pipeline(stages: PipelineStage[])}
+<!-- The single row badge, derived by priority. Conflict carries a ⚠ marker;
+     clean+sync is bare. Everything here was edited by the AI this session, so the
+     draft badge is a plain pill — no author avatars. -->
+{#snippet rowBadge(item: DeployItem)}
+	{@const badge = badgeOf(item)}
+	{#if badge === 'draft'}
+		<Badge
+			color="indigo"
+			small
+			class={STATUS_BADGE_CLASS}
+			title={item.draftOnly ? 'Never deployed and is only a draft' : 'Is deployed and has a draft'}
+		>
+			{item.draftOnly ? 'Draft only' : 'Draft'}
+		</Badge>
+	{:else if badge === 'conflict'}
+		<Badge color="red" small class={STATUS_BADGE_CLASS}>
+			<AlertTriangle class="h-3 w-3 shrink-0" />
+			{BADGE_META.conflict.label}
+		</Badge>
+	{:else if badge !== 'none'}
+		{@render badgePill(item, badge)}
+	{/if}
+{/snippet}
+
+{#snippet pipeline(stages: PipelineStage[], accent: { border: string; bg: string })}
 	<div class="flex items-center gap-0.5" aria-hidden="true">
 		{#each stages as stage, i}
 			{#if i > 0}
@@ -366,9 +357,9 @@
 				class="w-2 h-2 rounded-full border {stage.status === 'done'
 					? 'bg-blue-500 border-blue-500'
 					: stage.status === 'current'
-						? 'bg-surface border-blue-500'
+						? 'bg-surface ' + accent.border
 						: stage.status === 'blocked'
-							? 'bg-amber-400 border-amber-500'
+							? accent.bg + ' ' + accent.border
 							: 'bg-surface border-gray-300 dark:border-gray-600'}"
 				title={`${stage.id}: ${stage.status}`}
 			></div>
@@ -376,14 +367,16 @@
 	</div>
 {/snippet}
 
-{#snippet deployStatus(item: DeployItem)}
+<!-- Transient busy states only. A successful deploy's "Deployed" confirmation is
+     rendered by the detail header as a FALLBACK (after the next action) so a
+     non-terminal deploy (draft → fork) advances to its next step instead of
+     freezing on the chip. -->
+{#snippet deployBusy(item: DeployItem)}
 	{@const s = model.statusOf(item.key)}
 	{#if s?.status === 'loading'}
 		<span class="inline-flex items-center gap-1 text-2xs text-secondary">
 			<Loader2 class="w-3 h-3 animate-spin" />Deploying…
 		</span>
-	{:else if s?.status === 'deployed'}
-		<Badge color="green" small>Deployed</Badge>
 	{:else if s?.status === 'failed'}
 		<span class="inline-flex items-center gap-1" title={s.error}>
 			<Badge color="red" small>Failed</Badge>
@@ -405,7 +398,6 @@
 		{@const fkey = node.key}
 		{@const open = isFolderOpen(fkey)}
 		{@const isHl = fkey === highlightedKey}
-		{@const checks = folderChecks(node)}
 		<details
 			{open}
 			ontoggle={(e) => (folderOpen[fkey] = (e.currentTarget as HTMLDetailsElement).open)}
@@ -419,20 +411,12 @@
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
 					title={node.fullPath}
-					class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+					class="flex items-center gap-2 pl-3 pr-1 py-2 rounded-md cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
 				>
-					{#if appItem && selectableOf(appItem)}
-						<span onclick={(e) => e.stopPropagation()} class="shrink-0 flex items-center">
-							<Checkbox
-								checked={model.isSelected(appItem.key)}
-								onChange={() => model.toggle(appItem.key)}
-							/>
-						</span>
-					{/if}
-					<RowIcon kind="raw_app" size={12} />
+					<RowIcon kind="raw_app" size={12} op={appItem ? iconOpOf(appItem) : undefined} />
 					<span
 						class="flex-1 min-w-0 truncate text-xs font-normal text-primary {node.app.summary
 							? ''
@@ -440,18 +424,8 @@
 					>
 						{node.app.summary ?? node.name}
 					</span>
-					{#if node.app.hasDraft}
-						<!-- A drafted item is fully described by the avatar DraftBadge; the
-						     plain state pill would be a redundant second badge. -->
-						<DraftBadge
-							is_draft
-							draft_only={node.app.draftOnly ?? false}
-							draft_users={node.app.draftUsers ?? []}
-							itemKind={node.app.draftItemKind}
-							currentUsername={$userStore?.username}
-						/>
-					{:else if appItem}
-						{@render statePill(appItem)}
+					{#if appItem}
+						{@render rowBadge(appItem)}
 					{/if}
 					<span class="w-5 flex items-center justify-center shrink-0">
 						<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
@@ -464,19 +438,11 @@
 					aria-selected={isHl}
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
-					class="flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs font-normal font-mono text-secondary hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+					class="flex items-center gap-2 pl-3 pr-1 py-2 rounded-md cursor-pointer text-xs font-normal font-mono text-secondary hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
 				>
-					{#if checks.keys.length > 0}
-						<span onclick={(e) => e.stopPropagation()} class="shrink-0 flex items-center">
-							<Checkbox
-								checked={checks.checked}
-								onChange={() => model.setSelected(checks.keys, !checks.checked)}
-							/>
-						</span>
-					{/if}
 					{#if isUserScope}
 						<User size={12} class="shrink-0 text-tertiary" />
 					{:else}
@@ -503,66 +469,35 @@
 	{:else}
 		{@const d = node.data}
 		{@const key = node.key}
-		{@const canSelect = selectableOf(d)}
-		<div class="relative group/reveal flex items-stretch">
-			{#if canSelect}
-				<span class="shrink-0 flex items-center pl-3" style="padding-left: {depth * 12 + 8}px">
-					<Checkbox checked={model.isSelected(key)} onChange={() => model.toggle(key)} />
-				</span>
-			{/if}
+		<!-- Indentation lives on the wrapper (outside the row's hover surface) so the
+		     highlight starts at the row content instead of bleeding across the indent. -->
+		<div class="flex items-stretch" style="padding-left: {depth * 12 + 4}px">
 			<WorkspaceItemRow
 				kind={d.deployKind as any}
 				iconPath={d.path}
-				baseClass="py-1.5 min-w-0"
+				baseClass="py-2 min-w-0 pr-1 pl-1 rounded-md"
 				singleLine
 				summary={d.summary}
 				secondary={node.name}
+				iconOp={iconOpOf(d)}
 				highlighted={key === highlightedKey}
 				navKey={key}
-				indent={canSelect ? 0 : depth * 12 - 4}
+				indent={0}
 				title={d.displayPath}
 				onclick={() => revealDiff(d, key)}
 				onmouseenter={() => setHoverHighlight(key)}
 			>
 				{#snippet extras()}
-					{#if d.hasDraft}
-						<!-- A drafted item is fully described by the avatar DraftBadge; the
-						     plain state pill would be a redundant second badge. -->
-						<DraftBadge
-							is_draft
-							draft_only={d.draftOnly}
-							draft_users={d.draftUsers ?? []}
-							itemKind={d.draftKind}
-							currentUsername={$userStore?.username}
-						/>
-					{:else}
-						{@render statePill(d)}
-					{/if}
-					<span class="w-5 shrink-0" aria-hidden="true"></span>
+					{@render rowBadge(d)}
 				{/snippet}
 			</WorkspaceItemRow>
-			{#if rightPanelCollapsed}
-				<button
-					type="button"
-					title="Open diff"
-					aria-label="Open diff"
-					class="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center p-1 rounded text-tertiary opacity-0 group-hover/reveal:opacity-100 focus:opacity-100 hover:text-primary hover:bg-surface-selected transition-opacity"
-					onmousedown={(e) => e.preventDefault()}
-					onclick={(e) => {
-						e.stopPropagation()
-						void revealDiff(d, key)
-					}}
-				>
-					<PanelRightOpen size={13} />
-				</button>
-			{/if}
 		</div>
 	{/if}
 {/snippet}
 
 {#snippet diffBlock(item: DeployItem)}
 	{@const loaded = loadedDiffs[item.key]}
-	{#if item.state === 'in_parent'}
+	{#if item.done}
 		<div class="text-2xs text-tertiary p-3">Deployed — no pending changes.</div>
 	{:else if !mountedRows[item.key]}
 		<div
@@ -644,37 +579,9 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-			{#if model.items.length > 0}
-				<Button
-					variant="subtle"
-					unifiedSize="sm"
-					iconOnly
-					startIcon={{ icon: rightPanelCollapsed ? PanelRightOpen : PanelRightClose }}
-					title={rightPanelCollapsed ? 'Show diff panel' : 'Hide diff panel'}
-					onclick={() => (rightPanelCollapsed = !rightPanelCollapsed)}
-				/>
-			{/if}
 		{/snippet}
 		<div class="flex flex-col h-full min-h-0">
 			{#if model.context.isFork && model.context.parentWorkspaceId}
-				{@const parentTarget = model.context.parentName ?? 'parent'}
-				{#if model.behindCount > 0}
-					<div
-						class="shrink-0 mx-3 mt-3 flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-950/30"
-					>
-						<span class="text-amber-800 dark:text-amber-300">
-							Fork is {model.behindCount} behind {parentTarget}
-						</span>
-						<Button
-							variant="default"
-							unifiedSize="xs"
-							disabled={model.deploying}
-							onclick={() => model.updateFork()}
-						>
-							Update fork
-						</Button>
-					</div>
-				{/if}
 				<!-- Horizontal padding only: collapses to zero height (no gap) when the
 				     alert renders nothing, which is the case unless a rule is active. -->
 				<div class="shrink-0 px-3">
@@ -689,19 +596,8 @@
 					<aside
 						bind:this={sidebarRoot}
 						onmousemove={() => (mouseActive = true)}
-						class="{rightPanelCollapsed
-							? 'flex-1'
-							: 'flex-none w-96 border-r border-light'} flex flex-col min-h-0"
+						class="flex-none w-96 border-r border-light flex flex-col min-h-0 pt-3 pl-2 pr-2"
 					>
-						<!-- Filter segments -->
-						<div class="px-2 pt-2 shrink-0 flex flex-wrap gap-1">
-							{#each visibleSegments as seg}
-								{@const active = model.segment === seg.id}
-								<Badge small clickable selected={active} onclick={() => model.setSegment(seg.id)}>
-									{seg.label} · {model.counts[seg.id]}
-								</Badge>
-							{/each}
-						</div>
 						<div class="px-3 pt-2 pb-1 shrink-0">
 							<input
 								bind:this={searchInputEl}
@@ -712,23 +608,8 @@
 								class="w-full text-xs px-2 py-1 rounded border border-light bg-surface focus:outline-none focus:border-accent"
 							/>
 						</div>
-						<!-- Selection bar -->
-						{#if visibleSelectableKeys.length > 0}
-							<div
-								class="px-3 pb-1 shrink-0 flex items-center justify-between text-2xs text-secondary"
-							>
-								<span>{selectedVisibleCount} of {visibleSelectableKeys.length} selected</span>
-								<button
-									type="button"
-									class="text-accent hover:underline"
-									onclick={() => model.setSelected(visibleSelectableKeys, !allVisibleSelected)}
-								>
-									{allVisibleSelected ? 'Clear' : 'Select all'}
-								</button>
-							</div>
-						{/if}
 						<div
-							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-2 pb-3 flex flex-col gap-1"
+							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-2 pr-1 pt-2 pb-3 flex flex-col gap-1"
 						>
 							{#if treeModel.root.children.length > 0}
 								{#each treeModel.root.children as child}
@@ -740,202 +621,155 @@
 						</div>
 					</aside>
 				{/if}
-				{#if !rightPanelCollapsed}
-					<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
-						<div class="px-3 pt-0 pb-4 flex flex-col gap-3">
-							{#if model.loading && model.items.length === 0}
-								<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
-									<Loader2 class="w-4 h-4 animate-spin" />
-									Loading comparison...
-								</div>
-							{:else if model.error}
-								<div class="text-sm text-red-600 dark:text-red-400 py-4">{model.error}</div>
-							{:else if model.notice}
-								<div class="text-sm text-secondary py-4">{model.notice}</div>
-							{:else if model.items.length === 0}
-								<div class="text-sm text-secondary py-4">No changes.</div>
-							{:else if filteredItems.length === 0}
-								<div class="text-sm text-secondary py-4">
-									{searchQuery.trim() ? 'No files match.' : 'Nothing in this filter.'}
-								</div>
-							{:else}
-								<div class="-mx-3 flex flex-col divide-y divide-light border-y border-light">
-									{#each filteredItems as d (d.key)}
-										{@const action = actionFor(d, model.context)}
-										{@const editUrl = editUrlFor?.(d)}
-										{@const status = model.statusOf(d.key)}
-										<div id={rowId(d)} class="bg-surface scroll-mt-2">
-											<div
-												class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 border-b border-transparent"
-											>
-												<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
-												<div class="min-w-0 flex-1">
-													{#if editUrl}
-														<ExternalEditLink
-															href={editUrl}
-															title={d.displayPath}
-															class="text-xs text-primary font-mono truncate"
-														>
-															<span class="truncate">{d.displayPath}</span>
-														</ExternalEditLink>
-													{:else}
-														<div
-															class="text-xs text-primary font-mono truncate"
-															title={d.displayPath}
-														>
-															{d.displayPath}
-														</div>
-													{/if}
-												</div>
-												<div class="shrink-0 flex items-center gap-2">
-													{@render pipeline(pipelineOf(d, model.context))}
-													{#if d.hasDraft}
-														<DraftBadge
-															is_draft
-															draft_only={d.draftOnly}
-															draft_users={d.draftUsers ?? []}
-															itemKind={d.draftKind}
-															currentUsername={$userStore?.username}
+				<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
+					<div class="px-3 pt-0 pb-4 flex flex-col gap-3">
+						{#if model.loading && model.items.length === 0}
+							<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
+								<Loader2 class="w-4 h-4 animate-spin" />
+								Loading comparison...
+							</div>
+						{:else if model.error}
+							<div class="text-sm text-red-600 dark:text-red-400 py-4">{model.error}</div>
+						{:else if model.notice}
+							<div class="text-sm text-secondary py-4">{model.notice}</div>
+						{:else if model.items.length === 0}
+							<div class="text-sm text-secondary py-4">No changes.</div>
+						{:else if filteredItems.length === 0}
+							<div class="text-sm text-secondary py-4">No files match.</div>
+						{:else}
+							<div class="-mx-3 flex flex-col divide-y divide-light border-y border-light">
+								{#each filteredItems as d (d.key)}
+									{@const action = actionFor(d, model.context)}
+									{@const editUrl = editUrlFor?.(d)}
+									{@const status = model.statusOf(d.key)}
+									<div id={rowId(d)} class="bg-surface scroll-mt-2">
+										<div
+											class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 border-b border-transparent"
+										>
+											<RowIcon
+												kind={d.deployKind as any}
+												path={d.path}
+												size={14}
+												op={iconOpOf(d)}
+											/>
+											<div class="min-w-0 flex-1">
+												{#if editUrl}
+													<ExternalEditLink
+														href={editUrl}
+														title={d.displayPath}
+														class="text-xs text-primary font-mono truncate"
+													>
+														<span class="truncate">{d.displayPath}</span>
+													</ExternalEditLink>
+												{:else}
+													<div
+														class="text-xs text-primary font-mono truncate"
+														title={d.displayPath}
+													>
+														{d.displayPath}
+													</div>
+												{/if}
+											</div>
+											<div class="shrink-0 flex items-center gap-2">
+												{@render pipeline(pipelineOf(d, model.context), dotAccent(badgeOf(d)))}
+												{@render rowBadge(d)}
+												{#if status?.status === 'loading' || status?.status === 'failed'}
+													{@render deployBusy(d)}
+												{:else if action.op !== 'none'}
+													{@const needsOb =
+														action.op === 'deploy_item' && model.needsOnBehalfChoice(d)}
+													{@const parentBlocked =
+														action.targetStage === 'parent' && !canDeployToParent}
+													<!-- Deploy target: draft deploys in place (current ws); everything
+													     else writes into the parent. Preflight the user's permission there. -->
+													{@const deployTarget =
+														action.op === 'deploy_draft'
+															? model.context.currentWorkspaceId
+															: model.context.parentWorkspaceId}
+													{@const perm = model.deployPermission(deployTarget)}
+													{#if action.op === 'deploy_item' && isOnBehalfEligible(d.deployKind) && model.context.parentWorkspaceId}
+														<OnBehalfOfSelector
+															targetWorkspace={model.context.parentWorkspaceId}
+															targetValue={model.targetOnBehalf(d)}
+															selected={model.onBehalfChoiceOf(d.key)}
+															onSelect={(choice, details) =>
+																model.setOnBehalfChoice(d.key, choice, details)}
+															kind={d.deployKind}
+															canPreserve={model.canPreserveOnBehalf}
 														/>
-													{:else}
-														{@render statePill(d)}
 													{/if}
-													{#if status}
-														{@render deployStatus(d)}
-													{:else if action.op !== 'none'}
-														{@const needsOb =
-															action.op === 'deploy_item' && model.needsOnBehalfChoice(d)}
-														{@const parentBlocked =
-															action.targetStage === 'parent' && !canDeployToParent}
-														{#if action.op === 'deploy_item' && isOnBehalfEligible(d.deployKind) && model.context.parentWorkspaceId}
-															<OnBehalfOfSelector
-																targetWorkspace={model.context.parentWorkspaceId}
-																targetValue={model.targetOnBehalf(d)}
-																selected={model.onBehalfChoiceOf(d.key)}
-																onSelect={(choice, details) =>
-																	model.setOnBehalfChoice(d.key, choice, details)}
-																kind={d.deployKind}
-																canPreserve={model.canPreserveOnBehalf}
-															/>
-														{/if}
-														{#if action.secondary?.length}
-															<Button
-																variant="subtle"
-																unifiedSize="sm"
-																destructive
-																disabled={model.deploying}
-																onclick={() => model.discardRow(d)}
-															>
-																{action.secondary[0].label}
-															</Button>
-														{/if}
+													{#if action.secondary?.length}
 														<Button
-															variant="accent"
+															variant="subtle"
 															unifiedSize="sm"
-															disabled={model.deploying || needsOb || parentBlocked}
-															title={needsOb
+															destructive
+															disabled={model.deploying}
+															onclick={() => model.discardRow(d)}
+														>
+															{action.secondary[0].label}
+														</Button>
+													{/if}
+													<Button
+														variant="accent"
+														unifiedSize="sm"
+														disabled={model.deploying || needsOb || parentBlocked || !perm.ok}
+														title={!perm.ok
+															? perm.reason
+															: needsOb
 																? 'Choose "run on behalf of" first'
 																: parentBlocked
-																	? 'Direct deploy to the parent is disabled — use Request deployment'
+																	? 'Direct deploy to the parent is disabled — deploy from the compare page'
 																	: undefined}
-															onclick={() => model.deployRow(d)}
-														>
-															{action.label}
-														</Button>
-													{:else if action.blockedReason}
-														<span
-															class="text-2xs text-amber-600 dark:text-amber-400"
-															title={action.blockedReason}
-														>
-															Blocked
-														</span>
-													{/if}
-												</div>
-											</div>
-											<div class="bg-surface-tertiary overflow-hidden">
-												{@render diffBlock(d)}
+														onclick={() => model.deployRow(d)}
+													>
+														{action.label}
+													</Button>
+												{:else if status?.status === 'deployed'}
+													<!-- Deploy succeeded and there's no further step yet (the fork
+													     comparison catches up async — once it does and a next step
+													     exists, the action button above replaces this). -->
+													<Badge color="green" small>Deployed</Badge>
+												{:else if d.parent === 'conflict'}
+													<!-- No safe one-click resolve: both sides changed. Reconcile by
+													     hand in the editor. -->
+													<span
+														class="text-2xs text-tertiary italic"
+														title="Both this fork and {model.context.parentName ??
+															'the parent'} changed this item — open it in the editor and reconcile manually"
+													>
+														Resolve manually
+													</span>
+												{/if}
 											</div>
 										</div>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					</main>
-				{/if}
+										<div class="bg-surface-tertiary overflow-hidden">
+											{@render diffBlock(d)}
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</main>
 			</div>
-			<!-- Footer: selection summary + deploy buttons -->
-			{#if model.items.length > 0}
-				{@const parentTarget = model.context.parentName ?? 'parent'}
+			<!-- Batch / PR (deploy all, request review, reconcile) is the compare page's
+			     job — the dock deploys per item; this footer is just the doorway there. -->
+			{#if model.items.length > 0 && compareSessionHref}
 				<div
-					class="shrink-0 border-t border-light bg-surface px-3 py-2 flex items-center justify-between gap-2 text-xs"
+					class="shrink-0 border-t border-light bg-surface px-3 py-1.5 flex items-center justify-end text-xs"
 				>
-					<div class="text-secondary min-w-0 truncate">
-						{#if model.context.isFork}
-							{model.footer.toFork} to fork · {model.footer.toParent} to {parentTarget} selected{#if model.footer.conflicts > 0}
-								· {model.footer.conflicts} blocked{/if}{#if model.hasUnselectedOnBehalf}
-								· needs on-behalf-of{/if}
-						{:else}
-							{model.footer.toParent} selected to deploy
-						{/if}
-					</div>
-					<div class="flex items-center gap-1.5 shrink-0">
-						{#if model.context.isFork}
-							<Button
-								variant="default"
-								unifiedSize="xs"
-								disabled={model.deploying || model.footer.toFork === 0}
-								onclick={() => model.deploySelected('fork')}
-							>
-								Deploy {model.footer.toFork} to fork
-							</Button>
-							{#if canDeployToParent}
-								<Button
-									variant="accent"
-									unifiedSize="xs"
-									disabled={model.deploying ||
-										model.footer.toParent === 0 ||
-										model.hasUnselectedOnBehalf}
-									title={model.hasUnselectedOnBehalf
-										? 'Choose "run on behalf of" for the flagged items first'
-										: undefined}
-									onclick={() => model.deploySelected('parent')}
-								>
-									Deploy {model.footer.toParent} to {parentTarget}
-								</Button>
-							{:else}
-								<!-- Parent forbids direct deploys → route through a request. -->
-								<Button
-									variant="accent"
-									unifiedSize="xs"
-									onclick={() => deploymentRequestPanel?.openRequestDialog()}
-								>
-									{hasOpenDeploymentRequest ? 'View deployment request' : 'Request deployment'}
-								</Button>
-							{/if}
-						{:else}
-							<Button
-								variant="accent"
-								unifiedSize="xs"
-								disabled={model.deploying || model.footer.toParent === 0}
-								onclick={() => model.deploySelected('parent')}
-							>
-								Deploy {model.footer.toParent}
-							</Button>
-						{/if}
-					</div>
+					<a
+						href={compareSessionHref}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="inline-flex items-center gap-1 font-medium text-accent hover:underline shrink-0"
+					>
+						Deploy all / request review on compare page
+						<ExternalLink class="w-3 h-3" />
+					</a>
 				</div>
 			{/if}
 		</div>
-		{#if model.context.isFork && model.context.parentWorkspaceId}
-			<DeploymentRequestPanel
-				bind:this={deploymentRequestPanel}
-				forkWorkspaceId={model.context.currentWorkspaceId}
-				parentWorkspaceId={model.context.parentWorkspaceId}
-				currentUsername={$userStore?.username ?? ''}
-				isAdmin={$userStore?.is_admin ?? false}
-				onStateChange={(open) => (hasOpenDeploymentRequest = open)}
-			/>
-		{/if}
 	</DrawerContent>
 </Drawer>
 

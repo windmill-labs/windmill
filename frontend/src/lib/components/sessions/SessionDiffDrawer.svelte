@@ -3,20 +3,28 @@
 	import { ArrowRight, GitFork, Pencil } from 'lucide-svelte'
 	import { userWorkspaces } from '$lib/stores'
 	import { useSessionDeployModel } from './sessionDeployModel.svelte'
-	import type { DeployItem, DeploySegment } from './sessionDeployModel'
+	import type { DeployItem } from './sessionDeployModel'
+	import type { ItemOp } from './modifiedItemsMask'
 
-	// Session Review & Deploy drawer. Builds the unified deploy model (drafts +
-	// fork comparison) and hands it to WorkspaceDiffDrawer, which renders the tree
-	// + scroll-through diff column. A non-fork session has no parent, so the model
+	// Session "Edits" drawer. Builds the unified deploy model (drafts + fork
+	// comparison) and hands it to WorkspaceDiffDrawer, which renders the tree +
+	// scroll-through diff column. A non-fork session has no parent, so the model
 	// runs in main (Draft → Parent) mode.
 	let {
 		workspaceId,
 		parentWorkspaceId,
-		keys
+		sessionId,
+		keys,
+		keyOps
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
+		/** Chat/session id, threaded to the footer's compare-page link as
+		 *  `from_session` so the compare page preselects this session's edits. */
+		sessionId?: string
 		keys?: Set<string>
+		/** Per-key change op (add/edit/delete), parallel to `keys`. */
+		keyOps?: ReadonlyMap<string, ItemOp>
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -34,7 +42,8 @@
 		// own workspace in main context (where a draft deploys in place).
 		parentName: isFork ? (parentWs?.name ?? parentWorkspaceId) : (ws?.name ?? workspaceId),
 		isFork,
-		mask: keys
+		mask: keys,
+		maskOps: keyOps
 	}))
 
 	// Editor URL for a row: point at the workspace the item actually lives in
@@ -51,14 +60,21 @@
 		return undefined
 	}
 
-	const title = $derived(isFork ? '' : 'Drafts')
+	const title = 'Edits this session.'
 
-	export function open(segment?: DeploySegment) {
-		inner?.open(segment)
+	// Compare page = the batch/PR surface. The footer hands off THIS session's
+	// edits via `from_session`, so the compare page opens preselected.
+	const compareSessionHref = $derived(
+		`/forks/compare?workspace_id=${encodeURIComponent(workspaceId)}&mode=${isFork ? 'fork' : 'draft'}` +
+			(sessionId ? `&from_session=${encodeURIComponent(sessionId)}` : '')
+	)
+
+	export function open() {
+		inner?.open()
 	}
 </script>
 
-<WorkspaceDiffDrawer bind:this={inner} {model} {title} {editUrlFor}>
+<WorkspaceDiffDrawer bind:this={inner} {model} {title} {editUrlFor} {compareSessionHref}>
 	{#snippet titleExtra()}
 		<div class="flex items-center gap-1.5 text-xs text-secondary min-w-0">
 			{#if isFork}

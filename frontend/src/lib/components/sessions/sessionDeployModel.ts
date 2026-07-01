@@ -2,14 +2,17 @@ import type { UserDraftItemKind, WorkspaceComparison } from '$lib/gen'
 import type { DraftItem } from '$lib/workspaceDrafts.svelte'
 import type { Kind } from '$lib/utils_deployable'
 import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
-import { maskKey, forkDiffKindToUserDraftKind } from './modifiedItemsMask'
+import { maskKey, forkDiffKindToUserDraftKind, type ItemOp } from './modifiedItemsMask'
 
 // Unified item model for the session Review & Deploy surface. This is the pure,
 // UI-free core: it merges the two data sources the compare page keeps apart —
 // the per-user draft list (Deployed ↔ draft) and the fork comparison
-// (fork ↔ parent) — into ONE list of items, each carrying a resolved lifecycle
-// `state` plus pure derivations (pipeline, action, diff base, selection,
-// segments, deploy plan) the drawer renders and executes.
+// (fork ↔ parent) — into ONE list of items, each carrying two independent axes
+// (`local` = pending draft, `parent` = sync/ahead/conflict) plus a terminal
+// `done` flag, from which the badge / action / pipeline / deploy plan are derived
+// as pure functions the drawer renders and executes. The dock is session-scoped
+// and granular (per-item next step); whole-fork drift and batch/PR flows are the
+// compare page's concern, not modeled here.
 //
 // Kept free of Svelte runes and async so it unit-tests in the node project. The
 // reactive wrapper (data loading, selection $state, deploy execution) lives in
@@ -43,14 +46,15 @@ function deployKindOf(draftKind: UserDraftItemKind, rawApp: boolean): Kind {
 
 // ── Public types ────────────────────────────────────────────────────────────
 
-/** Lifecycle position of an item within the session's deploy pipeline.
- *  `draft` takes precedence over `conflict`/`in_fork` when a pending draft
- *  exists — the unsaved edit is the first thing to promote. */
-export type DeployItemState = 'draft' | 'in_fork' | 'in_parent' | 'deleted' | 'conflict'
+/** How the item's deployed-in-fork version compares to the parent — independent
+ *  of `local` (a pending draft). At session scope only ahead/conflict/sync occur:
+ *  a pure-behind item is fork drift the session never touched (surfaced as a
+ *  banner pointer to the compare page, not listed here). */
+export type ParentAxis = 'sync' | 'ahead' | 'conflict'
 
-/** Left-pane filter segments. `to_review` = everything not terminal; `all` =
- *  every item; the rest are the exclusive lifecycle buckets. */
-export type DeploySegment = 'to_review' | 'drafts' | 'in_fork' | 'done' | 'all'
+/** Count buckets for the bar readout. `to_review` = everything not terminal;
+ *  `done` = reached the parent; `all` = every item. */
+export type DeploySegment = 'to_review' | 'done' | 'all'
 
 export interface SessionContext {
 	/** Fork (Draft→Fork→Parent) vs main (Draft→Parent, no fork stage). */
@@ -74,7 +78,15 @@ export interface DeployItem {
 	/** Friendly path for display; storage `path` stays the op/edit key. */
 	displayPath: string
 	summary?: string
-	state: DeployItemState
+	/** Uncommitted draft in the fork (alias of `hasDraft`, the `local` axis). */
+	local: boolean
+	/** Deployed-in-fork vs parent; `sync` for draft-only / already-deployed rows.
+	 *  `conflict` when the fork and parent both moved the item. */
+	parent: ParentAxis
+	/** Reached the parent — the terminal, already-deployed mask-only rows. */
+	done: boolean
+	/** Pending deletion: present in the parent, removed in the fork. */
+	removed: boolean
 	hasDraft: boolean
 	draftOnly: boolean
 	draftUsers?: { username?: string | null }[]
@@ -88,6 +100,10 @@ export interface DeployItem {
 	existsInFork: boolean
 	ahead: number
 	behind: number
+	/** The operation the chat tool performed on this item (add/edit/delete), from
+	 *  the modified-items op map. Authoritative for `changeOpOf`; undefined for
+	 *  untracked/legacy items → the existence heuristic decides. */
+	sessionOp?: ItemOp
 }
 
 export interface BuildInput {
@@ -98,6 +114,10 @@ export interface BuildInput {
 	 *  terminal `in_parent` rows — but only when confirmed to still exist (see
 	 *  `existingKeys`). */
 	mask?: Set<string>
+	/** Per-key operation (add/edit/delete) recorded by the chat tools, keyed the
+	 *  same as `mask`. Stamped onto each item's `sessionOp`. Absent for legacy
+	 *  chats → items fall back to the existence heuristic. */
+	maskOps?: ReadonlyMap<string, ItemOp>
 	/** Mask keys confirmed to still exist in the workspace (deployed). A mask-only
 	 *  key that isn't here is treated as gone (a discarded draft) and dropped, so a
 	 *  discarded item doesn't masquerade as "in parent". Undefined → no mask-only
@@ -109,25 +129,18 @@ export interface BuildInput {
 
 // ── Build: merge draft list + fork comparison into unified items ─────────────
 
-function stateFrom(opts: {
-	hasDraft: boolean
-	ahead: number
-	behind: number
-	existsInFork: boolean
-	existsInParent: boolean
-}): DeployItemState {
-	const { hasDraft, ahead, behind, existsInFork, existsInParent } = opts
-	// Pending edit first — you promote the draft to the fork before reconciling
-	// fork↔parent.
-	if (hasDraft) return 'draft'
+/** The parent-comparison axis from a fork diff's ahead/behind counts. Draft-only
+ *  and already-deployed rows (no fork diff) are `sync`. A behind-only row (parent
+ *  moved, fork didn't) falls to `sync`/bare — it can't occur for a session-edited
+ *  item, and is fork drift the dock leaves to the compare page either way. */
+function parentAxisFrom(ahead: number, behind: number): ParentAxis {
 	if (ahead > 0 && behind > 0) return 'conflict'
-	if (!existsInFork && existsInParent) return 'deleted'
-	if (ahead > 0 || behind > 0) return 'in_fork'
-	return 'in_parent'
+	if (ahead > 0) return 'ahead'
+	return 'sync'
 }
 
 export function buildDeployItems(input: BuildInput): DeployItem[] {
-	const { draftItems, comparison, mask, existingKeys, context } = input
+	const { draftItems, comparison, mask, maskOps, existingKeys, context } = input
 	const scopedDrafts = mask
 		? draftItems.filter((it) => mask.has(maskKey(it.kind, it.path)))
 		: draftItems
@@ -155,13 +168,10 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 				path: d.path,
 				displayPath: draft?.draft_path ?? d.path,
 				summary: draft?.summary,
-				state: stateFrom({
-					hasDraft: !!draft,
-					ahead: d.ahead,
-					behind: d.behind,
-					existsInFork,
-					existsInParent
-				}),
+				local: !!draft,
+				parent: parentAxisFrom(d.ahead, d.behind),
+				done: false,
+				removed: existsInParent && !existsInFork,
 				hasDraft: !!draft,
 				draftOnly: draft?.draft_only ?? false,
 				draftUsers: draft?.draft_users,
@@ -172,7 +182,8 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 				existsInParent,
 				existsInFork,
 				ahead: d.ahead,
-				behind: d.behind
+				behind: d.behind,
+				sessionOp: maskOps?.get(canonical)
 			})
 		}
 	}
@@ -190,7 +201,10 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			path: it.path,
 			displayPath: it.draft_path ?? it.path,
 			summary: it.summary,
-			state: 'draft',
+			local: true,
+			parent: 'sync',
+			done: false,
+			removed: false,
 			hasDraft: true,
 			draftOnly: it.draft_only,
 			draftUsers: it.draft_users,
@@ -201,7 +215,8 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			existsInParent: !it.draft_only,
 			existsInFork: !it.draft_only,
 			ahead: 0,
-			behind: 0
+			behind: 0,
+			sessionOp: maskOps?.get(canonical)
 		})
 	}
 
@@ -225,7 +240,10 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 				path,
 				displayPath: path,
 				summary: undefined,
-				state: 'in_parent',
+				local: false,
+				parent: 'sync',
+				done: true,
+				removed: false,
 				hasDraft: false,
 				draftOnly: false,
 				draftUsers: undefined,
@@ -236,7 +254,8 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 				existsInParent: true,
 				existsInFork: true,
 				ahead: 0,
-				behind: 0
+				behind: 0,
+				sessionOp: maskOps?.get(k)
 			})
 		}
 	}
@@ -289,10 +308,10 @@ export interface PipelineStage {
 
 /** The 3-dot (fork) / 2-dot (main) pipeline indicator for an item. */
 export function pipelineOf(item: DeployItem, context: SessionContext): PipelineStage[] {
-	const parent: PipelineStatus = item.state === 'in_parent' ? 'done' : 'todo'
+	const parent: PipelineStatus = item.done ? 'done' : 'todo'
 	if (!context.isFork) {
 		// Main: Draft → Parent, no fork stage.
-		const draft: PipelineStatus = item.state === 'draft' ? 'current' : 'done'
+		const draft: PipelineStatus = item.local ? 'current' : 'done'
 		return [
 			{ id: 'draft', status: draft },
 			{ id: 'parent', status: parent }
@@ -300,22 +319,19 @@ export function pipelineOf(item: DeployItem, context: SessionContext): PipelineS
 	}
 	let draft: PipelineStatus
 	let fork: PipelineStatus
-	switch (item.state) {
-		case 'draft':
-			draft = 'current'
-			fork = 'todo'
-			break
-		case 'conflict':
-			draft = 'done'
-			fork = 'blocked'
-			break
-		case 'in_parent':
-			draft = 'done'
-			fork = 'done'
-			break
-		default: // in_fork, deleted
-			draft = 'done'
-			fork = 'current'
+	if (item.done) {
+		draft = 'done'
+		fork = 'done'
+	} else if (item.parent === 'conflict') {
+		draft = 'done'
+		fork = 'blocked'
+	} else if (item.local) {
+		draft = 'current'
+		fork = 'todo'
+	} else {
+		// ahead — deployed in the fork, awaiting promotion to the parent.
+		draft = 'done'
+		fork = 'current'
 	}
 	return [
 		{ id: 'draft', status: draft },
@@ -324,23 +340,51 @@ export function pipelineOf(item: DeployItem, context: SessionContext): PipelineS
 	]
 }
 
+// ── Status badge (how the item relates to the parent) ────────────────────────
+
+export type BadgeKind = 'conflict' | 'draft' | 'ahead' | 'deployed' | 'none'
+
+/** The single status badge a row shows, by priority `conflict > draft > ahead`.
+ *  This is the item's relationship to the parent — NOT what the edit did (add /
+ *  delete / modify), which is a separate axis (see `changeOpOf`). A terminal row
+ *  shows a muted `deployed`; a clean, in-sync row shows nothing. */
+export function badgeOf(item: DeployItem): BadgeKind {
+	if (item.parent === 'conflict') return 'conflict'
+	if (item.local) return 'draft'
+	if (item.parent === 'ahead') return 'ahead'
+	if (item.done) return 'deployed'
+	return 'none'
+}
+
+// ── Change operation (what the edit did) ─────────────────────────────────────
+
+export type ChangeOp = 'add' | 'delete' | 'modify'
+
+/** What the edit did to the item — orthogonal to the status badge. A deleted
+ *  item is still (e.g.) `ahead` of the parent; deletion is the *operation*, not
+ *  the status.
+ *
+ *  Authoritative source is the chat-recorded `sessionOp` (what the tool DID), so
+ *  a session-created item stays `add` even after it's deployed to the parent. Only
+ *  when that's absent (legacy/untracked chats) do we infer from fork↔parent
+ *  existence, which otherwise flips add→modify once the item exists in both. */
+export function changeOpOf(item: DeployItem): ChangeOp {
+	if (item.sessionOp) return item.sessionOp === 'edit' ? 'modify' : item.sessionOp
+	if (item.removed) return 'delete' // present in parent, gone from the fork
+	// New: a never-deployed draft, or a fork item the parent doesn't have yet.
+	if (item.draftOnly || (item.existsInFork && !item.existsInParent)) return 'add'
+	return 'modify'
+}
+
 // ── Action ──────────────────────────────────────────────────────────────────
 
-export type DeployOp =
-	| 'deploy_draft'
-	| 'deploy_item'
-	| 'delete_in_parent'
-	| 'update_fork'
-	| 'discard'
-	| 'none'
+export type DeployOp = 'deploy_draft' | 'deploy_item' | 'delete_in_parent' | 'discard' | 'none'
 
 export interface DeployAction {
 	op: DeployOp
 	label: string
-	/** Which pipeline stage this action promotes into (drives footer grouping). */
+	/** Which pipeline stage this action promotes into. */
 	targetStage: 'fork' | 'parent' | null
-	/** Present → render disabled with this reason (conflict, done). */
-	blockedReason?: string
 	secondary?: DeployAction[]
 }
 
@@ -348,48 +392,39 @@ function parentLabel(context: SessionContext): string {
 	return context.parentName ?? 'parent'
 }
 
-/** The state-driven primary (and secondary) action for a row. On-behalf and
+/** The axis-driven primary (and secondary) action for a row. On-behalf and
  *  already-deployed gating are layered on at the reactive stage; this returns
- *  the intrinsic action for the item's state. */
+ *  the intrinsic next step for the item. */
 export function actionFor(item: DeployItem, context: SessionContext): DeployAction {
 	const discard: DeployAction = {
 		op: 'discard',
 		label: item.draftOnly ? 'Discard draft' : 'Discard',
 		targetStage: null
 	}
-	switch (item.state) {
-		case 'draft':
-			return context.isFork
-				? { op: 'deploy_draft', label: 'Deploy to fork', targetStage: 'fork', secondary: [discard] }
-				: // Main (non-fork): a draft deploys within its own workspace — there is
-					// no separate parent to name.
-					{ op: 'deploy_draft', label: 'Deploy', targetStage: 'parent', secondary: [discard] }
-		case 'in_fork':
-			// ahead → promote to parent; behind-only → the parent moved, update fork.
-			if (item.ahead > 0) {
-				return {
-					op: 'deploy_item',
-					label: `Deploy to ${parentLabel(context)}`,
+	if (item.done) return { op: 'none', label: 'Done', targetStage: null }
+	// Conflict: both the fork and the parent changed this item. There is no safe
+	// one-click resolution (no merge primitive; auto-pulling the parent would
+	// silently discard the session's edits), so the row is informational only —
+	// the user reconciles manually in the editor.
+	if (item.parent === 'conflict') return { op: 'none', label: 'Conflict', targetStage: null }
+	if (item.local) {
+		return context.isFork
+			? { op: 'deploy_draft', label: 'Deploy to fork', targetStage: 'fork', secondary: [discard] }
+			: // Main (non-fork): a draft deploys within its own workspace — no separate
+				// parent to name.
+				{ op: 'deploy_draft', label: 'Deploy', targetStage: 'parent', secondary: [discard] }
+	}
+	if (item.parent === 'ahead') {
+		return item.removed
+			? {
+					op: 'delete_in_parent',
+					label: `Delete in ${parentLabel(context)}`,
 					targetStage: 'parent'
 				}
-			}
-			return { op: 'update_fork', label: 'Update fork', targetStage: 'fork' }
-		case 'deleted':
-			return {
-				op: 'delete_in_parent',
-				label: `Delete in ${parentLabel(context)}`,
-				targetStage: 'parent'
-			}
-		case 'conflict':
-			return {
-				op: 'none',
-				label: `Deploy to ${parentLabel(context)}`,
-				targetStage: 'parent',
-				blockedReason: 'Resolve the conflict before deploying'
-			}
-		case 'in_parent':
-			return { op: 'none', label: 'Done', targetStage: null }
+			: { op: 'deploy_item', label: `Deploy to ${parentLabel(context)}`, targetStage: 'parent' }
 	}
+	// clean + sync (non-terminal, no pending change) — nothing to do.
+	return { op: 'none', label: 'Done', targetStage: null }
 }
 
 // ── Diff base ───────────────────────────────────────────────────────────────
@@ -407,11 +442,11 @@ export type DiffBase =
 	  }
 	| { kind: 'none' }
 
-/** Where a row's before/after diff values come from, given its state. A draft
- *  row diffs deployed↔draft; an in-fork/conflict/deleted row diffs fork↔parent.
+/** Where a row's before/after diff values come from. A row with a pending draft
+ *  diffs deployed↔draft; a non-draft ahead/conflict row diffs fork↔parent.
  *  The executor maps this to getDraftDiffValues / getItemValue×2. */
 export function diffBaseFor(item: DeployItem, context: SessionContext): DiffBase {
-	if (item.state === 'draft' && item.draftKind) {
+	if (item.local && item.draftKind) {
 		return {
 			kind: 'draft',
 			draftKind: item.draftKind,
@@ -419,7 +454,7 @@ export function diffBaseFor(item: DeployItem, context: SessionContext): DiffBase
 			draftOnly: item.draftOnly
 		}
 	}
-	if (item.state === 'in_parent') return { kind: 'none' }
+	if (item.done) return { kind: 'none' }
 	if (!context.parentWorkspaceId) return { kind: 'none' }
 	return {
 		kind: 'fork_parent',
@@ -448,99 +483,35 @@ export function isOnBehalfEligible(deployKind: Kind): boolean {
 	)
 }
 
-// ── Selection ───────────────────────────────────────────────────────────────
-
-/** A row is selectable when it has an actionable deploy in its current state and
- *  — for draft-stage ops — the draft is the user's own with write permission.
- *  Conflicts are excluded (blocked until resolved). Already-deployed exclusion is
- *  applied by the reactive layer (it owns per-row deploymentStatus). */
-export function selectableOf(item: DeployItem): boolean {
-	// Actionable states only. Terminal (in_parent) and blocked (conflict) rows are
-	// never selectable regardless of context.
-	if (item.state === 'in_parent' || item.state === 'conflict') return false
-	if (item.state === 'draft') return item.mine && item.canWrite
-	return true // in_fork, deleted
-}
-
-/** Handoff default: every selectable row checked. */
-export function defaultSelection(items: DeployItem[]): string[] {
-	return items.filter(selectableOf).map((i) => i.key)
-}
-
-// ── Segments ────────────────────────────────────────────────────────────────
+// ── Segments (bar readout counts) ────────────────────────────────────────────
 
 export function inSegment(item: DeployItem, seg: DeploySegment): boolean {
 	switch (seg) {
 		case 'all':
 			return true
 		case 'to_review':
-			return item.state !== 'in_parent'
-		case 'drafts':
-			return item.state === 'draft'
-		case 'in_fork':
-			return item.state === 'in_fork'
+			return !item.done
 		case 'done':
-			return item.state === 'in_parent'
+			return item.done
 	}
-}
-
-export function itemsInSegment(items: DeployItem[], seg: DeploySegment): DeployItem[] {
-	return items.filter((i) => inSegment(i, seg))
 }
 
 export function segmentCounts(items: DeployItem[]): Record<DeploySegment, number> {
-	const counts: Record<DeploySegment, number> = {
-		to_review: 0,
-		drafts: 0,
-		in_fork: 0,
-		done: 0,
-		all: 0
-	}
+	const counts: Record<DeploySegment, number> = { to_review: 0, done: 0, all: 0 }
 	for (const item of items) {
-		for (const seg of ['to_review', 'drafts', 'in_fork', 'done', 'all'] as DeploySegment[]) {
+		for (const seg of ['to_review', 'done', 'all'] as DeploySegment[]) {
 			if (inSegment(item, seg)) counts[seg]++
 		}
 	}
 	return counts
 }
 
-// ── Footer summary ──────────────────────────────────────────────────────────
-
-export interface FooterSummary {
-	/** Selected rows deploying to the fork stage (drafts, fork context). */
-	toFork: number
-	/** Selected rows deploying to the parent (in-fork promotions, deletions, and
-	 *  drafts in main context). */
-	toParent: number
-	/** Selected on-behalf-eligible parent promotions (upper bound on "needs
-	 *  on-behalf-of"; the reactive layer subtracts resolved choices). */
-	onBehalfEligible: number
-	/** Selected conflicts (blocked). */
-	conflicts: number
+/** Conflict tally, for the bar's ⚠ badge. */
+export function conflictCount(items: DeployItem[]): number {
+	return items.filter((i) => i.parent === 'conflict').length
 }
 
-export function footerSummary(
-	items: DeployItem[],
-	selectedKeys: Set<string>,
-	context: SessionContext
-): FooterSummary {
-	const summary: FooterSummary = { toFork: 0, toParent: 0, onBehalfEligible: 0, conflicts: 0 }
-	for (const item of items) {
-		if (!selectedKeys.has(item.key)) continue
-		if (item.state === 'conflict') summary.conflicts++
-		const action = actionFor(item, context)
-		if (action.targetStage === 'fork') summary.toFork++
-		else if (action.targetStage === 'parent' && action.op !== 'none') {
-			summary.toParent++
-			if (action.op === 'deploy_item' && isOnBehalfEligible(item.deployKind)) {
-				summary.onBehalfEligible++
-			}
-		}
-	}
-	return summary
-}
-
-// ── Deploy plan (executed by the reactive layer / S3) ───────────────────────
+// ── Deploy plan (executed by the reactive layer) ─────────────────────────────
 
 export interface DeployPlanEntry {
 	key: string
@@ -558,8 +529,8 @@ export interface DeployPlanEntry {
 	legacy: boolean
 }
 
-/** Concrete util arguments for deploying (or discarding) one item, derived from
- *  its state + context. Returns undefined for terminal/blocked rows. */
+/** Concrete util arguments for deploying (or reconciling) one item, derived from
+ *  its axes + context. Returns undefined for terminal rows. Mirrors actionFor. */
 export function deployPlanFor(
 	item: DeployItem,
 	context: SessionContext
@@ -574,34 +545,24 @@ export function deployPlanFor(
 		legacy: item.legacy
 	}
 	const parent = context.parentWorkspaceId
-	switch (item.state) {
-		case 'draft':
-			// deployDraft acts within the current workspace (draft → deployed there).
-			return { ...base, op: 'deploy_draft' }
-		case 'in_fork':
-			if (item.ahead > 0) {
-				if (!parent) return undefined
-				return {
-					...base,
-					op: 'deploy_item',
-					workspaceFrom: context.currentWorkspaceId,
-					workspaceTo: parent
-				}
-			}
-			if (!parent) return undefined
-			return {
-				...base,
-				op: 'update_fork',
-				workspaceFrom: parent,
-				workspaceTo: context.currentWorkspaceId
-			}
-		case 'deleted':
-			if (!parent) return undefined
-			return { ...base, op: 'delete_in_parent', workspaceTo: parent }
-		case 'conflict':
-		case 'in_parent':
-			return undefined
+	// Terminal rows and conflicts have no automatic action (a conflict has no safe
+	// one-click resolution — it's reconciled manually).
+	if (item.done || item.parent === 'conflict') return undefined
+	if (item.local) {
+		// deployDraft acts within the current workspace (draft → deployed there).
+		return { ...base, op: 'deploy_draft' }
 	}
+	if (item.parent === 'ahead') {
+		if (!parent) return undefined
+		if (item.removed) return { ...base, op: 'delete_in_parent', workspaceTo: parent }
+		return {
+			...base,
+			op: 'deploy_item',
+			workspaceFrom: context.currentWorkspaceId,
+			workspaceTo: parent
+		}
+	}
+	return undefined
 }
 
 /** Discard plan for a draft row (secondary action). */
@@ -609,7 +570,7 @@ export function discardPlanFor(
 	item: DeployItem,
 	context: SessionContext
 ): DeployPlanEntry | undefined {
-	if (item.state !== 'draft' || !item.draftKind) return undefined
+	if (!item.local || !item.draftKind) return undefined
 	return {
 		key: item.key,
 		op: 'discard',
