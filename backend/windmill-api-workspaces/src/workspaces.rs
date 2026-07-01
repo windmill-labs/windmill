@@ -5788,6 +5788,13 @@ async fn unarchive_workspace(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Unarchiving re-activates a soft-deleted workspace, so it must respect the
+    // same CE workspace-count cap as creating one. The archived workspace is
+    // deleted = true and thus excluded from the count until it is restored.
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
         .execute(&mut *tx)
