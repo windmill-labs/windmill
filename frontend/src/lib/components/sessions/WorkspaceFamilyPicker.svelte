@@ -357,150 +357,154 @@
 	{/snippet}
 	{#snippet menu()}
 		{@const rowBase =
-			'px-3 py-1.5 text-xs text-primary flex flex-row gap-2 items-center text-left rounded-sm w-full'}
+			'px-3 py-1.5 text-xs font-normal text-primary flex flex-row gap-2 items-center text-left rounded-sm w-full'}
 		<div
-			class="bg-surface-tertiary dark:border w-64 origin-top-left rounded-lg shadow-lg focus:outline-none py-1 flex flex-col max-h-80 overflow-y-auto"
+			class="bg-surface-tertiary dark:border w-64 origin-top-left rounded-lg shadow-lg focus:outline-none py-1 flex flex-col max-h-80"
 		>
-			{#if showCreateFork}
-				{#if creatingFork}
-					<div class="flex flex-col gap-1 px-2 py-1.5">
-						<div class="flex flex-row items-center gap-1.5">
-							<Plus size={14} class="shrink-0 text-tertiary" />
-							<!-- svelte-ignore a11y_autofocus -->
-							<TextInput
-								bind:this={forkInput}
-								bind:value={newForkName}
-								size="xs"
-								error={forkNameError}
-								class="flex-1 min-w-0"
-								inputProps={{
-									placeholder: 'Fork name',
-									autofocus: true,
-									'aria-invalid': forkNameError ? 'true' : undefined,
-									onkeydown: (e: KeyboardEvent) => {
-										if (e.key === 'Enter') {
-											e.preventDefault()
-											e.stopPropagation()
-											void stageNewFork()
-										} else if (e.key === 'Escape') {
-											e.preventDefault()
-											e.stopPropagation()
-											cancelCreate()
+			<!-- Scrollable rows; the settings footer below stays pinned. -->
+			<div class="flex flex-col overflow-y-auto min-h-0">
+				{#if showCreateFork}
+					{#if creatingFork}
+						<div class="flex flex-col gap-1 px-2 py-1.5">
+							<div class="flex flex-row items-center gap-1.5">
+								<Plus size={14} class="shrink-0 text-tertiary" />
+								<!-- svelte-ignore a11y_autofocus -->
+								<TextInput
+									bind:this={forkInput}
+									bind:value={newForkName}
+									size="xs"
+									error={forkNameError}
+									class="flex-1 min-w-0"
+									inputProps={{
+										placeholder: 'Fork name',
+										autofocus: true,
+										'aria-invalid': forkNameError ? 'true' : undefined,
+										onkeydown: (e: KeyboardEvent) => {
+											if (e.key === 'Enter') {
+												e.preventDefault()
+												e.stopPropagation()
+												void stageNewFork()
+											} else if (e.key === 'Escape') {
+												e.preventDefault()
+												e.stopPropagation()
+												cancelCreate()
+											}
 										}
-									}
-								}}
-							/>
+									}}
+								/>
+								<button
+									type="button"
+									aria-label="Confirm"
+									title="Stage fork"
+									onclick={() => void stageNewFork()}
+									disabled={!newForkName.trim() || !!forkNameError}
+									class="inline-flex items-center justify-center w-5 h-5 rounded text-accent hover:bg-surface-hover disabled:opacity-40 disabled:cursor-not-allowed"
+								>
+									<Check size={14} />
+								</button>
+							</div>
+							{#if forkNameError || createForkCaption}
+								<div class="pl-6">
+									<InputError error={forkNameError} />
+									{#if !forkNameError && createForkCaption}
+										<span class="text-2xs text-tertiary">{createForkCaption}</span>
+									{/if}
+								</div>
+							{/if}
+						</div>
+					{:else}
+						{@const createIdx = 0}
+						<button
+							type="button"
+							class={`${rowBase} ${keyArrowPos === createIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+							onmouseenter={() => (keyArrowPos = createIdx)}
+							onclick={() => requestCreateFork()}
+						>
+							<Plus size={14} class="shrink-0 text-tertiary" />
+							<span>{createForkLabel}</span>
+						</button>
+						{#if hasCreateFromRoot}
+							{@const createFromRootIdx = 1}
 							<button
 								type="button"
-								aria-label="Confirm"
-								title="Stage fork"
-								onclick={() => void stageNewFork()}
-								disabled={!newForkName.trim() || !!forkNameError}
-								class="inline-flex items-center justify-center w-5 h-5 rounded text-accent hover:bg-surface-hover disabled:opacity-40 disabled:cursor-not-allowed"
+								class={`${rowBase} ${keyArrowPos === createFromRootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+								onmouseenter={() => (keyArrowPos = createFromRootIdx)}
+								onclick={() => enterCreateMode(undefined, true)}
 							>
-								<Check size={14} />
+								<Plus size={14} class="shrink-0 text-tertiary" />
+								<span>Fork from {root?.name}</span>
 							</button>
-						</div>
-						{#if forkNameError || createForkCaption}
-							<div class="pl-6">
-								<InputError error={forkNameError} />
-								{#if !forkNameError && createForkCaption}
-									<span class="text-2xs text-tertiary">{createForkCaption}</span>
-								{/if}
-							</div>
 						{/if}
-					</div>
-				{:else}
-					{@const createIdx = 0}
-					<button
-						type="button"
-						class={`${rowBase} ${keyArrowPos === createIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-						onmouseenter={() => (keyArrowPos = createIdx)}
-						onclick={() => requestCreateFork()}
+					{/if}
+					<div class="my-1 border-t border-border-light shrink-0"></div>
+				{:else if showForkUpsell}
+					<div
+						class={`${rowBase} opacity-60 cursor-not-allowed`}
+						aria-disabled="true"
+						title="Community edition is limited to {CE_MAX_NON_ADMIN_WORKSPACES +
+							1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks."
 					>
 						<Plus size={14} class="shrink-0 text-tertiary" />
 						<span>{createForkLabel}</span>
-					</button>
-					{#if hasCreateFromRoot}
-						{@const createFromRootIdx = 1}
-						<button
-							type="button"
-							class={`${rowBase} ${keyArrowPos === createFromRootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-							onmouseenter={() => (keyArrowPos = createFromRootIdx)}
-							onclick={() => enterCreateMode(undefined, true)}
-						>
-							<Plus size={14} class="shrink-0 text-tertiary" />
-							<span>Fork from {root?.name}</span>
-						</button>
-					{/if}
+						<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
+					</div>
+					<div class="my-1 border-t border-border-light shrink-0"></div>
 				{/if}
-				<div class="my-1 border-t border-border-light shrink-0"></div>
-			{:else if showForkUpsell}
-				<div
-					class={`${rowBase} opacity-60 cursor-not-allowed`}
-					aria-disabled="true"
-					title="Community edition is limited to {CE_MAX_NON_ADMIN_WORKSPACES +
-						1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks."
-				>
-					<Plus size={14} class="shrink-0 text-tertiary" />
-					<span>{createForkLabel}</span>
-					<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
-				</div>
-				<div class="my-1 border-t border-border-light shrink-0"></div>
-			{/if}
 
-			{#if root}
-				{@const rootIdx = (showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0)}
-				<button
-					type="button"
-					disabled={rootDisabled}
-					title={rootDisabled
-						? devOfRoot
-							? `${root.name} is locked. Run in its dev workspace instead.`
-							: `${root.name} is locked for direct deploys.`
-						: undefined}
-					class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
-					onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
-					onclick={() => !rootDisabled && void pick(root.id)}
-				>
-					<Building size={14} class="shrink-0 text-tertiary" />
-					<span class="truncate">{root.name}</span>
-					<span class="text-2xs text-tertiary shrink-0 ml-auto"
-						>{rootDisabled ? 'locked' : 'root'}</span
+				{#if root}
+					{@const rootIdx = (showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0)}
+					<button
+						type="button"
+						disabled={rootDisabled}
+						title={rootDisabled
+							? devOfRoot
+								? `${root.name} is locked. Run in its dev workspace instead.`
+								: `${root.name} is locked for direct deploys.`
+							: undefined}
+						class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
+						onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
+						onclick={() => !rootDisabled && void pick(root.id)}
 					>
-				</button>
-			{/if}
-			{#each forks as f, fi (f.id)}
-				{@const forkIdx =
-					(showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0) + (root ? 1 : 0) + fi}
-				<button
-					type="button"
-					class={`${rowBase} ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-					onmouseenter={() => (keyArrowPos = forkIdx)}
-					onclick={() => void pick(f.id)}
-				>
-					<GitFork size={14} class="shrink-0 text-tertiary" />
-					<span class="truncate">{f.name}</span>
-					{#if f.is_dev_workspace}
-						<Badge color="indigo" small>dev</Badge>
-					{/if}
-				</button>
-			{/each}
-			{#if pendingFork && !creatingFork}
-				<div
-					class="px-3 py-1.5 text-xs text-primary flex flex-row gap-2 items-center text-left rounded-sm bg-surface-selected cursor-default"
-				>
-					<GitFork size={14} class="shrink-0 text-tertiary" />
-					<span class="truncate">{pendingFork.name}</span>
-					<span class="text-2xs text-tertiary italic shrink-0 ml-auto">New</span>
-				</div>
-			{/if}
+						<Building size={14} class="shrink-0 text-tertiary" />
+						<span class="truncate">{root.name}</span>
+						<span class="text-2xs text-tertiary shrink-0 ml-auto"
+							>{rootDisabled ? 'locked' : 'root'}</span
+						>
+					</button>
+				{/if}
+				{#each forks as f, fi (f.id)}
+					{@const forkIdx =
+						(showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0) + (root ? 1 : 0) + fi}
+					<button
+						type="button"
+						class={`${rowBase} ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+						onmouseenter={() => (keyArrowPos = forkIdx)}
+						onclick={() => void pick(f.id)}
+					>
+						<GitFork size={14} class="shrink-0 text-tertiary" />
+						<span class="truncate">{f.name}</span>
+						{#if f.is_dev_workspace}
+							<Badge color="indigo" small>dev</Badge>
+						{/if}
+					</button>
+				{/each}
+				{#if pendingFork && !creatingFork}
+					<div
+						class="px-3 py-1.5 text-xs text-primary flex flex-row gap-2 items-center text-left rounded-sm bg-surface-selected cursor-default"
+					>
+						<GitFork size={14} class="shrink-0 text-tertiary" />
+						<span class="truncate">{pendingFork.name}</span>
+						<span class="text-2xs text-tertiary italic shrink-0 ml-auto">New</span>
+					</div>
+				{/if}
+			</div>
 			{#if settingsHref}
+				<!-- Pinned footer: stays visible while the fork list above scrolls. -->
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 				<a
 					href={settingsHref}
 					onclick={() => (dropdownOpen = false)}
-					class={`${rowBase} hover:bg-surface-hover text-secondary`}
+					class={`${rowBase} shrink-0 hover:bg-surface-hover`}
 				>
 					<Settings size={14} class="shrink-0 text-tertiary" />
 					<span class="truncate">{settingsLabel ?? 'Workspace settings'}</span>
