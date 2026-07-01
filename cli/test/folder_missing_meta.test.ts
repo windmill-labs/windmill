@@ -70,11 +70,13 @@ async function withIsolatedWorkspace(
   } finally {
     if (workspaceCreated) {
       try {
-        const archiveResponse = await backend.apiRequest!(
-          `/api/w/${workspaceId}/workspaces/archive`,
-          { method: "POST" }
+        // Permanently delete (not archive): CE caps archived workspaces at 1, so archiving
+        // temp workspaces would leak them back into the active set and blow the 2-workspace cap.
+        const deleteResponse = await backend.apiRequest!(
+          `/api/workspaces/delete/${workspaceId}`,
+          { method: "DELETE" }
         );
-        await archiveResponse.text();
+        await deleteResponse.text();
       } catch {
         // Best-effort cleanup to avoid exceeding non-enterprise workspace limits.
       }
