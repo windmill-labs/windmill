@@ -7,7 +7,7 @@
 	import { PipelineEditorState } from './pipelineEditorState.svelte'
 	import { useActiveRunnableIds } from './activeRunnables.svelte'
 	import { makeLaunch, makeWaitJobTerminal, runDownstreamCascade } from './cascadeRun'
-	import { assetProducers } from './graphTraversal'
+	import { assetProducers, buildDownstreamMap } from './graphTraversal'
 	import type { AssetGraphResponse, AssetGraphSelection } from './types'
 	import { JobService, OpenAPI, type Preview, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -78,6 +78,17 @@
 	// runs instead of "No producer for this asset" (which only holds for the
 	// deployed graph, absent here).
 	const selectionProducers = $derived(assetProducers(displayGraph, pe.selection))
+
+	// Subscriber count of the open script — gates the detail form's "Run +
+	// downstream" (only meaningful when the script has a chain to fan out to).
+	const openScriptPath = $derived(
+		pe.selection?.kind === 'runnable' && pe.selection.runnable_kind === 'script'
+			? pe.selection.path
+			: undefined
+	)
+	const selectionDownstreamCount = $derived(
+		openScriptPath ? (buildDownstreamMap(displayGraph).get(openScriptPath)?.size ?? 0) : 0
+	)
 
 	// path -> pushed local content, for preview-running each node.
 	const scriptByPath = $derived(
@@ -252,7 +263,12 @@
 
 	// "Run + downstream" — the client orchestrates the closure (preview each node
 	// in topological order) since the backend dispatcher only resolves deployed rows.
-	async function runCascadeFrom(rootPath: string): Promise<string | undefined> {
+	// `rootArgs` feeds the root node its inputs (e.g. an uploaded S3Object from the
+	// detail-pane form) so a `data_upload` entry can seed the whole chain.
+	async function runCascadeFrom(
+		rootPath: string,
+		rootArgs: Record<string, any> = {}
+	): Promise<string | undefined> {
 		if (!workspace) return undefined
 		if (cascadeRunningRoot) {
 			sendUserToast(`A chain run from ${cascadeRunningRoot} is still in progress`, true)
@@ -264,6 +280,7 @@
 			workspace,
 			resolveLocal,
 			tempScriptRefs: bundle?.temp_script_refs,
+			argsFor: (p) => (p === rootPath ? rootArgs : undefined),
 			onLaunched: (p, jobId) => {
 				activeRunnables.arm(`script:${p}`)
 				if (p === rootPath) {
@@ -367,6 +384,8 @@
 				onTogglePanelHidden={() => (panelHidden = !panelHidden)}
 				onRunProducer={runProducer}
 				onRunByPath={(path, args) => runNode(path, args)}
+				onRunCascadeByPath={(path, args) => runCascadeFrom(path, args)}
+				downstreamSubscribers={selectionDownstreamCount}
 				{resolveLocalScript}
 				localScriptsVersion={bundle}
 				{selectionProducers}

@@ -66,6 +66,7 @@
 		onRequestEdit,
 		canRunByPath = false,
 		onRunByPath,
+		onRunCascadeByPath,
 		resolveLocalScript,
 		localScriptsVersion,
 		selectionProducers = [],
@@ -147,6 +148,9 @@
 		onRequestEdit?: () => void
 		canRunByPath?: boolean
 		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Run the open script AND its downstream closure (dev preview only; the
+		// deployed pane leaves this unset — its single run cascades via the backend).
+		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
 		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
 		 * so the details pane skips the (nonexistent) deployed-script fetch. May
 		 * be async (to infer the args schema for the run form). */
@@ -466,6 +470,7 @@
 						{onRequestEdit}
 						{canRunByPath}
 						{onRunByPath}
+						{onRunCascadeByPath}
 						{resolveLocalScript}
 						{localScriptsVersion}
 						selection={activeDraft ? undefined : editor.selection}

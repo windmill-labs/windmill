@@ -227,6 +227,10 @@
 		// NO _wmill_skip_asset_dispatch, so the backend asset-trigger
 		// dispatcher cascades downstream for real.
 		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Run the open script AND its downstream closure with the form args (dev
+		// preview only — the client orchestrates the chain). Unset on the deployed
+		// pane, whose single run already cascades via the backend dispatcher.
+		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
 	}
 	let {
 		selection,
@@ -264,7 +268,8 @@
 		mode = 'edit',
 		onRequestEdit,
 		canRunByPath = false,
-		onRunByPath
+		onRunByPath,
+		onRunCascadeByPath
 	}: Props = $props()
 
 	let readOnly = $derived(mode !== 'edit')
@@ -1108,6 +1113,8 @@
 					{isDraft}
 					canRun={canRunByPath}
 					onRun={onRunByPath}
+					onRunCascade={onRunCascadeByPath}
+					downstreamCount={downstreamSubscribers}
 					{runsRefreshKey}
 					{runsPendingJobId}
 					onRunCompleted={() => {

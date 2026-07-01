@@ -61,10 +61,15 @@ export function makeLaunch(opts: {
 	workspace: string
 	resolveLocal?: (path: string) => LocalScriptContent | undefined
 	tempScriptRefs?: Record<string, string>
+	// Extra run args for a specific node (e.g. the uploaded S3Object bound to a
+	// `data_upload` cascade root). Merged over `_wmill_skip_asset_dispatch`; all
+	// other nodes run with empty inputs as before.
+	argsFor?: (path: string) => Record<string, any> | undefined
 	onLaunched?: (path: string, jobId: string) => void
 }): (path: string) => Promise<string> {
 	return async function launch(path: string): Promise<string> {
 		const local = opts.resolveLocal?.(path)
+		const extra = opts.argsFor?.(path) ?? {}
 		let jobId: string
 		if (local) {
 			if (!local.content || !local.language) {
@@ -76,7 +81,7 @@ export function makeLaunch(opts: {
 					content: local.content,
 					language: local.language,
 					path,
-					args: { _wmill_skip_asset_dispatch: true },
+					args: { _wmill_skip_asset_dispatch: true, ...extra },
 					...(local.tag ? { tag: local.tag } : {}),
 					...(opts.tempScriptRefs ? { temp_script_refs: opts.tempScriptRefs } : {})
 				}
@@ -85,7 +90,7 @@ export function makeLaunch(opts: {
 			jobId = await JobService.runScriptByPath({
 				workspace: opts.workspace,
 				path,
-				requestBody: { _wmill_skip_asset_dispatch: true }
+				requestBody: { _wmill_skip_asset_dispatch: true, ...extra }
 			})
 		}
 		opts.onLaunched?.(path, jobId)
