@@ -71,6 +71,7 @@
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { parsePreviewItemRoute } from '$lib/components/sessions/previewRouter'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
@@ -114,6 +115,12 @@
 	// switch must not — entering session mode from within the preview would
 	// nest the whole experience. Hide it when embedded.
 	const embedded = BROWSER && window.self !== window.top
+
+	// AI sessions are still dev-gated (localStorage wm_dev_global_ai=1), same as
+	// the global chat. The Workspace ⇄ Sessions switch is the only entry point, so
+	// gate it on the flag too — otherwise it would ship the unfinished experience
+	// to prod. The /sessions page has its own gate for direct navigation.
+	const globalAiEnabled = isGlobalAiEnabled()
 
 	const SIDEBAR_BG = '#F3F3F7'
 	const SIDEBAR_BG_DARK = '#1e232e'
@@ -695,7 +702,7 @@
 										</Menubar>
 									</div>
 
-									{#if !embedded}
+									{#if !embedded && globalAiEnabled}
 										<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
 										<div class="px-2 pb-1 w-40">
 											<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} />
@@ -776,7 +783,7 @@
 								</Menubar>
 							</div>
 
-							{#if !embedded}
+							{#if !embedded && globalAiEnabled}
 								<!-- The switch: workspace navigation ⇄ sessions sidebar. -->
 								<div class="px-2 pb-1 {isCollapsed ? 'flex justify-center' : ''}">
 									<SessionModeSwitch mode={sessionMode ? 'session' : 'nav'} {isCollapsed} />
