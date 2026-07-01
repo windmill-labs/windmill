@@ -217,7 +217,7 @@
 					</MenuItem>
 				</div>
 			{/if}
-			{#if !strictWorkspaceSelect && !isCloudHosted() && canCreateFork($userStore) && $workspaceStore !== 'admins'}
+			{#if !strictWorkspaceSelect && (!isCloudHosted() || $isPremiumStore) && canCreateFork($userStore) && $workspaceStore !== 'admins'}
 				<div class="py-1" role="none">
 					<MenuItem
 						class={itemClass}

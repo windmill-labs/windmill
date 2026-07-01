@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS \"developers!\",\n            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS \"operators!\"\n        FROM usr WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "developers!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "operators!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "ebce1633afe3d3f8a1a68bc8d26adcdd88b137bb892437a3ca67fd716772512b"
+}

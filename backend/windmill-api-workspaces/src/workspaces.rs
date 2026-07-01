@@ -3797,6 +3797,13 @@ lazy_static::lazy_static! {
         }
     };
 
+    // Cloud only: how many forks a premium workspace may have per paid (developer) seat.
+    pub static ref MAX_FORKS_PER_SEAT: i64 = std::env::var("MAX_FORKS_PER_SEAT")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|v| *v >= 0)
+        .unwrap_or(5);
+
 }
 
 async fn create_workspace_require_superadmin() -> String {
@@ -4981,10 +4988,11 @@ async fn create_workspace_fork_branch(
     Path(w_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> JsonResult<Vec<Uuid>> {
+    // Pre-check the fork cap before creating any git branch, so we don't leave orphaned branches
+    // behind when the follow-up create_workspace_fork would be rejected anyway.
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on app.windmill.dev"
-        )));
+        enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
     if *DISABLE_WORKSPACE_FORK {
@@ -5156,16 +5164,47 @@ async fn apply_forked_datatable(
     Ok(())
 }
 
+/// Cloud-only guard for creating a fork/dev workspace. Forks piggyback on the parent's plan (a fork
+/// inherits the root's premium and meters its usage into the root's bill), so forking is limited to
+/// premium workspaces and capped at `MAX_FORKS_PER_SEAT` per paid (developer) seat of the root.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()> {
+    use windmill_common::workspaces::{
+        count_paid_seats, count_workspace_forks, get_billing_workspace_id, get_team_plan_status,
+    };
+
+    let root = get_billing_workspace_id(db, parent_workspace_id).await?;
+
+    if !get_team_plan_status(db, &root).await?.premium {
+        return Err(Error::BadRequest(
+            "Forking a workspace on the cloud requires a paid team plan. Upgrade the workspace to create forks.".to_string(),
+        ));
+    }
+
+    let seats = count_paid_seats(db, &root).await?;
+    let per_seat = *MAX_FORKS_PER_SEAT;
+    // Any premium workspace has at least one paid seat, so floor the seat count at 1.
+    let allowed = seats.max(1) * per_seat;
+
+    let existing = count_workspace_forks(db, &root).await?;
+    if existing >= allowed {
+        return Err(Error::BadRequest(format!(
+            "Maximum number of forks reached ({existing}/{allowed}): a plan with {seats} paid seat(s) allows {per_seat} fork(s) per seat. Delete an existing fork or add seats to create more."
+        )));
+    }
+
+    Ok(())
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on app.windmill.dev"
-        )));
+        enforce_cloud_fork_cap(&db, &parent_workspace_id).await?;
     }
 
     if nw.is_dev_workspace {
@@ -5332,10 +5371,16 @@ async fn attach_dev_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // Attaching reparents an existing standalone workspace under prod (one dev per prod, admin-gated),
+    // so it draws prod's plan. Gate it behind prod being premium like the fork cap does.
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(
-            "Dev workspaces are not available on app.windmill.dev".to_string(),
-        ));
+        let plan = windmill_common::workspaces::get_team_plan_status(&db, &prod_w_id).await?;
+        if !plan.premium {
+            return Err(Error::BadRequest(
+                "Dev workspaces on the cloud require a paid team plan.".to_string(),
+            ));
+        }
     }
 
     let dev_w_id = req.dev_workspace_id;
@@ -5453,6 +5498,9 @@ async fn attach_dev_workspace(
     // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
     // so per-workspace job tags route to the prod family immediately rather than after the TTL.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    // Same reparent invalidates the billing-workspace mapping so its usage meters to prod at once.
+    #[cfg(feature = "cloud")]
+    windmill_common::workspaces::invalidate_billing_workspace_cache(&dev_w_id);
 
     if req.lock_prod_deploy || req.lock_prod_forking {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);

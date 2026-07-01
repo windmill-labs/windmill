@@ -348,8 +348,101 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "cloud")]
+lazy_static::lazy_static! {
+    // Maps a workspace id to its root (billing) ancestor. Value: (root_id, expiry_timestamp).
+    // Reparenting (attach/detach dev) is rare and self-heals via the 60s TTL, so a brief stale
+    // mapping only mis-attributes usage for <60s across other instances.
+    pub static ref BILLING_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
+}
+
+/// Resolve the "billing" workspace for `w_id`: the root ancestor of the fork/dev chain (the
+/// workspace whose plan and usage a fork draws from). Returns `w_id` unchanged for a standalone
+/// workspace, an unknown id, or a (malformed) cyclic chain.
+#[cfg(feature = "cloud")]
+pub async fn get_billing_workspace_id(db: &crate::DB, w_id: &str) -> Result<String> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some((root, expiry)) = BILLING_WORKSPACE_CACHE.get(w_id) {
+        if expiry > now {
+            return Ok(root);
+        }
+    }
+
+    let root = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT id AS "id!" FROM chain WHERE parent_workspace_id IS NULL LIMIT 1
+        "#,
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving billing workspace for {w_id}: {e:#}")))?
+    .unwrap_or_else(|| w_id.to_string());
+
+    BILLING_WORKSPACE_CACHE.insert(w_id.to_string(), (root.clone(), now + 60));
+    Ok(root)
+}
+
+/// Invalidate the billing-workspace mapping for a workspace (call after reparenting it).
+#[cfg(feature = "cloud")]
+pub fn invalidate_billing_workspace_cache(w_id: &str) {
+    BILLING_WORKSPACE_CACHE.remove(w_id);
+}
+
+/// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).
+#[cfg(feature = "cloud")]
+pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
+    let count = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE NOT w.deleted AND tree.depth < 20
+            )
+            SELECT COUNT(*) AS "count!" FROM tree WHERE id != $1
+        "#,
+        root
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting forks of {root}: {e:#}")))?;
+    Ok(count)
+}
+
+/// Paid (developer) seats of a workspace: `ceil(developers + operators/2)`, excluding disabled and
+/// service-account members. Mirrors the cloud billing seat calculation.
+#[cfg(feature = "cloud")]
+pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
+    let row = sqlx::query!(
+        r#"SELECT
+            COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
+            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!"
+        FROM usr WHERE workspace_id = $1"#,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting paid seats of {w_id}: {e:#}")))?;
+    Ok(((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64)
+}
+
+#[cfg(feature = "cloud")]
 pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPlanStatus> {
-    let cached = TEAM_PLAN_CACHE.get(_w_id);
+    // A fork/dev workspace draws its plan from the root (billing) workspace. Resolve to the root and
+    // key the cache by it: the premium-change NOTIFY is keyed by the workspace whose premium row
+    // changed (the root), so keying by root keeps invalidation correct and lets forks share it.
+    let billing_w_id = get_billing_workspace_id(_db, _w_id).await?;
+    let cached = TEAM_PLAN_CACHE.get(&billing_w_id);
     if let Some(cached) = cached {
         return Ok(cached);
     }
@@ -368,7 +461,7 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
                 WHERE
                     w.id = $1
             "#,
-            _w_id
+            billing_w_id
         )
         .fetch_optional(_db)
         .await
@@ -380,13 +473,13 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
     )
     .notify(|err, dur| {
         tracing::error!(
-            "Failed to get team plan status for workspace {_w_id} (will retry in {dur:?}): {err:#}"
+            "Failed to get team plan status for workspace {billing_w_id} (will retry in {dur:?}): {err:#}"
         );
     })
     .await
     .map_err(|err| {
         Error::internal_err(format!(
-            "Failed to get team plan status for workspace {_w_id} after 10 retries: {err:#}"
+            "Failed to get team plan status for workspace {billing_w_id} after 10 retries: {err:#}"
         ))
     })?
     .unwrap_or_else(|| TeamPlanStatus {
@@ -395,7 +488,7 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
         max_tolerated_executions: None,
     });
 
-    TEAM_PLAN_CACHE.insert(_w_id.to_string(), team_plan_info.clone());
+    TEAM_PLAN_CACHE.insert(billing_w_id, team_plan_info.clone());
 
     Ok(team_plan_info)
 }
