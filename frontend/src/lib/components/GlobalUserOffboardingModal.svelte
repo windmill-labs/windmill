@@ -118,8 +118,17 @@
 				: undefined
 	}
 
+	// At least one workspace can be reassigned (has another assignable user).
+	let anyReassignableWorkspace = $derived(
+		workspacesWithItems.some((wp) => (wsConfigs[wp.workspace_id]?.users.length ?? 0) > 0)
+	)
+	// At least one workspace is actually selected for reassignment.
+	let anyWorkspaceReassigned = $derived(
+		workspacesWithItems.some((wp) => wsConfigs[wp.workspace_id]?.reassign)
+	)
+
 	let canSubmit = $derived(
-		!doReassign ||
+		(!doReassign ||
 			workspacesWithItems.every((wp) => {
 				const cfg = wsConfigs[wp.workspace_id]
 				if (!cfg?.reassign) return true
@@ -127,7 +136,10 @@
 				if (!target) return false
 				if (!cfg?.selectedOperator) return false
 				return true
-			})
+			})) &&
+			// Reassign-only runs (no deletion) must reassign at least one workspace,
+			// otherwise the request is an empty no-op reported as success.
+			(deleteUser || anyWorkspaceReassigned)
 	)
 
 	async function submit() {
@@ -319,7 +331,11 @@
 					{/if}
 
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						{#if workspacesWithItems.length > 0 || deleteUser}
+						{#if !deleteUser && workspacesWithItems.length > 0 && !anyReassignableWorkspace}
+							{#if !loading}
+								<Button onclick={onClose} variant="accent" size="sm">Close</Button>
+							{/if}
+						{:else if workspacesWithItems.length > 0 || deleteUser}
 							<Button
 								disabled={submitting || !canSubmit}
 								onclick={submit}
