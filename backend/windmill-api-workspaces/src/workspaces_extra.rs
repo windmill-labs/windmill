@@ -1063,14 +1063,20 @@ pub(crate) async fn delete_workspace(
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent);
     }
 
-    // Fork ids are reusable after permanent deletion, so drop the cached fork->parent (tag routing)
-    // and fork->root (billing) mappings for the deleted id and any just-orphaned children — otherwise a
-    // recreated id under a different root, or an orphaned child, could resolve to the gone parent/root
-    // within the caches' TTLs. Deeper (grandchild) descendants self-heal via the 60s billing TTL.
+    // Workspace ids are reusable after permanent deletion, so drop every cached mapping keyed by the
+    // deleted id (and any just-orphaned children) — otherwise a recreated id could inherit the gone
+    // workspace's state within the caches' lifetimes. This covers fork->parent (tag routing) and
+    // fork->root (billing), plus the premium/team-plan status: TEAM_PLAN_CACHE has no TTL and is only
+    // evicted by the premium-change NOTIFY, so without this a reused id would keep the old workspace's
+    // premium indefinitely (free forks/usage). Deeper (grandchild) descendants self-heal via the 60s
+    // billing TTL.
     for id in std::iter::once(&w_id).chain(orphaned_children.iter()) {
         windmill_queue::tags::invalidate_fork_parent_cache(id);
         #[cfg(feature = "cloud")]
-        windmill_common::workspaces::invalidate_billing_workspace_cache(id);
+        {
+            windmill_common::workspaces::invalidate_billing_workspace_cache(id);
+            windmill_common::workspaces::invalidate_team_plan_cache(id);
+        }
     }
 
     Ok(format!("Deleted workspace {}", &w_id))

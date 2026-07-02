@@ -371,6 +371,10 @@ pub async fn get_billing_workspace_id(db: &crate::DB, w_id: &str) -> Result<Stri
         }
     }
 
+    // The depth bound is a cycle-safety backstop, not a real nesting limit: fork chains are a handful
+    // of levels deep in practice, and the walk stops as soon as it reaches the NULL-parent root. It's
+    // set high enough that a truncated (root-not-found) result — which would fall back to `w_id` and
+    // mis-attribute billing — is unreachable for any real hierarchy.
     let root = sqlx::query_scalar!(
         r#"
             WITH RECURSIVE chain AS (
@@ -380,7 +384,7 @@ pub async fn get_billing_workspace_id(db: &crate::DB, w_id: &str) -> Result<Stri
                 SELECT w.id, w.parent_workspace_id, chain.depth + 1
                 FROM workspace w
                 JOIN chain ON w.id = chain.parent_workspace_id
-                WHERE chain.depth < 20
+                WHERE chain.depth < 1000
             )
             SELECT id AS "id!" FROM chain WHERE parent_workspace_id IS NULL LIMIT 1
         "#,
@@ -401,6 +405,14 @@ pub fn invalidate_billing_workspace_cache(w_id: &str) {
     BILLING_WORKSPACE_CACHE.remove(w_id);
 }
 
+/// Invalidate the cached team-plan (premium/past-due) status for a workspace. `TEAM_PLAN_CACHE` has
+/// no TTL — it's only evicted by the premium-change NOTIFY — so call this when a workspace id is
+/// permanently deleted, otherwise a reused id could inherit the old workspace's premium status.
+#[cfg(feature = "cloud")]
+pub fn invalidate_team_plan_cache(w_id: &str) {
+    TEAM_PLAN_CACHE.remove(w_id);
+}
+
 /// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).
 ///
 /// Unauthenticated metering helper: it reads workspace hierarchy for any `root` id, so callers must
@@ -409,7 +421,9 @@ pub fn invalidate_billing_workspace_cache(w_id: &str) {
 #[cfg(feature = "cloud")]
 pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
     // The `deleted` filter is on the outer SELECT (not the recursive step) so that a live sub-fork
-    // whose intermediate parent was soft-deleted is still counted rather than pruned with it.
+    // whose intermediate parent was soft-deleted is still counted rather than pruned with it. The
+    // depth bound is a cycle-safety backstop set well above any real nesting, so descendants are never
+    // silently dropped from the cap count.
     let count = sqlx::query_scalar!(
         r#"
             WITH RECURSIVE tree AS (
@@ -417,7 +431,7 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
                 UNION ALL
                 SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
                 JOIN tree ON w.parent_workspace_id = tree.id
-                WHERE tree.depth < 20
+                WHERE tree.depth < 1000
             )
             SELECT COUNT(*) AS "count!" FROM tree WHERE id != $1 AND NOT deleted
         "#,
