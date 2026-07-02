@@ -49,10 +49,8 @@ export interface TriggerDraftSync {
 	 */
 	readonly hasDraft: boolean
 	/**
-	 * Whether a deployed baseline exists, i.e. the banner *can* toggle on/off
-	 * for this trigger. Reactive (unlike reading `deployed` directly, which the
-	 * editors back with a plain `let`), so the banner can reserve its slot up
-	 * front and keep the "unsaved changes" state from shifting the content below.
+	 * Whether a deployed baseline exists (banner can appear). Reactive, unlike
+	 * reading `deployed` directly (a plain `let`), so callers can reserve its slot.
 	 */
 	readonly hasBaseline: boolean
 	/** The deployed baseline the dirty check compares against. */

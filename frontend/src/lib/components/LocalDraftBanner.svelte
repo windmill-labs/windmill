@@ -26,11 +26,8 @@
 		/** Diff drawer title. */
 		title?: string
 		/**
-		 * Whether to reserve the banner's fixed-height slot (so toggling the
-		 * "unsaved changes" state doesn't shift the content below). Pass this when
-		 * `getDeployed()` reads a non-reactive source (the trigger editors back
-		 * their baseline with a plain `let`); otherwise it defaults to
-		 * `getDeployed() != null`, which is reactive for `$state`-backed baselines.
+		 * Reserve the banner's fixed-height slot so toggling it doesn't shift content.
+		 * Pass when `getDeployed()` is non-reactive; else defaults to `getDeployed() != null`.
 		 */
 		reserveSpace?: boolean
 	}
@@ -58,11 +55,9 @@
 		}
 	}
 
-	// A deployed baseline means the banner *can* toggle on/off while the
-	// user edits this entity, so we reserve its fixed-height slot up front
-	// (see the template) to keep the banner appearing/disappearing from
-	// shifting the content below. Brand-new entities have no baseline — the
-	// banner can never show there, so we reserve nothing and add no gap.
+	// Whether the banner can appear (a deployed baseline exists). Gates the
+	// reserved slot below so toggling it doesn't shift content; new entities
+	// have none, so no slot and no gap.
 	let hasBaseline = $derived(reserveSpace ?? getDeployed() != null)
 
 	// Suppress the banner when:
@@ -114,11 +109,9 @@
 <DiffDrawer bind:this={diffDrawer} />
 
 {#if hasBaseline}
-	<!-- The banner is h-8 (action-button height + a couple px so the buttons don't
-	     touch the edges). We reserve only about a THIRD of that height when idle
-	     (h-2.5) and grow to the full h-8 when the banner shows: this keeps the empty
-	     gap small when there are no unsaved changes while limiting the content shift
-	     on appear to ~22px. The height animates so the shift reads as a smooth expand. -->
+	<!-- Reserve ~a third of the banner height when idle (h-2.5), grow to the full
+	     h-8 when it shows: small idle gap, ~22px animated shift on appear. h-8 =
+	     button height + a couple px so the buttons don't touch the edges. -->
 	<div class={twMerge('shrink-0 transition-[height] duration-150', visible ? 'h-8' : 'h-2.5')}>
 		{#if visible}
 			<div

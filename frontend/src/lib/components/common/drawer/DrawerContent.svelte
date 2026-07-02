@@ -25,11 +25,8 @@
 		/** Rendered fixed below the header, above the scrollable content. */
 		banner?: import('svelte').Snippet
 		/**
-		 * Whether the `banner` is actually reserving vertical space (its baseline
-		 * exists so it can appear). Only then does the content hug it with a tight
-		 * top padding; for new entities where the banner can never show, the content
-		 * keeps normal padding. Defaults to false so a bannerless-but-passed snippet
-		 * doesn't compress the top.
+		 * Whether the `banner` reserves space (its baseline exists). Only then does
+		 * the content hug it with tight top padding; new entities keep normal padding.
 		 */
 		bannerReserved?: boolean
 		children?: import('svelte').Snippet
@@ -110,11 +107,9 @@
 	{/snippet}
 
 	{#if banner}
-		<!-- Banner + content share one `divide-y` cell so the header keeps its single
-		     divider and the banner's reserved-height slot doesn't get bracketed into a
-		     bordered empty strip when no banner is shown. The reserved slot already
-		     separates the banner from the content, so the content hugs it with a tight
-		     top padding. -->
+		<!-- Banner + content share one `divide-y` cell: the header keeps its single
+		     divider (no bordered strip around the reserved slot) and the content hugs
+		     the slot with tight top padding (see `contentBox`/`bannerReserved`). -->
 		<div class="flex flex-col grow min-h-0 max-h-full">
 			{@render banner()}
 			{@render contentBox(bannerReserved)}
