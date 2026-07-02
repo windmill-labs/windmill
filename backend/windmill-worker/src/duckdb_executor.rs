@@ -1534,6 +1534,39 @@ mod tests {
         assert!(!rewritten.contains("-- $file"));
     }
 
+    // A `// partitioned` script referencing `$partition` needs no manual
+    // `-- $partition (text)` declaration: the parser auto-declares the arg, so
+    // the executor binds the injected `partition` job arg instead of failing
+    // with duckdb's "Wrong number of parameters" at prepare time.
+    #[test]
+    fn partitioned_auto_declares_partition_arg() {
+        let script = "// partitioned daily\n\
+                      // materialize ducklake://main/sales_daily\n\
+                      SELECT $partition AS day, count(*) AS n FROM dl.sales WHERE day = $partition";
+
+        let sig = parse_duckdb_sig(script).expect("sig parses").args;
+        let partition_arg = sig
+            .iter()
+            .find(|a| a.name == "partition")
+            .expect("`partition` auto-declared");
+        assert_eq!(partition_arg.otyp.as_deref(), Some("text"));
+
+        // The wrapped query keeps the `$partition` references so the parsed sig
+        // binds them at run time.
+        let (rewritten, _) = build_materialized_query(
+            script,
+            Some("2026-07-02"),
+            &std::collections::HashMap::new(),
+        )
+        .expect("materialize builds")
+        .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(
+            rewritten.contains("$partition"),
+            "wrapped query must keep the `$partition` reference, got:\n{rewritten}"
+        );
+    }
+
     // SCD2 managed mode wraps the SELECT into the diff → close-old → open-new
     // shape (unit-covered in the parser's codegen tests); here we pin the
     // executor-level wiring: the natural key flows through and the wrap is

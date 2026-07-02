@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.745.0](https://github.com/windmill-labs/windmill/compare/v1.744.0...v1.745.0) (2026-07-01)
+
+
+### Features
+
+* **forks:** partial-visibility deploy + surface hidden items ([#9868](https://github.com/windmill-labs/windmill/issues/9868)) ([20cd1a0](https://github.com/windmill-labs/windmill/commit/20cd1a02d582c0715bedacce52cc5c1e1e8d70ca))
+* **frontend:** add zoom and download to Mermaid graphs ([#9859](https://github.com/windmill-labs/windmill/issues/9859)) ([289017b](https://github.com/windmill-labs/windmill/commit/289017bcb28c049c8258b2ffd7da0ec3e6ef120b))
+* use derived username instead of email for non-member superadmins ([#9857](https://github.com/windmill-labs/windmill/issues/9857)) ([76a9523](https://github.com/windmill-labs/windmill/commit/76a95230095ca3f43c9dc9eecde0e9de6520242f))
+
+
+### Bug Fixes
+
+* **cli:** correct misleading delete-fork command description ([#9870](https://github.com/windmill-labs/windmill/issues/9870)) ([a73b14d](https://github.com/windmill-labs/windmill/commit/a73b14d902d759226d0af2f2faf9bdd6588e358c))
+* **folders:** allow dots and at-signs in folder owner validation ([#9856](https://github.com/windmill-labs/windmill/issues/9856)) ([383c705](https://github.com/windmill-labs/windmill/commit/383c70523bf81c5c07784a4379ef6b1c93ff86e5))
+* **forks:** require admin of both sides for the compare visibility guard ([#9869](https://github.com/windmill-labs/windmill/issues/9869)) ([7363d2c](https://github.com/windmill-labs/windmill/commit/7363d2c217cb04391f03b2f9958be70a9d0b5325))
+* **forks:** reset diff tally on trigger delete + guard compare visibility for admins ([#9866](https://github.com/windmill-labs/windmill/issues/9866)) ([6a6f129](https://github.com/windmill-labs/windmill/commit/6a6f12960e29c314d11ad541519c71412f42567b))
+* **jobs:** give flow dynselect a path and its worker tag, like scripts ([#9867](https://github.com/windmill-labs/windmill/issues/9867)) ([1a9debb](https://github.com/windmill-labs/windmill/commit/1a9debb689f756f38db085d1360c8fe7691ada48))
+* **offboarding:** make global reassignment per-workspace and optional ([#9863](https://github.com/windmill-labs/windmill/issues/9863)) ([3586164](https://github.com/windmill-labs/windmill/commit/35861641f807a02b5c205608fb592e20ee7cad7f))
+
 ## [1.744.0](https://github.com/windmill-labs/windmill/compare/v1.743.0...v1.744.0) (2026-07-01)
 
 

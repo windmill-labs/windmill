@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) as \"username?\",\n                  d.created_at as \"draft_saved_at!\"\n           FROM draft d\n           LEFT JOIN usr u\n                  ON u.workspace_id = d.workspace_id\n                 AND u.email = d.email\n           WHERE d.workspace_id = $1\n             AND d.path = $2\n             AND d.typ = $3\n             AND (d.email IS NULL OR d.email <> $4)\n           ORDER BY d.email NULLS LAST",
+  "query": "SELECT COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) as \"username?\",\n                  d.created_at as \"draft_saved_at!\"\n           FROM draft d\n           LEFT JOIN usr u\n                  ON u.workspace_id = d.workspace_id\n                 AND u.email = d.email\n           LEFT JOIN password p\n                  ON p.email = d.email\n                 AND p.super_admin = true\n           WHERE d.workspace_id = $1\n             AND d.path = $2\n             AND d.typ = $3\n             AND (d.email IS NULL OR d.email <> $4)\n           ORDER BY d.email NULLS LAST",
   "describe": {
     "columns": [
       {
@@ -60,5 +60,5 @@
       false
     ]
   },
-  "hash": "6fbd5826ae1fafd7bbb218324e3e2d85231b889743de637eb35e756da29ad47b"
+  "hash": "4efaa4c3c14987fe95a508cc0cbac91ee793ad6f5ceed5b3eda9b48617c5434d"
 }

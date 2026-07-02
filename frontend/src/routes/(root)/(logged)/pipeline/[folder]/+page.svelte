@@ -1867,6 +1867,16 @@
 		}
 	)
 
+	// Folder whose graph is actually rendered. `graphRes.current` is stale-
+	// while-revalidate on an in-place folder switch, so keying the canvas's
+	// one-shot initial fit on the route param would fire the new folder's fit
+	// on the old graph and leave the fresh one unfitted. `folder` is read
+	// untracked: the key must move only when a graph lands.
+	let viewportFitFolder = $state('')
+	$effect(() => {
+		if (graphRes.current) untrack(() => (viewportFitFolder = folder))
+	})
+
 	// Body / inferred-assets prefetch sweep. Watches `g.runnables`; for any
 	// non-draft path we haven't fetched yet, fetches `getScriptByPath` and
 	// `inferAssets`, and stores both in their respective only-add caches.
@@ -2121,6 +2131,7 @@
 			<PipelineGraphEditor
 				editor={pe}
 				{folder}
+				viewportFitKey={viewportFitFolder}
 				persistDrafts={true}
 				{displayGraph}
 				{mode}

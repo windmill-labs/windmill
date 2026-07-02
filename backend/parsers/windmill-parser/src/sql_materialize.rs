@@ -667,6 +667,7 @@ pub fn build_wrap_blocks(
     tests: &[DataTestResolved],
 ) -> Result<Vec<String>, String> {
     let target_qualified = format!("{TARGET_ALIAS}.{target_table}");
+    let scd2 = matches!(strategy, MaterializeStrategy::Scd2 { .. });
     let cg = MaterializeCodegen {
         target_qualified: &target_qualified,
         select_sql: &plan.output,
@@ -681,6 +682,7 @@ pub fn build_wrap_blocks(
         partition_col,
         partition_value_sql,
         partitioned,
+        scd2,
     };
     let test_sql = build_data_test_checks(tests, &ctx)?;
     let mut blocks: Vec<String> = Vec::new();
@@ -845,6 +847,11 @@ pub struct DataTestCtx<'a> {
     pub partition_value_sql: &'a str,
     /// Whether the target is partitioned (scopes probes to the slice).
     pub partitioned: bool,
+    /// Whether the target is an SCD2 history table. Built-in probes then assert
+    /// the *current snapshot* (`is_current` rows): the history legitimately
+    /// repeats the natural key across closed versions, so an unscoped
+    /// `unique(<key>)` would fail on the second change of any key.
+    pub scd2: bool,
 }
 
 /// A data test resolved enough to generate SQL. Built-ins carry only their
@@ -905,17 +912,31 @@ fn quote_lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
-// The `WHERE`/`AND` fragment scoping a probe to the current partition, or
-// empty when unpartitioned. `prefix` is `WHERE ` or `AND ` per call site.
+// The `WHERE`/`AND` fragment scoping a probe to the current partition and/or
+// the SCD2 current snapshot, or empty when neither applies. `prefix` is
+// `WHERE ` or `AND ` per call site; further conditions chain with `AND`.
+// (`partitioned` and `scd2` are mutually exclusive today — the combo is
+// rejected at codegen — but the chaining keeps this correct if that changes.)
 fn partition_scope(ctx: &DataTestCtx, prefix: &str, table_alias: Option<&str>) -> String {
-    if !ctx.partitioned {
+    let qualify = |col: String| match table_alias {
+        Some(a) => format!("{a}.{col}"),
+        None => col,
+    };
+    let mut conds: Vec<String> = Vec::new();
+    if ctx.partitioned {
+        conds.push(format!(
+            "{} = {}",
+            qualify(quote_ident(ctx.partition_col)),
+            ctx.partition_value_sql
+        ));
+    }
+    if ctx.scd2 {
+        conds.push(qualify(SCD2_IS_CURRENT.to_string()));
+    }
+    if conds.is_empty() {
         return String::new();
     }
-    let col = match table_alias {
-        Some(a) => format!("{a}.{}", quote_ident(ctx.partition_col)),
-        None => quote_ident(ctx.partition_col),
-    };
-    format!("{prefix}{col} = {}", ctx.partition_value_sql)
+    format!("{prefix}{}", conds.join(" AND "))
 }
 
 // Record one check: its display `name` plus `count_query` (which yields a
@@ -1472,10 +1493,14 @@ mod tests {
             partition_col: "_wm_partition",
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
+            scd2: false,
         }
     }
     fn ctx_unpartitioned() -> DataTestCtx<'static> {
         DataTestCtx { partitioned: false, ..ctx_partitioned() }
+    }
+    fn ctx_scd2() -> DataTestCtx<'static> {
+        DataTestCtx { partitioned: false, scd2: true, ..ctx_partitioned() }
     }
 
     #[test]
@@ -1514,6 +1539,30 @@ mod tests {
         })];
         let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
         assert!(sql.checks[0].violating.contains("WHERE \"id\" IS NULL"));
+        assert!(!sql.checks[0].violating.contains("_wm_partition"));
+    }
+
+    #[test]
+    fn data_test_scd2_scopes_builtins_to_current_rows() {
+        // On an SCD2 history table the natural key repeats across closed
+        // versions, so built-in probes must assert the current snapshot only.
+        let tests = vec![
+            DataTestResolved::BuiltIn(DataTest::Unique { column: "customer_id".into() }),
+            DataTestResolved::BuiltIn(DataTest::NotNull { column: "tier".into() }),
+            DataTestResolved::BuiltIn(DataTest::AcceptedValues {
+                column: "region".into(),
+                values: vec!["emea".into()],
+            }),
+        ];
+        let sql = build_data_test_checks(&tests, &ctx_scd2()).unwrap();
+        assert!(sql.checks[0]
+            .violating
+            .contains("WHERE \"customer_id\" IS NOT NULL AND is_current"));
+        assert!(sql.checks[1]
+            .violating
+            .contains("WHERE \"tier\" IS NULL AND is_current"));
+        assert!(sql.checks[2].violating.contains("AND is_current"));
+        // no partition scope leaks in (scd2 is unpartitioned in v1)
         assert!(!sql.checks[0].violating.contains("_wm_partition"));
     }
 

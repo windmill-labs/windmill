@@ -781,7 +781,7 @@
 			}}
 		/>
 		<div class="flex flex-col gap-8">
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-semibold text-emphasis">Summary</span>
@@ -807,7 +807,7 @@
 							bind:value={summary}
 						/>
 					</label>
-					<LabelsInput bind:labels />
+					<LabelsInput bind:labels class="-mt-4" />
 
 					<div class="flex flex-col gap-1">
 						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
@@ -1380,6 +1380,7 @@
 {#if useDrawer}
 	<Drawer size="900px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit schedule ${initialPath}`
@@ -1396,6 +1397,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}

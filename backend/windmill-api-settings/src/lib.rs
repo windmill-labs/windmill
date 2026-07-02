@@ -869,6 +869,37 @@ async fn run_setting_pre_write_hook(
                             err
                         ))
                     })?;
+            } else {
+                // Disabling is only allowed before any instance-wide username has been
+                // assigned. Once usernames exist they are globally unique and are baked
+                // into stored `u/<username>` identities (schedules, triggers, drafts,
+                // and non-member superadmin ownership). Disabling would drop back to
+                // workspace-local username uniqueness, letting a member reuse an
+                // existing instance username and silently take over those identities —
+                // so the setting is effectively one-way once derivation has taken
+                // effect. Re-saving `false` on an already-disabled instance is a no-op
+                // and stays allowed (guarded by the current-value check).
+                let currently_enabled = sqlx::query_scalar!(
+                    "SELECT value FROM global_settings WHERE name = $1",
+                    AUTOMATE_USERNAME_CREATION_SETTING
+                )
+                .fetch_optional(db)
+                .await?
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+                if currently_enabled {
+                    let usernames_exist = sqlx::query_scalar!(
+                        "SELECT EXISTS(SELECT 1 FROM password WHERE username IS NOT NULL)"
+                    )
+                    .fetch_one(db)
+                    .await?
+                    .unwrap_or(false);
+                    if usernames_exist {
+                        return Err(error::Error::BadRequest(
+                            "automate_username_creation cannot be disabled once instance-wide usernames have been assigned: existing u/<username> identities (schedules, triggers, drafts, superadmin ownership) rely on those usernames staying stable and globally unique.".to_string(),
+                        ));
+                    }
+                }
             }
         }
         CRITICAL_ALERT_MUTE_UI_SETTING => {
