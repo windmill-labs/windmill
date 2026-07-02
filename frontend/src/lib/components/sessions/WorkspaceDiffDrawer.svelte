@@ -32,7 +32,12 @@
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
 	import OnBehalfOfSelector from '../OnBehalfOfSelector.svelte'
-	import ParentWorkspaceProtectionAlert from '../ParentWorkspaceProtectionAlert.svelte'
+	import type { ProtectionRuleset } from '$lib/gen'
+	import {
+		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets,
+		getActiveRulesetsForKindInRulesets
+	} from '$lib/workspaceProtectionRules.svelte'
 	import {
 		actionFor,
 		badgeOf,
@@ -70,9 +75,33 @@
 	let searchQuery = $state('')
 	let diffStyle = $state<'sbs' | 'inline'>('sbs')
 	const inlineDiff = $derived(diffStyle === 'inline')
-	// Parent-workspace protection: when direct deploy is disallowed, the per-row
-	// parent deploy is blocked and the user routes through the compare page.
-	let canDeployToParent = $state(true)
+	// Parent-workspace protection: a DisableDirectDeployment rule on the parent
+	// blocks per-row parent deploys. Rather than a banner, the reason surfaces on
+	// the disabled "Deploy to parent" button's hover (see parentProtectionReason).
+	let parentRulesets = $state<ProtectionRuleset[]>([])
+	$effect(() => {
+		const pid = model.context.isFork ? model.context.parentWorkspaceId : undefined
+		if (!pid) {
+			parentRulesets = []
+			return
+		}
+		untrack(async () => {
+			parentRulesets = await fetchProtectionRulesForWorkspace(pid)
+		})
+	})
+	const canDeployToParent = $derived(
+		!isRuleActiveInRulesets(parentRulesets, 'DisableDirectDeployment')
+	)
+	const parentProtectionReason = $derived.by(() => {
+		const rs = getActiveRulesetsForKindInRulesets(parentRulesets, 'DisableDirectDeployment')
+		if (rs.length === 0) return undefined
+		const plural = rs.length > 1
+		return `The workspace ${model.context.parentWorkspaceId} has a protection rule${plural ? 's' : ''} ${rs
+			.map((r) => r.name)
+			.join(
+				', '
+			)} that restrict${plural ? '' : 's'} direct deployments. You need to merge changes through the synced git repo with Git Sync, or by asking a user with the rights to bypass this rule.`
+	})
 
 	// The sidebar's inner right padding must ADAPT to the reserved scrollbar
 	// gutter (platform-dependent: 0 for overlay scrollbars, ~15px classic) so
@@ -207,21 +236,6 @@
 		return (searchedEntries ?? []) as DisplayEntry[]
 	})
 
-	// The main panel keeps one block per deploy item (the raw-app block carries
-	// the deploy header + stacked per-file sub-diffs). During search an app stays
-	// visible when any of its files matched.
-	const filteredItems = $derived.by(() => {
-		if (!searchActive) return segmentItems
-		const keep = new Set<string>()
-		for (const e of filteredEntries) {
-			if (isSynthetic(e)) {
-				const app = appByPath.get(e.appPath)
-				if (app) keep.add(app.key)
-			} else keep.add(e.key)
-		}
-		return segmentItems.filter((d) => keep.has(d.key))
-	})
-
 	// File names inside unexpanded apps don't exist client-side until the app's
 	// values load — a live search loads every raw app so matches are complete.
 	$effect(() => {
@@ -260,14 +274,62 @@
 		)
 	)
 
+	// Content blocks follow the sidebar's order: walk the tree (all folders open,
+	// so collapsing the sidebar never hides a block) and emit each owning deploy
+	// item once, so the diff column top-to-bottom matches the tree.
+	const orderedItems = $derived.by(() => {
+		const seen = new Set<string>()
+		const out: DeployItem[] = []
+		for (const entry of treeModel.order(() => true)) {
+			if (entry.type !== 'file') continue
+			const item = isSynthetic(entry.data) ? appByPath.get(entry.data.appPath) : entry.data
+			if (item && !seen.has(item.key)) {
+				seen.add(item.key)
+				out.push(item)
+			}
+		}
+		return out
+	})
+
 	function rowId(d: DeployItem): string {
 		return `ws-diff-${d.key}`
 	}
 
+	// Smooth-scroll the row's header flush to the top. Native scrollIntoView lands
+	// short here because lazily-mounted diffs grow the list mid-scroll; instead we
+	// ease toward the target and re-measure it every frame, so the animation stays
+	// smooth while still landing flush once the layout settles. Bails on user scroll.
 	function scrollToDiff(d: DeployItem) {
 		const el = document.getElementById(rowId(d))
-		if (!el) return
-		el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+		const container = mainScrollEl
+		if (!el || !container) return
+		// Each row carries a 1px divide-y top border; land it just above the fold so
+		// it tucks under the drawer's header divider instead of doubling up with it.
+		const border = parseFloat(getComputedStyle(el).borderTopWidth) || 0
+		let frames = 0
+		let settled = 0
+		let cancelled = false
+		const cancel = () => (cancelled = true)
+		container.addEventListener('wheel', cancel, { once: true, passive: true })
+		container.addEventListener('touchstart', cancel, { once: true, passive: true })
+		const teardown = () => {
+			container.removeEventListener('wheel', cancel)
+			container.removeEventListener('touchstart', cancel)
+		}
+		const step = () => {
+			if (cancelled) return teardown()
+			const off = el.getBoundingClientRect().top - container.getBoundingClientRect().top + border
+			if (Math.abs(off) < 1) {
+				if (++settled >= 2) return teardown()
+			} else {
+				settled = 0
+				// Ease-out for the long haul; snap the final approach so it settles fast.
+				container.scrollTop += Math.abs(off) < 20 ? off : Math.round(off * 0.22)
+			}
+			if (frames++ < 120) requestAnimationFrame(step)
+			else teardown()
+		}
+		step()
 	}
 
 	function revealDiff(d: DeployItem, key?: string) {
@@ -420,6 +482,27 @@
 	}
 	let loadedDiffs: Record<string, LoadedDiff> = $state({})
 	let mainScrollEl: HTMLElement | undefined = $state()
+	// Visible height of the scroll area, used to size the trailing spacer so the
+	// last item can always be scrolled until its header reaches the top.
+	let mainHeight = $state(0)
+	// The trailing spacer only needs to cover the gap the last item can't fill on
+	// its own: viewport − lastItemHeight (0 when the item already fills the view).
+	// Reserving the full viewport would let you scroll a whole item-height into
+	// blank space past the end. A ResizeObserver keeps it right as the row grows.
+	let lastRowHeight = $state(0)
+	$effect(() => {
+		const last = orderedItems.at(-1)
+		const el = last && mainScrollEl ? document.getElementById(rowId(last)) : undefined
+		if (!el) {
+			lastRowHeight = 0
+			return
+		}
+		lastRowHeight = el.offsetHeight
+		const ro = new ResizeObserver(() => (lastRowHeight = el.offsetHeight))
+		ro.observe(el)
+		return () => ro.disconnect()
+	})
+	const trailingSpace = $derived(Math.max(0, mainHeight - lastRowHeight))
 	let mountedRows: Record<string, boolean> = $state({})
 	const MOUNT_MARGIN = '200px 0px'
 
@@ -883,16 +966,6 @@
 			</ToggleButtonGroup>
 		{/snippet}
 		<div class="flex flex-col h-full min-h-0">
-			{#if model.context.isFork && model.context.parentWorkspaceId}
-				<!-- Horizontal padding only: collapses to zero height (no gap) when the
-				     alert renders nothing, which is the case unless a rule is active. -->
-				<div class="shrink-0 px-3">
-					<ParentWorkspaceProtectionAlert
-						parentWorkspaceId={model.context.parentWorkspaceId}
-						onUpdateCanDeploy={(c) => (canDeployToParent = c)}
-					/>
-				</div>
-			{/if}
 			<div class="flex flex-row flex-1 min-h-0">
 				{#if model.items.length > 0}
 					<aside
@@ -934,7 +1007,11 @@
 						</div>
 					</aside>
 				{/if}
-				<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
+				<main
+					bind:this={mainScrollEl}
+					bind:clientHeight={mainHeight}
+					class="flex-1 min-w-0 overflow-y-auto"
+				>
 					<div class="px-3 pt-0 pb-4 flex flex-col gap-3">
 						{#if model.loading && model.items.length === 0}
 							<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
@@ -947,15 +1024,17 @@
 							<div class="text-sm text-secondary py-4">{model.notice}</div>
 						{:else if model.items.length === 0}
 							<div class="text-sm text-secondary py-4">No changes.</div>
-						{:else if filteredItems.length === 0}
+						{:else if orderedItems.length === 0}
 							<div class="text-sm text-secondary py-4">No files match.</div>
 						{:else}
-							<div class="-mx-3 flex flex-col divide-y divide-light border-y border-light">
-								{#each filteredItems as d (d.key)}
+							<div
+								class="-mx-3 -mt-[1px] flex flex-col divide-y divide-light border-y border-light"
+							>
+								{#each orderedItems as d (d.key)}
 									{@const action = actionFor(d, model.context)}
 									{@const editUrl = editUrlFor?.(d)}
 									{@const status = model.statusOf(d.key)}
-									<div id={rowId(d)} class="bg-surface scroll-mt-2">
+									<div id={rowId(d)} class="bg-surface">
 										<div
 											class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 border-b border-transparent"
 										>
@@ -1027,7 +1106,8 @@
 															: needsOb
 																? 'Choose "run on behalf of" first'
 																: parentBlocked
-																	? 'Direct deploy to the parent is disabled — deploy from the compare page'
+																	? (parentProtectionReason ??
+																		'Direct deploy to the parent is disabled — deploy from the compare page')
 																	: undefined}
 														onclick={() => model.deployRow(d)}
 													>
@@ -1057,6 +1137,9 @@
 									</div>
 								{/each}
 							</div>
+							<!-- Just enough trailing room for the last item to reach the top;
+							     without it the container bottoms out and short lists sit low. -->
+							<div aria-hidden="true" class="shrink-0" style="height: {trailingSpace}px"></div>
 						{/if}
 					</div>
 				</main>
