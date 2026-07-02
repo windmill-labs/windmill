@@ -781,7 +781,7 @@
 			}}
 		/>
 		<div class="flex flex-col gap-8">
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-semibold text-emphasis">Summary</span>

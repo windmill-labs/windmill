@@ -535,7 +535,7 @@
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
 			{/if}
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<Label label="Summary" for="summary">
 						<!-- svelte-ignore a11y_autofocus -->

@@ -395,7 +395,7 @@
 			{/if}
 		</div>
 		<div class="flex flex-col gap-12 mt-6">
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-semibold text-emphasis">Summary</span>
