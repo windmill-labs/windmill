@@ -21,6 +21,9 @@
 	}
 
 	async function renameWorkspace() {
+		if (!newName || newName === currentName) {
+			return
+		}
 		await WorkspaceService.changeWorkspaceName({
 			workspace: $workspaceStore!,
 			requestBody: {
@@ -41,7 +44,15 @@
 			bind:value={newName}
 			size="sm"
 			class="max-w-xs"
-			inputProps={{ placeholder: 'Workspace name', 'aria-label': 'Workspace name' }}
+			inputProps={{
+				placeholder: 'Workspace name',
+				'aria-label': 'Workspace name',
+				onkeydown: (e) => {
+					if (e.key === 'Enter') {
+						renameWorkspace()
+					}
+				}
+			}}
 		/>
 		<Button
 			size="sm"
