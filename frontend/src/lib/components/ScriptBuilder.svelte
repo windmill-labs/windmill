@@ -1060,10 +1060,10 @@
 						<div class="min-h-0 grow overflow-y-auto">
 							<TabContent value="metadata">
 								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
-									<Section headless>
-										<div class="flex flex-col gap-6">
+									<Section label="Metadata">
+										{#snippet action()}
 											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
-												<div class="flex flex-row items-center justify-end gap-2">
+												<div class="flex flex-row items-center gap-2">
 													<ErrorHandlerToggleButton
 														kind="script"
 														scriptOrFlowPath={script.path}
@@ -1072,6 +1072,8 @@
 													/>
 												</div>
 											{/if}
+										{/snippet}
+										<div class="flex flex-col gap-6">
 											<Label label="Summary">
 												<MetadataGen
 													aiId="create-script-summary-input"
