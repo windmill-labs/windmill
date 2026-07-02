@@ -363,12 +363,17 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		// rule) — the UI disables it too; this is the guard behind that.
 		if (!discard && !deployPermission(planTargetWorkspace(plan)).ok) return false
 		setStatus(item.key, { status: 'loading' })
-		const res = await runPlan(plan, discard ? undefined : resolveOnBehalf(item))
-		setStatus(
-			item.key,
-			res.success ? { status: 'deployed' } : { status: 'failed', error: res.error }
-		)
-		return res.success
+		deploying = true
+		try {
+			const res = await runPlan(plan, discard ? undefined : resolveOnBehalf(item))
+			setStatus(
+				item.key,
+				res.success ? { status: 'deployed' } : { status: 'failed', error: res.error }
+			)
+			return res.success
+		} finally {
+			deploying = false
+		}
 	}
 
 	async function deployRow(item: DeployItem) {

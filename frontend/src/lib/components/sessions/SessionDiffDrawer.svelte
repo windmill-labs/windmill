@@ -12,14 +12,15 @@
 	let {
 		workspaceId,
 		parentWorkspaceId,
-		sessionId,
+		chatId,
 		keys
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
-		/** Chat/session id, threaded to the footer's compare-page link as
-		 *  `from_session` so the compare page preselects this session's edits. */
-		sessionId?: string
+		/** CHAT id (Session.chatId — the IndexedDB `chats` key, NOT the session id),
+		 *  threaded to the footer's compare-page link as `from_session`: the compare
+		 *  page resolves it via readChatModifiedItems to preselect this chat's edits. */
+		chatId?: string
 		keys?: Set<string>
 	} = $props()
 
@@ -62,7 +63,7 @@
 	// edits via `from_session`, so the compare page opens preselected.
 	const compareSessionHref = $derived(
 		`/forks/compare?workspace_id=${encodeURIComponent(workspaceId)}&mode=${isFork ? 'fork' : 'draft'}` +
-			(sessionId ? `&from_session=${encodeURIComponent(sessionId)}` : '')
+			(chatId ? `&from_session=${encodeURIComponent(chatId)}` : '')
 	)
 
 	export function open() {

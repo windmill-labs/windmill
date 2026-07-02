@@ -249,7 +249,7 @@
 		bind:this={diffDrawer}
 		workspaceId={committedId}
 		{parentWorkspaceId}
-		sessionId={session.id}
+		chatId={session.chatId}
 		keys={mask}
 	/>
 {/if}
