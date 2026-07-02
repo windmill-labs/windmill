@@ -181,7 +181,12 @@ async fn fork_depth_and_subtree_height(db: Pool<Postgres>) {
     assert_eq!(fork_subtree_height(&db, "fd-f2").await.unwrap(), 1);
     assert_eq!(fork_subtree_height(&db, "fd-f3").await.unwrap(), 0);
 
-    // A deleted descendant is not walked, so it doesn't add to the height.
+    // A deleted leaf doesn't add to the height.
     insert_ws(&db, "fd-f3-del", Some("fd-f3"), true).await;
     assert_eq!(fork_subtree_height(&db, "fd-f3").await.unwrap(), 0);
+
+    // ...but a LIVE descendant below a soft-deleted intermediate still counts at its true depth
+    // (the walk traverses through the deleted node; only the aggregation filters deleted).
+    insert_ws(&db, "fd-f3-live-gc", Some("fd-f3-del"), false).await;
+    assert_eq!(fork_subtree_height(&db, "fd-f3").await.unwrap(), 2);
 }

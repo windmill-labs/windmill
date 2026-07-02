@@ -442,16 +442,20 @@ pub async fn fork_chain_depth(db: &crate::DB, w_id: &str) -> Result<i64> {
 /// children, and so on. Used so that attaching a candidate which already has its own child forks can't
 /// push the family past the depth limit.
 pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
+    // The `deleted` filter is applied in the outer aggregation (not the recursive step, matching
+    // count_workspace_forks) so a live descendant under a soft-deleted intermediate is still measured
+    // at its true depth rather than pruned — otherwise the height could be underestimated and let the
+    // resulting chain exceed the depth limit.
     let height = sqlx::query_scalar!(
         r#"
             WITH RECURSIVE tree AS (
-                SELECT id, 0 AS depth FROM workspace WHERE id = $1
+                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1
                 UNION ALL
-                SELECT w.id, tree.depth + 1 FROM workspace w
+                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
                 JOIN tree ON w.parent_workspace_id = tree.id
-                WHERE tree.depth < 20 AND NOT w.deleted
+                WHERE tree.depth < 20
             )
-            SELECT COALESCE(MAX(depth), 0)::bigint AS "height!" FROM tree
+            SELECT COALESCE(MAX(depth) FILTER (WHERE NOT deleted), 0)::bigint AS "height!" FROM tree
         "#,
         w_id
     )
@@ -481,7 +485,7 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
                 JOIN tree ON w.parent_workspace_id = tree.id
                 WHERE tree.depth < 20
             )
-            SELECT COUNT(*) AS "count!" FROM tree WHERE id != $1 AND NOT deleted
+            SELECT COUNT(DISTINCT id) AS "count!" FROM tree WHERE id != $1 AND NOT deleted
         "#,
         root
     )
