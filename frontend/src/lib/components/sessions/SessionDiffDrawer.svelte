@@ -4,7 +4,6 @@
 	import { userWorkspaces } from '$lib/stores'
 	import { useSessionDeployModel } from './sessionDeployModel.svelte'
 	import type { DeployItem } from './sessionDeployModel'
-	import type { ItemOp } from './modifiedItemsMask'
 
 	// Session "Edits" drawer. Builds the unified deploy model (drafts + fork
 	// comparison) and hands it to WorkspaceDiffDrawer, which renders the tree +
@@ -14,8 +13,7 @@
 		workspaceId,
 		parentWorkspaceId,
 		sessionId,
-		keys,
-		keyOps
+		keys
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -23,8 +21,6 @@
 		 *  `from_session` so the compare page preselects this session's edits. */
 		sessionId?: string
 		keys?: Set<string>
-		/** Per-key change op (add/edit/delete), parallel to `keys`. */
-		keyOps?: ReadonlyMap<string, ItemOp>
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -42,8 +38,7 @@
 		// own workspace in main context (where a draft deploys in place).
 		parentName: isFork ? (parentWs?.name ?? parentWorkspaceId) : (ws?.name ?? workspaceId),
 		isFork,
-		mask: keys,
-		maskOps: keyOps
+		mask: keys
 	}))
 
 	// Editor URL for a row: point at the workspace the item actually lives in

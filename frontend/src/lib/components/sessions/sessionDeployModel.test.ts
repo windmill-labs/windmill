@@ -5,20 +5,17 @@ import {
 	buildDeployItems,
 	maskOnlyCandidates,
 	badgeOf,
-	changeOpOf,
 	pipelineOf,
 	actionFor,
 	diffBaseFor,
 	isOnBehalfEligible,
-	inSegment,
-	segmentCounts,
-	conflictCount,
+	badgeCounts,
 	deployPlanFor,
 	discardPlanFor,
 	type DeployItem,
 	type SessionContext
 } from './sessionDeployModel'
-import { maskKey, mergeItemOp } from './modifiedItemsMask'
+import { maskKey } from './modifiedItemsMask'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -282,98 +279,6 @@ describe('badgeOf', () => {
 	})
 })
 
-// ── changeOpOf: add / delete / modify (orthogonal to the status badge) ────────
-
-describe('changeOpOf', () => {
-	it('a pending deletion (present in parent, gone from fork) → delete', () => {
-		const [item] = buildDeployItems({
-			comparison: comparison([
-				diff('script', 'u/a/gone', { ahead: 1, exists_in_fork: false, exists_in_source: true })
-			]),
-			draftItems: [],
-			context: forkCtx
-		})
-		expect(item.parent).toBe('ahead') // status is still "ahead" of the parent
-		expect(changeOpOf(item)).toBe('delete') // the operation is a delete
-	})
-
-	it('a never-deployed draft → add', () => {
-		const [item] = buildDeployItems({
-			draftItems: [draft('script', 'u/a/new', { draft_only: true })],
-			context: mainCtx
-		})
-		expect(changeOpOf(item)).toBe('add')
-	})
-
-	it('a fork item the parent does not have yet → add', () => {
-		const [item] = buildDeployItems({
-			comparison: comparison([
-				diff('script', 'u/a/fresh', { ahead: 1, exists_in_fork: true, exists_in_source: false })
-			]),
-			draftItems: [],
-			context: forkCtx
-		})
-		expect(changeOpOf(item)).toBe('add')
-	})
-
-	it('an edit to an item present on both sides → modify', () => {
-		const [item] = buildDeployItems({
-			comparison: comparison([diff('script', 'u/a/edit', { ahead: 1 })]),
-			draftItems: [draft('script', 'u/a/edit')],
-			context: forkCtx
-		})
-		expect(changeOpOf(item)).toBe('modify')
-	})
-
-	it('the recorded session op wins over the existence heuristic', () => {
-		// A session-created item deployed to the parent now exists on BOTH sides, so
-		// the existence heuristic would say "modify" — but the tool op says "add".
-		const key = maskKey('script', 'u/a/created')
-		const [item] = buildDeployItems({
-			comparison: comparison([diff('script', 'u/a/created', { ahead: 1 })]),
-			draftItems: [],
-			mask: new Set([key]),
-			maskOps: new Map([[key, 'add']]),
-			context: forkCtx
-		})
-		expect(item.existsInParent).toBe(true) // heuristic would say 'modify'
-		expect(item.sessionOp).toBe('add')
-		expect(changeOpOf(item)).toBe('add')
-	})
-
-	it("session op 'edit' maps to modify", () => {
-		const key = maskKey('script', 'u/a/e')
-		const [item] = buildDeployItems({
-			comparison: comparison([diff('script', 'u/a/e', { ahead: 1 })]),
-			draftItems: [],
-			mask: new Set([key]),
-			maskOps: new Map([[key, 'edit']]),
-			context: forkCtx
-		})
-		expect(changeOpOf(item)).toBe('modify')
-	})
-})
-
-describe('mergeItemOp — net op precedence (delete > add > edit)', () => {
-	it('create then edit stays add', () => {
-		expect(mergeItemOp('add', 'edit')).toBe('add')
-	})
-	it('edit then delete becomes delete', () => {
-		expect(mergeItemOp('edit', 'delete')).toBe('delete')
-	})
-	it('create then delete becomes delete', () => {
-		expect(mergeItemOp('add', 'delete')).toBe('delete')
-	})
-	it('first sighting keeps the incoming op', () => {
-		expect(mergeItemOp(undefined, 'add')).toBe('add')
-		expect(mergeItemOp(undefined, 'edit')).toBe('edit')
-		expect(mergeItemOp(undefined, 'delete')).toBe('delete')
-	})
-	it('plain edit then edit stays edit', () => {
-		expect(mergeItemOp('edit', 'edit')).toBe('edit')
-	})
-})
-
 // ── pipeline ────────────────────────────────────────────────────────────────
 
 describe('pipelineOf', () => {
@@ -563,9 +468,9 @@ describe('isOnBehalfEligible', () => {
 	})
 })
 
-// ── segments (bar readout counts) ─────────────────────────────────────────────
+// ── badgeCounts (bar readout) ─────────────────────────────────────────────────
 
-describe('segments', () => {
+describe('badgeCounts', () => {
 	const items = buildDeployItems({
 		comparison: comparison([
 			diff('script', 'u/a/ahead', { ahead: 1 }),
@@ -582,19 +487,9 @@ describe('segments', () => {
 		context: forkCtx
 	})
 
-	it('to_review excludes done; done isolates terminal', () => {
-		const m = byKey(items)
-		expect(inSegment(m.get(maskKey('script', 'u/a/done'))!, 'done')).toBe(true)
-		expect(inSegment(m.get(maskKey('script', 'u/a/done'))!, 'to_review')).toBe(false)
-		expect(inSegment(m.get(maskKey('script', 'u/a/ahead'))!, 'to_review')).toBe(true)
-	})
-
-	it('segmentCounts has the 3-segment shape; conflictCount tallies conflicts', () => {
-		const counts = segmentCounts(items)
-		expect(counts.all).toBe(4)
-		expect(counts.done).toBe(1)
-		expect(counts.to_review).toBe(3)
-		expect(conflictCount(items)).toBe(1)
+	it('tallies one bucket per item, matching badgeOf', () => {
+		const counts = badgeCounts(items)
+		expect(counts).toEqual({ conflict: 1, draft: 1, ahead: 1, deployed: 1, none: 0 })
 	})
 })
 

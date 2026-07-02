@@ -12,19 +12,6 @@ export function maskKey(kind: UserDraftItemKind, path: string): string {
 	return `${kind}:${path}`
 }
 
-/** The operation a chat tool performed on an item — recorded alongside the mask
- *  so the Edits dock shows add/delete/modify by what the tool DID, not by the
- *  current fork↔parent existence (which flips once the item is deployed). */
-export type ItemOp = 'add' | 'edit' | 'delete'
-
-/** Net op when a tool touches an item more than once in a session:
- *  delete > add > edit (a create-then-edit stays "add"). */
-export function mergeItemOp(prev: ItemOp | undefined, incoming: ItemOp): ItemOp {
-	if (incoming === 'delete' || prev === 'delete') return 'delete'
-	if (incoming === 'add' || prev === 'add') return 'add'
-	return 'edit'
-}
-
 type ForkDiffKind = WorkspaceItemDiff['kind']
 
 // Inverse of the draft→layout naming used in CompareDrafts.toLayoutKind. Only the

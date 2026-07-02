@@ -31,7 +31,6 @@
 	import {
 		actionFor,
 		badgeOf,
-		changeOpOf,
 		isOnBehalfEligible,
 		pipelineOf,
 		type BadgeKind,
@@ -93,12 +92,6 @@
 	// One footprint for every status pill (draft / ahead / conflict / deployed) so
 	// they line up at a compact, uniform size.
 	const STATUS_BADGE_CLASS = 'px-1.5 py-0.5 gap-0.5 text-2xs'
-	// Change-operation for the type-icon overlay: only add/delete get a mark; a
-	// plain modification shows the bare icon.
-	function iconOpOf(item: DeployItem): 'add' | 'delete' | undefined {
-		const op = changeOpOf(item)
-		return op === 'modify' ? undefined : op
-	}
 	// Active-dot accent for the pipeline indicator, colored by the row's badge.
 	function dotAccent(badge: BadgeKind): { border: string; bg: string } {
 		switch (badge) {
@@ -416,7 +409,7 @@
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
 				>
-					<RowIcon kind="raw_app" size={12} op={appItem ? iconOpOf(appItem) : undefined} />
+					<RowIcon kind="raw_app" size={12} />
 					<span
 						class="flex-1 min-w-0 truncate text-xs font-normal text-primary {node.app.summary
 							? ''
@@ -479,7 +472,6 @@
 				singleLine
 				summary={d.summary}
 				secondary={node.name}
-				iconOp={iconOpOf(d)}
 				highlighted={key === highlightedKey}
 				navKey={key}
 				indent={0}
@@ -646,12 +638,7 @@
 										<div
 											class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 border-b border-transparent"
 										>
-											<RowIcon
-												kind={d.deployKind as any}
-												path={d.path}
-												size={14}
-												op={iconOpOf(d)}
-											/>
+											<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
 											<div class="min-w-0 flex-1">
 												{#if editUrl}
 													<ExternalEditLink
@@ -712,6 +699,7 @@
 													<Button
 														variant="accent"
 														unifiedSize="sm"
+														destructive={action.op === 'delete_in_parent'}
 														disabled={model.deploying || needsOb || parentBlocked || !perm.ok}
 														title={!perm.ok
 															? perm.reason

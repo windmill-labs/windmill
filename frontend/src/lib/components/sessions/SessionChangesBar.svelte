@@ -10,17 +10,13 @@
 	import { getRuntime } from './sessionRuntime.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import {
-		buildDeployItems,
-		conflictCount,
-		segmentCounts,
-		type SessionContext
-	} from './sessionDeployModel'
+	import { badgeCounts, buildDeployItems, type SessionContext } from './sessionDeployModel'
+	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 
 	// Unified session bar: replaces the separate draft + fork bars. It surfaces
 	// what the CURRENT chat changed — drafts it wrote and (in a fork) items it
-	// deployed ahead of the parent — and routes a single Review button to the
-	// compare page with those items preselected.
+	// deployed ahead of the parent — as one count badge per status (drafts /
+	// ahead / conflicts / deployed) that all open the session diff drawer.
 	let {
 		session,
 		onMove,
@@ -61,9 +57,6 @@
 	// undefined = legacy/untracked chat → fall back to showing every draft/diff
 	// (old behavior). A Set (even empty) → filter to just this chat's items.
 	const mask = $derived(runtime?.manager.modifiedItems)
-	// Parallel per-item op map (add/edit/delete) so the dock shows the true change
-	// type; undefined for legacy chats → dock falls back to the existence heuristic.
-	const maskOps = $derived(runtime?.manager.modifiedItemOps)
 
 	// Workspace Drafts (fetches on mount and on every Server-Draft invalidation);
 	// scoped to the chat's mask inside the deploy model below.
@@ -101,6 +94,7 @@
 	$effect(() => {
 		const isLoading = runtime?.manager.loading ?? false
 		if (wasLoading && !isLoading) {
+			existing.reset()
 			drafts.refresh()
 			refreshComparison()
 		}
@@ -114,6 +108,7 @@
 		function onVisibilityChange() {
 			if (document.visibilityState !== 'visible') return
 			if (sessionState.currentSessionId !== session.id) return
+			existing.reset()
 			drafts.refresh()
 			refreshComparison()
 		}
@@ -131,13 +126,28 @@
 		parentWorkspaceId,
 		parentName: parentWorkspace?.name ?? parentWorkspaceId
 	})
+	// Existence check for mask-only (deployed) items — without it they'd be
+	// dropped from the dock counts while the drawer (which runs the same check)
+	// still shows them as Deployed.
+	const existing = useExistingMaskKeys(() => ({
+		draftItems: drafts.items,
+		comparison,
+		mask: committedId ? mask : undefined,
+		context,
+		workspaceId: committedId ?? ''
+	}))
 	const dockItems = $derived(
 		committedId
-			? buildDeployItems({ draftItems: drafts.items, comparison, mask, maskOps, context })
+			? buildDeployItems({
+					draftItems: drafts.items,
+					comparison,
+					mask,
+					existingKeys: existing.keys,
+					context
+				})
 			: []
 	)
-	const dockCounts = $derived(segmentCounts(dockItems))
-	const dockConflicts = $derived(conflictCount(dockItems))
+	const dockCounts = $derived(badgeCounts(dockItems))
 
 	// One "Edits" bar for both fork and non-fork sessions, shown when this chat
 	// edited anything. The fork's own name / sync status no longer lives on the bar
@@ -151,21 +161,27 @@
 </script>
 
 {#snippet dock()}
-	{@const toReview = Math.max(0, dockCounts.to_review - dockConflicts)}
+	<!-- One count badge per row status, same vocabulary/colors as the drawer's
+	     badges (draft/ahead/conflict/deployed) so the bar reads at a glance. -->
 	<div class="flex items-center gap-1 shrink-0">
-		{#if toReview > 0}
-			<Badge small clickable color="blue" onclick={() => diffDrawer?.open()}>
-				{toReview} to review
+		{#if dockCounts.draft > 0}
+			<Badge small clickable color="indigo" onclick={() => diffDrawer?.open()}>
+				{dockCounts.draft} draft{dockCounts.draft === 1 ? '' : 's'}
 			</Badge>
 		{/if}
-		{#if dockConflicts > 0}
-			<Badge small clickable color="red" onclick={() => diffDrawer?.open()}>
-				{dockConflicts} conflict{dockConflicts === 1 ? '' : 's'}
-			</Badge>
-		{/if}
-		{#if dockCounts.done > 0}
+		{#if dockCounts.ahead > 0}
 			<Badge small clickable color="green" onclick={() => diffDrawer?.open()}>
-				{dockCounts.done} done
+				{dockCounts.ahead} ahead
+			</Badge>
+		{/if}
+		{#if dockCounts.conflict > 0}
+			<Badge small clickable color="red" onclick={() => diffDrawer?.open()}>
+				{dockCounts.conflict} conflict{dockCounts.conflict === 1 ? '' : 's'}
+			</Badge>
+		{/if}
+		{#if dockCounts.deployed > 0}
+			<Badge small clickable color="violet" onclick={() => diffDrawer?.open()}>
+				{dockCounts.deployed} deployed
 			</Badge>
 		{/if}
 	</div>
@@ -235,6 +251,5 @@
 		{parentWorkspaceId}
 		sessionId={session.id}
 		keys={mask}
-		keyOps={maskOps}
 	/>
 {/if}

@@ -29,7 +29,6 @@ import {
 	type DeployPlanEntry,
 	type SessionContext
 } from './sessionDeployModel'
-import type { ItemOp } from './modifiedItemsMask'
 
 export type DeploymentStatus = { status: 'loading' | 'deployed' | 'failed'; error?: string }
 
@@ -46,13 +45,63 @@ export interface SessionDeployModelArgs {
 	isFork: boolean
 	/** Chat-modified-items mask; undefined shows every draft/diff. */
 	mask?: Set<string>
-	/** Per-key operation (add/edit/delete) from the chat, parallel to `mask`. */
-	maskOps?: ReadonlyMap<string, ItemOp>
 }
 
 export interface DiffValues {
 	before: unknown
 	after: unknown
+}
+
+/** Resolves which mask-only candidates still exist in the session workspace
+ *  (deployed) vs are gone (discarded drafts) — the `existingKeys` input of
+ *  `buildDeployItems`. Undefined while resolving, so terminal rows only appear
+ *  once confirmed. Shared by the drawer model and the bar's dock counts. */
+export function useExistingMaskKeys(
+	getInput: () => Omit<Parameters<typeof buildDeployItems>[0], 'existingKeys'> & {
+		workspaceId: string
+	}
+) {
+	let existingKeys = $state<Set<string> | undefined>(undefined)
+	// Existence is checked once per distinct candidate set; the signature avoids
+	// re-firing while results stream back.
+	let lastCandidateSig = ''
+	$effect(() => {
+		const { workspaceId, ...buildInput } = getInput()
+		const cands = maskOnlyCandidates(buildInput)
+		const sig = cands
+			.map((c) => c.key)
+			.sort()
+			.join(',')
+		untrack(() => {
+			if (sig === lastCandidateSig) return
+			lastCandidateSig = sig
+			if (cands.length === 0) {
+				existingKeys = new Set()
+				return
+			}
+			// A mask-only item that was deployed still exists in the session
+			// workspace (it was deployed here first); a discarded one doesn't.
+			void Promise.all(
+				cands.map((c) =>
+					checkItemExists(c.deployKind, c.path, workspaceId)
+						.then((exists) => (exists ? c.key : null))
+						.catch(() => null)
+				)
+			).then((keys) => {
+				existingKeys = new Set(keys.filter((k): k is string => !!k))
+			})
+		})
+	})
+	return {
+		get keys() {
+			return existingKeys
+		},
+		/** Force a fresh existence check (an item may have been deleted since). */
+		reset() {
+			lastCandidateSig = ''
+			existingKeys = undefined
+		}
+	}
 }
 
 export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
@@ -72,45 +121,20 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 
 	// Mask keys confirmed to still exist → allowed to show as terminal "In parent"
 	// rows (a discarded draft is a mask entry with no item, so it stays out).
-	let existingKeys = $state<Set<string> | undefined>(undefined)
-	// Existence is checked once per distinct candidate set; the signature avoids
-	// re-firing while results stream back.
-	let lastCandidateSig = ''
-	$effect(() => {
-		const cands = maskOnlyCandidates({ draftItems, comparison, mask: getArgs().mask, context })
-		const ws = getArgs().workspaceId
-		const sig = cands
-			.map((c) => c.key)
-			.sort()
-			.join(',')
-		untrack(() => {
-			if (sig === lastCandidateSig) return
-			lastCandidateSig = sig
-			if (cands.length === 0) {
-				existingKeys = new Set()
-				return
-			}
-			// A mask-only item that was deployed still exists in the session
-			// workspace (it was deployed here first); a discarded one doesn't.
-			void Promise.all(
-				cands.map((c) =>
-					checkItemExists(c.deployKind, c.path, ws)
-						.then((exists) => (exists ? c.key : null))
-						.catch(() => null)
-				)
-			).then((keys) => {
-				existingKeys = new Set(keys.filter((k): k is string => !!k))
-			})
-		})
-	})
+	const existing = useExistingMaskKeys(() => ({
+		draftItems,
+		comparison,
+		mask: getArgs().mask,
+		context,
+		workspaceId: getArgs().workspaceId
+	}))
 
 	const items = $derived(
 		buildDeployItems({
 			draftItems,
 			comparison,
 			mask: getArgs().mask,
-			maskOps: getArgs().maskOps,
-			existingKeys,
+			existingKeys: existing.keys,
 			context
 		})
 	)
@@ -159,8 +183,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	/** (Re)fetch both sources. Called on open. */
 	function load() {
 		// Re-check existence fresh (an item may have been deleted since last open).
-		lastCandidateSig = ''
-		existingKeys = undefined
+		existing.reset()
 		void fetchDrafts()
 		if (getArgs().isFork) void fetchComparison()
 	}

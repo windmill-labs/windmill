@@ -2,7 +2,7 @@ import type { UserDraftItemKind, WorkspaceComparison } from '$lib/gen'
 import type { DraftItem } from '$lib/workspaceDrafts.svelte'
 import type { Kind } from '$lib/utils_deployable'
 import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
-import { maskKey, forkDiffKindToUserDraftKind, type ItemOp } from './modifiedItemsMask'
+import { maskKey, forkDiffKindToUserDraftKind } from './modifiedItemsMask'
 
 // Unified item model for the session Review & Deploy surface. This is the pure,
 // UI-free core: it merges the two data sources the compare page keeps apart —
@@ -52,10 +52,6 @@ function deployKindOf(draftKind: UserDraftItemKind, rawApp: boolean): Kind {
  *  banner pointer to the compare page, not listed here). */
 export type ParentAxis = 'sync' | 'ahead' | 'conflict'
 
-/** Count buckets for the bar readout. `to_review` = everything not terminal;
- *  `done` = reached the parent; `all` = every item. */
-export type DeploySegment = 'to_review' | 'done' | 'all'
-
 export interface SessionContext {
 	/** Fork (Draft→Fork→Parent) vs main (Draft→Parent, no fork stage). */
 	isFork: boolean
@@ -100,10 +96,6 @@ export interface DeployItem {
 	existsInFork: boolean
 	ahead: number
 	behind: number
-	/** The operation the chat tool performed on this item (add/edit/delete), from
-	 *  the modified-items op map. Authoritative for `changeOpOf`; undefined for
-	 *  untracked/legacy items → the existence heuristic decides. */
-	sessionOp?: ItemOp
 }
 
 export interface BuildInput {
@@ -114,10 +106,6 @@ export interface BuildInput {
 	 *  terminal `in_parent` rows — but only when confirmed to still exist (see
 	 *  `existingKeys`). */
 	mask?: Set<string>
-	/** Per-key operation (add/edit/delete) recorded by the chat tools, keyed the
-	 *  same as `mask`. Stamped onto each item's `sessionOp`. Absent for legacy
-	 *  chats → items fall back to the existence heuristic. */
-	maskOps?: ReadonlyMap<string, ItemOp>
 	/** Mask keys confirmed to still exist in the workspace (deployed). A mask-only
 	 *  key that isn't here is treated as gone (a discarded draft) and dropped, so a
 	 *  discarded item doesn't masquerade as "in parent". Undefined → no mask-only
@@ -140,7 +128,7 @@ function parentAxisFrom(ahead: number, behind: number): ParentAxis {
 }
 
 export function buildDeployItems(input: BuildInput): DeployItem[] {
-	const { draftItems, comparison, mask, maskOps, existingKeys, context } = input
+	const { draftItems, comparison, mask, existingKeys, context } = input
 	const scopedDrafts = mask
 		? draftItems.filter((it) => mask.has(maskKey(it.kind, it.path)))
 		: draftItems
@@ -182,8 +170,7 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 				existsInParent,
 				existsInFork,
 				ahead: d.ahead,
-				behind: d.behind,
-				sessionOp: maskOps?.get(canonical)
+				behind: d.behind
 			})
 		}
 	}
@@ -215,8 +202,7 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			existsInParent: !it.draft_only,
 			existsInFork: !it.draft_only,
 			ahead: 0,
-			behind: 0,
-			sessionOp: maskOps?.get(canonical)
+			behind: 0
 		})
 	}
 
@@ -254,8 +240,7 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 				existsInParent: true,
 				existsInFork: true,
 				ahead: 0,
-				behind: 0,
-				sessionOp: maskOps?.get(k)
+				behind: 0
 			})
 		}
 	}
@@ -345,9 +330,8 @@ export function pipelineOf(item: DeployItem, context: SessionContext): PipelineS
 export type BadgeKind = 'conflict' | 'draft' | 'ahead' | 'deployed' | 'none'
 
 /** The single status badge a row shows, by priority `conflict > draft > ahead`.
- *  This is the item's relationship to the parent — NOT what the edit did (add /
- *  delete / modify), which is a separate axis (see `changeOpOf`). A terminal row
- *  shows a muted `deployed`; a clean, in-sync row shows nothing. */
+ *  A terminal row shows a muted `deployed`; a clean, in-sync row shows nothing.
+ *  A pending deletion reads as `ahead` (its action is Delete in parent). */
 export function badgeOf(item: DeployItem): BadgeKind {
 	if (item.parent === 'conflict') return 'conflict'
 	if (item.local) return 'draft'
@@ -356,24 +340,12 @@ export function badgeOf(item: DeployItem): BadgeKind {
 	return 'none'
 }
 
-// ── Change operation (what the edit did) ─────────────────────────────────────
-
-export type ChangeOp = 'add' | 'delete' | 'modify'
-
-/** What the edit did to the item — orthogonal to the status badge. A deleted
- *  item is still (e.g.) `ahead` of the parent; deletion is the *operation*, not
- *  the status.
- *
- *  Authoritative source is the chat-recorded `sessionOp` (what the tool DID), so
- *  a session-created item stays `add` even after it's deployed to the parent. Only
- *  when that's absent (legacy/untracked chats) do we infer from fork↔parent
- *  existence, which otherwise flips add→modify once the item exists in both. */
-export function changeOpOf(item: DeployItem): ChangeOp {
-	if (item.sessionOp) return item.sessionOp === 'edit' ? 'modify' : item.sessionOp
-	if (item.removed) return 'delete' // present in parent, gone from the fork
-	// New: a never-deployed draft, or a fork item the parent doesn't have yet.
-	if (item.draftOnly || (item.existsInFork && !item.existsInParent)) return 'add'
-	return 'modify'
+/** Per-status tallies over `badgeOf` — the bar's at-a-glance readout, so its
+ *  counts always agree with the badges the drawer rows show. */
+export function badgeCounts(items: DeployItem[]): Record<BadgeKind, number> {
+	const out: Record<BadgeKind, number> = { conflict: 0, draft: 0, ahead: 0, deployed: 0, none: 0 }
+	for (const it of items) out[badgeOf(it)]++
+	return out
 }
 
 // ── Action ──────────────────────────────────────────────────────────────────
@@ -481,34 +453,6 @@ export function isOnBehalfEligible(deployKind: Kind): boolean {
 		deployKind === 'raw_app' ||
 		isTriggerOrScheduleKind(deployKind)
 	)
-}
-
-// ── Segments (bar readout counts) ────────────────────────────────────────────
-
-export function inSegment(item: DeployItem, seg: DeploySegment): boolean {
-	switch (seg) {
-		case 'all':
-			return true
-		case 'to_review':
-			return !item.done
-		case 'done':
-			return item.done
-	}
-}
-
-export function segmentCounts(items: DeployItem[]): Record<DeploySegment, number> {
-	const counts: Record<DeploySegment, number> = { to_review: 0, done: 0, all: 0 }
-	for (const item of items) {
-		for (const seg of ['to_review', 'done', 'all'] as DeploySegment[]) {
-			if (inSegment(item, seg)) counts[seg]++
-		}
-	}
-	return counts
-}
-
-/** Conflict tally, for the bar's ⚠ badge. */
-export function conflictCount(items: DeployItem[]): number {
-	return items.filter((i) => i.parent === 'conflict').length
 }
 
 // ── Deploy plan (executed by the reactive layer) ─────────────────────────────
