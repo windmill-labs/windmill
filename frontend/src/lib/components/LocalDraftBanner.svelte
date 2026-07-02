@@ -114,12 +114,12 @@
 <DiffDrawer bind:this={diffDrawer} />
 
 {#if hasBaseline}
-	<!-- Fixed-height slot reserved whenever the banner can appear, so toggling
-	     the "unsaved changes" state fades the banner in/out without pushing the
-	     content below. Kept snug (h-8 = the action buttons' height plus a couple
-	     px so they don't touch the banner edges) so the empty gap it leaves when
-	     no banner shows stays small. -->
-	<div class="h-8 shrink-0">
+	<!-- The banner is h-8 (action-button height + a couple px so the buttons don't
+	     touch the edges). We reserve only HALF that height when idle (h-4) and grow
+	     to the full h-8 when the banner shows: this halves the empty gap left when
+	     there are no unsaved changes while limiting the content shift on appear to
+	     ~16px. The height animates so the shift reads as a smooth expand. -->
+	<div class={twMerge('shrink-0 transition-[height] duration-150', visible ? 'h-8' : 'h-4')}>
 		{#if visible}
 			<div
 				transition:fade|local={{ duration: 120 }}
