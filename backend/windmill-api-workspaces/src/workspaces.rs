@@ -5197,18 +5197,21 @@ async fn require_cloud_fork_premium(db: &DB, parent_workspace_id: &str) -> Resul
     Ok(root)
 }
 
-/// Cloud: reject if `root` already holds its full per-seat allotment of forks/dev workspaces.
+/// Cloud: reject if adding `incoming` fork/dev workspaces would push `root`'s family over its per-seat
+/// allotment. `incoming` is the number of workspaces the operation adds to the family — 1 for a plain
+/// create, but `1 + candidate_subtree` for an attach whose candidate already has child forks.
 #[cfg(feature = "cloud")]
-async fn enforce_cloud_fork_count(db: &DB, root: &str) -> Result<()> {
+async fn enforce_cloud_fork_count(db: &DB, root: &str, incoming: i64) -> Result<()> {
     let seats = windmill_common::workspaces::count_paid_seats(db, root).await?;
     let per_seat = *MAX_FORKS_PER_SEAT;
     // Any premium workspace has at least one paid seat, so floor the seat count at 1.
     let allowed = seats.max(1) * per_seat;
 
     let existing = windmill_common::workspaces::count_workspace_forks(db, root).await?;
-    if existing >= allowed {
+    let projected = existing + incoming;
+    if projected > allowed {
         return Err(Error::BadRequest(format!(
-            "Maximum number of forks reached ({existing}/{allowed}): a plan with {seats} paid seat(s) allows {per_seat} fork(s) per seat. Delete an existing fork or add seats to create more."
+            "Fork limit reached: this would bring the workspace family to {projected} fork(s), over the cap of {allowed} ({seats} paid seat(s) × {per_seat} per seat). Delete a fork or add seats."
         )));
     }
 
@@ -5221,7 +5224,7 @@ async fn enforce_cloud_fork_count(db: &DB, root: &str) -> Result<()> {
 #[cfg(feature = "cloud")]
 async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()> {
     let root = require_cloud_fork_premium(db, parent_workspace_id).await?;
-    enforce_cloud_fork_count(db, &root).await
+    enforce_cloud_fork_count(db, &root, 1).await
 }
 
 async fn create_workspace_fork(
@@ -5406,10 +5409,16 @@ async fn attach_dev_workspace(
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         let root = require_cloud_fork_premium(&db, &prod_w_id).await?;
+        // Only count against the cap when this attach adds workspaces to the family (candidate not
+        // already under this root). The candidate may itself have child forks, so reserve slots for its
+        // whole incoming subtree (the candidate + its descendants), not just one.
         if windmill_common::workspaces::get_billing_workspace_id(&db, &req.dev_workspace_id).await?
             != root
         {
-            enforce_cloud_fork_count(&db, &root).await?;
+            let incoming =
+                1 + windmill_common::workspaces::count_workspace_forks(&db, &req.dev_workspace_id)
+                    .await?;
+            enforce_cloud_fork_count(&db, &root, incoming).await?;
         }
     }
 

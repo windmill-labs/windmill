@@ -5283,6 +5283,13 @@ async fn push_inner<'c, 'd>(
                             )));
                         }
 
+                        // These two burst guards intentionally stay keyed to `workspace_id`, not the
+                        // billing root: the shared caps are the monthly usage above (metered to the
+                        // root) and the per-user in-queue/concurrent guards further up (keyed by email,
+                        // global across the whole family). Keying these to the root would count the
+                        // root's own queue rather than this workspace's load or the family's; a true
+                        // family-shared burst cap would need a family-wide subquery, not worth the
+                        // hot-path cost for this downgrade-only soft guard.
                         let in_queue_workspace = sqlx::query_scalar!(
                             "SELECT COUNT(id) FROM v2_job_queue WHERE workspace_id = $1",
                             workspace_id
