@@ -309,6 +309,27 @@ describe('SessionPreviewTabs.select / close / setCollapsed', () => {
 		o.setCollapsed(true)
 		expect(o.collapsed).toBe(true)
 	})
+
+	it('reset replaces the whole model and reveals the panel', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner(
+			{
+				tabs: [
+					{ id: 'a', url: '/x', loc: '/x' },
+					{ id: 'b', url: '/y', loc: '/y' }
+				],
+				activeId: 'b',
+				collapsed: true
+			},
+			adapter
+		)
+		o.reset([{ id: 'session', url: '/z', loc: '/z' }], 'session')
+		expect(o.tabs.map((t) => t.id)).toEqual(['session'])
+		expect(o.activeId).toBe('session')
+		expect(o.collapsed).toBe(false)
+		vi.runAllTimers()
+		expect(persisted.at(-1)?.tabs.map((t) => t.url)).toEqual(['/z'])
+	})
 })
 
 describe('SessionPreviewTabs.observeLocation', () => {

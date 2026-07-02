@@ -194,13 +194,7 @@
 		mountTab(id)
 		activeTabPickerOpen = false
 	}
-	// Tabs can't be opened on a transient (unsent) session: its record — tabs
-	// included — isn't persisted yet, so anything built here would silently
-	// vanish on reload. The target-seeded tab is fine (derived from `target`,
-	// which travels with the localStorage draft).
-	const previewLocked = $derived(!!activeSession?.transient)
 	function openInNewTab(target: PreviewTarget) {
-		if (previewLocked) return
 		owner?.open(target)
 	}
 	function closeTab(id: string) {
@@ -557,30 +551,28 @@
 											</button>
 										</div>
 									{/each}
-									{#if !previewLocked}
-										<Popover
-											placement="bottom-start"
-											usePointerDownOutside
-											excludeSelectors=".drawer"
-											disableFocusTrap
-											closeOnOtherPopoverOpen
-											bind:isOpen={newTabOpen}
-											openFocus="[data-workspace-picker-search]"
-											class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
-										>
-											{#snippet trigger()}
-												<Plus size={14} />
-											{/snippet}
-											{#snippet content()}
-												<PreviewRouterPicker
-													onPick={(t) => {
-														newTabOpen = false
-														openInNewTab(t)
-													}}
-												/>
-											{/snippet}
-										</Popover>
-									{/if}
+									<Popover
+										placement="bottom-start"
+										usePointerDownOutside
+										excludeSelectors=".drawer"
+										disableFocusTrap
+										closeOnOtherPopoverOpen
+										bind:isOpen={newTabOpen}
+										openFocus="[data-workspace-picker-search]"
+										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
+									>
+										{#snippet trigger()}
+											<Plus size={14} />
+										{/snippet}
+										{#snippet content()}
+											<PreviewRouterPicker
+												onPick={(t) => {
+													newTabOpen = false
+													openInNewTab(t)
+												}}
+											/>
+										{/snippet}
+									</Popover>
 								</div>
 
 								<!-- One host per tab, stacked and visibility-toggled so every tab
@@ -607,47 +599,37 @@
 											class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 bg-surface"
 										>
 											<MonitorPlay size={28} class="text-tertiary" />
-											{#if previewLocked}
-												<div class="flex flex-col gap-1">
-													<span class="text-sm font-medium text-secondary">No preview yet</span>
-													<span class="text-xs text-tertiary max-w-xs"
-														>Send your first message to start the session — the preview panel opens
-														after that.</span
-													>
-												</div>
-											{:else}
-												<div class="flex flex-col gap-1">
-													<span class="text-sm font-medium text-secondary">No preview open</span>
-													<span class="text-xs text-tertiary max-w-xs"
-														>Open a page, flow, script or app to preview it alongside the chat.</span
-													>
-												</div>
-												<Popover
-													placement="bottom"
-													usePointerDownOutside
-													excludeSelectors=".drawer"
-													disableFocusTrap
-													closeOnOtherPopoverOpen
-													bind:isOpen={emptyStateNewTabOpen}
-													openFocus="[data-workspace-picker-search]"
+											<div class="flex flex-col gap-1">
+												<span class="text-sm font-medium text-secondary">No preview open</span>
+												<span class="text-xs text-tertiary max-w-xs"
+													>Open a page, flow, script or app to preview it alongside the chat.</span
 												>
-													{#snippet trigger()}
-														<span
-															class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-light text-secondary hover:bg-surface-hover cursor-pointer"
-														>
-															<Plus size={14} /> Open a preview
-														</span>
-													{/snippet}
-													{#snippet content()}
-														<PreviewRouterPicker
-															onPick={(t) => {
-																emptyStateNewTabOpen = false
-																openInNewTab(t)
-															}}
-														/>
-													{/snippet}
-												</Popover>
-											{/if}
+											</div>
+											<Popover
+												placement="bottom"
+												usePointerDownOutside
+												excludeSelectors=".drawer"
+												disableFocusTrap
+												closeOnOtherPopoverOpen
+												bind:isOpen={emptyStateNewTabOpen}
+												openFocus="[data-workspace-picker-search]"
+											>
+												{#snippet trigger()}
+													<span
+														class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-light text-secondary hover:bg-surface-hover cursor-pointer"
+													>
+														<Plus size={14} /> Open a preview
+													</span>
+												{/snippet}
+												{#snippet content()}
+													<PreviewRouterPicker
+														onPick={(t) => {
+															emptyStateNewTabOpen = false
+															openInNewTab(t)
+														}}
+													/>
+												{/snippet}
+											</Popover>
 										</div>
 									{/if}
 								</div>

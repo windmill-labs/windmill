@@ -114,6 +114,30 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(sessionState.sessions).toEqual([])
 	})
 
+	it('round-trips a transient session preview state through the draft slot', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		await putSession(
+			session({
+				id: 't1b',
+				transient: true,
+				target: { kind: 'script', path: 'u/me/foo' },
+				previewTabs: [{ id: 'session', url: '/x', loc: '/x' }],
+				activePreviewTabId: 'session',
+				previewCollapsed: false
+			})
+		)
+		await rehydrate(user)
+		await flush()
+		const restored = sessionState.sessions.find((s) => s.id === 't1b')
+		expect(restored?.target).toEqual({ kind: 'script', path: 'u/me/foo' })
+		expect(restored?.previewTabs).toEqual([{ id: 'session', url: '/x', loc: '/x' }])
+		expect(restored?.activePreviewTabId).toBe('session')
+		expect(restored?.previewCollapsed).toBe(false)
+	})
+
 	it('materializeTransient promotes the draft to IndexedDB and clears the slot', async () => {
 		const user = freshUser()
 		userStore.set(user)

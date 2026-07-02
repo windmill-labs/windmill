@@ -7,6 +7,8 @@ import {
 	setSessionTarget,
 	type SessionTarget
 } from './sessionState.svelte'
+import { resetSessionPreviewTabs } from './sessionRuntime.svelte'
+import { sessionTargetHref } from './sessionMode.svelte'
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -50,9 +52,16 @@ export async function openEditorInSession(
 	target: SessionTarget,
 	workspaceId?: string
 ): Promise<void> {
+	// createSession() reuses an existing transient draft, which may still be
+	// pointed at a *different* item — and its preview tabs (persisted with the
+	// draft and/or held by a live runtime) keep showing that old target unless
+	// the tab model is reset along with the target field.
 	const session = createSession()
+	const retargeted = session.target?.kind !== target.kind || session.target?.path !== target.path
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	setSessionTarget(session.id, target)
+	const url = sessionTargetHref(target)
+	if (url && retargeted) resetSessionPreviewTabs(session.id, url)
 	selectSession(session.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 }

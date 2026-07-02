@@ -334,8 +334,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
 	// adapter. setSessionTabs / setSessionPreviewCollapsed / setSessionTarget stay
-	// the low-level record writers (each no-ops the write-behind for a transient
-	// session until it materialises).
+	// the low-level record writers (a transient session's writes land in the
+	// localStorage draft slot until it materialises).
 	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
 		persist: (snap) => {
 			setSessionTabs(session.id, snap.tabs, snap.activeId)
@@ -810,6 +810,23 @@ export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
 }
 
+// Point a session's preview at a single seed tab. For re-pointing an existing
+// draft session at a new destination ("Open in AI session" / new-session-from-
+// page on a reused transient): its previous tabs — persisted with the draft
+// and/or held by a live owner — would otherwise keep showing the old target.
+// Must write through the live owner when one exists; a bare record write would
+// be clobbered by the owner's next flush.
+export function resetSessionPreviewTabs(sessionId: string, url: string): void {
+	const tabs = [{ id: 'session', url, loc: url }]
+	const rt = runtimes.get(sessionId)
+	if (rt) {
+		rt.previewTabs.reset(tabs, 'session')
+	} else {
+		setSessionTabs(sessionId, tabs, 'session')
+		setSessionPreviewCollapsed(sessionId, false)
+	}
+}
+
 export type SessionChatStatus =
 	| 'idle'
 	| 'streaming'
@@ -859,11 +876,6 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) {
 		return 'Error: no active session to open the preview in.'
-	}
-	// Defensive: beforeSend materialises the session before any tool runs, but a
-	// transient session must never grow tabs (they aren't persisted anywhere).
-	if (session.transient) {
-		return 'Error: the session has no messages yet — the preview panel opens after the first message.'
 	}
 	const target = previewTargetForSessionTarget(kind, path)
 	if (!target) {

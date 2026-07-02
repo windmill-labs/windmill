@@ -207,6 +207,16 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	// Replace the whole tab model and reveal the panel. For re-pointing an
+	// existing draft session at a new destination, where the current tabs
+	// (persisted and/or live) still show the previous one.
+	reset(tabs: SessionPreviewTab[], activeId: string): void {
+		this.#tabs = tabs.map((t) => ({ ...t }))
+		this.#activeId = activeId
+		this.#collapsed = false
+		this.#flush()
+	}
+
 	select(id: string): void {
 		if (this.#activeId === id) return
 		this.#activeId = id

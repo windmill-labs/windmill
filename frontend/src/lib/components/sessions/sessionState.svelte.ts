@@ -179,9 +179,8 @@ const LEGACY_SESSIONS_KEY = 'windmill_sessions'
 const LEGACY_LAST_SEEN_KEY = 'windmill_sessions_last_seen_counts'
 // The single unsent (transient) draft, kept in localStorage (user-scoped) so a
 // reload doesn't lose what the user set up before their first message: name,
-// workspace/fork choice, editor target and the typed-but-unsent prompt.
-// Deliberately NOT the preview tabs — the preview is locked while transient,
-// and the target-seeded tab is derived state.
+// workspace/fork choice, editor target, preview tabs and the typed-but-unsent
+// prompt.
 const TRANSIENT_DRAFT_KEY = 'wm_session_transient_draft'
 
 interface SessionSchema extends DBSchema {
@@ -321,7 +320,7 @@ export const sessionState = $state<{
 	hydrated: false
 })
 
-type TransientDraft = Omit<Session, 'previewTabs' | 'activePreviewTabId' | 'previewCollapsed'> & {
+type TransientDraft = Session & {
 	prompt?: string
 }
 
@@ -332,11 +331,8 @@ let transientPrompt: { sessionId: string; text: string } | undefined
 function writeTransientDraft(s: Session): void {
 	const key = scopedKey(TRANSIENT_DRAFT_KEY)
 	if (!key) return
-	const { previewTabs, activePreviewTabId, previewCollapsed, ...rest } = $state.snapshot(
-		s
-	) as Session
 	const draft: TransientDraft = {
-		...rest,
+		...($state.snapshot(s) as Session),
 		prompt: transientPrompt?.sessionId === s.id ? transientPrompt.text : undefined
 	}
 	storeLocalSetting(key, JSON.stringify(draft))
@@ -526,23 +522,30 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	}
 
 	const deletedIds = new Set<string>()
-	for (const s of sessions) {
-		if (!s.workspace_id) continue
-		const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
-		if (action === 'delete') {
-			await db.delete('sessions', s.id)
-			// GC linked files too, matching deleteSession — a record-only delete
-			// here would orphan the session's attached-file blobs/handles.
-			void deleteItemsForSession(s.id)
-			deletedIds.add(s.id)
-			continue
+	try {
+		for (const s of sessions) {
+			if (!s.workspace_id) continue
+			const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
+			if (action === 'delete') {
+				await db.delete('sessions', s.id)
+				// GC linked files too, matching deleteSession — a record-only delete
+				// here would orphan the session's attached-file blobs/handles.
+				void deleteItemsForSession(s.id)
+				deletedIds.add(s.id)
+				continue
+			}
+			let changed = action === 'archive' || action === 'unarchive'
+			if (changed && patch) applyLifecyclePatch(s, patch)
+			// Re-root surviving sessions whose family topmost member shifted (an
+			// ancestor was deleted); fall back to backfilling a missing root.
+			if (refreshSessionRootId(s) || ensureSessionRootId(s)) changed = true
+			if (changed) await db.put('sessions', s)
 		}
-		let changed = action === 'archive' || action === 'unarchive'
-		if (changed && patch) applyLifecyclePatch(s, patch)
-		// Re-root surviving sessions whose family topmost member shifted (an
-		// ancestor was deleted); fall back to backfilling a missing root.
-		if (refreshSessionRootId(s) || ensureSessionRootId(s)) changed = true
-		if (changed) await db.put('sessions', s)
+	} catch (e) {
+		// The connection can go stale mid-loop (user switch reopens the per-user
+		// DB); this pass is best-effort — the next reconcile trigger retries.
+		console.error('Failed to reconcile session lifecycle', e)
+		return
 	}
 	await hydrateSessions()
 	// If the session the user was on lived in a now-deleted workspace, it was just
@@ -842,7 +845,7 @@ export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabI
 }
 
 // Persist whether the preview panel is collapsed for this session. Fire-and-forget
-// write-behind; no-ops for transient sessions until they materialise on send.
+// write-behind (transient sessions land in the localStorage draft slot).
 export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !!s.previewCollapsed === collapsed) return
