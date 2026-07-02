@@ -183,10 +183,11 @@
 	// menu API couples Enter/Space to closing the menu, which we explicitly
 	// don't want for the "Create new fork" row — it swaps to inline input.
 	type NavRow = { kind: 'create' } | { kind: 'root'; id: string } | { kind: 'fork'; id: string }
+	// Visual order: family first, create-fork last — keep in sync with the markup.
 	const navRows = $derived<NavRow[]>([
-		...(showCreateFork ? [{ kind: 'create' as const }] : []),
 		...(root ? [{ kind: 'root' as const, id: root.id }] : []),
-		...forks.map((f) => ({ kind: 'fork' as const, id: f.id }))
+		...forks.map((f) => ({ kind: 'fork' as const, id: f.id })),
+		...(showCreateFork ? [{ kind: 'create' as const }] : [])
 	])
 	let keyArrowPos = $state<number | undefined>(undefined)
 	$effect(() => {
@@ -348,7 +349,59 @@
 		>
 			<!-- Scrollable rows; the settings footer below stays pinned. -->
 			<div class="flex flex-col overflow-y-auto min-h-0">
+				{#if root}
+					{@const rootIdx = 0}
+					<button
+						type="button"
+						disabled={rootDisabled}
+						title={rootDisabled
+							? devOfRoot
+								? `${root.name} is locked. Run in its dev workspace instead.`
+								: `${root.name} is locked for direct deploys.`
+							: undefined}
+						class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
+						onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
+						onclick={() => !rootDisabled && void pick(root.id)}
+					>
+						<Building size={14} class="shrink-0 text-tertiary" />
+						<span class="truncate">{root.name}</span>
+						<span class="text-2xs text-tertiary shrink-0 ml-auto"
+							>{rootDisabled ? 'locked' : 'root'}</span
+						>
+					</button>
+				{/if}
+				{#each forks as f, fi (f.id)}
+					{@const forkIdx = (root ? 1 : 0) + fi}
+					<button
+						type="button"
+						style={indentStyle(f.id)}
+						class={`${rowBase} ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+						onmouseenter={() => (keyArrowPos = forkIdx)}
+						onclick={() => void pick(f.id)}
+					>
+						<GitFork size={14} class="shrink-0 text-tertiary" />
+						<span class="truncate">{f.name}</span>
+						{#if f.is_dev_workspace}
+							<Badge
+								color="dark-blue"
+								small
+								class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+								>dev</Badge
+							>
+						{/if}
+					</button>
+				{/each}
+				{#if pendingFork && !creatingFork}
+					<div
+						class="px-3 py-1.5 text-xs text-primary flex flex-row gap-2 items-center text-left rounded-sm bg-surface-selected cursor-default"
+					>
+						<GitFork size={14} class="shrink-0 text-tertiary" />
+						<span class="truncate">{pendingFork.name}</span>
+						<span class="text-2xs text-tertiary italic shrink-0 ml-auto">New</span>
+					</div>
+				{/if}
 				{#if showCreateFork}
+					<div class="my-1 border-t border-border-light shrink-0"></div>
 					{#if creatingFork}
 						<!-- Small inline form with labels: fork name + base ("target") workspace. The base
 							     defaults to the root; picking a fork there creates a fork of a fork. -->
@@ -422,7 +475,7 @@
 							</div>
 						</div>
 					{:else}
-						{@const createIdx = 0}
+						{@const createIdx = (root ? 1 : 0) + forks.length}
 						<button
 							type="button"
 							class={`${rowBase} ${keyArrowPos === createIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
@@ -433,8 +486,8 @@
 							<span>{createForkLabel}</span>
 						</button>
 					{/if}
-					<div class="my-1 border-t border-border-light shrink-0"></div>
 				{:else if showForkUpsell}
+					<div class="my-1 border-t border-border-light shrink-0"></div>
 					<div
 						class={`${rowBase} opacity-60 cursor-not-allowed`}
 						aria-disabled="true"
@@ -444,54 +497,6 @@
 						<Plus size={14} class="shrink-0 text-tertiary" />
 						<span>{createForkLabel}</span>
 						<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
-					</div>
-					<div class="my-1 border-t border-border-light shrink-0"></div>
-				{/if}
-
-				{#if root}
-					{@const rootIdx = showCreateFork ? 1 : 0}
-					<button
-						type="button"
-						disabled={rootDisabled}
-						title={rootDisabled
-							? devOfRoot
-								? `${root.name} is locked. Run in its dev workspace instead.`
-								: `${root.name} is locked for direct deploys.`
-							: undefined}
-						class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
-						onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
-						onclick={() => !rootDisabled && void pick(root.id)}
-					>
-						<Building size={14} class="shrink-0 text-tertiary" />
-						<span class="truncate">{root.name}</span>
-						<span class="text-2xs text-tertiary shrink-0 ml-auto"
-							>{rootDisabled ? 'locked' : 'root'}</span
-						>
-					</button>
-				{/if}
-				{#each forks as f, fi (f.id)}
-					{@const forkIdx = (showCreateFork ? 1 : 0) + (root ? 1 : 0) + fi}
-					<button
-						type="button"
-						style={indentStyle(f.id)}
-						class={`${rowBase} ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-						onmouseenter={() => (keyArrowPos = forkIdx)}
-						onclick={() => void pick(f.id)}
-					>
-						<GitFork size={14} class="shrink-0 text-tertiary" />
-						<span class="truncate">{f.name}</span>
-						{#if f.is_dev_workspace}
-							<Badge color="dark-blue" small class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white">dev</Badge>
-						{/if}
-					</button>
-				{/each}
-				{#if pendingFork && !creatingFork}
-					<div
-						class="px-3 py-1.5 text-xs text-primary flex flex-row gap-2 items-center text-left rounded-sm bg-surface-selected cursor-default"
-					>
-						<GitFork size={14} class="shrink-0 text-tertiary" />
-						<span class="truncate">{pendingFork.name}</span>
-						<span class="text-2xs text-tertiary italic shrink-0 ml-auto">New</span>
 					</div>
 				{/if}
 			</div>

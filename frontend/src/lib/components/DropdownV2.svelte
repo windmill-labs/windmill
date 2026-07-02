@@ -19,7 +19,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { untrack } from 'svelte'
-	import { fly } from 'svelte/transition'
+	import { placementFly } from '$lib/utils/placementFly'
 	import { ButtonType } from './common/button/model'
 
 	interface Props {
@@ -75,7 +75,7 @@
 		customWidth = undefined,
 		customMenu = false,
 		class: classNames = undefined,
-		enableFlyTransition = false,
+		enableFlyTransition = true,
 		size = 'md',
 		btnText = '',
 		btnId = undefined,
@@ -187,7 +187,7 @@
 		use:melt={$menuEl}
 		data-menu
 		class="z-[6000] transition-all duration-100"
-		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
+		transition:placementFly={{ duration: enableFlyTransition ? 100 : 0, placement }}
 	>
 		{#if customMenu}
 			{@render menu?.({ item, close, builders })}

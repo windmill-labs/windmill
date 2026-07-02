@@ -13,6 +13,7 @@
 		pendingFork,
 		isCollapsed = false,
 		showChevron = true,
+		rootLabel = undefined,
 		class: className = ''
 	}: {
 		workspaceId?: string
@@ -20,6 +21,11 @@
 		isCollapsed?: boolean
 		// The dropdown-affordance chevron. Off for read-only displays (e.g. the started-session header).
 		showChevron?: boolean
+		// Replaces the root workspace's name with a muted, icon-less label (e.g.
+		// "workspace root" in the sidebar, where the workspace menu right above
+		// already shows the family name). Fork display is unaffected; the title
+		// keeps the real name.
+		rootLabel?: string
 		class?: string
 	} = $props()
 
@@ -40,7 +46,12 @@
 	variant="subtle"
 	unifiedSize="xs"
 	title={showFork && parentName ? `${name} → ${parentName}` : name}
-	startIcon={{ icon: showFork ? GitFork : Building }}
+	startIcon={isCollapsed
+		? // Icon-only mode is the fork-picker affordance, whatever is selected.
+			{ icon: GitFork }
+		: !showFork && rootLabel
+			? undefined
+			: { icon: showFork ? GitFork : Building }}
 	endIcon={showChevron && !isCollapsed ? { icon: ChevronDown } : undefined}
 	wrapperClasses={className}
 	btnClasses="min-w-0 w-full rounded-md text-2xs {isCollapsed
@@ -50,8 +61,8 @@
 		: 'bg-surface-secondary'}"
 >
 	{#if !isCollapsed}
-		<span class="truncate min-w-0 flex-1 text-left">
-			{name}
+		<span class="truncate min-w-0 flex-1 text-left {!showFork && rootLabel ? 'text-hint' : ''}">
+			{showFork ? name : (rootLabel ?? name)}
 			{#if showFork && parentName}
 				<span class="text-accent/40 font-normal">→</span>
 				<span class="text-accent/60 font-normal">{parentName}</span>
@@ -60,7 +71,12 @@
 		{#if pendingFork}
 			<span class="shrink-0 text-accent/70 font-normal">(new)</span>
 		{:else if currentWs?.is_dev_workspace}
-			<Badge color="dark-blue" small class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white">dev</Badge>
+			<Badge
+				color="dark-blue"
+				small
+				class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+				>dev</Badge
+			>
 		{/if}
 	{/if}
 </Button>

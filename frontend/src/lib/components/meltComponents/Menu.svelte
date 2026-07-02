@@ -3,6 +3,7 @@
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
+	import { placementFly } from '$lib/utils/placementFly'
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
@@ -112,6 +113,7 @@
 		<div
 			use:melt={$menuElement}
 			data-menu
+			transition:placementFly={{ duration: 100, placement }}
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none',
 				// Default: scroll on the melt element. submenuSafe moves it to the inner
@@ -125,7 +127,7 @@
 		>
 			<div
 				class={twMerge('py-1', submenuSafe ? 'overflow-y-auto' : '')}
-				style="max-height: {maxHeight}px; "
+				style="max-height: min({maxHeight}px, calc(100vh - 6rem)); "
 			>
 				{@render children?.({ item, open, builders })}
 			</div>

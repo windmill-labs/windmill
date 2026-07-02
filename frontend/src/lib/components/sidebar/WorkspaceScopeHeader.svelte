@@ -57,9 +57,7 @@
 	}
 </script>
 
-<div
-	class="flex items-center min-w-0 {isCollapsed ? 'justify-center px-0' : 'px-2'} py-0.5 rounded-md"
->
+<div class="flex items-center min-w-0 px-2 {isCollapsed ? 'justify-center' : ''} py-0.5 rounded-md">
 	<WorkspaceFamilyPicker
 		selectedId={effectiveId}
 		onPick={switchWorkspaceDirect}
@@ -69,7 +67,12 @@
 		class="min-w-0 w-full"
 	>
 		{#snippet trigger()}
-			<WorkspaceScopeTrigger workspaceId={effectiveId} {isCollapsed} class="w-full" />
+			<WorkspaceScopeTrigger
+				workspaceId={effectiveId}
+				{isCollapsed}
+				rootLabel="workspace root"
+				class="w-full"
+			/>
 		{/snippet}
 	</WorkspaceFamilyPicker>
 </div>
