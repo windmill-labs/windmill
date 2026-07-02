@@ -192,10 +192,14 @@ pub struct ResponsesApiTextFormat {
     pub format: ResponsesApiTextFormatConfig,
 }
 
-/// Reasoning config for the Responses API (`reasoning: { effort }`).
+/// Reasoning config for the Responses API (`reasoning: { effort, summary }`).
+/// `summary: auto` streams a reasoning summary (billing-neutral) so the agent
+/// can surface a "thinking" affordance.
 #[derive(Serialize)]
 pub struct ResponsesApiReasoning {
     pub effort: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -417,9 +421,10 @@ impl OpenAIQueryBuilder {
             tools,
             stream: Some(true),
             temperature: args.temperature,
-            reasoning: args
-                .reasoning_effort
-                .map(|effort| ResponsesApiReasoning { effort: effort.to_string() }),
+            reasoning: args.reasoning_effort.map(|effort| ResponsesApiReasoning {
+                effort: effort.to_string(),
+                summary: Some("auto"),
+            }),
             max_output_tokens: args.max_tokens,
             text,
         };

@@ -375,6 +375,10 @@ pub struct AIAgentResult<'a> {
 pub enum StreamingEvent {
     /// Individual token from the AI response
     TokenDelta { content: String },
+    /// Individual token of the model's reasoning / thinking summary. Emitted
+    /// before the answer when reasoning is enabled; renderable as a "thinking"
+    /// affordance (thinking tokens bill regardless of whether they are shown).
+    ReasoningTokenDelta { content: String },
     /// Tool call has started
     ToolCall { call_id: String, function_name: String },
     /// Tool call arguments are complete

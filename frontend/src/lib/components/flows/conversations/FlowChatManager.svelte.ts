@@ -12,6 +12,8 @@ import { randomUUID } from '$lib/utils/uuid'
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
 	streaming?: boolean
+	/// Streamed reasoning / thinking summary (live only; not persisted).
+	reasoning?: string
 }
 
 export interface ConversationWithDraft extends FlowConversation {
@@ -477,6 +479,7 @@ export class FlowChatManager {
 
 		// Track stream state for this message
 		let accumulatedContent = ''
+		let accumulatedReasoning = ''
 		let assistantMessageId = ''
 		let isCompleted = false
 
@@ -555,9 +558,11 @@ export class FlowChatManager {
 							const {
 								type,
 								content: newContent,
+								reasoning: newReasoning,
 								success
 							} = parseStreamDeltas(data.new_result_stream)
 							accumulatedContent += newContent
+							accumulatedReasoning += newReasoning
 
 							// Create tool message if type is tool_result
 							if (type === 'tool_result') {
@@ -586,13 +591,16 @@ export class FlowChatManager {
 								// Reset assistant message ID since we are creating a tool message
 								assistantMessageId = ''
 								accumulatedContent = ''
+								accumulatedReasoning = ''
 							}
 
-							// Create message on first content
+							// Create the assistant message as soon as there is reasoning
+							// (thinking) or answer content, so a thinking affordance can show
+							// before the answer streams.
 							else if (
 								type === 'message' &&
 								assistantMessageId.length === 0 &&
-								accumulatedContent.length > 0
+								(accumulatedContent.length > 0 || accumulatedReasoning.length > 0)
 							) {
 								assistantMessageId = 'temp-' + randomUUID()
 								this.messages = [
@@ -600,6 +608,7 @@ export class FlowChatManager {
 									{
 										id: assistantMessageId,
 										content: accumulatedContent,
+										reasoning: accumulatedReasoning,
 										created_at: new Date().toISOString(),
 										created_seq: 0,
 										message_type: 'assistant',
@@ -612,7 +621,9 @@ export class FlowChatManager {
 							} else {
 								// Update existing message
 								this.messages = this.messages.map((msg) =>
-									msg.id === assistantMessageId ? { ...msg, content: accumulatedContent } : msg
+									msg.id === assistantMessageId
+										? { ...msg, content: accumulatedContent, reasoning: accumulatedReasoning }
+										: msg
 								)
 							}
 						}

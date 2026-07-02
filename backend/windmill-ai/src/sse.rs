@@ -32,6 +32,10 @@ pub struct OpenAIChoiceDeltaToolCall {
 #[derive(Deserialize)]
 pub struct OpenAIChoiceDelta {
     pub content: Option<String>,
+    /// Reasoning summary streamed by providers that expose it (e.g. DeepSeek's
+    /// `reasoning_content`). Rendered as a "thinking" affordance.
+    #[serde(default)]
+    pub reasoning_content: Option<String>,
     pub tool_calls: Option<Vec<OpenAIChoiceDeltaToolCall>>,
 }
 
@@ -144,6 +148,13 @@ impl SSEParser for OpenAISSEParser {
 
             if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
                 if let Some(delta) = choices.remove(0).delta {
+                    if let Some(reasoning) = delta.reasoning_content.filter(|s| !s.is_empty()) {
+                        let event = StreamingEvent::ReasoningTokenDelta { content: reasoning };
+                        self.stream_event_processor
+                            .send(event, &mut self.events_str)
+                            .await?;
+                    }
+
                     if let Some(content) = delta.content.filter(|s| !s.is_empty()) {
                         self.accumulated_content.push_str(&content);
                         let event = StreamingEvent::TokenDelta { content };
@@ -418,6 +429,12 @@ impl SSEParser for AnthropicSSEParser {
                                     .thinking
                                     .get_or_insert_with(String::new)
                                     .push_str(&thinking);
+                                self.stream_event_processor
+                                    .send(
+                                        StreamingEvent::ReasoningTokenDelta { content: thinking },
+                                        &mut self.events_str,
+                                    )
+                                    .await?;
                             }
                         }
                         AnthropicContentBlockStart::RedactedThinking { data } => {
@@ -480,6 +497,12 @@ impl SSEParser for AnthropicSSEParser {
                                     .thinking
                                     .get_or_insert_with(String::new)
                                     .push_str(&thinking);
+                                self.stream_event_processor
+                                    .send(
+                                        StreamingEvent::ReasoningTokenDelta { content: thinking },
+                                        &mut self.events_str,
+                                    )
+                                    .await?;
                             }
                         }
                         AnthropicDelta::SignatureDelta { signature } => {
@@ -570,6 +593,15 @@ impl SSEParser for GeminiSSEParser {
         let Some(parsed) = parse_gemini_sse_event(data)? else {
             return Ok(());
         };
+
+        if let Some(reasoning) = parsed.reasoning.filter(|s| !s.is_empty()) {
+            self.stream_event_processor
+                .send(
+                    StreamingEvent::ReasoningTokenDelta { content: reasoning },
+                    &mut self.events_str,
+                )
+                .await?;
+        }
 
         if let Some(text) = parsed.text {
             self.accumulated_content.push_str(&text);
@@ -679,6 +711,10 @@ pub enum OpenAIResponsesSSEEvent {
     #[serde(rename = "response.output_text.delta")]
     OutputTextDelta { delta: String },
 
+    /// Reasoning summary delta (streamed when the request asks for a summary)
+    #[serde(rename = "response.reasoning_summary_text.delta")]
+    ReasoningSummaryTextDelta { delta: String },
+
     /// New output item added (e.g., function_call start)
     #[serde(rename = "response.output_item.added")]
     OutputItemAdded { item: ResponsesOutputItem },
@@ -786,6 +822,15 @@ impl SSEParser for OpenAIResponsesSSEParser {
                     }
                 }
 
+                OpenAIResponsesSSEEvent::ReasoningSummaryTextDelta { delta } => {
+                    if !delta.is_empty() {
+                        let event = StreamingEvent::ReasoningTokenDelta { content: delta };
+                        self.stream_event_processor
+                            .send(event, &mut self.events_str)
+                            .await?;
+                    }
+                }
+
                 OpenAIResponsesSSEEvent::OutputItemAdded { item } => {
                     match item.r#type.as_deref() {
                         // Handle function_call type items
@@ -887,6 +932,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reasoning_token_delta_serializes_with_snake_case_tag() {
+        let event = StreamingEvent::ReasoningTokenDelta { content: "hmm".to_string() };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "reasoning_token_delta");
+        assert_eq!(json["content"], "hmm");
+    }
+
+    #[test]
+    fn openai_delta_parses_reasoning_content() {
+        // DeepSeek and similar stream reasoning under `reasoning_content`.
+        let delta: OpenAIChoiceDelta =
+            serde_json::from_str(r#"{"reasoning_content":"let me think"}"#).unwrap();
+        assert_eq!(delta.reasoning_content.as_deref(), Some("let me think"));
+    }
+
+    #[test]
+    fn openai_responses_parses_reasoning_summary_delta() {
+        let event: OpenAIResponsesSSEEvent = serde_json::from_str(
+            r#"{"type":"response.reasoning_summary_text.delta","delta":"summarizing"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            event,
+            OpenAIResponsesSSEEvent::ReasoningSummaryTextDelta { delta } if delta == "summarizing"
+        ));
+    }
+
+    #[test]
     fn parses_anthropic_thinking_events() {
         let start: AnthropicSSEEvent = serde_json::from_str(
             r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"x"}}"#,
@@ -906,7 +980,10 @@ mod tests {
         .unwrap();
         assert!(matches!(
             thinking_delta,
-            AnthropicSSEEvent::ContentBlockDelta { delta: AnthropicDelta::ThinkingDelta { .. }, .. }
+            AnthropicSSEEvent::ContentBlockDelta {
+                delta: AnthropicDelta::ThinkingDelta { .. },
+                ..
+            }
         ));
 
         let signature_delta: AnthropicSSEEvent = serde_json::from_str(

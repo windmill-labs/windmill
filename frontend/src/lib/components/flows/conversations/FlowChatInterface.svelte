@@ -126,6 +126,7 @@
 					<ChatMessage
 						role={message.message_type}
 						content={message.content}
+						reasoning={message.reasoning}
 						loading={message.loading}
 						success={message.success}
 						stepName={message.step_name}

@@ -1028,10 +1028,23 @@ impl BedrockQueryBuilder {
         loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
-                    // Fold reasoning deltas into the turn's reasoning block so it
-                    // can be replayed before toolUse (required by Claude when
-                    // thinking is enabled). No-op when thinking is off.
-                    let _ = bedrock_stream_event_to_reasoning_delta(&event, &mut reasoning);
+                    // Fold reasoning deltas into the turn's reasoning block (for
+                    // replay before toolUse, required by Claude when thinking is
+                    // on) and stream the readable summary as a thinking affordance.
+                    if let Some(reasoning_delta) =
+                        bedrock_stream_event_to_reasoning_delta(&event, &mut reasoning)
+                    {
+                        if let Some(processor) = stream_event_sink.as_ref() {
+                            processor
+                                .send(
+                                    StreamingEvent::ReasoningTokenDelta {
+                                        content: reasoning_delta,
+                                    },
+                                    &mut events_str,
+                                )
+                                .await?;
+                        }
+                    }
 
                     // Handle tool use start using shared parser
                     if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
