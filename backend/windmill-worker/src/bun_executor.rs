@@ -1305,9 +1305,9 @@ async fn collect_transitive_import_versions(
         versions.push((path.clone(), hash));
         let imports = match RELATIVE_IMPORTS_PER_HASH.get(&hash) {
             Some(imports) => imports,
-            None => {
-                let imports = match cache::script::fetch(&conn, ScriptHash(hash)).await {
-                    Ok((data, meta)) => match meta.language {
+            None => match cache::script::fetch(&conn, ScriptHash(hash)).await {
+                Ok((data, meta)) => {
+                    let imports = Arc::new(match meta.language {
                         Some(ScriptLang::Bun)
                         | Some(ScriptLang::Bunnative)
                         | Some(ScriptLang::Deno) => {
@@ -1319,19 +1319,21 @@ async fn collect_transitive_import_versions(
                             .unwrap_or_default()
                         }
                         _ => vec![],
-                    },
-                    Err(e) => {
-                        tracing::warn!(
-                            "could not fetch import {path} (hash {hash}) while computing bundle \
-                            cache key for {script_path}: {e:#}"
-                        );
-                        vec![]
-                    }
-                };
-                let imports = Arc::new(imports);
-                RELATIVE_IMPORTS_PER_HASH.insert(hash, imports.clone());
-                imports
-            }
+                    });
+                    RELATIVE_IMPORTS_PER_HASH.insert(hash, imports.clone());
+                    imports
+                }
+                // A fetch error is transient, not a property of the (immutable)
+                // content — memoizing it would drop this subtree from the key
+                // until worker restart. Skip caching and retry next run.
+                Err(e) => {
+                    tracing::warn!(
+                        "could not fetch import {path} (hash {hash}) while computing bundle \
+                        cache key for {script_path}: {e:#}"
+                    );
+                    Arc::new(vec![])
+                }
+            },
         };
         queue.extend(imports.iter().cloned());
     }
