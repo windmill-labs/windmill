@@ -24,6 +24,8 @@
 		// Live per-slice states of the in-flight (or last finished) backfill.
 		slices?: BackfillSliceState[]
 		running?: boolean
+		// Cancellation was requested but the in-flight slice hasn't finished yet.
+		cancelRequested?: boolean
 		onStart: (producerPath: string, partitions: string[]) => void
 		onCancel: () => void
 		// Clear the finished run so the range picker shows again.
@@ -36,6 +38,7 @@
 		workspace,
 		slices,
 		running,
+		cancelRequested,
 		onStart,
 		onCancel,
 		onReset
@@ -104,7 +107,9 @@
 		{:else if slices?.length}
 			<!-- A run is in flight (or just finished): show per-slice progress. -->
 			<p class="text-sm text-secondary">
-				{#if running}
+				{#if running && cancelRequested}
+					Cancelling — waiting for the current partition to finish; the rest will not run.
+				{:else if running}
 					Materializing {slices.filter((s) => s.status === 'success' || s.status === 'failure')
 						.length}/{slices.length} partitions sequentially — each run gets its partition as an explicit
 					arg.
@@ -182,7 +187,9 @@
 
 	{#snippet actions()}
 		{#if running}
-			<Button variant="default" onclick={onCancel}>Cancel backfill</Button>
+			<Button variant="default" disabled={cancelRequested} onclick={onCancel}>
+				{cancelRequested ? 'Cancelling…' : 'Cancel backfill'}
+			</Button>
 		{:else if slices?.length}
 			<!-- The finished run just changed partition statuses — refresh the
 			     range preview along with clearing the run. -->

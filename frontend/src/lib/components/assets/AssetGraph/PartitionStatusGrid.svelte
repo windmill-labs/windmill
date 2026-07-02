@@ -26,12 +26,30 @@
 	// dialog is closed mid-run.
 	let backfillSlices = $state<BackfillSliceState[] | undefined>(undefined)
 	let backfillRunning = $state(false)
-	let backfillCancelRequested = false
+	let backfillCancelRequested = $state(false)
 
 	let backfillDone = $derived(
 		backfillSlices?.filter((s) => s.status === 'success' || s.status === 'failure').length ?? 0
 	)
 	let backfillFailed = $derived(backfillSlices?.filter((s) => s.status === 'failure').length ?? 0)
+
+	// Stop scheduling further slices and cancel the in-flight run (its slice
+	// then reports failure); already-materialized slices are unaffected.
+	async function cancelBackfill() {
+		backfillCancelRequested = true
+		const running = backfillSlices?.find((s) => s.status === 'running')
+		if (running?.jobId) {
+			try {
+				await JobService.cancelQueuedJob({
+					workspace,
+					id: running.jobId,
+					requestBody: { reason: 'backfill cancelled' }
+				})
+			} catch {
+				// already finished — the sequential loop stops on the flag anyway
+			}
+		}
+	}
 
 	async function startBackfill(producerPath: string, worklist: string[]) {
 		if (backfillRunning || worklist.length === 0) return
@@ -173,7 +191,8 @@
 	{workspace}
 	slices={backfillSlices}
 	running={backfillRunning}
+	cancelRequested={backfillCancelRequested}
 	onStart={startBackfill}
-	onCancel={() => (backfillCancelRequested = true)}
+	onCancel={cancelBackfill}
 	onReset={() => (backfillSlices = undefined)}
 />
