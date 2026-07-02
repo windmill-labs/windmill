@@ -8,7 +8,6 @@ import {
 	setSessionTarget,
 	type SessionTarget
 } from './sessionState.svelte'
-import { resetSessionPreviewTabs } from './sessionRuntime.svelte'
 import { sessionTargetHref } from './sessionMode.svelte'
 
 // The session/navigation switch turns the global rail into either the workspace
@@ -73,7 +72,13 @@ export async function openEditorInSession(
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	setSessionTarget(session.id, target)
 	const url = sessionTargetHref(target)
-	if (url && retargeted) resetSessionPreviewTabs(session.id, url)
+	if (url && retargeted) {
+		// Dynamic import: a static one would drag the runtime's heavy graph
+		// (chat manager → monaco) into this thin navigation seam, breaking its
+		// node-run unit tests.
+		const { resetSessionPreviewTabs } = await import('./sessionRuntime.svelte')
+		resetSessionPreviewTabs(session.id, url)
+	}
 	selectSession(session.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 }
