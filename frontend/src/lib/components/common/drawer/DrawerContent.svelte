@@ -86,10 +86,10 @@
 		{/if}
 	</div>
 
-	{#snippet contentBox()}
+	{#snippet contentBox(tightTop = false)}
 		<div
 			class={classNames(
-				noPadding ? '' : 'p-4',
+				noPadding ? '' : tightTop ? 'px-4 pb-4 pt-1' : 'p-4',
 				'grow min-h-0 max-h-full',
 				forceOverflowVisible ? '!overflow-visible' : ''
 			)}
@@ -103,10 +103,12 @@
 	{#if banner}
 		<!-- Banner + content share one `divide-y` cell so the header keeps its single
 		     divider and the banner's reserved-height slot doesn't get bracketed into a
-		     bordered empty strip when no banner is shown. -->
+		     bordered empty strip when no banner is shown. The reserved slot already
+		     separates the banner from the content, so the content hugs it with a tight
+		     top padding. -->
 		<div class="flex flex-col grow min-h-0 max-h-full">
 			{@render banner()}
-			{@render contentBox()}
+			{@render contentBox(true)}
 		</div>
 	{:else}
 		{@render contentBox()}
