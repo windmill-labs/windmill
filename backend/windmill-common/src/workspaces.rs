@@ -371,10 +371,9 @@ pub async fn get_billing_workspace_id(db: &crate::DB, w_id: &str) -> Result<Stri
         }
     }
 
-    // The depth bound is a cycle-safety backstop, not a real nesting limit: fork chains are a handful
-    // of levels deep in practice, and the walk stops as soon as it reaches the NULL-parent root. It's
-    // set high enough that a truncated (root-not-found) result — which would fall back to `w_id` and
-    // mis-attribute billing — is unreachable for any real hierarchy.
+    // The depth bound is a cycle-safety backstop kept well above the enforced `MAX_FORK_DEPTH`, so a
+    // truncated (root-not-found) result — which would fall back to `w_id` and mis-attribute billing —
+    // is unreachable for any real hierarchy; only a malformed cycle could hit it.
     let root = sqlx::query_scalar!(
         r#"
             WITH RECURSIVE chain AS (
@@ -384,7 +383,7 @@ pub async fn get_billing_workspace_id(db: &crate::DB, w_id: &str) -> Result<Stri
                 SELECT w.id, w.parent_workspace_id, chain.depth + 1
                 FROM workspace w
                 JOIN chain ON w.id = chain.parent_workspace_id
-                WHERE chain.depth < 1000
+                WHERE chain.depth < 20
             )
             SELECT id AS "id!" FROM chain WHERE parent_workspace_id IS NULL LIMIT 1
         "#,
@@ -413,6 +412,55 @@ pub fn invalidate_team_plan_cache(w_id: &str) {
     TEAM_PLAN_CACHE.remove(w_id);
 }
 
+/// Depth of `w_id` in its fork chain: 0 for a root (no parent), 1 for a direct fork, and so on. Walks
+/// the parent chain up to the root. The recursion bound is a cycle-safety backstop set well above the
+/// enforced `MAX_FORK_DEPTH`; a (malformed) cyclic chain saturates it and so reads as "too deep",
+/// which safely rejects rather than allows.
+pub async fn fork_chain_depth(db: &crate::DB, w_id: &str) -> Result<i64> {
+    let depth = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT COALESCE(MAX(depth), 0)::bigint AS "depth!" FROM chain
+        "#,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("computing fork depth for {w_id}: {e:#}")))?;
+    Ok(depth)
+}
+
+/// Height of the fork subtree rooted at `w_id`: 0 when it has no live child forks, 1 with direct
+/// children, and so on. Used so that attaching a candidate which already has its own child forks can't
+/// push the family past the depth limit.
+pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
+    let height = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20 AND NOT w.deleted
+            )
+            SELECT COALESCE(MAX(depth), 0)::bigint AS "height!" FROM tree
+        "#,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("computing fork subtree height for {w_id}: {e:#}")))?;
+    Ok(height)
+}
+
 /// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).
 ///
 /// Unauthenticated metering helper: it reads workspace hierarchy for any `root` id, so callers must
@@ -422,8 +470,8 @@ pub fn invalidate_team_plan_cache(w_id: &str) {
 pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
     // The `deleted` filter is on the outer SELECT (not the recursive step) so that a live sub-fork
     // whose intermediate parent was soft-deleted is still counted rather than pruned with it. The
-    // depth bound is a cycle-safety backstop set well above any real nesting, so descendants are never
-    // silently dropped from the cap count.
+    // depth bound is a cycle-safety backstop kept well above the enforced `MAX_FORK_DEPTH`, so
+    // descendants are never silently dropped from the cap count.
     let count = sqlx::query_scalar!(
         r#"
             WITH RECURSIVE tree AS (
@@ -431,7 +479,7 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
                 UNION ALL
                 SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
                 JOIN tree ON w.parent_workspace_id = tree.id
-                WHERE tree.depth < 1000
+                WHERE tree.depth < 20
             )
             SELECT COUNT(*) AS "count!" FROM tree WHERE id != $1 AND NOT deleted
         "#,

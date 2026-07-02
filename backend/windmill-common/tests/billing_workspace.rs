@@ -3,8 +3,8 @@
 
 use sqlx::{Pool, Postgres};
 use windmill_common::workspaces::{
-    count_paid_seats, count_workspace_forks, get_billing_workspace_id,
-    invalidate_billing_workspace_cache,
+    count_paid_seats, count_workspace_forks, fork_chain_depth, fork_subtree_height,
+    get_billing_workspace_id, invalidate_billing_workspace_cache,
 };
 
 async fn insert_ws(db: &Pool<Postgres>, id: &str, parent: Option<&str>, deleted: bool) {
@@ -159,4 +159,29 @@ async fn billing_cache_invalidation_reflects_reparent(db: Pool<Postgres>) {
         get_billing_workspace_id(&db, "inv-fork").await.unwrap(),
         "inv-root-b"
     );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn fork_depth_and_subtree_height(db: Pool<Postgres>) {
+    // Chain: root -> f1 -> f2 -> f3
+    insert_ws(&db, "fd-root", None, false).await;
+    insert_ws(&db, "fd-f1", Some("fd-root"), false).await;
+    insert_ws(&db, "fd-f2", Some("fd-f1"), false).await;
+    insert_ws(&db, "fd-f3", Some("fd-f2"), false).await;
+
+    // Depth walks up to the root: root = 0, each fork adds one.
+    assert_eq!(fork_chain_depth(&db, "fd-root").await.unwrap(), 0);
+    assert_eq!(fork_chain_depth(&db, "fd-f1").await.unwrap(), 1);
+    assert_eq!(fork_chain_depth(&db, "fd-f3").await.unwrap(), 3);
+    // An unknown id has no chain, so depth 0 (treated as a root by the guard).
+    assert_eq!(fork_chain_depth(&db, "fd-missing").await.unwrap(), 0);
+
+    // Height walks down: the deepest live descendant below the node.
+    assert_eq!(fork_subtree_height(&db, "fd-root").await.unwrap(), 3);
+    assert_eq!(fork_subtree_height(&db, "fd-f2").await.unwrap(), 1);
+    assert_eq!(fork_subtree_height(&db, "fd-f3").await.unwrap(), 0);
+
+    // A deleted descendant is not walked, so it doesn't add to the height.
+    insert_ws(&db, "fd-f3-del", Some("fd-f3"), true).await;
+    assert_eq!(fork_subtree_height(&db, "fd-f3").await.unwrap(), 0);
 }

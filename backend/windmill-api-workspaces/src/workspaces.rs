@@ -3806,6 +3806,17 @@ lazy_static::lazy_static! {
         .filter(|v| *v >= 0)
         .unwrap_or(5);
 
+    // How deep a fork chain may nest (root = depth 0, a direct fork = depth 1). A general guardrail
+    // for all builds, independent of the cloud per-seat cap: deep fork chains are a footgun and no
+    // real use case needs them. Clamped to [1, 20] so it's always a real limit and can never exceed
+    // the fork-walk recursion backstop (20) that billing/count resolution uses (a chain deeper than
+    // the backstop would truncate and mis-resolve its root).
+    pub static ref MAX_FORK_DEPTH: i64 = std::env::var("MAX_FORK_DEPTH")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .map(|v| v.clamp(1, 20))
+        .unwrap_or(5);
+
 }
 
 async fn create_workspace_require_superadmin() -> String {
@@ -5005,8 +5016,9 @@ async fn create_workspace_fork_branch(
     Path(w_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> JsonResult<Vec<Uuid>> {
-    // Pre-check the fork cap before creating any git branch, so we don't leave orphaned branches
+    // Pre-check the fork guards before creating any git branch, so we don't leave orphaned branches
     // behind when the follow-up create_workspace_fork would be rejected anyway.
+    enforce_fork_depth(&db, &w_id, 0).await?;
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         enforce_cloud_fork_cap(&db, &w_id).await?;
@@ -5227,12 +5239,34 @@ async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()
     enforce_cloud_fork_count(db, &root, 1).await
 }
 
+/// General guardrail (all builds): reject creating a fork/dev under `parent` when it would nest deeper
+/// than `MAX_FORK_DEPTH`. `added_subtree_height` is the height of the subtree grafted below the new
+/// node — 0 for a plain fork, or the candidate's own subtree height for an attach.
+async fn enforce_fork_depth(
+    db: &DB,
+    parent_workspace_id: &str,
+    added_subtree_height: i64,
+) -> Result<()> {
+    let parent_depth =
+        windmill_common::workspaces::fork_chain_depth(db, parent_workspace_id).await?;
+    // The new node sits one level below the parent; its deepest descendant adds the grafted height.
+    let resulting_depth = parent_depth + 1 + added_subtree_height;
+    if resulting_depth > *MAX_FORK_DEPTH {
+        return Err(Error::BadRequest(format!(
+            "Fork depth limit reached: forks can be nested at most {} level(s) deep, but this would create a fork at depth {}. Fork from a workspace closer to the root instead.",
+            *MAX_FORK_DEPTH, resulting_depth
+        )));
+    }
+    Ok(())
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
+    enforce_fork_depth(&db, &parent_workspace_id, 0).await?;
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         enforce_cloud_fork_cap(&db, &parent_workspace_id).await?;
@@ -5401,6 +5435,12 @@ async fn attach_dev_workspace(
     Json(req): Json<AttachDevWorkspace>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Attaching grafts the candidate (and its own fork subtree) under prod, so enforce the general
+    // depth limit on the deepest resulting node.
+    let candidate_height =
+        windmill_common::workspaces::fork_subtree_height(&db, &req.dev_workspace_id).await?;
+    enforce_fork_depth(&db, &prod_w_id, candidate_height).await?;
 
     // Attaching reparents a workspace under prod (one dev per prod, admin-gated) and it then draws
     // prod's plan, so hold it to the same premium requirement as creating a fork. Only enforce the

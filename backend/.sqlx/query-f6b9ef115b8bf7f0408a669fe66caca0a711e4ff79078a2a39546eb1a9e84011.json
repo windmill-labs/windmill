@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE tree AS (\n                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1\n                UNION ALL\n                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w\n                JOIN tree ON w.parent_workspace_id = tree.id\n                WHERE tree.depth < 20\n            )\n            SELECT COUNT(*) AS \"count!\" FROM tree WHERE id != $1 AND NOT deleted\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f6b9ef115b8bf7f0408a669fe66caca0a711e4ff79078a2a39546eb1a9e84011"
+}
