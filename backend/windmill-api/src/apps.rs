@@ -7,6 +7,11 @@ use std::{collections::HashMap, sync::Arc};
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+#[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+use crate::job_helpers_oss::{
+    bump_storage_usage, ce_upload_budget, reject_reserved_volume_key,
+    spawn_storage_usage_recount_floored,
+};
 use crate::{
     auth::{get_end_user_email, OptTokened},
     db::{ApiAuthed, DB},
@@ -3544,7 +3549,49 @@ async fn upload_s3_file_from_app(
     ])
     .into();
 
-    let _put_result = upload_file_from_req(s3_client, &file_key, request, options).await?;
+    // Only workspace storage is quota-metered; a custom-resource upload lands in
+    // the user's own bucket and is neither capped nor counted. An overwrite of an
+    // existing key only spends the difference over its current size.
+    let _is_workspace_storage = query.s3_resource_path.is_none();
+    #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+    if _is_workspace_storage {
+        reject_reserved_volume_key(&file_key)?;
+    }
+    #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+    let (max_size, _existing_size) = if _is_workspace_storage {
+        let content_length = request
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.parse::<i64>().ok());
+        let budget = ce_upload_budget(&db, &w_id, &s3_client, &file_key, content_length).await?;
+        (Some(budget.max_size), budget.existing_size)
+    } else {
+        (None, 0)
+    };
+    #[cfg(any(not(feature = "parquet"), feature = "enterprise"))]
+    let max_size: Option<usize> = None;
+
+    match upload_file_from_req(s3_client, &file_key, request, options, max_size).await {
+        Ok((_, _size)) =>
+        {
+            #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+            if _is_workspace_storage {
+                bump_storage_usage(
+                    &db,
+                    &w_id,
+                    windmill_object_store::DEFAULT_STORAGE,
+                    _size as i64 - _existing_size,
+                )
+                .await;
+            }
+        }
+        Err(e) => {
+            #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+            spawn_storage_usage_recount_floored(&db, &w_id);
+            return Err(e);
+        }
+    }
 
     let delete_token = jwt::encode_with_internal_secret(S3DeleteTokenClaims {
         file_key: file_key.clone(),

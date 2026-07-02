@@ -19901,6 +19901,55 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/job_helpers/storage_usage:
+    get:
+      summary: Get the storage usage of the workspace object storage, per configured storage. On Community Edition, also returns the workspace storage quota.
+      operationId: getStorageUsage
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: refresh
+          in: query
+          description: recount usage by listing the storage instead of returning cached values
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Storage usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_bytes:
+                    type: integer
+                    format: int64
+                  quota_bytes:
+                    type: integer
+                    format: int64
+                    description: only present on Community Edition, where workspace storage is capped
+                  storages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        storage:
+                          type: string
+                        bytes:
+                          type: integer
+                          format: int64
+                        computed_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - storage
+                        - bytes
+                        - computed_at
+                required:
+                  - total_bytes
+                  - storages
+
   /w/{workspace}/job_helpers/list_stored_files:
     get:
       summary: List the file keys available in a workspace object storage
