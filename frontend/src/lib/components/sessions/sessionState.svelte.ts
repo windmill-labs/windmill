@@ -35,7 +35,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
-import { onUserChange } from '$lib/userScopedStorage'
+import { onUserChange, scopedKey } from '$lib/userScopedStorage'
 
 // Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
 // intentionally not previewable — only code-based 'raw_app' apps are. A
@@ -177,6 +177,12 @@ export type SessionPreviewTab = { id: string; url: string; loc: string; pinned?:
 const SESSIONS_DB = 'windmill-sessions'
 const LEGACY_SESSIONS_KEY = 'windmill_sessions'
 const LEGACY_LAST_SEEN_KEY = 'windmill_sessions_last_seen_counts'
+// The single unsent (transient) draft, kept in localStorage (user-scoped) so a
+// reload doesn't lose what the user set up before their first message: name,
+// workspace/fork choice, editor target and the typed-but-unsent prompt.
+// Deliberately NOT the preview tabs — the preview is locked while transient,
+// and the target-seeded tab is derived state.
+const TRANSIENT_DRAFT_KEY = 'wm_session_transient_draft'
 
 interface SessionSchema extends DBSchema {
 	sessions: { key: string; value: Session }
@@ -305,18 +311,86 @@ const sessionsDb = userScopedDb<SessionSchema>(SESSIONS_DB, {
 export const sessionState = $state<{
 	sessions: Session[]
 	currentSessionId: string | undefined
+	// False until the first IndexedDB hydration completes. Consumers gate their
+	// "not found" / empty states on it — before that, an empty list only means
+	// "still loading", not "the user has no sessions".
+	hydrated: boolean
 }>({
 	sessions: [],
-	currentSessionId: undefined
+	currentSessionId: undefined,
+	hydrated: false
 })
 
-// Write-behind a single session record. Transient (unsent) sessions stay in
-// memory only — they materialise via materializeTransient() at first send.
+type TransientDraft = Omit<Session, 'previewTabs' | 'activePreviewTabId' | 'previewCollapsed'> & {
+	prompt?: string
+}
+
+// The unsent prompt for the current transient session, held here so every
+// draft write (which snapshots only the Session record) can carry it along.
+let transientPrompt: { sessionId: string; text: string } | undefined
+
+function writeTransientDraft(s: Session): void {
+	const key = scopedKey(TRANSIENT_DRAFT_KEY)
+	if (!key) return
+	const { previewTabs, activePreviewTabId, previewCollapsed, ...rest } = $state.snapshot(
+		s
+	) as Session
+	const draft: TransientDraft = {
+		...rest,
+		prompt: transientPrompt?.sessionId === s.id ? transientPrompt.text : undefined
+	}
+	storeLocalSetting(key, JSON.stringify(draft))
+}
+
+function readTransientDraft(): TransientDraft | undefined {
+	const key = scopedKey(TRANSIENT_DRAFT_KEY)
+	if (!key) return undefined
+	const raw = getLocalSetting(key)
+	if (!raw) return undefined
+	try {
+		const d = JSON.parse(raw)
+		if (!d || typeof d.id !== 'string' || typeof d.name !== 'string') return undefined
+		return d as TransientDraft
+	} catch {
+		return undefined
+	}
+}
+
+function clearTransientDraft(): void {
+	const key = scopedKey(TRANSIENT_DRAFT_KEY)
+	if (key) storeLocalSetting(key, undefined)
+	transientPrompt = undefined
+}
+
+// Debounced write-behind of the chat input for a transient session, so the
+// typed-but-unsent prompt survives a reload with the rest of the draft.
+let transientPromptFlushHandle: ReturnType<typeof setTimeout> | undefined
+export function queueTransientDraftPrompt(sessionId: string, text: string): void {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s?.transient) return
+	transientPrompt = { sessionId, text }
+	clearTimeout(transientPromptFlushHandle)
+	transientPromptFlushHandle = setTimeout(() => writeTransientDraft(s), 400)
+}
+
+// Read back the restored draft prompt when the session's runtime (and its chat
+// manager) is created. Peek, not take: later draft writes keep carrying it.
+export function peekTransientDraftPrompt(sessionId: string): string | undefined {
+	return transientPrompt?.sessionId === sessionId ? transientPrompt.text : undefined
+}
+
+// Write-behind a single session record. Transient (unsent) sessions are not
+// written to IndexedDB — they live in memory plus a single localStorage draft
+// slot until materializeTransient() promotes them at first send.
 // Awaits DB-open so a write racing hydration still lands; no-ops (degrades to
 // in-memory) when the DB can't be opened. In-memory $state is the read surface,
 // so callers fire-and-forget.
 export async function putSession(s: Session): Promise<void> {
-	if (!BROWSER || s.transient) return
+	if (!BROWSER) return
+	if (s.transient) {
+		writeTransientDraft(s)
+		return
+	}
 	// Never resurrect a session whose committed workspace is gone. A live runtime
 	// can still write through here after reconciliation deletes its record (chatId
 	// seed, unread watermark), so guard once the workspace list is loaded.
@@ -366,6 +440,19 @@ async function hydrateSessions({ dropTransients = false } = {}): Promise<void> {
 		const changed = all.filter((s) => ensureSessionRootId(s))
 		for (const s of changed) await db.put('sessions', s)
 		all.sort((a, b) => b.createdAt - a.createdAt)
+		// Restore the (user-scoped) unsent draft, unless it already materialised
+		// (present in the DB — e.g. sent from another browser tab) or the same
+		// draft is still live in memory.
+		const draft = readTransientDraft()
+		if (draft) {
+			if (all.some((s) => s.id === draft.id)) {
+				clearTransientDraft()
+			} else if (!transients.some((s) => s.id === draft.id)) {
+				const { prompt, ...rec } = draft
+				transients.push({ ...rec, transient: true })
+				if (prompt) transientPrompt = { sessionId: rec.id, text: prompt }
+			}
+		}
 		sessionState.sessions = [...transients, ...all]
 	} catch (e) {
 		console.error('Failed to load sessions from IndexedDB', e)
@@ -544,6 +631,9 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 onUserChange(async (email, prevEmail) => {
 	if (!BROWSER) return
 	await hydrateSessions({ dropTransients: prevEmail !== email })
+	// onUserChange also fires at registration time, before the email resolves —
+	// that hydration is an empty no-op and must not clear the loading state.
+	if (email !== undefined) sessionState.hydrated = true
 	if (prevEmail !== undefined && prevEmail !== email) {
 		sessionState.currentSessionId = undefined
 	}
@@ -618,8 +708,9 @@ export function createSession(): Session {
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
 	sessionState.currentSessionId = session.id
-	// The new session is transient (in-memory only) until first send, so there
-	// is nothing to write to the DB yet.
+	// Transient until first send: no DB record yet, but the draft slot keeps it
+	// (name, workspace/fork choice, prompt) across reloads.
+	writeTransientDraft(session)
 	return session
 }
 
@@ -632,6 +723,8 @@ export function materializeTransient(id: string): void {
 	if (!s || !s.transient) return
 	delete s.transient
 	void putSession(s)
+	// Promoted to IndexedDB — the localStorage draft slot is now stale.
+	clearTransientDraft()
 }
 
 export function setSessionPendingWorkspace(id: string, workspace_id: string) {
@@ -879,6 +972,7 @@ export function setSessionArchived(id: string, archived: boolean) {
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
+	if (s.transient) clearTransientDraft()
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id

@@ -860,6 +860,11 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!session) {
 		return 'Error: no active session to open the preview in.'
 	}
+	// Defensive: beforeSend materialises the session before any tool runs, but a
+	// transient session must never grow tabs (they aren't persisted anywhere).
+	if (session.transient) {
+		return 'Error: the session has no messages yet — the preview panel opens after the first message.'
+	}
 	const target = previewTargetForSessionTarget(kind, path)
 	if (!target) {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
