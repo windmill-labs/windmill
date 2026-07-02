@@ -87,7 +87,8 @@ pub async fn upload_file_from_req(
     _file_key: &str,
     _req: axum::extract::Request,
     _options: PutMultipartOpts,
-) -> error::Result<PutResult> {
+    _max_size: Option<usize>,
+) -> error::Result<(PutResult, usize)> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
@@ -99,11 +100,23 @@ pub async fn upload_file_internal(
     _file_key: &str,
     _stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
     _options: PutMultipartOpts,
-) -> error::Result<()> {
+    _max_size: Option<usize>,
+) -> error::Result<(PutResult, usize)> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
+
+#[cfg(all(feature = "parquet", not(feature = "private")))]
+pub async fn ce_storage_quota_remaining(_db: &DB, _w_id: &str) -> error::Result<i64> {
+    Ok(i64::MAX)
+}
+
+#[cfg(all(feature = "parquet", not(feature = "private")))]
+pub async fn bump_storage_usage(_db: &DB, _w_id: &str, _storage: &str, _delta: i64) {}
+
+#[cfg(all(feature = "parquet", not(feature = "private")))]
+pub fn spawn_storage_usage_recount_floored(_db: &DB, _w_id: &str) {}
 
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 pub async fn download_s3_file_internal(
