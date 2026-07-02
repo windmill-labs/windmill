@@ -464,19 +464,26 @@ async function resolveUploadArgs(
 
 // Default partition value for a `// partitioned <kind>` script, from the
 // current UTC instant — mirrors the backend defaults (partition_ee.rs):
-// hourly `%Y-%m-%dT%H`, monthly `%Y-%m`, everything else a plain `%Y-%m-%d`.
-// `dynamic` has no time default and returns undefined.
-function defaultPartitionValue(kind: string): string | undefined {
-  const now = new Date();
+// hourly `%Y-%m-%dT%H`, weekly `%G-W%V` (ISO week-year), monthly `%Y-%m`,
+// daily `%Y-%m-%d`. `dynamic` has no time default and returns undefined.
+export function defaultPartitionValue(kind: string, now: Date = new Date()): string | undefined {
   const pad = (n: number) => String(n).padStart(2, "0");
   const date = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
   switch (kind) {
     case "hourly":
       return `${date}T${pad(now.getUTCHours())}`;
+    case "weekly": {
+      // ISO 8601 week (chrono's `%G-W%V`): the week containing this date's
+      // nearest Thursday belongs to that Thursday's year.
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const dow = d.getUTCDay() || 7; // Mon=1 … Sun=7
+      d.setUTCDate(d.getUTCDate() + 4 - dow);
+      const week = Math.ceil(((d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
+      return `${d.getUTCFullYear()}-W${pad(week)}`;
+    }
     case "monthly":
       return date.slice(0, 7);
     case "daily":
-    case "weekly":
       return date;
     default:
       return undefined;

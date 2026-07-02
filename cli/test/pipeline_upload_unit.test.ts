@@ -101,6 +101,18 @@ test("s3ObjectParams: only resource-s3_object properties, in declaration order",
   expect(s3ObjectParams(undefined)).toEqual([]);
 });
 
+test("s3ObjectParams: matches SQL-dialect resource-S3Object casing too", () => {
+  // TS/python parsers emit `resource-s3_object`; the SQL dialects (duckdb
+  // `-- $file (s3object)`) emit `resource-S3Object` — both must bind.
+  const schema = {
+    properties: {
+      file: { type: "object", format: "resource-S3Object" },
+      other: { type: "object", format: "resource-s3" },
+    },
+  };
+  expect(s3ObjectParams(schema)).toEqual(["file"]);
+});
+
 test("devUploadKey: key scoped by script path + param so basenames don't clobber", () => {
   expect(devUploadKey("f/analytics/ingest", "file", "./fixtures/events.csv")).toBe(
     "wmilldev/pipeline/f/analytics/ingest/file/events.csv",
