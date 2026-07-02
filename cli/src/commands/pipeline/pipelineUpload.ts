@@ -58,10 +58,19 @@ export function parseArgBinding(spec: string): ArgBinding {
   return { scriptTok, param, value };
 }
 
-/** Names of a schema's S3Object properties (`format: resource-s3_object`). */
+/**
+ * Names of a schema's S3Object properties. The resource name in `format`
+ * varies by language parser — TS/python emit `resource-s3_object`, the SQL
+ * dialects emit `resource-S3Object` — so match it case/underscore-insensitively
+ * the way the frontend's ArgInput does.
+ */
 export function s3ObjectParams(schema: any): string[] {
   const props = schema?.properties ?? {};
-  return Object.keys(props).filter((k) => props[k]?.format === "resource-s3_object");
+  const isS3Object = (format: unknown): boolean =>
+    typeof format === "string" &&
+    format.startsWith("resource-") &&
+    format.slice("resource-".length).replaceAll("_", "").toLowerCase() === "s3object";
+  return Object.keys(props).filter((k) => isS3Object(props[k]?.format));
 }
 
 /**
