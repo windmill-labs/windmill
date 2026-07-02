@@ -87,17 +87,20 @@
 		runtime.scheduleForkComparisonRefresh()
 	}
 
+	// Full dock refresh: fresh existence checks + draft list + fork comparison.
+	function refreshDock() {
+		existing.reset()
+		drafts.refresh()
+		refreshComparison()
+	}
+
 	// Refresh both the draft list and the fork comparison when the AI finishes a
 	// turn (loading true → false): tool calls may have created/edited/deleted
 	// items. Deploys happen server-side, so the frontend only has this coarse signal.
 	let wasLoading = $state(false)
 	$effect(() => {
 		const isLoading = runtime?.manager.loading ?? false
-		if (wasLoading && !isLoading) {
-			existing.reset()
-			drafts.refresh()
-			refreshComparison()
-		}
+		if (wasLoading && !isLoading) refreshDock()
 		wasLoading = isLoading
 	})
 
@@ -108,9 +111,7 @@
 		function onVisibilityChange() {
 			if (document.visibilityState !== 'visible') return
 			if (sessionState.currentSessionId !== session.id) return
-			existing.reset()
-			drafts.refresh()
-			refreshComparison()
+			refreshDock()
 		}
 		document.addEventListener('visibilitychange', onVisibilityChange)
 		return () => document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -251,5 +252,6 @@
 		{parentWorkspaceId}
 		chatId={session.chatId}
 		keys={mask}
+		onDataChanged={refreshDock}
 	/>
 {/if}

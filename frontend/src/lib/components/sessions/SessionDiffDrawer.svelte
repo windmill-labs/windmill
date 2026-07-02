@@ -13,7 +13,8 @@
 		workspaceId,
 		parentWorkspaceId,
 		chatId,
-		keys
+		keys,
+		onDataChanged
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -22,6 +23,9 @@
 		 *  page resolves it via readChatModifiedItems to preselect this chat's edits. */
 		chatId?: string
 		keys?: Set<string>
+		/** Notified after a deploy/discard mutated workspace state, so the owner
+		 *  (session bar) can refresh its cached comparison/draft sources. */
+		onDataChanged?: () => void
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -40,7 +44,8 @@
 		// own workspace in main context (where a draft deploys in place).
 		parentName: isFork ? (parentWs?.name ?? parentWorkspaceId) : (ws?.name ?? workspaceId),
 		isFork,
-		mask: keys
+		mask: keys,
+		onDataChanged
 	}))
 
 	// Editor URL for a row: point at the workspace the item actually lives in

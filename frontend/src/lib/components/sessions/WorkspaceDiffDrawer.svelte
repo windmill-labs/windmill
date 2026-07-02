@@ -2,15 +2,7 @@
 	import { buildDiffTree, folderKeyFor, type AppRootMeta, type TreeNode } from './diffTree'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import {
-		AlertTriangle,
-		ChevronDown,
-		ChevronRight,
-		ExternalLink,
-		Folder,
-		Loader2,
-		User
-	} from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, ExternalLink, Folder, Loader2, User } from 'lucide-svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
@@ -562,15 +554,17 @@
 			? `Deployed in this fork but not yet in ${parentTarget} — deploy it to promote the change`
 			: badge === 'deployed'
 				? `Deployed in ${parentTarget}`
-				: undefined}
+				: badge === 'conflict'
+					? `Changed in both this fork and ${parentTarget} — resolve manually`
+					: undefined}
 	<Badge color={BADGE_META[badge].color} small class={STATUS_BADGE_CLASS} title={hint}>
 		{BADGE_META[badge].label}
 	</Badge>
 {/snippet}
 
-<!-- The single row badge, derived by priority. Conflict carries a ⚠ marker;
-     clean+sync is bare. Everything here was edited by the AI this session, so the
-     draft badge is a plain pill — no author avatars. -->
+<!-- The single row badge, derived by priority; clean+sync is bare. Everything
+     here was edited by the AI this session, so the draft badge is a plain pill —
+     no author avatars. -->
 {#snippet rowBadge(item: DeployItem)}
 	{@const badge = badgeOf(item)}
 	{#if badge === 'draft'}
@@ -581,11 +575,6 @@
 			title={item.draftOnly ? 'Never deployed and is only a draft' : 'Is deployed and has a draft'}
 		>
 			{item.draftOnly ? 'Draft only' : 'Draft'}
-		</Badge>
-	{:else if badge === 'conflict'}
-		<Badge color="red" small class={STATUS_BADGE_CLASS}>
-			<AlertTriangle class="h-3 w-3 shrink-0" />
-			{BADGE_META.conflict.label}
 		</Badge>
 	{:else if badge !== 'none'}
 		{@render badgePill(item, badge)}
@@ -1113,14 +1102,11 @@
 													>
 														{action.label}
 													</Button>
-												{:else if status?.status === 'deployed'}
-													<!-- Deploy succeeded and there's no further step yet (the fork
-													     comparison catches up async — once it does and a next step
-													     exists, the action button above replaces this). -->
-													<Badge color="green" small>Deployed</Badge>
 												{:else if d.parent === 'conflict'}
 													<!-- No safe one-click resolve: both sides changed. Reconcile by
-													     hand in the editor. -->
+													     hand in the editor. Checked before the transient Deployed chip:
+													     a deploy that LANDS in a conflicted state must read as the
+													     conflict, not as a success chip. -->
 													<span
 														class="text-2xs text-tertiary italic"
 														title="Both this fork and {model.context.parentName ??
@@ -1128,6 +1114,11 @@
 													>
 														Resolve manually
 													</span>
+												{:else if status?.status === 'deployed'}
+													<!-- Deploy succeeded and there's no further step yet (the fork
+													     comparison catches up async — once it does and a next step
+													     exists, the action button above replaces this). -->
+													<Badge color="green" small>Deployed</Badge>
 												{/if}
 											</div>
 										</div>

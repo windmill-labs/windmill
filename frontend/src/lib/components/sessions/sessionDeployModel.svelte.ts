@@ -44,6 +44,11 @@ export interface SessionDeployModelArgs {
 	workspaceName?: string
 	parentWorkspaceId?: string
 	parentName?: string
+	/** Called after a deploy/discard mutated workspace state. Lets the consumer
+	 *  refresh ITS OWN data sources (the session bar caches the fork comparison
+	 *  on the runtime) — without this, the bar shows stale counts until the next
+	 *  turn end / tab refocus / reload. */
+	onDataChanged?: () => void
 	isFork: boolean
 	/** Chat-modified-items mask; undefined shows every draft/diff. */
 	mask?: Set<string>
@@ -354,6 +359,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			void fetchComparison()
 			pollTimers = [800, 1800, 3500].map((d) => setTimeout(() => void fetchComparison(), d))
 		}
+		getArgs().onDataChanged?.()
 	}
 
 	/** The workspace a plan writes into — the current workspace for a draft deploy
