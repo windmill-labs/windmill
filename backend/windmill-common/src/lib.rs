@@ -1602,6 +1602,36 @@ pub async fn get_latest_script_hash<'e, E: sqlx::PgExecutor<'e>>(
     return Ok(hash);
 }
 
+/// Latest deployed hash for `path`, served from [`DEPLOYED_SCRIPT_HASH_CACHE`]
+/// (evicted by `notify_runnable_version_change` events, 60s TTL fallback).
+/// `None` if the path has no deployed, locked, non-errored version.
+pub async fn get_latest_deployed_script_hash_cached(
+    db: &DB,
+    w_id: &str,
+    script_path: &str,
+) -> error::Result<Option<i64>> {
+    let use_cache = !DEPLOYED_SCRIPT_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+    let cache_key = (w_id.to_string(), script_path.to_string());
+    if use_cache {
+        if let Some(cached) = DEPLOYED_SCRIPT_HASH_CACHE.get(&cache_key) {
+            if cached.expires_at > std::time::Instant::now() {
+                return Ok(Some(cached.id));
+            }
+        }
+    }
+    let hash = get_latest_script_hash(db, script_path, w_id).await?;
+    if let (true, Some(hash)) = (use_cache, hash) {
+        DEPLOYED_SCRIPT_HASH_CACHE.insert(
+            cache_key,
+            ExpiringLatestVersionId {
+                id: hash,
+                expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
+            },
+        );
+    }
+    Ok(hash)
+}
+
 pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: E,

@@ -1,6 +1,11 @@
 #[cfg(feature = "deno_core")]
 use std::time::Instant;
-use std::{collections::HashMap, fs, process::Stdio};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    process::Stdio,
+    sync::Arc,
+};
 
 use base64::Engine;
 use itertools::Itertools;
@@ -27,9 +32,10 @@ use crate::{
     NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
+    cache,
     client::AuthedClient,
     jobs::JobKind,
-    scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
+    scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
@@ -44,7 +50,6 @@ use tokio::io::AsyncReadExt;
 
 use windmill_common::{
     error::{self, Result},
-    get_latest_hash_for_path,
     worker::{write_file, Connection, DISABLE_BUNDLING},
     DB,
 };
@@ -1242,16 +1247,97 @@ pub fn ensure_bundle_output_exists(bundle_path: &str) -> Result<()> {
 
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
 
-async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) -> Result<String> {
-    let script_hash = get_latest_hash_for_path(db, w_id, script_path, false).await?;
-    let last_updated_at = sqlx::query_scalar!(
-        "SELECT created_at FROM script WHERE workspace_id = $1 AND hash = $2",
-        w_id,
-        script_hash.0 .0
+/// A script version's relative-import list never changes (content is immutable
+/// per hash), so parses are memoized without any invalidation.
+lazy_static::lazy_static! {
+    static ref RELATIVE_IMPORTS_PER_HASH: quick_cache::sync::Cache<i64, Arc<Vec<String>>> =
+        quick_cache::sync::Cache::new(1000);
+}
+
+const MAX_TRANSITIVE_IMPORT_PATHS: usize = 256;
+
+/// `(path, latest deployed hash)` for the whole transitive closure of relative
+/// imports of `inner_content` — the set of scripts whose code gets inlined into
+/// the bundle, so all of them must key the bundle cache. Resolution goes through
+/// `DEPLOYED_SCRIPT_HASH_CACHE` (notify-evicted, 60s TTL fallback) and the
+/// per-hash script/parse caches, so steady state costs no DB queries.
+async fn collect_transitive_import_versions(
+    db: &DB,
+    w_id: &str,
+    script_path: &str,
+    inner_content: &str,
+) -> Vec<(String, i64)> {
+    let conn = Connection::from(db.clone());
+    let mut queue = crate::worker_lockfiles::extract_relative_imports(
+        inner_content,
+        script_path,
+        &Some(ScriptLang::Bun),
     )
-    .fetch_one(db)
-    .await?;
-    Ok(last_updated_at.to_string())
+    .unwrap_or_default();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut versions: Vec<(String, i64)> = vec![];
+    while let Some(path) = queue.pop() {
+        if !visited.insert(path.clone()) {
+            continue;
+        }
+        if visited.len() > MAX_TRANSITIVE_IMPORT_PATHS {
+            tracing::warn!(
+                "transitive relative-import closure of {script_path} exceeds \
+                {MAX_TRANSITIVE_IMPORT_PATHS} scripts; bundle cache key covers only the first \
+                {MAX_TRANSITIVE_IMPORT_PATHS}"
+            );
+            break;
+        }
+        let hash =
+            match windmill_common::get_latest_deployed_script_hash_cached(db, w_id, &path).await {
+                Ok(Some(hash)) => hash,
+                // Not a deployed script at this path (deleted, or not a script):
+                // excluded from the key, matching what the bundler can inline.
+                Ok(None) => continue,
+                Err(e) => {
+                    tracing::warn!(
+                        "could not resolve import {path} while computing bundle cache key for \
+                    {script_path}: {e:#}"
+                    );
+                    continue;
+                }
+            };
+        versions.push((path.clone(), hash));
+        let imports = match RELATIVE_IMPORTS_PER_HASH.get(&hash) {
+            Some(imports) => imports,
+            None => {
+                let imports = match cache::script::fetch(&conn, ScriptHash(hash)).await {
+                    Ok((data, meta)) => match meta.language {
+                        Some(ScriptLang::Bun)
+                        | Some(ScriptLang::Bunnative)
+                        | Some(ScriptLang::Deno) => {
+                            crate::worker_lockfiles::extract_relative_imports(
+                                &data.code,
+                                &path,
+                                &meta.language,
+                            )
+                            .unwrap_or_default()
+                        }
+                        _ => vec![],
+                    },
+                    Err(e) => {
+                        tracing::warn!(
+                            "could not fetch import {path} (hash {hash}) while computing bundle \
+                            cache key for {script_path}: {e:#}"
+                        );
+                        vec![]
+                    }
+                };
+                let imports = Arc::new(imports);
+                RELATIVE_IMPORTS_PER_HASH.insert(hash, imports.clone());
+                imports
+            }
+        };
+        queue.extend(imports.iter().cloned());
+    }
+    // deterministic key regardless of traversal order
+    versions.sort();
+    versions
 }
 
 pub async fn compute_bundle_local_and_remote_path(
@@ -1265,16 +1351,13 @@ pub async fn compute_bundle_local_and_remote_path(
     let mut input_src = format!("{inner_content}{lock}",);
 
     if let Some(db) = db {
-        let relative_imports = crate::worker_lockfiles::extract_relative_imports(
-            &inner_content,
-            script_path,
-            &Some(ScriptLang::Bun),
-        );
-        for path in relative_imports.unwrap_or_default() {
-            if let Ok(updated_at) = get_script_import_updated_at(&db, w_id, &path).await {
-                input_src.push_str(&path);
-                input_src.push_str(&updated_at.to_string());
-            }
+        // The bundle inlines the whole transitive relative-import closure, so a
+        // new deployed version of ANY script in it must change the key.
+        for (path, hash) in
+            collect_transitive_import_versions(db, w_id, script_path, inner_content).await
+        {
+            input_src.push_str(&path);
+            input_src.push_str(&hash.to_string());
         }
     };
 
