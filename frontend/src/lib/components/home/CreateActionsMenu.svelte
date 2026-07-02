@@ -290,8 +290,16 @@
 		}
 		const observer = new MutationObserver(apply)
 		observer.observe(node, { attributeFilter: ['style', 'data-side'] })
+		// melt only rewrites style when the reposition moves the submenu — a resize that
+		// changes clientWidth without moving it (scrollbar appearing, zoom) needs a direct hook
+		window.addEventListener('resize', apply)
 		apply()
-		return { destroy: () => observer.disconnect() }
+		return {
+			destroy: () => {
+				observer.disconnect()
+				window.removeEventListener('resize', apply)
+			}
+		}
 	}
 
 	// attach the menu trigger to the design-system <Button>'s DOM node, so it keeps its
