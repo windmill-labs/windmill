@@ -292,11 +292,13 @@
 <Drawer bind:this={drawer} size="50rem">
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
+		bannerReserved={edit}
 		on:close={drawer?.closeDrawer}
 	>
 		{#snippet banner()}
 			<LocalDraftBanner
 				show={edit && selectedDirty}
+				reserveSpace={edit}
 				getDeployed={() => (selected ? initialStates[selected] : undefined)}
 				getCurrent={() => current}
 				onDiscard={() => {

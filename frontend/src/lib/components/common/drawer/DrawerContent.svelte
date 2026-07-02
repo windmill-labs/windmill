@@ -24,6 +24,14 @@
 		titleExtra?: import('svelte').Snippet
 		/** Rendered fixed below the header, above the scrollable content. */
 		banner?: import('svelte').Snippet
+		/**
+		 * Whether the `banner` is actually reserving vertical space (its baseline
+		 * exists so it can appear). Only then does the content hug it with a tight
+		 * top padding; for new entities where the banner can never show, the content
+		 * keeps normal padding. Defaults to false so a bannerless-but-passed snippet
+		 * doesn't compress the top.
+		 */
+		bannerReserved?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -43,6 +51,7 @@
 		actions,
 		titleExtra,
 		banner,
+		bannerReserved = false,
 		children
 	}: Props = $props()
 
@@ -108,7 +117,7 @@
 		     top padding. -->
 		<div class="flex flex-col grow min-h-0 max-h-full">
 			{@render banner()}
-			{@render contentBox(true)}
+			{@render contentBox(bannerReserved)}
 		</div>
 	{:else}
 		{@render contentBox()}

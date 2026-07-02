@@ -1380,6 +1380,7 @@
 {#if useDrawer}
 	<Drawer size="900px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit schedule ${initialPath}`

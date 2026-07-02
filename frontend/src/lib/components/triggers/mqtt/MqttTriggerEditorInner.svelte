@@ -391,6 +391,7 @@
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit MQTT trigger ${initialPath}`

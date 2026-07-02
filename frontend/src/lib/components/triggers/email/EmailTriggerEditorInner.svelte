@@ -475,6 +475,7 @@
 {#if useDrawer}
 	<Drawer size="700px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit email trigger ${initialPath}`
