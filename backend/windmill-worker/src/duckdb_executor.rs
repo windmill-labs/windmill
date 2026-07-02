@@ -483,23 +483,117 @@ fn plan_macro_injection(
     Ok(injected)
 }
 
-// Insert the injected blocks after the contiguous prefix of setup statements
-// (ATTACH/INSTALL/LOAD/SET/…) *and* the script's own leading macro
-// definitions: injected bodies may reference attached catalogs or (registry
-// macros excluded by local-wins) the local definitions, both of which must
-// exist when the injected CREATE binds.
-fn splice_macro_blocks(mut blocks: Vec<String>, injected: Vec<String>) -> Vec<String> {
+// Weave the injected blocks into the user's statement list. DuckDB
+// bind-checks macro bodies at CREATE, in both directions:
+//   - an injected definition that a LOCAL macro calls must land *before*
+//     that local definition (pulling its own injected dependencies with it);
+//   - an injected definition that references a local macro must stay *after*
+//     it — a conflict between the two requirements is an error, not a
+//     silent mis-ordering.
+// The default slot (no local interplay) is after the leading prefix of setup
+// statements and local definitions, as before. Injected setup statements
+// (library ATTACHes) go at the earliest slot any injected definition landed
+// on: injected bodies are self-contained w.r.t. their own library's setup
+// and never depend on the consumer's setup.
+fn weave_macro_blocks(blocks: Vec<String>, injected: Vec<String>) -> Result<Vec<String>> {
     if injected.is_empty() {
-        return blocks;
+        return Ok(blocks);
     }
-    use windmill_parser::duckdb_macros::is_macro_definition;
+    use std::collections::HashSet;
+    use windmill_parser::duckdb_macros::{
+        detect_macro_calls, is_macro_definition, parse_macro_definition,
+    };
     use windmill_parser::sql_materialize::{classify_block, BlockClass};
-    let idx = blocks
+
+    // Default slot: insert before the first block that is neither setup nor
+    // a local macro definition (i.e. after the whole leading prefix).
+    let default_slot = blocks
         .iter()
         .position(|b| !matches!(classify_block(b), BlockClass::Setup) && !is_macro_definition(b))
         .unwrap_or(blocks.len());
-    blocks.splice(idx..idx, injected);
-    blocks
+
+    // The user's own macro definitions, as placement anchors.
+    let locals: Vec<(usize, windmill_parser::duckdb_macros::ParsedMacro)> = blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(i, b)| parse_macro_definition(b).map(|m| (i, m)))
+        .collect();
+    let local_names: HashSet<String> = locals.iter().map(|(_, m)| m.name.clone()).collect();
+
+    // Plan emits [lib setup…, definitions in topo order…].
+    let (setup, defs): (Vec<String>, Vec<String>) =
+        injected.into_iter().partition(|s| !is_macro_definition(s));
+    let def_metas: Vec<windmill_parser::duckdb_macros::ParsedMacro> = defs
+        .iter()
+        .map(|s| {
+            parse_macro_definition(s).ok_or_else(|| {
+                Error::ExecutionErr(format!(
+                    "internal: generated macro statement failed to re-parse: {}",
+                    s.chars().take(80).collect::<String>()
+                ))
+            })
+        })
+        .collect::<Result<_>>()?;
+    let def_names: HashSet<String> = def_metas.iter().map(|m| m.name.clone()).collect();
+
+    // Per-injected-definition slot bounds from the local anchors. `slot = i`
+    // means "insert before block i".
+    let mut max_slot: Vec<usize> = vec![default_slot; defs.len()];
+    let mut min_slot: Vec<usize> = vec![0; defs.len()];
+    for (li, lm) in &locals {
+        let local_calls = detect_macro_calls(&lm.body, &def_names);
+        let referenced_locals_of: Vec<usize> = def_metas
+            .iter()
+            .enumerate()
+            .filter(|(_, dm)| detect_macro_calls(&dm.body, &local_names).contains(&lm.name))
+            .map(|(di, _)| di)
+            .collect();
+        for (di, dm) in def_metas.iter().enumerate() {
+            if local_calls.contains(&dm.name) {
+                max_slot[di] = max_slot[di].min(*li);
+            }
+        }
+        for di in referenced_locals_of {
+            min_slot[di] = min_slot[di].max(*li + 1);
+        }
+    }
+    // An injected definition must not land after any injected definition
+    // that depends on it: propagate upper bounds backwards through the topo
+    // order (dependents come later in `defs`).
+    let mut eff_slot = max_slot.clone();
+    for i in (0..defs.len()).rev() {
+        for j in (i + 1)..defs.len() {
+            if detect_macro_calls(&def_metas[j].body, &def_names).contains(&def_metas[i].name) {
+                eff_slot[i] = eff_slot[i].min(eff_slot[j]);
+            }
+        }
+        if min_slot[i] > eff_slot[i] {
+            return Err(Error::ExecutionErr(format!(
+                "workspace macro `{}` and this script's own macro definitions have conflicting \
+                 order requirements (a local macro calls it while it references a local macro \
+                 defined later); reorder the local definitions",
+                def_metas[i].name
+            )));
+        }
+    }
+    // Library setup precedes the earliest definition.
+    let setup_slot = eff_slot.iter().copied().min().unwrap_or(default_slot);
+
+    let mut out: Vec<String> = Vec::with_capacity(blocks.len() + defs.len() + setup.len());
+    for slot in 0..=blocks.len() {
+        if slot == setup_slot {
+            out.extend(setup.iter().cloned());
+        }
+        for (di, d) in defs.iter().enumerate() {
+            if eff_slot[di] == slot {
+                out.push(d.clone());
+            }
+        }
+        if let Some(b) = blocks.get(slot) {
+            out.push(b.clone());
+        }
+    }
+    Ok(out)
 }
 
 // Workspace-macro injection (`// macros` libraries): fetch the registry, plan
@@ -587,7 +681,7 @@ async fn inject_workspace_macros(
         }
     };
     let injected = plan_macro_injection(&selected, &registry, &effective_use, &lib_bodies)?;
-    Ok(splice_macro_blocks(blocks, injected))
+    weave_macro_blocks(blocks, injected)
 }
 
 // Fetch a macro library's deployed body — for its setup statements; the
@@ -2016,7 +2110,7 @@ mod tests {
     }
 
     #[test]
-    fn splice_lands_after_leading_local_macro_definitions() {
+    fn weave_lands_after_local_definition_it_references() {
         // Injected bodies may call a local macro (local-wins excludes it from
         // the registry set), so the leading local CREATE must run first.
         let b = blocks(&[
@@ -2024,14 +2118,79 @@ mod tests {
             "CREATE MACRO local_dbl(a) AS a * 2;",
             "SELECT registry_m(1);",
         ]);
-        let out = splice_macro_blocks(
+        let out = weave_macro_blocks(
             b,
             vec!["CREATE OR REPLACE TEMP MACRO registry_m(a) AS local_dbl(a) + 1;".into()],
-        );
+        )
+        .unwrap();
         assert_eq!(
             out[2],
             "CREATE OR REPLACE TEMP MACRO registry_m(a) AS local_dbl(a) + 1;"
         );
+    }
+
+    #[test]
+    fn weave_lands_before_local_definition_that_calls_it() {
+        // The inverse direction: a LOCAL macro whose body calls a registry
+        // macro bind-checks at its own CREATE, so the injected definition
+        // (and its library setup) must come first.
+        let b = blocks(&[
+            "CREATE MACRO outer(x) AS shared_inner(x) + 1;",
+            "SELECT outer(1);",
+        ]);
+        let out = weave_macro_blocks(
+            b,
+            vec![
+                "ATTACH 'ext.duckdb' AS ext;".into(),
+                "CREATE OR REPLACE TEMP MACRO shared_inner(x) AS x * 2;".into(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            blocks(&[
+                "ATTACH 'ext.duckdb' AS ext;",
+                "CREATE OR REPLACE TEMP MACRO shared_inner(x) AS x * 2;",
+                "CREATE MACRO outer(x) AS shared_inner(x) + 1;",
+                "SELECT outer(1);",
+            ])
+        );
+    }
+
+    #[test]
+    fn weave_pulls_injected_dependencies_before_the_calling_local() {
+        // outer(local) calls injected `mid`, whose body calls injected `base`:
+        // both must precede the local definition, base before mid.
+        let b = blocks(&["CREATE MACRO outer(x) AS mid(x) + 1;", "SELECT outer(1);"]);
+        let out = weave_macro_blocks(
+            b,
+            vec![
+                "CREATE OR REPLACE TEMP MACRO base(x) AS x * 2;".into(),
+                "CREATE OR REPLACE TEMP MACRO mid(x) AS base(x) + 1;".into(),
+            ],
+        )
+        .unwrap();
+        let pos = |needle: &str| out.iter().position(|s| s.contains(needle)).unwrap();
+        assert!(pos("MACRO base(x)") < pos("MACRO mid(x)"));
+        assert!(pos("MACRO mid(x)") < pos("MACRO outer(x)"));
+    }
+
+    #[test]
+    fn weave_conflicting_local_order_errors() {
+        // local_a calls injected X; X references local_b, defined after
+        // local_a — unsatisfiable, must error rather than silently mis-order.
+        let b = blocks(&[
+            "CREATE MACRO local_a(x) AS conflicted(x);",
+            "CREATE MACRO local_b(x) AS x * 3;",
+            "SELECT local_a(1);",
+        ]);
+        let err = weave_macro_blocks(
+            b,
+            vec!["CREATE OR REPLACE TEMP MACRO conflicted(x) AS local_b(x) + 1;".into()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("conflicting"), "{err}");
     }
 
     #[test]
@@ -2068,26 +2227,27 @@ mod tests {
     }
 
     #[test]
-    fn splice_lands_after_setup_prefix() {
+    fn weave_lands_after_setup_prefix() {
         let b = blocks(&[
             "INSTALL ducklake;",
             "ATTACH 'ducklake:postgres:...' AS lake (DATA_PATH 's3://x');",
             "CREATE TABLE IF NOT EXISTS lake.t AS SELECT 1;",
             "SELECT dbl(1);",
         ]);
-        let out = splice_macro_blocks(
+        let out = weave_macro_blocks(
             b,
             vec!["CREATE OR REPLACE TEMP MACRO dbl(a) AS a * 2;".into()],
-        );
+        )
+        .unwrap();
         assert_eq!(out[2], "CREATE OR REPLACE TEMP MACRO dbl(a) AS a * 2;");
         assert_eq!(out.len(), 5);
     }
 
     #[test]
-    fn splice_appends_when_all_setup_or_empty() {
-        let out = splice_macro_blocks(blocks(&["ATTACH 'x' AS a;"]), blocks(&["m;"]));
+    fn weave_appends_when_all_setup_or_empty() {
+        let out = weave_macro_blocks(blocks(&["ATTACH 'x' AS a;"]), blocks(&["m;"])).unwrap();
         assert_eq!(out, blocks(&["ATTACH 'x' AS a;", "m;"]));
-        let out = splice_macro_blocks(vec![], blocks(&["m;"]));
+        let out = weave_macro_blocks(vec![], blocks(&["m;"])).unwrap();
         assert_eq!(out, blocks(&["m;"]));
     }
 

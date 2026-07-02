@@ -250,6 +250,14 @@ pub fn is_macro_definition(stmt: &str) -> bool {
         .is_some()
 }
 
+/// Parse a single macro-definition statement (`CREATE [OR REPLACE] [TEMP]
+/// MACRO …`). `None` when the statement isn't macro-shaped or its header is
+/// malformed — callers using definitions as placement anchors skip those
+/// (they fail at execution regardless).
+pub fn parse_macro_definition(stmt: &str) -> Option<ParsedMacro> {
+    parse_create_macro(stmt).ok().flatten()
+}
+
 /// Names of macros the given statements define themselves (`CREATE [OR
 /// REPLACE] [TEMP] MACRO …`). A consumer's own definition is authoritative
 /// over a same-named workspace macro — the worker subtracts these before
