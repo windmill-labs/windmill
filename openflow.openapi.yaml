@@ -474,6 +474,9 @@ components:
         model:
           type: string
           description: Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')
+        reasoning_effort:
+          type: string
+          description: Provider-native reasoning effort token (e.g. 'low', 'high', 'none') for models that support extended thinking. Optional; unset leaves the provider default.
       required:
         - kind
         - resource

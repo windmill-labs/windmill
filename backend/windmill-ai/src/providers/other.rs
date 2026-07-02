@@ -35,6 +35,12 @@ pub struct OpenAICompletionRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<&'a str>,
+    /// DeepSeek disables reasoning via a `thinking` object rather than an effort
+    /// token (`reasoning_effort: "none"` is rejected by their API).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
@@ -49,6 +55,32 @@ pub struct OpenAICompletionRequest<'a> {
 pub struct BuiltRequests {
     pub with_usage: String,
     pub without_usage: String,
+}
+
+/// Provider-specific reasoning translation for OpenAI-compatible providers,
+/// mirroring the chat proxy's `applyReasoningToConfig`. Returns the effort token
+/// to send, an optional `thinking` object, and the temperature to keep:
+/// - DeepSeek disables reasoning via `thinking: {type: disabled}` (the effort
+///   token `"none"` is rejected by their API).
+/// - Mistral rejects sampling params when reasoning is on (greedy sampling
+///   requires `top_p == 1`), so temperature is dropped.
+fn provider_reasoning_fields<'a>(
+    provider: &AIProvider,
+    reasoning_effort: Option<&'a str>,
+    temperature: Option<f32>,
+) -> (Option<&'a str>, Option<serde_json::Value>, Option<f32>) {
+    let (effort, thinking) = match provider {
+        AIProvider::DeepSeek if reasoning_effort == Some("none") => {
+            (None, Some(serde_json::json!({ "type": "disabled" })))
+        }
+        _ => (reasoning_effort, None),
+    };
+    let temperature = if *provider == AIProvider::Mistral && reasoning_effort.is_some() {
+        None
+    } else {
+        temperature
+    };
+    (effort, thinking, temperature)
 }
 
 /// Query builder for providers using the OpenAI-compatible completion endpoint
@@ -109,12 +141,17 @@ impl OtherQueryBuilder {
             None
         };
 
+        let (reasoning_effort, thinking, temperature) =
+            provider_reasoning_fields(&self.provider_kind, args.reasoning_effort, args.temperature);
+
         // Build request with stream_options for usage tracking
         let request_with_usage = OpenAICompletionRequest {
             model: args.model,
             messages: &prepared_messages,
             tools: args.tools,
-            temperature: args.temperature,
+            temperature,
+            reasoning_effort,
+            thinking: thinking.clone(),
             max_completion_tokens: args.max_tokens,
             response_format: response_format.clone(),
             tool_choice: tool_choice.clone(),
@@ -127,7 +164,9 @@ impl OtherQueryBuilder {
             model: args.model,
             messages: &prepared_messages,
             tools: args.tools,
-            temperature: args.temperature,
+            temperature,
+            reasoning_effort,
+            thinking,
             max_completion_tokens: args.max_tokens,
             response_format,
             tool_choice,
@@ -266,5 +305,52 @@ impl QueryBuilder for OtherQueryBuilder {
         } else {
             vec![("Authorization", format!("Bearer {}", api_key))]
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deepseek_off_translates_to_thinking_disabled() {
+        let (effort, thinking, temperature) =
+            provider_reasoning_fields(&AIProvider::DeepSeek, Some("none"), Some(0.5));
+        // "none" is rejected as an effort token, so it becomes a thinking disable.
+        assert_eq!(effort, None);
+        assert_eq!(thinking, Some(serde_json::json!({ "type": "disabled" })));
+        assert_eq!(temperature, Some(0.5));
+    }
+
+    #[test]
+    fn deepseek_level_passes_effort_through() {
+        let (effort, thinking, _) =
+            provider_reasoning_fields(&AIProvider::DeepSeek, Some("high"), None);
+        assert_eq!(effort, Some("high"));
+        assert!(thinking.is_none());
+    }
+
+    #[test]
+    fn mistral_drops_temperature_when_reasoning_on() {
+        let (effort, thinking, temperature) =
+            provider_reasoning_fields(&AIProvider::Mistral, Some("high"), Some(0.7));
+        assert_eq!(effort, Some("high"));
+        assert!(thinking.is_none());
+        assert_eq!(temperature, None);
+    }
+
+    #[test]
+    fn mistral_keeps_temperature_when_reasoning_off() {
+        let (_, _, temperature) = provider_reasoning_fields(&AIProvider::Mistral, None, Some(0.7));
+        assert_eq!(temperature, Some(0.7));
+    }
+
+    #[test]
+    fn other_providers_pass_reasoning_and_temperature_through() {
+        let (effort, thinking, temperature) =
+            provider_reasoning_fields(&AIProvider::OpenRouter, Some("high"), Some(0.3));
+        assert_eq!(effort, Some("high"));
+        assert!(thinking.is_none());
+        assert_eq!(temperature, Some(0.3));
     }
 }

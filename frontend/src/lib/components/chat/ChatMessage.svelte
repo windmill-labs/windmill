@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Markdown } from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { Loader2, CheckCircle2, AlertTriangle } from 'lucide-svelte'
+	import { Loader2, CheckCircle2, AlertTriangle, Brain, ChevronRight } from 'lucide-svelte'
 	import CodeDisplay from '$lib/components/copilot/chat/script/CodeDisplay.svelte'
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -10,6 +10,7 @@
 	interface Props {
 		role: 'user' | 'assistant' | 'tool' | 'system'
 		content: string
+		reasoning?: string
 		loading?: boolean
 		success?: boolean
 		stepName?: string
@@ -24,6 +25,7 @@
 	let {
 		role,
 		content,
+		reasoning = undefined,
 		loading = false,
 		success = undefined,
 		stepName = undefined,
@@ -78,6 +80,24 @@
 		</div>
 	{/if}
 
+	{#if role !== 'user' && reasoning}
+		<!-- Reasoning summary: "thinking" affordance, collapsed by default -->
+		<details class="group px-3 pt-3">
+			<summary
+				class="flex items-center gap-1 text-2xs text-tertiary cursor-pointer select-none list-none"
+			>
+				<Brain size={12} class={content ? '' : 'animate-pulse'} />
+				<span>{content ? 'Thought process' : 'Thinking...'}</span>
+				<ChevronRight size={12} class="transition-transform group-open:rotate-90" />
+			</summary>
+			<div
+				class="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap border-l border-surface-selected pl-2 text-xs text-tertiary"
+			>
+				{reasoning}
+			</div>
+		</details>
+	{/if}
+
 	{#if role === 'user'}
 		<p class="whitespace-pre-wrap text-sm text-right">{content}</p>
 	{:else if loading}
@@ -121,7 +141,7 @@
 		{:else}
 			<p class="whitespace-pre-wrap text-sm px-3 pb-3 {!stepName ? 'pt-3' : ''}">{content}</p>
 		{/if}
-	{:else}
+	{:else if !reasoning}
 		<p class="text-tertiary text-sm px-3 py-3">No result</p>
 	{/if}
 </div>
