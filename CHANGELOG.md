@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.746.0](https://github.com/windmill-labs/windmill/compare/v1.745.0...v1.746.0) (2026-07-02)
+
+
+### Features
+
+* **ai:** add Azure AI Foundry as a native AI provider ([#9879](https://github.com/windmill-labs/windmill/issues/9879)) ([d9b080f](https://github.com/windmill-labs/windmill/commit/d9b080f57fa0be144cefa773d39742c45b40f043))
+* **frontend:** group compare & deploy items by folder ([#9880](https://github.com/windmill-labs/windmill/issues/9880)) ([7b04820](https://github.com/windmill-labs/windmill/commit/7b04820f8ef8c7f02f79dd4239a877f667d23e6a))
+* **frontend:** pipelines index page and sql editor hint ([#9881](https://github.com/windmill-labs/windmill/issues/9881)) ([20351a6](https://github.com/windmill-labs/windmill/commit/20351a6b4c262184c5f815eeb5de007ab1eaf4a0))
+* **pipeline:** backfill a range of partitions from the asset drawer ([#9885](https://github.com/windmill-labs/windmill/issues/9885)) ([53bbb92](https://github.com/windmill-labs/windmill/commit/53bbb92953178eb6d0017818ef870f3cb2399dfd))
+* **pipelines:** workspace duckdb macro libraries (// macros / // use) ([#9890](https://github.com/windmill-labs/windmill/issues/9890)) ([84141ad](https://github.com/windmill-labs/windmill/commit/84141add1ddf35c2573e3c213366ce7c5f1f2258))
+* **s3:** replace CE 50MB upload cap with 10GiB workspace storage quota ([#9874](https://github.com/windmill-labs/windmill/issues/9874)) ([af01e90](https://github.com/windmill-labs/windmill/commit/af01e90b5c65d1b1cfacf4433f8cff7effe73768))
+* support workspace forks on cloud using parent workspace limits ([#9864](https://github.com/windmill-labs/windmill/issues/9864)) ([7c7d747](https://github.com/windmill-labs/windmill/commit/7c7d7474cc86a4052272032f281cc4d7a85db37b))
+
+
+### Bug Fixes
+
+* **duckdb:** auto-declare partition arg for `// partitioned` scripts ([#9878](https://github.com/windmill-labs/windmill/issues/9878)) ([b883adb](https://github.com/windmill-labs/windmill/commit/b883adbc0011073da592dc5b39e1b79db492c83c))
+* **frontend:** home New submenus fall back below, hugging the right edge ([#9894](https://github.com/windmill-labs/windmill/issues/9894)) ([186ac49](https://github.com/windmill-labs/windmill/commit/186ac4933b79aed57fce23ebcf3b525fcfd1c474))
+* **frontend:** show inline workspace name editor on general settings (Fixes GIT-911) ([#9892](https://github.com/windmill-labs/windmill/issues/9892)) ([a49c087](https://github.com/windmill-labs/windmill/commit/a49c0871d7ab2aaf78a7713b8a786ead937434da))
+* **frontend:** stack cron field and cron builder button on narrow screens ([#9871](https://github.com/windmill-labs/windmill/issues/9871)) ([7989795](https://github.com/windmill-labs/windmill/commit/79897950e7646b00d92a28a009174d91c705b251))
+* invalidate bun bundle cache on transitive relative-import changes ([#9891](https://github.com/windmill-labs/windmill/issues/9891)) ([d15033c](https://github.com/windmill-labs/windmill/commit/d15033cde6a474b548ebbaf18ff02223fc21f701))
+* make SMTP username and password optional in frontend validation ([#9895](https://github.com/windmill-labs/windmill/issues/9895)) ([37bb574](https://github.com/windmill-labs/windmill/commit/37bb57474e8336823bb31527f2a708ef41cd39c4))
+* **parsers:** infer py s3 assets from S3Object constructor and dict forms ([#9877](https://github.com/windmill-labs/windmill/issues/9877)) ([659642e](https://github.com/windmill-labs/windmill/commit/659642e4889361f86e8addb038cda62fc3471006))
+* pipeline dogfooding fixes — SCD2 data-test scope, --partition, s3object upload binding ([#9875](https://github.com/windmill-labs/windmill/issues/9875)) ([d65f58c](https://github.com/windmill-labs/windmill/commit/d65f58c388d88fff71cda22dfa21aecdae70c450))
+* polish pipeline graph view (layout, viewport, minimap, lineage, timestamps) ([#9883](https://github.com/windmill-labs/windmill/issues/9883)) ([b92a86b](https://github.com/windmill-labs/windmill/commit/b92a86b8b3a60b877540c3a7f0ffefe36ccbb053))
+* stale AI chat context picker after workspace item changes ([#9893](https://github.com/windmill-labs/windmill/issues/9893)) ([5af91a6](https://github.com/windmill-labs/windmill/commit/5af91a677cad88faccba702e3556fc4fb7b6e640))
+* **triggers:** retry transient websocket connect failures before disabling ([#9887](https://github.com/windmill-labs/windmill/issues/9887)) ([7894507](https://github.com/windmill-labs/windmill/commit/789450731b0a3c8dffa336f7bfc3f3de528c09fb))
+
 ## [1.745.0](https://github.com/windmill-labs/windmill/compare/v1.744.0...v1.745.0) (2026-07-01)
 
 
