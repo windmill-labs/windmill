@@ -443,7 +443,7 @@ describe('diffBaseFor', () => {
 		}
 	})
 
-	it('terminal (done) row → no diff', () => {
+	it('terminal (done) row → self base in the session workspace', () => {
 		const key = maskKey('script', 'u/a/done')
 		const [item] = buildDeployItems({
 			draftItems: [],
@@ -451,7 +451,12 @@ describe('diffBaseFor', () => {
 			existingKeys: new Set([key]),
 			context: forkCtx
 		})
-		expect(diffBaseFor(item, forkCtx).kind).toBe('none')
+		const b = diffBaseFor(item, forkCtx)
+		expect(b.kind).toBe('self')
+		if (b.kind === 'self') {
+			expect(b.workspaceId).toBe('wm-fork-f')
+			expect(b.path).toBe('u/a/done')
+		}
 	})
 })
 

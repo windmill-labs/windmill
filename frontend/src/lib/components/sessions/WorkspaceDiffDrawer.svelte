@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { buildDiffTree, type AppRootMeta, type TreeNode } from './diffTree'
+	import { buildDiffTree, folderKeyFor, type AppRootMeta, type TreeNode } from './diffTree'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import {
@@ -18,12 +18,14 @@
 		rawAppDiffToItems,
 		type RawAppish,
 		type RawAppFileItem,
-		type RawAppRunnableItem
+		type RawAppRunnableItem,
+		type RawAppSyntheticItem
 	} from '$lib/components/raw_apps/rawAppDiffUtils'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
+	import { tick, untrack } from 'svelte'
 	import type { Snippet } from 'svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
 	import OnBehalfOfSelector from '../OnBehalfOfSelector.svelte'
@@ -72,6 +74,7 @@
 	export function open() {
 		loadedDiffs = {}
 		mountedRows = {}
+		folderOpen = {}
 		model.load()
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
@@ -109,14 +112,90 @@
 	// ── Rendered list: all session items, then text-searched (no filter tabs) ──
 	const segmentItems = $derived(model.items)
 
-	function searchableText(d: DeployItem): string {
-		return [d.displayPath, d.deployKind, d.summary ?? ''].join(' ')
+	// A tree row is either a real deploy item or — once its raw app's values
+	// have loaded — a synthetic per-file/per-runnable item: the app's leaf row
+	// is replaced by its files, and the folder at the app's path becomes the app
+	// root (tagged via appRootMeta). Synthetics carry `appPath`.
+	type DisplayEntry = DeployItem | RawAppSyntheticItem
+	function isSynthetic(e: DisplayEntry): e is RawAppSyntheticItem {
+		return 'appPath' in e
 	}
-	let searchedItems: (DeployItem & { marked?: string })[] | undefined = $state(undefined)
+	// Synthetic keys are prefixed so they can't collide with a real item that
+	// happens to live at `<appPath>/runnables/foo`.
+	function displayKey(e: DisplayEntry): string {
+		return isSynthetic(e) ? `rawapp:${e.kind}/${e.path}` : e.key
+	}
+	function displayPathOf(e: DisplayEntry): string {
+		return e.displayPath ?? e.path
+	}
+
+	// Raw-app storage path → its deploy item (owning-app lookup for synthetics).
+	const appByPath = $derived(
+		new Map(segmentItems.filter((d) => d.deployKind === 'raw_app').map((d) => [d.path, d]))
+	)
+
+	const displayEntries = $derived.by(() => {
+		const out: DisplayEntry[] = []
+		for (const d of segmentItems) {
+			if (d.deployKind === 'raw_app') {
+				const loaded = loadedDiffs[d.key]
+				if (loaded?.state === 'ready') {
+					// A deployed (done) app has no changed files to diff — unwrap it
+					// into its full current contents instead (one-sided → every file
+					// listed; rows are plain so the 'added' status never shows).
+					const subs = d.done
+						? rawAppDiffToItems(
+								d.path,
+								undefined,
+								loaded.after as RawAppish | undefined,
+								d.displayPath
+							)
+						: rawAppItems(d, loaded)
+					if (subs.length > 0) {
+						out.push(...subs)
+						continue
+					}
+				}
+			}
+			out.push(d)
+		}
+		return out
+	})
+
+	function searchableText(e: DisplayEntry): string {
+		if (isSynthetic(e)) return [displayPathOf(e), e.kind].join(' ')
+		return [e.displayPath, e.deployKind, e.summary ?? ''].join(' ')
+	}
+	let searchedEntries: (DisplayEntry & { marked?: string })[] | undefined = $state(undefined)
+	const searchActive = $derived(searchQuery.trim().length > 0)
+	const filteredEntries = $derived.by(() => {
+		if (!searchActive) return displayEntries
+		return (searchedEntries ?? []) as DisplayEntry[]
+	})
+
+	// The main panel keeps one block per deploy item (the raw-app block carries
+	// the deploy header + stacked per-file sub-diffs). During search an app stays
+	// visible when any of its files matched.
 	const filteredItems = $derived.by(() => {
-		const q = searchQuery.trim()
-		if (!q) return segmentItems
-		return (searchedItems ?? []) as DeployItem[]
+		if (!searchActive) return segmentItems
+		const keep = new Set<string>()
+		for (const e of filteredEntries) {
+			if (isSynthetic(e)) {
+				const app = appByPath.get(e.appPath)
+				if (app) keep.add(app.key)
+			} else keep.add(e.key)
+		}
+		return segmentItems.filter((d) => keep.has(d.key))
+	})
+
+	// File names inside unexpanded apps don't exist client-side until the app's
+	// values load — a live search loads every raw app so matches are complete.
+	$effect(() => {
+		if (!searchActive) return
+		const items = segmentItems
+		untrack(() => {
+			for (const d of items) if (d.deployKind === 'raw_app') void loadDiffFor(d)
+		})
 	})
 
 	// ── Tree ─────────────────────────────────────────────────────────────────
@@ -138,7 +217,11 @@
 
 	const treeModel = $derived(
 		buildDiffTree(
-			filteredItems.map((d) => ({ key: d.key, structurePath: d.displayPath, data: d })),
+			filteredEntries.map((e) => ({
+				key: displayKey(e),
+				structurePath: displayPathOf(e),
+				data: e
+			})),
 			appRootMeta
 		)
 	)
@@ -158,10 +241,44 @@
 		scrollToDiff(d)
 	}
 
+	// A file's sub-diff anchor lives inside the app's main-panel block, which
+	// mounts lazily on scroll — force-mount it before scrolling to the anchor.
+	// A deployed app's block has no per-file sections ("no pending changes"), so
+	// fall back to the app block itself.
+	async function revealSynthetic(s: RawAppSyntheticItem, key?: string) {
+		if (key) highlightedKey = key
+		const app = appByPath.get(s.appPath)
+		if (!app) return
+		if (!mountedRows[app.key]) {
+			mountedRows[app.key] = true
+			await tick()
+		}
+		const target =
+			document.getElementById(`ws-diff-${displayKey(s)}`) ?? document.getElementById(rowId(app))
+		target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+	}
+
 	// ── Keyboard nav ─────────────────────────────────────────────────────────
 	let folderOpen: Record<string, boolean> = $state({})
+	// Folders default open, raw-app roots default collapsed; a live search
+	// forces everything open so matches inside apps are visible.
+	const appFolderKeys = $derived(new Set([...appRootMeta.keys()].map((p) => folderKeyFor(p))))
 	function isFolderOpen(key: string): boolean {
-		return folderOpen[key] ?? true
+		if (searchActive) return true
+		return folderOpen[key] ?? !appFolderKeys.has(key)
+	}
+
+	// Expand a still-unloaded raw app from its leaf row: mark the future app
+	// folder open and fetch the values; once ready, the leaf is replaced by the
+	// app root + file children. Re-expanding after a failure retries the load.
+	function expandApp(d: DeployItem) {
+		const fkey = folderKeyFor(d.displayPath)
+		folderOpen[fkey] = true
+		if (loadedDiffs[d.key]?.state === 'error') delete loadedDiffs[d.key]
+		const wasHighlighted = highlightedKey === d.key
+		void loadDiffFor(d).then(() => {
+			if (wasHighlighted) highlightedKey = fkey
+		})
 	}
 	const navEntries = $derived(treeModel.order((k) => isFolderOpen(k)))
 	const navKeys = $derived(navEntries.map((e) => e.key))
@@ -195,7 +312,17 @@
 		if (!highlightedKey) return
 		const entry = entryByKey.get(highlightedKey)
 		if (!entry) return
-		if (entry.type === 'file') void revealDiff(entry.data)
+		if (entry.type === 'file') {
+			if (isSynthetic(entry.data)) void revealSynthetic(entry.data)
+			else void revealDiff(entry.data)
+			return
+		}
+		// App roots activate like rows (reveal the diff); folding stays on the
+		// chevron / ArrowRight. Plain folders keep Enter-to-toggle.
+		const appItem = entry.node.app
+			? segmentItems.find((d) => d.key === entry.node.app?.summaryKey)
+			: undefined
+		if (appItem) revealDiff(appItem)
 		else folderOpen[entry.key] = !isFolderOpen(entry.key)
 	}
 	function selectKey(key: string) {
@@ -215,7 +342,15 @@
 			activateHighlighted()
 		} else if (e.key === 'ArrowRight') {
 			const entry = highlightedKey ? entryByKey.get(highlightedKey) : undefined
-			if (!entry || entry.type !== 'folder') return
+			if (!entry) return
+			if (entry.type === 'file') {
+				// An unloaded raw app is still a leaf — ArrowRight expands it.
+				if (!isSynthetic(entry.data) && entry.data.deployKind === 'raw_app') {
+					e.preventDefault()
+					expandApp(entry.data)
+				}
+				return
+			}
 			if (!isFolderOpen(entry.key)) {
 				e.preventDefault()
 				folderOpen[entry.key] = true
@@ -298,9 +433,9 @@
 
 <SearchItems
 	filter={searchQuery}
-	items={segmentItems}
-	bind:filteredItems={searchedItems}
-	f={(d: DeployItem) => searchableText(d)}
+	items={displayEntries}
+	bind:filteredItems={searchedEntries}
+	f={(e: DisplayEntry) => searchableText(e)}
 />
 
 {#snippet badgePill(item: DeployItem, badge: Exclude<BadgeKind, 'draft' | 'none'>)}
@@ -385,7 +520,7 @@
 	{/if}
 {/snippet}
 
-{#snippet renderTreeNode(node: TreeNode<DeployItem>, depth: number)}
+{#snippet renderTreeNode(node: TreeNode<DisplayEntry>, depth: number)}
 	{#if node.type === 'folder'}
 		{@const isUserScope = node.isScope && node.name.startsWith('u/')}
 		{@const fkey = node.key}
@@ -393,16 +528,27 @@
 		{@const isHl = fkey === highlightedKey}
 		<details
 			{open}
-			ontoggle={(e) => (folderOpen[fkey] = (e.currentTarget as HTMLDetailsElement).open)}
+			ontoggle={(e) => {
+				// Record real user toggles only; skip the echo fired when the `open`
+				// attribute is driven by state (search force-open, expandApp).
+				const domOpen = (e.currentTarget as HTMLDetailsElement).open
+				if (domOpen !== isFolderOpen(fkey)) folderOpen[fkey] = domOpen
+			}}
 			class="select-none"
 		>
 			{#if node.app}
-				{@const appItem = filteredItems.find((it) => it.key === node.app?.summaryKey)}
+				{@const appItem = segmentItems.find((it) => it.key === node.app?.summaryKey)}
+				<!-- App root: the row click reveals the app's diff like any item row;
+				     folding is chevron-only (preventDefault blocks the native toggle). -->
 				<summary
 					role="option"
 					aria-selected={isHl}
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
+					onclick={(e) => {
+						e.preventDefault()
+						if (appItem) revealDiff(appItem, fkey)
+					}}
 					title={node.fullPath}
 					class="flex items-center gap-2 pl-3 pr-1 py-2 rounded-md cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
@@ -420,10 +566,20 @@
 					{#if appItem}
 						{@render rowBadge(appItem)}
 					{/if}
-					<span class="w-5 flex items-center justify-center shrink-0">
+					<button
+						type="button"
+						aria-expanded={open}
+						title={open ? 'Hide files' : 'Show files'}
+						class="w-5 h-5 flex items-center justify-center shrink-0 rounded hover:bg-surface-secondary"
+						onclick={(e) => {
+							e.preventDefault()
+							e.stopPropagation()
+							folderOpen[fkey] = !open
+						}}
+					>
 						<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
 						<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
-					</span>
+					</button>
 				</summary>
 			{:else}
 				<summary
@@ -463,26 +619,70 @@
 		{@const d = node.data}
 		{@const key = node.key}
 		<!-- Indentation lives on the wrapper (outside the row's hover surface) so the
-		     highlight starts at the row content instead of bleeding across the indent. -->
+		     highlight starts at the row content instead of bleeding across the indent.
+		     Every row ends with a w-5 slot (chevron or spacer) to keep badges aligned
+		     with the folder rows' chevrons. -->
 		<div class="flex items-stretch" style="padding-left: {depth * 12 + 4}px">
-			<WorkspaceItemRow
-				kind={d.deployKind as any}
-				iconPath={d.path}
-				baseClass="py-2 min-w-0 pr-1 pl-1 rounded-md"
-				singleLine
-				summary={d.summary}
-				secondary={node.name}
-				highlighted={key === highlightedKey}
-				navKey={key}
-				indent={0}
-				title={d.displayPath}
-				onclick={() => revealDiff(d, key)}
-				onmouseenter={() => setHoverHighlight(key)}
-			>
-				{#snippet extras()}
-					{@render rowBadge(d)}
-				{/snippet}
-			</WorkspaceItemRow>
+			{#if isSynthetic(d)}
+				<WorkspaceItemRow
+					kind={d.kind as any}
+					iconPath={d.path}
+					baseClass="py-2 min-w-0 pr-1 pl-1 rounded-md"
+					singleLine
+					secondary={node.name}
+					highlighted={key === highlightedKey}
+					navKey={key}
+					indent={0}
+					title={displayPathOf(d)}
+					onclick={() => void revealSynthetic(d, key)}
+					onmouseenter={() => setHoverHighlight(key)}
+				>
+					{#snippet extras()}
+						<span class="w-5 shrink-0"></span>
+					{/snippet}
+				</WorkspaceItemRow>
+			{:else}
+				<WorkspaceItemRow
+					kind={d.deployKind as any}
+					iconPath={d.path}
+					baseClass="py-2 min-w-0 pr-1 pl-1 rounded-md"
+					singleLine
+					summary={d.summary}
+					secondary={node.name}
+					highlighted={key === highlightedKey}
+					navKey={key}
+					indent={0}
+					title={d.displayPath}
+					onclick={() => revealDiff(d, key)}
+					onmouseenter={() => setHoverHighlight(key)}
+				>
+					{#snippet extras()}
+						{@render rowBadge(d)}
+						{#if d.deployKind === 'raw_app'}
+							<!-- Unloaded app leaf: row click reveals the diff, the chevron
+							     loads the values and unwraps the file tree. -->
+							<span
+								role="button"
+								tabindex="-1"
+								title="Show files"
+								class="w-5 h-5 flex items-center justify-center shrink-0 rounded cursor-pointer hover:bg-surface-secondary"
+								onclick={(e) => {
+									e.stopPropagation()
+									expandApp(d)
+								}}
+							>
+								{#if loadedDiffs[d.key]?.state === 'loading'}
+									<Loader2 class="w-3 h-3 animate-spin text-tertiary" />
+								{:else}
+									<ChevronRight class="w-3 h-3 text-tertiary" />
+								{/if}
+							</span>
+						{:else}
+							<span class="w-5 shrink-0"></span>
+						{/if}
+					{/snippet}
+				</WorkspaceItemRow>
+			{/if}
 		</div>
 	{/if}
 {/snippet}
@@ -508,8 +708,13 @@
 		<div class="text-xs text-red-600 dark:text-red-400 p-3">{loaded.error}</div>
 	{:else if item.deployKind === 'raw_app'}
 		<div class="flex flex-col">
-			{#each rawAppItems(item, loaded) as sub (('appPath' in sub ? 'rawapp:' : '') + sub.kind + '/' + sub.path)}
-				<div class="border-t border-light first:border-t-0">
+			{#each rawAppItems(item, loaded) as sub (displayKey(sub))}
+				<!-- Anchor target for the sidebar's per-file rows; scroll-mt clears the
+				     app block's sticky header. -->
+				<div
+					id={`ws-diff-${displayKey(sub)}`}
+					class="border-t border-light first:border-t-0 scroll-mt-10"
+				>
 					<div class="px-3 py-1.5 text-2xs text-secondary font-mono truncate" title={sub.path}>
 						{sub.path}
 					</div>
@@ -602,6 +807,7 @@
 						</div>
 						<div
 							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-2 pr-1 pt-2 pb-3 flex flex-col gap-1"
+							style="scrollbar-gutter: stable;"
 						>
 							{#if treeModel.root.children.length > 0}
 								{#each treeModel.root.children as child}

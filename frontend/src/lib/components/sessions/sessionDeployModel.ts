@@ -412,11 +412,14 @@ export type DiffBase =
 			existsInParent: boolean
 			existsInFork: boolean
 	  }
+	| { kind: 'self'; deployKind: Kind; path: string; workspaceId: string }
 	| { kind: 'none' }
 
 /** Where a row's before/after diff values come from. A row with a pending draft
- *  diffs deployed↔draft; a non-draft ahead/conflict row diffs fork↔parent.
- *  The executor maps this to getDraftDiffValues / getItemValue×2. */
+ *  diffs deployed↔draft; a non-draft ahead/conflict row diffs fork↔parent. A
+ *  terminal (done) row has nothing to diff but its deployed value is still
+ *  loadable (`self`) — the sidebar unwraps a deployed raw app into its files.
+ *  The executor maps this to getDraftDiffValues / getItemValue. */
 export function diffBaseFor(item: DeployItem, context: SessionContext): DiffBase {
 	if (item.local && item.draftKind) {
 		return {
@@ -426,7 +429,14 @@ export function diffBaseFor(item: DeployItem, context: SessionContext): DiffBase
 			draftOnly: item.draftOnly
 		}
 	}
-	if (item.done) return { kind: 'none' }
+	if (item.done) {
+		return {
+			kind: 'self',
+			deployKind: item.deployKind,
+			path: item.path,
+			workspaceId: context.currentWorkspaceId
+		}
+	}
 	if (!context.parentWorkspaceId) return { kind: 'none' }
 	return {
 		kind: 'fork_parent',

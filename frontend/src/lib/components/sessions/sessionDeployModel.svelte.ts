@@ -399,6 +399,12 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			])
 			return { before, after }
 		}
+		if (base.kind === 'self') {
+			const v = await getItemValue(base.deployKind, base.path, base.workspaceId).catch(
+				() => undefined
+			)
+			return { before: v, after: v }
+		}
 		return { before: undefined, after: undefined }
 	}
 
