@@ -1256,10 +1256,11 @@ lazy_static::lazy_static! {
 
 const MAX_TRANSITIVE_IMPORT_PATHS: usize = 256;
 
-/// `(path, latest deployed hash)` for the whole transitive closure of relative
-/// imports of `inner_content` — the set of scripts whose code gets inlined into
-/// the bundle, so all of them must key the bundle cache. Resolution goes through
-/// `DEPLOYED_SCRIPT_HASH_CACHE` (notify-evicted, 60s TTL fallback) and the
+/// `(path, latest hash)` for the whole transitive closure of relative imports
+/// of `inner_content` — the set of scripts whose code gets inlined into the
+/// bundle, so all of them must key the bundle cache. Resolution goes through
+/// `IMPORTED_SCRIPT_HASH_CACHE` (notify-evicted, 60s TTL fallback, same
+/// version-selection predicate as the loader's content endpoint) and the
 /// per-hash script/parse caches, so steady state costs no DB queries.
 async fn collect_transitive_import_versions(
     db: &DB,
@@ -1288,20 +1289,21 @@ async fn collect_transitive_import_versions(
             );
             break;
         }
-        let hash =
-            match windmill_common::get_latest_deployed_script_hash_cached(db, w_id, &path).await {
-                Ok(Some(hash)) => hash,
-                // Not a deployed script at this path (deleted, or not a script):
-                // excluded from the key, matching what the bundler can inline.
-                Ok(None) => continue,
-                Err(e) => {
-                    tracing::warn!(
-                        "could not resolve import {path} while computing bundle cache key for \
+        let hash = match windmill_common::get_latest_script_hash_for_import_cached(db, w_id, &path)
+            .await
+        {
+            Ok(Some(hash)) => hash,
+            // Not a deployed script at this path (deleted, or not a script):
+            // excluded from the key, matching what the bundler can inline.
+            Ok(None) => continue,
+            Err(e) => {
+                tracing::warn!(
+                    "could not resolve import {path} while computing bundle cache key for \
                     {script_path}: {e:#}"
-                    );
-                    continue;
-                }
-            };
+                );
+                continue;
+            }
+        };
         versions.push((path.clone(), hash));
         let imports = match RELATIVE_IMPORTS_PER_HASH.get(&hash) {
             Some(imports) => imports,

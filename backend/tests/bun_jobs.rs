@@ -921,7 +921,7 @@ export function main() { return midValue(); }"#,
             // Tests don't run the notify_event poll loop, so replay what its
             // `notify_runnable_version_change` handler (main.rs) does on deploy:
             // evict the leaf's latest-hash cache entries.
-            windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&(
+            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&(
                 "test-workspace".to_string(),
                 "f/stale_bundle/leaf".to_string(),
             ));
