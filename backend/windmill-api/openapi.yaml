@@ -29734,7 +29734,7 @@ components:
       properties:
         producer_path:
           type: string
-          description: the pipeline script whose `// materialize` targets the asset — the runnable a backfill launches
+          description: the pipeline script that materializes the asset (managed `// materialize` target, or a partitioned writer using the SDK helpers) — the runnable a backfill launches
         partition_kind:
           type: string
           enum: [daily, hourly, weekly, monthly, dynamic]
