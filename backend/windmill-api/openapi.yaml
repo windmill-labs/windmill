@@ -22844,6 +22844,7 @@ components:
         [
           openai,
           azure_openai,
+          azure_foundry,
           anthropic,
           mistral,
           deepseek,
