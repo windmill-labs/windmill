@@ -215,6 +215,7 @@
 			| 'trigger-native'
 			| 'add-anchor'
 			| 'data-test'
+			| 'macro'
 		unsaved?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
@@ -226,6 +227,10 @@
 		// Producer's `// column` declared lineage, on the same write-edge —
 		// rendered as a columns badge on the link.
 		column_lineage?: NonNullable<AssetGraphResponse['runnables'][number]['column_lineage']>
+		// Macro-library edge payload: the macros the consumer calls (or the
+		// whole lib when pulled in via `// use`) — rendered as a ƒ badge.
+		macro_names?: string[]
+		via_use?: boolean
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -392,6 +397,7 @@
 					freshness: r.freshness,
 					tag: r.tag,
 					retry: r.retry,
+					macros: r.macros,
 					unsaved: r.unsaved ?? false,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits
@@ -487,6 +493,26 @@
 					unsaved: e.unsaved
 				})
 			}
+		}
+
+		// Macro-library → consumer edges (runnable→runnable, unlike the
+		// asset-mediated lineage above). Endpoints must exist as nodes — an
+		// undeployed `// use` target without a draft has none, so its edge is
+		// skipped (the annotation still shows in the script body itself).
+		const runnableNodeIds = new Set(g.runnables.map((r) => `${r.usage_kind}:${r.path}`))
+		for (const me of g.macro_edges ?? []) {
+			const libId = `script:${me.lib_path}`
+			const consumerId = `script:${me.consumer_path}`
+			if (!runnableNodeIds.has(libId) || !runnableNodeIds.has(consumerId)) continue
+			edges.push({
+				id: `macro:${libId}->${consumerId}`,
+				source: libId,
+				target: consumerId,
+				kind: 'macro',
+				unsaved: me.unsaved,
+				macro_names: me.macro_names,
+				via_use: me.via_use
+			})
 		}
 
 		// Non-asset triggers (schedule + native) are rendered as source nodes
@@ -891,6 +917,16 @@
 						label = 'triggers'
 						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
 						break
+					case 'macro':
+						// Library → consumer: violet dashed, visually apart from both
+						// lineage (blue/gray solid) and trigger (gray dashed) families —
+						// it's a code dependency, not data flow or execution.
+						style = 'stroke: rgb(139 92 246); stroke-width: 1.25px;'
+						strokeDasharray = '5 3'
+						markerColor = 'rgb(139 92 246)'
+						label = e.via_use ? 'uses lib' : 'macros'
+						labelStyle = 'fill: rgb(139 92 246); font-size: 10px; font-weight: 600;'
+						break
 					default:
 						style = ''
 				}
@@ -940,7 +976,11 @@
 						testsRunStatus: e.data_tests?.length ? runStates?.get(e.source)?.status : undefined,
 						// Column-lineage badge on the same write-edge (the link is the
 						// transformation whose output columns the lineage describes).
-						column_lineage: e.column_lineage
+						column_lineage: e.column_lineage,
+						// Macro-edge badge: which of the library's macros the consumer
+						// calls (all of them when pulled in via `// use`).
+						macro_names: e.macro_names,
+						via_use: e.via_use
 					},
 					animated,
 					label,
