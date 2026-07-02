@@ -48,6 +48,7 @@
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -411,7 +412,7 @@
 			<Button size="xs" startIcon={{ icon: Plus }} onclick={startNewSession}>New session</Button>
 		</div>
 	{:else}
-		<div class="flex-1 min-h-0 flex flex-row relative">
+		<div class="flex-1 min-h-0 flex flex-row relative" use:splitterPointerCapture>
 			<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 				{#if !fullscreen}
 					<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)

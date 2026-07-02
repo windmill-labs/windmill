@@ -54,6 +54,7 @@
 	import { editorWarmIds, getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
 	import { slide } from 'svelte/transition'
+	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
 	// hideEditor: never mount the inline editor pane. Used by the sessions page,
 	// where the edited item is shown in a live page preview (iframe) beside the
@@ -357,7 +358,8 @@
 	     50/50. A reactive `size={hasEditor ? 50 : 100}` here instead races the
 	     sibling pane appearing on reload → "Could not resize panes due to constraints"
 	     and a wrong split. -->
-	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
+	<div class="flex-1 min-h-0 flex flex-col" use:splitterPointerCapture>
+		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 		<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
 			<header
 				class="flex flex-row items-center gap-1 {headerInset ? 'pl-11' : 'pl-4'} pr-4 py-2 shrink-0"
@@ -550,6 +552,7 @@
 			</Pane>
 		{/if}
 	</Splitpanes>
+	</div>
 
 	<ConfirmationModal
 		open={deleteConfirmOpen}
