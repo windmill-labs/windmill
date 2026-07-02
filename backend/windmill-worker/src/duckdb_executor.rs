@@ -314,10 +314,20 @@ fn plan_macro_injection(
 ) -> Result<Vec<String>> {
     use std::collections::{BTreeMap, HashSet};
     use windmill_parser::duckdb_macros::{
-        detect_macro_calls, macro_create_statement, topo_order_macros, LibStatement,
+        detect_macro_calls, locally_defined_macro_names, macro_create_statement, topo_order_macros,
+        LibStatement,
     };
 
-    let all_names: HashSet<String> = registry.iter().map(|r| r.name.clone()).collect();
+    // A macro the script defines itself is authoritative: its name is removed
+    // from the injectable set entirely, so a later workspace-library deploy
+    // can never silently replace a local definition (the local CREATE runs in
+    // the setup prefix, before any injected block, and stays unshadowed).
+    let local = locally_defined_macro_names(blocks);
+    let all_names: HashSet<String> = registry
+        .iter()
+        .map(|r| r.name.clone())
+        .filter(|n| !local.contains(n))
+        .collect();
     let by_name: BTreeMap<&str, &MacroRow> =
         registry.iter().map(|r| (r.name.as_str(), r)).collect();
 
@@ -334,7 +344,12 @@ fn plan_macro_injection(
                 "`// use {path}`: no deployed macro library at this path"
             )));
         }
-        selected.extend(lib_names.into_iter().map(String::from));
+        selected.extend(
+            lib_names
+                .into_iter()
+                .filter(|n| all_names.contains(*n))
+                .map(String::from),
+        );
         for s in statements {
             if let LibStatement::Setup(stmt) = s {
                 use_setup.push(format!("{};", stmt.trim_end_matches(';').trim_end()));
@@ -1704,6 +1719,15 @@ mod tests {
     fn macro_injection_empty_when_nothing_called() {
         let registry = vec![mrow("m", "a", "a", false, "f/lib/m")];
         let b = blocks(&["SELECT 1;"]);
+        assert!(plan_macro_injection(&b, &registry, &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn local_definition_wins_over_registry() {
+        // A consumer defining its own `dbl` must never get the registry's
+        // version injected — a library deploy can't change this job.
+        let registry = vec![mrow("dbl", "a", "a * 10", false, "f/lib/m")];
+        let b = blocks(&["CREATE TEMP MACRO dbl(a) AS a * 2;", "SELECT dbl(4);"]);
         assert!(plan_macro_injection(&b, &registry, &[]).unwrap().is_empty());
     }
 

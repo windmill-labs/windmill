@@ -186,6 +186,19 @@ injected by Windmill ("resolve-and-inject"):
   signature strip in the details pane) with violet lib→consumer edges from
   deploy-recorded call detection (`macro_usage`) and `// use` annotations.
 
+**Trust model (deliberate, dbt-package-like).** Macro libraries are
+workspace-trusted code: anyone who can deploy a script can publish macros,
+and implicit call detection injects them into other users' DuckDB jobs with
+the *consuming* job's credentials — the same trust boundary as a dbt package
+in the project (any committer changes every model). Two guardrails bound it:
+a script's **own** macro definitions always win (a library deploy can never
+replace a local `CREATE MACRO` — the name is excluded from injection
+entirely), and names are workspace-unique with built-in shadowing rejected
+at deploy. A call to a macro that doesn't exist yet is the residual surface
+(whoever first deploys a lib defining that name "captures" the call) — if
+workspaces ever need finer trust, per-consumer opt-in/opt-out or
+ACL-filtered injection can be layered on the same seam.
+
 Table macros + `query_table(src)` cover most of dbt's *model factory*
 pattern (one parameterized transform, N thin per-asset scripts); DuckDB's
 richer SQL (`COLUMNS(*)`, native `PIVOT`, lambdas) absorbs much of

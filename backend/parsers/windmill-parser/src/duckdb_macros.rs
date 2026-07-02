@@ -56,9 +56,11 @@ fn is_ident(s: &str) -> bool {
 }
 
 // Case-insensitive whole-word prefix strip (whitespace-bounded), returning the
-// remainder with leading whitespace trimmed.
+// remainder with leading whitespace trimmed. `get` (not slicing) so a
+// multi-byte char straddling the boundary yields None instead of panicking.
 fn strip_kw<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
-    if s.len() >= kw.len() && s[..kw.len()].eq_ignore_ascii_case(kw) {
+    let prefix = s.get(..kw.len())?;
+    if prefix.eq_ignore_ascii_case(kw) {
         let after = &s[kw.len()..];
         if after.is_empty() || after.starts_with(|c: char| c.is_whitespace()) {
             return Some(after.trim_start());
@@ -223,6 +225,19 @@ pub fn parse_macro_library(sql: &str) -> Result<Vec<LibStatement>, String> {
         }
     }
     Ok(out)
+}
+
+/// Names of macros the given statements define themselves (`CREATE [OR
+/// REPLACE] [TEMP] MACRO …`). A consumer's own definition is authoritative
+/// over a same-named workspace macro — the worker subtracts these before
+/// planning injection, so deploying a library can never silently replace a
+/// script's local macro. Malformed macro-shaped statements are skipped (they
+/// fail at execution regardless).
+pub fn locally_defined_macro_names(statements: &[String]) -> HashSet<String> {
+    statements
+        .iter()
+        .filter_map(|s| parse_create_macro(s).ok().flatten().map(|m| m.name))
+        .collect()
 }
 
 /// Names from `names` that `sql` calls: an identifier token immediately
@@ -493,6 +508,37 @@ mod tests {
         defs.insert("b".to_string(), "a(1)".to_string());
         let err = topo_order_macros(&names(&["a", "b"]), &defs).unwrap_err();
         assert!(err.contains("cycle"), "{err}");
+    }
+
+    #[test]
+    fn non_ascii_body_survives_verbatim() {
+        // Regression: the statement splitter must not Latin-1-mojibake
+        // multi-byte text — macro bodies are persisted and re-executed.
+        let lib = parse_macro_library("CREATE MACRO greet(a) AS a || ' café ☕';").unwrap();
+        match &lib[0] {
+            LibStatement::Macro(m) => assert_eq!(m.body, "a || ' café ☕'"),
+            other => panic!("expected macro, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn non_ascii_garbage_errors_instead_of_panicking() {
+        // Regression: keyword matching must not byte-slice across a char
+        // boundary (panicked on inputs like this before).
+        assert!(parse_macro_library("abcé foo;").is_err());
+        assert!(parse_macro_library("créate macro m(a) AS a;").is_err());
+    }
+
+    #[test]
+    fn locally_defined_names_extracted() {
+        let blocks = vec![
+            "ATTACH 'x' AS a;".to_string(),
+            "CREATE TEMP MACRO dbl(a) AS a * 2;".to_string(),
+            "SELECT dbl(2);".to_string(),
+        ];
+        let local = locally_defined_macro_names(&blocks);
+        assert!(local.contains("dbl"));
+        assert_eq!(local.len(), 1);
     }
 
     #[test]

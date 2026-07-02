@@ -87,28 +87,32 @@ impl WrapError {
 pub fn split_statements(sql: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
-    let bytes = sql.as_bytes();
+    // Char-wise, not byte-wise: the emitted strings are re-executed
+    // (materialize codegen) and persisted (macro registry), so a Latin-1
+    // `bytes[i] as char` decode would corrupt any multi-byte text inside
+    // statements. All delimiters are ASCII — split positions are unaffected.
+    let chars: Vec<char> = sql.chars().collect();
     let mut i = 0;
-    let n = bytes.len();
+    let n = chars.len();
     while i < n {
-        let c = bytes[i] as char;
+        let c = chars[i];
         // line comment — `--` (SQL) or `//`. The `//` form is not SQL, but it
         // is how Windmill pipeline annotations (`// materialize`, `// pipeline`,
         // …) are written, and they sit above the SQL in the same script; strip
         // them so they don't pollute the first statement block's classification
         // or the generated setup SQL.
-        if (c == '-' && i + 1 < n && bytes[i + 1] == b'-')
-            || (c == '/' && i + 1 < n && bytes[i + 1] == b'/')
+        if (c == '-' && i + 1 < n && chars[i + 1] == '-')
+            || (c == '/' && i + 1 < n && chars[i + 1] == '/')
         {
-            while i < n && bytes[i] != b'\n' {
+            while i < n && chars[i] != '\n' {
                 i += 1;
             }
             continue;
         }
         // block comment
-        if c == '/' && i + 1 < n && bytes[i + 1] == b'*' {
+        if c == '/' && i + 1 < n && chars[i + 1] == '*' {
             i += 2;
-            while i + 1 < n && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+            while i + 1 < n && !(chars[i] == '*' && chars[i + 1] == '/') {
                 i += 1;
             }
             i += 2;
@@ -119,10 +123,10 @@ pub fn split_statements(sql: &str) -> Vec<String> {
             cur.push(c);
             i += 1;
             while i < n {
-                cur.push(bytes[i] as char);
-                if bytes[i] == b'\'' {
+                cur.push(chars[i]);
+                if chars[i] == '\'' {
                     // doubled '' is an escaped quote, stay in string
-                    if i + 1 < n && bytes[i + 1] == b'\'' {
+                    if i + 1 < n && chars[i + 1] == '\'' {
                         cur.push('\'');
                         i += 2;
                         continue;
@@ -139,8 +143,8 @@ pub fn split_statements(sql: &str) -> Vec<String> {
             cur.push(c);
             i += 1;
             while i < n {
-                cur.push(bytes[i] as char);
-                if bytes[i] == b'"' {
+                cur.push(chars[i]);
+                if chars[i] == '"' {
                     i += 1;
                     break;
                 }
