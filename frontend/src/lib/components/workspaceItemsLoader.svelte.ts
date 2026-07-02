@@ -37,8 +37,7 @@ export function useWorkspaceItemsLoader(
 	kinds: () => readonly WorkspaceItemKind[]
 ) {
 	// Seed from the module-level cache so kinds already fetched in this
-	// session render on the first frame. Re-fetching `ensureLoaded` later
-	// quietly swaps in fresh data (stale-while-revalidate).
+	// session render on the first frame.
 	let loaded = $state<Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>>(
 		(() => {
 			const ws = untrack(workspace)
@@ -52,11 +51,9 @@ export function useWorkspaceItemsLoader(
 		})()
 	)
 	let loadingKind = $state<Partial<Record<WorkspaceItemKind, boolean>>>({})
-	// Workspace+kind pairs already revalidated by this loader instance. The
-	// module-level cache is never expired on its own, so each loader (one per
-	// picker mount) re-fetches each kind once: cached items render instantly,
-	// fresh data quietly swaps in. Without this, items created/deleted since
-	// the cache was filled would stay wrong until a full page reload.
+	// Workspace+kind pairs this loader instance has refreshed — at most one
+	// background re-fetch per kind per mount. Marked on success only, so a
+	// failed fetch is retried by the next call instead of stranding stale data.
 	const revalidated = new Set<string>()
 
 	async function ensureLoaded(kind: WorkspaceItemKind) {
@@ -69,10 +66,10 @@ export function useWorkspaceItemsLoader(
 		// re-fire the effect on every assignment and busy-loop.
 		const hasCached = !!untrack(() => loaded[kind])
 		if (hasCached && revalidated.has(revalidateKey)) return
-		revalidated.add(revalidateKey)
 		if (!hasCached) loadingKind[kind] = true
 		try {
 			const items = await loadKind(ws, kind, { revalidate: true })
+			revalidated.add(revalidateKey)
 			// Keep the reference stable when nothing changed so an open picker's
 			// derived tree isn't rebuilt under the user on every revalidation.
 			if (
@@ -82,6 +79,10 @@ export function useWorkspaceItemsLoader(
 				)
 			)
 				loaded[kind] = items
+		} catch (e) {
+			// Callers fire-and-forget; surface the failure without an
+			// unhandled rejection. Cached items (if any) keep rendering.
+			console.error(`Failed to load workspace ${kind}s`, e)
 		} finally {
 			loadingKind[kind] = false
 		}
