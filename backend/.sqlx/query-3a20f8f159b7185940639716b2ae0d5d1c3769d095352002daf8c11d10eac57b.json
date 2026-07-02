@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             (SELECT COALESCE(SUM(bytes), 0) FROM workspace_storage_usage WHERE workspace_id = $1)::bigint as \"committed!\",\n             (SELECT COALESCE(SUM(GREATEST(inflight_bytes - target_existing_size, 0)), 0)\n                FROM workspace_multipart_inflight\n                WHERE workspace_id = $1 AND upload_id <> $2 AND created_at > now() - ($3::text)::interval)::bigint as \"other_reserved!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "committed!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "other_reserved!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "3a20f8f159b7185940639716b2ae0d5d1c3769d095352002daf8c11d10eac57b"
+}
