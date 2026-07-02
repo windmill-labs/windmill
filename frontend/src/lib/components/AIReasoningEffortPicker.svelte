@@ -7,7 +7,7 @@
 		// The provider-native reasoning token sent to the model (e.g. `high`,
 		// `none`), or undefined to leave the provider default untouched.
 		value: string | undefined
-		// Sibling `provider` arg value: { kind, resource, model }.
+		// The selected provider config; only `kind` and `model` are read.
 		providerConfig: { kind?: AIProvider; model?: string } | string | undefined
 		disabled?: boolean
 	}
@@ -35,14 +35,20 @@
 	// so "Model default" already represents off — no separate option needed.
 	let offToken = $derived(provider && model ? explicitOffToken(provider, model) : undefined)
 
+	// When the model reasons only on request (Anthropic/Bedrock), leaving the
+	// effort unset already means off, so the default option is labelled "off".
+	// Models that reason by default keep a distinct "Model default" plus an
+	// explicit off that sends the provider's disable token (e.g. Gemini "none").
+	let offViaOmission = $derived(capability.canDisable && offToken === undefined)
+
 	// A non-empty stored token that isn't one of the suggested options (custom
 	// model/level) is preserved as its own item so it stays visible and editable.
 	let items = $derived.by(() => {
 		const opts: { label: string; value: string }[] = [
-			{ label: 'Model default', value: MODEL_DEFAULT }
+			{ label: offViaOmission ? 'off' : 'Model default', value: MODEL_DEFAULT }
 		]
 		if (capability.canDisable && offToken !== undefined) {
-			opts.push({ label: `off (${offToken})`, value: offToken })
+			opts.push({ label: 'off', value: offToken })
 		}
 		for (const level of capability.levels) {
 			opts.push({ label: level, value: level })
@@ -69,8 +75,7 @@
 </script>
 
 {#if !provider || !model}
-	<div class="text-xs text-tertiary">Select a provider and model to configure reasoning effort.</div
-	>
+	<div class="text-xs text-tertiary">Select a model to configure reasoning effort.</div>
 {:else if !capability.supported}
 	<div class="text-xs text-tertiary">The selected model does not support reasoning effort.</div>
 {:else}

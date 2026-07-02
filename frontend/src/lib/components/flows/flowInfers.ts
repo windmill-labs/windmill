@@ -149,13 +149,6 @@ export const AI_AGENT_SCHEMA: Schema = {
 				resourceType: 's3object'
 			}
 		},
-		reasoning_effort: {
-			type: 'string',
-			format: 'ai-reasoning-effort',
-			description:
-				'Reasoning effort for models that support extended thinking / chain of thought. Higher effort spends more thinking tokens. Leave as model default to keep the provider default behavior. Options adapt to the selected model.',
-			showExpr: "fields.output_type === 'text'"
-		},
 		max_completion_tokens: {
 			type: 'number',
 			description: 'The maximum number of output tokens.'
@@ -184,7 +177,6 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'memory',
 		'output_schema',
 		'user_attachments',
-		'reasoning_effort',
 		'max_completion_tokens',
 		'temperature',
 		'max_iterations'

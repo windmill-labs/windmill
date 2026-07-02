@@ -44,7 +44,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
-	import AIReasoningEffortPicker from './AIReasoningEffortPicker.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 	import { randomUUID } from '$lib/utils/uuid'
@@ -1433,8 +1432,6 @@
 			/>
 		{:else if inputCat == 'ai-provider'}
 			<AIProviderPicker bind:value {disabled} {actions} />
-		{:else if inputCat == 'ai-reasoning-effort'}
-			<AIReasoningEffortPicker bind:value providerConfig={otherArgs?.provider} {disabled} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}
