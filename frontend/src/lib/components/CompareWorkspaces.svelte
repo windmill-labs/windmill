@@ -1028,6 +1028,20 @@
 						</div>
 					</div>
 				{/snippet}
+				{#snippet groupActions(groupItems)}
+					<!-- Conflicts stay visible at the folder level so a group can be
+					     (de)selected without scanning every row for orange badges. -->
+					{@const groupConflicts = groupItems.filter((i) => {
+						const d = i.diff as WorkspaceItemDiff
+						return d.ahead > 0 && d.behind > 0
+					}).length}
+					{#if groupConflicts > 0}
+						<Badge color="orange" size="xs">
+							<AlertTriangle class="w-3 h-3 inline mr-0.5" />
+							{groupConflicts} conflict{groupConflicts !== 1 ? 's' : ''}
+						</Badge>
+					{/if}
+				{/snippet}
 				{#if allCiTests.length > 0}
 					<div class="flex flex-col gap-1.5 mt-3 p-3 border bg-surface-secondary rounded text-xs">
 						<div class="flex items-center gap-1.5 font-semibold text-secondary">
