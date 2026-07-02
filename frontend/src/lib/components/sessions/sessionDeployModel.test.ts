@@ -104,13 +104,24 @@ describe('buildDeployItems — axis derivation', () => {
 		expect(items[0].parent).toBe('conflict')
 	})
 
-	it('behind-only fork diff (parent moved, fork did not) falls to parent=sync', () => {
+	it('behind-only fork diff (parent moved, fork did not) is terminal: parent=sync, done', () => {
 		const items = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/beh', { ahead: 0, behind: 2 })]),
 			draftItems: [],
 			context: forkCtx
 		})
 		expect(items[0].parent).toBe('sync')
+		expect(items[0].done).toBe(true)
+	})
+
+	it('behind-only WITH a pending draft stays live (draft, not done)', () => {
+		const items = buildDeployItems({
+			comparison: comparison([diff('script', 'u/a/beh', { ahead: 0, behind: 2 })]),
+			draftItems: [draft('script', 'u/a/beh')],
+			context: forkCtx
+		})
+		expect(items[0].done).toBe(false)
+		expect(items[0].local).toBe(true)
 	})
 
 	it('removed in fork (present in parent) is removed=true, parent=ahead', () => {
@@ -248,8 +259,8 @@ describe('badgeOf', () => {
 	it('ahead (no draft) → ahead', () => {
 		expect(badgeOf(only([diff('script', 'u/a/a', { ahead: 1 })]))).toBe('ahead')
 	})
-	it('behind-only (parent moved, fork untouched) is not a badge state → none', () => {
-		expect(badgeOf(only([diff('script', 'u/a/b', { ahead: 0, behind: 2 })]))).toBe('none')
+	it('behind-only (parent moved, fork untouched) reads as deployed', () => {
+		expect(badgeOf(only([diff('script', 'u/a/b', { ahead: 0, behind: 2 })]))).toBe('deployed')
 	})
 	it('conflict wins over a pending draft', () => {
 		const it = only([diff('flow', 'u/a/c', { ahead: 1, behind: 1 })], [draft('flow', 'u/a/c')])

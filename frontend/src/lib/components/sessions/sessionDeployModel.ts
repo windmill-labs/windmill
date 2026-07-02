@@ -121,8 +121,9 @@ export interface BuildInput {
 
 /** The parent-comparison axis from a fork diff's ahead/behind counts. Draft-only
  *  and already-deployed rows (no fork diff) are `sync`. A behind-only row (parent
- *  moved, fork didn't) falls to `sync`/bare — it can't occur for a session-edited
- *  item, and is fork drift the dock leaves to the compare page either way. */
+ *  moved, fork didn't — e.g. someone edited the parent after this session's change
+ *  was fully promoted) also lands on `sync`; the build step marks it done so it
+ *  keeps reading as deployed. Parent drift itself is compare-page business. */
 function parentAxisFrom(ahead: number, behind: number): ParentAxis {
 	if (ahead > 0 && behind > 0) return 'conflict'
 	if (ahead > 0) return 'ahead'
@@ -151,6 +152,10 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			const draft = draftByCanonical.get(canonical)
 			const existsInFork = d.exists_in_fork !== false
 			const existsInParent = d.exists_in_source !== false
+			const parent = parentAxisFrom(d.ahead, d.behind)
+			// A behind-only row (parent=sync here: the parent moved, the fork didn't)
+			// reads as deployed — this session's change did reach the parent; further
+			// parent drift is compare-page business. A pending draft keeps it live.
 			out.push({
 				key: canonical,
 				deployKind: d.kind as Kind,
@@ -159,8 +164,8 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 				displayPath: draft?.draft_path ?? d.path,
 				summary: draft?.summary,
 				local: !!draft,
-				parent: parentAxisFrom(d.ahead, d.behind),
-				done: false,
+				parent,
+				done: !draft && parent === 'sync',
 				removed: existsInParent && !existsInFork,
 				hasDraft: !!draft,
 				draftOnly: draft?.draft_only ?? false,
