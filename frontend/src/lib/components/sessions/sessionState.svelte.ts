@@ -157,7 +157,7 @@ export type Session = {
 	// Travels on the record so it is scoped, migrated, and deleted with it.
 	lastSeenCount?: number
 	// Preview tabs the user opened in the sessions page, restored when the
-	// session is reopened. The first tab is pinned to the session's own view.
+	// session is reopened.
 	previewTabs?: SessionPreviewTab[]
 	// Which preview tab was active. Falls back to the first tab on restore.
 	activePreviewTabId?: string
@@ -168,7 +168,7 @@ export type Session = {
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
 // last observed location (see the sessions page for the url/loc split).
-export type SessionPreviewTab = { id: string; url: string; loc: string; pinned?: boolean }
+export type SessionPreviewTab = { id: string; url: string; loc: string }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
 // `sessions` store keyed by `id`. IndexedDB is the sole store — no localStorage

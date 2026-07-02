@@ -75,10 +75,10 @@ describe('hydratePreviewTabs', () => {
 		expect(snap.activeId).toBe('a')
 	})
 
-	it('seeds a single pinned tab on the editor target when there are no saved tabs', () => {
+	it('seeds a single tab on the editor target when there are no saved tabs', () => {
 		const snap = hydratePreviewTabs({ target: { kind: 'script', path: 'u/me/foo' } })
 		expect(snap.tabs).toEqual([
-			{ id: 'session', url: '/scripts/edit/u/me/foo', loc: '/scripts/edit/u/me/foo', pinned: true }
+			{ id: 'session', url: '/scripts/edit/u/me/foo', loc: '/scripts/edit/u/me/foo' }
 		])
 		expect(snap.activeId).toBe('session')
 		expect(snap.collapsed).toBe(false)
@@ -99,10 +99,11 @@ describe('hydratePreviewTabs', () => {
 		expect(hydratePreviewTabs({ previewCollapsed: false }).collapsed).toBe(false)
 	})
 
-	it('drops malformed saved tabs and duplicate ids, defaulting loc to url', () => {
+	it('drops malformed saved tabs, duplicate ids and stray fields, defaulting loc to url', () => {
 		const snap = hydratePreviewTabs({
 			previewTabs: [
-				{ id: 'a', url: '/x' } as SessionPreviewTab,
+				// `pinned: true` mimics a record saved before the flag was retired.
+				{ id: 'a', url: '/x', pinned: true } as unknown as SessionPreviewTab,
 				{ id: '', url: '/no-id', loc: '/no-id' },
 				{ id: 'b', url: '', loc: '' },
 				{ id: 'a', url: '/dupe', loc: '/dupe' }
@@ -119,7 +120,6 @@ describe('hydratePreviewTabs', () => {
 			target: { kind: 'script', path: 'u/me/foo' }
 		})
 		expect(snap.tabs).toHaveLength(1)
-		expect(snap.tabs[0].pinned).toBe(true)
 		expect(snap.activeId).toBe('session')
 	})
 })
@@ -281,13 +281,14 @@ describe('SessionPreviewTabs.select / close / setCollapsed', () => {
 		expect(o.activeId).toBe('c')
 	})
 
-	it('refuses to close a pinned tab', () => {
+	it('closing the last tab empties the model', () => {
 		const o = owner({
-			tabs: [{ id: 'session', url: '/x', loc: '/x', pinned: true }],
+			tabs: [{ id: 'session', url: '/x', loc: '/x' }],
 			activeId: 'session'
 		})
 		o.close('session')
-		expect(o.tabs).toHaveLength(1)
+		expect(o.tabs).toHaveLength(0)
+		expect(o.activeId).toBe('')
 	})
 
 	it('toggles collapsed', () => {

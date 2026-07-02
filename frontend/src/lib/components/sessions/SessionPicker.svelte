@@ -333,14 +333,14 @@
 	async function createAndOpen() {
 		const fresh = createSession()
 		// A new session opened from a Windmill page adopts that page as its first
-		// (pinned) preview tab. Seeds the tab model directly on the record — it's
+		// preview tab. Seeds the tab model directly on the record — it's
 		// transient until first send, so the write-behind no-ops until then and
 		// the runtime's previewTabs owner hydrates from it. Skip when already on
 		// the sessions page (nothing meaningful to capture) so the preview seeds
 		// from the session's editor target (or stays empty) instead.
 		if (!onSessionsPage) {
 			const url = page.url.pathname + page.url.search
-			setSessionTabs(fresh.id, [{ id: 'session', url, loc: url, pinned: true }], 'session')
+			setSessionTabs(fresh.id, [{ id: 'session', url, loc: url }], 'session')
 		}
 		await activate(fresh)
 	}

@@ -155,7 +155,7 @@
 	// iframe been created yet" DOM bookkeeping, so it stays page-local while
 	// the owner holds the tab identity. Mount the owner's active tab whenever
 	// it changes, and clear on session change so a prior session's tab ids
-	// (incl. the shared 'session' pinned id) don't leak in.
+	// (incl. the shared 'session' seed id) don't leak in.
 	//
 	// MRU-capped at MAX_MOUNTED_TABS: each mounted tab is a full Windmill app
 	// (iframe) — without a cap a long-lived session accumulates one per tab
@@ -486,8 +486,8 @@
 									</button>
 								</div>
 
-								<!-- Tab strip: open preview pages. The first tab is pinned to the
-								     session's own view; "+" opens the router picker to add more. -->
+								<!-- Tab strip: open preview pages. "+" opens the router picker to
+								     add more. -->
 								<div
 									class="flex items-center gap-1 h-8 border-b border-light shrink-0 bg-surface-secondary overflow-x-auto {fullscreen
 										? 'pl-1.5'
@@ -513,10 +513,6 @@
 													class="flex items-center gap-1.5 min-w-0 cursor-pointer"
 												>
 													{#snippet trigger()}
-														{#if tab.pinned}
-															<span class="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0"
-															></span>
-														{/if}
 														<span class="truncate">{tabLabel(tab.loc)}</span>
 														<ChevronDown size={12} class="shrink-0 text-tertiary" />
 													{/snippet}
@@ -539,24 +535,18 @@
 													onclick={() => selectTab(tab.id)}
 													title={tabLabel(tab.loc)}
 												>
-													{#if tab.pinned}
-														<span class="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0"
-														></span>
-													{/if}
 													<span class="truncate">{tabLabel(tab.loc)}</span>
 												</button>
 											{/if}
-											{#if !tab.pinned}
-												<button
-													type="button"
-													onclick={() => closeTab(tab.id)}
-													title="Close tab"
-													aria-label="Close tab"
-													class="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded text-tertiary hover:text-primary hover:bg-surface-hover opacity-0 group-hover/tab:opacity-100"
-												>
-													<X size={11} />
-												</button>
-											{/if}
+											<button
+												type="button"
+												onclick={() => closeTab(tab.id)}
+												title="Close tab"
+												aria-label="Close tab"
+												class="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded text-tertiary hover:text-primary hover:bg-surface-hover opacity-0 group-hover/tab:opacity-100"
+											>
+												<X size={11} />
+											</button>
 										</div>
 									{/each}
 									{#if !previewLocked}

@@ -65,8 +65,8 @@ export function previewTargetForSessionTarget(
 	return { type: 'item', item }
 }
 
-// Build the initial tab model for a session: its saved tabs, else a single pinned
-// tab on its editor target, else empty. Default collapse follows the old page
+// Build the initial tab model for a session: its saved tabs, else a single tab
+// on its editor target, else empty. Default collapse follows the old page
 // seed rule (collapsed only for a session with nothing to preview).
 export function hydratePreviewTabs(session: {
 	previewTabs?: SessionPreviewTab[]
@@ -81,7 +81,9 @@ export function hydratePreviewTabs(session: {
 	for (const t of session.previewTabs ?? []) {
 		if (!t?.id || !t?.url || seen.has(t.id)) continue
 		seen.add(t.id)
-		tabs.push({ ...t, loc: t.loc ?? t.url })
+		// Rebuilt field-by-field so stray properties on old saved records (e.g. the
+		// retired `pinned` flag) don't survive hydration and get persisted back.
+		tabs.push({ id: t.id, url: t.url, loc: t.loc ?? t.url })
 	}
 	if (tabs.length > 0) {
 		const wantActive = session.activePreviewTabId
@@ -91,7 +93,7 @@ export function hydratePreviewTabs(session: {
 	const seedUrl = sessionTargetHref(session.target)
 	if (seedUrl) {
 		return {
-			tabs: [{ id: 'session', url: seedUrl, loc: seedUrl, pinned: true }],
+			tabs: [{ id: 'session', url: seedUrl, loc: seedUrl }],
 			activeId: 'session',
 			collapsed: session.previewCollapsed ?? false
 		}
@@ -203,7 +205,7 @@ export class SessionPreviewTabs {
 
 	close(id: string): void {
 		const idx = this.#tabs.findIndex((t) => t.id === id)
-		if (idx < 0 || this.#tabs[idx].pinned) return
+		if (idx < 0) return
 		this.#tabs.splice(idx, 1)
 		if (this.#activeId === id) {
 			this.#activeId = (this.#tabs[idx] ?? this.#tabs[idx - 1] ?? this.#tabs[0])?.id ?? ''
