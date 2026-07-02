@@ -1247,8 +1247,8 @@ pub fn ensure_bundle_output_exists(bundle_path: &str) -> Result<()> {
 
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
 
-/// A script version's relative-import list never changes (content is immutable
-/// per hash), so parses are memoized without any invalidation.
+// A script version's relative-import list never changes (content is immutable
+// per hash), so parses are memoized without any invalidation.
 lazy_static::lazy_static! {
     static ref RELATIVE_IMPORTS_PER_HASH: quick_cache::sync::Cache<i64, Arc<Vec<String>>> =
         quick_cache::sync::Cache::new(1000);
