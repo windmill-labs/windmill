@@ -95,6 +95,33 @@ describe('parsePipelineAnnotations: retry', () => {
 	})
 })
 
+describe('parsePipelineAnnotations: macros + use', () => {
+	it('parses the bare macros marker', () => {
+		const out = parsePipelineAnnotations('// macros\nCREATE MACRO m(a) AS a;')
+		expect(out.macros).toBe(true)
+	})
+
+	it('macros marker is strict — trailing prose and variants rejected', () => {
+		expect(parsePipelineAnnotations('// macros are defined below\n').macros).toBe(false)
+		expect(parsePipelineAnnotations('// macros_v2\n').macros).toBe(false)
+		expect(parsePipelineAnnotations('-- macros   \nSELECT 1;').macros).toBe(true)
+	})
+
+	it('use accumulates in order and dedups', () => {
+		const out = parsePipelineAnnotations(
+			'// use f/lib/stats\n// use f/lib/dates\n// use f/lib/stats\n'
+		)
+		expect(out.useLibs).toEqual(['f/lib/stats', 'f/lib/dates'])
+	})
+
+	it('use rejects prose, slashless and multi-token values', () => {
+		const out = parsePipelineAnnotations(
+			'// use this script to compute\n// use standalone\n// use f/lib/ok extra\n'
+		)
+		expect(out.useLibs).toEqual([])
+	})
+})
+
 describe('parsePipelineAnnotations: combined', () => {
 	it('parses all keywords together', () => {
 		const code = [

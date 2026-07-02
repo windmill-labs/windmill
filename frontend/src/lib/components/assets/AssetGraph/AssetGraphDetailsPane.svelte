@@ -583,7 +583,9 @@
 					triggerAssets: [],
 					nativeTriggers: [],
 					dataTests: [],
-					columnLineage: []
+					columnLineage: [],
+					macros: false,
+					useLibs: []
 				}
 	)
 	$effect(() => {
