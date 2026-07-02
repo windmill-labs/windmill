@@ -745,12 +745,15 @@ impl Visitor for AssetCollector {
                     if let Some(asset) = self.get_s3_asset_from_str_literal_table(table_factor) {
                         self.assets.push(asset);
                     }
-                    // Avoid Table Functions
-                    self.handle_obj_name_pre(name);
-                } else if let Some(asset) = self.get_s3_asset_from_table_function(table_factor) {
-                    // read_csv/read_parquet/read_json('s3:///…') likewise.
-                    self.assets.push(asset);
                 }
+                // For a read-function table factor this pushes ReadFn, making
+                // every literal inside its arguments a definitive read — the
+                // direct form (read_csv('s3:///…')) but also list and named
+                // arguments (read_parquet(['s3:///…'])). Must run for BOTH the
+                // plain-table and table-function branches: post_visit_table_factor
+                // pops via handle_obj_name_post unconditionally, so skipping the
+                // push here would unbalance the stack.
+                self.handle_obj_name_pre(name);
             }
             _ => {}
         }
@@ -1216,6 +1219,51 @@ mod tests {
                 access_type: Some(RW),
                 columns: None
             }])
+        );
+    }
+
+    #[test]
+    fn test_read_fn_list_arg_plus_copy_stays_rw() {
+        // read_parquet's list form is as definitive as the direct literal —
+        // it must not be demoted to a weak mention when the file is rewritten.
+        let input = r#"
+            CREATE TABLE tmp AS SELECT * FROM read_parquet(['s3:///data.parquet']);
+            COPY (SELECT * FROM tmp) TO 's3:///data.parquet';
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/data.parquet".to_string(),
+                access_type: Some(RW),
+                columns: None
+            }])
+        );
+    }
+
+    #[test]
+    fn test_read_fn_list_arg_multiple_files_are_reads() {
+        let input = r#"
+            SELECT * FROM read_parquet(['s3:///a.parquet', 's3:///b.parquet']);
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/a.parquet".to_string(),
+                    access_type: Some(R),
+                    columns: None
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/b.parquet".to_string(),
+                    access_type: Some(R),
+                    columns: None
+                }
+            ])
         );
     }
 
