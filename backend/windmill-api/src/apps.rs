@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Arc};
  */
 #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
 use crate::job_helpers_oss::{
-    bump_storage_usage, ce_storage_quota_remaining, spawn_storage_usage_recount_floored,
+    bump_storage_usage, ce_upload_budget, spawn_storage_usage_recount_floored,
 };
 use crate::{
     auth::{get_end_user_email, OptTokened},
@@ -3548,11 +3548,22 @@ async fn upload_s3_file_from_app(
     ])
     .into();
 
-    // Only workspace-storage uploads are metered; custom-resource uploads are
-    // still bounded by the remaining quota but do not count toward it.
+    // Only workspace storage is quota-metered; a custom-resource upload lands in
+    // the user's own bucket and is neither capped nor counted. An overwrite of an
+    // existing key only spends the difference over its current size.
     let _is_workspace_storage = query.s3_resource_path.is_none();
     #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
-    let max_size = Some(ce_storage_quota_remaining(&db, &w_id).await? as usize);
+    let (max_size, _existing_size) = if _is_workspace_storage {
+        let content_length = request
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.parse::<i64>().ok());
+        let budget = ce_upload_budget(&db, &w_id, &s3_client, &file_key, content_length).await?;
+        (Some(budget.max_size), budget.existing_size)
+    } else {
+        (None, 0)
+    };
     #[cfg(any(not(feature = "parquet"), feature = "enterprise"))]
     let max_size: Option<usize> = None;
 
@@ -3565,7 +3576,7 @@ async fn upload_s3_file_from_app(
                     &db,
                     &w_id,
                     windmill_object_store::DEFAULT_STORAGE,
-                    _size as i64,
+                    _size as i64 - _existing_size,
                 )
                 .await;
             }

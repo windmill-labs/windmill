@@ -124,6 +124,31 @@ pub async fn ce_storage_quota_remaining(_db: &DB, _w_id: &str) -> error::Result<
     not(feature = "private"),
     not(feature = "enterprise")
 ))]
+pub struct CeUploadBudget {
+    pub max_size: usize,
+    pub existing_size: i64,
+}
+
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
+pub async fn ce_upload_budget(
+    _db: &DB,
+    _w_id: &str,
+    _s3_client: &Arc<dyn ObjectStore>,
+    _file_key: &str,
+    _content_length: Option<i64>,
+) -> error::Result<CeUploadBudget> {
+    Ok(CeUploadBudget { max_size: usize::MAX, existing_size: 0 })
+}
+
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
 pub async fn bump_storage_usage(_db: &DB, _w_id: &str, _storage: &str, _delta: i64) {}
 
 #[cfg(all(

@@ -66,15 +66,20 @@
 
 	let storageUsage: GetStorageUsageResponse | undefined = $state()
 	let storageUsageLoading = $state(false)
+	// Set on failure so the auto-load $effect below doesn't hammer a persistently
+	// failing endpoint; cleared only by an explicit user-triggered refresh.
+	let storageUsageErrored = $state(false)
 
 	async function loadStorageUsage(refresh: boolean = false): Promise<void> {
 		storageUsageLoading = true
+		if (refresh) storageUsageErrored = false
 		try {
 			storageUsage = await HelpersService.getStorageUsage({
 				workspace: $workspaceStore!,
 				refresh
 			})
 		} catch (e) {
+			storageUsageErrored = true
 			console.error('Failed to load storage usage', e)
 		} finally {
 			storageUsageLoading = false
@@ -82,7 +87,12 @@
 	}
 
 	$effect(() => {
-		if (primaryStorageSaved && storageUsage === undefined && !storageUsageLoading) {
+		if (
+			primaryStorageSaved &&
+			storageUsage === undefined &&
+			!storageUsageLoading &&
+			!storageUsageErrored
+		) {
 			loadStorageUsage()
 		}
 	})

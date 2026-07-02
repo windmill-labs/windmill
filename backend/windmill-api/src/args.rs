@@ -143,6 +143,8 @@ impl RawWebhookArgs {
                             .into_stream()
                             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
 
+                        // file_key is always freshly random here, so this never
+                        // overwrites an existing object; the full size is the delta.
                         #[cfg(not(feature = "enterprise"))]
                         let max_size = Some(ce_storage_quota_remaining(db, w_id).await? as usize);
                         #[cfg(feature = "enterprise")]
