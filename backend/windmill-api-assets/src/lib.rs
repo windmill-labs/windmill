@@ -25,6 +25,50 @@ pub fn workspaced_service() -> Router {
         .route("/partitions", get(list_partitions))
         .route("/asset_schemas", get(list_asset_schemas))
         .route("/record_materialization", post(record_materialization))
+        .route("/macros", get(list_macros))
+}
+
+// One registry macro, with its full definition — drives the macro-explorer
+// drawer (body preview) and the DuckDB editor autocomplete (signatures).
+#[derive(Serialize)]
+struct MacroListItem {
+    name: String,
+    params: String,
+    body: String,
+    is_table: bool,
+    provider_path: String,
+}
+
+// Every workspace macro (`// macros` libraries), grouped client-side by
+// provider. Small by construction — one row per macro definition.
+async fn list_macros(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<MacroListItem>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"SELECT name AS "name!", params AS "params!", body AS "body!",
+                  is_table_macro AS "is_table_macro!", provider_path AS "provider_path!"
+           FROM macro_definition
+           WHERE workspace_id = $1
+           ORDER BY provider_path, name"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| MacroListItem {
+                name: r.name,
+                params: r.params,
+                body: r.body,
+                is_table: r.is_table_macro,
+                provider_path: r.provider_path,
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]

@@ -29,6 +29,7 @@
 		PipelineMode
 	} from '$lib/components/assets/AssetGraph/types'
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
+	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
 	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import {
 		buildColumnGraph,
@@ -83,6 +84,7 @@
 		Play,
 		RefreshCw,
 		Save,
+		SquareFunction,
 		Target,
 		Telescope
 	} from 'lucide-svelte'
@@ -215,6 +217,24 @@
 			// Same reset as the pane's close button — clears the live
 			// annotation overlay of whichever script was open.
 			pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+		}
+	}
+
+	// Workspace-macro explorer drawer (all `// macros` libraries + their
+	// signatures/bodies). "Open" on a group selects the lib node when it's on
+	// this canvas; a lib living in another folder opens its script page.
+	let macroDrawer: MacroExplorerDrawer | undefined = $state()
+	function openMacroLib(path: string) {
+		const onCanvas = displayGraph?.runnables?.some(
+			(r) => r.usage_kind === 'script' && r.path === path
+		)
+		if (onCanvas) {
+			pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+			pe.activeDraftPath = undefined
+			panelHidden = false
+			focusPipelineNode(`script:${path}`)
+		} else {
+			window.open(`${base}/scripts/get/${path}`, '_blank')
 		}
 	}
 
@@ -2100,6 +2120,15 @@
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
+				startIcon={{ icon: SquareFunction }}
+				onclick={() => macroDrawer?.openDrawer()}
+				title="Browse the workspace's DuckDB macros (deployed // macros libraries)"
+			>
+				Macros
+			</Button>
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
 				startIcon={{ icon: RefreshCw }}
 				onclick={() => graphRes.refetch()}
 				disabled={graphRes.loading}
@@ -2360,3 +2389,5 @@
 		</div>
 	</div>
 {/if}
+
+<MacroExplorerDrawer bind:this={macroDrawer} onOpenLib={openMacroLib} />

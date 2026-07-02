@@ -21478,6 +21478,39 @@ paths:
                         via_use:
                           type: boolean
 
+  /w/{workspace}/assets/macros:
+    get:
+      summary: List every workspace DuckDB macro (deployed `// macros` libraries)
+      operationId: listWorkspaceMacros
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: all registry macros, ordered by provider then name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [name, params, body, is_table, provider_path]
+                  properties:
+                    name:
+                      type: string
+                    params:
+                      type: string
+                      description: verbatim parameter list
+                    body:
+                      type: string
+                      description: verbatim body after AS [TABLE]
+                    is_table:
+                      type: boolean
+                    provider_path:
+                      type: string
+                      description: path of the `// macros` library script
+
   /w/{workspace}/assets/pipelines:
     get:
       summary: List folders that contain at least one pipeline-member script
