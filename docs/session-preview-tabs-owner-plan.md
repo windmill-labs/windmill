@@ -1,10 +1,13 @@
 # Plan — `SessionPreviewTabs` deep module (sessions preview-tab owner)
 
-Status: **design agreed, not yet implemented.** This is an implementation plan to pick up later.
+Status: **implemented.** The design below is the as-built architecture of
+`frontend/src/lib/components/sessions/sessionPreviewTabs.svelte.ts` (owner class + adapter,
+unit-tested in `sessionPreviewTabs.test.ts`); the "Why" section describes the pre-refactor
+state it replaced.
 
 ## Why
 
-A session's preview tabs are represented in **three** places kept aligned by a fragile
+A session's preview tabs were represented in **three** places kept aligned by a fragile
 protocol:
 
 - page-local `$state` in `routes/(root)/(logged)/sessions/+page.svelte` (`tabs`, `activeTabId`,
@@ -13,12 +16,12 @@ protocol:
   in `sessionState.svelte.ts` — durable;
 - the legacy `previewUrls` localStorage map in `sessionMode.svelte.ts` — a per-session single-URL seed.
 
-They are synced by a **seed `$effect`** (persisted → local on session change), a **reconcile
+They were synced by a **seed `$effect`** (persisted → local on session change), a **reconcile
 `$effect`** (persisted → local mid-session, for the `open_preview` tool), and a **debounced
-write-behind** (local → persisted). The invariants are enforced only by comments ("additive only…
-or it fights the write-behind"). Mutation forks into a local path (UI picker, no dedup) and a
-persisted path (`open_preview`, dedup); `session.target` and `tab.url` are written non-atomically,
-so the live-editor identity is derived from two drifting fields.
+write-behind** (local → persisted). The invariants were enforced only by comments ("additive only…
+or it fights the write-behind"). Mutation forked into a local path (UI picker, no dedup) and a
+persisted path (`open_preview`, dedup); `session.target` and `tab.url` were written non-atomically,
+so the live-editor identity was derived from two drifting fields.
 
 **Goal:** one deep module owns a session's tabs behind a small interface that both the sessions
 page (renderer) and the `open_preview` tool cross. Single live copy → both sync effects disappear.

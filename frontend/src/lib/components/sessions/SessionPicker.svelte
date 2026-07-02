@@ -456,7 +456,7 @@
 	     the section still shows — the per-session chat input is disabled with an
 	     explanatory message, mirroring the sidebar AI chat. -->
 {:else if isCollapsed}
-	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light dark:border-gray-700'}>
+	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
 		<Menubar>
 			{#snippet children({ createMenu })}
 				<Menu {createMenu} usePointerDownOutside submenuSafe>
@@ -563,7 +563,7 @@
 {:else}
 	<div
 		class="flex flex-col gap-1 {embedded ? '' : 'px-2 pt-3 pb-2'} {!embedded && collapsible
-			? 'border-b border-light dark:border-gray-700'
+			? 'border-b border-light'
 			: ''}"
 	>
 		<div class="flex flex-row items-center justify-between pl-1 pr-0.5">
@@ -649,7 +649,7 @@
 			>
 				{#snippet vline()}
 					<span class="relative w-3.5 shrink-0 self-stretch">
-						<span class="absolute inset-y-0 left-1/2 w-px bg-gray-200 dark:bg-gray-700"></span>
+						<span class="absolute inset-y-0 left-1/2 w-px bg-surface-tertiary"></span>
 					</span>
 				{/snippet}
 				{#snippet sessionRow(session, indented, treeDepth)}

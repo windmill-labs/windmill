@@ -2,6 +2,8 @@
 	// DEV-ONLY design exploration: how to visually distinguish a *workspace* from a
 	// *session* in the rail tree, and make the hierarchy (forks) clear. Not linked
 	// anywhere; open at /dev/session-tree. Pure mock data, no real session state.
+	// Gated behind the same dev flag as the sessions UI it explores.
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import {
 		MessageSquare,
@@ -321,37 +323,39 @@
 	</div>
 {/snippet}
 
-<div class="h-full overflow-auto p-6 bg-surface">
-	<div class="max-w-[1400px] mx-auto flex flex-col gap-2">
-		<h1 class="text-xl font-semibold text-primary flex items-center gap-2">
-			<Folder size={18} /> Session vs Workspace tree — design exploration
-		</h1>
-		<p class="text-sm text-secondary">
-			Dev-only mock. Each solution distinguishes <strong>workspaces</strong> (clickable, open a
-			preview) from <strong>sessions</strong> (open the chat), and shows the fork hierarchy. Two states
-			per solution: a session selected, and a workspace being browsed.
-		</p>
+{#if isGlobalAiEnabled()}
+	<div class="h-full overflow-auto p-6 bg-surface">
+		<div class="max-w-[1400px] mx-auto flex flex-col gap-2">
+			<h1 class="text-xl font-semibold text-primary flex items-center gap-2">
+				<Folder size={18} /> Session vs Workspace tree — design exploration
+			</h1>
+			<p class="text-sm text-secondary">
+				Dev-only mock. Each solution distinguishes <strong>workspaces</strong> (clickable, open a
+				preview) from <strong>sessions</strong> (open the chat), and shows the fork hierarchy. Two states
+				per solution: a session selected, and a workspace being browsed.
+			</p>
 
-		<div class="mt-4 flex flex-col gap-8">
-			{#each solutions as sol (sol.key)}
-				<section class="flex flex-col gap-2">
-					<h2 class="text-sm font-semibold text-emphasis">{sol.title}</h2>
-					<div class="flex flex-row flex-wrap gap-4">
-						{#each states as st (st.label)}
-							<div class="flex flex-col gap-1">
-								<span class="text-xs text-tertiary flex items-center gap-1">
-									<ChevronRight size={12} />{st.label}
-								</span>
-								<div
-									class="w-64 rounded-md border border-light bg-surface-secondary overflow-hidden"
-								>
-									{@render sol.render(st.sel, st.browsed)}
+			<div class="mt-4 flex flex-col gap-8">
+				{#each solutions as sol (sol.key)}
+					<section class="flex flex-col gap-2">
+						<h2 class="text-sm font-semibold text-emphasis">{sol.title}</h2>
+						<div class="flex flex-row flex-wrap gap-4">
+							{#each states as st (st.label)}
+								<div class="flex flex-col gap-1">
+									<span class="text-xs text-tertiary flex items-center gap-1">
+										<ChevronRight size={12} />{st.label}
+									</span>
+									<div
+										class="w-64 rounded-md border border-light bg-surface-secondary overflow-hidden"
+									>
+										{@render sol.render(st.sel, st.browsed)}
+									</div>
 								</div>
-							</div>
-						{/each}
-					</div>
-				</section>
-			{/each}
+							{/each}
+						</div>
+					</section>
+				{/each}
+			</div>
 		</div>
 	</div>
-</div>
+{/if}

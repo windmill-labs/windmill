@@ -368,6 +368,14 @@
 	})
 </script>
 
+<!-- A tab mutation inside the owner's debounce window would be lost to a
+     reload/navigation; hidden fires before pagehide, so flush there. -->
+<svelte:document
+	onvisibilitychange={() => {
+		if (document.visibilityState === 'hidden') owner?.flushNow()
+	}}
+/>
+
 <div class="h-full flex flex-col min-h-0">
 	{#if embedded}
 		<!-- Rendered inside a preview iframe — opening the sessions UI here would
@@ -650,7 +658,7 @@
 			</Splitpanes>
 			{#if previewCollapsed && !fullscreen}
 				<!-- Collapsed preview: no rail — a floating launcher in the top-right to
-				     reopen the side panel, mirroring the previous collapsed-rail launcher. -->
+				     reopen the side panel. -->
 				<div class="absolute top-2 right-3 z-50">
 					<Button
 						variant="subtle"

@@ -188,13 +188,26 @@ describe('SessionPreviewTabs.open', () => {
 		expect(targets).toEqual([{ kind: 'raw_app', path: 'u/me/app' }])
 	})
 
-	it('always opens a fresh tab for a page and never sets a target', () => {
+	it('focuses the tab already showing a page instead of duplicating, and never sets a target', () => {
 		const { adapter, targets } = makeAdapter()
 		const o = owner({}, adapter)
 		o.open(pageTarget)
-		o.open(pageTarget)
+		const firstId = o.activeId
+		o.open(scriptTarget)
+		const res = o.open(pageTarget)
+		expect(res.status).toBe('focused')
 		expect(o.tabs).toHaveLength(2)
-		expect(targets).toEqual([])
+		expect(o.activeId).toBe(firstId)
+		expect(targets).toEqual([{ kind: 'script', path: 'u/me/foo' }])
+	})
+
+	it('opens a fresh page tab when the original navigated away', () => {
+		const o = owner()
+		o.open(pageTarget)
+		o.observeLocation(o.activeId, '/variables')
+		const res = o.open(pageTarget)
+		expect(res.status).toBe('opened')
+		expect(o.tabs).toHaveLength(2)
 	})
 
 	it('does not set a target for a legacy drag-and-drop app', () => {
@@ -322,6 +335,23 @@ describe('SessionPreviewTabs persistence', () => {
 		expect(persisted[0].tabs).toHaveLength(2)
 		expect(persisted[0].activeId).toBe(o.activeId)
 		expect(persisted[0].collapsed).toBe(false)
+	})
+
+	it('flushNow persists a pending write immediately and cancels the debounce', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({}, adapter)
+		o.open(scriptTarget)
+		o.flushNow()
+		expect(persisted).toHaveLength(1)
+		vi.runAllTimers()
+		expect(persisted).toHaveLength(1) // debounce cancelled, no second write
+	})
+
+	it('flushNow is a no-op when nothing is pending', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({}, adapter)
+		o.flushNow()
+		expect(persisted).toHaveLength(0)
 	})
 })
 

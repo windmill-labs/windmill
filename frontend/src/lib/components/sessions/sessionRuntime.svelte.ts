@@ -90,7 +90,7 @@ export interface SessionRuntime {
 	readonly manager: AIChatManager
 	// Single live owner of this session's preview tabs. Both the sessions page
 	// (renderer) and the open_preview/get_preview_status tools cross it, so the
-	// tab model has one copy instead of page-local + persisted + legacy seed.
+	// tab model has exactly one live copy.
 	readonly previewTabs: SessionPreviewTabs
 	// Pipeline target state — persists across editor hide/show (the pane unmounts
 	// on hide, so this can't be component-local) and across session switches.

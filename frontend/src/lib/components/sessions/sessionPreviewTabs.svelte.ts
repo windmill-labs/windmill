@@ -29,7 +29,7 @@ export type PreviewTabsAdapter = {
 	// owner). Fire-and-forget.
 	persist: (snapshot: PreviewTabsSnapshot) => void
 	// Point the session's live editor at `target`. Called atomically with the tab
-	// open/navigate that shows the item, killing the old url/target drift.
+	// open/navigate that shows the item, so tab and target can never drift apart.
 	setTarget: (target: SessionTarget) => void
 }
 
@@ -66,8 +66,8 @@ export function previewTargetForSessionTarget(
 }
 
 // Build the initial tab model for a session: its saved tabs, else a single tab
-// on its editor target, else empty. Default collapse follows the old page
-// seed rule (collapsed only for a session with nothing to preview).
+// on its editor target, else empty. Default collapse: collapsed only for a
+// session with nothing to preview.
 export function hydratePreviewTabs(session: {
 	previewTabs?: SessionPreviewTab[]
 	activePreviewTabId?: string
@@ -142,7 +142,8 @@ export class SessionPreviewTabs {
 
 	// Open — or focus, if already shown — a tab for a destination, and reveal the
 	// panel. An editable item is made the session's live editor (setTarget) and
-	// deduped against the tab already hosting it; pages always open a fresh tab.
+	// deduped against the tab already hosting it; anything else dedupes on the
+	// tab's observed location.
 	open(target: PreviewTarget): { status: 'opened' | 'focused' } {
 		const editorTarget = editorTargetFor(target)
 		if (editorTarget) this.#adapter.setTarget(editorTarget)
@@ -162,6 +163,15 @@ export class SessionPreviewTabs {
 			}
 		}
 		const url = targetUrl(target)
+		// Focus the tab currently *showing* this destination instead of opening a
+		// duplicate. Matched on the observed `loc`, not `url`: a tab that was
+		// opened here but navigated away no longer counts as showing it.
+		const shown = this.#tabs.find((t) => t.loc === url)
+		if (shown) {
+			this.#activeId = shown.id
+			this.#flush()
+			return { status: 'focused' }
+		}
 		const tab: SessionPreviewTab = { id: randomUUID(), url, loc: url }
 		this.#tabs.push(tab)
 		this.#activeId = tab.id
@@ -229,15 +239,30 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	// Persist a pending write immediately, cancelling the debounce. Called on
+	// page hide — a mutation inside the debounce window would otherwise be lost
+	// to a reload/navigation. No-op when nothing is pending.
+	flushNow(): void {
+		if (this.#flushHandle === undefined) return
+		clearTimeout(this.#flushHandle)
+		this.#flushHandle = undefined
+		this.#persistNow()
+	}
+
 	#flush(): void {
 		clearTimeout(this.#flushHandle)
 		this.#flushHandle = setTimeout(() => {
-			this.#adapter.persist({
-				tabs: this.#tabs.map((t) => ({ ...t })),
-				activeId: this.#activeId,
-				collapsed: this.#collapsed
-			})
+			this.#flushHandle = undefined
+			this.#persistNow()
 		}, this.#flushDelay)
+	}
+
+	#persistNow(): void {
+		this.#adapter.persist({
+			tabs: this.#tabs.map((t) => ({ ...t })),
+			activeId: this.#activeId,
+			collapsed: this.#collapsed
+		})
 	}
 }
 
