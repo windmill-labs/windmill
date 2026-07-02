@@ -452,6 +452,7 @@ components:
       enum:
         - openai
         - azure_openai
+        - azure_foundry
         - anthropic
         - mistral
         - deepseek
