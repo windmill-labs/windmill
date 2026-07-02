@@ -6221,12 +6221,15 @@ paths:
                     $ref: "#/components/schemas/QuotaInfo"
                   resources:
                     $ref: "#/components/schemas/QuotaInfo"
+                  forks:
+                    $ref: "#/components/schemas/QuotaInfo"
                 required:
                   - scripts
                   - flows
                   - apps
                   - variables
                   - resources
+                  - forks
 
   /w/{workspace}/workspaces/prune_versions:
     post:

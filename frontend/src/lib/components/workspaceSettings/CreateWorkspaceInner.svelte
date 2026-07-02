@@ -228,20 +228,31 @@
 	}
 
 	async function completeFork(prefixed_id: string): Promise<void> {
-		let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
-			workspace: $workspaceStore!,
-			requestBody: {
-				id: prefixed_id,
-				name,
-				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-				is_dev_workspace: createAsDevWorkspace,
-				// Send the lock intent in this first phase too so the backend can reject a non-admin's
-				// locked-dev request before any branch is created (avoids dangling branches).
-				lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-				lock_prod_forking: createAsDevWorkspace && lockProdForking,
-				copy_members: copyMembers
-			}
-		})
+		let gitSyncJobIds: string[]
+		try {
+			gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
+				workspace: $workspaceStore!,
+				requestBody: {
+					id: prefixed_id,
+					name,
+					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+					is_dev_workspace: createAsDevWorkspace,
+					// Send the lock intent in this first phase too so the backend can reject a non-admin's
+					// locked-dev request before any branch is created (avoids dangling branches).
+					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					copy_members: copyMembers
+				}
+			})
+		} catch (e) {
+			// The backend can reject here (fork cap, depth limit, premium, non-admin lock). Reset the
+			// loading state and surface the error rather than leaving the button spinning.
+			forkCreationError = `Failed to create fork '${prefixed_id}'`
+			errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+			forkCreationLoading = false
+			sendUserToast(`Could not create fork '${prefixed_id}' ${e?.body ?? e}`, true)
+			return
+		}
 
 		try {
 			await Promise.all(

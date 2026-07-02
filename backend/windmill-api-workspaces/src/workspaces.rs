@@ -629,11 +629,13 @@ async fn list_pending_invites(
 }
 
 async fn is_premium(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Path(_w_id): Path<String>,
 ) -> JsonResult<bool> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Any workspace member (not just admins) may read whether the workspace is on a paid plan: it's a
+    // single boolean, and the frontend needs it to decide whether to surface premium-gated affordances
+    // (e.g. forking) to non-admin developers too. The `_authed` extractor still enforces membership.
     #[cfg(feature = "cloud")]
     let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
         .await?
@@ -3797,6 +3799,24 @@ lazy_static::lazy_static! {
         }
     };
 
+    // Cloud only: how many forks a premium workspace may have per paid (developer) seat.
+    pub static ref MAX_FORKS_PER_SEAT: i64 = std::env::var("MAX_FORKS_PER_SEAT")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|v| *v >= 0)
+        .unwrap_or(5);
+
+    // How deep a fork chain may nest (root = depth 0, a direct fork = depth 1). A general guardrail
+    // for all builds, independent of the cloud per-seat cap: deep fork chains are a footgun and no
+    // real use case needs them. Clamped to [1, 20] so it's always a real limit and can never exceed
+    // the fork-walk recursion backstop (20) that billing/count resolution uses (a chain deeper than
+    // the backstop would truncate and mis-resolve its root).
+    pub static ref MAX_FORK_DEPTH: i64 = std::env::var("MAX_FORK_DEPTH")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .map(|v| v.clamp(1, 20))
+        .unwrap_or(5);
+
 }
 
 async fn create_workspace_require_superadmin() -> String {
@@ -4996,10 +5016,12 @@ async fn create_workspace_fork_branch(
     Path(w_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> JsonResult<Vec<Uuid>> {
+    // Pre-check the fork guards before creating any git branch, so we don't leave orphaned branches
+    // behind when the follow-up create_workspace_fork would be rejected anyway.
+    enforce_fork_depth(&db, &w_id, 0).await?;
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on app.windmill.dev"
-        )));
+        enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
     if *DISABLE_WORKSPACE_FORK {
@@ -5171,16 +5193,83 @@ async fn apply_forked_datatable(
     Ok(())
 }
 
+/// Cloud: require the fork/dev's root (billing) workspace be premium; returns the resolved root id.
+#[cfg(feature = "cloud")]
+async fn require_cloud_fork_premium(db: &DB, parent_workspace_id: &str) -> Result<String> {
+    let root =
+        windmill_common::workspaces::get_billing_workspace_id(db, parent_workspace_id).await?;
+    if !windmill_common::workspaces::get_team_plan_status(db, &root)
+        .await?
+        .premium
+    {
+        return Err(Error::BadRequest(
+            "Creating a fork or dev workspace on the cloud requires a paid team plan. Upgrade the workspace first.".to_string(),
+        ));
+    }
+    Ok(root)
+}
+
+/// Cloud: reject if adding `incoming` fork/dev workspaces would push `root`'s family over its per-seat
+/// allotment. `incoming` is the number of workspaces the operation adds to the family — 1 for a plain
+/// create, but `1 + candidate_subtree` for an attach whose candidate already has child forks.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_count(db: &DB, root: &str, incoming: i64) -> Result<()> {
+    let seats = windmill_common::workspaces::count_paid_seats(db, root).await?;
+    let per_seat = *MAX_FORKS_PER_SEAT;
+    // Any premium workspace has at least one paid seat, so floor the seat count at 1.
+    let allowed = seats.max(1) * per_seat;
+
+    let existing = windmill_common::workspaces::count_workspace_forks(db, root).await?;
+    let projected = existing + incoming;
+    if projected > allowed {
+        return Err(Error::BadRequest(format!(
+            "Fork limit reached: this would bring the workspace family to {projected} fork(s), over the cap of {allowed} ({seats} paid seat(s) × {per_seat} per seat). Delete a fork or add seats."
+        )));
+    }
+
+    Ok(())
+}
+
+/// Cloud-only guard for creating a fork/dev workspace. Forks piggyback on the parent's plan (a fork
+/// inherits the root's premium and meters its usage into the root's bill), so forking is limited to
+/// premium workspaces and capped at `MAX_FORKS_PER_SEAT` per paid (developer) seat of the root.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()> {
+    let root = require_cloud_fork_premium(db, parent_workspace_id).await?;
+    enforce_cloud_fork_count(db, &root, 1).await
+}
+
+/// General guardrail (all builds): reject creating a fork/dev under `parent` when it would nest deeper
+/// than `MAX_FORK_DEPTH`. `added_subtree_height` is the height of the subtree grafted below the new
+/// node — 0 for a plain fork, or the candidate's own subtree height for an attach.
+async fn enforce_fork_depth(
+    db: &DB,
+    parent_workspace_id: &str,
+    added_subtree_height: i64,
+) -> Result<()> {
+    let parent_depth =
+        windmill_common::workspaces::fork_chain_depth(db, parent_workspace_id).await?;
+    // The new node sits one level below the parent; its deepest descendant adds the grafted height.
+    let resulting_depth = parent_depth + 1 + added_subtree_height;
+    if resulting_depth > *MAX_FORK_DEPTH {
+        return Err(Error::BadRequest(format!(
+            "Fork depth limit reached: forks can be nested at most {} level(s) deep, but this would create a fork at depth {}. Fork from a workspace closer to the root instead.",
+            *MAX_FORK_DEPTH, resulting_depth
+        )));
+    }
+    Ok(())
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
+    enforce_fork_depth(&db, &parent_workspace_id, 0).await?;
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on app.windmill.dev"
-        )));
+        enforce_cloud_fork_cap(&db, &parent_workspace_id).await?;
     }
 
     if nw.is_dev_workspace {
@@ -5347,10 +5436,30 @@ async fn attach_dev_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // Attaching grafts the candidate (and its own fork subtree) under prod, so enforce the general
+    // depth limit on the deepest resulting node.
+    let candidate_height =
+        windmill_common::workspaces::fork_subtree_height(&db, &req.dev_workspace_id).await?;
+    enforce_fork_depth(&db, &prod_w_id, candidate_height).await?;
+
+    // Attaching reparents a workspace under prod (one dev per prod, admin-gated) and it then draws
+    // prod's plan, so hold it to the same premium requirement as creating a fork. Only enforce the
+    // per-seat count when the attach actually adds a new workspace to the family: re-designating a
+    // workspace already under this root as its dev doesn't increase the descendant count.
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(
-            "Dev workspaces are not available on app.windmill.dev".to_string(),
-        ));
+        let root = require_cloud_fork_premium(&db, &prod_w_id).await?;
+        // Only count against the cap when this attach adds workspaces to the family (candidate not
+        // already under this root). The candidate may itself have child forks, so reserve slots for its
+        // whole incoming subtree (the candidate + its descendants), not just one.
+        if windmill_common::workspaces::get_billing_workspace_id(&db, &req.dev_workspace_id).await?
+            != root
+        {
+            let incoming =
+                1 + windmill_common::workspaces::count_workspace_forks(&db, &req.dev_workspace_id)
+                    .await?;
+            enforce_cloud_fork_count(&db, &root, incoming).await?;
+        }
     }
 
     let dev_w_id = req.dev_workspace_id;
@@ -5468,6 +5577,17 @@ async fn attach_dev_workspace(
     // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
     // so per-workspace job tags route to the prod family immediately rather than after the TTL.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    // Same reparent invalidates the billing-workspace mapping so its usage meters to prod at once. The
+    // candidate can bring its own fork subtree, whose descendants had resolved their (now-stale) root
+    // to the candidate's old family; invalidate them too so they meter to prod without waiting out the
+    // 60s TTL. Their immediate fork->parent links don't move, so the tag-routing cache needs no change.
+    #[cfg(feature = "cloud")]
+    {
+        windmill_common::workspaces::invalidate_billing_workspace_cache(&dev_w_id);
+        for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+            windmill_common::workspaces::invalidate_billing_workspace_cache(&id);
+        }
+    }
 
     if req.lock_prod_deploy || req.lock_prod_forking {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
@@ -6415,6 +6535,17 @@ async fn change_workspace_color(
 }
 
 async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
+    // On cloud, a fork's executions meter against its billing root, so report the root's usage here too;
+    // otherwise the free-execs indicator would show the fork's own (often 0) count while enforcement
+    // applies the root's shared quota. Gated on `*CLOUD_HOSTED` (not just the `cloud` feature, which is
+    // compiled into all EE builds): self-hosted doesn't meter usage this way. Off-fork it resolves to
+    // `w_id` itself anyway.
+    #[cfg(feature = "cloud")]
+    let w_id = if *CLOUD_HOSTED {
+        windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?
+    } else {
+        w_id
+    };
     let usage = sqlx::query_scalar!(
         "
     SELECT usage.usage FROM usage
@@ -8230,6 +8361,10 @@ struct CloudQuotas {
     apps: QuotaInfo,
     variables: QuotaInfo,
     resources: QuotaInfo,
+    /// Fork/dev workspaces under this workspace's billing root vs the per-seat cap. `limit` is 0 for a
+    /// non-premium root (forking is premium-only). Family-wide: resolves to the billing root, so it
+    /// reads the same whether viewed from the root or one of its forks.
+    forks: QuotaInfo,
 }
 
 async fn get_cloud_quotas(
@@ -8310,12 +8445,32 @@ async fn get_cloud_quotas(
     .await?
     .unwrap_or(0);
 
+    // Fork/dev workspaces vs the per-seat cap, resolved to the billing root. Non-premium roots can't
+    // fork, so their allowance is 0.
+    #[cfg(feature = "cloud")]
+    let forks = {
+        use windmill_common::workspaces::{
+            count_paid_seats, count_workspace_forks, get_billing_workspace_id, get_team_plan_status,
+        };
+        let root = get_billing_workspace_id(&db, &w_id).await?;
+        let used = count_workspace_forks(&db, &root).await?;
+        let limit = if get_team_plan_status(&db, &root).await?.premium {
+            count_paid_seats(&db, &root).await?.max(1) * *MAX_FORKS_PER_SEAT
+        } else {
+            0
+        };
+        QuotaInfo { used, limit, prunable: 0 }
+    };
+    #[cfg(not(feature = "cloud"))]
+    let forks = QuotaInfo { used: 0, limit: 0, prunable: 0 };
+
     Ok(Json(CloudQuotas {
         scripts: QuotaInfo { used: scripts_used, limit: 5000, prunable: scripts_prunable },
         flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
         apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
         variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
         resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+        forks,
     }))
 }
 
