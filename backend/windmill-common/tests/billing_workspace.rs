@@ -126,3 +126,37 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
     // A standalone workspace has no forks.
     assert_eq!(count_workspace_forks(&db, "seat-fork2").await.unwrap(), 0);
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn billing_cache_invalidation_reflects_reparent(db: Pool<Postgres>) {
+    insert_ws(&db, "inv-root-a", None, false).await;
+    insert_ws(&db, "inv-root-b", None, false).await;
+    insert_ws(&db, "inv-fork", Some("inv-root-a"), false).await;
+
+    // Resolve + cache: fork -> root-a.
+    assert_eq!(
+        get_billing_workspace_id(&db, "inv-fork").await.unwrap(),
+        "inv-root-a"
+    );
+
+    // Reparent in the DB, as delete+recreate-under-another-root (or attach) would.
+    sqlx::query("UPDATE workspace SET parent_workspace_id = 'inv-root-b' WHERE id = 'inv-fork'")
+        .execute(&db)
+        .await
+        .unwrap();
+
+    // The cached mapping survives until invalidated (this is the staleness the delete/attach/rename
+    // paths must clear).
+    assert_eq!(
+        get_billing_workspace_id(&db, "inv-fork").await.unwrap(),
+        "inv-root-a"
+    );
+
+    // After invalidation (what delete_workspace / attach_dev_workspace / change_workspace_id now call),
+    // it re-resolves to the new root.
+    invalidate_billing_workspace_cache("inv-fork");
+    assert_eq!(
+        get_billing_workspace_id(&db, "inv-fork").await.unwrap(),
+        "inv-root-b"
+    );
+}

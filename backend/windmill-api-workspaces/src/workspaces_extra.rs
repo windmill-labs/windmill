@@ -1020,6 +1020,16 @@ pub(crate) async fn delete_workspace(
     .await?
     .flatten();
 
+    // Capture direct child forks before the delete: the FK is ON DELETE SET NULL, so they're about to
+    // be orphaned (their billing root changes from this workspace's root to themselves). We drop their
+    // cached mappings after commit alongside the deleted id itself.
+    let orphaned_children: Vec<String> = sqlx::query_scalar!(
+        "SELECT id FROM workspace WHERE parent_workspace_id = $1",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1051,6 +1061,16 @@ pub(crate) async fn delete_workspace(
 
     if let Some(parent) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent);
+    }
+
+    // Fork ids are reusable after permanent deletion, so drop the cached fork->parent (tag routing)
+    // and fork->root (billing) mappings for the deleted id and any just-orphaned children — otherwise a
+    // recreated id under a different root, or an orphaned child, could resolve to the gone parent/root
+    // within the caches' TTLs. Deeper (grandchild) descendants self-heal via the 60s billing TTL.
+    for id in std::iter::once(&w_id).chain(orphaned_children.iter()) {
+        windmill_queue::tags::invalidate_fork_parent_cache(id);
+        #[cfg(feature = "cloud")]
+        windmill_common::workspaces::invalidate_billing_workspace_cache(id);
     }
 
     Ok(format!("Deleted workspace {}", &w_id))
