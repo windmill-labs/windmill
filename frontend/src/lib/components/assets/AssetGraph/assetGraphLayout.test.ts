@@ -38,7 +38,14 @@ describe('layoutAssetGraph (tidy-tree with join breaks)', () => {
 		// stays strictly left of every node of the right branch.
 		const pos = layoutAssetGraph({
 			nodes: [n('root'), n('a'), n('b'), n('a1'), n('a2'), n('a3'), n('b1')],
-			edges: [e('root', 'a'), e('root', 'b'), e('a', 'a1'), e('a', 'a2'), e('a', 'a3'), e('b', 'b1')]
+			edges: [
+				e('root', 'a'),
+				e('root', 'b'),
+				e('a', 'a1'),
+				e('a', 'a2'),
+				e('a', 'a3'),
+				e('b', 'b1')
+			]
 		})
 		const leftMax = Math.max(...['a', 'a1', 'a2', 'a3'].map((id) => pos.get(id)!.x))
 		const rightMin = Math.min(...['b', 'b1'].map((id) => pos.get(id)!.x))
@@ -83,14 +90,37 @@ describe('layoutAssetGraph (tidy-tree with join breaks)', () => {
 		}
 	})
 
-	it('falls back to a grid on cyclic input', () => {
+	it('lays a 2-cycle out as a chain (feedback edge dropped, no grid)', () => {
 		const pos = layoutAssetGraph({
 			nodes: [n('a'), n('b')],
 			edges: [e('a', 'b'), e('b', 'a')]
 		})
-		expect(pos.size).toBe(2)
-		expect(pos.get('a')).toBeDefined()
-		expect(pos.get('b')).toBeDefined()
+		// First-in-input wins the top slot; the b→a feedback edge is ignored.
+		expect(pos.get('a')!.y).toBeLessThan(pos.get('b')!.y)
+		expect(pos.get('a')!.x).toBe(pos.get('b')!.x)
+	})
+
+	it('keeps the acyclic part of a graph layered when one cycle exists', () => {
+		// root → a ⇄ b → leaf: the a⇄b cycle must not degrade root/leaf layering.
+		const pos = layoutAssetGraph({
+			nodes: [n('root'), n('a'), n('b'), n('leaf')],
+			edges: [e('root', 'a'), e('a', 'b'), e('b', 'a'), e('b', 'leaf')]
+		})
+		expect(pos.get('root')!.y).toBeLessThan(pos.get('a')!.y)
+		expect(pos.get('a')!.y).toBeLessThan(pos.get('b')!.y)
+		expect(pos.get('b')!.y).toBeLessThan(pos.get('leaf')!.y)
+		// A linear chain stays in one column.
+		expect(new Set(['root', 'a', 'b', 'leaf'].map((id) => pos.get(id)!.x)).size).toBe(1)
+	})
+
+	it('handles a longer cycle without dropping nodes', () => {
+		const pos = layoutAssetGraph({
+			nodes: [n('a'), n('b'), n('c')],
+			edges: [e('a', 'b'), e('b', 'c'), e('c', 'a')]
+		})
+		expect(pos.size).toBe(3)
+		const ys = ['a', 'b', 'c'].map((id) => pos.get(id)!.y)
+		expect(new Set(ys).size).toBe(3)
 	})
 
 	it('packs disjoint components side by side without overlap', () => {

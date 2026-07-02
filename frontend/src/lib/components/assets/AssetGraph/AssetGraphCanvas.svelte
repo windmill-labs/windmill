@@ -677,11 +677,27 @@
 	// edges + paths → same layout. Renames *do* change the layout for
 	// the renamed entry, since its id moves in the sort, but that's
 	// expected: a rename is a path change, which is part of the input.
+	// A script with rw access to an asset yields both a write (script → asset)
+	// and a read/trigger (asset → script) edge — a 2-cycle. The layout resolves
+	// it producer-above-asset by omitting the backward direction from its
+	// input; the rendered edges are untouched (both arrows still drawn).
+	let writeEdgePairs = $derived(
+		new Set(
+			model.edges.filter((e) => e.kind === 'lineage-write').map((e) => `${e.source}\n${e.target}`)
+		)
+	)
 	let layoutInput = $derived({
 		nodes: model.nodes
 			.map((n) => ({ id: n.id, data: n.data }))
 			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
 		edges: model.edges
+			.filter(
+				(e) =>
+					!(
+						(e.kind === 'lineage-read' || e.kind === 'trigger-asset') &&
+						writeEdgePairs.has(`${e.target}\n${e.source}`)
+					)
+			)
 			.map((e) => ({ source: e.source, target: e.target }))
 			.sort((a, b) =>
 				a.source === b.source

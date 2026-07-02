@@ -53,8 +53,8 @@ interface Band {
 //
 // y comes from longest-path layering (same top-down orientation as before:
 // producers above, assets in the middle, consumers below). Returns positions
-// (band centers) normalized so the component's min x,y = 0. Throws on cyclic
-// input (caller falls back to a grid for the whole graph).
+// (band centers) normalized so the component's min x,y = 0. Cyclic input is
+// handled by dropping feedback edges (see the Kahn step below).
 function layoutComponent(
 	nodes: GraphInput['nodes'],
 	edges: GraphInput['edges']
@@ -76,21 +76,42 @@ function layoutComponent(
 		if (!parents.get(e.target)!.includes(e.source)) parents.get(e.target)!.push(e.source)
 	}
 
-	// Kahn topological order — also the cycle guard.
+	// Kahn topological order. Cycles don't abort the layout: when the queue
+	// drains with nodes left, the unplaced node with the fewest outstanding
+	// parents (first in input order on ties) is forced into the order and its
+	// not-yet-placed parent edges are dropped as feedback edges — layering and
+	// tree-building then operate on the resulting DAG while the rendered graph
+	// keeps every edge. (The caller already resolves write⇄read 2-cycles by
+	// omitting the read direction; this handles any longer cycle.)
 	const indeg = new Map<string, number>()
 	for (const n of nodes) indeg.set(n.id, parents.get(n.id)!.length)
 	const queue = nodes.filter((n) => indeg.get(n.id) === 0).map((n) => n.id)
+	const placed = new Set<string>()
 	const topo: string[] = []
-	while (queue.length) {
+	while (topo.length < nodes.length) {
+		if (queue.length === 0) {
+			let pick: string | undefined
+			for (const n of nodes) {
+				if (placed.has(n.id)) continue
+				if (pick === undefined || indeg.get(n.id)! < indeg.get(pick)!) pick = n.id
+			}
+			parents.set(
+				pick!,
+				parents.get(pick!)!.filter((p) => placed.has(p))
+			)
+			queue.push(pick!)
+		}
 		const cur = queue.shift()!
+		if (placed.has(cur)) continue
+		placed.add(cur)
 		topo.push(cur)
 		for (const c of children.get(cur)!) {
+			if (placed.has(c)) continue
 			const d = indeg.get(c)! - 1
 			indeg.set(c, d)
 			if (d === 0) queue.push(c)
 		}
 	}
-	if (topo.length !== nodes.length) throw new Error('cyclic asset graph')
 
 	// Longest-path layering: a node sits one layer below its lowest parent.
 	const layer = new Map<string, number>()
@@ -141,8 +162,7 @@ function layoutComponent(
 		out.set(id, { x: left + w / 2, y: layer.get(id)! * LAYER_H })
 		const kids = treeChildren.get(id)!
 		if (kids.length === 0) return
-		const kidsW =
-			kids.reduce((acc, k) => acc + W.get(k)!, 0) + SIBLING_GAP * (kids.length - 1)
+		const kidsW = kids.reduce((acc, k) => acc + W.get(k)!, 0) + SIBLING_GAP * (kids.length - 1)
 		let cursor = left + (w - kidsW) / 2
 		for (const k of kids) {
 			placeTree(k, cursor)
@@ -221,7 +241,8 @@ function layoutComponent(
 // disjoint components, so it's excluded from component detection and instead
 // re-placed centered one layer above the whole packed graph.
 //
-// Falls back to a stable grid if the component layout throws (cyclic inputs).
+// Falls back to a stable grid if the component layout throws (defensive —
+// cycles are already absorbed by feedback-edge dropping in layoutComponent).
 export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<string, Positioned> {
 	const byId = new Map<string, Positioned>()
 	if (graph.nodes.length === 0) return byId
