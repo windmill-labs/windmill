@@ -115,11 +115,11 @@
 
 {#if hasBaseline}
 	<!-- The banner is h-8 (action-button height + a couple px so the buttons don't
-	     touch the edges). We reserve only HALF that height when idle (h-4) and grow
-	     to the full h-8 when the banner shows: this halves the empty gap left when
-	     there are no unsaved changes while limiting the content shift on appear to
-	     ~16px. The height animates so the shift reads as a smooth expand. -->
-	<div class={twMerge('shrink-0 transition-[height] duration-150', visible ? 'h-8' : 'h-4')}>
+	     touch the edges). We reserve only about a THIRD of that height when idle
+	     (h-2.5) and grow to the full h-8 when the banner shows: this keeps the empty
+	     gap small when there are no unsaved changes while limiting the content shift
+	     on appear to ~22px. The height animates so the shift reads as a smooth expand. -->
+	<div class={twMerge('shrink-0 transition-[height] duration-150', visible ? 'h-8' : 'h-2.5')}>
 		{#if visible}
 			<div
 				transition:fade|local={{ duration: 120 }}
