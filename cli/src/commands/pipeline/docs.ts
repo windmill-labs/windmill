@@ -157,8 +157,6 @@ export async function generatePipelineDocs(
   opts: GlobalOptions & { local?: boolean; defaultTs?: "bun" | "deno" },
   folder: string,
 ) {
-  const workspace = await resolveWorkspace(opts);
-  await requireLogin(opts);
   const f = folder.replace(/^f\//, "").replace(/\/$/, "");
   // `docs` WRITES PIPELINE.md / AGENTS.md / CLAUDE.md under `f/<folder>`; a `..`
   // segment would escape the folder and clobber files elsewhere in the tree.
@@ -170,9 +168,12 @@ export async function generatePipelineDocs(
   // defaultTs (from wmill.yaml) drives .ts → bun/deno inference for the local graph.
   const merged = await mergeConfigWithConfigFile(opts);
 
+  const workspace = opts.local ? undefined : await resolveWorkspace(opts);
+  if (!opts.local) await requireLogin(opts);
+
   const graph = opts.local
     ? (await buildLocalPipelineGraph({ root, folder: f, defaultTs: merged.defaultTs })).graph
-    : await fetchDeployedGraph(workspace.workspaceId, f);
+    : await fetchDeployedGraph(workspace!.workspaceId, f);
 
   if (graph.runnables.length === 0) {
     // The deployed graph is empty — but a user/agent in a working tree may have
@@ -198,10 +199,20 @@ export async function generatePipelineDocs(
   }
 
   let datatableSchemas: any[] = [];
-  try {
-    datatableSchemas = await wmill.listDataTableSchemas({ workspace: workspace.workspaceId });
-  } catch (err: any) {
-    log.warn(colors.yellow(`Could not fetch datatable schemas: ${err.message}`));
+  const hasExplicitWorkspace =
+    !!opts.workspace ||
+    (!!opts.baseUrl && !!opts.token) ||
+    (!!process.env["WM_WORKSPACE"] &&
+      !!process.env["WM_TOKEN"] &&
+      !!(process.env["BASE_INTERNAL_URL"] ?? process.env["BASE_URL"]));
+  if (!opts.local || hasExplicitWorkspace) {
+    try {
+      const schemaWorkspace = workspace ?? await resolveWorkspace(opts);
+      if (opts.local) await requireLogin(opts);
+      datatableSchemas = await wmill.listDataTableSchemas({ workspace: schemaWorkspace.workspaceId });
+    } catch (err: any) {
+      log.warn(colors.yellow(`Could not fetch datatable schemas: ${err.message}`));
+    }
   }
 
   const md = generatePipelineMarkdown(f, graph, datatableSchemas, !!opts.local);
