@@ -308,7 +308,7 @@
 				disabled={!can_write}
 			/>
 		{/snippet}
-		<div class="flex flex-col gap-8">
+		<div class="flex flex-col gap-8 pb-2">
 			{#if !can_write}
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it
