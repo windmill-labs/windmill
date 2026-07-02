@@ -6451,11 +6451,17 @@ async fn change_workspace_color(
 }
 
 async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
-    // A fork's executions meter against its billing root, so report the root's usage here too;
+    // On cloud, a fork's executions meter against its billing root, so report the root's usage here too;
     // otherwise the free-execs indicator would show the fork's own (often 0) count while enforcement
-    // applies the root's shared quota. Off-fork this resolves to `w_id` itself.
+    // applies the root's shared quota. Gated on `*CLOUD_HOSTED` (not just the `cloud` feature, which is
+    // compiled into all EE builds): self-hosted doesn't meter usage this way. Off-fork it resolves to
+    // `w_id` itself anyway.
     #[cfg(feature = "cloud")]
-    let w_id = windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?;
+    let w_id = if *CLOUD_HOSTED {
+        windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?
+    } else {
+        w_id
+    };
     let usage = sqlx::query_scalar!(
         "
     SELECT usage.usage FROM usage
