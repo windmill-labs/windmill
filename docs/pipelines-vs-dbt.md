@@ -173,9 +173,12 @@ injected by Windmill ("resolve-and-inject"):
 - Any DuckDB script that *calls* a registered macro gets
   `CREATE OR REPLACE TEMP MACRO …` blocks injected into its statement list at
   job time — dependency-topo-ordered (DuckDB bind-checks macro bodies at
-  CREATE) and placed after the setup/ATTACH prefix. Late-bound: a lib
-  redeploy applies to every subsequent run, dbt's exact semantics but with a
-  deploy-time registry instead of a compile step.
+  CREATE) and placed after the setup/ATTACH prefix. Each provider library's
+  own setup statements are injected ahead of the definitions (deduped across
+  libraries), so a macro body that references its lib's ATTACH binds on the
+  implicit path too. Late-bound: a lib redeploy applies to every subsequent
+  run, dbt's exact semantics but with a deploy-time registry instead of a
+  compile step.
 - `// use <lib_path>` force-injects a whole library (definitions + its setup
   statements) — the escape hatch for dynamic SQL (e.g. calls inside
   `query('…')` strings) that lexical detection can't see.

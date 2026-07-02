@@ -299,29 +299,21 @@ struct MacroRow {
     provider_path: String,
 }
 
-// Compute the `CREATE OR REPLACE TEMP MACRO …;` blocks to inject into a job's
-// statement list: seed = macros the (comment-stripped, transformed) blocks
-// call, plus every macro of each `// use` library; then the transitive closure
-// over macro bodies, emitted in dependency order (DuckDB bind-checks a macro
-// body at CREATE, so callees must exist first). `use_libs` carries each lib's
-// parsed deployed content so its plain setup statements (non-managed ATTACHes)
-// can be injected ahead of the definitions. Pure — fetches happen in
-// `inject_workspace_macros` — so this is unit-testable.
-fn plan_macro_injection(
+// Selection pass: seed = macros the (comment-stripped, transformed) blocks
+// call, plus every macro of each `// use` library; then the transitive
+// closure over macro bodies. Local definitions win — their names are removed
+// from the injectable set entirely, so a later workspace-library deploy can
+// never silently replace a script's own macro. Pure and separate from
+// `plan_macro_injection` so the shell knows which provider libraries to
+// fetch (their setup statements are injected too) before planning.
+fn select_workspace_macros(
     blocks: &[String],
     registry: &[MacroRow],
-    use_libs: &[(String, Vec<windmill_parser::duckdb_macros::LibStatement>)],
-) -> Result<Vec<String>> {
+    use_libs: &[String],
+) -> Result<std::collections::HashSet<String>> {
     use std::collections::{BTreeMap, HashSet};
-    use windmill_parser::duckdb_macros::{
-        detect_macro_calls, locally_defined_macro_names, macro_create_statement, topo_order_macros,
-        LibStatement,
-    };
+    use windmill_parser::duckdb_macros::{detect_macro_calls, locally_defined_macro_names};
 
-    // A macro the script defines itself is authoritative: its name is removed
-    // from the injectable set entirely, so a later workspace-library deploy
-    // can never silently replace a local definition (the local CREATE runs in
-    // the setup prefix, before any injected block, and stays unshadowed).
     let local = locally_defined_macro_names(blocks);
     let all_names: HashSet<String> = registry
         .iter()
@@ -332,8 +324,7 @@ fn plan_macro_injection(
         registry.iter().map(|r| (r.name.as_str(), r)).collect();
 
     let mut selected: HashSet<String> = HashSet::new();
-    let mut use_setup: Vec<String> = Vec::new();
-    for (path, statements) in use_libs {
+    for path in use_libs {
         let lib_names: Vec<&str> = registry
             .iter()
             .filter(|r| &r.provider_path == path)
@@ -350,19 +341,8 @@ fn plan_macro_injection(
                 .filter(|n| all_names.contains(*n))
                 .map(String::from),
         );
-        for s in statements {
-            if let LibStatement::Setup(stmt) = s {
-                use_setup.push(format!("{};", stmt.trim_end_matches(';').trim_end()));
-            }
-        }
     }
     selected.extend(detect_macro_calls(&blocks.join("\n"), &all_names));
-    if selected.is_empty() {
-        // No macros to inject, but an explicit `// use` still carries the
-        // library's setup statements (its ATTACH side effects) — e.g. when
-        // every lib macro is shadowed by a local definition.
-        return Ok(use_setup);
-    }
 
     // Transitive closure over macro bodies (a selected macro may call others).
     let mut frontier: Vec<String> = selected.iter().cloned().collect();
@@ -375,14 +355,74 @@ fn plan_macro_injection(
             }
         }
     }
+    Ok(selected)
+}
 
+// Emit the blocks to inject: first every relevant library's setup statements
+// (a macro body may reference its own lib's ATTACH, and DuckDB bind-checks
+// at CREATE — so setup is injected for the provider of every selected macro,
+// not just `// use` libs), then the selected definitions in dependency order.
+// `lib_bodies` carries the parsed deployed content per provider path; setup
+// order = `// use` libs in annotation order, then remaining providers sorted.
+// Exact-duplicate setup statements across libraries are deduped (two libs
+// attaching the same catalog the same way must not double-ATTACH). Pure —
+// fetches happen in `inject_workspace_macros` — so this is unit-testable.
+fn plan_macro_injection(
+    selected: &std::collections::HashSet<String>,
+    registry: &[MacroRow],
+    use_libs: &[String],
+    lib_bodies: &std::collections::BTreeMap<
+        String,
+        Vec<windmill_parser::duckdb_macros::LibStatement>,
+    >,
+) -> Result<Vec<String>> {
+    use std::collections::{BTreeMap, BTreeSet, HashSet};
+    use windmill_parser::duckdb_macros::{macro_create_statement, topo_order_macros, LibStatement};
+
+    let by_name: BTreeMap<&str, &MacroRow> =
+        registry.iter().map(|r| (r.name.as_str(), r)).collect();
+
+    // Providers whose setup must run: every `// use` lib (annotation order —
+    // even with zero selected macros, the explicit `use` carries its ATTACH
+    // side effects), then the provider of each selected macro (sorted).
+    let mut providers: Vec<&str> = use_libs.iter().map(String::as_str).collect();
+    let selected_providers: BTreeSet<&str> = selected
+        .iter()
+        .filter_map(|n| by_name.get(n.as_str()).map(|r| r.provider_path.as_str()))
+        .collect();
+    for p in selected_providers {
+        if !providers.contains(&p) {
+            providers.push(p);
+        }
+    }
+
+    let mut injected: Vec<String> = Vec::new();
+    let mut seen_setup: HashSet<String> = HashSet::new();
+    for provider in providers {
+        let Some(statements) = lib_bodies.get(provider) else {
+            return Err(Error::ExecutionErr(format!(
+                "macro library `{provider}` has registry entries but its deployed script could \
+                 not be loaded"
+            )));
+        };
+        for s in statements {
+            if let LibStatement::Setup(stmt) = s {
+                let stmt = format!("{};", stmt.trim_end_matches(';').trim_end());
+                if seen_setup.insert(stmt.clone()) {
+                    injected.push(stmt);
+                }
+            }
+        }
+    }
+
+    if selected.is_empty() {
+        return Ok(injected);
+    }
     let defs: BTreeMap<String, String> = selected
         .iter()
         .filter_map(|n| by_name.get(n.as_str()).map(|r| (n.clone(), r.body.clone())))
         .collect();
-    let order = topo_order_macros(&selected, &defs).map_err(Error::ExecutionErr)?;
-
-    let mut injected = use_setup;
+    let order = topo_order_macros(selected, &defs).map_err(Error::ExecutionErr)?;
     for name in order {
         let r = by_name.get(name.as_str()).ok_or_else(|| {
             Error::ExecutionErr(format!("workspace macro `{name}` has no registry row"))
@@ -455,33 +495,53 @@ async fn inject_workspace_macros(
     if registry.is_empty() && use_libs.is_empty() {
         return Ok(blocks);
     }
-    let mut parsed_libs = Vec::new();
-    for path in use_libs {
+    let selected = select_workspace_macros(&blocks, &registry, use_libs)?;
+    if selected.is_empty() && use_libs.is_empty() {
+        return Ok(blocks);
+    }
+    // Every relevant provider's deployed body is fetched for its setup
+    // statements: `// use` libs, plus the provider of each selected macro (a
+    // macro body may reference its own lib's ATTACH, which must run before
+    // the injected CREATE binds). Content fetches are cached by hash.
+    let mut provider_paths: std::collections::BTreeSet<&str> =
+        use_libs.iter().map(String::as_str).collect();
+    for name in &selected {
+        if let Some(r) = registry.iter().find(|r| &r.name == name) {
+            provider_paths.insert(r.provider_path.as_str());
+        }
+    }
+    let mut lib_bodies: std::collections::BTreeMap<
+        String,
+        Vec<windmill_parser::duckdb_macros::LibStatement>,
+    > = Default::default();
+    for path in provider_paths {
         let content = fetch_macro_lib_body(conn, w_id, path).await?;
         let statements =
             windmill_parser::duckdb_macros::parse_macro_library(&content).map_err(|e| {
-                Error::ExecutionErr(format!("`// use {path}`: invalid macro library: {e}"))
+                Error::ExecutionErr(format!("macro library `{path}`: invalid content: {e}"))
             })?;
-        parsed_libs.push((path.clone(), statements));
+        lib_bodies.insert(path.to_string(), statements);
     }
-    let injected = plan_macro_injection(&blocks, &registry, &parsed_libs)?;
+    let injected = plan_macro_injection(&selected, &registry, use_libs, &lib_bodies)?;
     Ok(splice_macro_blocks(blocks, injected))
 }
 
-// Fetch a `// use` library's deployed body (for its setup statements — the
-// macro definitions themselves come from the registry). Same server-worker
+// Fetch a macro library's deployed body — for its setup statements; the
+// macro definitions themselves come from the registry. Used both for `// use`
+// libs and for the provider of every selected macro. Same server-worker
 // fetch path as custom data tests.
 async fn fetch_macro_lib_body(conn: &Connection, w_id: &str, path: &str) -> Result<String> {
     let Connection::Sql(db) = conn else {
         return Err(Error::ExecutionErr(
-            "`// use` requires a server worker (not supported on agent workers in v1)".to_string(),
+            "workspace macros require a server worker (not supported on agent workers in v1)"
+                .to_string(),
         ));
     };
     let hash = windmill_common::get_latest_script_hash(db, path, w_id)
         .await?
         .ok_or_else(|| {
             Error::ExecutionErr(format!(
-                "`// use {path}`: no deployed script found at this path"
+                "macro library `{path}`: no deployed script found at this path"
             ))
         })?;
     let content =
@@ -492,7 +552,7 @@ async fn fetch_macro_lib_body(conn: &Connection, w_id: &str, path: &str) -> Resu
         Some(windmill_common::scripts::ScriptLang::DuckDb)
     ) {
         return Err(Error::ExecutionErr(format!(
-            "`// use {path}`: must be a DuckDB `// macros` library (got language {:?})",
+            "macro library `{path}`: must be a DuckDB `// macros` library (got language {:?})",
             content.language
         )));
     }
@@ -1702,6 +1762,24 @@ mod tests {
         list.iter().map(|s| s.to_string()).collect()
     }
 
+    // Mimics the shell: select, parse the given lib sources, plan. `libs` maps
+    // provider path → deployed source (must cover every relevant provider).
+    fn select_and_plan(
+        b: &[String],
+        registry: &[MacroRow],
+        use_libs: &[&str],
+        libs: &[(&str, &str)],
+    ) -> Result<Vec<String>> {
+        use windmill_parser::duckdb_macros::parse_macro_library;
+        let use_libs: Vec<String> = use_libs.iter().map(|s| s.to_string()).collect();
+        let selected = select_workspace_macros(b, registry, &use_libs)?;
+        let lib_bodies = libs
+            .iter()
+            .map(|(p, src)| (p.to_string(), parse_macro_library(src).unwrap()))
+            .collect();
+        plan_macro_injection(&selected, registry, &use_libs, &lib_bodies)
+    }
+
     #[test]
     fn macro_injection_detects_and_orders_transitively() {
         // consumer calls `outer`; `outer` calls `inner` — both injected, inner first.
@@ -1711,7 +1789,7 @@ mod tests {
             mrow("unused", "a", "a", false, "f/lib/m"),
         ];
         let b = blocks(&["ATTACH 'x.duckdb' AS ext;", "SELECT outer(1);"]);
-        let injected = plan_macro_injection(&b, &registry, &[]).unwrap();
+        let injected = select_and_plan(&b, &registry, &[], &[("f/lib/m", "")]).unwrap();
         assert_eq!(
             injected,
             vec![
@@ -1722,10 +1800,65 @@ mod tests {
     }
 
     #[test]
+    fn implicit_call_injects_provider_setup() {
+        // A macro whose body references its own lib's ATTACH must carry that
+        // setup even on the implicit (detection) path — DuckDB bind-checks the
+        // body at CREATE, so `ext` must be attached first.
+        let registry = vec![mrow(
+            "lookup",
+            "k",
+            "(SELECT v FROM ext.kv WHERE key = k)",
+            false,
+            "f/lib/m",
+        )];
+        let b = blocks(&["SELECT lookup('a');"]);
+        let injected = select_and_plan(
+            &b,
+            &registry,
+            &[],
+            &[(
+                "f/lib/m",
+                "ATTACH 'ext.duckdb' AS ext;\nCREATE MACRO lookup(k) AS (SELECT v FROM ext.kv WHERE key = k);",
+            )],
+        )
+        .unwrap();
+        assert_eq!(injected[0], "ATTACH 'ext.duckdb' AS ext;");
+        assert!(injected[1].contains("TEMP MACRO lookup(k)"));
+    }
+
+    #[test]
+    fn duplicate_setup_across_libs_is_deduped() {
+        // Two libs attaching the same catalog identically must not double-ATTACH.
+        let registry = vec![
+            mrow("m1", "a", "a", false, "f/lib/one"),
+            mrow("m2", "a", "a", false, "f/lib/two"),
+        ];
+        let b = blocks(&["SELECT m1(1), m2(2);"]);
+        let src = "ATTACH 'ext.duckdb' AS ext;\nCREATE MACRO m1(a) AS a;";
+        let src2 = "ATTACH 'ext.duckdb' AS ext;\nCREATE MACRO m2(a) AS a;";
+        let injected = select_and_plan(
+            &b,
+            &registry,
+            &[],
+            &[("f/lib/one", src), ("f/lib/two", src2)],
+        )
+        .unwrap();
+        assert_eq!(
+            injected
+                .iter()
+                .filter(|s| s.starts_with("ATTACH 'ext.duckdb'"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn macro_injection_empty_when_nothing_called() {
         let registry = vec![mrow("m", "a", "a", false, "f/lib/m")];
         let b = blocks(&["SELECT 1;"]);
-        assert!(plan_macro_injection(&b, &registry, &[]).unwrap().is_empty());
+        assert!(select_workspace_macros(&b, &registry, &[])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -1734,21 +1867,27 @@ mod tests {
         // version injected — a library deploy can't change this job.
         let registry = vec![mrow("dbl", "a", "a * 10", false, "f/lib/m")];
         let b = blocks(&["CREATE TEMP MACRO dbl(a) AS a * 2;", "SELECT dbl(4);"]);
-        assert!(plan_macro_injection(&b, &registry, &[]).unwrap().is_empty());
+        assert!(select_workspace_macros(&b, &registry, &[])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
     fn use_lib_setup_survives_when_no_macros_selected() {
         // Every lib macro shadowed locally — the explicit `// use` must still
         // carry the lib's setup statements (its ATTACH side effects).
-        use windmill_parser::duckdb_macros::parse_macro_library;
         let registry = vec![mrow("dbl", "a", "a * 10", false, "f/lib/m")];
-        let lib =
-            parse_macro_library("ATTACH 'ext.duckdb' AS ext;\nCREATE MACRO dbl(a) AS a * 10;")
-                .unwrap();
         let b = blocks(&["CREATE TEMP MACRO dbl(a) AS a * 2;", "SELECT dbl(4);"]);
-        let injected =
-            plan_macro_injection(&b, &registry, &[("f/lib/m".to_string(), lib)]).unwrap();
+        let injected = select_and_plan(
+            &b,
+            &registry,
+            &["f/lib/m"],
+            &[(
+                "f/lib/m",
+                "ATTACH 'ext.duckdb' AS ext;\nCREATE MACRO dbl(a) AS a * 10;",
+            )],
+        )
+        .unwrap();
         assert_eq!(injected, vec!["ATTACH 'ext.duckdb' AS ext;".to_string()]);
     }
 
@@ -1773,18 +1912,21 @@ mod tests {
 
     #[test]
     fn use_lib_injects_all_macros_and_setup() {
-        use windmill_parser::duckdb_macros::parse_macro_library;
         let registry = vec![
             mrow("m1", "a", "a", false, "f/lib/m"),
             mrow("m2", "", "SELECT 1", true, "f/lib/m"),
         ];
-        let lib = parse_macro_library(
-            "ATTACH 'ext.duckdb' AS ext;\nCREATE MACRO m1(a) AS a;\nCREATE MACRO m2() AS TABLE SELECT 1;",
+        let b = blocks(&["SELECT 'no calls here';"]);
+        let injected = select_and_plan(
+            &b,
+            &registry,
+            &["f/lib/m"],
+            &[(
+                "f/lib/m",
+                "ATTACH 'ext.duckdb' AS ext;\nCREATE MACRO m1(a) AS a;\nCREATE MACRO m2() AS TABLE SELECT 1;",
+            )],
         )
         .unwrap();
-        let b = blocks(&["SELECT 'no calls here';"]);
-        let injected =
-            plan_macro_injection(&b, &registry, &[("f/lib/m".to_string(), lib)]).unwrap();
         assert_eq!(injected[0], "ATTACH 'ext.duckdb' AS ext;");
         assert!(injected[1..].iter().any(|s| s.contains("TEMP MACRO m1(a)")));
         assert!(injected[1..]
@@ -1795,7 +1937,7 @@ mod tests {
     #[test]
     fn use_lib_without_registry_rows_errors() {
         let b = blocks(&["SELECT 1;"]);
-        let err = plan_macro_injection(&b, &[], &[("f/lib/gone".to_string(), vec![])])
+        let err = select_workspace_macros(&b, &[], &["f/lib/gone".to_string()])
             .unwrap_err()
             .to_string();
         assert!(err.contains("no deployed macro library"), "{err}");
