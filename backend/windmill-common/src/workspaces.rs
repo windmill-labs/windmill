@@ -416,6 +416,9 @@ pub fn invalidate_team_plan_cache(w_id: &str) {
 /// the parent chain up to the root. The recursion bound is a cycle-safety backstop set well above the
 /// enforced `MAX_FORK_DEPTH`; a (malformed) cyclic chain saturates it and so reads as "too deep",
 /// which safely rejects rather than allows.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
 pub async fn fork_chain_depth(db: &crate::DB, w_id: &str) -> Result<i64> {
     let depth = sqlx::query_scalar!(
         r#"
@@ -441,6 +444,9 @@ pub async fn fork_chain_depth(db: &crate::DB, w_id: &str) -> Result<i64> {
 /// Height of the fork subtree rooted at `w_id`: 0 when it has no live child forks, 1 with direct
 /// children, and so on. Used so that attaching a candidate which already has its own child forks can't
 /// push the family past the depth limit.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
 pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
     // The `deleted` filter is applied in the outer aggregation (not the recursive step, matching
     // count_workspace_forks) so a live descendant under a soft-deleted intermediate is still measured
@@ -463,6 +469,32 @@ pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
     .await
     .map_err(|e| Error::internal_err(format!("computing fork subtree height for {w_id}: {e:#}")))?;
     Ok(height)
+}
+
+/// Ids of every fork/dev workspace anywhere under `w_id` (excludes `w_id` itself), including live
+/// descendants beneath a soft-deleted intermediate. Used to invalidate per-workspace caches for a
+/// whole subtree after its ancestor is reparented.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn list_fork_descendants(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let ids = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20
+            )
+            SELECT id AS "id!" FROM tree WHERE id != $1
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("listing fork descendants of {w_id}: {e:#}")))?;
+    Ok(ids)
 }
 
 /// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).

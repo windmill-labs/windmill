@@ -4,7 +4,7 @@
 use sqlx::{Pool, Postgres};
 use windmill_common::workspaces::{
     count_paid_seats, count_workspace_forks, fork_chain_depth, fork_subtree_height,
-    get_billing_workspace_id, invalidate_billing_workspace_cache,
+    get_billing_workspace_id, invalidate_billing_workspace_cache, list_fork_descendants,
 };
 
 async fn insert_ws(db: &Pool<Postgres>, id: &str, parent: Option<&str>, deleted: bool) {
@@ -125,6 +125,25 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
     assert_eq!(count_workspace_forks(&db, "seat-root").await.unwrap(), 4);
     // A standalone workspace has no forks.
     assert_eq!(count_workspace_forks(&db, "seat-fork2").await.unwrap(), 0);
+
+    // list_fork_descendants returns every descendant id (deleted included, for cache invalidation):
+    // fork1, fork2, fork-deleted, deleted-child, fork1-child -> 5.
+    let mut descendants = list_fork_descendants(&db, "seat-root").await.unwrap();
+    descendants.sort();
+    assert_eq!(
+        descendants,
+        vec![
+            "seat-deleted-child",
+            "seat-fork-deleted",
+            "seat-fork1",
+            "seat-fork1-child",
+            "seat-fork2",
+        ]
+    );
+    assert!(list_fork_descendants(&db, "seat-fork2")
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
