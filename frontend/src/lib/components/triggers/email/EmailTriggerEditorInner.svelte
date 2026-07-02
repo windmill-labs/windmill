@@ -368,7 +368,7 @@
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
 			{/if}
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-2">
 					<Label label="Path">
 						<Path
@@ -475,6 +475,7 @@
 {#if useDrawer}
 	<Drawer size="700px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit email trigger ${initialPath}`
@@ -489,6 +490,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}

@@ -388,6 +388,7 @@
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit NATS trigger ${initialPath}`
@@ -402,6 +403,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}

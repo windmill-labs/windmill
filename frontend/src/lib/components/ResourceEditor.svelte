@@ -374,7 +374,7 @@
 </script>
 
 <div>
-	<div class="flex flex-col gap-6 py-2">
+	<div class="flex flex-col gap-6 pb-2">
 		{#if otherDirty.length > 0}
 			<Alert type="warning" title="Editing multiple workspaces">
 				You are going to edit the value in: {otherDirty.join(', ')}
