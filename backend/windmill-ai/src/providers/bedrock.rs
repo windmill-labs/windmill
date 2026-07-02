@@ -641,57 +641,13 @@ fn bedrock_sse_chunks_for_event(
 
 /// Fold a `ReasoningContent` stream delta into the state's pending reasoning
 /// block. Returns the text delta (for a `reasoning_content` SSE chunk) when the
-/// event carried readable reasoning text.
+/// event carried readable reasoning text. Shares the worker path's folding so
+/// the two never drift.
 fn accumulate_reasoning_delta(
     event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
     state: &mut BedrockSseStreamState,
 ) -> Option<String> {
-    let aws_sdk_bedrockruntime::types::ConverseStreamOutput::ContentBlockDelta(delta_event) = event
-    else {
-        return None;
-    };
-    let aws_sdk_bedrockruntime::types::ContentBlockDelta::ReasoningContent(reasoning) =
-        delta_event.delta()?
-    else {
-        return None;
-    };
-
-    let entry = state.reasoning.get_or_insert_with(Default::default);
-    match reasoning {
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Text(text) => {
-            entry
-                .reasoning_text
-                .get_or_insert_with(String::new)
-                .push_str(text);
-            Some(text.clone())
-        }
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Signature(signature) => {
-            entry
-                .signature
-                .get_or_insert_with(String::new)
-                .push_str(signature);
-            None
-        }
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::RedactedContent(blob) => {
-            // Base64 of concatenated fragments != concatenated base64 fragments,
-            // so accumulate raw bytes and re-encode.
-            let mut bytes = entry
-                .redacted_content
-                .as_deref()
-                .and_then(|existing| {
-                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, existing)
-                        .ok()
-                })
-                .unwrap_or_default();
-            bytes.extend_from_slice(blob.as_ref());
-            entry.redacted_content = Some(base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                bytes,
-            ));
-            None
-        }
-        _ => None,
-    }
+    bedrock_stream_event_to_reasoning_delta(event, &mut state.reasoning)
 }
 
 async fn handle_bedrock_sdk_non_streaming(

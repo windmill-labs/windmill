@@ -68,10 +68,14 @@
 
 	// A model that can't reason at all would 400 if a token were sent — clear any
 	// stale selection once we positively know the model is unsupported.
+	// Clear a stale selection once the model no longer accepts it — either it
+	// can't reason at all, or the token isn't a valid level/off for this model
+	// (e.g. carrying `xhigh` from Opus onto a model that tops out at `high`).
+	// Sending an unsupported token would be rejected by the provider.
 	$effect(() => {
-		if (provider && model && !capability.supported && value !== undefined) {
-			value = undefined
-		}
+		if (!provider || !model || value === undefined) return
+		const valid = capability.supported && (value === offToken || capability.levels.includes(value))
+		if (!valid) value = undefined
 	})
 </script>
 
