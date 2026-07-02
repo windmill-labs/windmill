@@ -2,35 +2,19 @@ import { describe, it, expect } from 'vitest'
 import { workspaceMenuHref } from './workspaceMenuHref'
 
 describe('workspaceMenuHref', () => {
-	it('on a session route, keeps the workspace id (so new-tab lands in the right workspace)', () => {
+	it('on a session route, keeps the session and adds the workspace id (new-tab stays in session mode)', () => {
 		expect(
 			workspaceMenuHref({
-				routeId: '/(root)/(logged)/sessions',
-				base: '',
 				pathname: '/sessions',
 				searchParams: new URLSearchParams('session_name=foo'),
 				id: 'wm-fork-bar'
 			})
-		).toBe('/?workspace=wm-fork-bar')
+		).toBe('/sessions?session_name=foo&workspace=wm-fork-bar')
 	})
 
-	it('respects the base prefix on a session route', () => {
+	it('swaps the workspace param on the current path', () => {
 		expect(
 			workspaceMenuHref({
-				routeId: '/(root)/(logged)/sessions',
-				base: '/wm',
-				pathname: '/wm/sessions',
-				searchParams: new URLSearchParams(),
-				id: 'ws2'
-			})
-		).toBe('/wm/?workspace=ws2')
-	})
-
-	it('off a session route, swaps the workspace param on the current path', () => {
-		expect(
-			workspaceMenuHref({
-				routeId: '/(root)/(logged)/scripts/edit/[...path]',
-				base: '',
 				pathname: '/scripts/edit/u/me/x',
 				searchParams: new URLSearchParams('workspace=old&foo=1'),
 				id: 'new_ws'
@@ -41,8 +25,6 @@ describe('workspaceMenuHref', () => {
 	it('adds the workspace param when none was present', () => {
 		expect(
 			workspaceMenuHref({
-				routeId: '/(root)/(logged)/runs',
-				base: '',
 				pathname: '/runs',
 				searchParams: new URLSearchParams(),
 				id: 'w'

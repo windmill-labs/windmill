@@ -33,8 +33,6 @@
 		switchWorkspace(id)
 		// Item-scoped pages would show a wrong-workspace (or missing) item after
 		// a workspace change — go home instead, mirroring the workspace picker.
-		// A session is scoped to its (forked) workspace, so switching forks while
-		// viewing one must leave it too.
 		const editPages = [
 			'/scripts/edit/',
 			'/flows/edit/',
@@ -44,8 +42,7 @@
 			'/apps/get/'
 		]
 		const isOnEditPage = editPages.some((p) => page.route.id?.includes(p) ?? false)
-		const isOnSessionPage = page.route.id?.includes('/sessions') ?? false
-		if (isOnEditPage || isOnSessionPage) {
+		if (isOnEditPage) {
 			void goto('/')
 		} else if (page.url.searchParams.get('workspace')) {
 			page.url.searchParams.set('workspace', id)

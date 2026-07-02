@@ -55,26 +55,24 @@
 			'/apps/get/'
 		]
 		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
-		// An AI session is scoped to its (forked) workspace, so it makes no sense
-		// to keep showing it after the user switches workspace — go home instead.
-		const isOnSessionPage = page.route.id?.includes('/sessions') ?? false
 
 		switchWorkspace(id)
-		if (isOnEditPage || isOnSessionPage) {
+		// The sessions page is deliberately kept: it resolves the open chat by
+		// name without the family scope filter, so the chat survives the switch
+		// and the user stays in session mode (the sidebar rescopes to the new
+		// workspace's family).
+		if (isOnEditPage) {
 			await goto('/')
 		} else if (page.url.searchParams.get('workspace')) {
 			page.url.searchParams.set('workspace', id)
 		}
 	}
 
-	// An AI session is scoped to its (forked) workspace, so switching workspace
-	// should leave for home (the link's navigation wins over onClick's
-	// preventDefault; onClick still performs the switch). Pure logic +
-	// new-tab/workspace-param handling lives in workspaceMenuHref (unit-tested).
+	// Href for modifier/middle clicks (open in new tab, which bypasses the
+	// onClick fast-path): same page, `workspace` param swapped to the clicked
+	// id. Pure logic lives in workspaceMenuHref (unit-tested).
 	function workspaceHref(id: string): string {
 		return workspaceMenuHref({
-			routeId: page.route.id,
-			base,
 			pathname: page.url.pathname,
 			searchParams: page.url.searchParams,
 			id
