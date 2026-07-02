@@ -1995,6 +1995,15 @@
 
 		<ScriptEditor
 			{disableAi}
+			sessionOpen={script.path
+				? {
+						target: { kind: 'script', path: script.path },
+						workspaceId: $workspaceStore ?? undefined,
+						// Flush the per-user draft so the session preview opens the script
+						// exactly as it is in the editor right now.
+						beforeOpen: saveDraft
+					}
+				: undefined}
 			bind:selectedTab={selectedInputTab}
 			{customUi}
 			{onTestJob}

@@ -88,9 +88,6 @@
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
-	import { openEditorInSession } from './sessions/sessionSwitch.svelte'
-	import { isGlobalAiEnabled } from './copilot/chat/global/gate'
-	import { BROWSER } from 'esm-env'
 	import type { GraphModuleState } from './graph'
 	import { validateRetryConfig } from '$lib/utils'
 	import {
@@ -1242,22 +1239,17 @@
 					{highlightArg}
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
-					toggleAiChat={async () => {
-						// Without the sessions dev flag, or inside the session preview iframe
-						// (a nested session would be broken), fall back to the inline flow
-						// chat panel instead of routing to the gated /sessions page.
-						if (!isGlobalAiEnabled() || (BROWSER && window.self !== window.top)) {
-							aiChatManager.toggleOpen()
-							return
-						}
-						// Persist unsaved edits so the session preview (/flows/edit/<path>)
-						// opens the flow exactly as it is in the editor right now.
-						await saveDraft()
-						await openEditorInSession(
-							{ kind: 'flow', path: $pathStore },
-							$workspaceStore ?? undefined
-						)
-					}}
+					toggleAiChat={() => aiChatManager.toggleOpen()}
+					sessionOpen={$pathStore
+						? {
+								target: { kind: 'flow', path: $pathStore },
+								workspaceId: $workspaceStore ?? undefined,
+								// Persist unsaved edits so the session preview
+								// (/flows/edit/<path>) opens the flow exactly as it is in the
+								// editor right now.
+								beforeOpen: saveDraft
+							}
+						: undefined}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}
 					{showJobStatus}

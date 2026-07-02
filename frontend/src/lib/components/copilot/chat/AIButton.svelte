@@ -9,17 +9,20 @@
 
 	let {
 		togglePanel,
-		btnClasses
+		btnClasses,
+		label = 'Open in AI session'
 	}: {
 		togglePanel: () => void
 		btnClasses?: string
+		/** Tooltip + accessible text of the icon-only button. */
+		label?: string
 	} = $props()
 </script>
 
 {#if $copilotInfo.enabled}
 	<DarkPopover>
 		{#snippet text()}
-			Open in AI session
+			{label}
 		{/snippet}
 		{@render button({ onPress: () => togglePanel() })}
 	</DarkPopover>
@@ -57,6 +60,6 @@
 		iconOnly
 		{btnClasses}
 	>
-		Open in AI session
+		{label}
 	</Button>
 {/snippet}

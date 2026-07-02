@@ -7,6 +7,8 @@
 
 	import { AppService, type Policy } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import {
@@ -869,18 +871,37 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-		{#if !inSessionPane}
-			<Button
-				unifiedSize="md"
-				variant="default"
-				onClick={() => aiChatManager.toggleOpen()}
-				startIcon={{ icon: WandSparkles }}
-				iconOnly
-				btnClasses={AIBtnClasses('default')}
-			>
-				AI
-			</Button>
-		{/if}
+		<OpenInSessionButton
+			source={appPath
+				? {
+						target: { kind: 'raw_app', path: appPath },
+						workspaceId: $workspaceStore ?? undefined,
+						// Flush the autosaved draft so the session preview opens the app
+						// exactly as it is in the editor right now.
+						beforeOpen: () =>
+							indicatorWorkspace && indicatorPath !== undefined
+								? UserDraftDbSyncer.flush({
+										workspace: indicatorWorkspace,
+										itemKind: 'raw_app',
+										path: indicatorPath
+									})
+								: undefined
+					}
+				: undefined}
+		>
+			{#snippet fallback()}
+				<Button
+					unifiedSize="md"
+					variant="default"
+					onClick={() => aiChatManager.toggleOpen()}
+					startIcon={{ icon: WandSparkles }}
+					iconOnly
+					btnClasses={AIBtnClasses('default')}
+				>
+					AI
+				</Button>
+			{/snippet}
+		</OpenInSessionButton>
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
 		createInlineScriptModule,
@@ -86,6 +87,7 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		sessionOpen?: OpenInSessionSource
 		isOwner?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
@@ -117,6 +119,7 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
+		sessionOpen,
 		isOwner,
 		onTestFlow,
 		isRunning,
@@ -561,6 +564,7 @@
 			on:generateStep
 			{aiChatOpen}
 			{toggleAiChat}
+			{sessionOpen}
 			{noteMode}
 			{toggleNoteMode}
 			{diffManager}

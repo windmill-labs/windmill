@@ -91,6 +91,9 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from './sessions/OpenInSessionButton.svelte'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -202,6 +205,9 @@
 		// regular /scripts/edit route keeps its current open-by-default UX;
 		// the session preview opts in to save vertical real estate.
 		initialTestPanelCollapsed?: boolean
+		// Lets the AI toolbar button open the script in a fresh AI session
+		// instead of the inline chat panel (see OpenInSessionButton for gating).
+		sessionOpen?: OpenInSessionSource
 	}
 
 	let {
@@ -242,7 +248,8 @@
 		previewLayout = 'right',
 		onTestStateChange,
 		onTestJob,
-		initialTestPanelCollapsed = false
+		initialTestPanelCollapsed = false,
+		sessionOpen = undefined
 	}: Props = $props()
 
 	$effect(() => {
@@ -2532,37 +2539,41 @@
 				{/if}
 				{#if !aiChatManager.open && !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-						<HideButton
-							hidden={true}
-							direction="right"
-							panelName="AI"
-							shortcut="L"
-							unifiedSize="sm"
-							usePopoverOverride={!$copilotInfo.enabled}
-							customHiddenIcon={{
-								icon: WandSparkles
-							}}
-							btnClasses="!text-ai"
-							variant="default"
-							on:click={() => {
-								if (!aiChatManager.open) {
-									aiChatManager.changeMode(AIMode.SCRIPT)
-								}
-								aiChatManager.toggleOpen()
-							}}
-						>
-							{#snippet popoverOverride()}
-								<div class="text-sm">
-									Enable Windmill AI in the <a
-										href="{base}/workspace_settings?tab=ai"
-										target="_blank"
-										class="inline-flex flex-row items-center gap-1"
-									>
-										workspace settings <ExternalLink size={16} />
-									</a>
-								</div>
+						<OpenInSessionButton source={sessionOpen}>
+							{#snippet fallback()}
+								<HideButton
+									hidden={true}
+									direction="right"
+									panelName="AI"
+									shortcut="L"
+									unifiedSize="sm"
+									usePopoverOverride={!$copilotInfo.enabled}
+									customHiddenIcon={{
+										icon: WandSparkles
+									}}
+									btnClasses="!text-ai"
+									variant="default"
+									on:click={() => {
+										if (!aiChatManager.open) {
+											aiChatManager.changeMode(AIMode.SCRIPT)
+										}
+										aiChatManager.toggleOpen()
+									}}
+								>
+									{#snippet popoverOverride()}
+										<div class="text-sm">
+											Enable Windmill AI in the <a
+												href="{base}/workspace_settings?tab=ai"
+												target="_blank"
+												class="inline-flex flex-row items-center gap-1"
+											>
+												workspace settings <ExternalLink size={16} />
+											</a>
+										</div>
+									{/snippet}
+								</HideButton>
 							{/snippet}
-						</HideButton>
+						</OpenInSessionButton>
 					{/if}
 				{/if}
 			</div>

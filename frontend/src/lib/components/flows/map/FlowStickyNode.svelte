@@ -9,6 +9,9 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 
 	interface Props {
 		disableSettings?: boolean
@@ -17,6 +20,7 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		sessionOpen?: OpenInSessionSource
 		noteMode?: boolean
 		toggleNoteMode?: () => void
 		disableAi?: boolean
@@ -31,6 +35,7 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
+		sessionOpen,
 		noteMode,
 		toggleNoteMode,
 		disableAi,
@@ -96,17 +101,17 @@
 		</Popover>
 	{/if}
 	{#if showFlowAiButton}
-		<Popover>
-			<AIButton
-				togglePanel={() => {
-					toggleAiChat?.()
-				}}
-				btnClasses={AIBtnClasses(aiChatOpen ? 'selected' : 'default')}
-			/>
-			{#snippet text()}
-				Open in AI session
+		<OpenInSessionButton source={sessionOpen}>
+			{#snippet fallback()}
+				<AIButton
+					label="Open AI chat"
+					togglePanel={() => {
+						toggleAiChat?.()
+					}}
+					btnClasses={AIBtnClasses(aiChatOpen ? 'selected' : 'default')}
+				/>
 			{/snippet}
-		</Popover>
+		</OpenInSessionButton>
 	{/if}
 	<Popover>
 		<Button
