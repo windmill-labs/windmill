@@ -462,6 +462,34 @@ async function resolveUploadArgs(
   return args;
 }
 
+// Default partition value for a `// partitioned <kind>` script, from the
+// current UTC instant — mirrors the backend defaults (partition_ee.rs):
+// hourly `%Y-%m-%dT%H`, weekly `%G-W%V` (ISO week-year), monthly `%Y-%m`,
+// daily `%Y-%m-%d`. `dynamic` has no time default and returns undefined.
+export function defaultPartitionValue(kind: string, now: Date = new Date()): string | undefined {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const date = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+  switch (kind) {
+    case "hourly":
+      return `${date}T${pad(now.getUTCHours())}`;
+    case "weekly": {
+      // ISO 8601 week (chrono's `%G-W%V`): the week containing this date's
+      // nearest Thursday belongs to that Thursday's year.
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const dow = d.getUTCDay() || 7; // Mon=1 … Sun=7
+      d.setUTCDate(d.getUTCDate() + 4 - dow);
+      const week = Math.ceil(((d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
+      return `${d.getUTCFullYear()}-W${pad(week)}`;
+    }
+    case "monthly":
+      return date.slice(0, 7);
+    case "daily":
+      return date;
+    default:
+      return undefined;
+  }
+}
+
 async function run(
   opts: GlobalOptions & SyncOptions & {
     from?: string;
@@ -471,6 +499,7 @@ async function run(
     local?: boolean;
     upload?: string[];
     arg?: string[];
+    partition?: string;
     defaultTs?: "bun" | "deno";
   },
   folder: string,
@@ -705,6 +734,36 @@ async function run(
     log.warn(`Skipping ${cyclic.length} script(s) on a dependency cycle: ${cyclic.sort().join(", ")}`);
   }
 
+  // `// partitioned` scripts need a resolved `partition` arg. Deployed runs get
+  // it from backend run-start resolution, but previews (`--local`) never do —
+  // so resolve it client-side there: `--partition` wins; otherwise time kinds
+  // default to the current UTC period (mirroring the backend defaults; custom
+  // `tz=`/`format=`/`start=` opts are a backend concern — pass --partition
+  // explicitly to match them). `dynamic` has no default. For deployed runs the
+  // arg is only injected when `--partition` is given (an explicit backfill).
+  const partitionKindByPath = new Map(
+    graph.runnables
+      .filter((r) => r.usage_kind === "script" && r.partition_kind)
+      .map((r) => [r.path, r.partition_kind!]),
+  );
+  const partitionValueFor = (nodePath: string): string | undefined => {
+    const kind = partitionKindByPath.get(nodePath);
+    if (!kind) return undefined;
+    if (opts.partition) return opts.partition;
+    if (!opts.local) return undefined; // deployed: backend resolves at run start
+    return defaultPartitionValue(kind);
+  };
+  if (opts.local && !opts.partition) {
+    const unresolvable = order.filter(
+      (p) => partitionKindByPath.get(p) === "dynamic",
+    );
+    if (unresolvable.length > 0) {
+      throw new Error(
+        `dynamic \`// partitioned\` script(s) need an explicit partition for a local run: ${unresolvable.sort().join(", ")} — pass --partition <value>.`,
+      );
+    }
+  }
+
   // A `--upload` whose script fell outside the selection is a no-op the user
   // should know about, rather than silently ignored.
   const orderSet = new Set(order);
@@ -744,11 +803,19 @@ async function run(
         colors.bold(`Bounded run plan — ${order.length} script${order.length === 1 ? "" : "s"}`) +
           colors.dim(runAll ? ` (whole pipeline)` : ` (from ${shortName(scriptPathOf(start!))})`),
       );
-      order.forEach((p, i) =>
-        log.info(
-          `  ${i + 1}. ${p}${boundBindingsByPath.has(p) ? colors.dim(" (← --upload)") : ""}${plainArgsByPath.has(p) ? colors.dim(" (← --arg)") : ""}`,
-        ),
-      );
+      order.forEach((p, i) => {
+        const pv = partitionValueFor(p);
+        const marks = [
+          boundBindingsByPath.has(p) ? " (← --upload)" : "",
+          plainArgsByPath.has(p) ? " (← --arg)" : "",
+          pv
+            ? ` (partition=${pv})`
+            : partitionKindByPath.has(p)
+              ? " (partition resolved by backend at run start)"
+              : "",
+        ].join("");
+        log.info(`  ${i + 1}. ${p}${marks ? colors.dim(marks) : ""}`);
+      });
     }
     return;
   }
@@ -776,7 +843,9 @@ async function run(
     // `--arg` spreads after `--upload` so an explicit value wins for the same
     // param; the internal dispatch guard spreads LAST so neither binding can
     // re-enable backend dispatch (the CLI owns the whole closure here).
+    const partitionValue = partitionValueFor(nodePath);
     const nodeArgs = {
+      ...(partitionValue !== undefined ? { partition: partitionValue } : {}),
       ...(uploadArgs.get(nodePath) ?? {}),
       ...(plainArgsByPath.get(nodePath) ?? {}),
       _wmill_skip_asset_dispatch: true,
@@ -866,6 +935,10 @@ const command = new Command()
     "--arg <binding:string>",
     "Pass a plain run arg to a script in the cascade, as SCRIPT:PARAM=VALUE (VALUE is parsed as JSON when possible, else taken as a string — e.g. daily_report:partition=2026-07-02). Repeatable.",
     { collect: true },
+  )
+  .option(
+    "--partition <value:string>",
+    "Partition value for `// partitioned` scripts in the run (e.g. 2026-06-30) — use it to backfill a past slice. With --local, time kinds (daily/hourly/weekly/monthly) default to the current UTC period when omitted; `dynamic` always needs it. Deployed runs without it defer to backend run-start resolution.",
   )
   .action(run as any)
   .command(

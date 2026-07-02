@@ -191,6 +191,9 @@
 						<div class="flex gap-2">
 							<div class="relative">
 								{#if tableRow[1].resourceType === 'filesystem'}
+									<!-- Filesystem storage is deliberately absent from the creatable
+									     types below: it is dev-only (set via the API), so the UI only
+									     renders it read-only when already configured. -->
 									<Select
 										items={[{ value: 'filesystem', label: 'Filesystem' }]}
 										value={'filesystem'}
