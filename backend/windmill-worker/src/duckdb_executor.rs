@@ -576,14 +576,14 @@ fn weave_macro_blocks(blocks: Vec<String>, injected: Vec<String>) -> Result<Vec<
             )));
         }
     }
-    // Library setup precedes the earliest definition.
-    let setup_slot = eff_slot.iter().copied().min().unwrap_or(default_slot);
-
+    // Library setup runs before everything: the statements are self-contained
+    // (validated plain/non-managed at lib deploy, within-lib order preserved)
+    // and ANY consumer statement may depend on them at bind time — including
+    // a leading local macro definition that shadows a lib macro (so no def is
+    // injected) but still references the lib's ATTACHed catalog.
     let mut out: Vec<String> = Vec::with_capacity(blocks.len() + defs.len() + setup.len());
+    out.extend(setup);
     for slot in 0..=blocks.len() {
-        if slot == setup_slot {
-            out.extend(setup.iter().cloned());
-        }
         for (di, d) in defs.iter().enumerate() {
             if eff_slot[di] == slot {
                 out.push(d.clone());
@@ -2244,11 +2244,34 @@ mod tests {
     }
 
     #[test]
-    fn weave_appends_when_all_setup_or_empty() {
+    fn weave_setup_runs_before_all_user_blocks() {
+        // Injected library setup is self-contained and anything in the
+        // consumer may depend on it at bind time — it always goes first.
         let out = weave_macro_blocks(blocks(&["ATTACH 'x' AS a;"]), blocks(&["m;"])).unwrap();
-        assert_eq!(out, blocks(&["ATTACH 'x' AS a;", "m;"]));
+        assert_eq!(out, blocks(&["m;", "ATTACH 'x' AS a;"]));
         let out = weave_macro_blocks(vec![], blocks(&["m;"])).unwrap();
         assert_eq!(out, blocks(&["m;"]));
+    }
+
+    #[test]
+    fn weave_use_setup_precedes_local_shadow_that_references_it() {
+        // `// use` with every lib macro shadowed locally: no defs are
+        // injected, but the local shadow's body references the lib's
+        // ATTACHed catalog — the injected setup must still run first or the
+        // local CREATE bind-fails.
+        let b = blocks(&[
+            "CREATE TEMP MACRO kv_lookup(k) AS (SELECT v FROM ext.kv WHERE key = k);",
+            "SELECT kv_lookup('a');",
+        ]);
+        let out = weave_macro_blocks(b, vec!["ATTACH 'ext.duckdb' AS ext;".into()]).unwrap();
+        assert_eq!(
+            out,
+            blocks(&[
+                "ATTACH 'ext.duckdb' AS ext;",
+                "CREATE TEMP MACRO kv_lookup(k) AS (SELECT v FROM ext.kv WHERE key = k);",
+                "SELECT kv_lookup('a');",
+            ])
+        );
     }
 
     #[test]
