@@ -30,6 +30,7 @@
 		HelpCircle,
 		Home,
 		LogOut,
+		Network,
 		Newspaper,
 		Play,
 		Route,
@@ -354,6 +355,13 @@
 			icon: Pyramid,
 			aiId: 'sidebar-menu-link-assets',
 			aiDescription: 'Button to navigate to assets'
+		},
+		{
+			label: 'Pipelines',
+			href: `${base}/pipeline`,
+			icon: Network,
+			aiId: 'sidebar-menu-link-pipelines',
+			aiDescription: 'Button to navigate to data pipelines (alpha feature)'
 		},
 		// Add Tutorials to main menu only if not all completed and not skipped
 		...($tutorialsToDo.length > 0 && !$skippedAll
