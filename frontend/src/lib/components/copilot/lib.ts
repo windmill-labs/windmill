@@ -62,6 +62,21 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 		label: 'OpenAI',
 		defaultModels: OPENAI_MODELS
 	},
+	anthropic: {
+		label: 'Anthropic',
+		defaultModels: ['claude-sonnet-4-6', 'claude-3-5-haiku-latest']
+	},
+	googleai: {
+		label: 'Google AI',
+		defaultModels: [
+			'gemini-2.5-flash',
+			'gemini-2.5-pro',
+			'gemini-2.5-flash-lite',
+			'gemini-3-flash',
+			'gemini-3.1-pro',
+			'gemini-3.1-flash-lite'
+		]
+	},
 	azure_openai: {
 		label: 'Azure OpenAI',
 		defaultModels: OPENAI_MODELS
@@ -77,10 +92,6 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 			'Mistral-Large-2411'
 		]
 	},
-	anthropic: {
-		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-4-6', 'claude-3-5-haiku-latest']
-	},
 	mistral: {
 		label: 'Mistral',
 		defaultModels: ['codestral-latest']
@@ -88,17 +99,6 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	deepseek: {
 		label: 'DeepSeek',
 		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
-	},
-	googleai: {
-		label: 'Google AI',
-		defaultModels: [
-			'gemini-2.5-flash',
-			'gemini-2.5-pro',
-			'gemini-2.5-flash-lite',
-			'gemini-3-flash',
-			'gemini-3.1-pro',
-			'gemini-3.1-flash-lite'
-		]
 	},
 	groq: {
 		label: 'Groq',
