@@ -124,6 +124,15 @@ pub async fn ce_storage_quota_remaining(_db: &DB, _w_id: &str) -> error::Result<
     not(feature = "private"),
     not(feature = "enterprise")
 ))]
+pub fn reject_reserved_volume_key(_file_key: &str) -> error::Result<()> {
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
 pub struct CeUploadBudget {
     pub max_size: usize,
     pub existing_size: i64,

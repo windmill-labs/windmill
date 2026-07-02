@@ -9,7 +9,8 @@ use std::{collections::HashMap, sync::Arc};
  */
 #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
 use crate::job_helpers_oss::{
-    bump_storage_usage, ce_upload_budget, spawn_storage_usage_recount_floored,
+    bump_storage_usage, ce_upload_budget, reject_reserved_volume_key,
+    spawn_storage_usage_recount_floored,
 };
 use crate::{
     auth::{get_end_user_email, OptTokened},
@@ -3552,6 +3553,10 @@ async fn upload_s3_file_from_app(
     // the user's own bucket and is neither capped nor counted. An overwrite of an
     // existing key only spends the difference over its current size.
     let _is_workspace_storage = query.s3_resource_path.is_none();
+    #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+    if _is_workspace_storage {
+        reject_reserved_volume_key(&file_key)?;
+    }
     #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
     let (max_size, _existing_size) = if _is_workspace_storage {
         let content_length = request
