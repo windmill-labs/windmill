@@ -56,6 +56,8 @@ export interface SessionContext {
 	/** Fork (Draft→Fork→Parent) vs main (Draft→Parent, no fork stage). */
 	isFork: boolean
 	currentWorkspaceId: string
+	/** Display name of the current (fork) workspace — the pipeline's middle dot. */
+	currentName?: string
 	parentWorkspaceId?: string
 	/** Parent workspace display name, interpolated into deploy labels
 	 *  ("Deploy to test-ai-sessions"). Falls back to "parent". */
@@ -283,46 +285,29 @@ export function maskOnlyCandidates(
 	return out
 }
 
-// ── Pipeline ────────────────────────────────────────────────────────────────
+// ── Pipeline (dot parcours) ─────────────────────────────────────────────────
+// Compact progress trail: where the item sits on Draft → Fork → <parent>
+// (Draft → <parent> in main context). Derived entirely from the badge state —
+// position is the marker (trail fills up to and including `cur`); the badge
+// and detail text carry the state in words, so this is never the sole carrier.
 
-export type PipelineStatus = 'done' | 'current' | 'todo' | 'blocked'
-export interface PipelineStage {
-	id: 'draft' | 'fork' | 'parent'
-	status: PipelineStatus
+export interface Pipeline {
+	/** Per-dot tooltip labels: 'Draft', 'Fork', the parent's name. */
+	stages: string[]
+	/** Index of the current stage — the rightmost filled dot. */
+	cur: number
+	state: Exclude<BadgeKind, 'none'>
 }
 
-/** The 3-dot (fork) / 2-dot (main) pipeline indicator for an item. */
-export function pipelineOf(item: DeployItem, context: SessionContext): PipelineStage[] {
-	const parent: PipelineStatus = item.done ? 'done' : 'todo'
-	if (!context.isFork) {
-		// Main: Draft → Parent, no fork stage.
-		const draft: PipelineStatus = item.local ? 'current' : 'done'
-		return [
-			{ id: 'draft', status: draft },
-			{ id: 'parent', status: parent }
-		]
-	}
-	let draft: PipelineStatus
-	let fork: PipelineStatus
-	if (item.done) {
-		draft = 'done'
-		fork = 'done'
-	} else if (item.parent === 'conflict') {
-		draft = 'done'
-		fork = 'blocked'
-	} else if (item.local) {
-		draft = 'current'
-		fork = 'todo'
-	} else {
-		// ahead — deployed in the fork, awaiting promotion to the parent.
-		draft = 'done'
-		fork = 'current'
-	}
-	return [
-		{ id: 'draft', status: draft },
-		{ id: 'fork', status: fork },
-		{ id: 'parent', status: parent }
-	]
+/** Undefined for a bare (clean + in-sync, non-terminal) row — nothing to show. */
+export function pipelineOf(item: DeployItem, context: SessionContext): Pipeline | undefined {
+	const state = badgeOf(item)
+	if (state === 'none') return undefined
+	const stages = context.isFork
+		? ['Draft', context.currentName ?? 'Fork', parentLabel(context)]
+		: ['Draft', parentLabel(context)]
+	const cur = state === 'draft' ? 0 : state === 'deployed' ? stages.length - 1 : 1
+	return { stages, cur, state }
 }
 
 // ── Status badge (how the item relates to the parent) ────────────────────────

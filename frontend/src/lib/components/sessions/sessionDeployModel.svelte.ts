@@ -40,6 +40,8 @@ export type DeploymentStatus = { status: 'loading' | 'deployed' | 'failed'; erro
 
 export interface SessionDeployModelArgs {
 	workspaceId: string
+	/** Display name of the (fork) workspace, for the pipeline's middle dot. */
+	workspaceName?: string
 	parentWorkspaceId?: string
 	parentName?: string
 	isFork: boolean
@@ -115,6 +117,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	const context = $derived<SessionContext>({
 		isFork: getArgs().isFork,
 		currentWorkspaceId: getArgs().workspaceId,
+		currentName: getArgs().workspaceName,
 		parentWorkspaceId: getArgs().parentWorkspaceId,
 		parentName: getArgs().parentName
 	})

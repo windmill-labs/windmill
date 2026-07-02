@@ -282,38 +282,41 @@ describe('badgeOf', () => {
 // ── pipeline ────────────────────────────────────────────────────────────────
 
 describe('pipelineOf', () => {
-	function stage(item: DeployItem, ctx: SessionContext, id: string) {
-		return pipelineOf(item, ctx).find((s) => s.id === id)?.status
-	}
-
-	it('fork draft: draft current, fork+parent todo', () => {
+	it('fork draft: current = Draft (stage 0), stages carry the parent name', () => {
 		const [item] = buildDeployItems({ draftItems: [draft('script', 'u/a/f')], context: forkCtx })
-		expect(pipelineOf(item, forkCtx).map((s) => s.id)).toEqual(['draft', 'fork', 'parent'])
-		expect(stage(item, forkCtx, 'draft')).toBe('current')
-		expect(stage(item, forkCtx, 'fork')).toBe('todo')
+		const p = pipelineOf(item, forkCtx)
+		expect(p).toEqual({ stages: ['Draft', 'Fork', 'test-ai-sessions'], cur: 0, state: 'draft' })
 	})
 
-	it('ahead (in fork): draft done, fork current', () => {
+	it("middle stage carries the fork's name when the context has one", () => {
+		const named = { ...forkCtx, currentName: 'my-fork' }
+		const [item] = buildDeployItems({ draftItems: [draft('script', 'u/a/f')], context: named })
+		expect(pipelineOf(item, named)?.stages).toEqual(['Draft', 'my-fork', 'test-ai-sessions'])
+	})
+
+	it('ahead (in fork): current = Fork (stage 1)', () => {
 		const [item] = buildDeployItems({
 			comparison: comparison([diff('script', 'u/a/f')]),
 			draftItems: [],
 			context: forkCtx
 		})
-		expect(stage(item, forkCtx, 'draft')).toBe('done')
-		expect(stage(item, forkCtx, 'fork')).toBe('current')
-		expect(stage(item, forkCtx, 'parent')).toBe('todo')
+		const p = pipelineOf(item, forkCtx)
+		expect(p?.cur).toBe(1)
+		expect(p?.state).toBe('ahead')
 	})
 
-	it('conflict blocks the fork stage', () => {
+	it('conflict: current = Fork (stage 1), state conflict', () => {
 		const [item] = buildDeployItems({
 			comparison: comparison([diff('flow', 'u/a/c', { ahead: 1, behind: 1 })]),
 			draftItems: [],
 			context: forkCtx
 		})
-		expect(stage(item, forkCtx, 'fork')).toBe('blocked')
+		const p = pipelineOf(item, forkCtx)
+		expect(p?.cur).toBe(1)
+		expect(p?.state).toBe('conflict')
 	})
 
-	it('done: every stage done', () => {
+	it('done: current = last stage, state deployed', () => {
 		const key = maskKey('script', 'u/a/done')
 		const [item] = buildDeployItems({
 			draftItems: [],
@@ -321,12 +324,19 @@ describe('pipelineOf', () => {
 			existingKeys: new Set([key]),
 			context: forkCtx
 		})
-		expect(pipelineOf(item, forkCtx).every((s) => s.status === 'done')).toBe(true)
+		const p = pipelineOf(item, forkCtx)
+		expect(p?.cur).toBe(2)
+		expect(p?.state).toBe('deployed')
 	})
 
-	it('main context is a 2-stage draft→parent pipeline', () => {
+	it('main context is a 2-stage Draft→parent pipeline', () => {
 		const [item] = buildDeployItems({ draftItems: [draft('script', 'u/a/f')], context: mainCtx })
-		expect(pipelineOf(item, mainCtx).map((s) => s.id)).toEqual(['draft', 'parent'])
+		expect(pipelineOf(item, mainCtx)?.stages).toHaveLength(2)
+	})
+
+	it('bare (clean in-sync) row has no pipeline', () => {
+		const bare = { local: false, parent: 'sync', done: false, removed: false } as DeployItem
+		expect(pipelineOf(bare, forkCtx)).toBeUndefined()
 	})
 })
 

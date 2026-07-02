@@ -27,6 +27,9 @@
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
 	import { tick, untrack } from 'svelte'
 	import type { Snippet } from 'svelte'
+	import MeltTooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
 	import OnBehalfOfSelector from '../OnBehalfOfSelector.svelte'
 	import ParentWorkspaceProtectionAlert from '../ParentWorkspaceProtectionAlert.svelte'
@@ -37,7 +40,7 @@
 		pipelineOf,
 		type BadgeKind,
 		type DeployItem,
-		type PipelineStage
+		type Pipeline
 	} from './sessionDeployModel'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 
@@ -71,6 +74,19 @@
 	// parent deploy is blocked and the user routes through the compare page.
 	let canDeployToParent = $state(true)
 
+	// Discard is destructive (a draft-only item disappears entirely) — confirm.
+	const discardConfirm = createAsyncConfirmationModal()
+	async function confirmDiscard(item: DeployItem) {
+		const confirmed = await discardConfirm.ask({
+			title: 'Discard draft?',
+			confirmationText: 'Discard draft',
+			children: item.draftOnly
+				? `${item.displayPath} was never deployed — discarding its draft deletes it entirely.`
+				: `The draft changes on ${item.displayPath} will be permanently discarded; the deployed version is kept.`
+		})
+		if (confirmed) void model.discardRow(item)
+	}
+
 	export function open() {
 		loadedDiffs = {}
 		mountedRows = {}
@@ -95,19 +111,22 @@
 	// One footprint for every status pill (draft / ahead / conflict / deployed) so
 	// they line up at a compact, uniform size.
 	const STATUS_BADGE_CLASS = 'px-1.5 py-0.5 gap-0.5 text-2xs'
-	// Active-dot accent for the pipeline indicator, colored by the row's badge.
-	function dotAccent(badge: BadgeKind): { border: string; bg: string } {
-		switch (badge) {
-			case 'conflict':
-				return { border: 'border-red-500', bg: 'bg-red-500' }
-			case 'ahead':
-				return { border: 'border-green-500', bg: 'bg-green-500' }
-			case 'draft':
-				return { border: 'border-indigo-500', bg: 'bg-indigo-500' }
-			default:
-				return { border: 'border-blue-500', bg: 'bg-blue-500' }
-		}
+	// Pipeline colors — one per state, same tokens as the badges. Conflict is the
+	// exception: past legs/dots stay green (they succeeded), only the blocked tip
+	// is red — reads "the blockage is HERE", not "everything failed".
+	const PIPE_DOT: Record<Exclude<BadgeKind, 'none'>, string> = {
+		draft: 'bg-indigo-500 border-indigo-500',
+		ahead: 'bg-green-500 border-green-500',
+		conflict: 'bg-red-500 border-red-500',
+		deployed: 'bg-violet-500 border-violet-500'
 	}
+	const PIPE_LEG: Record<Exclude<BadgeKind, 'none'>, string> = {
+		draft: 'bg-indigo-500',
+		ahead: 'bg-green-500',
+		conflict: 'bg-green-500',
+		deployed: 'bg-violet-500'
+	}
+	const PIPE_GREEN_DOT = 'bg-green-500 border-green-500'
 
 	// ── Rendered list: all session items, then text-searched (no filter tabs) ──
 	const segmentItems = $derived(model.items)
@@ -475,24 +494,95 @@
 	{/if}
 {/snippet}
 
-{#snippet pipeline(stages: PipelineStage[], accent: { border: string; bg: string })}
-	<div class="flex items-center gap-0.5" aria-hidden="true">
-		{#each stages as stage, i}
-			{#if i > 0}
-				<div class="w-2 h-px bg-gray-300 dark:bg-gray-600"></div>
-			{/if}
+<!-- Dot parcours: trail fills left→right up to the current stage — position IS
+     the marker (no ring / size change on the tip). Dots carry their stage name
+     as a hover tooltip; the state is always duplicated in the adjacent badge,
+     so this never carries state alone. -->
+{#snippet pipeline(p: Pipeline | undefined)}
+	{#if p}
+		<!-- One hover tooltip (melt, placement bottom) for the whole trail: the same
+		     pipeline, larger, with the stage name under each dot (current emphasized). -->
+		<MeltTooltip placement="bottom">
 			<div
-				class="w-2 h-2 rounded-full border {stage.status === 'done'
-					? 'bg-blue-500 border-blue-500'
-					: stage.status === 'current'
-						? 'bg-surface ' + accent.border
-						: stage.status === 'blocked'
-							? accent.bg + ' ' + accent.border
-							: 'bg-surface border-gray-300 dark:border-gray-600'}"
-				title={`${stage.id}: ${stage.status}`}
-			></div>
-		{/each}
-	</div>
+				class="flex items-center gap-1 py-1.5"
+				role="img"
+				aria-label={`Stage ${p.cur + 1} of ${p.stages.length}: ${p.stages[p.cur]}, ${p.state}`}
+			>
+				{#each p.stages as _, i}
+					{@const reached = i <= p.cur}
+					{@const dotClass =
+						p.state === 'conflict' && i < p.cur ? PIPE_GREEN_DOT : PIPE_DOT[p.state]}
+					{#if i > 0}
+						<!-- Detached connector dash — gaps on both sides, not a joined rail. -->
+						<div
+							class="w-2 h-[1.5px] rounded-full {i <= p.cur
+								? PIPE_LEG[p.state]
+								: 'bg-gray-300 dark:bg-gray-600'}"
+						></div>
+					{/if}
+					<span
+						class="w-1.5 h-1.5 rounded-full border {reached
+							? dotClass
+							: 'bg-transparent border-gray-300 dark:border-gray-600'}"
+					></span>
+				{/each}
+			</div>
+			{#snippet text()}
+				<!-- Equal-width column per stage (1fr tracks all resolve to the widest
+				     label), dot centered over its label, legs stretching to fill the
+				     space between dots. Legs are two half-segments per cell — adjacent
+				     halves meet at the cell edge, so they read as one adapting pipe. -->
+				<div
+					class="grid whitespace-nowrap"
+					style={`grid-template-columns: repeat(${p.stages.length}, 1fr);`}
+				>
+					{#each p.stages as stage, i}
+						{@const reached = i <= p.cur}
+						{@const dotClass =
+							p.state === 'conflict' && i < p.cur ? PIPE_GREEN_DOT : PIPE_DOT[p.state]}
+						{@const legGray = 'bg-gray-300 dark:bg-gray-600'}
+						<!-- No horizontal padding on the cell: the half-legs must reach the
+						     cell edges to meet their neighbor (padding lives on the label). -->
+						<div class="flex flex-col items-center gap-1 min-w-0">
+							<div class="w-full flex items-center">
+								{#if i > 0}
+									<span
+										class="flex-1 h-[1.5px] rounded-full mr-1 {i <= p.cur
+											? PIPE_LEG[p.state]
+											: legGray}"
+									></span>
+								{:else}
+									<span class="flex-1"></span>
+								{/if}
+								<span
+									class="w-1.5 h-1.5 rounded-full border shrink-0 {reached
+										? dotClass
+										: 'bg-transparent border-gray-300 dark:border-gray-600'}"
+								></span>
+								{#if i < p.stages.length - 1}
+									<span
+										class="flex-1 h-[1.5px] rounded-full ml-1 {i + 1 <= p.cur
+											? PIPE_LEG[p.state]
+											: legGray}"
+									></span>
+								{:else}
+									<span class="flex-1"></span>
+								{/if}
+							</div>
+							<span
+								class="text-2xs max-w-full truncate px-1.5 {i === p.cur
+									? 'text-primary font-medium'
+									: 'text-tertiary'}"
+								title={stage}
+							>
+								{stage}
+							</span>
+						</div>
+					{/each}
+				</div>
+			{/snippet}
+		</MeltTooltip>
+	{/if}
 {/snippet}
 
 <!-- Transient busy states only. A successful deploy's "Deployed" confirmation is
@@ -864,7 +954,7 @@
 												{/if}
 											</div>
 											<div class="shrink-0 flex items-center gap-2">
-												{@render pipeline(pipelineOf(d, model.context), dotAccent(badgeOf(d)))}
+												{@render pipeline(pipelineOf(d, model.context))}
 												{@render rowBadge(d)}
 												{#if status?.status === 'loading' || status?.status === 'failed'}
 													{@render deployBusy(d)}
@@ -897,7 +987,7 @@
 															unifiedSize="sm"
 															destructive
 															disabled={model.deploying}
-															onclick={() => model.discardRow(d)}
+															onclick={() => confirmDiscard(d)}
 														>
 															{action.secondary[0].label}
 														</Button>
@@ -963,6 +1053,9 @@
 					</a>
 				</div>
 			{/if}
+			<!-- Inside the drawer subtree: the drawer is portaled/elevated, so a
+			     sibling modal would stack beneath it. -->
+			<ConfirmationModal {...discardConfirm.props} />
 		</div>
 	</DrawerContent>
 </Drawer>

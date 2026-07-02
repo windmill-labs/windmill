@@ -33,6 +33,7 @@
 
 	const model = useSessionDeployModel(() => ({
 		workspaceId,
+		workspaceName: ws?.name ?? workspaceId,
 		parentWorkspaceId,
 		// The deploy target's name: the parent workspace for a fork; the session's
 		// own workspace in main context (where a draft deploys in place).
