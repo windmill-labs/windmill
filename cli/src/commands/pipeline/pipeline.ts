@@ -40,6 +40,7 @@ import { generatePipelineDocs } from "./docs.ts";
 import {
   type UploadBinding,
   devUploadKey,
+  parseArgBinding,
   parseS3Uri,
   parseUploadBinding,
   s3Arg,
@@ -469,6 +470,7 @@ async function run(
     json?: boolean;
     local?: boolean;
     upload?: string[];
+    arg?: string[];
     defaultTs?: "bun" | "deno";
   },
   folder: string,
@@ -524,6 +526,24 @@ async function run(
     await enrichDeployedNonAutorunTriggers(workspace.workspaceId, graph);
   }
 
+  // Resolve a `--upload`/`--arg` script token to its graph node, with an
+  // actionable error when the short name is ambiguous or matches nothing.
+  const resolveScriptTokenOrThrow = (tok: string, flag: string): string => {
+    const id = resolveToken(graph, tok);
+    if (!id || !id.startsWith("script:")) {
+      const matches = graph.runnables.filter(
+        (r) => r.usage_kind === "script" && (r.path.split("/").pop() ?? r.path) === tok,
+      );
+      if (matches.length > 1) {
+        throw new Error(
+          `${flag} '${tok}' matches multiple scripts (${matches.map((r) => r.path).sort().join(", ")}) — use the full path.`,
+        );
+      }
+      throw new Error(`${flag} '${tok}' matched no script in f/${f}.`);
+    }
+    return id;
+  };
+
   // `--upload <script>[:<param>]=<file|s3://key>` binds an object to a
   // data_upload/webhook entry point so it becomes a runnable start (and its
   // downstream is no longer cut) — the arg is injected at execution. Repeatable
@@ -532,21 +552,26 @@ async function run(
   const boundNodeIds = new Set<string>();
   for (const spec of opts.upload ?? []) {
     const binding = parseUploadBinding(spec);
-    const id = resolveToken(graph, binding.scriptTok);
-    if (!id || !id.startsWith("script:")) {
-      const matches = graph.runnables.filter(
-        (r) => r.usage_kind === "script" && (r.path.split("/").pop() ?? r.path) === binding.scriptTok,
-      );
-      if (matches.length > 1) {
-        throw new Error(
-          `--upload '${binding.scriptTok}' matches multiple scripts (${matches.map((r) => r.path).sort().join(", ")}) — use the full path.`,
-        );
-      }
-      throw new Error(`--upload '${binding.scriptTok}' matched no script in f/${f}.`);
-    }
+    const id = resolveScriptTokenOrThrow(binding.scriptTok, "--upload");
     const p = scriptPathOf(id);
     (boundBindingsByPath.get(p) ?? boundBindingsByPath.set(p, []).get(p)!).push(binding);
     boundNodeIds.add(id);
+  }
+
+  // `--arg <script>:<param>=<value>` overlays a plain run arg on a script in
+  // the selection. Unlike `--upload` it does not make the script a runnable
+  // start — it only supplies a value if the script runs.
+  const plainArgsByPath = new Map<string, Record<string, unknown>>();
+  for (const spec of opts.arg ?? []) {
+    const b = parseArgBinding(spec);
+    const p = scriptPathOf(resolveScriptTokenOrThrow(b.scriptTok, "--arg"));
+    const merged = plainArgsByPath.get(p) ?? plainArgsByPath.set(p, {}).get(p)!;
+    // Object.hasOwn, not `in`: a param named like a prototype member
+    // (`toString`, `constructor`, …) must not trip the duplicate check.
+    if (Object.hasOwn(merged, b.param)) {
+      throw new Error(`--arg binds ${p}:${b.param} more than once.`);
+    }
+    merged[b.param] = b.value;
   }
 
   // Resolve the start: explicit --from (must be a valid start) or the folder's
@@ -687,6 +712,9 @@ async function run(
   for (const p of boundBindingsByPath.keys()) {
     if (!orderSet.has(p)) log.warn(`--upload for ${p} is unused — it isn't in the run selection.`);
   }
+  for (const p of plainArgsByPath.keys()) {
+    if (!orderSet.has(p)) log.warn(`--arg for ${p} is unused — it isn't in the run selection.`);
+  }
 
   if (opts.json) {
     // Surface reachable/dropped ends so a machine-readable plan reflects the
@@ -717,7 +745,9 @@ async function run(
           colors.dim(runAll ? ` (whole pipeline)` : ` (from ${shortName(scriptPathOf(start!))})`),
       );
       order.forEach((p, i) =>
-        log.info(`  ${i + 1}. ${p}${boundBindingsByPath.has(p) ? colors.dim(" (← --upload)") : ""}`),
+        log.info(
+          `  ${i + 1}. ${p}${boundBindingsByPath.has(p) ? colors.dim(" (← --upload)") : ""}${plainArgsByPath.has(p) ? colors.dim(" (← --arg)") : ""}`,
+        ),
       );
     }
     return;
@@ -743,9 +773,14 @@ async function run(
   // Execute in topological order, stopping on the first failure.
   for (const nodePath of order) {
     if (!opts.json) log.info(colors.gray(`▶ running ${nodePath}…`));
-    // Spread the internal dispatch guard LAST so an `--upload`-bound arg can't
+    // `--arg` spreads after `--upload` so an explicit value wins for the same
+    // param; the internal dispatch guard spreads LAST so neither binding can
     // re-enable backend dispatch (the CLI owns the whole closure here).
-    const nodeArgs = { ...(uploadArgs.get(nodePath) ?? {}), _wmill_skip_asset_dispatch: true };
+    const nodeArgs = {
+      ...(uploadArgs.get(nodePath) ?? {}),
+      ...(plainArgsByPath.get(nodePath) ?? {}),
+      _wmill_skip_asset_dispatch: true,
+    };
     let id: string;
     if (opts.local) {
       const ls = localScripts!.get(nodePath);
@@ -825,6 +860,11 @@ const command = new Command()
   .option(
     "--upload <binding:string>",
     "Bind an object to a data_upload/webhook entry point so it runs in the cascade, as SCRIPT[:PARAM]=SOURCE (SOURCE is a local file or an s3://key). Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.",
+    { collect: true },
+  )
+  .option(
+    "--arg <binding:string>",
+    "Pass a plain run arg to a script in the cascade, as SCRIPT:PARAM=VALUE (VALUE is parsed as JSON when possible, else taken as a string — e.g. daily_report:partition=2026-07-02). Repeatable.",
     { collect: true },
   )
   .action(run as any)

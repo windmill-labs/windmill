@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   devUploadKey,
+  parseArgBinding,
   parseS3Uri,
   parseUploadBinding,
   s3Arg,
@@ -40,6 +41,50 @@ test("parseUploadBinding: malformed specs throw", () => {
   expect(() => parseUploadBinding("ingest=")).toThrow(); // no source
   expect(() => parseUploadBinding("ingest:=./x.csv")).toThrow(); // empty param
   expect(() => parseUploadBinding(":file=./x.csv")).toThrow(); // empty script
+});
+
+test("parseArgBinding: JSON values parse, non-JSON falls back to the raw string", () => {
+  // a bare date is not valid JSON → string
+  expect(parseArgBinding("daily_report:partition=2026-07-02")).toEqual({
+    scriptTok: "daily_report",
+    param: "partition",
+    value: "2026-07-02",
+  });
+  // JSON scalars/objects keep their type
+  expect(parseArgBinding("stats:limit=10")).toEqual({
+    scriptTok: "stats",
+    param: "limit",
+    value: 10,
+  });
+  expect(parseArgBinding("stats:enabled=true")).toEqual({
+    scriptTok: "stats",
+    param: "enabled",
+    value: true,
+  });
+  expect(parseArgBinding('f/pd/stats:opts={"a":1}')).toEqual({
+    scriptTok: "f/pd/stats",
+    param: "opts",
+    value: { a: 1 },
+  });
+  // quoting forces a string even for number-looking values
+  expect(parseArgBinding('stats:code="42"')).toEqual({
+    scriptTok: "stats",
+    param: "code",
+    value: "42",
+  });
+  // split on the FIRST `=` — values may contain `=`
+  expect(parseArgBinding("stats:expr=a=b")).toEqual({
+    scriptTok: "stats",
+    param: "expr",
+    value: "a=b",
+  });
+});
+
+test("parseArgBinding: :param is required and malformed specs throw", () => {
+  expect(() => parseArgBinding("stats=10")).toThrow(); // no :param
+  expect(() => parseArgBinding("stats:limit")).toThrow(); // no `=`
+  expect(() => parseArgBinding(":limit=10")).toThrow(); // empty script
+  expect(() => parseArgBinding("stats:=10")).toThrow(); // empty param
 });
 
 test("s3ObjectParams: only resource-s3_object properties, in declaration order", () => {
