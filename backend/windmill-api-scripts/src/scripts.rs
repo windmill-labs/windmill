@@ -1577,14 +1577,15 @@ async fn create_script_internal<'c>(
     // DuckDB workspace macros: wipe-and-reinsert this script's registry rows
     // (as provider) and call-site edges (as consumer), by new+old path so
     // renames are handled — mirrors the ci_test_reference block above.
-    sqlx::query!(
+    let macro_defs_deleted = sqlx::query!(
         "DELETE FROM macro_definition WHERE workspace_id = $1 AND (provider_path = $2 OR provider_path = $3)",
         &w_id,
         &ns.path,
         old_path.unwrap_or(&ns.path)
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
     sqlx::query!(
         "DELETE FROM macro_usage WHERE workspace_id = $1 AND (consumer_path = $2 OR consumer_path = $3)",
         &w_id,
@@ -1593,6 +1594,16 @@ async fn create_script_internal<'c>(
     )
     .execute(&mut *tx)
     .await?;
+    // Workers cache the registry per workspace; a mutation must evict it on
+    // every replica. Transactional emit — pollers see it only on commit.
+    if macro_lib_defs.is_some() || macro_defs_deleted > 0 {
+        sqlx::query!(
+            "INSERT INTO notify_event (channel, payload) VALUES ('notify_macro_registry_change', $1)",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     if let Some(ref macros) = macro_lib_defs {
         // Macro names are workspace-unique (they're injected unqualified into
@@ -3499,13 +3510,23 @@ async fn clear_macro_registry(db: &mut sqlx::PgConnection, w_id: &str, path: &st
     )
     .execute(&mut *db)
     .await?;
-    sqlx::query!(
+    let deleted = sqlx::query!(
         "DELETE FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2",
         w_id,
         path
     )
     .execute(&mut *db)
-    .await?;
+    .await?
+    .rows_affected();
+    // Evict workers' per-workspace registry cache (transactional emit).
+    if deleted > 0 {
+        sqlx::query!(
+            "INSERT INTO notify_event (channel, payload) VALUES ('notify_macro_registry_change', $1)",
+            w_id
+        )
+        .execute(&mut *db)
+        .await?;
+    }
     Ok(())
 }
 

@@ -290,13 +290,49 @@ fn classify_wrap_or_err(query: &str) -> Result<windmill_parser::sql_materialize:
 }
 
 // One workspace-macro registry row (`macro_definition`, written at deploy of a
-// `// macros` library script).
-struct MacroRow {
-    name: String,
-    params: String,
-    body: String,
-    is_table_macro: bool,
-    provider_path: String,
+// `// macros` library script). Shared with windmill-common so the registry
+// cache can live there (main.rs evicts it on `notify_macro_registry_change`).
+use windmill_common::assets::MacroRegistryEntry as MacroRow;
+
+// The registry read runs on every DuckDB job (including the common macro-free
+// case), so it's cached per workspace. Invalidation is primarily the
+// transactional `notify_macro_registry_change` event (registry mutations →
+// notify_event table → the poller in main.rs evicts); the TTL bounds
+// staleness for anything that doesn't emit.
+async fn fetch_macro_registry(
+    db: &windmill_common::DB,
+    w_id: &str,
+) -> Result<std::sync::Arc<Vec<MacroRow>>> {
+    use windmill_common::assets::{
+        ExpiringMacroRegistry, MACRO_REGISTRY_CACHE, MACRO_REGISTRY_CACHE_DISABLED,
+        MACRO_REGISTRY_TTL,
+    };
+    let use_cache = !MACRO_REGISTRY_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+    if use_cache {
+        if let Some(e) = MACRO_REGISTRY_CACHE.get(w_id) {
+            if e.expires_at > std::time::Instant::now() {
+                return Ok(e.rows);
+            }
+        }
+    }
+    let rows = sqlx::query_as!(
+        MacroRow,
+        "SELECT name, params, body, is_table_macro, provider_path FROM macro_definition WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+    let rows = std::sync::Arc::new(rows);
+    if use_cache {
+        MACRO_REGISTRY_CACHE.insert(
+            w_id.to_string(),
+            ExpiringMacroRegistry {
+                rows: rows.clone(),
+                expires_at: std::time::Instant::now() + MACRO_REGISTRY_TTL,
+            },
+        );
+    }
+    Ok(rows)
 }
 
 // Selection pass: seed = macros the (comment-stripped, transformed) blocks
@@ -625,13 +661,7 @@ async fn inject_workspace_macros(
             return Ok(blocks);
         }
     };
-    let registry = sqlx::query_as!(
-        MacroRow,
-        "SELECT name, params, body, is_table_macro, provider_path FROM macro_definition WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_all(db)
-    .await?;
+    let registry = fetch_macro_registry(db, w_id).await?;
     if registry.is_empty() && use_libs.is_empty() {
         return Ok(blocks);
     }

@@ -176,9 +176,11 @@ injected by Windmill ("resolve-and-inject"):
   CREATE) and placed after the setup/ATTACH prefix. Each provider library's
   own setup statements are injected ahead of the definitions (deduped across
   libraries), so a macro body that references its lib's ATTACH binds on the
-  implicit path too. Late-bound: a lib redeploy applies to every subsequent
-  run, dbt's exact semantics but with a deploy-time registry instead of a
-  compile step.
+  implicit path too. Late-bound: a lib redeploy applies to subsequent runs —
+  workers cache the registry per workspace and evict it via a transactional
+  `notify_macro_registry_change` event (worst-case staleness = the notify
+  poll interval, ~10s; 60s TTL as backstop) — dbt's semantics with a
+  deploy-time registry instead of a compile step.
 - `// use <lib_path>` force-injects a whole library (definitions + its setup
   statements) — the escape hatch for dynamic SQL (e.g. calls inside
   `query('…')` strings) that lexical detection can't see. A library's own
