@@ -75,6 +75,15 @@
 			workspace && folder ? await AssetService.getAssetsGraph({ workspace, folder }) : EMPTY_GRAPH
 	)
 
+	// Folder whose graph is actually rendered — `graphRes.current` is stale-
+	// while-revalidate on a folder retarget, so the canvas's one-shot initial
+	// fit is keyed on the folder captured when a graph lands, not on `path`
+	// (same rationale as the pipeline route page).
+	let viewportFitFolder = $state('')
+	$effect(() => {
+		if (graphRes.current) untrack(() => (viewportFitFolder = path))
+	})
+
 	// Deployed graph + the in-flight draft overlay (AI-built nodes render as plain
 	// dashed unsaved drafts, same as manual drafts). The session
 	// skips the route page's folder-wide asset prefetch (empty inferred maps); the
@@ -304,6 +313,7 @@
 			<PipelineGraphEditor
 				editor={pe}
 				folder={path}
+				viewportFitKey={viewportFitFolder}
 				persistDrafts={true}
 				displayGraph={resolvedGraph}
 				mode="edit"
