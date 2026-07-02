@@ -358,7 +358,10 @@ fn plan_macro_injection(
     }
     selected.extend(detect_macro_calls(&blocks.join("\n"), &all_names));
     if selected.is_empty() {
-        return Ok(Vec::new());
+        // No macros to inject, but an explicit `// use` still carries the
+        // library's setup statements (its ATTACH side effects) — e.g. when
+        // every lib macro is shadowed by a local definition.
+        return Ok(use_setup);
     }
 
     // Transitive closure over macro bodies (a selected macro may call others).
@@ -394,17 +397,20 @@ fn plan_macro_injection(
     Ok(injected)
 }
 
-// Insert the injected blocks after the contiguous setup prefix
-// (ATTACH/INSTALL/LOAD/SET/…): macro bodies may reference attached catalogs,
-// which must exist when the CREATE binds.
+// Insert the injected blocks after the contiguous prefix of setup statements
+// (ATTACH/INSTALL/LOAD/SET/…) *and* the script's own leading macro
+// definitions: injected bodies may reference attached catalogs or (registry
+// macros excluded by local-wins) the local definitions, both of which must
+// exist when the injected CREATE binds.
 fn splice_macro_blocks(mut blocks: Vec<String>, injected: Vec<String>) -> Vec<String> {
     if injected.is_empty() {
         return blocks;
     }
+    use windmill_parser::duckdb_macros::is_macro_definition;
     use windmill_parser::sql_materialize::{classify_block, BlockClass};
     let idx = blocks
         .iter()
-        .position(|b| !matches!(classify_block(b), BlockClass::Setup))
+        .position(|b| !matches!(classify_block(b), BlockClass::Setup) && !is_macro_definition(b))
         .unwrap_or(blocks.len());
     blocks.splice(idx..idx, injected);
     blocks
@@ -1729,6 +1735,40 @@ mod tests {
         let registry = vec![mrow("dbl", "a", "a * 10", false, "f/lib/m")];
         let b = blocks(&["CREATE TEMP MACRO dbl(a) AS a * 2;", "SELECT dbl(4);"]);
         assert!(plan_macro_injection(&b, &registry, &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn use_lib_setup_survives_when_no_macros_selected() {
+        // Every lib macro shadowed locally — the explicit `// use` must still
+        // carry the lib's setup statements (its ATTACH side effects).
+        use windmill_parser::duckdb_macros::parse_macro_library;
+        let registry = vec![mrow("dbl", "a", "a * 10", false, "f/lib/m")];
+        let lib =
+            parse_macro_library("ATTACH 'ext.duckdb' AS ext;\nCREATE MACRO dbl(a) AS a * 10;")
+                .unwrap();
+        let b = blocks(&["CREATE TEMP MACRO dbl(a) AS a * 2;", "SELECT dbl(4);"]);
+        let injected =
+            plan_macro_injection(&b, &registry, &[("f/lib/m".to_string(), lib)]).unwrap();
+        assert_eq!(injected, vec!["ATTACH 'ext.duckdb' AS ext;".to_string()]);
+    }
+
+    #[test]
+    fn splice_lands_after_leading_local_macro_definitions() {
+        // Injected bodies may call a local macro (local-wins excludes it from
+        // the registry set), so the leading local CREATE must run first.
+        let b = blocks(&[
+            "ATTACH 'x' AS a;",
+            "CREATE MACRO local_dbl(a) AS a * 2;",
+            "SELECT registry_m(1);",
+        ]);
+        let out = splice_macro_blocks(
+            b,
+            vec!["CREATE OR REPLACE TEMP MACRO registry_m(a) AS local_dbl(a) + 1;".into()],
+        );
+        assert_eq!(
+            out[2],
+            "CREATE OR REPLACE TEMP MACRO registry_m(a) AS local_dbl(a) + 1;"
+        );
     }
 
     #[test]

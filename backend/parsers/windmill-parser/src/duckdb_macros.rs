@@ -227,6 +227,29 @@ pub fn parse_macro_library(sql: &str) -> Result<Vec<LibStatement>, String> {
     Ok(out)
 }
 
+/// Whether the statement is macro-definition-shaped (`CREATE [OR REPLACE]
+/// [TEMP] MACRO|FUNCTION …`), regardless of whether the rest of the header
+/// parses. Used by the worker's injection splice to keep injected blocks
+/// *after* a script's own leading definitions (an injected body may only call
+/// a local macro once the local CREATE has run — DuckDB binds at CREATE).
+pub fn is_macro_definition(stmt: &str) -> bool {
+    let Some(mut rest) = strip_kw(stmt.trim(), "create") else {
+        return false;
+    };
+    if let Some(r) = strip_kw(rest, "or") {
+        let Some(r2) = strip_kw(r, "replace") else {
+            return false;
+        };
+        rest = r2;
+    }
+    if let Some(r) = strip_kw(rest, "temp").or_else(|| strip_kw(rest, "temporary")) {
+        rest = r;
+    }
+    strip_kw(rest, "macro")
+        .or_else(|| strip_kw(rest, "function"))
+        .is_some()
+}
+
 /// Names of macros the given statements define themselves (`CREATE [OR
 /// REPLACE] [TEMP] MACRO …`). A consumer's own definition is authoritative
 /// over a same-named workspace macro — the worker subtracts these before

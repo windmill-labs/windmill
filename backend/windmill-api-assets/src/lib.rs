@@ -1095,6 +1095,14 @@ async fn asset_graph(
     }
     let macro_edges: Vec<MacroEdge> = macro_edge_map
         .into_iter()
+        // Same orphan filter as the other edge families: a registry row whose
+        // provider script no longer exists must not synthesize a phantom
+        // library node (consumers were filtered above, but the `// use` pass
+        // re-adds them, so re-check both endpoints).
+        .filter(|((lib_path, consumer_path), _)| {
+            runnable_exists(AssetUsageKind::Script, lib_path)
+                && runnable_exists(AssetUsageKind::Script, consumer_path)
+        })
         .map(|((lib_path, consumer_path), (names, via_use))| MacroEdge {
             lib_path,
             consumer_path,

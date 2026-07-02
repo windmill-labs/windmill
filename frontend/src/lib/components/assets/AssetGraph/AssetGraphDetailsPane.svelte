@@ -1207,7 +1207,9 @@
 		<div class="shrink-0 px-3 py-1.5 border-b bg-surface-secondary flex items-start gap-2">
 			<SquareFunction size={12} class="shrink-0 mt-0.5 text-violet-600 dark:text-violet-400" />
 			<div class="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs font-mono text-secondary min-w-0">
-				{#each macroDefs as m (m.name)}
+				<!-- Index-keyed: a live buffer can transiently hold two defs with
+				     the same name mid-edit, which would crash a name-keyed each. -->
+				{#each macroDefs as m, i (i)}
 					<span class="truncate" title={m.is_table ? 'table macro' : 'scalar macro'}>
 						{m.name}({m.params}){m.is_table ? ' → table' : ''}
 					</span>

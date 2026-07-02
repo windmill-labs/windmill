@@ -1682,10 +1682,11 @@ async fn create_script_internal<'c>(
     }
 
     if let Some(ref macros) = macro_lib_defs {
-        // Refresh other pipeline members' edges for this lib's names (a
+        // Refresh every other DuckDB script's edges for this lib's names (a
         // redeploy may add/remove macros; late-bound runtime picks changes up
-        // regardless — this only keeps the deployed graph current). Consumers
-        // outside the pipeline get their edges on their own next deploy.
+        // regardless — this only keeps the deployed graph current). The rescan
+        // covers ALL live DuckDB scripts, not just pipeline members: their
+        // edges were recorded at their own deploy and must survive the wipe.
         let names: Vec<String> = macros.iter().map(|m| m.name.clone()).collect();
         sqlx::query!(
             "DELETE FROM macro_usage WHERE workspace_id = $1 AND macro_name = ANY($2) AND consumer_path != $3",
@@ -1700,7 +1701,6 @@ async fn create_script_internal<'c>(
             r#"SELECT DISTINCT ON (path) path AS "path!", content AS "content!"
                FROM script
                WHERE workspace_id = $1
-                 AND auto_kind = 'pipeline'
                  AND language = 'duckdb'::script_lang
                  AND archived = false
                  AND deleted = false
