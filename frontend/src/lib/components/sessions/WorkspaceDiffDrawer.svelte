@@ -74,6 +74,21 @@
 	// parent deploy is blocked and the user routes through the compare page.
 	let canDeployToParent = $state(true)
 
+	// The sidebar's inner right padding must ADAPT to the reserved scrollbar
+	// gutter (platform-dependent: 0 for overlay scrollbars, ~15px classic) so
+	// gutter + padding always totals the same 6px inset the left side uses.
+	// Pure CSS can't express "6px minus the gutter", hence the measurement.
+	function padRightForGutter(node: HTMLElement) {
+		const apply = () => {
+			const gutter = node.offsetWidth - node.clientWidth
+			node.style.paddingRight = `${Math.max(0, 6 - gutter)}px`
+		}
+		apply()
+		const ro = new ResizeObserver(apply)
+		ro.observe(node)
+		return { destroy: () => ro.disconnect() }
+	}
+
 	// Discard is destructive (a draft-only item disappears entirely) — confirm.
 	const discardConfirm = createAsyncConfirmationModal()
 	async function confirmDiscard(item: DeployItem) {
@@ -883,9 +898,18 @@
 					<aside
 						bind:this={sidebarRoot}
 						onmousemove={() => (mouseActive = true)}
-						class="flex-none w-96 border-r border-light flex flex-col min-h-0 pt-3 pl-2 pr-2"
+						class="flex-none w-96 border-r border-light flex flex-col min-h-0 pt-2.5 px-1"
 					>
-						<div class="px-3 pt-2 pb-1 shrink-0">
+						<!-- Both containers reserve the same stable scrollbar gutter (the input
+						     wrapper never actually scrolls), so input and tree rows share one
+						     right edge. padRightForGutter tops the gutter up to the 6px inner
+						     padding target so the visual right margin equals the left one no
+						     matter the platform's scrollbar width (0 for overlay scrollbars). -->
+						<div
+							class="pl-1.5 pb-1 shrink-0 overflow-y-auto"
+							style="scrollbar-gutter: stable;"
+							use:padRightForGutter
+						>
 							<input
 								bind:this={searchInputEl}
 								type="search"
@@ -896,8 +920,9 @@
 							/>
 						</div>
 						<div
-							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-2 pr-1 pt-2 pb-3 flex flex-col gap-1"
+							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-1.5 pt-1.5 pb-2 flex flex-col gap-1"
 							style="scrollbar-gutter: stable;"
+							use:padRightForGutter
 						>
 							{#if treeModel.root.children.length > 0}
 								{#each treeModel.root.children as child}
