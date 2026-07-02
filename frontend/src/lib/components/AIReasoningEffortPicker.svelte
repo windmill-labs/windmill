@@ -1,5 +1,8 @@
 <script lang="ts">
-	import Select from './select/Select.svelte'
+	import { Brain, ChevronDown } from 'lucide-svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import Button from './common/button/Button.svelte'
+	import type { Item } from '$lib/utils'
 	import type { AIProvider } from '$lib/gen'
 	import { getReasoningCapability, explicitOffToken } from './copilot/reasoningRegistry'
 
@@ -13,9 +16,6 @@
 	}
 
 	let { value = $bindable(), providerConfig, disabled = false }: Props = $props()
-
-	// Sentinel for "leave the provider default" — distinct from a real token.
-	const MODEL_DEFAULT = '__model_default__'
 
 	let provider = $derived(
 		typeof providerConfig === 'object'
@@ -32,34 +32,39 @@
 
 	// The token that turns reasoning off on a model that reasons by default
 	// (e.g. Gemini/OpenAI 'none'). Undefined means omission already disables it,
-	// so "Model default" already represents off — no separate option needed.
+	// so leaving the effort unset is itself off.
 	let offToken = $derived(provider && model ? explicitOffToken(provider, model) : undefined)
 
-	// When the model reasons only on request (Anthropic/Bedrock), leaving the
-	// effort unset already means off, so the default option is labelled "off".
-	// Models that reason by default keep a distinct "Model default" plus an
-	// explicit off that sends the provider's disable token (e.g. Gemini "none").
+	// When the model reasons only on request (Anthropic/Bedrock), an unset effort
+	// already means off, so the default choice is labelled "off". Models that
+	// reason by default keep a distinct "Model default" plus an explicit off.
 	let offViaOmission = $derived(capability.canDisable && offToken === undefined)
 
-	// A non-empty stored token that isn't one of the suggested options (custom
-	// model/level) is preserved as its own item so it stays visible and editable.
-	let items = $derived.by(() => {
-		const opts: { label: string; value: string }[] = [
-			{ label: offViaOmission ? 'off' : 'Model default', value: MODEL_DEFAULT }
+	// Label shown on the trigger for the current selection.
+	let currentLabel = $derived(
+		!value ? (offViaOmission ? 'off' : 'Model default') : value === offToken ? 'off' : value
+	)
+
+	let items = $derived.by((): Item[] => {
+		const opts: Item[] = [
+			{
+				displayName: offViaOmission ? 'off' : 'Model default',
+				selected: !value,
+				action: () => (value = undefined)
+			}
 		]
 		if (capability.canDisable && offToken !== undefined) {
-			opts.push({ label: 'off', value: offToken })
+			opts.push({
+				displayName: 'off',
+				selected: value === offToken,
+				action: () => (value = offToken)
+			})
 		}
 		for (const level of capability.levels) {
-			opts.push({ label: level, value: level })
-		}
-		if (value && !opts.some((o) => o.value === value)) {
-			opts.push({ label: `${value} (custom)`, value })
+			opts.push({ displayName: level, selected: value === level, action: () => (value = level) })
 		}
 		return opts
 	})
-
-	let selected = $derived(value ? value : MODEL_DEFAULT)
 
 	// A model that can't reason at all would 400 if a token were sent — clear any
 	// stale selection once we positively know the model is unsupported.
@@ -68,10 +73,6 @@
 			value = undefined
 		}
 	})
-
-	function onSelect(v: string | undefined) {
-		value = v && v !== MODEL_DEFAULT ? v : undefined
-	}
 </script>
 
 {#if !provider || !model}
@@ -79,11 +80,20 @@
 {:else if !capability.supported}
 	<div class="text-xs text-tertiary">The selected model does not support reasoning effort.</div>
 {:else}
-	<Select
-		{items}
-		bind:value={() => selected, (v) => onSelect(v)}
-		{disabled}
-		clearable={false}
-		placeholder="Model default"
-	/>
+	<DropdownV2 {items} {disabled} placement="bottom-start" fixedHeight={false} class="justify-start">
+		{#snippet buttonReplacement()}
+			<Button
+				nonCaptureEvent
+				{disabled}
+				unifiedSize="xs"
+				variant="default"
+				startIcon={{ icon: Brain }}
+				endIcon={{ icon: ChevronDown }}
+				btnClasses="w-full justify-between font-normal text-secondary"
+				title="Reasoning effort"
+			>
+				<span class="truncate">{currentLabel}</span>
+			</Button>
+		{/snippet}
+	</DropdownV2>
 {/if}
