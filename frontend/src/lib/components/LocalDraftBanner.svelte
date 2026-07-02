@@ -116,8 +116,9 @@
 {#if hasBaseline}
 	<!-- Fixed-height slot reserved whenever the banner can appear, so toggling
 	     the "unsaved changes" state fades the banner in/out without pushing the
-	     content below. h-9 matches the banner's natural height. -->
-	<div class="h-9 shrink-0">
+	     content below. Kept intentionally snug (h-7 = the action buttons' height)
+	     so the empty gap it leaves when no banner shows stays small. -->
+	<div class="h-7 shrink-0">
 		{#if visible}
 			<div
 				transition:fade|local={{ duration: 120 }}

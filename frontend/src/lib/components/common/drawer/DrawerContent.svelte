@@ -86,19 +86,29 @@
 		{/if}
 	</div>
 
-	{#if banner}
-		{@render banner()}
-	{/if}
+	{#snippet contentBox()}
+		<div
+			class={classNames(
+				noPadding ? '' : 'p-4',
+				'grow min-h-0 max-h-full',
+				forceOverflowVisible ? '!overflow-visible' : ''
+			)}
+			class:overflow-y-auto={overflow_y}
+			style={overflow_y ? 'scrollbar-gutter: stable;' : ''}
+		>
+			{@render children?.()}
+		</div>
+	{/snippet}
 
-	<div
-		class={classNames(
-			noPadding ? '' : 'p-4',
-			'grow min-h-0 max-h-full',
-			forceOverflowVisible ? '!overflow-visible' : ''
-		)}
-		class:overflow-y-auto={overflow_y}
-		style={overflow_y ? 'scrollbar-gutter: stable;' : ''}
-	>
-		{@render children?.()}
-	</div>
+	{#if banner}
+		<!-- Banner + content share one `divide-y` cell so the header keeps its single
+		     divider and the banner's reserved-height slot doesn't get bracketed into a
+		     bordered empty strip when no banner is shown. -->
+		<div class="flex flex-col grow min-h-0 max-h-full">
+			{@render banner()}
+			{@render contentBox()}
+		</div>
+	{:else}
+		{@render contentBox()}
+	{/if}
 </div>
