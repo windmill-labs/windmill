@@ -1303,6 +1303,60 @@ pub(crate) async fn compare_two_datatable_migration(
     })
 }
 
+#[derive(Deserialize, Debug)]
+pub(crate) struct DatatableRename {
+    pub(crate) from: String,
+    pub(crate) to: String,
+}
+
+/// Keep `datatable_migrations` in sync when data tables are renamed or deleted
+/// in the workspace config.
+///
+/// Renames are applied in two phases through a temporary key so that a rename
+/// chain or a swap (A->B, B->A) can't transiently collide on the
+/// (workspace_id, datatable, timestamp) primary key mid-update.
+pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    renames: &[DatatableRename],
+    deleted_datatables: &[String],
+) -> Result<()> {
+    if !deleted_datatables.is_empty() {
+        sqlx::query!(
+            "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = ANY($2::text[])",
+            w_id,
+            deleted_datatables
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for (i, r) in renames.iter().enumerate() {
+        let tmp = format!("__wm_rename_tmp/{i}");
+        sqlx::query!(
+            "UPDATE datatable_migrations SET datatable = $3 WHERE workspace_id = $1 AND datatable = $2",
+            w_id,
+            &r.from,
+            &tmp
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    for (i, r) in renames.iter().enumerate() {
+        let tmp = format!("__wm_rename_tmp/{i}");
+        sqlx::query!(
+            "UPDATE datatable_migrations SET datatable = $3 WHERE workspace_id = $1 AND datatable = $2",
+            w_id,
+            &tmp,
+            &r.to
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1381,5 +1435,73 @@ mod tests {
         );
         // empty filename
         assert_eq!(parse_datatable_migration_diff_path("mydt/"), None);
+    }
+
+    async fn seed_migration(pool: &DB, w_id: &str, datatable: &str, timestamp: i64, name: &str) {
+        sqlx::query(
+            "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up) \
+             VALUES ($1, $2, $3, $4, 'select 1;')",
+        )
+        .bind(w_id)
+        .bind(datatable)
+        .bind(timestamp)
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn migration_keys(pool: &DB, w_id: &str) -> Vec<(String, String)> {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT datatable, name FROM datatable_migrations WHERE workspace_id = $1 \
+             ORDER BY datatable, timestamp",
+        )
+        .bind(w_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    // The cascade keeps each data table's migrations attached to its name when a
+    // data table is renamed, drops them when it is deleted, and survives a swap
+    // (A->B, B->A) at a shared timestamp without a primary-key collision.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn cascade_renames_and_deletes_datatable_migrations(pool: DB) {
+        let w_id = format!("dtmig{}", uuid::Uuid::new_v4().simple());
+        sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test@windmill.dev')")
+            .bind(&w_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // rename a -> a2, delete d, and swap sa <-> sb (both at timestamp 5000)
+        seed_migration(&pool, &w_id, "a", 1, "a_mig").await;
+        seed_migration(&pool, &w_id, "d", 1, "d_mig").await;
+        seed_migration(&pool, &w_id, "sa", 5000, "sa_mig").await;
+        seed_migration(&pool, &w_id, "sb", 5000, "sb_mig").await;
+
+        let mut tx = pool.begin().await.unwrap();
+        cascade_datatable_migration_renames_and_deletes(
+            &mut tx,
+            &w_id,
+            &[
+                DatatableRename { from: "a".to_string(), to: "a2".to_string() },
+                DatatableRename { from: "sa".to_string(), to: "sb".to_string() },
+                DatatableRename { from: "sb".to_string(), to: "sa".to_string() },
+            ],
+            &["d".to_string()],
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(
+            migration_keys(&pool, &w_id).await,
+            vec![
+                ("a2".to_string(), "a_mig".to_string()),
+                ("sa".to_string(), "sb_mig".to_string()),
+                ("sb".to_string(), "sa_mig".to_string()),
+            ]
+        );
     }
 }
