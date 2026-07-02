@@ -358,6 +358,52 @@ fn select_workspace_macros(
     Ok(selected)
 }
 
+// Fixpoint over library-level `// use`: a library may declare `// use` for
+// dynamic calls its macro bodies make (string-hidden from lexical detection,
+// e.g. inside `query('…')`). Those declarations are honored transitively —
+// consuming a macro from lib B pulls in whatever B `// use`s, so the dynamic
+// dependency stays encapsulated in the library instead of leaking to every
+// consumer. `lib_uses` maps provider path → its parsed `// use` list; the
+// shell grows it lazily and re-resolves until no new library appears.
+// Returns the selected macro names plus the effective `// use` list
+// (consumer's own first, in annotation order, then discovered libs).
+fn resolve_macro_selection(
+    blocks: &[String],
+    registry: &[MacroRow],
+    consumer_use_libs: &[String],
+    lib_uses: &std::collections::BTreeMap<String, Vec<String>>,
+) -> Result<(std::collections::HashSet<String>, Vec<String>)> {
+    let mut effective: Vec<String> = Vec::new();
+    for p in consumer_use_libs {
+        if !effective.contains(p) {
+            effective.push(p.clone());
+        }
+    }
+    loop {
+        let selected = select_workspace_macros(blocks, registry, &effective)?;
+        let mut relevant: Vec<String> = effective.clone();
+        for name in &selected {
+            if let Some(r) = registry.iter().find(|r| &r.name == name) {
+                if !relevant.contains(&r.provider_path) {
+                    relevant.push(r.provider_path.clone());
+                }
+            }
+        }
+        let mut grew = false;
+        for lib in &relevant {
+            for u in lib_uses.get(lib).map(Vec::as_slice).unwrap_or(&[]) {
+                if !effective.contains(u) {
+                    effective.push(u.clone());
+                    grew = true;
+                }
+            }
+        }
+        if !grew {
+            return Ok((selected, effective));
+        }
+    }
+}
+
 // Emit the blocks to inject: first every relevant library's setup statements
 // (a macro body may reference its own lib's ATTACH, and DuckDB bind-checks
 // at CREATE — so setup is injected for the provider of every selected macro,
@@ -495,34 +541,52 @@ async fn inject_workspace_macros(
     if registry.is_empty() && use_libs.is_empty() {
         return Ok(blocks);
     }
-    let selected = select_workspace_macros(&blocks, &registry, use_libs)?;
-    if selected.is_empty() && use_libs.is_empty() {
+    if select_workspace_macros(&blocks, &registry, use_libs)?.is_empty() && use_libs.is_empty() {
         return Ok(blocks);
     }
-    // Every relevant provider's deployed body is fetched for its setup
-    // statements: `// use` libs, plus the provider of each selected macro (a
-    // macro body may reference its own lib's ATTACH, which must run before
-    // the injected CREATE binds). Content fetches are cached by hash.
-    let mut provider_paths: std::collections::BTreeSet<&str> =
-        use_libs.iter().map(String::as_str).collect();
-    for name in &selected {
-        if let Some(r) = registry.iter().find(|r| &r.name == name) {
-            provider_paths.insert(r.provider_path.as_str());
-        }
-    }
+    // Every relevant provider's deployed body is fetched: its setup
+    // statements are injected ahead of the definitions (a macro body may
+    // reference its own lib's ATTACH, which must run before the injected
+    // CREATE binds), and its own `// use` declarations are honored
+    // transitively — so the loop fetches lazily and re-resolves until no new
+    // library appears. Content fetches are cached by hash.
     let mut lib_bodies: std::collections::BTreeMap<
         String,
         Vec<windmill_parser::duckdb_macros::LibStatement>,
     > = Default::default();
-    for path in provider_paths {
-        let content = fetch_macro_lib_body(conn, w_id, path).await?;
-        let statements =
-            windmill_parser::duckdb_macros::parse_macro_library(&content).map_err(|e| {
-                Error::ExecutionErr(format!("macro library `{path}`: invalid content: {e}"))
-            })?;
-        lib_bodies.insert(path.to_string(), statements);
-    }
-    let injected = plan_macro_injection(&selected, &registry, use_libs, &lib_bodies)?;
+    let mut lib_uses: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    let (selected, effective_use) = loop {
+        let (selected, effective) =
+            resolve_macro_selection(&blocks, &registry, use_libs, &lib_uses)?;
+        let mut relevant: Vec<String> = effective.clone();
+        for name in &selected {
+            if let Some(r) = registry.iter().find(|r| &r.name == name) {
+                if !relevant.contains(&r.provider_path) {
+                    relevant.push(r.provider_path.clone());
+                }
+            }
+        }
+        let missing: Vec<String> = relevant
+            .into_iter()
+            .filter(|l| !lib_bodies.contains_key(l))
+            .collect();
+        if missing.is_empty() {
+            break (selected, effective);
+        }
+        for path in missing {
+            let content = fetch_macro_lib_body(conn, w_id, &path).await?;
+            let statements = windmill_parser::duckdb_macros::parse_macro_library(&content)
+                .map_err(|e| {
+                    Error::ExecutionErr(format!("macro library `{path}`: invalid content: {e}"))
+                })?;
+            lib_uses.insert(
+                path.clone(),
+                windmill_parser::asset_parser::parse_pipeline_annotations(&content).use_libs,
+            );
+            lib_bodies.insert(path, statements);
+        }
+    };
+    let injected = plan_macro_injection(&selected, &registry, &effective_use, &lib_bodies)?;
     Ok(splice_macro_blocks(blocks, injected))
 }
 
@@ -1762,22 +1826,28 @@ mod tests {
         list.iter().map(|s| s.to_string()).collect()
     }
 
-    // Mimics the shell: select, parse the given lib sources, plan. `libs` maps
-    // provider path → deployed source (must cover every relevant provider).
+    // Mimics the shell: resolve (incl. transitive library `// use`), parse the
+    // given lib sources, plan. `libs` maps provider path → deployed source
+    // (must cover every relevant provider).
     fn select_and_plan(
         b: &[String],
         registry: &[MacroRow],
         use_libs: &[&str],
         libs: &[(&str, &str)],
     ) -> Result<Vec<String>> {
+        use windmill_parser::asset_parser::parse_pipeline_annotations;
         use windmill_parser::duckdb_macros::parse_macro_library;
         let use_libs: Vec<String> = use_libs.iter().map(|s| s.to_string()).collect();
-        let selected = select_workspace_macros(b, registry, &use_libs)?;
+        let lib_uses = libs
+            .iter()
+            .map(|(p, src)| (p.to_string(), parse_pipeline_annotations(src).use_libs))
+            .collect();
+        let (selected, effective) = resolve_macro_selection(b, registry, &use_libs, &lib_uses)?;
         let lib_bodies = libs
             .iter()
             .map(|(p, src)| (p.to_string(), parse_macro_library(src).unwrap()))
             .collect();
-        plan_macro_injection(&selected, registry, &use_libs, &lib_bodies)
+        plan_macro_injection(&selected, registry, &effective, &lib_bodies)
     }
 
     #[test]
@@ -1824,6 +1894,60 @@ mod tests {
         .unwrap();
         assert_eq!(injected[0], "ATTACH 'ext.duckdb' AS ext;");
         assert!(injected[1].contains("TEMP MACRO lookup(k)"));
+    }
+
+    #[test]
+    fn provider_lib_use_is_honored_transitively() {
+        // Lib B's macro calls `base_macro` inside a string (invisible to
+        // lexical detection), so B declares `// use f/lib/base`. A consumer
+        // that merely calls B's macro must still get base's whole library —
+        // the dynamic dependency is encapsulated in B, not leaked to every
+        // consumer.
+        let registry = vec![
+            mrow(
+                "str_macro",
+                "",
+                "(SELECT v FROM query('SELECT base_macro() AS v'))",
+                false,
+                "f/lib/b",
+            ),
+            mrow("base_macro", "", "42", false, "f/lib/base"),
+        ];
+        let b = blocks(&["SELECT str_macro();"]);
+        let injected = select_and_plan(
+            &b,
+            &registry,
+            &[],
+            &[
+                (
+                    "f/lib/b",
+                    "-- macros\n-- use f/lib/base\nCREATE MACRO str_macro() AS (SELECT v FROM query('SELECT base_macro() AS v'));",
+                ),
+                ("f/lib/base", "-- macros\nCREATE MACRO base_macro() AS 42;"),
+            ],
+        )
+        .unwrap();
+        assert!(
+            injected
+                .iter()
+                .any(|s| s.contains("TEMP MACRO base_macro()")),
+            "{injected:?}"
+        );
+        assert!(injected
+            .iter()
+            .any(|s| s.contains("TEMP MACRO str_macro()")));
+        // Both defs are injected; string-hidden deps carry no topo edge, so
+        // their relative order falls back to name-sorted ties (deterministic
+        // for this input — the assertion pins the current behavior).
+        let base_idx = injected
+            .iter()
+            .position(|s| s.contains("TEMP MACRO base_macro()"))
+            .unwrap();
+        let str_idx = injected
+            .iter()
+            .position(|s| s.contains("TEMP MACRO str_macro()"))
+            .unwrap();
+        assert!(base_idx < str_idx, "{injected:?}");
     }
 
     #[test]

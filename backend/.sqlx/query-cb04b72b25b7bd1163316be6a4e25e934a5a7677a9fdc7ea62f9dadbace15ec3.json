@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT name AS \"name!\", params AS \"params!\", body AS \"body!\",\n                  is_table_macro AS \"is_table_macro!\", provider_path AS \"provider_path!\"\n           FROM macro_definition\n           WHERE workspace_id = $1\n           ORDER BY provider_path, name",
+  "query": "SELECT m.name AS \"name!\", m.params AS \"params!\", m.body AS \"body!\",\n                  m.is_table_macro AS \"is_table_macro!\", m.provider_path AS \"provider_path!\"\n           FROM macro_definition m\n           WHERE m.workspace_id = $1\n             AND EXISTS (\n                SELECT 1 FROM script s\n                WHERE s.workspace_id = m.workspace_id\n                  AND s.path = m.provider_path\n                  AND s.archived = false\n                  AND s.deleted = false\n             )\n           ORDER BY m.provider_path, m.name",
   "describe": {
     "columns": [
       {
@@ -42,5 +42,5 @@
       false
     ]
   },
-  "hash": "0d8501a261d9c3c18aed305c4160b9339bd57fde7ef61602fe8dad181d05a0b4"
+  "hash": "cb04b72b25b7bd1163316be6a4e25e934a5a7677a9fdc7ea62f9dadbace15ec3"
 }

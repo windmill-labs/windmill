@@ -181,7 +181,10 @@ injected by Windmill ("resolve-and-inject"):
   compile step.
 - `// use <lib_path>` force-injects a whole library (definitions + its setup
   statements) — the escape hatch for dynamic SQL (e.g. calls inside
-  `query('…')` strings) that lexical detection can't see.
+  `query('…')` strings) that lexical detection can't see. A library's own
+  `// use` declarations are honored transitively: consuming a macro from lib B
+  pulls in whatever B `// use`s, so a dynamic dependency stays encapsulated in
+  the library instead of leaking to every consumer.
 - Deploy-time validation: builtin-shadow rejection (DuckDB silently allows
   shadowing `concat`!), within-file forward references, cross-lib name
   collisions, non-setup statements, managed-ATTACH setup.

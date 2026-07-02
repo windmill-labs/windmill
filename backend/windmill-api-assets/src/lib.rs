@@ -13,7 +13,7 @@ use windmill_common::{
     utils::escape_ilike_pattern,
 };
 
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{build_scope_path_predicate, ApiAuthed};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -40,19 +40,31 @@ struct MacroListItem {
 }
 
 // Every workspace macro (`// macros` libraries), grouped client-side by
-// provider. Small by construction — one row per macro definition.
+// provider. Small by construction — one row per macro definition. The rows
+// copy script body text, so visibility must match reading the provider
+// script itself: the EXISTS join runs under the user_db transaction (script
+// RLS filters libraries the caller can't read) and the scope predicate
+// covers path-scoped tokens, mirroring `list_scripts`.
 async fn list_macros(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<MacroListItem>> {
+    let scope_allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query!(
-        r#"SELECT name AS "name!", params AS "params!", body AS "body!",
-                  is_table_macro AS "is_table_macro!", provider_path AS "provider_path!"
-           FROM macro_definition
-           WHERE workspace_id = $1
-           ORDER BY provider_path, name"#,
+        r#"SELECT m.name AS "name!", m.params AS "params!", m.body AS "body!",
+                  m.is_table_macro AS "is_table_macro!", m.provider_path AS "provider_path!"
+           FROM macro_definition m
+           WHERE m.workspace_id = $1
+             AND EXISTS (
+                SELECT 1 FROM script s
+                WHERE s.workspace_id = m.workspace_id
+                  AND s.path = m.provider_path
+                  AND s.archived = false
+                  AND s.deleted = false
+             )
+           ORDER BY m.provider_path, m.name"#,
         &w_id,
     )
     .fetch_all(&mut *tx)
@@ -60,6 +72,7 @@ async fn list_macros(
     tx.commit().await?;
     Ok(Json(
         rows.into_iter()
+            .filter(|r| scope_allowed(&r.provider_path))
             .map(|r| MacroListItem {
                 name: r.name,
                 params: r.params,
