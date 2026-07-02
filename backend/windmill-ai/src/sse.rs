@@ -9,7 +9,9 @@ use windmill_common::{error::Error, utils::rd_string};
 use crate::{
     ai_google::{parse_gemini_sse_event, GeminiUsageMetadata},
     ai_types::UrlCitation,
-    ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
+    ai_types::{
+        AnthropicExtraContent, ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall,
+    },
     query_builder::StreamEventSink,
     types::StreamingEvent,
 };
@@ -216,6 +218,16 @@ pub enum AnthropicContentBlockStart {
         id: String,
         name: String,
     },
+    #[serde(rename = "thinking")]
+    Thinking {
+        #[serde(default)]
+        thinking: String,
+    },
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking {
+        #[serde(default)]
+        data: String,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -240,6 +252,10 @@ pub enum AnthropicDelta {
     InputJsonDelta { partial_json: String },
     #[serde(rename = "citations_delta")]
     CitationsDelta { citation: AnthropicCitationDelta },
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { thinking: String },
+    #[serde(rename = "signature_delta")]
+    SignatureDelta { signature: String },
     #[serde(other)]
     Unknown,
 }
@@ -292,6 +308,7 @@ pub enum AnthropicSSEEvent {
 #[allow(dead_code)]
 enum ContentBlockState {
     Text,
+    Thinking,
     ToolUse { id: String, name: String },
     Unknown,
 }
@@ -310,6 +327,11 @@ pub struct AnthropicSSEParser {
     pub used_websearch: bool,
     /// Token usage from message_delta event
     pub usage: Option<AnthropicUsage>,
+    /// Claude thinking block accumulated from `thinking`/`signature` deltas
+    /// (or a redacted block). Attached to the first tool call of the turn so it
+    /// can be replayed before `tool_use` (required by Claude when thinking is on).
+    pending_reasoning: Option<AnthropicExtraContent>,
+    reasoning_attached: bool,
 }
 
 impl AnthropicSSEParser {
@@ -323,6 +345,8 @@ impl AnthropicSSEParser {
             annotations: Vec::new(),
             used_websearch: false,
             usage: None,
+            pending_reasoning: None,
+            reasoning_attached: false,
         }
     }
 }
@@ -363,6 +387,17 @@ impl SSEParser for AnthropicSSEParser {
                             self.stream_event_processor
                                 .send(event, &mut self.events_str)
                                 .await?;
+                            // Attach the turn's thinking block to the first tool call so it
+                            // can be replayed before tool_use on the next request.
+                            let extra_content = if self.reasoning_attached {
+                                None
+                            } else {
+                                self.reasoning_attached = true;
+                                self.pending_reasoning.take().map(|anthropic| ExtraContent {
+                                    anthropic: Some(anthropic),
+                                    ..Default::default()
+                                })
+                            };
                             // Initialize tool call accumulator
                             self.accumulated_tool_calls.insert(
                                 index as i64,
@@ -370,9 +405,28 @@ impl SSEParser for AnthropicSSEParser {
                                     id,
                                     function: OpenAIFunction { name, arguments: String::new() },
                                     r#type: "function".to_string(),
-                                    extra_content: None,
+                                    extra_content,
                                 },
                             );
+                        }
+                        AnthropicContentBlockStart::Thinking { thinking } => {
+                            self.content_blocks
+                                .insert(index, ContentBlockState::Thinking);
+                            let entry = self.pending_reasoning.get_or_insert_with(Default::default);
+                            if !thinking.is_empty() {
+                                entry
+                                    .thinking
+                                    .get_or_insert_with(String::new)
+                                    .push_str(&thinking);
+                            }
+                        }
+                        AnthropicContentBlockStart::RedactedThinking { data } => {
+                            // Redacted blocks arrive whole (no deltas).
+                            self.content_blocks
+                                .insert(index, ContentBlockState::Unknown);
+                            self.pending_reasoning
+                                .get_or_insert_with(Default::default)
+                                .redacted_thinking = Some(data);
                         }
                         AnthropicContentBlockStart::ServerToolUse { name, .. } => {
                             // Detect websearch tool usage
@@ -416,6 +470,28 @@ impl SSEParser for AnthropicSSEParser {
                                 url: citation.url,
                                 title: citation.title,
                             });
+                        }
+                        AnthropicDelta::ThinkingDelta { thinking } => {
+                            if let Some(ContentBlockState::Thinking) =
+                                self.content_blocks.get(&index)
+                            {
+                                self.pending_reasoning
+                                    .get_or_insert_with(Default::default)
+                                    .thinking
+                                    .get_or_insert_with(String::new)
+                                    .push_str(&thinking);
+                            }
+                        }
+                        AnthropicDelta::SignatureDelta { signature } => {
+                            if let Some(ContentBlockState::Thinking) =
+                                self.content_blocks.get(&index)
+                            {
+                                self.pending_reasoning
+                                    .get_or_insert_with(Default::default)
+                                    .signature
+                                    .get_or_insert_with(String::new)
+                                    .push_str(&signature);
+                            }
                         }
                         AnthropicDelta::Unknown => {}
                     }
@@ -522,7 +598,7 @@ impl SSEParser for GeminiSSEParser {
 
             let extra_content = tool_call.thought_signature.map(|sig| ExtraContent {
                 google: Some(GoogleExtraContent { thought_signature: Some(sig) }),
-                bedrock: None,
+                ..Default::default()
             });
 
             self.accumulated_tool_calls.insert(
@@ -803,5 +879,58 @@ impl SSEParser for OpenAIResponsesSSEParser {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_anthropic_thinking_events() {
+        let start: AnthropicSSEEvent = serde_json::from_str(
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"x"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            start,
+            AnthropicSSEEvent::ContentBlockStart {
+                content_block: AnthropicContentBlockStart::Thinking { .. },
+                ..
+            }
+        ));
+
+        let thinking_delta: AnthropicSSEEvent = serde_json::from_str(
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"more"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            thinking_delta,
+            AnthropicSSEEvent::ContentBlockDelta { delta: AnthropicDelta::ThinkingDelta { .. }, .. }
+        ));
+
+        let signature_delta: AnthropicSSEEvent = serde_json::from_str(
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            signature_delta,
+            AnthropicSSEEvent::ContentBlockDelta {
+                delta: AnthropicDelta::SignatureDelta { .. },
+                ..
+            }
+        ));
+
+        let redacted: AnthropicSSEEvent = serde_json::from_str(
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"abc"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            redacted,
+            AnthropicSSEEvent::ContentBlockStart {
+                content_block: AnthropicContentBlockStart::RedactedThinking { .. },
+                ..
+            }
+        ));
     }
 }

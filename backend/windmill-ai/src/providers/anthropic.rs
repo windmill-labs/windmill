@@ -92,6 +92,10 @@ pub enum AnthropicRequestContent {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    #[serde(rename = "thinking")]
+    Thinking { thinking: String, signature: String },
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking { data: String },
     #[serde(rename = "image")]
     Image { source: AnthropicBase64Source },
     #[serde(rename = "document")]
@@ -217,6 +221,25 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
             "assistant" => {
                 let mut content: Vec<AnthropicRequestContent> = Vec::new();
 
+                // Replay the turn's thinking block first: when thinking is enabled,
+                // Claude requires the thinking block (with its unmodified signature)
+                // to precede tool_use in the assistant turn it was emitted in. It is
+                // round-tripped on the tool call's extra_content (see AnthropicExtraContent).
+                if let Some(reasoning) = msg
+                    .tool_calls
+                    .as_ref()
+                    .and_then(|tcs| {
+                        tcs.iter().find_map(|tc| {
+                            tc.extra_content
+                                .as_ref()
+                                .and_then(|ec| ec.anthropic.as_ref())
+                        })
+                    })
+                    .and_then(anthropic_reasoning_block_from_extra)
+                {
+                    content.push(reasoning);
+                }
+
                 // Add text content if present
                 if let Some(ref c) = msg.content {
                     let text = extract_text_content(c);
@@ -272,6 +295,25 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
     }
 
     result
+}
+
+/// Rebuild an Anthropic thinking content block from the round-tripped
+/// [`AnthropicExtraContent`](crate::ai_types::AnthropicExtraContent). Returns
+/// None when there is no replayable block (thinking text without a signature is
+/// rejected by Anthropic, so it is dropped rather than sent).
+fn anthropic_reasoning_block_from_extra(
+    extra: &crate::ai_types::AnthropicExtraContent,
+) -> Option<AnthropicRequestContent> {
+    if let Some(data) = extra.redacted_thinking.as_deref() {
+        return Some(AnthropicRequestContent::RedactedThinking { data: data.to_string() });
+    }
+    match (extra.thinking.as_deref(), extra.signature.as_deref()) {
+        (Some(thinking), Some(signature)) => Some(AnthropicRequestContent::Thinking {
+            thinking: thinking.to_string(),
+            signature: signature.to_string(),
+        }),
+        _ => None,
+    }
 }
 
 /// Convert OpenAI content to Anthropic content blocks
@@ -866,6 +908,77 @@ mod tests {
             .iter()
             .any(|(header_name, _)| header_name == "anthropic-version"));
         assert!(has_header(&request.headers, "anthropic-beta", "some-beta"));
+    }
+
+    #[test]
+    fn convert_messages_replays_thinking_block_before_tool_use() {
+        let tool_call = crate::ai_types::OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: crate::ai_types::OpenAIFunction {
+                name: "lookup".to_string(),
+                arguments: "{}".to_string(),
+            },
+            r#type: "function".to_string(),
+            extra_content: Some(crate::ai_types::ExtraContent {
+                anthropic: Some(crate::ai_types::AnthropicExtraContent {
+                    thinking: Some("let me think".to_string()),
+                    signature: Some("sig-abc".to_string()),
+                    redacted_thinking: None,
+                }),
+                ..Default::default()
+            }),
+        };
+        let assistant = OpenAIMessage {
+            role: "assistant".to_string(),
+            tool_calls: Some(vec![tool_call]),
+            ..Default::default()
+        };
+
+        let messages = convert_messages_to_anthropic(&[assistant]);
+        let content = &messages[0].content;
+        match &content[0] {
+            AnthropicRequestContent::Thinking { thinking, signature } => {
+                assert_eq!(thinking, "let me think");
+                assert_eq!(signature, "sig-abc");
+            }
+            other => panic!("expected thinking block first, got {:?}", other),
+        }
+        assert!(matches!(
+            &content[1],
+            AnthropicRequestContent::ToolUse { .. }
+        ));
+    }
+
+    #[test]
+    fn convert_messages_drops_thinking_without_signature() {
+        let tool_call = crate::ai_types::OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: crate::ai_types::OpenAIFunction {
+                name: "lookup".to_string(),
+                arguments: "{}".to_string(),
+            },
+            r#type: "function".to_string(),
+            extra_content: Some(crate::ai_types::ExtraContent {
+                anthropic: Some(crate::ai_types::AnthropicExtraContent {
+                    thinking: Some("unsigned".to_string()),
+                    signature: None,
+                    redacted_thinking: None,
+                }),
+                ..Default::default()
+            }),
+        };
+        let assistant = OpenAIMessage {
+            role: "assistant".to_string(),
+            tool_calls: Some(vec![tool_call]),
+            ..Default::default()
+        };
+
+        let messages = convert_messages_to_anthropic(&[assistant]);
+        // An unsigned thinking block can't be replayed, so only tool_use remains.
+        assert!(matches!(
+            messages[0].content[0],
+            AnthropicRequestContent::ToolUse { .. }
+        ));
     }
 
     #[test]
