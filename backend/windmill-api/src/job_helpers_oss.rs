@@ -107,15 +107,30 @@ pub async fn upload_file_internal(
     ))
 }
 
-#[cfg(all(feature = "parquet", not(feature = "private")))]
+// These stubs stand in for the CE quota helpers in a pure-OSS build; their only
+// callers (apps.rs / args.rs uploads) are `not(enterprise)`, so gate them the
+// same way — an enterprise-without-private build compiles neither.
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
 pub async fn ce_storage_quota_remaining(_db: &DB, _w_id: &str) -> error::Result<i64> {
     Ok(i64::MAX)
 }
 
-#[cfg(all(feature = "parquet", not(feature = "private")))]
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
 pub async fn bump_storage_usage(_db: &DB, _w_id: &str, _storage: &str, _delta: i64) {}
 
-#[cfg(all(feature = "parquet", not(feature = "private")))]
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
 pub fn spawn_storage_usage_recount_floored(_db: &DB, _w_id: &str) {}
 
 #[cfg(all(feature = "parquet", not(feature = "private")))]
