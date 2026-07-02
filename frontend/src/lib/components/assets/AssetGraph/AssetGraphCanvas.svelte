@@ -1049,18 +1049,31 @@
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
 		{#if showMinimap}
+			<!-- Node hues mirror the canvas: blue asset cards, amber triggers,
+			     bordered neutral script cards. Visible strokes + rounded corners +
+			     a bordered container + the outlined viewport mask are what make
+			     this read as a minimap instead of a loading skeleton. -->
 			<MiniMap
 				pannable
 				zoomable
-				class="!bg-surface !mb-10"
+				class="!bg-surface !mb-10 rounded-md border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden"
+				nodeBorderRadius={12}
+				nodeStrokeWidth={6}
 				nodeColor={(n) =>
 					n.type === 'asset'
-						? 'rgb(96 165 250 / 0.5)'
+						? 'rgb(59 130 246 / 0.3)'
 						: n.type === 'trigger'
-							? 'rgb(251 191 36 / 0.5)'
-							: 'rgb(52 211 153 / 0.5)'}
-				nodeStrokeColor="transparent"
-				maskColor="rgb(0 0 0 / 0.2)"
+							? 'rgb(245 158 11 / 0.3)'
+							: 'rgb(148 163 184 / 0.15)'}
+				nodeStrokeColor={(n) =>
+					n.type === 'asset'
+						? 'rgb(59 130 246 / 0.8)'
+						: n.type === 'trigger'
+							? 'rgb(245 158 11 / 0.8)'
+							: 'rgb(100 116 139 / 0.7)'}
+				maskColor="rgb(100 116 139 / 0.12)"
+				maskStrokeColor="rgb(59 130 246 / 0.5)"
+				maskStrokeWidth={4}
 			/>
 		{/if}
 	</SvelteFlow>
