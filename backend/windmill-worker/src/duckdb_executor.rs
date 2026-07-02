@@ -307,7 +307,12 @@ async fn fetch_macro_registry(
         ExpiringMacroRegistry, MACRO_REGISTRY_CACHE, MACRO_REGISTRY_CACHE_DISABLED,
         MACRO_REGISTRY_TTL,
     };
-    let use_cache = !MACRO_REGISTRY_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+    // Cloud: unbounded workspace count makes the 1000-entry per-workspace
+    // cache churn instead of hit, and its per-entry memory (full registry
+    // text) is tenant-controlled — skip it there; self-hosted keeps the fast
+    // path.
+    let use_cache = !*windmill_common::worker::CLOUD_HOSTED
+        && !MACRO_REGISTRY_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
     if use_cache {
         if let Some(e) = MACRO_REGISTRY_CACHE.get(w_id) {
             if e.expires_at > std::time::Instant::now() {
