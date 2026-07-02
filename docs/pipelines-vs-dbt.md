@@ -52,7 +52,7 @@ Asset-centric, polyglot, annotation-driven, event-aware:
 | Snapshots / SCD2 | Yes (`key=… history`) | Managed strategy |
 | Selective execution grammar | No | UI/CLI surface |
 | Schema contracts | No, but design metadata model | TODO with design work |
-| Packages / community | Closed annotation parser starts to bind | Decide extensibility model |
+| Packages / community / macros | No | **Shipped** (`// macros` workspace macro libraries) |
 | Semantic layer / metrics | No | Large additive scope |
 
 The three items where the current abstraction needs deliberate decisions
@@ -156,31 +156,43 @@ schemas live (asset row, sidecar?), **when** they're captured (post-run?
 edit-time?), and **how** versioning works are non-trivial design choices.
 Worth doing intentionally now while the asset surface is still young.
 
-### 7. Packages / community
+### 7. Packages / community / macros — **shipped** (macro libraries)
 
 dbt: `dbt deps`, `dbt-utils`, `dbt-expectations`. Whole ecosystem on Jinja
-macros.
+macros — text templating that exists largely to paper over weak warehouse
+SQL and absent code reuse.
 
-Today: closed-vocabulary annotation parser — `parsePipelineAnnotations`
-hardcodes `pipeline`, `partitioned`, `freshness`, `trigger`, `debounce`,
-`tag`, `retry`, `on`. No way for a package to register
-`// test rows_between 100 1000000` or `// hook on_failure my_alert`.
+**Shipped** as workspace **DuckDB macro libraries** — engine-native
+`CREATE MACRO` (scalar + table-valued) instead of templating, resolved and
+injected by Windmill ("resolve-and-inject"):
 
-This is the one place the current abstraction starts to bind. Macros are
-also dbt's biggest pain source — we don't have to replicate them. Possible
-shapes:
+- A DuckDB script annotated `// macros` is a library: its body is
+  `CREATE OR REPLACE MACRO` statements (plus plain setup). Deploy parses each
+  macro into the `macro_definition` registry (workspace-unique names) —
+  available to consumers the moment the deploy transaction commits.
+- Any DuckDB script that *calls* a registered macro gets
+  `CREATE OR REPLACE TEMP MACRO …` blocks injected into its statement list at
+  job time — dependency-topo-ordered (DuckDB bind-checks macro bodies at
+  CREATE) and placed after the setup/ATTACH prefix. Late-bound: a lib
+  redeploy applies to every subsequent run, dbt's exact semantics but with a
+  deploy-time registry instead of a compile step.
+- `// use <lib_path>` force-injects a whole library (definitions + its setup
+  statements) — the escape hatch for dynamic SQL (e.g. calls inside
+  `query('…')` strings) that lexical detection can't see.
+- Deploy-time validation: builtin-shadow rejection (DuckDB silently allows
+  shadowing `concat`!), within-file forward references, cross-lib name
+  collisions, non-setup statements, managed-ATTACH setup.
+- Graph surface: the library renders as a node ("defines N macros" badge +
+  signature strip in the details pane) with violet lib→consumer edges from
+  deploy-recorded call detection (`macro_usage`) and `// use` annotations.
 
-- **Hooks-as-scripts**: `// on_failure f/lib/alert`, `// pre_run f/lib/setup`.
-  Value is a script path. Stays inside the closed annotation set; new
-  hook *types* still require parser changes but third-party *behavior*
-  ships as scripts.
-- **Test types as scripts**: a test is a script that returns 0/1, packaged
-  via the hub like anything else.
-- **Materialization plugins**: harder; template-generator would need to be
-  extensible.
-
-Doing this *after* you've shipped 30 hardcoded annotations is much harder
-than doing it now.
+Table macros + `query_table(src)` cover most of dbt's *model factory*
+pattern (one parameterized transform, N thin per-asset scripts); DuckDB's
+richer SQL (`COLUMNS(*)`, native `PIVOT`, lambdas) absorbs much of
+dbt-utils outright. Parameterized custom data tests (dbt's generic tests)
+remain a follow-up on the `// data_test <script>` seam, as does the broader
+annotation-extensibility question (hooks-as-scripts etc.) — macros closed
+the reuse gap without opening the parser vocabulary.
 
 ### 8. Semantic layer / metrics
 
