@@ -95,6 +95,8 @@ struct AIAgentArgsRaw {
     system_prompt: Option<String>,
     user_message: Option<String>,
     temperature: Option<f32>,
+    #[serde(default)]
+    reasoning_effort: Option<String>,
     max_completion_tokens: Option<u32>,
     output_schema: Option<OpenAPISchema>,
     output_type: Option<OutputType>,
@@ -116,6 +118,10 @@ pub struct AIAgentArgs {
     pub system_prompt: Option<String>,
     pub user_message: Option<String>,
     pub temperature: Option<f32>,
+    /// Provider-native reasoning effort token (e.g. `low`, `high`, `xhigh`,
+    /// `max`, `none`). Threaded to each provider's thinking config; `None`
+    /// leaves provider defaults untouched.
+    pub reasoning_effort: Option<String>,
     pub max_completion_tokens: Option<u32>,
     pub output_schema: Option<OpenAPISchema>,
     pub output_type: Option<OutputType>,
@@ -148,6 +154,8 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             system_prompt: raw.system_prompt,
             user_message: raw.user_message,
             temperature: raw.temperature,
+            // Treat an empty string (e.g. a cleared flow input) as unset.
+            reasoning_effort: raw.reasoning_effort.filter(|s| !s.is_empty()),
             max_completion_tokens: raw.max_completion_tokens,
             output_schema: raw.output_schema,
             output_type: raw.output_type,

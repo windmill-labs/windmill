@@ -35,6 +35,8 @@ pub struct OpenAICompletionRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
@@ -115,6 +117,7 @@ impl OtherQueryBuilder {
             messages: &prepared_messages,
             tools: args.tools,
             temperature: args.temperature,
+            reasoning_effort: args.reasoning_effort,
             max_completion_tokens: args.max_tokens,
             response_format: response_format.clone(),
             tool_choice: tool_choice.clone(),
@@ -128,6 +131,7 @@ impl OtherQueryBuilder {
             messages: &prepared_messages,
             tools: args.tools,
             temperature: args.temperature,
+            reasoning_effort: args.reasoning_effort,
             max_completion_tokens: args.max_tokens,
             response_format,
             tool_choice,

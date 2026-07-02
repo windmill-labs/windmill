@@ -192,6 +192,12 @@ pub struct ResponsesApiTextFormat {
     pub format: ResponsesApiTextFormatConfig,
 }
 
+/// Reasoning config for the Responses API (`reasoning: { effort }`).
+#[derive(Serialize)]
+pub struct ResponsesApiReasoning {
+    pub effort: String,
+}
+
 #[derive(Serialize)]
 pub struct ResponsesApiRequest<'a> {
     pub model: &'a str,
@@ -203,6 +209,8 @@ pub struct ResponsesApiRequest<'a> {
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ResponsesApiReasoning>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -409,6 +417,9 @@ impl OpenAIQueryBuilder {
             tools,
             stream: Some(true),
             temperature: args.temperature,
+            reasoning: args
+                .reasoning_effort
+                .map(|effort| ResponsesApiReasoning { effort: effort.to_string() }),
             max_output_tokens: args.max_tokens,
             text,
         };
@@ -464,6 +475,7 @@ impl OpenAIQueryBuilder {
             tools,
             stream: None, // Image generation doesn't use streaming
             temperature: args.temperature,
+            reasoning: None, // Image generation models don't take a reasoning effort
             max_output_tokens: args.max_tokens,
             text: None, // No structured output for image generation
         };

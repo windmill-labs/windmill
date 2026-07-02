@@ -131,6 +131,26 @@ pub struct AnthropicMessage {
     pub content: Vec<AnthropicRequestContent>,
 }
 
+/// Adaptive thinking config for Anthropic native API. `summarized` display
+/// matches the chat proxy path (renders a summarized thinking stream).
+#[derive(Serialize, Debug)]
+pub struct AnthropicThinking {
+    pub r#type: &'static str,
+    pub display: &'static str,
+}
+
+impl AnthropicThinking {
+    fn adaptive() -> Self {
+        Self { r#type: "adaptive", display: "summarized" }
+    }
+}
+
+/// Carries the reasoning effort token alongside adaptive thinking.
+#[derive(Serialize, Debug)]
+pub struct AnthropicOutputConfig {
+    pub effort: String,
+}
+
 /// Anthropic-specific request structure for standard API
 #[derive(Serialize)]
 pub struct AnthropicRequest<'a> {
@@ -144,6 +164,10 @@ pub struct AnthropicRequest<'a> {
     pub tool_choice: Option<AnthropicToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<AnthropicThinking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<AnthropicOutputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
     pub stream: bool,
@@ -165,6 +189,10 @@ pub struct AnthropicVertexRequest {
     pub tool_choice: Option<AnthropicToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<AnthropicThinking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<AnthropicOutputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
     pub stream: bool,
@@ -575,6 +603,17 @@ impl AnthropicQueryBuilder {
             }
         }
 
+        // Adaptive thinking rejects sampling params, so drop temperature when
+        // reasoning is on (Anthropic returns a hard 400 otherwise).
+        let (thinking, output_config, temperature) = match args.reasoning_effort {
+            Some(effort) => (
+                Some(AnthropicThinking::adaptive()),
+                Some(AnthropicOutputConfig { effort: effort.to_string() }),
+                None,
+            ),
+            None => (None, None, args.temperature),
+        };
+
         // Build request based on platform
         if self.is_vertex() {
             // For Vertex AI: no model field, anthropic_version in body
@@ -584,7 +623,9 @@ impl AnthropicQueryBuilder {
                 messages: anthropic_messages,
                 tools: tools_option,
                 tool_choice,
-                temperature: args.temperature,
+                temperature,
+                thinking,
+                output_config,
                 max_tokens,
                 stream: true,
             };
@@ -598,7 +639,9 @@ impl AnthropicQueryBuilder {
                 messages: anthropic_messages,
                 tools: tools_option,
                 tool_choice,
-                temperature: args.temperature,
+                temperature,
+                thinking,
+                output_config,
                 max_tokens,
                 stream: true,
             };
@@ -748,8 +791,7 @@ mod tests {
     #[test]
     fn builds_standard_anthropic_proxy_request() {
         let credentials = credentials(AIPlatform::Standard);
-        let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard);
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
@@ -786,8 +828,7 @@ mod tests {
         let mut credentials = credentials(AIPlatform::GoogleVertexAi);
         credentials.base_url = "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/anthropic/models".to_string();
         credentials.user = Some("user-1".to_string());
-        let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi);
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
@@ -828,10 +869,55 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_request_serializes_adaptive_thinking_without_temperature() {
+        let request = AnthropicRequest {
+            model: "claude-opus-4-8",
+            system: None,
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            thinking: Some(AnthropicThinking::adaptive()),
+            output_config: Some(AnthropicOutputConfig { effort: "high".to_string() }),
+            max_tokens: Some(64000),
+            stream: true,
+        };
+
+        let body: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
+        assert_eq!(body["thinking"]["type"], "adaptive");
+        assert_eq!(body["thinking"]["display"], "summarized");
+        assert_eq!(body["output_config"]["effort"], "high");
+        // Sampling params are rejected alongside adaptive thinking.
+        assert!(body.get("temperature").is_none());
+    }
+
+    #[test]
+    fn anthropic_request_omits_thinking_when_reasoning_off() {
+        let request = AnthropicRequest {
+            model: "claude-opus-4-8",
+            system: None,
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            temperature: Some(0.5),
+            thinking: None,
+            output_config: None,
+            max_tokens: Some(64000),
+            stream: true,
+        };
+
+        let body: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("output_config").is_none());
+        assert_eq!(body["temperature"], 0.5);
+    }
+
+    #[test]
     fn rejects_vertex_proxy_request_without_model() {
         let credentials = credentials(AIPlatform::GoogleVertexAi);
-        let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi);
         let method = Method::POST;
         let headers = HeaderMap::new();
 

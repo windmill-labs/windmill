@@ -301,7 +301,7 @@ export const DEEPSEEK_OFF_SENTINEL: ReasoningEffort = 'none'
  * model that reasons *by default* — omitting the field would silently keep
  * the default-on behavior. Undefined means omission is the correct off.
  */
-function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
+export function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
 	switch (provider) {
 		case 'googleai':
 			// Gemini 2.5/3 think by default (dynamic budget / level). The backend

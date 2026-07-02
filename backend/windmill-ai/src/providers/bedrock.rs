@@ -9,10 +9,10 @@
 use crate::{
     ai_bedrock::{
         bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
-        bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
-        bedrock_stream_event_to_tool_delta_with_block_index, bedrock_stream_event_to_tool_start,
-        bedrock_stream_event_to_tool_start_with_block_index, build_tool_config,
-        create_inference_config, format_bedrock_error, json_to_document,
+        bedrock_stream_event_to_reasoning_delta, bedrock_stream_event_to_text,
+        bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_delta_with_block_index,
+        bedrock_stream_event_to_tool_start, bedrock_stream_event_to_tool_start_with_block_index,
+        build_tool_config, create_inference_config, format_bedrock_error, json_to_document,
         openai_messages_to_bedrock, streaming_tool_calls_to_openai, BearerTokenProvider,
         BedrockClient, StreamingToolCall,
     },
@@ -942,6 +942,7 @@ impl BedrockQueryBuilder {
         tools: Option<&[ToolDef]>,
         model: &str,
         temperature: Option<f32>,
+        reasoning_effort: Option<&str>,
         max_tokens: Option<u32>,
         api_key: &str,
         region: &str,
@@ -977,6 +978,9 @@ impl BedrockQueryBuilder {
         let (bedrock_messages, system_prompts) =
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
+        // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
+        let temperature = reasoning_effort.is_none().then_some(temperature).flatten();
+
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
 
@@ -994,6 +998,7 @@ impl BedrockQueryBuilder {
             system_prompts,
             inference_config,
             tool_config,
+            reasoning_effort,
             stream_event_sink,
         )
         .await
@@ -1008,6 +1013,7 @@ impl BedrockQueryBuilder {
         system_prompts: Vec<aws_sdk_bedrockruntime::types::SystemContentBlock>,
         inference_config: Option<aws_sdk_bedrockruntime::types::InferenceConfiguration>,
         tool_config: Option<aws_sdk_bedrockruntime::types::ToolConfiguration>,
+        reasoning_effort: Option<&str>,
         stream_event_sink: Option<Box<dyn StreamEventSink>>,
     ) -> Result<ParsedResponse, Error> {
         tracing::debug!(
@@ -1035,6 +1041,11 @@ impl BedrockQueryBuilder {
             request_builder = request_builder.set_tool_config(Some(config));
         }
 
+        if let Some(effort) = reasoning_effort {
+            request_builder =
+                request_builder.additional_model_request_fields(bedrock_thinking_fields(effort));
+        }
+
         let mut stream = request_builder
             .send()
             .await
@@ -1053,11 +1064,19 @@ impl BedrockQueryBuilder {
         let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
         let mut current_tool_use_id: Option<String> = None;
         let mut usage: Option<TokenUsage> = None;
+        // Claude reasoning block for the turn (only populated when thinking is on),
+        // attached to the first tool call for replay before toolUse.
+        let mut reasoning: Option<crate::ai_types::BedrockExtraContent> = None;
 
         // Process stream events using shared parsing functions
         loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
+                    // Fold reasoning deltas into the turn's reasoning block so it
+                    // can be replayed before toolUse (required by Claude when
+                    // thinking is enabled). No-op when thinking is off.
+                    let _ = bedrock_stream_event_to_reasoning_delta(&event, &mut reasoning);
+
                     // Handle tool use start using shared parser
                     if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
                         current_tool_use_id = Some(tool_call.id.clone());
@@ -1143,8 +1162,10 @@ impl BedrockQueryBuilder {
             Some(accumulated_text)
         };
 
-        let tool_calls =
-            streaming_tool_calls_to_openai(accumulated_tool_calls.into_values().collect());
+        let tool_calls = streaming_tool_calls_to_openai(
+            accumulated_tool_calls.into_values().collect(),
+            reasoning,
+        );
 
         Ok(ParsedResponse::Text {
             content,
