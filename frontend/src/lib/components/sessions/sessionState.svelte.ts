@@ -261,6 +261,16 @@ function sessionRootId(s: Session): string | undefined {
 	)
 }
 
+// Whether a session belongs to the active workspace's family. Sessions whose
+// root can't be resolved (no workspace bound yet) count as in-family — scoping
+// is a display filter, not an access gate, so unknowns fail open.
+export function sessionInCurrentFamily(s: Session): boolean {
+	const currentRoot = workspaceRootId(get(workspaceStore) ?? undefined, get(userWorkspaces))
+	if (!currentRoot) return true
+	const root = sessionRootId(s)
+	return root === undefined || root === currentRoot
+}
+
 function ensureSessionRootId(s: Session): boolean {
 	if (s.workspace_root_id || s.transient) return false
 	const workspaceId = s.workspace_id ?? s.pending_workspace_id
@@ -667,11 +677,19 @@ export function findSessionByName(name: string): Session | undefined {
 export function createSession(): Session {
 	// Reuse the existing transient session (if any) so the user can hit
 	// the "+" button repeatedly without piling drafts. The transient
-	// becomes a real session at first-message-send time.
+	// becomes a real session at first-message-send time. Only a transient
+	// from the active workspace family qualifies — reusing one left over
+	// from another family would hand the user a session still acting on
+	// that family. A cross-family leftover is dropped instead (it was
+	// never sent, so only the draft slot holds it).
 	const existingTransient = sessionState.sessions.find((s) => s.transient)
 	if (existingTransient) {
-		sessionState.currentSessionId = existingTransient.id
-		return existingTransient
+		if (sessionInCurrentFamily(existingTransient)) {
+			sessionState.currentSessionId = existingTransient.id
+			return existingTransient
+		}
+		sessionState.sessions = sessionState.sessions.filter((s) => s.id !== existingTransient.id)
+		clearTransientDraft()
 	}
 	const existingNumbers = sessionState.sessions
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])

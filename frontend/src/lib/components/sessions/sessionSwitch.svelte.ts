@@ -2,6 +2,7 @@ import { goto } from '$lib/navigation'
 import {
 	createSession,
 	selectSession,
+	sessionInCurrentFamily,
 	sessionState,
 	setSessionPendingWorkspace,
 	setSessionTarget,
@@ -28,11 +29,17 @@ export function rememberNavRoute(pathnameWithSearch: string): void {
 
 // Enter session mode: open the active session if one is selected, else the most
 // recent non-archived session, else spin up a fresh one — then route to it.
+// Restore candidates are scoped to the active workspace family: reviving a
+// session from another family would pull that family's scope (sidebar list,
+// "Acting on" workspace) into the one the user is actually in.
 export async function enterSessionMode(): Promise<void> {
 	const current = sessionState.currentSessionId
 		? sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
 		: undefined
-	const target = current ?? sessionState.sessions.find((s) => !s.archived) ?? createSession()
+	const target =
+		(current && sessionInCurrentFamily(current) ? current : undefined) ??
+		sessionState.sessions.find((s) => !s.archived && sessionInCurrentFamily(s)) ??
+		createSession()
 	selectSession(target.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`)
 }

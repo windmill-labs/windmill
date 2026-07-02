@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
+	createSession,
 	decideSessionLifecycle,
 	deriveForkStatus,
 	isForkSession,
 	renameSession,
+	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
 	sessionState,
 	type Session
@@ -340,5 +342,93 @@ describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
 
 	it('unknown status (workspace absent from the queried set) → no-op, never a delete', () => {
 		expect(decideSessionLifecycle(mk(), undefined)).toEqual({ action: 'noop' })
+	})
+})
+
+// Two-family fixture: rootA (with forkA) and rootB. Returns a restore fn.
+function withTwoFamilies(activeWorkspace: string): () => void {
+	const prevUsers = get(usersWorkspaceStore)
+	const prevWs = get(workspaceStore)
+	usersWorkspaceStore.set({
+		email: 't@t',
+		workspaces: [ws('rootA'), ws('forkA', 'rootA'), ws('rootB')]
+	} as never)
+	workspaceStore.set(activeWorkspace)
+	return () => {
+		usersWorkspaceStore.set(prevUsers)
+		workspaceStore.set(prevWs)
+	}
+}
+
+describe('sessionInCurrentFamily', () => {
+	it('matches sessions bound anywhere in the active family, rejects other families', () => {
+		const restore = withTwoFamilies('forkA')
+		try {
+			expect(sessionInCurrentFamily(session({ workspace_id: 'rootA' }))).toBe(true)
+			expect(sessionInCurrentFamily(session({ pending_workspace_id: 'forkA' }))).toBe(true)
+			expect(sessionInCurrentFamily(session({ workspace_id: 'rootB' }))).toBe(false)
+		} finally {
+			restore()
+		}
+	})
+
+	it('fails open when the session has no workspace or there is no active root', () => {
+		const restore = withTwoFamilies('rootA')
+		try {
+			expect(sessionInCurrentFamily(session())).toBe(true)
+			workspaceStore.set(undefined)
+			expect(sessionInCurrentFamily(session({ workspace_id: 'rootB' }))).toBe(true)
+		} finally {
+			restore()
+		}
+	})
+})
+
+describe('createSession — transient reuse is family-scoped', () => {
+	it('reuses a transient from the active family', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const transient = session({
+			id: 'transient-same-family',
+			name: 'session-901',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(transient)
+		try {
+			const created = createSession()
+			expect(created.id).toBe('transient-same-family')
+			expect(sessionState.currentSessionId).toBe('transient-same-family')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'transient-same-family')
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('drops a transient left over from another family and starts in the active workspace', () => {
+		const restore = withTwoFamilies('rootB')
+		const prevCurrent = sessionState.currentSessionId
+		const stale = session({
+			id: 'transient-other-family',
+			name: 'session-902',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(stale)
+		let createdId: string | undefined
+		try {
+			const created = createSession()
+			createdId = created.id
+			expect(created.id).not.toBe('transient-other-family')
+			expect(created.pending_workspace_id).toBe('rootB')
+			expect(sessionState.sessions.some((s) => s.id === 'transient-other-family')).toBe(false)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'transient-other-family' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
 	})
 })
