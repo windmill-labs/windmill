@@ -8,14 +8,14 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use sqlx::PgExecutor;
 use uuid::Uuid;
 use windmill_parser::asset_parser::PartitionSpec;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 /// Well-known arg key the resolved partition value is injected under.
 pub const PARTITION_ARG: &str = "partition";
@@ -52,4 +52,17 @@ pub fn resolve_partition(
     _payload: Option<&serde_json::Value>,
 ) -> Result<Option<String>> {
     Ok(None)
+}
+
+/// Range backfill (enumerating the partition worklist) is an enterprise
+/// feature; single-partition runs with an explicit `partition` arg remain
+/// available in OSS.
+pub fn enumerate_time_partitions(
+    _spec: &PartitionSpec,
+    _from: NaiveDate,
+    _to: NaiveDate,
+) -> Result<Vec<String>> {
+    Err(Error::BadRequest(
+        "Backfilling a range of partitions is an enterprise feature".to_string(),
+    ))
 }
