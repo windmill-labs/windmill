@@ -1,6 +1,8 @@
-// Helpers for `wmill pipeline run --upload <script>[:<param>]=<file|s3://key>`:
-// bind an object to a `data_upload` / `webhook` entry point so it (and its
-// downstream) runs in the cascade instead of being skipped for want of input.
+// Helpers for `wmill pipeline run` per-script bindings:
+// `--upload <script>[:<param>]=<file|s3://key>` binds an object to a
+// `data_upload` / `webhook` entry point so it (and its downstream) runs in the
+// cascade instead of being skipped for want of input;
+// `--arg <script>:<param>=<value>` passes a plain (non-S3Object) run arg.
 import { basename } from "node:path";
 
 export type UploadBinding = { scriptTok: string; param?: string; source: string };
@@ -28,10 +30,47 @@ export function parseUploadBinding(spec: string): UploadBinding {
   return { scriptTok, param, source };
 }
 
-/** Names of a schema's S3Object properties (`format: resource-s3_object`). */
+export type ArgBinding = { scriptTok: string; param: string; value: unknown };
+
+/**
+ * Parse an `--arg` spec: `<script>:<param>=<value>`. Split on the FIRST `=`
+ * (values may contain `=`); the value is JSON when it parses as JSON, else the
+ * raw string — so `stats:limit=10` is a number and
+ * `daily_report:partition=2026-07-02` a string. `:<param>` is required: unlike
+ * `--upload` there is no single-S3Object convention to infer it from.
+ */
+export function parseArgBinding(spec: string): ArgBinding {
+  const eq = spec.indexOf("=");
+  const left = eq < 0 ? "" : spec.slice(0, eq).trim();
+  const raw = eq < 0 ? "" : spec.slice(eq + 1).trim();
+  const colon = left.indexOf(":");
+  const scriptTok = colon < 0 ? "" : left.slice(0, colon).trim();
+  const param = colon < 0 ? "" : left.slice(colon + 1).trim();
+  if (!scriptTok || !param) {
+    throw new Error(`--arg '${spec}' must be <script>:<param>=<json-or-string>`);
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    value = raw;
+  }
+  return { scriptTok, param, value };
+}
+
+/**
+ * Names of a schema's S3Object properties. The resource name in `format`
+ * varies by language parser — TS/python emit `resource-s3_object`, the SQL
+ * dialects emit `resource-S3Object` — so match it case/underscore-insensitively
+ * the way the frontend's ArgInput does.
+ */
 export function s3ObjectParams(schema: any): string[] {
   const props = schema?.properties ?? {};
-  return Object.keys(props).filter((k) => props[k]?.format === "resource-s3_object");
+  const isS3Object = (format: unknown): boolean =>
+    typeof format === "string" &&
+    format.startsWith("resource-") &&
+    format.slice("resource-".length).replaceAll("_", "").toLowerCase() === "s3object";
+  return Object.keys(props).filter((k) => isS3Object(props[k]?.format));
 }
 
 /**

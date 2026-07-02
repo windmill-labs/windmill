@@ -339,6 +339,11 @@ load-bearing.
   slice just written (`WHERE _wm_partition = <value>`), so a rerun/backfill of
   one partition is independent of other partitions' (possibly pre-existing)
   data. Whole-table assertions are a follow-up.
+- **SCD2 scope.** On a `key=… history` target, built-in checks assert the
+  *current snapshot* (`WHERE is_current`): the history table legitimately
+  repeats the natural key across closed versions, so an unscoped
+  `unique(<key>)` would fail the run on the second change of any key. Custom
+  tests see the raw history and scope themselves.
 - **Commit-then-test.** Like dbt, the write commits before tests run; a failed
   test fails the *run* (and records `Failed`, so downstream cascade stops) but
   does not roll back the committed snapshot. Time-travel still lets you inspect

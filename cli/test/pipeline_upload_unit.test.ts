@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   devUploadKey,
+  parseArgBinding,
   parseS3Uri,
   parseUploadBinding,
   s3Arg,
@@ -42,6 +43,50 @@ test("parseUploadBinding: malformed specs throw", () => {
   expect(() => parseUploadBinding(":file=./x.csv")).toThrow(); // empty script
 });
 
+test("parseArgBinding: JSON values parse, non-JSON falls back to the raw string", () => {
+  // a bare date is not valid JSON → string
+  expect(parseArgBinding("daily_report:partition=2026-07-02")).toEqual({
+    scriptTok: "daily_report",
+    param: "partition",
+    value: "2026-07-02",
+  });
+  // JSON scalars/objects keep their type
+  expect(parseArgBinding("stats:limit=10")).toEqual({
+    scriptTok: "stats",
+    param: "limit",
+    value: 10,
+  });
+  expect(parseArgBinding("stats:enabled=true")).toEqual({
+    scriptTok: "stats",
+    param: "enabled",
+    value: true,
+  });
+  expect(parseArgBinding('f/pd/stats:opts={"a":1}')).toEqual({
+    scriptTok: "f/pd/stats",
+    param: "opts",
+    value: { a: 1 },
+  });
+  // quoting forces a string even for number-looking values
+  expect(parseArgBinding('stats:code="42"')).toEqual({
+    scriptTok: "stats",
+    param: "code",
+    value: "42",
+  });
+  // split on the FIRST `=` — values may contain `=`
+  expect(parseArgBinding("stats:expr=a=b")).toEqual({
+    scriptTok: "stats",
+    param: "expr",
+    value: "a=b",
+  });
+});
+
+test("parseArgBinding: :param is required and malformed specs throw", () => {
+  expect(() => parseArgBinding("stats=10")).toThrow(); // no :param
+  expect(() => parseArgBinding("stats:limit")).toThrow(); // no `=`
+  expect(() => parseArgBinding(":limit=10")).toThrow(); // empty script
+  expect(() => parseArgBinding("stats:=10")).toThrow(); // empty param
+});
+
 test("s3ObjectParams: only resource-s3_object properties, in declaration order", () => {
   const schema = {
     properties: {
@@ -54,6 +99,18 @@ test("s3ObjectParams: only resource-s3_object properties, in declaration order",
   expect(s3ObjectParams(schema)).toEqual(["file", "backup"]);
   expect(s3ObjectParams({})).toEqual([]);
   expect(s3ObjectParams(undefined)).toEqual([]);
+});
+
+test("s3ObjectParams: matches SQL-dialect resource-S3Object casing too", () => {
+  // TS/python parsers emit `resource-s3_object`; the SQL dialects (duckdb
+  // `-- $file (s3object)`) emit `resource-S3Object` — both must bind.
+  const schema = {
+    properties: {
+      file: { type: "object", format: "resource-S3Object" },
+      other: { type: "object", format: "resource-s3" },
+    },
+  };
+  expect(s3ObjectParams(schema)).toEqual(["file"]);
 });
 
 test("devUploadKey: key scoped by script path + param so basenames don't clobber", () => {
