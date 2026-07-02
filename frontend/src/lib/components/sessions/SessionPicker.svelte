@@ -59,13 +59,11 @@
 	import { page } from '$app/state'
 	import { base } from '$app/paths'
 
-	// Look up the cached fork comparison for a session through its runtime
-	// (if any). The deriveForkStatus helper handles the "no runtime yet"
-	// and "comparison not loaded" cases by returning undefined; we render
-	// a neutral fork icon in that interim, then upgrade to the proper
-	// status icon once the comparison lands.
-	function forkStatusFor(session: Session) {
-		return deriveForkStatus(session, $userWorkspaces, getRuntime(session.id)?.forkComparison.val)
+	// The row icon only distinguishes "the session's fork workspace no longer
+	// exists" (detached) — never the fork's ahead/behind sync state, which is
+	// the fork bar's job. No comparison needed, so none is passed.
+	function forkDetachedFor(session: Session): boolean {
+		return deriveForkStatus(session, $userWorkspaces, undefined) === 'unavailable'
 	}
 
 	function isForkFor(session: Session): boolean {
@@ -524,7 +522,7 @@
 											<SessionStatusDot
 												{status}
 												isFork={isForkFor(session)}
-												forkStatus={forkStatusFor(session)}
+												forkDetached={forkDetachedFor(session)}
 											/>
 											<span
 												class={twMerge(
@@ -677,7 +675,7 @@
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}
-										forkStatus={forkStatusFor(session)}
+										forkDetached={forkDetachedFor(session)}
 									/>
 								{/if}
 								<TextInput
@@ -714,7 +712,7 @@
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}
-										forkStatus={forkStatusFor(session)}
+										forkDetached={forkDetachedFor(session)}
 									/>
 								{/if}
 								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
