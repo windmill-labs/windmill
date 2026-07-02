@@ -17,6 +17,7 @@
 	import { conditionalMelt } from '$lib/utils'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { ChevronDown } from 'lucide-svelte'
 
 	interface Props {
 		aiId?: string | undefined
@@ -36,6 +37,10 @@
 		trigger?: MenubarMenuElements['trigger'] | undefined
 		href?: string | undefined
 		class?: string | undefined
+		// Show a trailing chevron to signal the button opens a dropdown.
+		showChevron?: boolean
+		// Render the label with stronger weight/size (e.g. the workspace name).
+		emphasizeLabel?: boolean
 	}
 
 	let {
@@ -55,7 +60,9 @@
 		color = null,
 		trigger = undefined,
 		href = undefined,
-		class: classNames = undefined
+		class: classNames = undefined,
+		showChevron = false,
+		emphasizeLabel = false
 	}: Props = $props()
 
 	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
@@ -138,7 +145,7 @@
 					<div
 						class={twMerge(
 							'whitespace-pre truncate w-full',
-							sidebarClasses.text,
+							emphasizeLabel ? 'text-primary text-sm font-semibold' : sidebarClasses.text,
 							'transition-all',
 							classNames
 						)}
@@ -163,6 +170,13 @@
 					>
 				{/if}
 			</div>
+
+			{#if showChevron && !isCollapsed}
+				<ChevronDown
+					size={14}
+					class="flex-shrink-0 text-tertiary transition-colors group-hover:text-secondary"
+				/>
+			{/if}
 
 			{#if isCollapsed && notificationsCount > 0}
 				<div class="absolute top-1 right-1 flex h-fit w-fit">

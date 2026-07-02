@@ -15,7 +15,12 @@
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
 	import { usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import {
+		workspaceIsFork,
+		findWorkspaceRoot,
+		findWorkspaceDescendants,
+		findCanonicalDevWorkspace
+	} from '$lib/utils/workspaceHierarchy'
 	import { resource } from 'runed'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -38,6 +43,7 @@
 	import { base } from '$lib/base'
 	import Label from '../Label.svelte'
 	import ForkDatatableSection from './ForkDatatableSection.svelte'
+	import Select from '../select/Select.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -57,28 +63,65 @@
 	$effect(() => {
 		copyMembers = createAsDevWorkspace
 	})
+	// A dev workspace can only be created off a root base (backend rejects a dev of a fork). Clear a
+	// stale toggle when the base no longer qualifies so we never submit is_dev_workspace against a fork.
+	$effect(() => {
+		if (!canDesignateDevWorkspace && createAsDevWorkspace) {
+			createAsDevWorkspace = false
+		}
+	})
+
+	// The base workspace to fork from. A fork's git branch is based on its parent's branch, so picking
+	// a fork here (rather than the root) yields a fork of a fork.
+	let baseWorkspaceId = $state<string | undefined>(undefined)
+
+	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
+	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, $userWorkspaces))
+	let baseCandidates = $derived(
+		familyRoot ? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, $userWorkspaces)] : []
+	)
+	let baseItems = $derived(
+		baseCandidates.map((w) => ({
+			value: w.id,
+			label: w.id === familyRoot?.id ? `${w.name} (root)` : w.name,
+			subtitle: w.is_dev_workspace ? 'dev workspace' : w.id === familyRoot?.id ? undefined : 'fork'
+		}))
+	)
+	// Default to the family's editable head: the root's canonical dev workspace when it has one (the
+	// root/prod is typically forking-locked and the dev holds the current code), else the root itself.
+	let defaultBaseWorkspaceId = $derived(
+		familyRoot
+			? (findCanonicalDevWorkspace(familyRoot.id, $userWorkspaces)?.id ?? familyRoot.id)
+			: undefined
+	)
+	// Seed the base once the family is known; keep an explicit user choice as long as it stays valid.
+	$effect(() => {
+		if (!isFork) return
+		if (baseWorkspaceId && baseCandidates.some((w) => w.id === baseWorkspaceId)) return
+		baseWorkspaceId = defaultBaseWorkspaceId
+	})
 
 	// The dev-workspace option is only offered when forking a root workspace that doesn't already
 	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
-	let currentWorkspaceEntry = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
-	// Require the current workspace to be loaded before treating it as a root: a missing entry must
+	let baseWorkspaceEntry = $derived($userWorkspaces.find((w) => w.id === baseWorkspaceId))
+	// Require the base workspace to be loaded before treating it as a root: a missing entry must
 	// not read as root (it would offer invalid dev creation while the workspace list is still loading).
 	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
 	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
 	let currentIsRoot = $derived(
-		!!currentWorkspaceEntry && !workspaceIsFork($workspaceStore, $userWorkspaces)
+		!!baseWorkspaceEntry && !workspaceIsFork(baseWorkspaceId, $userWorkspaces)
 	)
 	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
 	// so the client workspace list can't see it and would offer an invalid "create dev" action.
 	const devWorkspaceResource = resource(
-		() => (currentIsRoot ? $workspaceStore : undefined),
+		() => (currentIsRoot ? baseWorkspaceId : undefined),
 		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
 	)
 	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
 	// conservative (no offer) while the check is loading (current is undefined).
 	let canDesignateDevWorkspace = $derived(currentIsRoot && devWorkspaceResource.current === null)
 	let currentWorkspaceName = $derived(
-		currentWorkspaceEntry?.name ?? $workspaceStore ?? 'the root workspace'
+		baseWorkspaceEntry?.name ?? baseWorkspaceId ?? 'the root workspace'
 	)
 
 	let id = $state('')
@@ -121,6 +164,9 @@
 				: 'ID already exists'
 		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
 			errorId = 'ID can only contain letters, numbers and dashes and must not finish by a dash'
+		} else if (effectiveId.length > 50) {
+			// `wm-fork-` prefix included: matches the backend's 50-char (git-branch / DB) limit.
+			errorId = `ID '${effectiveId}' is too long (${effectiveId.length} chars). Maximum is 50.`
 		} else {
 			errorId = ''
 		}
@@ -170,7 +216,7 @@
 		for (const job of jobs) {
 			let j = await JobService.getCompletedJob({
 				id: job,
-				workspace: $workspaceStore!
+				workspace: baseWorkspaceId!
 			})
 			ret.push(j)
 		}
@@ -206,7 +252,7 @@
 	}
 
 	async function forkWorkspace(prefixed_id: string): Promise<void> {
-		if ($workspaceStore) {
+		if (baseWorkspaceId) {
 			forkCreationLoading = true
 			errorMsgs = []
 			failedSyncJobs = []
@@ -229,7 +275,7 @@
 
 	async function completeFork(prefixed_id: string): Promise<void> {
 		let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
-			workspace: $workspaceStore!,
+			workspace: baseWorkspaceId!,
 			requestBody: {
 				id: prefixed_id,
 				name,
@@ -247,7 +293,7 @@
 			await Promise.all(
 				gitSyncJobIds.map((jobId) =>
 					jobManager.runWithProgress(() => Promise.resolve(jobId), {
-						workspace: $workspaceStore!,
+						workspace: baseWorkspaceId!,
 						timeout: 60000,
 						timeoutMessage: `Deploy fork job timed out after 60s`,
 						onProgress: (status) => {
@@ -262,7 +308,7 @@
 		} catch (error) {
 			forkCreationLoading = false
 			sendUserToast(
-				`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs} - ${error}`,
+				`Could not fork workspace ${baseWorkspaceId} because branch creation failed: ${errorMsgs} - ${error}`,
 				true
 			)
 			return
@@ -271,7 +317,7 @@
 			forkCreationError = 'Failed to create a branch for this fork on the git sync repo(s)'
 			forkCreationLoading = false
 			sendUserToast(
-				`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs}`,
+				`Could not fork workspace ${baseWorkspaceId} because branch creation failed: ${errorMsgs}`,
 				true
 			)
 			return
@@ -287,7 +333,7 @@
 
 		try {
 			await WorkspaceService.createWorkspaceFork({
-				workspace: $workspaceStore!,
+				workspace: baseWorkspaceId!,
 				requestBody: {
 					id: prefixed_id,
 					name,
@@ -310,8 +356,8 @@
 		forkCreationLoading = false
 		sendUserToast(
 			createAsDevWorkspace
-				? `Created dev workspace ${effectiveForkId} for ${$workspaceStore}`
-				: `Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`
+				? `Created dev workspace ${effectiveForkId} for ${baseWorkspaceId}`
+				: `Successfully forked workspace ${baseWorkspaceId} as: wm-fork-${id}`
 		)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
@@ -487,7 +533,7 @@
 										<a
 											target="_blank"
 											class="underline"
-											href={`/run/${job.id}?workspace=${$workspaceStore}`}
+											href={`/run/${job.id}?workspace=${baseWorkspaceId}`}
 										>
 											{job.id}
 										</a>
@@ -512,7 +558,7 @@
 										<a
 											target="_blank"
 											class="underline"
-											href={`/run/${jobId}?workspace=${$workspaceStore}`}
+											href={`/run/${jobId}?workspace=${baseWorkspaceId}`}
 										>
 											{jobId}
 										</a>
@@ -575,6 +621,20 @@
 					{/if}
 				{/if}
 			</label>
+			{#if isFork}
+				<label class="flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis">Base workspace</span>
+					<span class="text-xs text-secondary">
+						Workspace to fork from. Defaults to the root; pick an existing fork to create a fork of
+						a fork (the new branch is based on the selected workspace's branch).
+					</span>
+					<Select
+						items={baseItems}
+						bind:value={baseWorkspaceId}
+						placeholder="Select a base workspace"
+					/>
+				</label>
+			{/if}
 			{#if isFork && canDesignateDevWorkspace}
 				<Label label="Persistent dev workspace">
 					<span class="text-xs text-secondary">
@@ -648,6 +708,7 @@
 			{#if isFork}
 				<ForkDatatableSection
 					bind:this={forkDatatableSection}
+					sourceWorkspace={baseWorkspaceId}
 					onAllDone={() => {
 						completeFork(effectiveForkId)
 					}}

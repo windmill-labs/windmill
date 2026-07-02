@@ -16,12 +16,14 @@
 	import {
 		Archive,
 		ArchiveRestore,
+		ArrowUpRight,
 		EllipsisVertical,
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
 		Trash2
 	} from 'lucide-svelte'
+	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import WorkspaceItemDrillPicker from '$lib/components/WorkspaceItemDrillPicker.svelte'
@@ -38,6 +40,8 @@
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
 		moveSessionToWorkspace,
+		peekTransientDraftPrompt,
+		queueTransientDraftPrompt,
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
@@ -50,8 +54,22 @@
 	import { editorWarmIds, getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
 	import { slide } from 'svelte/transition'
+	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
-	let { sessionId }: { sessionId: string } = $props()
+	// hideEditor: never mount the inline editor pane. Used by the sessions page,
+	// where the edited item is shown in a live page preview (iframe) beside the
+	// chat instead, so the wrapper contributes only its chat column.
+	// headerInset: extra left padding on the chat header so it clears a floating
+	// control (the collapsed-rail launcher) sitting at the screen's top-left.
+	let {
+		sessionId,
+		hideEditor = false,
+		headerInset = false
+	}: {
+		sessionId: string
+		hideEditor?: boolean
+		headerInset?: boolean
+	} = $props()
 
 	// LRU-warm sessions get their editor pane mounted; others render
 	// chat-only. Reading from the reactive Set keeps SessionWrapper in
@@ -71,6 +89,25 @@
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
 
+	// Seed the composer with the unsent prompt a reload preserved in the
+	// transient draft slot (script-init: AIChatInput reads it once at mount).
+	const restoredDraftPrompt = peekTransientDraftPrompt(sessionId)
+
+	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
+	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the navigate button jumps to.
+	const acting = $derived.by(() => {
+		const wsId = session ? getEffectiveWorkspaceId(session) : undefined
+		return wsId ? { targetId: wsId } : undefined
+	})
+
+	// Navigate to the workspace the session acts on: switch into it and leave
+	// session mode for its home page.
+	function navigateToActingWorkspace() {
+		if (!acting) return
+		syncWorkspaceTo(acting.targetId)
+		void goto('/')
+	}
+
 	$effect(() => {
 		if ($workspaceStore) {
 			loadCopilot($workspaceStore)
@@ -85,7 +122,6 @@
 	async function resetToNewSession() {
 		const fresh = createSession()
 		selectSession(fresh.id)
-		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
 	}
 
 	// If the session targets a forked workspace that's still accessible,
@@ -268,7 +304,7 @@
 		session.target?.kind === 'script' ||
 		session.target?.kind === 'raw_app' ||
 		session.target?.kind === 'pipeline'}
-	{@const hasEditor = mountEditor && hasTarget && editorVisible}
+	{@const hasEditor = mountEditor && hasTarget && editorVisible && !hideEditor}
 
 	{#snippet inputPreface()}
 		{#if !hasFirstUserMessage}
@@ -322,9 +358,12 @@
 	     50/50. A reactive `size={hasEditor ? 50 : 100}` here instead races the
 	     sibling pane appearing on reload → "Could not resize panes due to constraints"
 	     and a wrong split. -->
-	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
+	<div class="flex-1 min-h-0 flex flex-col" use:splitterPointerCapture>
+		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 		<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
-			<header class="flex flex-row items-center gap-1 pl-4 pr-4 py-2 shrink-0">
+			<header
+				class="flex flex-row items-center gap-1 {headerInset ? 'pl-11' : 'pl-4'} pr-4 py-2 shrink-0"
+			>
 				<EditableInput
 					bind:this={summaryInput}
 					value={session.summary ?? ''}
@@ -378,7 +417,31 @@
 						</span>
 					{/snippet}
 				</DropdownV2>
-				{#if !session.target && hasFirstUserMessage}
+				{#if acting && hasFirstUserMessage}
+					<!-- "Acting on" context: workspace root (avatar + name) and, when the
+					     session runs in a fork, the fork name (accent pill) — with a button
+					     to jump into that workspace. Compact; sits right after the title.
+					     Hidden until the session has started — a new (un-sent) session shows
+					     the "Run in" picker (SessionWorkspaceBar) instead. -->
+					<div class="flex items-center gap-1 min-w-0 text-2xs text-tertiary">
+						<span class="shrink-0">Acting on</span>
+						<WorkspaceScopeTrigger
+							workspaceId={acting.targetId}
+							showChevron={false}
+							class="max-w-[16rem]"
+						/>
+						<button
+							type="button"
+							onclick={navigateToActingWorkspace}
+							title="Go to this workspace"
+							aria-label="Go to this workspace"
+							class="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+						>
+							<ArrowUpRight size={13} />
+						</button>
+					</div>
+				{/if}
+				{#if !hideEditor && !session.target && hasFirstUserMessage}
 					<!-- Drill-picker for sessions that have started but haven't
 				     picked an editor target yet. Hidden on fresh sessions
 				     (no messages yet) — the workspace bar is the only
@@ -402,7 +465,7 @@
 							{/snippet}
 						</Popover>
 					</div>
-				{:else if hasTarget && mountEditor && !editorVisible}
+				{:else if !hideEditor && hasTarget && mountEditor && !editorVisible}
 					<div class="ml-auto">
 						<Button
 							variant="subtle"
@@ -433,6 +496,8 @@
 					hideHeader
 					hideModeSelector
 					wideLayout
+					initialInstructions={restoredDraftPrompt}
+					onDraftChange={(text) => queueTransientDraftPrompt(sessionId, text)}
 					forceDisabled={isUnavailable || !!session.archived}
 					forceDisabledMessage={isUnavailable
 						? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
@@ -487,6 +552,7 @@
 			</Pane>
 		{/if}
 	</Splitpanes>
+	</div>
 
 	<ConfirmationModal
 		open={deleteConfirmOpen}
@@ -554,9 +620,13 @@
 {/if}
 
 <style>
-	:global(.splitter-hidden .splitpanes__splitter) {
+	/* Invisible-but-draggable splitter: a real (layout-occupying) gutter, wide
+	   enough to grab. No overlap tricks — the zone can't cover the left pane's
+	   scrollbar or the right pane's edge. */
+	:global(.splitpanes--vertical.splitter-hidden) > :global(.splitpanes__splitter) {
 		background-color: transparent !important;
 		border: none !important;
 		opacity: 0 !important;
+		width: 10px !important;
 	}
 </style>

@@ -32,14 +32,22 @@ import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	ensureChatIdsSeeded,
+	getEffectiveWorkspaceId,
 	materializeTransient,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
+	setSessionPreviewCollapsed,
+	setSessionTabs,
 	setSessionTarget,
-	type Session,
-	type SessionTarget
+	type Session
 } from './sessionState.svelte'
+import {
+	SessionPreviewTabs,
+	describePreview,
+	hydratePreviewTabs,
+	previewTargetForSessionTarget
+} from './sessionPreviewTabs.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -80,6 +88,10 @@ export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 export interface SessionRuntime {
 	readonly sessionId: string
 	readonly manager: AIChatManager
+	// Single live owner of this session's preview tabs. Both the sessions page
+	// (renderer) and the open_preview/get_preview_status tools cross it, so the
+	// tab model has exactly one live copy.
+	readonly previewTabs: SessionPreviewTabs
 	// Pipeline target state — persists across editor hide/show (the pane unmounts
 	// on hide, so this can't be component-local) and across session switches.
 	readonly pipelineEditorState: PipelineEditorState
@@ -272,6 +284,13 @@ function createRuntime(session: Session): SessionRuntime {
 	// Carried into the tool helpers so this session's preview/deploy tool calls
 	// dispatch to THIS session even when another session is the UI-active one.
 	manager.sessionId = session.id
+	// The chat targets the session's OWN (possibly forked) workspace without
+	// switching the global workspaceStore. Resolved live from the session record
+	// so it tracks the pending → committed (and staged-fork) transitions.
+	manager.workspaceResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		return s ? getEffectiveWorkspaceId(s) : undefined
+	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
@@ -312,6 +331,19 @@ function createRuntime(session: Session): SessionRuntime {
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
 	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
+	// Hydrate the preview-tab owner from the session record (the durable backing);
+	// from here on the owner is the single live copy and writes back through the
+	// adapter. setSessionTabs / setSessionPreviewCollapsed / setSessionTarget stay
+	// the low-level record writers (a transient session's writes land in the
+	// localStorage draft slot until it materialises).
+	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
+		persist: (snap) => {
+			setSessionTabs(session.id, snap.tabs, snap.activeId)
+			setSessionPreviewCollapsed(session.id, snap.collapsed)
+		},
+		setTarget: (target) => setSessionTarget(session.id, target)
+	})
+
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
 	// the pane unmounts on hide, and a component-local store would be discarded.
@@ -351,6 +383,7 @@ function createRuntime(session: Session): SessionRuntime {
 	return {
 		sessionId: session.id,
 		manager,
+		previewTabs,
 		slot(kind: SessionTargetKind): LoadSlot {
 			return kind === 'flow' ? flowSlot : kind === 'script' ? scriptSlot : rawAppSlot
 		},
@@ -777,6 +810,23 @@ export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
 }
 
+// Point a session's preview at a single seed tab. For re-pointing an existing
+// draft session at a new destination ("Open in AI session" / new-session-from-
+// page on a reused transient): its previous tabs — persisted with the draft
+// and/or held by a live owner — would otherwise keep showing the old target.
+// Must write through the live owner when one exists; a bare record write would
+// be clobbered by the owner's next flush.
+export function resetSessionPreviewTabs(sessionId: string, url: string): void {
+	const tabs = [{ id: 'session', url, loc: url }]
+	const rt = runtimes.get(sessionId)
+	if (rt) {
+		rt.previewTabs.reset(tabs, 'session')
+	} else {
+		setSessionTabs(sessionId, tabs, 'session')
+		setSessionPreviewCollapsed(sessionId, false)
+	}
+}
+
 export type SessionChatStatus =
 	| 'idle'
 	| 'streaming'
@@ -823,25 +873,31 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
 	}
-	const current = sessionState.sessions.find((s) => s.id === sessionId)?.target
-	if (current && current.kind === kind && current.path === path) {
-		return `Preview is already open showing ${kind} "${path}".`
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) {
+		return 'Error: no active session to open the preview in.'
 	}
-	const target: SessionTarget = { kind, path }
-	setSessionTarget(sessionId, target)
+	const target = previewTargetForSessionTarget(kind, path)
+	if (!target) {
+		return `Error: ${kind} targets cannot be shown in the preview panel.`
+	}
+	const result = getOrCreateRuntime(session).previewTabs.open(target)
 	promoteEditorWarm(sessionId)
-	return `Opened ${kind} preview for ${path} in the side panel.`
+	return result.status === 'focused'
+		? `A preview tab is already showing ${kind} "${path}" — focused it.`
+		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
 })
 
-// Companion to the open_preview handler: report whether the calling session's
-// preview is open and which item it shows, so the assistant can avoid
-// re-opening a preview already showing the item it just edited.
+// Companion to the open_preview handler: report the calling session's open
+// preview tabs (the panel is multi-tab), so the assistant can avoid re-opening
+// a tab already showing the item it just edited.
 setGetPreviewStatusHandler((callerSessionId) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return 'No active session; the preview panel is unavailable.'
-	const target = sessionState.sessions.find((s) => s.id === sessionId)?.target
-	if (!target) return 'No preview is currently open in the side panel.'
-	return `The preview is currently open showing ${target.kind} "${target.path}".`
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return 'No active session; the preview panel is unavailable.'
+	const owner = getOrCreateRuntime(session).previewTabs
+	return describePreview(owner.tabs, owner.activeId, session.target)
 })
 
 // After a chat deploy, reload the calling session's preview — only if it's open

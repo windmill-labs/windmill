@@ -9,6 +9,9 @@
 		isDevWorkspace?: boolean
 		parentName?: string
 		size?: number
+		// Tailwind padding class for the round badge — shrink it (e.g. 'p-0.5') for
+		// a more compact icon.
+		padding?: string
 	}
 
 	let {
@@ -16,13 +19,14 @@
 		isForked = false,
 		isDevWorkspace = false,
 		parentName,
-		size = 14
+		size = 14,
+		padding = 'p-1.5'
 	}: Props = $props()
 
 	const iconColor = $derived(getContrastTextColor(workspaceColor))
 </script>
 
-<div style="background-color: {workspaceColor}" class="rounded-full p-1.5 center-center">
+<div style="background-color: {workspaceColor}" class="rounded-full {padding} center-center">
 	{#if isForked}
 		<Tooltip>
 			{#snippet text()}

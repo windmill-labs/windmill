@@ -1240,6 +1240,16 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
+					sessionOpen={$pathStore
+						? {
+								target: { kind: 'flow', path: $pathStore },
+								workspaceId: $workspaceStore ?? undefined,
+								// Persist unsaved edits so the session preview
+								// (/flows/edit/<path>) opens the flow exactly as it is in the
+								// editor right now.
+								beforeOpen: saveDraft
+							}
+						: undefined}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}
 					{showJobStatus}

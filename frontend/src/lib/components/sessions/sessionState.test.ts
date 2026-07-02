@@ -1,11 +1,13 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
+	createSession,
 	decideSessionLifecycle,
 	deriveForkStatus,
 	isForkSession,
 	renameSession,
+	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
 	sessionState,
 	type Session
@@ -226,14 +228,12 @@ describe('commitSessionWorkspace — CE workspace-cap fork guard', () => {
 	})
 })
 
-describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () => {
-	it('syncs workspaceStore to the committed workspace when they differ', async () => {
-		// Repro: user is sitting in a fork workspace (wm-fork-x) and creates a
-		// new session whose pending_workspace_id defaults to the root workspace.
-		// Without the syncWorkspaceTo call in commitSessionWorkspace's non-fork
-		// branch, the session metadata says root while the active workspace
-		// stays on the fork — so AIChatManager.chatRequest's logAiChat and tool
-		// calls would target the wrong workspace.
+describe('commitSessionWorkspace — leaves workspaceStore untouched', () => {
+	it('commits the session workspace without switching the active workspaceStore', async () => {
+		// A session chat targets its committed workspace through the manager's
+		// workspace resolver (AIChatManager.operatingWorkspace), so committing must
+		// NOT yank the user's active (navigation-mode) workspace — even when the
+		// committed workspace and the active one differ.
 		const id = 'test-commit-ws-sync'
 		const prev = get(workspaceStore)
 		workspaceStore.set('wm-fork-x')
@@ -250,30 +250,8 @@ describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () 
 			expect(s?.workspace_id).toBe('root_ws')
 			expect(s?.workspace_root_id).toBe('root_ws')
 			expect(s?.pending_workspace_id).toBeUndefined()
-			expect(get(workspaceStore)).toBe('root_ws')
-		} finally {
-			const i = sessionState.sessions.findIndex((x) => x.id === id)
-			if (i >= 0) sessionState.sessions.splice(i, 1)
-			workspaceStore.set(prev)
-		}
-	})
-
-	it('is a no-op on workspaceStore when it already matches the committed workspace', async () => {
-		const id = 'test-commit-ws-match'
-		const prev = get(workspaceStore)
-		workspaceStore.set('root_ws')
-		sessionState.sessions.push({
-			id,
-			name: 'ws-match',
-			createdAt: 0,
-			pending_workspace_id: 'root_ws'
-		} as Session)
-		try {
-			const committed = await commitSessionWorkspace(id, undefined)
-			expect(committed).toBe('root_ws')
-			const s = sessionState.sessions.find((x) => x.id === id)
-			expect(s?.workspace_root_id).toBe('root_ws')
-			expect(get(workspaceStore)).toBe('root_ws')
+			// The active workspace is intentionally left where the user put it.
+			expect(get(workspaceStore)).toBe('wm-fork-x')
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
@@ -351,9 +329,12 @@ describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
 	})
 
 	it('active workspace → unarchive only the ones WE archived (archivedByWorkspace)', () => {
-		expect(decideSessionLifecycle(mk({ archived: true, archivedByWorkspace: true }), 'active')).toEqual(
-			{ action: 'unarchive', patch: { archived: undefined, archivedByWorkspace: undefined } }
-		)
+		expect(
+			decideSessionLifecycle(mk({ archived: true, archivedByWorkspace: true }), 'active')
+		).toEqual({
+			action: 'unarchive',
+			patch: { archived: undefined, archivedByWorkspace: undefined }
+		})
 		// user-archived (no archivedByWorkspace flag) is left alone
 		expect(decideSessionLifecycle(mk({ archived: true }), 'active')).toEqual({ action: 'noop' })
 		expect(decideSessionLifecycle(mk(), 'active')).toEqual({ action: 'noop' })
@@ -361,5 +342,93 @@ describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
 
 	it('unknown status (workspace absent from the queried set) → no-op, never a delete', () => {
 		expect(decideSessionLifecycle(mk(), undefined)).toEqual({ action: 'noop' })
+	})
+})
+
+// Two-family fixture: rootA (with forkA) and rootB. Returns a restore fn.
+function withTwoFamilies(activeWorkspace: string): () => void {
+	const prevUsers = get(usersWorkspaceStore)
+	const prevWs = get(workspaceStore)
+	usersWorkspaceStore.set({
+		email: 't@t',
+		workspaces: [ws('rootA'), ws('forkA', 'rootA'), ws('rootB')]
+	} as never)
+	workspaceStore.set(activeWorkspace)
+	return () => {
+		usersWorkspaceStore.set(prevUsers)
+		workspaceStore.set(prevWs)
+	}
+}
+
+describe('sessionInCurrentFamily', () => {
+	it('matches sessions bound anywhere in the active family, rejects other families', () => {
+		const restore = withTwoFamilies('forkA')
+		try {
+			expect(sessionInCurrentFamily(session({ workspace_id: 'rootA' }))).toBe(true)
+			expect(sessionInCurrentFamily(session({ pending_workspace_id: 'forkA' }))).toBe(true)
+			expect(sessionInCurrentFamily(session({ workspace_id: 'rootB' }))).toBe(false)
+		} finally {
+			restore()
+		}
+	})
+
+	it('fails open when the session has no workspace or there is no active root', () => {
+		const restore = withTwoFamilies('rootA')
+		try {
+			expect(sessionInCurrentFamily(session())).toBe(true)
+			workspaceStore.set(undefined)
+			expect(sessionInCurrentFamily(session({ workspace_id: 'rootB' }))).toBe(true)
+		} finally {
+			restore()
+		}
+	})
+})
+
+describe('createSession — transient reuse is family-scoped', () => {
+	it('reuses a transient from the active family', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const transient = session({
+			id: 'transient-same-family',
+			name: 'session-901',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(transient)
+		try {
+			const created = createSession()
+			expect(created.id).toBe('transient-same-family')
+			expect(sessionState.currentSessionId).toBe('transient-same-family')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'transient-same-family')
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('drops a transient left over from another family and starts in the active workspace', () => {
+		const restore = withTwoFamilies('rootB')
+		const prevCurrent = sessionState.currentSessionId
+		const stale = session({
+			id: 'transient-other-family',
+			name: 'session-902',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(stale)
+		let createdId: string | undefined
+		try {
+			const created = createSession()
+			createdId = created.id
+			expect(created.id).not.toBe('transient-other-family')
+			expect(created.pending_workspace_id).toBe('rootB')
+			expect(sessionState.sessions.some((s) => s.id === 'transient-other-family')).toBe(false)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'transient-other-family' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
 	})
 })

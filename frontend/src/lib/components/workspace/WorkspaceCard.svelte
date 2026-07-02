@@ -135,7 +135,7 @@
 									{/if}
 								</span>
 								{#if workspace.is_dev_workspace}
-									<Badge color="indigo">dev</Badge>
+									<Badge color="dark-blue" small class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white">dev</Badge>
 								{/if}
 								<span class="text-secondary text-xs">-</span>
 								{#if workspace.id === 'admins'}

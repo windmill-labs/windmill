@@ -75,7 +75,7 @@
 				id="content"
 				class={classNames(
 					'w-full flex-1 flex flex-col overflow-y-auto min-h-0',
-					noBorder || $userStore?.operator || isMobile ? '!pl-0' : isCollapsed ? 'pl-12' : 'pl-40',
+					noBorder || $userStore?.operator || isMobile ? '!pl-0' : isCollapsed ? 'pl-12' : 'pl-52',
 					'transition-all ease-in-out duration-200'
 				)}
 			>
@@ -104,7 +104,7 @@
 		id="content"
 		class={classNames(
 			'flex-1 min-h-0 flex flex-col',
-			noBorder || $userStore?.operator || isMobile ? '' : isCollapsed ? 'pl-12' : 'pl-40',
+			noBorder || $userStore?.operator || isMobile ? '' : isCollapsed ? 'pl-12' : 'pl-52',
 			'transition-all ease-in-out duration-200'
 		)}
 	>
