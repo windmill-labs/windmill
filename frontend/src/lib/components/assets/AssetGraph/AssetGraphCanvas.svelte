@@ -16,6 +16,7 @@
 	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
+	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
@@ -162,6 +163,10 @@
 		/** Hide the minimap when the canvas is too narrow for it to be worth the
 		 * space (e.g. stacked layout in a side panel). Defaults to shown. */
 		showMinimap?: boolean
+		/** Identity of the displayed graph (e.g. the pipeline folder). The
+		 * initial viewport fit re-arms when it changes, so switching folders
+		 * in-place gets a fresh fit. */
+		viewportFitKey?: string
 	}
 	let {
 		graph,
@@ -188,7 +193,8 @@
 		onStartBoundedRun,
 		boundPick,
 		onPickEnd,
-		showMinimap = true
+		showMinimap = true,
+		viewportFitKey = ''
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -1039,6 +1045,7 @@
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+		<InitialFitView {nodes} fitKey={viewportFitKey} />
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
 		{#if showMinimap}

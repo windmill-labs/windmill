@@ -433,6 +433,7 @@
 					{onPickEnd}
 					{panToNodeId}
 					showMinimap={!stacked}
+					viewportFitKey={folder}
 				/>
 				{#if boundBar}{@render boundBar()}{/if}
 				{#if mode === 'edit'}
