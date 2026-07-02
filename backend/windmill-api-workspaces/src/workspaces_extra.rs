@@ -276,6 +276,24 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating macro_definition table");
+    sqlx::query!(
+        "UPDATE macro_definition SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating macro_usage table");
+    sqlx::query!(
+        "UPDATE macro_usage SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating deployment_metadata table");
     sqlx::query!(
         "UPDATE deployment_metadata SET workspace_id = $1 WHERE workspace_id = $2",
@@ -852,6 +870,15 @@ pub(crate) async fn delete_workspace(
     sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query!("DELETE FROM macro_usage WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!(
+        "DELETE FROM macro_definition WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM v2_job_queue WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;

@@ -21433,6 +21433,20 @@ paths:
                         in_pipeline:
                           type: boolean
                           description: True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false.
+                        macros:
+                          type: array
+                          description: Macros this script provides to the workspace registry (deployed `// macros` library). Omitted when empty.
+                          items:
+                            type: object
+                            required: [name, params, is_table]
+                            properties:
+                              name:
+                                type: string
+                              params:
+                                type: string
+                                description: verbatim parameter list
+                              is_table:
+                                type: boolean
                   edges:
                     type: array
                     items:
@@ -21498,6 +21512,56 @@ paths:
                               $ref: "#/components/schemas/AssetUsageKind"
                             runnable_path:
                               type: string
+                  macro_edges:
+                    type: array
+                    description: Macro-library → consumer edges (deploy-recorded call detection plus `// use`). Omitted when empty.
+                    items:
+                      type: object
+                      required: [lib_path, consumer_path, macro_names, via_use]
+                      properties:
+                        lib_path:
+                          type: string
+                        consumer_path:
+                          type: string
+                        macro_names:
+                          type: array
+                          items:
+                            type: string
+                        via_use:
+                          type: boolean
+
+  /w/{workspace}/assets/macros:
+    get:
+      summary: List every workspace DuckDB macro (deployed `// macros` libraries)
+      operationId: listWorkspaceMacros
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: all registry macros, ordered by provider then name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [name, params, body, is_table, provider_path]
+                  properties:
+                    name:
+                      type: string
+                    params:
+                      type: string
+                      description: verbatim parameter list
+                    body:
+                      type: string
+                      description: verbatim body after AS [TABLE]
+                    is_table:
+                      type: boolean
+                    provider_path:
+                      type: string
+                      description: path of the `// macros` library script
 
   /w/{workspace}/assets/pipelines:
     get:

@@ -4037,6 +4037,7 @@ async fn clone_workspace_data(
 
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
+    clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
@@ -4592,6 +4593,35 @@ async fn clone_ci_test_references(
         "INSERT INTO ci_test_reference (workspace_id, test_script_path, test_script_hash, tested_item_path, tested_item_kind)
          SELECT $2, test_script_path, test_script_hash, tested_item_path, tested_item_kind
          FROM ci_test_reference WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// DuckDB macro registry + call-site edges are deploy-derived like
+// ci_test_reference: without cloning them, a forked consumer script fails at
+// run time until every macro library is manually redeployed in the fork.
+async fn clone_macro_registry(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO macro_definition (workspace_id, name, provider_path, params, body, is_table_macro)
+         SELECT $2, name, provider_path, params, body, is_table_macro
+         FROM macro_definition WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name)
+         SELECT $2, consumer_path, macro_name
+         FROM macro_usage WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
     )

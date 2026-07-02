@@ -1316,6 +1316,78 @@ async fn create_script_internal<'c>(
             );
         }
     }
+    // `// macros` — this script is a workspace macro library: its body is
+    // CREATE [OR REPLACE] MACRO statements plus plain setup, registered into
+    // `macro_definition` and injected as TEMP macros into consumer jobs.
+    // Pure shape checks happen here; the registry writes and the cross-lib
+    // name-collision check run inside the deploy transaction below.
+    let macro_lib_defs: Option<Vec<windmill_parser::duckdb_macros::ParsedMacro>> =
+        if pipeline_annotations.macros {
+            if ns.language != ScriptLang::DuckDb {
+                return Err(Error::BadRequest(format!(
+                    "`// macros` is only supported for DuckDB scripts, not {}",
+                    ns.language.as_str()
+                )));
+            }
+            if pipeline_annotations.materialize.is_some() {
+                return Err(Error::BadRequest(
+                    "`// macros` and `// materialize` are mutually exclusive — a macro \
+                     library defines reusable macros, it does not produce an asset"
+                        .to_string(),
+                ));
+            }
+            let lib = windmill_parser::duckdb_macros::parse_macro_library(&ns.content)
+                .map_err(Error::BadRequest)?;
+            let macros: Vec<_> = lib
+                .into_iter()
+                .filter_map(|s| match s {
+                    windmill_parser::duckdb_macros::LibStatement::Macro(m) => Some(m),
+                    windmill_parser::duckdb_macros::LibStatement::Setup(_) => None,
+                })
+                .collect();
+            if macros.is_empty() {
+                return Err(Error::BadRequest(
+                    "`// macros` library defines no macros".to_string(),
+                ));
+            }
+            let all_names: std::collections::HashSet<String> =
+                macros.iter().map(|m| m.name.clone()).collect();
+            // DuckDB bind-checks a macro body at CREATE time, so a body may
+            // only call same-file macros defined *earlier* — this also makes
+            // file order a valid creation order for whole-lib (`// use`)
+            // injection and rules out within-lib cycles.
+            let mut defined: std::collections::HashSet<String> = Default::default();
+            for m in &macros {
+                if windmill_parser::duckdb_builtins::is_duckdb_builtin(&m.name) {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` shadows a DuckDB built-in function; pick another name",
+                        m.name
+                    )));
+                }
+                if defined.contains(&m.name) {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` is defined twice in this library",
+                        m.name
+                    )));
+                }
+                let called =
+                    windmill_parser::duckdb_macros::detect_macro_calls(&m.body, &all_names);
+                if let Some(fwd) = called
+                    .iter()
+                    .find(|c| !defined.contains(*c) && *c != &m.name)
+                {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` calls `{}`, which is defined later in the file; define \
+                         `{}` first (DuckDB bind-checks macro bodies at creation)",
+                        m.name, fwd, fwd
+                    )));
+                }
+                defined.insert(m.name.clone());
+            }
+            Some(macros)
+        } else {
+            None
+        };
     let in_pipeline = pipeline_annotations.in_pipeline;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
@@ -1379,7 +1451,9 @@ async fn create_script_internal<'c>(
     } else {
         effective_assets
     };
-    let auto_kind = if in_pipeline {
+    let auto_kind = if in_pipeline || macro_lib_defs.is_some() {
+        // A macro library is a pipeline member (graph node) even without the
+        // bare `// pipeline` marker.
         Some("pipeline".to_string())
     } else if ci_test_refs.is_some() {
         Some("test".to_string())
@@ -1497,6 +1571,173 @@ async fn create_script_internal<'c>(
             )
             .execute(&mut *tx)
             .await?;
+        }
+    }
+
+    // DuckDB workspace macros: wipe-and-reinsert this script's registry rows
+    // (as provider) and call-site edges (as consumer), by new+old path so
+    // renames are handled — mirrors the ci_test_reference block above.
+    let macro_defs_deleted = sqlx::query!(
+        "DELETE FROM macro_definition WHERE workspace_id = $1 AND (provider_path = $2 OR provider_path = $3)",
+        &w_id,
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    sqlx::query!(
+        "DELETE FROM macro_usage WHERE workspace_id = $1 AND (consumer_path = $2 OR consumer_path = $3)",
+        &w_id,
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
+    )
+    .execute(&mut *tx)
+    .await?;
+    // Workers cache the registry per workspace; a mutation must evict it on
+    // every replica. Transactional emit — pollers see it only on commit.
+    if macro_lib_defs.is_some() || macro_defs_deleted > 0 {
+        sqlx::query!(
+            "INSERT INTO notify_event (channel, payload) VALUES ('notify_macro_registry_change', $1)",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(ref macros) = macro_lib_defs {
+        // Macro names are workspace-unique (they're injected unqualified into
+        // consumers). This lib's own rows — old and new path — were deleted
+        // just above, so any remaining match is a genuine cross-lib clash.
+        let names: Vec<String> = macros.iter().map(|m| m.name.clone()).collect();
+        if let Some(clash) = sqlx::query!(
+            "SELECT name, provider_path FROM macro_definition WHERE workspace_id = $1 AND name = ANY($2) LIMIT 1",
+            &w_id,
+            &names[..]
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            return Err(Error::BadRequest(format!(
+                "macro `{}` is already defined by `{}`; macro names are workspace-unique",
+                clash.name, clash.provider_path
+            )));
+        }
+        for m in macros {
+            sqlx::query!(
+                "INSERT INTO macro_definition (workspace_id, name, provider_path, params, body, is_table_macro) \
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+                &w_id,
+                &m.name,
+                &ns.path,
+                &m.params,
+                &m.body,
+                m.is_table
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    if ns.language == ScriptLang::DuckDb {
+        // Record this script's macro-call edges for the asset graph (the
+        // worker re-detects calls live at job time, so these are display
+        // metadata only). A library's edges point at *other* libs' macros.
+        let registry_names: Vec<String> = sqlx::query_scalar!(
+            "SELECT name FROM macro_definition WHERE workspace_id = $1 AND provider_path != $2",
+            &w_id,
+            &ns.path
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let names_set: std::collections::HashSet<String> = registry_names.into_iter().collect();
+        let mut called: Vec<String> =
+            windmill_parser::duckdb_macros::detect_macro_calls(&ns.content, &names_set)
+                .into_iter()
+                .collect();
+        called.sort();
+        for name in called {
+            sqlx::query!(
+                "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                &w_id,
+                &ns.path,
+                &name
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        // `// use` targets should be deployed macro libraries — warn only:
+        // git-sync deploys scripts in arbitrary order, so the consumer landing
+        // first must not hard-fail. The runtime is the enforcement point.
+        for lib in &pipeline_annotations.use_libs {
+            let exists = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2) AS "e!""#,
+                &w_id,
+                lib
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if !exists {
+                tracing::warn!(
+                    "script {}: `// use {}` does not (yet) match a deployed macro library",
+                    ns.path,
+                    lib
+                );
+            }
+        }
+    } else if !pipeline_annotations.use_libs.is_empty() {
+        tracing::warn!(
+            "script {}: `// use` is only honored on DuckDB scripts; annotation ignored",
+            ns.path
+        );
+    }
+
+    if let Some(ref macros) = macro_lib_defs {
+        // Refresh every other DuckDB script's edges for this lib's names (a
+        // redeploy may add/remove macros; late-bound runtime picks changes up
+        // regardless — this only keeps the deployed graph current). The rescan
+        // covers ALL live DuckDB scripts, not just pipeline members: their
+        // edges were recorded at their own deploy and must survive the wipe.
+        let names: Vec<String> = macros.iter().map(|m| m.name.clone()).collect();
+        sqlx::query!(
+            "DELETE FROM macro_usage WHERE workspace_id = $1 AND macro_name = ANY($2) AND consumer_path != $3",
+            &w_id,
+            &names[..],
+            &ns.path
+        )
+        .execute(&mut *tx)
+        .await?;
+        let names_set: std::collections::HashSet<String> = names.into_iter().collect();
+        let members = sqlx::query!(
+            r#"SELECT DISTINCT ON (path) path AS "path!", content AS "content!"
+               FROM script
+               WHERE workspace_id = $1
+                 AND language = 'duckdb'::script_lang
+                 AND archived = false
+                 AND deleted = false
+                 AND path != $2
+               ORDER BY path, created_at DESC"#,
+            &w_id,
+            &ns.path
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for member in members {
+            let mut called: Vec<String> =
+                windmill_parser::duckdb_macros::detect_macro_calls(&member.content, &names_set)
+                    .into_iter()
+                    .collect();
+            called.sort();
+            for name in called {
+                sqlx::query!(
+                    "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                    &w_id,
+                    &member.path,
+                    &name
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
         }
     }
 
@@ -2776,6 +3017,7 @@ async fn archive_script_by_path(
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
     // look these up).
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, path).await?;
 
     audit_log(
         &mut *tx,
@@ -2856,6 +3098,7 @@ async fn archive_script_by_hash(
     // Pipeline event hygiene: archived scripts must not be triggered by
     // anything. Wipe declared `// on ...` edges.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -2920,6 +3163,7 @@ async fn delete_script_by_hash(
     // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -3036,6 +3280,7 @@ async fn delete_script_by_path(
     // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
     // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, path).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
@@ -3198,6 +3443,10 @@ async fn delete_scripts_bulk(
     .execute(&mut *tx)
     .await?;
 
+    for path in &deleted_paths {
+        clear_macro_registry(&mut *tx, &w_id, path).await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -3246,6 +3495,39 @@ async fn delete_scripts_bulk(
     }
 
     Ok(Json(deleted_paths))
+}
+
+/// Deployed-macro hygiene for an archived/deleted script: it must neither
+/// provide macros to the workspace registry nor keep stale call-site edges.
+/// Usage edges pointing at the script's own macros go too (names are
+/// workspace-unique, so those edges can only reference this provider).
+async fn clear_macro_registry(db: &mut sqlx::PgConnection, w_id: &str, path: &str) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM macro_usage WHERE workspace_id = $1 AND (consumer_path = $2 \
+         OR macro_name IN (SELECT name FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2))",
+        w_id,
+        path
+    )
+    .execute(&mut *db)
+    .await?;
+    let deleted = sqlx::query!(
+        "DELETE FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *db)
+    .await?
+    .rows_affected();
+    // Evict workers' per-workspace registry cache (transactional emit).
+    if deleted > 0 {
+        sqlx::query!(
+            "INSERT INTO notify_event (channel, payload) VALUES ('notify_macro_registry_change', $1)",
+            w_id
+        )
+        .execute(&mut *db)
+        .await?;
+    }
+    Ok(())
 }
 
 /// Validates that script debouncing configuration is supported by all workers

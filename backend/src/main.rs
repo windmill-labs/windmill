@@ -1679,6 +1679,13 @@ async fn process_notify_event(
             );
             windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(payload);
         }
+        "notify_macro_registry_change" => {
+            tracing::debug!(
+                "Macro registry change for workspace {}, invalidating macro registry cache",
+                payload
+            );
+            windmill_common::assets::MACRO_REGISTRY_CACHE.remove(payload);
+        }
         "notify_workspace_key_change" => {
             tracing::info!(
                 "Workspace key change detected, invalidating workspace key cache: {}",

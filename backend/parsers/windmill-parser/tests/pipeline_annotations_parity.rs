@@ -47,6 +47,12 @@ struct Expected {
     // against `to_value(got.column_lineage)`. Absent === [].
     #[serde(default)]
     column_lineage: Vec<serde_json::Value>,
+    // `// macros` marker (strict, alone on the line). Absent === false.
+    #[serde(default)]
+    macros: bool,
+    // `// use <lib_path>` accumulation, declaration order, deduped. Absent === [].
+    #[serde(default)]
+    use_libs: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -225,5 +231,8 @@ fn pipeline_annotation_fixtures_match() {
             serde_json::Value::Array(f.expected.column_lineage.clone()),
             "{ctx}: column lineage"
         );
+
+        assert_eq!(got.macros, f.expected.macros, "{ctx}: macros");
+        assert_eq!(got.use_libs, f.expected.use_libs, "{ctx}: use_libs");
     }
 }
