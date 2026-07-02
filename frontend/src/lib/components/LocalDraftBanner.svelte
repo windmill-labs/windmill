@@ -10,7 +10,7 @@
 	} from '$lib/utils'
 	import { AlertCircle, Diff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
+	import { fade } from 'svelte/transition'
 
 	interface Props {
 		/** Whether there are unsaved local changes relative to the deployed baseline. */
@@ -25,6 +25,14 @@
 		disabled?: boolean
 		/** Diff drawer title. */
 		title?: string
+		/**
+		 * Whether to reserve the banner's fixed-height slot (so toggling the
+		 * "unsaved changes" state doesn't shift the content below). Pass this when
+		 * `getDeployed()` reads a non-reactive source (the trigger editors back
+		 * their baseline with a plain `let`); otherwise it defaults to
+		 * `getDeployed() != null`, which is reactive for `$state`-backed baselines.
+		 */
+		reserveSpace?: boolean
 	}
 
 	let {
@@ -33,7 +41,8 @@
 		getCurrent,
 		onDiscard,
 		disabled = false,
-		title = 'Deployed <> Local changes'
+		title = 'Deployed <> Local changes',
+		reserveSpace
 	}: Props = $props()
 
 	/** Same cleaning + YAML serialization the DiffDrawer applies before
@@ -49,6 +58,13 @@
 		}
 	}
 
+	// A deployed baseline means the banner *can* toggle on/off while the
+	// user edits this entity, so we reserve its fixed-height slot up front
+	// (see the template) to keep the banner appearing/disappearing from
+	// shifting the content below. Brand-new entities have no baseline — the
+	// banner can never show there, so we reserve nothing and add no gap.
+	let hasBaseline = $derived(reserveSpace ?? getDeployed() != null)
+
 	// Suppress the banner when:
 	//   • There's no deployed baseline (brand-new entity — "Show diff"
 	//     would early-return and "Discard" is semantically backwards),
@@ -58,10 +74,8 @@
 	//     from baseline" check that can stale-fire after a save lands
 	//     or when `false`/`undefined` toggle noise flips a field.
 	let visible = $derived.by(() => {
-		if (!show) return false
-		const deployed = getDeployed()
-		if (deployed == null) return false
-		return diffKey(deployed) !== diffKey(getCurrent())
+		if (!show || !hasBaseline) return false
+		return diffKey(getDeployed()) !== diffKey(getCurrent())
 	})
 
 	let diffDrawer: DiffDrawer | undefined = $state()
@@ -99,37 +113,44 @@
 
 <DiffDrawer bind:this={diffDrawer} />
 
-{#if visible}
-	<div
-		transition:slide|local={{ duration: 120 }}
-		class={twMerge(
-			'flex flex-row items-center justify-between gap-2 px-4 py-1',
-			classes.warning.bgClass,
-			'!border-0 !rounded-none'
-		)}
-	>
-		<div class="flex flex-row items-center gap-2 min-w-0">
-			<AlertCircle class={classes.warning.iconClass} size={16} />
-			<span class={twMerge('text-xs font-semibold truncate', classes.warning.titleClass)}>
-				You have unsaved changes
-			</span>
-		</div>
-		<div class="flex flex-row items-center gap-2 shrink-0">
-			<Button
-				unifiedSize="sm"
-				variant="default"
-				startIcon={{ icon: Diff }}
-				btnClasses={classes.warning.titleClass}
-				on:click={showDiff}>Show diff</Button
+{#if hasBaseline}
+	<!-- Fixed-height slot reserved whenever the banner can appear, so toggling
+	     the "unsaved changes" state fades the banner in/out without pushing the
+	     content below. h-9 matches the banner's natural height. -->
+	<div class="h-9 shrink-0">
+		{#if visible}
+			<div
+				transition:fade|local={{ duration: 120 }}
+				class={twMerge(
+					'flex flex-row items-center justify-between gap-2 px-4 h-full',
+					classes.warning.bgClass,
+					'!border-0 !rounded-none'
+				)}
 			>
-			{#if !disabled}
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					btnClasses={classes.warning.titleClass}
-					on:click={onDiscard}>Discard</Button
-				>
-			{/if}
-		</div>
+				<div class="flex flex-row items-center gap-2 min-w-0">
+					<AlertCircle class={classes.warning.iconClass} size={16} />
+					<span class={twMerge('text-xs font-semibold truncate', classes.warning.titleClass)}>
+						You have unsaved changes
+					</span>
+				</div>
+				<div class="flex flex-row items-center gap-2 shrink-0">
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						startIcon={{ icon: Diff }}
+						btnClasses={classes.warning.titleClass}
+						on:click={showDiff}>Show diff</Button
+					>
+					{#if !disabled}
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							btnClasses={classes.warning.titleClass}
+							on:click={onDiscard}>Discard</Button
+						>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	</div>
 {/if}
