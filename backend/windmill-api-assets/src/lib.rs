@@ -15,6 +15,18 @@ use windmill_common::{
 
 use windmill_api_auth::ApiAuthed;
 
+// Partition-range backfill preview. The logic (producer resolution, range
+// enumeration, status join) is enterprise: the `private` build compiles the
+// EE module, the public build a stub that errors.
+#[cfg(feature = "private")]
+mod backfill_ee;
+#[cfg(feature = "private")]
+use backfill_ee as backfill;
+#[cfg(not(feature = "private"))]
+mod backfill_oss;
+#[cfg(not(feature = "private"))]
+use backfill_oss as backfill;
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_assets))
@@ -23,6 +35,7 @@ pub fn workspaced_service() -> Router {
         .route("/graph", get(asset_graph))
         .route("/pipelines", get(list_pipeline_folders))
         .route("/partitions", get(list_partitions))
+        .route("/partitions_in_range", get(list_partitions_in_range))
         .route("/asset_schemas", get(list_asset_schemas))
         .route("/record_materialization", post(record_materialization))
 }
@@ -52,6 +65,55 @@ async fn list_partitions(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+// Only the EE `backfill` module reads the fields; the OSS stub errors without
+// touching them.
+#[cfg_attr(not(feature = "private"), allow(dead_code))]
+#[derive(Deserialize)]
+struct PartitionsInRangeQuery {
+    // The materialized ducklake asset path (`<ducklake>/<table>`).
+    path: String,
+    // Inclusive calendar-day range (YYYY-MM-DD), local to the producer's
+    // partition tz.
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+}
+
+#[derive(Serialize)]
+struct PartitionInRange {
+    partition: String,
+    // `missing` | `running` | `materialized` | `failed` — `missing` means no
+    // materialization was ever recorded for the slice.
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+struct PartitionsInRangeResponse {
+    // The pipeline script that materializes the asset (managed `// materialize`
+    // target, or a partitioned writer using the SDK helpers) — the runnable a
+    // backfill launches (with an explicit `partition` arg per slice).
+    producer_path: String,
+    partition_kind: String,
+    partitions: Vec<PartitionInRange>,
+}
+
+// Backfill range preview: every partition the producer's `// partitioned` spec
+// expects in `[from, to]`, joined with what `materialized_partition` records —
+// the missing/failed subset is the backfill worklist. The logic is in the
+// `backfill` module pair: EE resolves and enumerates, the OSS stub errors
+// (single-partition runs stay available everywhere; fanning out over a range
+// is enterprise).
+async fn list_partitions_in_range(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsInRangeQuery>,
+) -> JsonResult<PartitionsInRangeResponse> {
+    let mut tx = user_db.begin(&authed).await?;
+    let res = backfill::partitions_in_range(&mut tx, &w_id, &q).await?;
+    tx.commit().await?;
+    Ok(Json(res))
 }
 
 // Per-asset captured output schema versions for a ducklake asset (gap #2a) —

@@ -21498,6 +21498,42 @@ paths:
                 items:
                   $ref: "#/components/schemas/MaterializedPartition"
 
+  /w/{workspace}/assets/partitions_in_range:
+    get:
+      summary: List expected partitions of a ducklake asset in a date range with their materialization status (enterprise)
+      operationId: listAssetPartitionsInRange
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          description: Inclusive range start (YYYY-MM-DD), local to the producer's partition tz
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: Inclusive range end (YYYY-MM-DD), local to the producer's partition tz
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: expected partitions in range with per-slice status — the missing/failed subset is the backfill worklist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartitionsInRange"
+
   /w/{workspace}/assets/asset_schemas:
     get:
       summary: List captured output-schema versions for a ducklake asset
@@ -29692,6 +29728,27 @@ components:
         error:
           type: string
           nullable: true
+    PartitionsInRange:
+      type: object
+      required: [producer_path, partition_kind, partitions]
+      properties:
+        producer_path:
+          type: string
+          description: the pipeline script that materializes the asset (managed `// materialize` target, or a partitioned writer using the SDK helpers) — the runnable a backfill launches
+        partition_kind:
+          type: string
+          enum: [daily, hourly, weekly, monthly, dynamic]
+        partitions:
+          type: array
+          items:
+            type: object
+            required: [partition, status]
+            properties:
+              partition:
+                type: string
+              status:
+                type: string
+                enum: [missing, running, materialized, failed]
     AssetSchemaVersion:
       type: object
       required: [version, columns, captured_at]
