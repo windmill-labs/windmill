@@ -26,8 +26,9 @@
 		/** Diff drawer title. */
 		title?: string
 		/**
-		 * Reserve the banner's fixed-height slot so toggling it doesn't shift content.
-		 * Pass when `getDeployed()` is non-reactive; else defaults to `getDeployed() != null`.
+		 * Whether the banner can appear, so it partially reserves its slot to keep
+		 * the shift small. Pass when `getDeployed()` is non-reactive; else defaults
+		 * to `getDeployed() != null`.
 		 */
 		reserveSpace?: boolean
 	}
@@ -56,7 +57,7 @@
 	}
 
 	// Whether the banner can appear (a deployed baseline exists). Gates the
-	// reserved slot below so toggling it doesn't shift content; new entities
+	// partially-reserved slot below (keeps the toggle shift small); new entities
 	// have none, so no slot and no gap.
 	let hasBaseline = $derived(reserveSpace ?? getDeployed() != null)
 
