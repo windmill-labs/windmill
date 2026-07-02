@@ -67,11 +67,32 @@ test("native triggers surface as trigger rows (no deploy needed)", async () => {
     {
       "ingest.bun.ts":
         `// pipeline\n// on data_upload\nimport * as wmill from "windmill-client"\nexport async function main() {}\n`,
+      "upload_trigger.duckdb.sql": `-- pipeline\n-- on data_upload\nSELECT 1;\n`,
     },
     async (root, folder) => {
       const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
       const native = graph.triggers.filter((t) => t.trigger_kind !== "asset");
-      expect(native.map((t) => t.trigger_kind)).toContain("data_upload");
+      expect(
+        native
+          .filter((t) => t.trigger_kind === "data_upload")
+          .map((t) => t.runnable_path)
+          .sort(),
+      ).toEqual(["f/mypipe/ingest", "f/mypipe/upload_trigger"]);
+    },
+  );
+});
+
+test("retry delay metadata strips the optional `delay=` prefix", async () => {
+  await withFolder(
+    {
+      "retry.duckdb.sql": `-- pipeline\n-- retry 2 delay=10s\nSELECT 1;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/retry")?.retry).toEqual({
+        count: 2,
+        delay: "10s",
+      });
     },
   );
 });

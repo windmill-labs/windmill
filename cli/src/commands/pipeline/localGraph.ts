@@ -241,6 +241,30 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
   return out;
 }
 
+function recoverHeaderNativeTriggers(content: string, language: string): string[] {
+  const raw = commentPrefix(language);
+  const p = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    if (!trimmed.startsWith(raw)) break;
+    const marker = line.match(new RegExp(`^\\s*${p}\\s*on\\s+(\\S+)\\s*$`));
+    if (!marker) continue;
+    const kind = marker[1];
+    if (!NATIVE_KINDS.has(kind) || seen.has(kind)) continue;
+    seen.add(kind);
+    out.push(kind);
+  }
+  return out;
+}
+
+function normalizeRetry(retry: ParseAssetsRaw["retry"]): ParseAssetsRaw["retry"] {
+  if (!retry?.delay) return retry;
+  return { ...retry, delay: retry.delay.replace(/^delay=/, "") };
+}
+
 // Comment prefix for `volume:` annotations. Deliberately NOT `commentPrefix`
 // above (which returns `--` for SQL): volume annotations are only recognized for
 // the languages the backend/frontend recognize them for — mirrors
@@ -398,6 +422,8 @@ export async function buildLocalPipelineGraph(args: {
   for (const s of all) {
     const out = await inferScriptAssets(s.content, s.language);
     if (!out.in_pipeline) continue; // not a pipeline member
+    const retry = normalizeRetry(out.retry);
+    const nativeTriggers = recoverHeaderNativeTriggers(s.content, s.language);
     // Carry the parsed `// tag` so previews route to the same worker the
     // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
     pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
@@ -420,7 +446,7 @@ export async function buildLocalPipelineGraph(args: {
       ...(out.partition ? { partition_kind: out.partition.kind } : {}),
       ...(out.freshness ? { freshness: out.freshness.duration } : {}),
       ...(out.tag ? { tag: out.tag } : {}),
-      ...(out.retry ? { retry: out.retry } : {}),
+      ...(retry ? { retry } : {}),
       ...(out.data_tests && out.data_tests.length > 0 ? { data_tests: out.data_tests } : {}),
       ...(out.column_lineage && out.column_lineage.length > 0
         ? { column_lineage: out.column_lineage }
@@ -466,6 +492,7 @@ export async function buildLocalPipelineGraph(args: {
         });
       }
     }
+    const existingNativeTriggers = new Set<string>();
     for (const t of out.triggers ?? []) {
       if (t.kind === "asset") {
         const at = t as { kind: "asset"; asset_kind: string; path: string };
@@ -481,12 +508,21 @@ export async function buildLocalPipelineGraph(args: {
           runnable_path: s.path,
         });
       } else {
+        existingNativeTriggers.add(t.kind);
         triggers.push({
           trigger_kind: t.kind,
           runnable_kind: "script",
           runnable_path: s.path,
         });
       }
+    }
+    for (const kind of nativeTriggers) {
+      if (existingNativeTriggers.has(kind)) continue;
+      triggers.push({
+        trigger_kind: kind,
+        runnable_kind: "script",
+        runnable_path: s.path,
+      });
     }
   }
 
