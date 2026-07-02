@@ -88,7 +88,9 @@
 
 	function groupOf(path: string): Pick<DeployGroup, 'key' | 'label' | 'groupKind'> {
 		const parts = path.split('/')
-		if (parts.length > 2 && (parts[0] === 'f' || parts[0] === 'u')) {
+		// >= 2 so a folder item itself (path `f/<name>`, kind 'folder') lands in
+		// its folder's group next to the items that need it, not in "other".
+		if (parts.length >= 2 && (parts[0] === 'f' || parts[0] === 'u')) {
 			const key = `${parts[0]}/${parts[1]}`
 			return { key, label: key, groupKind: parts[0] === 'f' ? 'folder' : 'user' }
 		}
@@ -182,18 +184,19 @@
 					{#if showGroupHeaders}
 						{@const selectable = groupSelectable(group)}
 						{@const selectedCount = selectable.filter((i) => selectedItems.includes(i.key)).length}
+						<!-- The disabled-state hint lives on the row: a disabled Checkbox is
+						     pointer-events-none, so a title on the input would never show. -->
 						<div
 							class="sticky top-0 z-10 flex items-center gap-2 px-4 py-1.5 bg-surface-secondary border-b first:rounded-t-md"
+							title={selectable.length === 0 ? 'No selectable items in this group' : undefined}
 						>
 							<Checkbox
 								checked={selectable.length > 0 && selectedCount === selectable.length}
 								indeterminate={selectedCount > 0 && selectedCount < selectable.length}
 								disabled={selectable.length === 0}
-								title={selectable.length === 0
-									? 'No selectable items in this group'
-									: selectedCount === selectable.length
-										? `Deselect all in ${group.label}`
-										: `Select all in ${group.label}`}
+								title={selectedCount === selectable.length
+									? `Deselect all in ${group.label}`
+									: `Select all in ${group.label}`}
 								onChange={() => toggleGroup(group)}
 							/>
 							{#if group.groupKind === 'folder'}
