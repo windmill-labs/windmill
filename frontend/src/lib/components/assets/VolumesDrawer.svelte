@@ -113,8 +113,8 @@
 		{#if emptyString($enterpriseLicense)}
 			<div class="mb-4">
 				<Alert type="info" title="Community Edition limits">
-					Volumes are limited to 20 per workspace and count toward the 10 GiB workspace storage
-					quota. Upgrade to Enterprise Edition to remove these limits.
+					Volumes are limited to 20 per workspace and 50 MB per file. Upgrade to Enterprise Edition
+					to remove these limits.
 				</Alert>
 			</div>
 		{/if}
