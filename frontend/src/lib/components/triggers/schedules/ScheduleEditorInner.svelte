@@ -807,7 +807,7 @@
 							bind:value={summary}
 						/>
 					</label>
-					<LabelsInput bind:labels />
+					<LabelsInput bind:labels class="-mt-4" />
 
 					<div class="flex flex-col gap-1">
 						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
