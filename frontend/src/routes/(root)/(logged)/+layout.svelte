@@ -720,6 +720,13 @@
 										</div>
 									{/if}
 
+									{#if !sessionMode}
+										<!-- Workspace scope (fork picker): part of the top workspace group. -->
+										<div class="pb-1 w-52 {globalAiEnabled ? '' : '-mt-1'}">
+											<WorkspaceScopeHeader isCollapsed={false} />
+										</div>
+									{/if}
+
 									{#if sessionMode}
 										<!-- Session mode: the session list owns the rail.
 										     w-52 cap (matches the desktop sidebar width): the drawer is
@@ -727,15 +734,10 @@
 										     would otherwise inflate its min-content width to the full
 										     text width. -->
 										<div class="px-2 py-2 w-52">
-											<SessionPicker isCollapsed={false} embedded />
+											<SessionPicker isCollapsed={false} embedded collapsible={false} />
 										</div>
 									{:else}
 										<!-- Navigation mode: the classic workspace navigation. -->
-										<!-- Workspace scope: names the active root/fork. -->
-										<div class="pt-2 w-52">
-											<WorkspaceScopeHeader isCollapsed={false} />
-										</div>
-
 										<!-- Workspace-scoped region: Home/Runs + Favorites + Search + workspace items. -->
 										<div class="px-2 pt-1 pb-2 w-52 flex flex-col gap-1">
 											{@render quickLinks(false)}
@@ -820,20 +822,23 @@
 								</div>
 							{/if}
 
+							{#if !sessionMode}
+								<!-- Workspace scope (fork picker): part of the top workspace group,
+								     together with the family menu and the mode switch above. Without
+								     the switch, pull it up so the group still reads as one block. -->
+								<div class="pb-1 {globalAiEnabled ? '' : '-mt-1'}">
+									<WorkspaceScopeHeader {isCollapsed} />
+								</div>
+							{/if}
+
 							{#if sessionMode}
 								<!-- Session mode: the session list owns the rail. Workspace nav moves
 								     into the preview side panel (the iframe renders its own nav). -->
 								<div class="px-2 py-2 flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
-									<SessionPicker {isCollapsed} embedded />
+									<SessionPicker {isCollapsed} embedded collapsible={false} />
 								</div>
 							{:else}
 								<!-- Navigation mode: the classic workspace navigation. -->
-								<!-- Workspace scope: names the active root/fork. Everything below
-								     reflects the selected workspace. -->
-								<div class="pt-2">
-									<WorkspaceScopeHeader {isCollapsed} />
-								</div>
-
 								<!-- Workspace-scoped region: Home/Runs + Favorites + Search + workspace items. -->
 								<div class="px-2 pt-1 pb-2 flex flex-col gap-1">
 									{@render quickLinks(isCollapsed)}
