@@ -33,21 +33,27 @@
 	)
 	let backfillFailed = $derived(backfillSlices?.filter((s) => s.status === 'failure').length ?? 0)
 
+	// Never throws: the job may already be terminal, and the sequential loop
+	// stops on the cancel flag regardless.
+	async function cancelJobById(jobId: string) {
+		try {
+			await JobService.cancelQueuedJob({
+				workspace,
+				id: jobId,
+				requestBody: { reason: 'backfill cancelled' }
+			})
+		} catch {}
+	}
+
 	// Stop scheduling further slices and cancel the in-flight run (its slice
-	// then reports failure); already-materialized slices are unaffected.
+	// then reports failure); already-materialized slices are unaffected. A
+	// cancel that lands while a launch is in flight (no job id yet) is
+	// finished by the runner via its `cancelJob` hook.
 	async function cancelBackfill() {
 		backfillCancelRequested = true
 		const running = backfillSlices?.find((s) => s.status === 'running')
 		if (running?.jobId) {
-			try {
-				await JobService.cancelQueuedJob({
-					workspace,
-					id: running.jobId,
-					requestBody: { reason: 'backfill cancelled' }
-				})
-			} catch {
-				// already finished — the sequential loop stops on the flag anyway
-			}
+			await cancelJobById(running.jobId)
 		}
 	}
 
@@ -58,6 +64,10 @@
 		try {
 			await runBackfill({
 				partitions: worklist,
+				// Backend asset dispatch stays ON (unlike client-orchestrated dev
+				// cascades, which pass `_wmill_skip_asset_dispatch`): a backfilled
+				// slice refreshes its deployed consumers like any deployed run,
+				// carrying its partition down the chain.
 				launch: async (partition) =>
 					await JobService.runScriptByPath({
 						workspace,
@@ -72,7 +82,8 @@
 					return term
 				},
 				onUpdate: (s) => (backfillSlices = s),
-				isCancelled: () => backfillCancelRequested
+				isCancelled: () => backfillCancelRequested,
+				cancelJob: cancelJobById
 			})
 		} finally {
 			backfillRunning = false

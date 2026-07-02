@@ -30,6 +30,12 @@ export type BackfillRunOptions = {
 	onUpdate?: (slices: BackfillSliceState[]) => void
 	/** Checked before each launch; a true stop leaves the remaining slices 'pending'. */
 	isCancelled?: () => boolean
+	/**
+	 * Cancel a job whose launch raced the cancellation — the cancel click had
+	 * no job id to act on yet, so the loop cancels it as soon as the id
+	 * arrives. Must not throw (the job may already be terminal).
+	 */
+	cancelJob?: (jobId: string) => Promise<void>
 }
 
 export type BackfillRunResult = {
@@ -41,7 +47,7 @@ export type BackfillRunResult = {
 }
 
 export async function runBackfill(opts: BackfillRunOptions): Promise<BackfillRunResult> {
-	const { partitions, launch, waitTerminal, onUpdate, isCancelled } = opts
+	const { partitions, launch, waitTerminal, onUpdate, isCancelled, cancelJob } = opts
 	const slices: BackfillSliceState[] = partitions.map((partition) => ({
 		partition,
 		status: 'pending'
@@ -59,6 +65,9 @@ export async function runBackfill(opts: BackfillRunOptions): Promise<BackfillRun
 		try {
 			slice.jobId = await launch(slice.partition)
 			emit()
+			if (isCancelled?.() && cancelJob) {
+				await cancelJob(slice.jobId)
+			}
 			slice.status = await waitTerminal(slice.jobId)
 		} catch (e) {
 			slice.status = 'failure'

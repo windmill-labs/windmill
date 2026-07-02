@@ -79,6 +79,28 @@ describe('runBackfill', () => {
 		expect(res.slices.map((s) => s.status)).toEqual(['success', 'pending', 'pending'])
 	})
 
+	it('cancels a job whose launch raced the cancellation', async () => {
+		let cancelled = false
+		const cancelledJobs: string[] = []
+		const res = await runBackfill({
+			partitions: ['a', 'b'],
+			launch: async (p) => {
+				// The user clicks cancel while the launch request is in flight —
+				// there is no job id to cancel yet.
+				cancelled = true
+				return `job:${p}`
+			},
+			waitTerminal: async () => 'failure',
+			isCancelled: () => cancelled,
+			cancelJob: async (id) => {
+				cancelledJobs.push(id)
+			}
+		})
+		expect(cancelledJobs).toEqual(['job:a'])
+		expect(res.cancelled).toBe(true)
+		expect(res.slices.map((s) => s.status)).toEqual(['failure', 'pending'])
+	})
+
 	it('emits a snapshot per transition, never mutating earlier snapshots', async () => {
 		const r = fakeRunner()
 		const snapshots: BackfillSliceState[][] = []
