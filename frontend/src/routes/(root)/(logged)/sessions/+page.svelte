@@ -27,9 +27,12 @@
 	import {
 		createSession,
 		selectSession,
+		sessionInCurrentFamily,
 		sessionState,
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
+	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -71,8 +74,26 @@
 	// resolver, so the user's active (navigation-mode) workspace is left alone.
 
 	// Resolve by name without applying the sidebar scope filter so an open
-	// chat survives workspace switches.
+	// chat survives within-family workspace switches.
 	const activeSession = $derived(sessionState.sessions.find((s) => s.name === sessionName))
+
+	// Family reconcile: a workspace switch can land this page with no session
+	// selected or with another family's session in the URL (the sidebar picker's
+	// link navigation keeps the route), and a chat must not bleed across
+	// families. Re-enter session mode scoped to the active family: keep the open
+	// chat when it belongs there, else its most recent active session, else a
+	// fresh one. The `session_name`-without-a-session case is left to the
+	// not-found UI below.
+	$effect(() => {
+		if (embedded || !sessionState.hydrated) return
+		// sessionInCurrentFamily reads these via get(), so track them explicitly.
+		$workspaceStore
+		$userWorkspaces
+		const current = activeSession
+		const shouldReenter = current ? !sessionInCurrentFamily(current) : !sessionName
+		if (!shouldReenter) return
+		untrack(() => void enterSessionMode({ replace: true }))
+	})
 
 	// Touch the runtime for the active session so it gets created on first visit.
 	// Also refresh the fork diff count: deep-link / back-button navigation

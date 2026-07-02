@@ -31,6 +31,7 @@
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { getContrastTextColor } from '$lib/utils'
+	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 
 	interface Props {
 		isCollapsed?: boolean
@@ -57,10 +58,9 @@
 		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
 
 		switchWorkspace(id)
-		// The sessions page is deliberately kept: it resolves the open chat by
-		// name without the family scope filter, so the chat survives the switch
-		// and the user stays in session mode (the sidebar rescopes to the new
-		// workspace's family).
+		// The sessions page needs no navigation here: the item's link navigation
+		// (workspaceHref) keeps the route, and the page's family reconcile swaps
+		// out a chat that doesn't belong to the new workspace's family.
 		if (isOnEditPage) {
 			await goto('/')
 		} else if (page.url.searchParams.get('workspace')) {
@@ -68,14 +68,17 @@
 		}
 	}
 
-	// Href for modifier/middle clicks (open in new tab, which bypasses the
-	// onClick fast-path): same page, `workspace` param swapped to the clicked
-	// id. Pure logic lives in workspaceMenuHref (unit-tested).
+	// Href for the item's navigation (including modifier/middle clicks opening a
+	// new tab): same page, `workspace` param swapped to the clicked id, the open
+	// session kept only within its family. Pure logic lives in workspaceMenuHref
+	// (unit-tested).
 	function workspaceHref(id: string): string {
+		const all = $userWorkspaces ?? []
 		return workspaceMenuHref({
 			pathname: page.url.pathname,
 			searchParams: page.url.searchParams,
-			id
+			id,
+			sameFamily: workspaceRootId(id, all) === workspaceRootId($workspaceStore ?? undefined, all)
 		})
 	}
 

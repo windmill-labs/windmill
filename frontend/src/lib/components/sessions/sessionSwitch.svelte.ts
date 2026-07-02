@@ -32,7 +32,10 @@ export function rememberNavRoute(pathnameWithSearch: string): void {
 // Restore candidates are scoped to the active workspace family: reviving a
 // session from another family would pull that family's scope (sidebar list,
 // "Acting on" workspace) into the one the user is actually in.
-export async function enterSessionMode(): Promise<void> {
+// `replace` swaps the current history entry instead of pushing — for the
+// sessions page's family reconcile, where Back must not return to the
+// redirected-away URL just to bounce here again.
+export async function enterSessionMode(opts?: { replace?: boolean }): Promise<void> {
 	const current = sessionState.currentSessionId
 		? sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
 		: undefined
@@ -41,7 +44,9 @@ export async function enterSessionMode(): Promise<void> {
 		sessionState.sessions.find((s) => !s.archived && sessionInCurrentFamily(s)) ??
 		createSession()
 	selectSession(target.id)
-	await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`)
+	await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`, {
+		replaceState: opts?.replace ?? false
+	})
 }
 
 // Exit session mode: back to the last navigation route (home as a fallback).
