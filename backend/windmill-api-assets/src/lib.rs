@@ -9,12 +9,23 @@ use sqlx::Row;
 use windmill_common::{
     assets::{parse_asset_trigger_ref, AssetKind, AssetUsageKind},
     db::UserDB,
-    error::{Error, JsonResult},
-    materialization::MaterializationStatus,
+    error::JsonResult,
     utils::escape_ilike_pattern,
 };
 
 use windmill_api_auth::ApiAuthed;
+
+// Partition-range backfill preview. The logic (producer resolution, range
+// enumeration, status join) is enterprise: the `private` build compiles the
+// EE module, the public build a stub that errors.
+#[cfg(feature = "private")]
+mod backfill_ee;
+#[cfg(feature = "private")]
+use backfill_ee as backfill;
+#[cfg(not(feature = "private"))]
+mod backfill_oss;
+#[cfg(not(feature = "private"))]
+use backfill_oss as backfill;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -56,6 +67,9 @@ async fn list_partitions(
     Ok(Json(rows))
 }
 
+// Only the EE `backfill` module reads the fields; the OSS stub errors without
+// touching them.
+#[cfg_attr(not(feature = "private"), allow(dead_code))]
 #[derive(Deserialize)]
 struct PartitionsInRangeQuery {
     // The materialized ducklake asset path (`<ducklake>/<table>`).
@@ -86,10 +100,10 @@ struct PartitionsInRangeResponse {
 
 // Backfill range preview: every partition the producer's `// partitioned` spec
 // expects in `[from, to]`, joined with what `materialized_partition` records —
-// the missing/failed subset is the backfill worklist. Enumeration lives in
-// `windmill_common::partition`, which is the server-side EE gate: the OSS stub
-// errors (single-partition runs stay available everywhere; fanning out over a
-// range is enterprise).
+// the missing/failed subset is the backfill worklist. The logic is in the
+// `backfill` module pair: EE resolves and enumerates, the OSS stub errors
+// (single-partition runs stay available everywhere; fanning out over a range
+// is enterprise).
 async fn list_partitions_in_range(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -97,112 +111,9 @@ async fn list_partitions_in_range(
     Query(q): Query<PartitionsInRangeQuery>,
 ) -> JsonResult<PartitionsInRangeResponse> {
     let mut tx = user_db.begin(&authed).await?;
-    // Scripts with a parsed write edge on the asset — how polyglot producers
-    // (the `wmll.ducklake` helpers; no `// materialize` annotation) are linked
-    // to what they materialize.
-    let writer_paths = sqlx::query_scalar!(
-        r#"
-        SELECT DISTINCT usage_path FROM asset
-        WHERE workspace_id = $1
-          AND kind = 'ducklake'
-          AND path = $2
-          AND usage_kind = 'script'
-          AND usage_access_type IN ('w', 'rw')
-        "#,
-        &w_id,
-        &q.path,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    // Producer candidates: newest version of each pipeline member that writes
-    // the asset or mentions its path (cheap LIKE prefilter for the
-    // `// materialize` annotation match below).
-    let candidates = sqlx::query!(
-        r#"
-        SELECT DISTINCT ON (path) path AS "path!", content AS "content!"
-        FROM script
-        WHERE workspace_id = $1
-          AND auto_kind = 'pipeline'
-          AND archived = false
-          AND deleted = false
-          AND (content LIKE '%' || $2 || '%' OR path = ANY($3))
-        ORDER BY path, created_at DESC
-        "#,
-        &w_id,
-        escape_ilike_pattern(&q.path),
-        &writer_paths,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    let parsed: Vec<(&str, windmill_common::assets::PipelineAnnotations)> = candidates
-        .iter()
-        .map(|r| {
-            (
-                r.path.as_str(),
-                windmill_common::assets::parse_pipeline_annotations(&r.content),
-            )
-        })
-        .collect();
-    // The producer: a managed `// materialize` targeting the asset wins;
-    // otherwise any `partitioned` pipeline script with a write edge on it (a
-    // polyglot/SDK producer). `candidates` is path-sorted (DISTINCT ON), so
-    // ties resolve deterministically to the first path.
-    let producer = parsed
-        .iter()
-        .find(|(_, ann)| {
-            ann.materialize.as_ref().is_some_and(|m| {
-                windmill_common::assets::asset_kind_from_parser(m.target_kind)
-                    == AssetKind::Ducklake
-                    && m.target_path == q.path
-            })
-        })
-        .or_else(|| {
-            parsed.iter().find(|(path, ann)| {
-                ann.partition.is_some() && writer_paths.iter().any(|w| w == path)
-            })
-        });
-    let Some((producer_path, ann)) = producer else {
-        return Err(Error::NotFound(format!(
-            "no pipeline script materializes ducklake://{}",
-            q.path
-        )));
-    };
-    let Some(spec) = ann.partition.as_ref() else {
-        return Err(Error::BadRequest(format!(
-            "the producer of ducklake://{} ({}) has no `partitioned` annotation",
-            q.path, producer_path
-        )));
-    };
-    let expected = windmill_common::partition::enumerate_time_partitions(spec, q.from, q.to)?;
-    let recorded: std::collections::HashMap<String, MaterializationStatus> =
-        windmill_common::materialization::list_materialized_partitions(
-            &mut *tx,
-            &w_id,
-            AssetKind::Ducklake,
-            &q.path,
-        )
-        .await?
-        .into_iter()
-        .map(|p| (p.partition, p.status))
-        .collect();
+    let res = backfill::partitions_in_range(&mut tx, &w_id, &q).await?;
     tx.commit().await?;
-    let partitions = expected
-        .into_iter()
-        .map(|p| {
-            let status = match recorded.get(&p) {
-                None => "missing",
-                Some(MaterializationStatus::Running) => "running",
-                Some(MaterializationStatus::Materialized) => "materialized",
-                Some(MaterializationStatus::Failed) => "failed",
-            };
-            PartitionInRange { partition: p, status }
-        })
-        .collect();
-    Ok(Json(PartitionsInRangeResponse {
-        producer_path: producer_path.to_string(),
-        partition_kind: partition_kind_word(&spec.kind).to_string(),
-        partitions,
-    }))
+    Ok(Json(res))
 }
 
 // Per-asset captured output schema versions for a ducklake asset (gap #2a) —
