@@ -242,7 +242,14 @@ export default class HistoryManager {
 				// Only persist when the caller passes a defined array. Loaded legacy
 				// chats keep their accumulator undefined, so we never retroactively
 				// stamp them with [] (which would flip them to the filtered view).
-				...(modifiedItems !== undefined ? { modifiedItems } : {})
+				// But since `put` replaces the whole record, a caller that omits the
+				// argument must not ERASE a tracked chat's stored mask — fall back to
+				// the previously saved field.
+				...(modifiedItems !== undefined
+					? { modifiedItems }
+					: this.savedChats[this.currentChatId]?.modifiedItems !== undefined
+						? { modifiedItems: this.savedChats[this.currentChatId].modifiedItems }
+						: {})
 			}
 			this.savedChats = {
 				...this.savedChats,

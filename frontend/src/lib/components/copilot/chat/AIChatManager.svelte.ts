@@ -677,7 +677,12 @@ export class AIChatManager {
 			)
 			switch (result) {
 				case 'ok':
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					await this.historyManager.saveChat(
+						this.displayMessages,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
+					)
 					sendUserToast('Conversation compacted.')
 					break
 				case 'empty':

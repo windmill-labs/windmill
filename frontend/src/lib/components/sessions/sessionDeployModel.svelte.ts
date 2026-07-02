@@ -90,6 +90,9 @@ export function useExistingMaskKeys(
 						.catch(() => null)
 				)
 			).then((keys) => {
+				// A slower batch for a superseded candidate set (or one voided by
+				// reset()) must not overwrite the current result.
+				if (sig !== lastCandidateSig) return
 				existingKeys = new Set(keys.filter((k): k is string => !!k))
 			})
 		})
@@ -307,6 +310,12 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	// Fork comparison recomputes asynchronously (~hundreds of ms) after a deploy,
 	// so an immediate re-fetch returns the pre-change tally — re-poll to catch up.
 	let pollTimers: ReturnType<typeof setTimeout>[] = []
+	// The re-polls must die with the consuming component: a drawer closed right
+	// after a deploy must not keep hitting compareWorkspaces and writing into
+	// discarded state.
+	$effect(() => {
+		return () => pollTimers.forEach(clearTimeout)
+	})
 
 	function setStatus(key: string, s: DeploymentStatus | undefined) {
 		const next = { ...deploymentStatus }
