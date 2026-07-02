@@ -146,7 +146,7 @@ impl RawWebhookArgs {
                         // file_key is always freshly random here, so this never
                         // overwrites an existing object; the full size is the delta.
                         #[cfg(not(feature = "enterprise"))]
-                        let max_size = Some(ce_storage_quota_remaining(db, w_id).await? as usize);
+                        let max_size = Some(ce_storage_quota_remaining(db, w_id, None).await? as usize);
                         #[cfg(feature = "enterprise")]
                         let max_size: Option<usize> = None;
 

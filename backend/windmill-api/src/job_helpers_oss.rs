@@ -115,7 +115,11 @@ pub async fn upload_file_internal(
     not(feature = "private"),
     not(feature = "enterprise")
 ))]
-pub async fn ce_storage_quota_remaining(_db: &DB, _w_id: &str) -> error::Result<i64> {
+pub async fn ce_storage_quota_remaining(
+    _db: &DB,
+    _w_id: &str,
+    _exclude_upload_id: Option<&str>,
+) -> error::Result<i64> {
     Ok(i64::MAX)
 }
 
