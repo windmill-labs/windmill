@@ -224,8 +224,11 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		}
 	}
 
-	async function deployRow(item: DeployItem) {
-		if (await deployOne(item)) refreshData()
+	/** Returns success so the UI can stage its post-deploy animation. */
+	async function deployRow(item: DeployItem): Promise<boolean> {
+		const ok = await deployOne(item)
+		if (ok) refreshData()
+		return ok
 	}
 
 	async function discardRow(item: DeployItem) {

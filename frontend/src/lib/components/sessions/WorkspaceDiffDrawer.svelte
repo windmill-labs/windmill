@@ -4,11 +4,13 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import {
 		Check,
+		CheckCircle2,
 		ChevronDown,
 		ChevronRight,
 		ExternalLink,
 		Folder,
 		Loader2,
+		Save,
 		User
 	} from 'lucide-svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -26,6 +28,8 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
 	import { tick, untrack } from 'svelte'
+	import { fade, fly, slide } from 'svelte/transition'
+	import { cubicOut } from 'svelte/easing'
 	import type { Snippet } from 'svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
@@ -44,7 +48,8 @@
 		editUrlFor = undefined,
 		titleExtra,
 		compareSessionHref,
-		workspaceLabel
+		workspaceLabel,
+		successHoldMs = 1200
 	}: {
 		model: SessionDeployModel
 		title: string
@@ -54,6 +59,8 @@
 		/** Display name of the workspace deploys land in — the deployed tick's
 		 *  hover reads "Deployed in <label>". */
 		workspaceLabel?: string
+		/** How long the post-deploy check beat holds before the row flips. */
+		successHoldMs?: number
 		/** Compare page for this session's edits (footer) — preselected via
 		 *  `from_session`. Where "deploy all / request review" happens. */
 		compareSessionHref?: string
@@ -92,10 +99,32 @@
 		if (confirmed) void model.discardRow(item)
 	}
 
+	// Post-deploy staging (same pattern as SaveButton): on success, the row keeps
+	// rendering its pre-deploy snapshot while a green check flies in over the
+	// Deploy button; after the hold it releases, letting the collapse + badge
+	// transitions play on the real (deployed) state.
+	let staged = $state<Record<string, DeployItem>>({})
+	let stagedTimers: ReturnType<typeof setTimeout>[] = []
+	$effect(() => {
+		return () => stagedTimers.forEach(clearTimeout)
+	})
+	async function deployStaged(item: DeployItem) {
+		if (!(await model.deployRow(item))) return
+		staged = { ...staged, [item.key]: item }
+		stagedTimers.push(
+			setTimeout(() => {
+				const next = { ...staged }
+				delete next[item.key]
+				staged = next
+			}, successHoldMs)
+		)
+	}
+
 	export function open() {
 		loadedDiffs = {}
 		mountedRows = {}
 		folderOpen = {}
+		staged = {}
 		model.load()
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
@@ -516,33 +545,33 @@
 			{item.draftOnly ? 'Draft only' : 'Draft'}
 		</Badge>
 	{:else}
-		<!-- Deployed is the quiet terminal state — a bare tick, not a pill; the
-		     hover carries the words. -->
-		<span
-			class="inline-flex items-center justify-center shrink-0"
-			title={`Deployed in ${workspaceLabel ?? 'this workspace'}`}
-		>
-			<Check class="w-3.5 h-3.5 text-green-600 dark:text-green-500" aria-label="Deployed" />
+		<!-- Deployed is the quiet terminal state — an icon-only green badge; the
+		     hover carries the words. Fades in when a row transitions on deploy. -->
+		<span in:fade={{ duration: 200 }} class="inline-flex shrink-0">
+			<Badge
+				color="green"
+				small
+				class="px-1 py-0.5"
+				title={`Deployed in ${workspaceLabel ?? 'this workspace'}`}
+			>
+				<Check class="w-3 h-3" aria-label="Deployed" />
+			</Badge>
 		</span>
 	{/if}
 {/snippet}
 
-<!-- Transient busy states only. A successful deploy has no chip — the row's
-     badge flipping to Deployed is the feedback. -->
-{#snippet deployBusy(item: DeployItem)}
+<!-- Failure only — while deploying the button itself carries a spinner, and a
+     success flies the green check over the button (see deployStaged). -->
+{#snippet deployFailed(item: DeployItem)}
 	{@const s = model.statusOf(item.key)}
-	{#if s?.status === 'loading'}
-		<span class="inline-flex items-center gap-1 text-2xs text-secondary">
-			<Loader2 class="w-3 h-3 animate-spin" />Deploying…
-		</span>
-	{:else if s?.status === 'failed'}
+	{#if s?.status === 'failed'}
 		<span class="inline-flex items-center gap-1" title={s.error}>
 			<Badge color="red" small>Failed</Badge>
 			<Button
 				variant="subtle"
 				unifiedSize="xs"
 				disabled={model.deploying}
-				onclick={() => model.deployRow(item)}
+				onclick={() => deployStaged(item)}
 			>
 				Retry
 			</Button>
@@ -594,7 +623,7 @@
 						{node.app.summary ?? node.name}
 					</span>
 					{#if appItem}
-						{@render rowBadge(appItem)}
+						{@render rowBadge(staged[appItem.key] ?? appItem)}
 					{/if}
 					<button
 						type="button"
@@ -687,7 +716,7 @@
 					onmouseenter={() => setHoverHighlight(key)}
 				>
 					{#snippet extras()}
-						{@render rowBadge(d)}
+						{@render rowBadge(staged[d.key] ?? d)}
 						{#if d.deployKind === 'raw_app'}
 							<!-- Unloaded app leaf: row click reveals the diff, the chevron
 							     loads the values and unwraps the file tree. -->
@@ -717,11 +746,11 @@
 	{/if}
 {/snippet}
 
+<!-- Live (non-done) diff content only — the done state renders at the card
+     level so the two can cross-animate on deploy. -->
 {#snippet diffBlock(item: DeployItem)}
 	{@const loaded = loadedDiffs[item.key]}
-	{#if item.done}
-		<div class="text-2xs text-tertiary p-3">Deployed — no pending changes.</div>
-	{:else if !mountedRows[item.key]}
+	{#if !mountedRows[item.key]}
 		<div
 			use:lazyMount={item}
 			class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
@@ -869,7 +898,11 @@
 						{:else}
 							<div class="flex flex-col">
 								{#each orderedItems as d (d.key)}
-									{@const action = actionFor(d)}
+									<!-- While a deploy's success is being staged, the card renders its
+									     pre-deploy snapshot so the state flip waits for the check-mark
+									     beat instead of racing it. -->
+									{@const view = staged[d.key] ?? d}
+									{@const action = actionFor(view)}
 									{@const editUrl = editUrlFor?.(d)}
 									{@const status = model.statusOf(d.key)}
 									<div
@@ -902,37 +935,68 @@
 												{/if}
 											</div>
 											<div class="shrink-0 flex items-center gap-2">
-												{@render rowBadge(d)}
-												{#if status}
-													{@render deployBusy(d)}
+												{@render rowBadge(view)}
+												{#if status?.status === 'failed'}
+													{@render deployFailed(d)}
 												{:else if action.op !== 'none'}
 													{#if action.secondary?.length}
 														<Button
 															variant="subtle"
 															unifiedSize="sm"
 															destructive
-															disabled={model.deploying}
+															disabled={model.deploying || !!staged[d.key]}
 															onclick={() => confirmDiscard(d)}
 														>
 															{action.secondary[0].label}
 														</Button>
 													{/if}
-													<Button
-														variant="accent"
-														unifiedSize="sm"
-														disabled={model.deploying || !model.deployPermission.ok}
-														title={model.deployPermission.ok
-															? undefined
-															: model.deployPermission.reason}
-														onclick={() => model.deployRow(d)}
-													>
-														{action.label}
-													</Button>
+													<div class="relative overflow-hidden rounded-md">
+														<Button
+															variant="accent"
+															unifiedSize="sm"
+															disabled={model.deploying ||
+																!!staged[d.key] ||
+																!model.deployPermission.ok}
+															startIcon={status?.status === 'loading'
+																? { icon: Loader2, classes: 'animate-spin' }
+																: { icon: Save }}
+															title={model.deployPermission.ok
+																? undefined
+																: model.deployPermission.reason}
+															onclick={() => deployStaged(d)}
+														>
+															{action.label}
+														</Button>
+														{#if staged[d.key]}
+															<!-- Success beat: green check flies in over the button
+															     (SaveButton pattern), holds, then the row flips. -->
+															<div
+																class="absolute inset-0 flex items-center justify-center bg-green-200 dark:bg-green-800 rounded-md"
+																transition:fly={{ y: -10, duration: 300 }}
+															>
+																<CheckCircle2 class="w-4 h-4 text-green-700 dark:text-green-300" />
+															</div>
+														{/if}
+													</div>
 												{/if}
 											</div>
 										</div>
 										<div class="bg-surface-tertiary rounded-b-md overflow-hidden">
-											{@render diffBlock(d)}
+											<!-- Deploy collapses the (tall) diff into the one-line done note —
+											     slide both branches so the card height animates instead of
+											     snapping. Transitions are local: nothing plays on drawer open. -->
+											{#if view.done}
+												<div
+													transition:slide={{ duration: 300, easing: cubicOut }}
+													class="text-2xs text-tertiary p-3"
+												>
+													Deployed — no pending changes.
+												</div>
+											{:else}
+												<div transition:slide={{ duration: 300, easing: cubicOut }}>
+													{@render diffBlock(view)}
+												</div>
+											{/if}
 										</div>
 									</div>
 								{/each}
