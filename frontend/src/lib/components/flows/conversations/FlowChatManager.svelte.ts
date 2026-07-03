@@ -366,26 +366,31 @@ export class FlowChatManager {
 			// Only remove temporary messages when explicitly requested (e.g., after job completion)
 			// During streaming, we keep temp messages to avoid them disappearing due to race conditions
 			if (options?.removeTempMessages) {
-				// Reasoning isn't persisted server-side, so carry the streamed
-				// "thinking" summary from the temp assistant message onto the
-				// persisted one before dropping temps — otherwise it vanishes when
-				// the run completes.
-				const streamedReasoning = this.messages
-					.filter((m) => m.id.startsWith('temp-') && m.message_type === 'assistant' && m.reasoning)
-					.map((m) => m.reasoning)
-					.at(-1)
-				let persisted = this.messages.filter(
-					(msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user'
-				)
-				if (streamedReasoning) {
-					for (let i = persisted.length - 1; i >= 0; i--) {
-						if (persisted[i].message_type === 'assistant' && !persisted[i].reasoning) {
-							persisted[i] = { ...persisted[i], reasoning: streamedReasoning }
-							break
-						}
+				// Reasoning isn't persisted server-side, so carry each temp assistant
+				// turn's streamed "thinking" summary onto its persisted counterpart
+				// before dropping temps — otherwise it vanishes when the run completes.
+				// Match by content so multi-turn responses attribute each turn's
+				// thinking to the right message rather than lumping it onto the last one.
+				const reasoningByContent = new Map<string, string>()
+				for (const m of this.messages) {
+					if (
+						m.id.startsWith('temp-') &&
+						m.message_type === 'assistant' &&
+						m.reasoning &&
+						m.content
+					) {
+						reasoningByContent.set(m.content, m.reasoning)
 					}
 				}
-				this.messages = persisted
+				this.messages = this.messages
+					.filter((msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user')
+					.map((msg) =>
+						msg.message_type === 'assistant' &&
+						!msg.reasoning &&
+						reasoningByContent.has(msg.content)
+							? { ...msg, reasoning: reasoningByContent.get(msg.content) }
+							: msg
+					)
 			}
 		} catch (error) {
 			console.error('Polling error:', error)
