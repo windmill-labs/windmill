@@ -5,7 +5,7 @@
 	import { formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
 	import { NODE } from '$lib/components/graph/util'
 	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
-	import { Code2, Play, Loader2, Plus } from 'lucide-svelte'
+	import { ArrowUpRight, Code2, GitFork, Play, Loader2, Plus } from 'lucide-svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
@@ -26,6 +26,9 @@
 		data: {
 			asset_kind: AssetKind
 			path: string
+			// Fork workspaces: 'fork' = materialized in this fork, 'deferred' =
+			// reads fall back to the parent workspace's current data.
+			fork_materialization?: 'fork' | 'deferred'
 			onAddScript?: (
 				asset: { kind: AssetKind; path: string },
 				language: ScriptLang,
@@ -134,6 +137,25 @@
 		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
 			{formatShortAssetPath(asset)}
 		</span>
+		<!-- Fork data-environment marker: amber ↗ = deferred (reads the parent
+		     workspace's current table via a view), emerald fork glyph = the fork
+		     materialized its own copy. Icon-only — the pill truncates its path
+		     already, a labeled chip wouldn't fit; the title carries the meaning. -->
+		{#if data.fork_materialization === 'deferred'}
+			<span
+				class="shrink-0 mr-1.5 text-amber-600 dark:text-amber-400"
+				title="Deferred to parent workspace: reads the parent's current data. Materialize it in this fork to iterate on it."
+			>
+				<ArrowUpRight size={12} />
+			</span>
+		{:else if data.fork_materialization === 'fork'}
+			<span
+				class="shrink-0 mr-1.5 text-emerald-600 dark:text-emerald-500"
+				title="Materialized in this fork: reads and writes use the fork's isolated copy."
+			>
+				<GitFork size={12} />
+			</span>
+		{/if}
 	</div>
 	{#if showActions}
 		<!-- Run button revealed on hover/select. Floats off the LEFT edge —

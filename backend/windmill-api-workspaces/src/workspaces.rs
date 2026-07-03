@@ -184,6 +184,10 @@ pub fn workspaced_service() -> Router {
             post(crate::workspaces_extra::drop_forked_datatable_databases),
         )
         .route(
+            "/drop_forked_ducklake_namespaces",
+            post(crate::workspaces_extra::drop_forked_ducklake_namespaces),
+        )
+        .route(
             "/get_datatable_full_schema",
             post(get_datatable_full_schema),
         )

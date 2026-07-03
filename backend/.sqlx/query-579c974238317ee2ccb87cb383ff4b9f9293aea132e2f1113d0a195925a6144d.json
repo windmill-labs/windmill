@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ducklake_name AS \"ducklake_name!\", metadata_schema AS \"metadata_schema!\",\n                  storage, data_path AS \"data_path!\"\n             FROM fork_ducklake_namespace WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ducklake_name!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "metadata_schema!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "storage",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "data_path!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "579c974238317ee2ccb87cb383ff4b9f9293aea132e2f1113d0a195925a6144d"
+}

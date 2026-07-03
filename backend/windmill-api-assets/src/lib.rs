@@ -614,6 +614,12 @@ struct GraphQuery {
 struct GraphAssetNode {
     kind: AssetKind,
     path: String,
+    // Fork workspaces only: 'fork' when the fork has materialized this ducklake asset itself,
+    // 'deferred' when reads fall back to the parent workspace's current table (defer view).
+    // Absent outside forks, for non-ducklake assets, and for assets never materialized
+    // anywhere. Lockstep with TS `AssetGraphAssetNode.fork_materialization`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_materialization: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -790,6 +796,7 @@ async fn asset_graph(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<windmill_common::DB>,
     Query(q): Query<GraphQuery>,
 ) -> JsonResult<AssetGraphResponse> {
     let mut tx = user_db.begin(&authed).await?;
@@ -1190,9 +1197,50 @@ async fn asset_graph(
         runnable_set.insert((AssetUsageKind::Script, e.consumer_path.clone()));
     }
 
+    // Fork data-environment state per ducklake asset. The parent's rows are read on the plain
+    // pool: fork membership does not imply parent membership, and defer already exposes the
+    // parent's data to fork jobs — surfacing its materialization status is strictly less.
+    let fork_materialization_by_path: std::collections::HashMap<String, &'static str> = {
+        let parent = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id)
+            .await?
+            .into_iter()
+            .next();
+        match parent {
+            None => std::collections::HashMap::new(),
+            Some(parent_id) => sqlx::query!(
+                r#"
+                SELECT DISTINCT asset_path AS "asset_path!", workspace_id AS "workspace_id!"
+                FROM materialized_partition
+                WHERE workspace_id IN ($1, $2)
+                  AND asset_kind = 'ducklake' AND status = 'materialized'
+                "#,
+                &w_id,
+                &parent_id,
+            )
+            .fetch_all(&db)
+            .await?
+            .into_iter()
+            .fold(std::collections::HashMap::new(), |mut m, r| {
+                // A fork row wins over an inherited 'deferred' from the parent row.
+                if r.workspace_id == w_id {
+                    m.insert(r.asset_path, "fork");
+                } else {
+                    m.entry(r.asset_path).or_insert("deferred");
+                }
+                m
+            }),
+        }
+    };
+
     let mut assets: Vec<GraphAssetNode> = asset_set
         .into_iter()
-        .map(|(kind, path)| GraphAssetNode { kind, path })
+        .map(|(kind, path)| GraphAssetNode {
+            fork_materialization: (kind == AssetKind::Ducklake)
+                .then(|| fork_materialization_by_path.get(&path).map(|s| s.to_string()))
+                .flatten(),
+            kind,
+            path,
+        })
         .collect();
     assets.sort_by(|a, b| a.path.cmp(&b.path));
 

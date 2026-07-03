@@ -1266,6 +1266,215 @@ pub async fn drop_forked_datatable_databases(
     Ok(Json(errors))
 }
 
+/// Drop this fork workspace's ducklake namespaces: the `wm_fork_*` metadata schema in each
+/// lake's catalog database, plus (best effort) the fork's `__wm_forks/<wid>/…` data files in
+/// the workspace storage. Driven by the `fork_ducklake_namespace` registry written at first
+/// fork attach, so it works even after settings drift. Returns errors per lake that failed;
+/// the registry row is only deleted once both cleanups succeeded, so a retry resumes.
+/// Same permission as delete_workspace: fork owner or super admin.
+pub async fn drop_forked_ducklake_namespaces(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> Result<Json<Vec<String>>> {
+    let is_fork = workspace_is_fork(&db, &w_id).await?;
+    let mut tx = db.begin().await?;
+    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
+        && !is_super_admin_email(&db, &authed.email).await?
+    {
+        return Err(Error::PermissionDenied(
+            "Dropping forked ducklake namespaces requires being the fork's owner or a superadmin"
+                .to_string(),
+        ));
+    }
+    tx.commit().await?;
+
+    let namespaces = sqlx::query!(
+        r#"SELECT ducklake_name AS "ducklake_name!", metadata_schema AS "metadata_schema!",
+                  storage, data_path AS "data_path!"
+             FROM fork_ducklake_namespace WHERE workspace_id = $1"#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let mut errors: Vec<String> = Vec::new();
+    for ns in namespaces {
+        // Hard guards mirroring the forked-datatable drop: never touch a schema outside the
+        // fork prefix, never delete outside the fork data dir — even if a registry row was
+        // somehow tampered with.
+        if !ns
+            .metadata_schema
+            .starts_with(windmill_common::workspaces::FORK_DUCKLAKE_SCHEMA_PREFIX)
+        {
+            errors.push(format!(
+                "Refusing to drop schema '{}' for ducklake://{}: name does not start with '{}'",
+                ns.metadata_schema,
+                ns.ducklake_name,
+                windmill_common::workspaces::FORK_DUCKLAKE_SCHEMA_PREFIX
+            ));
+            continue;
+        }
+        let expected_prefix = format!(
+            "{}/{}/",
+            windmill_common::workspaces::FORK_DUCKLAKE_DATA_DIR,
+            w_id
+        );
+        if !format!("{}/", ns.data_path.trim_end_matches('/')).starts_with(&expected_prefix) {
+            errors.push(format!(
+                "Refusing to delete data path '{}' for ducklake://{}: not under '{}'",
+                ns.data_path, ns.ducklake_name, expected_prefix
+            ));
+            continue;
+        }
+
+        if let Err(e) =
+            drop_fork_ducklake_metadata_schema(&db, &w_id, &ns.ducklake_name, &ns.metadata_schema)
+                .await
+        {
+            errors.push(format!(
+                "Could not drop metadata schema '{}' for ducklake://{}: {e}",
+                ns.metadata_schema, ns.ducklake_name
+            ));
+            continue;
+        }
+        if let Err(e) =
+            delete_fork_ducklake_data(&db, &w_id, ns.storage.as_deref(), &ns.data_path).await
+        {
+            errors.push(format!(
+                "Dropped metadata schema but could not delete data files under '{}' for ducklake://{}: {e}",
+                ns.data_path, ns.ducklake_name
+            ));
+            continue;
+        }
+        sqlx::query!(
+            "DELETE FROM fork_ducklake_namespace WHERE workspace_id = $1 AND ducklake_name = $2",
+            &w_id,
+            &ns.ducklake_name
+        )
+        .execute(&db)
+        .await?;
+    }
+    Ok(Json(errors))
+}
+
+/// Drop the fork's metadata schema in the lake's catalog database. The pg schema holds only
+/// DuckLake metadata tables (auto-created at first fork attach), so a plain
+/// `DROP SCHEMA … CASCADE` on the catalog connection removes the whole fork namespace.
+async fn drop_fork_ducklake_metadata_schema(
+    db: &DB,
+    w_id: &str,
+    ducklake_name: &str,
+    metadata_schema: &str,
+) -> Result<()> {
+    // Resolved for the fork itself: the catalog host/database fields are namespace-independent
+    // (the fork redirect only changes METADATA_SCHEMA/DATA_PATH).
+    let ducklake =
+        windmill_common::workspaces::get_ducklake_from_db_unchecked(ducklake_name, w_id, db)
+            .await?;
+    let pg: windmill_common::PgDatabase = serde_json::from_value(ducklake.catalog_resource)
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "ducklake://{ducklake_name}: catalog resource is not a postgres database: {e}"
+            ))
+        })?;
+    let (client, connection) = pg.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    let res = client
+        .execute(
+            &format!(
+                "DROP SCHEMA IF EXISTS \"{}\" CASCADE",
+                metadata_schema.replace('"', "\"\"")
+            ),
+            &[],
+        )
+        .await;
+    drop(client);
+    let _ = join_handle.await;
+    res.map_err(|e| Error::internal_err(format!("{e:#}")))?;
+    Ok(())
+}
+
+/// Delete every object under the fork's `__wm_forks/<wid>/…` prefix in the workspace storage.
+/// Requires the `parquet` (object store) feature; without it the metadata schema is still
+/// dropped and the unreachable data files are left for manual cleanup.
+#[cfg(feature = "parquet")]
+async fn delete_fork_ducklake_data(
+    db: &DB,
+    w_id: &str,
+    storage: Option<&str>,
+    data_path: &str,
+) -> Result<()> {
+    use futures::{StreamExt, TryStreamExt};
+    use windmill_types::s3::LargeFileStorage;
+
+    let lfs_json = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .ok_or_else(|| Error::BadRequest("workspace has no storage configured".to_string()))?;
+
+    // Named storages live under `secondary_storage`; `None`/`_default_` is the primary.
+    let lfs: LargeFileStorage = match storage.filter(|s| *s != "_default_") {
+        None => serde_json::from_value(lfs_json.clone())
+            .map_err(|e| Error::internal_err(format!("parsing large_file_storage: {e}")))?,
+        Some(name) => serde_json::from_value(
+            lfs_json
+                .get("secondary_storage")
+                .and_then(|s| s.get(name))
+                .cloned()
+                .ok_or_else(|| {
+                    Error::BadRequest(format!("workspace has no storage named {name}"))
+                })?,
+        )
+        .map_err(|e| Error::internal_err(format!("parsing storage {name}: {e}")))?,
+    };
+    let resource_value = windmill_common::workspaces::transform_json_value_unchecked(
+        &serde_json::Value::String(format!("$res:{}", lfs.get_s3_resource_path())),
+        w_id,
+        db,
+    )
+    .await?;
+    let store = windmill_object_store::build_object_store_client(
+        &windmill_object_store::lfs_to_object_store_resource(&lfs, resource_value)?,
+    )
+    .await?;
+
+    let prefix = windmill_object_store::object_store_reexports::Path::from(
+        data_path.trim_matches('/').to_string(),
+    );
+    let locations: Vec<_> = store
+        .list(Some(&prefix))
+        .map_ok(|m| m.location)
+        .try_collect()
+        .await
+        .map_err(windmill_object_store::object_store_error_to_error)?;
+    // 1000-object chunks: S3 DeleteObjects caps a batch at 1000 keys.
+    for chunk in locations.chunks(1000) {
+        store
+            .delete_stream(futures::stream::iter(chunk.iter().cloned().map(Ok)).boxed())
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(windmill_object_store::object_store_error_to_error)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn delete_fork_ducklake_data(
+    _db: &DB,
+    _w_id: &str,
+    _storage: Option<&str>,
+    _data_path: &str,
+) -> Result<()> {
+    Err(Error::internal_err(
+        "object storage support (parquet feature) is not compiled in".to_string(),
+    ))
+}
+
 async fn is_workspace_owner(
     authed: &ApiAuthed,
     w_id: &str,

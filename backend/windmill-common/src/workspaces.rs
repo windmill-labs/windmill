@@ -1082,12 +1082,17 @@ async fn ducklake_conn_data(name: &str, w_id: &str, db: &DB) -> Result<DucklakeW
     Ok(ducklake)
 }
 
-fn fork_data_path(base_path: &str, fork_w_id: &str) -> String {
-    let base = base_path.trim_end_matches('/');
+/// The fork namespace's data path within the same bucket: a bucket-root
+/// `__wm_forks/<fork wid>/` prefix wrapping the lake's own path, NOT a sub-path under it — the
+/// parent lake's maintenance (snapshot expiry / `ducklake_delete_orphaned_files`) scans
+/// everything under the parent's DATA_PATH and would treat live fork files nested there as
+/// orphans and delete them.
+pub fn fork_data_path(base_path: &str, fork_w_id: &str) -> String {
+    let base = base_path.trim_matches('/');
     if base.is_empty() {
         format!("{FORK_DUCKLAKE_DATA_DIR}/{fork_w_id}")
     } else {
-        format!("{base}/{FORK_DUCKLAKE_DATA_DIR}/{fork_w_id}")
+        format!("{FORK_DUCKLAKE_DATA_DIR}/{fork_w_id}/{base}")
     }
 }
 
@@ -1107,8 +1112,16 @@ async fn fork_scoped_ducklake(
         )));
     }
     let metadata_schema = fork_ducklake_metadata_schema(w_id);
-    let data_subpath = format!("{FORK_DUCKLAKE_DATA_DIR}/{w_id}");
-    register_fork_ducklake_namespace(db, w_id, name, &metadata_schema, &data_subpath).await?;
+    let fork_path = fork_data_path(&base.storage.path, w_id);
+    register_fork_ducklake_namespace(
+        db,
+        w_id,
+        name,
+        &metadata_schema,
+        base.storage.storage.as_deref(),
+        &fork_path,
+    )
+    .await?;
 
     // Ancestor namespaces, nearest-first, each from its own settings so a fork-side settings
     // edit can't silently repoint what "parent" means. All-or-nothing: a broken link anywhere
@@ -1150,7 +1163,7 @@ async fn fork_scoped_ducklake(
         vec![]
     };
 
-    base.storage.path = fork_data_path(&base.storage.path, w_id);
+    base.storage.path = fork_path;
     base.extra_args = Some(match base.extra_args.take() {
         Some(e) => {
             let sanitized = strip_fork_reserved_attach_args(&e);
@@ -1167,13 +1180,14 @@ async fn fork_scoped_ducklake(
 }
 
 /// Record (once) that a fork attached this lake, so fork deletion knows exactly which pg
-/// metadata schema and S3 sub-path to clean up even if settings drift later.
+/// metadata schema and which storage prefix to clean up even if settings drift later.
 async fn register_fork_ducklake_namespace(
     db: &DB,
     w_id: &str,
     name: &str,
     metadata_schema: &str,
-    data_subpath: &str,
+    storage: Option<&str>,
+    data_path: &str,
 ) -> Result<()> {
     let key = (w_id.to_string(), name.to_string());
     if FORK_DUCKLAKE_REGISTERED.get(&key).is_some() {
@@ -1181,19 +1195,31 @@ async fn register_fork_ducklake_namespace(
     }
     sqlx::query!(
         "INSERT INTO fork_ducklake_namespace
-           (workspace_id, ducklake_name, metadata_schema, data_subpath)
-         VALUES ($1, $2, $3, $4)
+           (workspace_id, ducklake_name, metadata_schema, storage, data_path)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (workspace_id, ducklake_name) DO NOTHING",
         w_id,
         name,
         metadata_schema,
-        data_subpath,
+        storage,
+        data_path,
     )
     .execute(db)
     .await
     .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
     FORK_DUCKLAKE_REGISTERED.insert(key, ());
     Ok(())
+}
+
+/// Resolve a `$res:`/`$var:` reference tree to its concrete value (recursively, secrets
+/// decrypted). No permission checks — trusted server-side callers only; never echo the result
+/// to a user.
+pub async fn transform_json_value_unchecked(
+    value: &serde_json::Value,
+    w_id: &str,
+    db: &DB,
+) -> Result<serde_json::Value> {
+    transform_json_unchecked(value, w_id, db).await
 }
 
 // This does not check for any permission. Should never be displayed to a user.

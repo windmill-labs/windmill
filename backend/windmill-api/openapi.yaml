@@ -4666,6 +4666,24 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/workspaces/drop_forked_ducklake_namespaces:
+    post:
+      summary: drop this fork workspace's ducklake namespaces (catalog metadata schemas + data files)
+      operationId: dropForkedDucklakeNamespaces
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of errors (empty if all succeeded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/workspaces/import_pg_database:
     post:
       summary: import a PostgreSQL database from source to target via pg_dump
@@ -21420,6 +21438,10 @@ paths:
                           $ref: "#/components/schemas/AssetKind"
                         path:
                           type: string
+                        fork_materialization:
+                          type: string
+                          enum: [fork, deferred]
+                          description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
                   runnables:
                     type: array
                     items:

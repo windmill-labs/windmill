@@ -14449,6 +14449,7 @@ version = "1.746.0"
 dependencies = [
  "axum 0.8.9",
  "chrono",
+ "futures",
  "hex",
  "http 1.4.2",
  "hyper 1.10.1",
