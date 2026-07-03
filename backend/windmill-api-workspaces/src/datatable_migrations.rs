@@ -1345,6 +1345,25 @@ pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
     Ok(())
 }
 
+/// Copy a workspace's migration definitions to another workspace, so a fork
+/// inherits the same per-data-table migration history as its parent.
+pub(crate) async fn clone_datatable_migrations(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down)
+         SELECT $2, datatable, timestamp, name, code_up, code_down
+         FROM datatable_migrations WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1491,5 +1510,39 @@ mod tests {
                 ("sb".to_string(), "sa_mig".to_string()),
             ]
         );
+    }
+
+    // A fork inherits its parent's migration definitions unchanged.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn clone_copies_datatable_migrations_to_target(pool: DB) {
+        let src = format!("src{}", uuid::Uuid::new_v4().simple());
+        let dst = format!("dst{}", uuid::Uuid::new_v4().simple());
+        for w in [&src, &dst] {
+            sqlx::query(
+                "INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test@windmill.dev')",
+            )
+            .bind(w)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        seed_migration(&pool, &src, "customers", 1, "create_customers").await;
+        seed_migration(&pool, &src, "customers", 2, "add_index").await;
+        seed_migration(&pool, &src, "orders", 3, "create_orders").await;
+
+        let mut tx = pool.begin().await.unwrap();
+        clone_datatable_migrations(&mut tx, &src, &dst)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        // the target ends up with an identical set, and the source is untouched.
+        let expected = vec![
+            ("customers".to_string(), "create_customers".to_string()),
+            ("customers".to_string(), "add_index".to_string()),
+            ("orders".to_string(), "create_orders".to_string()),
+        ];
+        assert_eq!(migration_keys(&pool, &dst).await, expected);
+        assert_eq!(migration_keys(&pool, &src).await, expected);
     }
 }

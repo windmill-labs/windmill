@@ -3974,6 +3974,15 @@ async fn clone_workspace_data(
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
 
+    // Clone data table migration definitions (the settings above carry the data
+    // table config; this carries their migration history).
+    crate::datatable_migrations::clone_datatable_migrations(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
+
     // Clone workspace environment variables
     clone_workspace_env(tx, source_workspace_id, target_workspace_id).await?;
 
