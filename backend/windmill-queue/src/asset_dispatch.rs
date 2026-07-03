@@ -296,6 +296,10 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     // subscriber × asset write). The mid-pass join-slot writes
     // (record_and_check_join_slot) are a separate table and unaffected.
     let mut events: Vec<EventRow> = Vec::new();
+    // A subscriber listening to several of this producer's writes is pushed
+    // once per edge; its upstream-snapshot record is identical across those
+    // pushes (same instant, same trigger set), so resolve it once per pass.
+    let mut snapshot_memo: HashMap<String, Arc<Vec<UpstreamSnapshot>>> = HashMap::new();
     for (asset_kind, asset_path) in writes {
         let Some(prefix) = asset_kind.canonical_prefix() else {
             continue;
@@ -376,12 +380,24 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
             // arrival, which re-resolves — the surviving job records what its
             // own dispatch saw). Best-effort: a lookup failure must not stop
             // the cascade.
-            let snapshots = upstream_snapshots(db, &job.workspace_id, &sub_path)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::error!("upstream-snapshot lookup failed for {}: {e:#}", sub_path);
-                    Vec::new()
-                });
+            let snapshots = match snapshot_memo.get(&sub_path) {
+                Some(s) => s.clone(),
+                None => {
+                    let s = Arc::new(
+                        upstream_snapshots(db, &job.workspace_id, &sub_path)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::error!(
+                                    "upstream-snapshot lookup failed for {}: {e:#}",
+                                    sub_path
+                                );
+                                Vec::new()
+                            }),
+                    );
+                    snapshot_memo.insert(sub_path.clone(), s.clone());
+                    s
+                }
+            };
             match push_subscriber(
                 db,
                 job,
@@ -584,7 +600,10 @@ struct UpstreamSnapshot {
     /// Canonical asset uri, e.g. `ducklake://analytics/orders_daily`.
     asset: String,
     snapshot_id: i64,
-    /// Partition of the recorded materialization; omitted for whole-table.
+    /// Partition whose write produced this snapshot — i.e. the latest slice
+    /// written, not necessarily the slice this consumer processes. The
+    /// snapshot itself is table-global. Omitted for whole-table
+    /// materializations.
     #[serde(skip_serializing_if = "Option::is_none")]
     partition: Option<String>,
 }
@@ -593,7 +612,7 @@ struct UpstreamSnapshot {
 /// asset trigger set joined against `materialized_partition`, keeping the
 /// highest `snapshot_id` per asset (the newest substrate version the consumer
 /// could read). Assets with no captured snapshot (non-materialized upstreams)
-/// simply produce no entry.
+/// simply produce no entry. Two queries total regardless of upstream count.
 async fn upstream_snapshots(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -612,33 +631,48 @@ async fn upstream_snapshots(
     )
     .fetch_all(db)
     .await?;
-    let mut out = Vec::new();
-    for trigger_ref in refs {
-        let Some((kind, path)) = parse_asset_trigger_ref(&trigger_ref) else {
-            continue;
-        };
-        let row = sqlx::query!(
-            r#"SELECT snapshot_id AS "snapshot_id!", partition
-               FROM materialized_partition
-               WHERE workspace_id = $1 AND asset_kind = $2 AND asset_path = $3
-                 AND status = 'materialized' AND snapshot_id IS NOT NULL
-               ORDER BY snapshot_id DESC
-               LIMIT 1"#,
-            workspace_id,
-            kind as AssetKind,
-            path,
-        )
-        .fetch_optional(db)
-        .await?;
-        if let Some(row) = row {
-            out.push(UpstreamSnapshot {
-                asset: trigger_ref,
-                snapshot_id: row.snapshot_id,
-                partition: (!row.partition.is_empty()).then_some(row.partition),
-            });
-        }
+    // Keep only refs with a recognized asset prefix, preserving ref order so
+    // the recorded list is deterministic.
+    let parsed: Vec<(String, AssetKind, String)> = refs
+        .into_iter()
+        .filter_map(|r| parse_asset_trigger_ref(&r).map(|(k, p)| (r, k, p)))
+        .collect();
+    if parsed.is_empty() {
+        return Ok(Vec::new());
     }
-    Ok(out)
+    let kinds: Vec<AssetKind> = parsed.iter().map(|(_, k, _)| *k).collect();
+    let paths: Vec<String> = parsed.iter().map(|(_, _, p)| p.clone()).collect();
+    let rows = sqlx::query!(
+        r#"SELECT DISTINCT ON (mp.asset_kind, mp.asset_path)
+                  mp.asset_kind AS "asset_kind: AssetKind", mp.asset_path,
+                  mp.snapshot_id AS "snapshot_id!", mp.partition
+             FROM materialized_partition mp
+             JOIN unnest($2::ASSET_KIND[], $3::text[]) AS u(kind, path)
+               ON mp.asset_kind = u.kind AND mp.asset_path = u.path
+            WHERE mp.workspace_id = $1
+              AND mp.status = 'materialized' AND mp.snapshot_id IS NOT NULL
+            ORDER BY mp.asset_kind, mp.asset_path, mp.snapshot_id DESC"#,
+        workspace_id,
+        kinds as Vec<AssetKind>,
+        &paths,
+    )
+    .fetch_all(db)
+    .await?;
+    let mut latest: HashMap<(AssetKind, String), (i64, String)> = rows
+        .into_iter()
+        .map(|r| ((r.asset_kind, r.asset_path), (r.snapshot_id, r.partition)))
+        .collect();
+    Ok(parsed
+        .into_iter()
+        .filter_map(|(trigger_ref, kind, path)| {
+            let (snapshot_id, partition) = latest.remove(&(kind, path))?;
+            Some(UpstreamSnapshot {
+                asset: trigger_ref,
+                snapshot_id,
+                partition: (!partition.is_empty()).then_some(partition),
+            })
+        })
+        .collect())
 }
 
 /// A subscriber row resolved from `script_trigger`. Bundles the per-edge

@@ -35,7 +35,9 @@
 			<Tooltip>
 				Version of each upstream asset when this run was dispatched. Recorded for debugging only —
 				the run reads the latest data, not these versions. To inspect what this run saw, query the
-				asset with the copied <span class="font-mono">AT (VERSION =&gt; n)</span> clause.
+				asset with the copied <span class="font-mono">AT (VERSION =&gt; n)</span> clause. For partitioned
+				assets, the partition shown is the slice whose write produced that snapshot — the snapshot itself
+				covers the whole table.
 			</Tooltip>
 		</h3>
 		<div class="border rounded-md overflow-hidden">
