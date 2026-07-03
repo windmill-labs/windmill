@@ -47,3 +47,16 @@ cargo check --features enterprise,private
 # EE code that also requires license validation
 cargo check --features enterprise,private,license
 ```
+
+## Troubleshooting
+
+**`E0583: file not found for module <x>_ee` on `cargo check --features enterprise,private`**:
+the EE worktree is behind the OSS code it must satisfy. Fast-forward it to EE
+`origin/main` — EE worktrees are shallow clones, so run `git fetch --unshallow origin`
+first or the merge fails with "refusing to merge unrelated histories". After the
+fast-forward, any `*_ee.rs` file that is *new* since the worktree was created still
+needs its OSS symlink made by hand (worktree setup only links files that existed then):
+
+```bash
+ln -s <ee-worktree>/<crate>/src/<x>_ee.rs backend/<crate>/src/<x>_ee.rs
+```
