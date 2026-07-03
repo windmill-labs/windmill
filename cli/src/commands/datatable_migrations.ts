@@ -27,6 +27,24 @@ function migrationTimestamp(): string {
 }
 
 /**
+ * A migration version unique within a data table folder: the current UTC
+ * timestamp bumped past any existing version, so two migrations scaffolded in
+ * the same second don't collide on the `(datatable, timestamp)` identity used to
+ * upsert them.
+ */
+function nextMigrationTimestamp(dir: string): string {
+  const now = Number(migrationTimestamp());
+  let max = 0;
+  if (fs.existsSync(dir)) {
+    for (const file of fs.readdirSync(dir)) {
+      const m = file.match(/^(\d+)_.*\.(up|down)\.sql$/);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+  }
+  return String(max >= now ? max + 1 : now);
+}
+
+/**
  * Scaffold a new migration under migrations/datatable/<datatable>/ as empty
  * `<timestamp>_<name>.up.sql` and `.down.sql` files. Purely local — no network.
  */
@@ -39,7 +57,7 @@ export function createMigration(datatable: string, name: string): void {
   const dir = path.join(process.cwd(), MIGRATIONS_DIR, datatable);
   fs.mkdirSync(dir, { recursive: true });
 
-  const timestamp = migrationTimestamp();
+  const timestamp = nextMigrationTimestamp(dir);
   const base = `${timestamp}_${name}`;
   const up = path.join(dir, `${base}.up.sql`);
   const down = path.join(dir, `${base}.down.sql`);
@@ -180,14 +198,23 @@ export function validateLocalMigrations(datatables?: Set<string>): string[] {
  */
 export async function pushMigrationFromDisk(
   workspace: string,
-  m: { datatable: string; timestamp: number; name: string },
+  m: { datatable: string; timestamp: number },
 ): Promise<void> {
   const dir = path.join(process.cwd(), MIGRATIONS_DIR, m.datatable);
-  const base = `${m.timestamp}_${m.name}`;
-  const upPath = path.join(dir, `${base}.up.sql`);
+  // Find the up file for this timestamp regardless of its name segment. A rename
+  // (`123_old.up.sql` -> `123_new.up.sql`) keeps the (datatable, timestamp)
+  // identity but changes the name; the diff sorter may process the deleted old
+  // path before the added new one, so keying off the passed name would delete
+  // the record. Scanning by timestamp upserts the surviving file instead.
+  const upFile = fs.existsSync(dir)
+    ? fs.readdirSync(dir).find((f) => {
+        const parsed = f.match(/^(\d+)_(.*)\.up\.sql$/);
+        return parsed !== null && Number(parsed[1]) === m.timestamp;
+      })
+    : undefined;
 
-  if (!fs.existsSync(upPath)) {
-    log.info(colors.red(`Deleting datatable_migration ${m.datatable}/${base}`));
+  if (upFile === undefined) {
+    log.info(colors.red(`Deleting datatable_migration ${m.datatable}/${m.timestamp}`));
     await wmill.deleteDatatableMigration({
       workspace,
       datatableName: m.datatable,
@@ -196,7 +223,9 @@ export async function pushMigrationFromDisk(
     return;
   }
 
-  const code_up = await readTextFile(upPath);
+  const name = upFile.match(/^(\d+)_(.*)\.up\.sql$/)![2];
+  const base = `${m.timestamp}_${name}`;
+  const code_up = await readTextFile(path.join(dir, upFile));
   const downPath = path.join(dir, `${base}.down.sql`);
   const code_down = fs.existsSync(downPath) ? await readTextFile(downPath) : undefined;
 
@@ -206,7 +235,7 @@ export async function pushMigrationFromDisk(
     datatableName: m.datatable,
     requestBody: {
       timestamp: m.timestamp,
-      name: m.name,
+      name,
       code_up,
       ...(code_down !== undefined ? { code_down } : {}),
     },

@@ -14,6 +14,7 @@ import {
   pushLocalMigrations,
   rollbackMigrations,
   runMigrations,
+  validateLocalMigrations,
 } from "../datatable_migrations.ts";
 
 const DEFAULT_DATATABLE_NAME = "main";
@@ -72,6 +73,17 @@ async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
   if (targets.length === 0) {
     log.info("No datatables in the workspace");
     return;
+  }
+  // Reject malformed local migrations (duplicate timestamps, orphan downs) before
+  // pushing — the same check `wmill sync push` runs — so a duplicate timestamp
+  // can't silently overwrite one migration on upsert.
+  const errors = validateLocalMigrations(new Set(targets));
+  if (errors.length > 0) {
+    log.error(
+      "Invalid datatable migrations, aborting:\n" +
+        errors.map((e) => `  - ${e}`).join("\n"),
+    );
+    process.exit(1);
   }
   for (const dt of targets) {
     // Push any locally-created/edited migration files first (without running
