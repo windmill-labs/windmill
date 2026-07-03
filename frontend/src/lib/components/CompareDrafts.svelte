@@ -14,7 +14,12 @@
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
+	import {
+		getDraftDiffValues,
+		deployDraft,
+		discardDraft,
+		draftBaseIsStale
+	} from '$lib/utils_draft_deploy'
 	import { checkDeployPermission, type DeployPermission } from '$lib/utils_workspace_deploy'
 	import { type DraftItem, useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
@@ -228,27 +233,11 @@
 							path: item.path,
 							getDraft: true
 						}))) as any
-			// A draft is stale when the version it forked from no longer matches the
-			// current deployed head: a newer version was deployed after the draft began.
-			// Scripts compare `parent_hash` vs the deployed `hash`; flows the pinned
-			// `version_id` vs the deployed head `version_id`; apps the pinned
-			// `parent_version` vs the deployed head (`versions[last]`).
 			const draftBlob = r.draft as any
-			const appHead = Array.isArray(r.versions) ? r.versions[r.versions.length - 1] : undefined
-			const stale =
-				item.draftKind === 'script'
-					? !!r.hash && !!draftBlob?.parent_hash && draftBlob.parent_hash !== r.hash
-					: item.draftKind === 'flow'
-						? r.version_id != null &&
-							draftBlob?.version_id != null &&
-							draftBlob.version_id !== r.version_id
-						: appHead != null &&
-							draftBlob?.parent_version != null &&
-							draftBlob.parent_version !== appHead
 			summaryCache[item.key] = {
 				deployed: r.summary,
 				draft: draftBlob?.summary,
-				stale,
+				stale: draftBaseIsStale(item.draftKind, r),
 				loading: false
 			}
 		} catch (error) {

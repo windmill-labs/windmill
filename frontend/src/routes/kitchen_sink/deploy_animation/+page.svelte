@@ -20,6 +20,7 @@
 	let itemCount = $state(3)
 	let failDeploys = $state(false)
 	let permOk = $state(true)
+	let staleDrafts = $state(false)
 
 	function makeItem(i: number, done = false): DeployItem {
 		return {
@@ -103,6 +104,10 @@
 		statusOf(key: string) {
 			return statuses[key]
 		},
+		staleOf(key: string) {
+			// Only non-draft_only rows carry a base pointer in production.
+			return staleDrafts && !items.find((it) => it.key === key)?.draftOnly
+		},
 		get deployPermission() {
 			return permOk
 				? { ok: true as const }
@@ -170,6 +175,7 @@
 		<div class="flex flex-col gap-2 justify-center">
 			<Toggle bind:checked={failDeploys} options={{ right: 'Fail deploys' }} size="xs" />
 			<Toggle bind:checked={permOk} options={{ right: 'Deploy permission' }} size="xs" />
+			<Toggle bind:checked={staleDrafts} options={{ right: 'Stale drafts' }} size="xs" />
 		</div>
 	</div>
 

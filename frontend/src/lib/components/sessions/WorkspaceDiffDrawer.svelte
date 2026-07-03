@@ -3,6 +3,7 @@
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import {
+		AlertTriangle,
 		Check,
 		CheckCircle2,
 		ChevronDown,
@@ -34,6 +35,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { actionFor, badgeOf, type DeployItem } from './sessionDeployModel'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 
@@ -536,6 +538,22 @@
      so the draft badge is a plain pill — no author avatars. -->
 {#snippet rowBadge(item: DeployItem)}
 	{#if badgeOf(item) === 'draft'}
+		{#if model.staleOf(item.key)}
+			<!-- Same warning as the compare page: the deployed head moved after this
+			     draft began, so deploying it reverts the newer deploy. Warn, don't
+			     block — reviewing the diff is exactly what this surface is for. -->
+			<Popover openOnHover debounceDelay={50}>
+				{#snippet trigger()}
+					<AlertTriangle size={14} class="text-orange-500" />
+				{/snippet}
+				{#snippet content()}
+					<div class="text-xs p-3 max-w-xs text-primary">
+						Started from an older deployed version. A newer version was deployed after this draft
+						began. Review the latest deploy before deploying.
+					</div>
+				{/snippet}
+			</Popover>
+		{/if}
 		<Badge
 			color="indigo"
 			small

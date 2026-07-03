@@ -6,7 +6,12 @@ import {
 	type DeployPermission,
 	type DeployResult
 } from '$lib/utils_workspace_deploy'
-import { deployDraft, discardDraft, getDraftDiffValues } from '$lib/utils_draft_deploy'
+import {
+	deployDraft,
+	discardDraft,
+	fetchDraftBaseStale,
+	getDraftDiffValues
+} from '$lib/utils_draft_deploy'
 import { untrack } from 'svelte'
 import {
 	buildDeployItems,
@@ -153,8 +158,34 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	function load() {
 		// Re-check existence fresh (an item may have been deleted since last open).
 		existing.reset()
+		// Staleness can change between opens (a deploy elsewhere moves the head).
+		staleFetched.clear()
+		staleKeys = new Set()
 		void fetchDrafts()
 	}
+
+	// ── Stale drafts (base ≠ deployed head) ──────────────────────────────────
+	// A draft forked from a version that is no longer the deployed head: someone
+	// deployed in between, so deploying the draft would silently revert them.
+	// Same detection as the compare page; surfaced as a warning, deploy stays
+	// allowed. Only own drafts on deployed script/flow/app items carry a base.
+	let staleKeys = $state<ReadonlySet<string>>(new Set())
+	const staleFetched = new Set<string>()
+	$effect(() => {
+		const list = items
+		const ws = getArgs().workspaceId
+		untrack(() => {
+			for (const it of list) {
+				if (!it.hasDraft || it.draftOnly || !it.mine) continue
+				if (!['script', 'flow', 'app', 'raw_app'].includes(it.draftKind)) continue
+				if (staleFetched.has(it.key)) continue
+				staleFetched.add(it.key)
+				void fetchDraftBaseStale(it.draftKind, it.path, ws).then((stale) => {
+					if (stale) staleKeys = new Set(staleKeys).add(it.key)
+				})
+			}
+		})
+	})
 
 	// ── Deploy permission ────────────────────────────────────────────────────
 	// Preflight the shared checkDeployPermission (operator / RestrictDeployToDeployers)
@@ -270,6 +301,10 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		},
 		statusOf(key: string): DeploymentStatus | undefined {
 			return deploymentStatus[key]
+		},
+		/** Whether a draft row's base is stale (deployed head moved since). */
+		staleOf(key: string): boolean {
+			return staleKeys.has(key)
 		},
 		/** Whether the user may deploy into the session workspace. */
 		get deployPermission(): DeployPermission {
