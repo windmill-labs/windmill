@@ -42,6 +42,9 @@
 	let tab = $state('up')
 	let name = $state('')
 	let nameInput = $state<TextInput>()
+	// A valid migration name is non-empty and limited to letters, digits, '_' and '-'.
+	const MIGRATION_NAME_RE = /^[a-zA-Z0-9_-]+$/
+	let nameInvalid = $derived(!MIGRATION_NAME_RE.test(name.trim()))
 	let codeUp = $state('')
 	let enableDown = $state(false)
 	let codeDown = $state('')
@@ -80,7 +83,7 @@
 			sendUserToast('Migration name is required', true)
 			return
 		}
-		if (!/^[a-zA-Z0-9_-]+$/.test(name.trim())) {
+		if (!MIGRATION_NAME_RE.test(name.trim())) {
 			sendUserToast("Invalid migration name: use only letters, digits, '_' and '-'", true)
 			return
 		}
@@ -143,7 +146,7 @@
 		<TextInput
 			bind:this={nameInput}
 			bind:value={name}
-			error={name.trim() === ''}
+			error={nameInvalid}
 			inputProps={{ placeholder: 'Migration name (e.g. add_index_to_customers)' }}
 		/>
 		<Tabs bind:selected={tab} class="grow min-h-0">
