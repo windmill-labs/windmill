@@ -868,6 +868,29 @@ export async function getItemValue(
     } else if (isTriggerKind(kind)) {
       const trigger = await provider.getTriggerValue(kind, { workspace, path });
       return stripTriggerOrScheduleRuntimeFields(trigger);
+    } else if (kind === "datatable_migration") {
+      // Surface the migration SQL so the diff drawer shows the up/down bodies a
+      // reviewer needs to inspect before deploying.
+      const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+      const migrations = (await provider.listDatatableMigrations({
+        workspace,
+      })) as {
+        datatable: string;
+        timestamp: number;
+        name: string;
+        code_up: string;
+        code_down?: string;
+      }[];
+      const migration = migrations.find(
+        (m) => m.datatable === datatable && m.timestamp === timestamp
+      );
+      if (migration) {
+        return {
+          name: migration.name,
+          code_up: migration.code_up,
+          code_down: migration.code_down ?? null,
+        };
+      }
     }
   } catch {
     // Item may not exist
