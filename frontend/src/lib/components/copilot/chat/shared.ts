@@ -753,6 +753,10 @@ export interface ToolCallbacks {
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
 	 * no summary text is returned (e.g. OpenAI reasoning models). */
 	onReasoningStart?: () => void
+	/** Live cumulative output-token count for the in-flight assistant message (thinking +
+	 * text), so the typing indicator can show progress. Only providers that stream usage
+	 * (Anthropic) invoke it. */
+	onOutputTokens?: (outputTokens: number) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
 	requestUserQuestion?: (

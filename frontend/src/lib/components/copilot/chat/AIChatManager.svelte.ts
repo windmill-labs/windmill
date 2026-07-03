@@ -273,6 +273,9 @@ export class AIChatManager {
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
+	// Live output-token count for the in-flight assistant message; drives the typing
+	// indicator's progress readout. Only populated by providers that stream usage.
+	currentOutputTokens = $state<number>(0)
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
 	/** Provider-reported context size of the last committed turn (prompt +
@@ -1637,6 +1640,7 @@ export class AIChatManager {
 			this.currentReply = ''
 			this.currentReasoning = ''
 			this.currentReasoningActive = false
+			this.currentOutputTokens = 0
 
 			// Compaction trigger. Without a known context window there is no limit
 			// to enforce, so compaction stays off rather than guessing one.
@@ -1692,6 +1696,7 @@ export class AIChatManager {
 					onNewToken: (token) => (this.currentReply += token),
 					onReasoningDelta: (token) => (this.currentReasoning += token),
 					onReasoningStart: () => (this.currentReasoningActive = true),
+					onOutputTokens: (n) => (this.currentOutputTokens = n),
 					onMessageEnd: () => {
 						// Keep the streamed text for the abort/error paths. Non-empty only:
 						// parsers flush (and reset) when a tool call starts after text, and

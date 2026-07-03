@@ -621,6 +621,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{:else}
 								<ChatTypingIndicator
 									loading={aiChatManager.loading}
+									tokens={aiChatManager.compacting ? undefined : aiChatManager.currentOutputTokens}
 									label={aiChatManager.compacting
 										? 'Compacting conversation'
 										: aiChatManager.currentReasoningActive &&

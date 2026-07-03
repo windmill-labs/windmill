@@ -2,8 +2,9 @@
 	let {
 		loading,
 		compact = false,
-		label
-	}: { loading: boolean; compact?: boolean; label?: string } = $props()
+		label,
+		tokens
+	}: { loading: boolean; compact?: boolean; label?: string; tokens?: number } = $props()
 
 	// Wall-clock for the typing-dots indicator. Starts on the rising edge of
 	// `loading`, ticks once a second, frozen on the last value when loading
@@ -33,6 +34,11 @@
 		const rm = m % 60
 		return rm === 0 ? `${h}h` : `${h}h ${rm}m`
 	}
+
+	function formatTokens(n: number): string {
+		if (n < 1000) return `${n}`
+		return `${(n / 1000).toFixed(n < 10000 ? 1 : 0)}k`
+	}
 </script>
 
 <span
@@ -54,7 +60,9 @@
 		></span>
 	</span>
 	<span class={(compact ? 'text-[10px]' : 'text-2xs') + ' text-tertiary tabular-nums leading-none'}
-		>{label ? label + ' · ' : ''}{formatElapsed(loadingElapsedMs)}</span
+		>{label ? label + ' · ' : ''}{tokens ? `${formatTokens(tokens)} tokens · ` : ''}{formatElapsed(
+			loadingElapsedMs
+		)}</span
 	>
 </span>
 

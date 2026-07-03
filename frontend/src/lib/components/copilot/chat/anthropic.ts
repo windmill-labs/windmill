@@ -156,6 +156,15 @@ export async function parseAnthropicCompletion(
 		}
 	})
 
+	// Surface the cumulative output-token count as it streams (message_delta carries a
+	// running total for the in-flight message) so the typing indicator can show progress
+	// while the model thinks.
+	completion.on('streamEvent', (event: RawMessageStreamEvent) => {
+		if (event.type === 'message_delta' && event.usage?.output_tokens != null) {
+			callbacks.onOutputTokens?.(event.usage.output_tokens)
+		}
+	})
+
 	// Stream summarized thinking deltas to the chat's collapsible reasoning block.
 	completion.on('streamEvent', (event: RawMessageStreamEvent) => {
 		if (event.type === 'content_block_start') {
