@@ -29,6 +29,7 @@
 		PipelineMode
 	} from '$lib/components/assets/AssetGraph/types'
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
+	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
 	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import {
 		buildColumnGraph,
@@ -37,7 +38,8 @@
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import {
 		computeDownstreamClosure,
-		computeInducedSchedule
+		computeInducedSchedule,
+		assetProducers
 	} from '$lib/components/assets/AssetGraph/graphTraversal'
 	import { runCascade, runSelection } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
 	import {
@@ -82,6 +84,7 @@
 		Play,
 		RefreshCw,
 		Save,
+		SquareFunction,
 		Target,
 		Telescope
 	} from 'lucide-svelte'
@@ -217,6 +220,24 @@
 		}
 	}
 
+	// Workspace-macro explorer drawer (all `// macros` libraries + their
+	// signatures/bodies). "Open" on a group selects the lib node when it's on
+	// this canvas; a lib living in another folder opens its script page.
+	let macroDrawer: MacroExplorerDrawer | undefined = $state()
+	function openMacroLib(path: string) {
+		const onCanvas = displayGraph?.runnables?.some(
+			(r) => r.usage_kind === 'script' && r.path === path
+		)
+		if (onCanvas) {
+			pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+			pe.activeDraftPath = undefined
+			panelHidden = false
+			focusPipelineNode(`script:${path}`)
+		} else {
+			window.open(`${base}/scripts/get/${path}`, '_blank')
+		}
+	}
+
 	// Draft autosave (the data_pipeline DraftService bundle) lives inside
 	// PipelineGraphEditor now; the route just supplies its path to the indicator.
 	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
@@ -232,7 +253,9 @@
 			triggerAssets: [],
 			nativeTriggers: [],
 			dataTests: [],
-			columnLineage: []
+			columnLineage: [],
+			macros: false,
+			useLibs: []
 		}
 	}
 
@@ -1620,20 +1643,7 @@
 	// runs panel can list jobs for the right scripts. We include drafts —
 	// running a draft via runScriptPreview creates a `preview`-kind job at
 	// the same path, which the panel's listing query picks up.
-	let selectionProducers = $derived.by(() => {
-		const sel = pe.selection
-		if (!sel || sel.kind !== 'asset') return []
-		return graphWithDraft.edges
-			.filter((e) => {
-				const access = e.access_type ?? 'r'
-				return (
-					(access === 'w' || access === 'rw') &&
-					e.asset_kind === sel.asset_kind &&
-					e.asset_path === sel.path
-				)
-			})
-			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
-	})
+	let selectionProducers = $derived(assetProducers(graphWithDraft, pe.selection))
 
 	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
 	// or a draft is actively edited) so the pane blanks out like the other
@@ -1879,6 +1889,16 @@
 		}
 	)
 
+	// Folder whose graph is actually rendered. `graphRes.current` is stale-
+	// while-revalidate on an in-place folder switch, so keying the canvas's
+	// one-shot initial fit on the route param would fire the new folder's fit
+	// on the old graph and leave the fresh one unfitted. `folder` is read
+	// untracked: the key must move only when a graph lands.
+	let viewportFitFolder = $state('')
+	$effect(() => {
+		if (graphRes.current) untrack(() => (viewportFitFolder = folder))
+	})
+
 	// Body / inferred-assets prefetch sweep. Watches `g.runnables`; for any
 	// non-draft path we haven't fetched yet, fetches `getScriptByPath` and
 	// `inferAssets`, and stores both in their respective only-add caches.
@@ -2110,6 +2130,15 @@
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
+				startIcon={{ icon: SquareFunction }}
+				onclick={() => macroDrawer?.openDrawer()}
+				title="Browse the workspace's DuckDB macros (deployed // macros libraries)"
+			>
+				Macros
+			</Button>
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
 				startIcon={{ icon: RefreshCw }}
 				onclick={() => graphRes.refetch()}
 				disabled={graphRes.loading}
@@ -2133,6 +2162,7 @@
 			<PipelineGraphEditor
 				editor={pe}
 				{folder}
+				viewportFitKey={viewportFitFolder}
 				persistDrafts={true}
 				{displayGraph}
 				{mode}
@@ -2370,3 +2400,5 @@
 		</div>
 	</div>
 {/if}
+
+<MacroExplorerDrawer bind:this={macroDrawer} onOpenLib={openMacroLib} />

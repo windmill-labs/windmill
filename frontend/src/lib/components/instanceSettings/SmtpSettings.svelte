@@ -5,10 +5,6 @@
 			smtpSettings.smtp_host &&
 			smtpSettings.smtp_host.trim() !== '' &&
 			smtpSettings.smtp_port &&
-			smtpSettings.smtp_username &&
-			smtpSettings.smtp_username.trim() !== '' &&
-			smtpSettings.smtp_password &&
-			smtpSettings.smtp_password.trim() !== '' &&
 			smtpSettings.smtp_from &&
 			smtpSettings.smtp_from.trim() !== ''
 		)

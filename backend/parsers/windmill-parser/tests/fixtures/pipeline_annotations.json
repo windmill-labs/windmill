@@ -48,7 +48,11 @@
 		"expected": {
 			"in_pipeline": true,
 			"asset_triggers": [],
-			"native_triggers": ["kafka", "schedule", "data_upload"],
+			"native_triggers": [
+				"kafka",
+				"schedule",
+				"data_upload"
+			],
 			"partition": null,
 			"freshness": null,
 			"tag": null,
@@ -154,7 +158,10 @@
 			"partition": null,
 			"freshness": null,
 			"tag": null,
-			"retry": { "count": 3, "delay": "5s" }
+			"retry": {
+				"count": 3,
+				"delay": "5s"
+			}
 		}
 	},
 	{
@@ -167,7 +174,10 @@
 			"partition": null,
 			"freshness": null,
 			"tag": null,
-			"retry": { "count": 2, "delay": null }
+			"retry": {
+				"count": 2,
+				"delay": null
+			}
 		}
 	},
 	{
@@ -201,7 +211,9 @@
 		"code": "// pipeline\n// on s3://bucket/daily/{partition}/data.parquet\nexport function main() {}",
 		"expected": {
 			"in_pipeline": true,
-			"asset_triggers": ["s3object:bucket/daily/{partition}/data.parquet"],
+			"asset_triggers": [
+				"s3object:bucket/daily/{partition}/data.parquet"
+			],
 			"native_triggers": [],
 			"partition": null,
 			"freshness": null,
@@ -214,7 +226,9 @@
 		"code": "   -- pipeline\n\t-- on datatable://main/x\nSELECT 1;",
 		"expected": {
 			"in_pipeline": true,
-			"asset_triggers": ["datatable:main/x"],
+			"asset_triggers": [
+				"datatable:main/x"
+			],
 			"native_triggers": [],
 			"partition": null,
 			"freshness": null,
@@ -250,6 +264,67 @@
 				"target_kind": "ducklake",
 				"target_path": "analytics/orders_daily",
 				"unique_key": "order_id"
+			}
+		}
+	},
+	{
+		"name": "materialize scd2 via history flag with key, track and deletes=close",
+		"code": "// pipeline\n// materialize ducklake://analytics/dim_customer key=id history track=name,tier deletes=close\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim_customer",
+				"unique_key": "id",
+				"scd2": true,
+				"track": [
+					"name",
+					"tier"
+				],
+				"close_deleted": true
+			}
+		}
+	},
+	{
+		"name": "materialize scd2 keyword alias with key only (track all non-key cols)",
+		"code": "// materialize scd2 ducklake://analytics/dim key=id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim",
+				"unique_key": "id",
+				"scd2": true
+			}
+		}
+	},
+	{
+		"name": "materialize key without history is plain merge (SCD1, not scd2)",
+		"code": "// materialize ducklake://analytics/dim key=id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim",
+				"unique_key": "id"
 			}
 		}
 	},
@@ -319,12 +394,22 @@
 				"unique_key": "order_id"
 			},
 			"data_tests": [
-				{ "type": "unique", "column": "order_id" },
-				{ "type": "not_null", "column": "user_id" },
+				{
+					"type": "unique",
+					"column": "order_id"
+				},
+				{
+					"type": "not_null",
+					"column": "user_id"
+				},
 				{
 					"type": "accepted_values",
 					"column": "status",
-					"values": ["paid", "pending", "refunded"]
+					"values": [
+						"paid",
+						"pending",
+						"refunded"
+					]
 				},
 				{
 					"type": "relationships",
@@ -348,7 +433,15 @@
 			"tag": null,
 			"retry": null,
 			"data_tests": [
-				{ "type": "accepted_values", "column": "kind", "values": ["a b", "c", "d"] }
+				{
+					"type": "accepted_values",
+					"column": "kind",
+					"values": [
+						"a b",
+						"c",
+						"d"
+					]
+				}
 			]
 		}
 	},
@@ -363,7 +456,12 @@
 			"freshness": null,
 			"tag": null,
 			"retry": null,
-			"data_tests": [{ "type": "custom", "path": "f/tests/orders_amount_sane" }]
+			"data_tests": [
+				{
+					"type": "custom",
+					"path": "f/tests/orders_amount_sane"
+				}
+			]
 		}
 	},
 	{
@@ -399,7 +497,12 @@
 			"freshness": null,
 			"tag": null,
 			"retry": null,
-			"data_tests": [{ "type": "unique", "column": "id" }]
+			"data_tests": [
+				{
+					"type": "unique",
+					"column": "id"
+				}
+			]
 		}
 	},
 	{
@@ -413,7 +516,12 @@
 			"freshness": null,
 			"tag": null,
 			"retry": null,
-			"data_tests": [{ "type": "unique", "column": "id" }]
+			"data_tests": [
+				{
+					"type": "unique",
+					"column": "id"
+				}
+			]
 		}
 	},
 	{
@@ -446,7 +554,11 @@
 				{
 					"column": "user_name",
 					"inputs": [
-						{ "from_kind": "datatable", "from_path": "prod/users", "from_column": "name" }
+						{
+							"from_kind": "datatable",
+							"from_path": "prod/users",
+							"from_column": "name"
+						}
 					]
 				}
 			]
@@ -505,6 +617,90 @@
 					]
 				}
 			]
+		}
+	},
+	{
+		"name": "bare macros marker",
+		"code": "// macros\nCREATE MACRO dbl(a) AS a * 2;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"macros": true
+		}
+	},
+	{
+		"name": "macros with trailing prose is not a marker",
+		"code": "// macros are defined below\nCREATE MACRO dbl(a) AS a * 2;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "macros marker with sql comment prefix",
+		"code": "-- macros\n-- pipeline\nCREATE MACRO dbl(a) AS a * 2;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"macros": true
+		}
+	},
+	{
+		"name": "use accumulates in order and dedups",
+		"code": "// use f/lib/stats\n// use f/lib/dates\n// use f/lib/stats\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"use_libs": [
+				"f/lib/stats",
+				"f/lib/dates"
+			]
+		}
+	},
+	{
+		"name": "use requires a slashed single token",
+		"code": "// use this script to compute stuff\n// use standalone\n// use f/lib/ok extra\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "use stops at first code line",
+		"code": "// pipeline\nSELECT 1;\n-- use f/lib/late\n",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
 		}
 	}
 ]

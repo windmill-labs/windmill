@@ -243,7 +243,9 @@
 		forceVisible: true
 	})
 
-	// per-row fan-out submenus, anchored toward the page center (popover hugs the right edge)
+	// per-row fan-out submenus: open to the right when there's room. The popover hugs
+	// the right viewport edge on most screens, so the default flip (right → left) would
+	// cover the doc panel — fall back below the trigger row instead.
 	const {
 		elements: { subTrigger: wacSubTrigger, subMenu: wacSubMenu },
 		states: { subOpen: wacSubOpen }
@@ -251,7 +253,7 @@
 		positioning: {
 			placement: 'right-start',
 			gutter: 4,
-			flip: true,
+			flip: { fallbackPlacements: ['bottom-end', 'bottom-start', 'top-end', 'top-start'] },
 			fitViewport: true,
 			overflowPadding: 8
 		}
@@ -263,11 +265,42 @@
 		positioning: {
 			placement: 'right-end',
 			gutter: 4,
-			flip: true,
+			flip: { fallbackPlacements: ['bottom-end', 'bottom-start', 'top-end', 'top-start'] },
 			fitViewport: true,
 			overflowPadding: 8
 		}
 	})
+
+	// When a fan-out submenu falls below its row ('bottom'/'top' data-side), melt aligns
+	// it to the row's right edge, but free viewport space may remain beside the popover —
+	// slide it right until it hugs the viewport edge. Melt repositions on scroll/resize
+	// via style/data-side writes, so re-apply on attribute mutations.
+	function hugViewportRight(node: HTMLElement) {
+		let delta = 0
+		const apply = () => {
+			const side = node.getAttribute('data-side')
+			const baseRight = node.getBoundingClientRect().right - delta
+			const next =
+				side === 'bottom' || side === 'top'
+					? Math.max(0, document.documentElement.clientWidth - 8 - baseRight)
+					: 0
+			if (Math.abs(next - delta) < 0.5) return
+			delta = next
+			node.style.transform = next ? `translateX(${next}px)` : ''
+		}
+		const observer = new MutationObserver(apply)
+		observer.observe(node, { attributeFilter: ['style', 'data-side'] })
+		// melt only rewrites style when the reposition moves the submenu — a resize that
+		// changes clientWidth without moving it (scrollbar appearing, zoom) needs a direct hook
+		window.addEventListener('resize', apply)
+		apply()
+		return {
+			destroy: () => {
+				observer.disconnect()
+				window.removeEventListener('resize', apply)
+			}
+		}
+	}
 
 	// attach the menu trigger to the design-system <Button>'s DOM node, so it keeps its
 	// styling — melt element stores are callable on a node, exactly like `use:melt`.
@@ -438,6 +471,7 @@
 						{#if $wacSubOpen}
 							<div
 								use:melt={$wacSubMenu}
+								use:hugViewportRight
 								class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
 							>
 								{#each option.variants ?? [] as variant (variant.label)}
@@ -485,6 +519,7 @@
 				{#if $importSubOpen}
 					<div
 						use:melt={$importSubMenu}
+						use:hugViewportRight
 						class="z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
 					>
 						{#each importActions as action (action.label)}

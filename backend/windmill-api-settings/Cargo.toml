@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = []
+enterprise = ["license"]
 private = ["windmill-common/private"]
 parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 license = ["dep:rsa"]

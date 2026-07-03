@@ -8,6 +8,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -91,10 +92,13 @@
 	// the fork lingers as an orphan whose only purpose was this session.
 	const sessionForkId = $derived.by(() => {
 		const wsId = session?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
-		// Don't offer the option if the fork is gone or not user-accessible.
-		if (!ws || !ws.parent_workspace_id) return undefined
+		// Don't offer the option if the fork is gone/not user-accessible or isn't a fork (prefix OR
+		// parent, so an orphaned wm-fork- fork still qualifies).
+		if (!ws || !workspaceIsFork(wsId, $userWorkspaces)) return undefined
+		// A persistent dev workspace is not an ephemeral session fork — never offer to delete it.
+		if (ws.is_dev_workspace) return undefined
 		return wsId
 	})
 

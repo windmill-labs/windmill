@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/svelte'
 	import { NODE } from '$lib/components/graph/util'
-	import { FlaskConical, Columns3 } from 'lucide-svelte'
+	import { FlaskConical, Columns3, SquareFunction } from 'lucide-svelte'
 	import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
 
 	let {
@@ -75,6 +75,20 @@
 	// Stack the columns badge below the data-test badge when both are present so
 	// they don't overlap on the link (each badge is 18px tall; +18 clears it).
 	let columnsBadgeY = $derived(tests && tests.length > 0 ? labelY + 18 : labelY)
+
+	// Macro-edge badge: which of the library's macros the consumer calls (all
+	// of them when the whole lib is pulled in via `// use`).
+	let macroNames = $derived((data as { macro_names?: string[] } | undefined)?.macro_names)
+	let macroViaUse = $derived((data as { via_use?: boolean } | undefined)?.via_use ?? false)
+	let macroBadgeTitle = $derived(
+		macroNames && macroNames.length > 0
+			? `${macroViaUse ? 'uses the whole library' : `calls ${macroNames.length} macro${macroNames.length > 1 ? 's' : ''}`}:\n${macroNames
+					.map((n) => `• ${n}()`)
+					.join('\n')}`
+			: macroViaUse
+				? 'uses the whole library'
+				: ''
+	)
 
 	// An edge that skips at least one full layer (source-bottom → target-top
 	// gap larger than gap + node row) while staying near-vertical runs
@@ -183,6 +197,26 @@
 			>
 				<FlaskConical size={10} />
 				<span>×{tests.length}</span>
+			</div>
+		</div>
+	</foreignObject>
+{/if}
+
+{#if (macroNames && macroNames.length > 0) || macroViaUse}
+	<!-- Macro-edge badge, centered on the link like the data-test badge. -->
+	<foreignObject x={labelX - 28} y={labelY - 9} width="56" height="18" class="overflow-visible">
+		<div
+			xmlns="http://www.w3.org/1999/xhtml"
+			class="w-full h-full flex items-center justify-center"
+			style="pointer-events: none;"
+		>
+			<div
+				class="flex items-center gap-0.5 px-1 py-0.5 rounded-sm border shadow-sm text-3xs leading-none font-mono cursor-default bg-surface border-violet-300 dark:border-violet-900/60 text-violet-700 dark:text-violet-300"
+				style="pointer-events: all;"
+				title={macroBadgeTitle}
+			>
+				<SquareFunction size={10} />
+				<span>×{macroNames?.length ?? 0}</span>
 			</div>
 		</div>
 	</foreignObject>

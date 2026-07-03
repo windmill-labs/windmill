@@ -4,12 +4,19 @@ import { createLongHash } from '$lib/editorLangUtils'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
 	enterpriseLicense,
+	userStore,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
+import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+import {
+	isRuleActive,
+	canUserBypassRuleKind,
+	protectionRulesState
+} from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
@@ -515,15 +522,6 @@ export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
 }
 
-function defaultSessionWorkspaceId(
-	id: string | undefined,
-	all: UserWorkspace[]
-): string | undefined {
-	const root = workspaceRootId(id, all)
-	if (root && all.some((w) => w.id === root)) return root
-	return id
-}
-
 export function createSession(): Session {
 	// Reuse the existing transient session (if any) so the user can hit
 	// the "+" button repeatedly without piling drafts. The transient
@@ -537,12 +535,24 @@ export function createSession(): Session {
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
 	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
-	// Default to the root workspace rather than wherever the user happens
-	// to be — sessions usually start from "the canonical workspace" and
-	// the picker lets them switch to a fork later.
+	// Start in the workspace you're in. The one exception: a root you can't
+	// deploy to (locked, no bypass) steers to its dev, since a session there
+	// couldn't edit anything. The picker lets you switch.
 	const currentWs = get(workspaceStore)
-	const root = defaultSessionWorkspaceId(currentWs ?? undefined, get(userWorkspaces))
-	const pending = root ?? currentWs
+	const devOfCurrent = currentWs
+		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
+		: undefined
+	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
+	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
+	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
+	// editable) when one exists; the picker still lets the user switch back once rules resolve.
+	const rulesLoadedForCurrent =
+		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
+	const canDeployHere =
+		rulesLoadedForCurrent &&
+		(!isRuleActive('DisableDirectDeployment') ||
+			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
+	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).

@@ -1,5 +1,30 @@
-import type { AssetGraphResponse } from './types'
+import type { AssetGraphResponse, AssetGraphSelection } from './types'
 import { assetKey, buildAssetSubscribers, isWriteEdge } from './lib'
+
+// Scripts that WRITE the selected asset (its producers), from the graph's
+// `w`/`rw` lineage edges. `[]` for a non-asset selection. Shared by the route
+// page and the dev preview so "who writes this asset" is defined once and can't
+// drift between the two surfaces.
+export function assetProducers(
+	graph: AssetGraphResponse,
+	selection: AssetGraphSelection | undefined
+): Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }> {
+	if (!selection || selection.kind !== 'asset') return []
+	return graph.edges
+		.filter((e) => {
+			const access = e.access_type ?? 'r'
+			return (
+				(access === 'w' || access === 'rw') &&
+				e.asset_kind === selection.asset_kind &&
+				e.asset_path === selection.path
+			)
+		})
+		.map((e) => ({
+			kind: e.runnable_kind as 'script' | 'flow',
+			path: e.runnable_path,
+			unsaved: e.unsaved
+		}))
+}
 
 // Execution-DAG traversal over the resolved asset graph (drafts included).
 //

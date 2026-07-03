@@ -45,8 +45,9 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
 
 ```
 // materialize ducklake://analytics/orders_daily              → managed, replace (default)
-// materialize ducklake://analytics/orders_daily key=order_id → managed, merge
+// materialize ducklake://analytics/orders_daily key=order_id → managed, merge (SCD type 1)
 // materialize ducklake://analytics/orders_daily append       → managed, append
+// materialize ducklake://analytics/dim_customer key=id history → managed, SCD type 2 history
 // materialize manual ducklake://analytics/orders_daily       → track-only escape hatch
 ```
 
@@ -56,9 +57,52 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   error pointing to the `wmll.ducklake` helpers).
 - **`manual`** — escape hatch: the script writes its own DDL; Windmill only
   records state (no snapshot capture, no idempotency guarantee). Rare; explicit.
-- **`key=<col>`** → MERGE (dedup within slice); **`append`** → INSERT-only;
-  neither → DELETE-by-partition + INSERT (replace). `append` wins over `key` if
-  both are given (deploy warning).
+- **`key=<col>`** → MERGE (dedup within slice, SCD type 1 — overwrites history);
+  **`append`** → INSERT-only; neither → DELETE-by-partition + INSERT (replace).
+  `append` wins over `key` if both are given (deploy warning).
+- **`key=<col> history [track=<c1,c2,…>] [deletes=close]`** → upgrades the keyed
+  merge to managed SCD **type 2** history (the leading keyword `scd2` is an alias).
+  The SELECT is the *current snapshot* (one row per `key`), and the runtime adds
+  `valid_from`/`valid_to`/`is_current`; a change to any tracked column (`track=`,
+  default all non-key) closes the prior version and opens a new one, keeping full
+  history. Diff → close-old (`UPDATE`) → open-new (`INSERT`) in one transaction;
+  the effective timestamp is the transaction clock (`now()`), so a run is
+  self-consistent. v1 is **non-partitioned only** (`// partitioned` + history is
+  rejected). Unlike `manual`, it is managed, so `// data_test` and schema capture
+  work.
+  - **Deletes.** By default a key that disappears from the snapshot stays current
+    (soft delete — dbt's `hard_deletes=ignore`). `deletes=close` opts into
+    hard-delete-close: the vanished key's current version is closed (`valid_to`
+    set, `is_current=false`) with no new version — dbt's `hard_deletes=close`. If
+    that key later reappears in the snapshot it opens a fresh version, leaving a
+    validity gap between the delete and the reactivation (correct SCD2).
+  - **Reserved names.** `valid_from`/`valid_to`/`is_current` are reserved column
+    names in this mode — a SELECT that already projects one fails at run time —
+    and the `<dim>_current` suffix is reserved for the companion view (below), so
+    don't separately materialize a table by that name in the same lake (the view
+    is created `IF NOT EXISTS` inside the write transaction, so such a collision
+    is skipped silently — the `_current` convenience is simply absent — rather
+    than erroring).
+  - **Key should be non-null.** A `NULL` natural key is ill-formed for a
+    dimension; the codegen matches keys null-safely so a `NULL`-key row is
+    materialized rather than silently dropped, but you should enforce it with
+    `// data_test not_null <key>`.
+  - **`track=` takes no spaces.** Like every `=`-option in the annotation grammar
+    (which is whitespace-tokenized), the `track=` value must be a bare
+    comma-separated list with no spaces: `track=name,tier`, not `track=name, tier`
+    (a space ends the value and the rest is silently ignored).
+  - **Schema is frozen at first run** (persist-and-mutate, like `merge`/`append`):
+    the history table is `CREATE TABLE IF NOT EXISTS`, so adding/removing a
+    projected column later fails the run — an append-only history can't retroactively
+    reshape closed versions. Changing the SELECT's columns needs a manual rebuild
+    (the `replace` strategy is the only one that re-derives schema each run).
+  - **Consumer convenience.** Each run (re)creates a `<dim>_current` view (`WHERE
+    is_current`) in the same catalog, so the common "latest version" read needs no
+    filter and downstream scripts can `// on ducklake://…/<dim>_current`. The
+    effective-dated payoff is a native DuckDB `ASOF JOIN` against the history
+    table: `… ASOF JOIN <dim> d ON fact.key = d.<key> AND fact.ts >= d.valid_from`
+    returns, for each fact, the dimension version that was current at `fact.ts` —
+    something neither `merge` nor DuckLake time-travel can do in one query.
 - **`// partitioned <kind>`** — unit of work + state + backfill (separate;
   cross-cutting). Polyglot / multi-statement writes use the `wmll.ducklake`
   helpers instead of `// materialize`.
@@ -224,9 +268,12 @@ without anyone asking. This is deliberately **not** built, for three reasons:
 If a workload ever shows the consistency race in practice, pinning can be layered
 on top — the capture and the snapshot surfacing built here are its foundation.
 
-It also means **we do not build SCD2 snapshots** (gap #4 in `pipelines-vs-dbt.md`):
-DuckLake time-travel is a strictly better answer for most of what dbt's
-`{% snapshot %}` is used for. One fewer engine to write.
+This is distinct from **SCD2 history** (`// materialize … key=… history`), which *is* built:
+DuckLake time-travel answers "what did the whole table look like at snapshot N?"
+but not "give me each entity's version history as queryable rows"
+(`valid_from`/`valid_to`/`is_current`) — the shape dbt's `{% snapshot %}` produces
+and downstream dimensional queries join against. The scd2 strategy generates and
+manages that history table (see the strategy bullet above).
 
 ## Data tests (`// data_test`) — and the extensible-annotation pattern
 
@@ -292,6 +339,11 @@ load-bearing.
   slice just written (`WHERE _wm_partition = <value>`), so a rerun/backfill of
   one partition is independent of other partitions' (possibly pre-existing)
   data. Whole-table assertions are a follow-up.
+- **SCD2 scope.** On a `key=… history` target, built-in checks assert the
+  *current snapshot* (`WHERE is_current`): the history table legitimately
+  repeats the natural key across closed versions, so an unscoped
+  `unique(<key>)` would fail the run on the second change of any key. Custom
+  tests see the raw history and scope themselves.
 - **Commit-then-test.** Like dbt, the write commits before tests run; a failed
   test fails the *run* (and records `Failed`, so downstream cascade stops) but
   does not roll back the committed snapshot. Time-travel still lets you inspect

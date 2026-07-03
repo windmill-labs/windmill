@@ -268,6 +268,10 @@ lazy_static::lazy_static! {
     pub static ref INSTANCE_NAME: String = rd_string(5);
 
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
+    // Latest non-archived version per (workspace, path) for bundle cache keying —
+    // looser predicate than DEPLOYED_SCRIPT_HASH_CACHE (no lock requirement), so
+    // the two must not share entries. See get_latest_script_hash_for_import_cached.
+    pub static ref IMPORTED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref FLOW_VERSION_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref DYNAMIC_INPUT_CACHE: Cache<String, Arc<jobs::DynamicInput>> = Cache::new(1000);
     pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo<ScriptRunnableSettingsHandle>> = Cache::new(1000);
@@ -564,6 +568,132 @@ mod validate_dbname_tests {
     }
 }
 
+#[cfg(test)]
+mod pg_tls_tests {
+    use super::PgDatabase;
+
+    // A syntactically valid (self-signed) certificate, used only to exercise the
+    // "root certificate supplied" branch — its contents are never validated here.
+    const VALID_PEM: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIDETCCAfmgAwIBAgIUX/yHsMoWBljFzJr5Xh7V2I6ykMEwDQYJKoZIhvcNAQEL\n\
+BQAwGDEWMBQGA1UEAwwNd2luZG1pbGwtdGVzdDAeFw0yNjA2MjkwOTUwNTlaFw0z\n\
+NjA2MjYwOTUwNTlaMBgxFjAUBgNVBAMMDXdpbmRtaWxsLXRlc3QwggEiMA0GCSqG\n\
+SIb3DQEBAQUAA4IBDwAwggEKAoIBAQCvF2hMw8adQGG6EnDk8GsOIoHT+kLN1W0F\n\
+yYFwH1wGVmzVP1YNfUts8aQfMtl/ZjW7SQlvKeK+18id4fVNYvZpbFhj66IsKMOU\n\
+MnJHcC6X/IAdhANyhM1fcrS6YupanAKOhLPk4HYRD5tGI4Y1vzTnQKGffIZ0bof7\n\
+3GtCiJLv8wrJKszeoKPtdFazdW+CYePbFq3Owc7HMo8CwA7A5TsgcowELhCfYwZv\n\
+Pn/9v+NDHQO0jJclH7qK221RkbqZGD+nPJ4rUm7oRi0vfApBQZ0FFJZjiki/Kg2+\n\
+RACb6Ud/LOeRBerKQHbN8KeYnGafCaIC4s/XytVwxAz+kgK1qyl7AgMBAAGjUzBR\n\
+MB0GA1UdDgQWBBRo2Jby4SZlrwMNbhA4bswZcBNRyjAfBgNVHSMEGDAWgBRo2Jby\n\
+4SZlrwMNbhA4bswZcBNRyjAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUA\n\
+A4IBAQBlED+FQW3GB3Wa1NdVN252vihuFNnbq81yvhf4T7dfAxwkxI9jiM+ZWCw2\n\
+g59FbLupj8Rwun5gE2H/9M8ZunISdlwaMH5nyDJlbRjttPfY1cEoyGEY+UXIslfg\n\
+BoiI5rOtz9R2qurxEic1VtEVfXhEuWwCG86vCBDdHrL/qqqUJEx/P8qyC7uVc8XC\n\
+uclnJVL7x1ax0jTmEPur9K+DQn2ws01mzpq2QwSunibpDL5D5xM1oYekv0tQFEkT\n\
+ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
++hOq1qpWD7yPVyycx/KCilICOKVf\n\
+-----END CERTIFICATE-----\n";
+
+    fn pg(sslmode: Option<&str>, root_cert: Option<&str>) -> PgDatabase {
+        PgDatabase {
+            host: "db.example.com".to_string(),
+            user: Some("u".to_string()),
+            password: Some("p".to_string()),
+            port: Some(5432),
+            sslmode: sslmode.map(|s| s.to_string()),
+            dbname: "mydb".to_string(),
+            root_certificate_pem: root_cert.map(|s| s.to_string()),
+            accept_invalid_certs: None,
+            use_iam_auth: None,
+            region: None,
+        }
+    }
+
+    /// Whether the connector enforces certificate verification for the given config.
+    fn verifies(
+        sslmode: Option<&str>,
+        root_cert: Option<&str>,
+        accept_invalid_certs: Option<bool>,
+    ) -> bool {
+        let mut builder = native_tls::TlsConnector::builder();
+        PgDatabase::configure_pg_tls_verification(
+            &mut builder,
+            sslmode,
+            root_cert,
+            accept_invalid_certs,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn verify_modes_enforce_verification_when_explicitly_requested() {
+        // accept_invalid_certs=Some(false) is what newly created resources carry: it
+        // verifies even with no custom cert (against the OS trust store).
+        assert!(verifies(Some("verify-full"), None, Some(false)));
+        assert!(verifies(Some("verify-ca"), None, Some(false)));
+        assert!(verifies(Some("verify-full"), Some(""), Some(false)));
+        assert!(verifies(Some("verify-full"), Some(VALID_PEM), Some(false)));
+        assert!(verifies(Some("verify-ca"), Some(VALID_PEM), Some(false)));
+    }
+
+    #[test]
+    fn verify_modes_unset_fall_back_to_legacy_behavior() {
+        // Unset (None): verify iff a root cert is present — preserves the behavior of
+        // resources that predate the flag (incl. git-synced), so upgrades don't break.
+        assert!(!verifies(Some("verify-full"), None, None));
+        assert!(!verifies(Some("verify-ca"), None, None));
+        assert!(!verifies(Some("verify-full"), Some(""), None));
+        assert!(verifies(Some("verify-full"), Some(VALID_PEM), None));
+        assert!(verifies(Some("verify-ca"), Some(VALID_PEM), None));
+    }
+
+    #[test]
+    fn accept_invalid_certs_true_disables_verification_for_verify_modes() {
+        assert!(!verifies(Some("verify-full"), Some(VALID_PEM), Some(true)));
+        assert!(!verifies(Some("verify-ca"), None, Some(true)));
+    }
+
+    #[test]
+    fn accept_invalid_certs_is_ignored_outside_verify_modes() {
+        // require never consults the flag: it verifies iff a cert is present, and
+        // encrypts-without-verifying otherwise, regardless of accept_invalid_certs.
+        assert!(!verifies(Some("require"), None, Some(false)));
+        assert!(!verifies(Some("require"), None, Some(true)));
+        assert!(!verifies(None, None, Some(true)));
+        assert!(verifies(Some("require"), Some(VALID_PEM), Some(true)));
+        assert!(verifies(Some("require"), Some(VALID_PEM), None));
+    }
+
+    #[test]
+    fn invalid_pem_is_rejected() {
+        let mut builder = native_tls::TlsConnector::builder();
+        let err = PgDatabase::configure_pg_tls_verification(
+            &mut builder,
+            Some("verify-full"),
+            Some("not a certificate"),
+            Some(false),
+        );
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn to_uri_collapses_verify_modes_for_tokio_postgres() {
+        // to_uri() feeds tokio-postgres, which only parses disable/prefer/require;
+        // verify-* therefore map to require there (verification is connector-driven).
+        for mode in ["require", "verify-ca", "verify-full"] {
+            assert!(
+                pg(Some(mode), None).to_uri().contains("sslmode=require"),
+                "{mode} should map to sslmode=require in to_uri()"
+            );
+        }
+        assert!(pg(Some("disable"), None)
+            .to_uri()
+            .contains("sslmode=disable"));
+        assert!(pg(Some("allow"), None).to_uri().contains("sslmode=prefer"));
+        assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
+    }
+}
+
 #[derive(Serialize, Debug)]
 pub struct PrepareQueryColumnInfo {
     pub name: String,
@@ -588,6 +718,12 @@ pub struct PgDatabase {
     pub sslmode: Option<String>,
     pub dbname: String,
     pub root_certificate_pem: Option<String>,
+    /// Only meaningful for sslmode verify-ca/verify-full. `Some(true)` accepts any
+    /// server certificate (no chain or hostname check); `Some(false)` enforces
+    /// verification. `None` falls back to legacy behavior — verify only when a root
+    /// certificate is present — so resources that predate this flag (including
+    /// git-synced ones, whose source never sets it) keep working unchanged.
+    pub accept_invalid_certs: Option<bool>,
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
 }
@@ -676,10 +812,94 @@ impl PgDatabase {
         }
     }
 
+    /// True when sslmode requests verification (verify-ca/verify-full) but the
+    /// effective configuration disables it, so the server's identity is not
+    /// checked. Mirrors the verify-* decision in `configure_pg_tls_verification`.
+    pub fn verify_mode_skips_verification(&self) -> bool {
+        matches!(
+            self.sslmode.as_deref(),
+            Some("verify-ca") | Some("verify-full")
+        ) && self.accept_invalid_certs.unwrap_or(
+            self.root_certificate_pem
+                .as_deref()
+                .unwrap_or("")
+                .is_empty(),
+        )
+    }
+
+    /// Configure certificate and hostname verification on a native-tls connector
+    /// according to the requested Postgres `sslmode`. The crates.io tokio-postgres
+    /// build only parses disable/prefer/require, so verify-ca and verify-full are
+    /// enforced here, on the connector, rather than through the connection URI.
+    ///
+    ///   verify-full — verify the certificate chain AND that it matches the host.
+    ///   verify-ca   — verify the chain only; libpq does not check the hostname.
+    ///   require / other — encrypt without verifying identity, unless a root
+    ///                     certificate is supplied (then verify the chain).
+    ///
+    /// `accept_invalid_certs` only applies to verify-ca/verify-full: `Some(true)`
+    /// accepts any certificate, `Some(false)` enforces verification, and `None`
+    /// falls back to the legacy behavior — verify only when a root certificate is
+    /// present — so resources predating the flag (including git-synced ones, whose
+    /// source never sets it) keep working unchanged. Verification uses the OS trust
+    /// store plus any supplied root certificate. Returns false when the connector
+    /// was set to accept any certificate, so callers can surface that an unverified
+    /// connection is being made.
+    fn configure_pg_tls_verification(
+        builder: &mut native_tls::TlsConnectorBuilder,
+        sslmode: Option<&str>,
+        root_certificate_pem: Option<&str>,
+        accept_invalid_certs: Option<bool>,
+    ) -> Result<bool, error::Error> {
+        use native_tls::Certificate;
+
+        let custom_root = match root_certificate_pem {
+            Some(pem) if !pem.is_empty() => Some(
+                Certificate::from_pem(pem.as_bytes())
+                    .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
+            ),
+            _ => None,
+        };
+
+        match sslmode {
+            Some("verify-full") | Some("verify-ca") => {
+                // Unset falls back to the legacy behavior: verify iff a cert is present.
+                if accept_invalid_certs.unwrap_or(custom_root.is_none()) {
+                    builder
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true);
+                    return Ok(false);
+                }
+                if let Some(cert) = custom_root {
+                    builder.add_root_certificate(cert);
+                }
+                if sslmode == Some("verify-ca") {
+                    // verify-ca verifies the chain but, per libpq, not the hostname.
+                    builder.danger_accept_invalid_hostnames(true);
+                }
+                Ok(true)
+            }
+            _ => {
+                // "require": accept_invalid_certs does not apply. Encrypt but do not
+                // verify identity, unless an explicit root certificate was supplied
+                // (then verify the chain).
+                if let Some(cert) = custom_root {
+                    builder.add_root_certificate(cert);
+                    Ok(true)
+                } else {
+                    builder
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true);
+                    Ok(false)
+                }
+            }
+        }
+    }
+
     async fn connect_inner(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        use native_tls::{Certificate, TlsConnector};
+        use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
         use tokio_postgres::tls::NoTls;
         let ssl_mode_is_require = matches!(
@@ -690,21 +910,17 @@ impl PgDatabase {
         if ssl_mode_is_require {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
-            if let Some(root_certificate_pem) = &self.root_certificate_pem {
-                if !root_certificate_pem.is_empty() {
-                    connector.add_root_certificate(
-                        Certificate::from_pem(root_certificate_pem.as_bytes()).map_err(|e| {
-                            error::Error::BadConfig(format!("Invalid Certs: {e:#}"))
-                        })?,
-                    );
-                } else {
-                    connector.danger_accept_invalid_certs(true);
-                    connector.danger_accept_invalid_hostnames(true);
-                }
-            } else {
-                connector
-                    .danger_accept_invalid_certs(true)
-                    .danger_accept_invalid_hostnames(true);
+            Self::configure_pg_tls_verification(
+                &mut connector,
+                self.sslmode.as_deref(),
+                self.root_certificate_pem.as_deref(),
+                self.accept_invalid_certs,
+            )?;
+            if self.verify_mode_skips_verification() {
+                tracing::warn!(
+                    "Postgres connection with sslmode={} is not verifying the server certificate (accept_invalid_certs is set, or no root certificate is configured and the resource predates that flag). Set accept_invalid_certs=false or provide root_certificate_pem to enforce verification.",
+                    self.sslmode.as_deref().unwrap_or("")
+                );
             }
 
             let (client, connection) = tokio::time::timeout(
@@ -759,23 +975,16 @@ impl PgDatabase {
                 error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
             })?;
 
-        // RDS IAM auth requires SSL
+        // RDS IAM auth requires SSL.
         let mut connector = TlsConnector::builder();
-        if let Some(root_certificate_pem) = &self.root_certificate_pem {
-            if !root_certificate_pem.is_empty() {
-                connector.add_root_certificate(
-                    native_tls::Certificate::from_pem(root_certificate_pem.as_bytes())
-                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
-                );
-            } else {
-                connector.danger_accept_invalid_certs(true);
-                connector.danger_accept_invalid_hostnames(true);
-            }
-        } else {
-            tracing::warn!("IAM RDS auth without root certificate: TLS certificate verification is disabled. Consider providing root_certificate_pem for production use.");
-            connector
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true);
+        let verified = Self::configure_pg_tls_verification(
+            &mut connector,
+            self.sslmode.as_deref(),
+            self.root_certificate_pem.as_deref(),
+            self.accept_invalid_certs,
+        )?;
+        if !verified {
+            tracing::warn!("IAM RDS auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
         }
 
         tracing::info!("Creating new IAM RDS connection to {}", &self.host);
@@ -840,6 +1049,7 @@ impl PgDatabase {
             dbname,
             sslmode,
             root_certificate_pem: None,
+            accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
         })
@@ -1394,6 +1604,46 @@ pub async fn get_latest_script_hash<'e, E: sqlx::PgExecutor<'e>>(
     .fetch_optional(db)
     .await?;
     return Ok(hash);
+}
+
+/// Latest non-archived hash for an imported `path`, for bundle cache keying.
+/// MUST select the same row as the bundler's content endpoint
+/// (`raw_script_by_path_internal`: `archived = false ORDER BY created_at DESC`,
+/// no lock predicate) — a stricter filter here would let the key point at an
+/// older version than the content that gets inlined. Cached with the same
+/// freshness contract as that endpoint's `RAW_SCRIPT_LATEST_HASH_CACHE`:
+/// evicted by `notify_runnable_version_change` events, 60s TTL fallback.
+pub async fn get_latest_script_hash_for_import_cached(
+    db: &DB,
+    w_id: &str,
+    script_path: &str,
+) -> error::Result<Option<i64>> {
+    let use_cache = !DEPLOYED_SCRIPT_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+    let cache_key = (w_id.to_string(), script_path.to_string());
+    if use_cache {
+        if let Some(cached) = IMPORTED_SCRIPT_HASH_CACHE.get(&cache_key) {
+            if cached.expires_at > std::time::Instant::now() {
+                return Ok(Some(cached.id));
+            }
+        }
+    }
+    let hash = sqlx::query_scalar!(
+        "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+        script_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    if let (true, Some(hash)) = (use_cache, hash) {
+        IMPORTED_SCRIPT_HASH_CACHE.insert(
+            cache_key,
+            ExpiringLatestVersionId {
+                id: hash,
+                expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
+            },
+        );
+    }
+    Ok(hash)
 }
 
 pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(

@@ -1679,6 +1679,13 @@ async fn process_notify_event(
             );
             windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(payload);
         }
+        "notify_macro_registry_change" => {
+            tracing::debug!(
+                "Macro registry change for workspace {}, invalidating macro registry cache",
+                payload
+            );
+            windmill_common::assets::MACRO_REGISTRY_CACHE.remove(payload);
+        }
         "notify_workspace_key_change" => {
             tracing::info!(
                 "Workspace key change detected, invalidating workspace key cache: {}",
@@ -1708,6 +1715,10 @@ async fn process_notify_event(
                     match *source_type {
                         "script" => {
                             windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Bundle-cache key resolution for imported scripts; evicted
+                            // together with the content-side caches below so key and
+                            // inlined content flip to the new version in the same window.
+                            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&key);
                             // Evict the relative-import latest-hash cache so a redeployed
                             // imported script flips the content cache to its new version
                             // across all replicas within a poll interval (see #6769). Keyed

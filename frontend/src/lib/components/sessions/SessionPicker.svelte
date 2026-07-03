@@ -47,6 +47,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
@@ -256,9 +257,12 @@
 	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
 	const pendingDeleteForkId = $derived.by(() => {
 		const wsId = pendingDelete?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
-		if (!ws || !ws.parent_workspace_id) return undefined
+		// Fork = prefix OR parent (so an orphaned wm-fork- fork still qualifies); exclude persistent
+		// dev workspaces, which are not ephemeral session forks.
+		if (!ws || !workspaceIsFork(wsId, $userWorkspaces)) return undefined
+		if (ws.is_dev_workspace) return undefined
 		return wsId
 	})
 

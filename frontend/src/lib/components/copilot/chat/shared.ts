@@ -955,7 +955,11 @@ export async function buildSchemaForTool(
 
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
 		const model = getCurrentModel()
-		if (model.provider === 'openai' || model.provider === 'azure_openai') {
+		if (
+			model.provider === 'openai' ||
+			model.provider === 'azure_openai' ||
+			model.provider === 'azure_foundry'
+		) {
 			toolDef.function.strict = false
 		}
 		return true

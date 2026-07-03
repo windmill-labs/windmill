@@ -9,7 +9,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script } from '$lib/gen'
-	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
@@ -48,8 +48,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { scriptToHubUrl } from '$lib/hub'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -251,7 +250,7 @@
 						</div>
 					{/if}
 				{/if}
-				{#if !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !script.canWrite)}
+				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !script.canWrite)}
 					<div>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
@@ -260,7 +259,7 @@
 							startIcon={{ icon: GitFork }}
 							href={buildForkEditUrl('script', script.path)}
 						>
-							Edit in fork
+							{editInForkLabel($workspaceStore, $userWorkspaces)}
 						</Button>
 					</div>
 				{/if}
@@ -334,10 +333,13 @@
 						hide: $userStore?.operator
 					},
 					{
-						displayName: 'Edit in workspace fork',
+						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
 						icon: GitFork,
 						href: buildForkEditUrl('script', script.path),
-						hide: $userStore?.operator || isCloudHosted() || isRuleActive('DisableWorkspaceForking')
+						hide:
+							$userStore?.operator ||
+							isCloudHosted() ||
+							!editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
 					{
 						displayName: 'Move/Rename',

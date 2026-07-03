@@ -3,8 +3,8 @@
 	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { isPremiumStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
@@ -45,9 +45,12 @@
 	)
 	const isFork = $derived(!!parentWorkspaceId)
 
-	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar.
+	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar. On cloud,
+	// forking is a premium-only feature (backend caps it per paid seat).
 	const forksAllowed = $derived(
-		!isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'
+		(!isCloudHosted() || $isPremiumStore) &&
+			canCreateFork($userStore) &&
+			$workspaceStore !== 'admins'
 	)
 
 	const runtime = $derived(getRuntime(session.id))
