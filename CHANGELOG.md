@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.747.0](https://github.com/windmill-labs/windmill/compare/v1.746.0...v1.747.0) (2026-07-03)
+
+
+### Features
+
+* **frontend:** add federatedTokenFile field to instance object storage Azure config ([#9904](https://github.com/windmill-labs/windmill/issues/9904)) ([ae85d27](https://github.com/windmill-labs/windmill/commit/ae85d274371a24c5badb6081f00deeb409123252))
+
+
+### Bug Fixes
+
+* **ai:** route Azure Foundry Claude models via Anthropic Messages API ([#9908](https://github.com/windmill-labs/windmill/issues/9908)) ([d600c7e](https://github.com/windmill-labs/windmill/commit/d600c7ecfe305533798e82e8d05e5f2f297f9b54))
+* **forks:** clone only the current raw-app bundle, via server-side copy ([#9899](https://github.com/windmill-labs/windmill/issues/9899)) ([5c521d8](https://github.com/windmill-labs/windmill/commit/5c521d808a2b5d6d6bb7cf3da17fb2addc53fdf4))
+* **kafka:** set https.ca.location=probe for OAUTHBEARER OIDC token endpoint ([#9897](https://github.com/windmill-labs/windmill/issues/9897)) ([1b6065f](https://github.com/windmill-labs/windmill/commit/1b6065fa9201fd548c4b2ef199f1009200645929))
+* prevent truncated tool call args from bricking AI chat sessions ([#9902](https://github.com/windmill-labs/windmill/issues/9902)) ([4ba17d0](https://github.com/windmill-labs/windmill/commit/4ba17d0f9cd70489f89c84f982a0c8f0062fed1a))
+* strip NUL characters from app values at save time ([#9903](https://github.com/windmill-labs/windmill/issues/9903)) ([3ec1f16](https://github.com/windmill-labs/windmill/commit/3ec1f164be9c8c6c40e003188ce593a963c65a43))
+
 ## [1.746.0](https://github.com/windmill-labs/windmill/compare/v1.745.0...v1.746.0) (2026-07-02)
 
 
