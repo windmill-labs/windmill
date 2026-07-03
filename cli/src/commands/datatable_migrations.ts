@@ -43,8 +43,12 @@ export function createMigration(datatable: string, name: string): void {
   const base = `${timestamp}_${name}`;
   const up = path.join(dir, `${base}.up.sql`);
   const down = path.join(dir, `${base}.down.sql`);
-  fs.writeFileSync(up, `-- up migration: ${name}\n`, "utf-8");
-  fs.writeFileSync(down, `-- down migration: ${name}\n`, "utf-8");
+  // Frame the body in an explicit transaction so it applies atomically, matching
+  // the template the UI's "New migration" modal seeds.
+  const template = (direction: string) =>
+    `-- ${direction} migration: ${name}\nBEGIN;\n\n-- Add your migration here\n\nEND;\n`;
+  fs.writeFileSync(up, template("up"), "utf-8");
+  fs.writeFileSync(down, template("down"), "utf-8");
 
   log.info(
     colors.green(`Created migration ${base} in ${MIGRATIONS_DIR}/${datatable}/`),
