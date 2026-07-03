@@ -1132,10 +1132,11 @@
 													>
 														Resolve manually
 													</span>
-												{:else if status?.status === 'deployed'}
-													<!-- Deploy succeeded and there's no further step yet (the fork
-													     comparison catches up async — once it does and a next step
-													     exists, the action button above replaces this). -->
+												{:else if status?.status === 'deployed' && badgeOf(d) !== 'deployed'}
+													<!-- Success chip for the window between a deploy and the async fork
+													     comparison catch-up. Once the row itself reads deployed the
+													     violet status badge covers it; if a next step
+													     exists, the action button above replaces this. -->
 													<Badge color="green" small>Deployed</Badge>
 												{/if}
 											</div>
