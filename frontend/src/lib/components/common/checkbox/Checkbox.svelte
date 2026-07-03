@@ -4,6 +4,9 @@
 	interface Props {
 		/** Controlled checked state. */
 		checked?: boolean
+		/** Tri-state display (e.g. a group header with only part of its items
+		 * selected). Purely visual — `checked` still drives the value. */
+		indeterminate?: boolean
 		disabled?: boolean
 		/** Native title attribute (hover hint). */
 		title?: string | undefined
@@ -15,6 +18,7 @@
 
 	let {
 		checked = false,
+		indeterminate = false,
 		disabled = false,
 		title = undefined,
 		class: className = undefined,
@@ -25,6 +29,7 @@
 <input
 	type="checkbox"
 	{checked}
+	{indeterminate}
 	{disabled}
 	{title}
 	onchange={onChange}

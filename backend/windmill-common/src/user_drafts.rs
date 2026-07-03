@@ -237,18 +237,22 @@ async fn fetch_other_drafts_users(
     kind: UserDraftItemKind,
     path: &str,
 ) -> Result<Vec<OtherDraftUser>> {
-    // The `admins` workspace has no `usr` rows (username IS the email there),
-    // so fall back to `d.email` when the join misses, else a real teammate's
-    // draft renders as a phantom "Legacy draft". The genuine NULL-email legacy
-    // row keeps `username = None` (its `d.email` is NULL, so the CASE yields NULL).
+    // A superadmin authoring in a workspace they are not a member of has no `usr`
+    // row: fall back to their instance-derived username (`password.username`), or
+    // their email when derivation is disabled. Else a real teammate's draft renders
+    // as a phantom "Legacy draft". The genuine NULL-email legacy row keeps
+    // `username = None` (no `usr`/`password` match and `d.email` is NULL).
     let rows = sqlx::query_as!(
         OtherDraftUser,
-        r#"SELECT COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) as "username?",
+        r#"SELECT COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) as "username?",
                   d.created_at as "draft_saved_at!"
            FROM draft d
            LEFT JOIN usr u
                   ON u.workspace_id = d.workspace_id
                  AND u.email = d.email
+           LEFT JOIN password p
+                  ON p.email = d.email
+                 AND p.super_admin = true
            WHERE d.workspace_id = $1
              AND d.path = $2
              AND d.typ = $3

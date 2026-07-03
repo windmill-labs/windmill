@@ -118,10 +118,12 @@
 		return withForks
 	})
 	// Gate for the "Workspace fork" entry pinned below the list (the global fork
-	// modal carries its own base-workspace picker). Hidden on cloud, in the
-	// admins workspace, or when forking is disabled.
+	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
+	// in the admins workspace, or when forking is disabled.
 	const canForkHere = $derived(
-		!isCloudHosted() && $workspaceStore !== 'admins' && canCreateFork($userStore)
+		(!isCloudHosted() || $isPremiumStore) &&
+			$workspaceStore !== 'admins' &&
+			canCreateFork($userStore)
 	)
 	const familyWorkspaces = $derived.by(() => {
 		if (strictWorkspaceSelect) return hierarchy

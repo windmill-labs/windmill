@@ -204,18 +204,20 @@
 		<div class="flex flex-col gap-1">
 			<label for="cron-schedule" class="text-xs font-semibold text-emphasis">Cron</label>
 
-			<div class="flex flex-row gap-2 items-center">
-				<TextInput
-					inputProps={{
-						type: 'text',
-						id: 'cron-schedule',
-						name: 'cron-schedule',
-						placeholder: '0 0 */1 * * *',
-						disabled: disabled
-					}}
-					bind:value={schedule}
-					error={!validCRON}
-				/>
+			<div class="flex flex-row flex-wrap gap-2 items-center">
+				<div class="flex-1 min-w-[160px]">
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'cron-schedule',
+							name: 'cron-schedule',
+							placeholder: '0 0 */1 * * *',
+							disabled: disabled
+						}}
+						bind:value={schedule}
+						error={!validCRON}
+					/>
+				</div>
 				{#if !disabled}
 					<div class="flex flex-row gap-2 shrink-0">
 						{@render cronBuilder()}

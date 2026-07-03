@@ -16,6 +16,7 @@
 	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
+	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
@@ -162,6 +163,10 @@
 		/** Hide the minimap when the canvas is too narrow for it to be worth the
 		 * space (e.g. stacked layout in a side panel). Defaults to shown. */
 		showMinimap?: boolean
+		/** Identity of the displayed graph (e.g. the pipeline folder). The
+		 * initial viewport fit re-arms when it changes, so switching folders
+		 * in-place gets a fresh fit. */
+		viewportFitKey?: string
 	}
 	let {
 		graph,
@@ -188,7 +193,8 @@
 		onStartBoundedRun,
 		boundPick,
 		onPickEnd,
-		showMinimap = true
+		showMinimap = true,
+		viewportFitKey = ''
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -215,6 +221,7 @@
 			| 'trigger-native'
 			| 'add-anchor'
 			| 'data-test'
+			| 'macro'
 		unsaved?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
@@ -226,6 +233,10 @@
 		// Producer's `// column` declared lineage, on the same write-edge —
 		// rendered as a columns badge on the link.
 		column_lineage?: NonNullable<AssetGraphResponse['runnables'][number]['column_lineage']>
+		// Macro-library edge payload: the macros the consumer calls (or the
+		// whole lib when pulled in via `// use`) — rendered as a ƒ badge.
+		macro_names?: string[]
+		via_use?: boolean
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -392,6 +403,7 @@
 					freshness: r.freshness,
 					tag: r.tag,
 					retry: r.retry,
+					macros: r.macros,
 					unsaved: r.unsaved ?? false,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits
@@ -487,6 +499,26 @@
 					unsaved: e.unsaved
 				})
 			}
+		}
+
+		// Macro-library → consumer edges (runnable→runnable, unlike the
+		// asset-mediated lineage above). Endpoints must exist as nodes — an
+		// undeployed `// use` target without a draft has none, so its edge is
+		// skipped (the annotation still shows in the script body itself).
+		const runnableNodeIds = new Set(g.runnables.map((r) => `${r.usage_kind}:${r.path}`))
+		for (const me of g.macro_edges ?? []) {
+			const libId = `script:${me.lib_path}`
+			const consumerId = `script:${me.consumer_path}`
+			if (!runnableNodeIds.has(libId) || !runnableNodeIds.has(consumerId)) continue
+			edges.push({
+				id: `macro:${libId}->${consumerId}`,
+				source: libId,
+				target: consumerId,
+				kind: 'macro',
+				unsaved: me.unsaved,
+				macro_names: me.macro_names,
+				via_use: me.via_use
+			})
 		}
 
 		// Non-asset triggers (schedule + native) are rendered as source nodes
@@ -677,11 +709,27 @@
 	// edges + paths → same layout. Renames *do* change the layout for
 	// the renamed entry, since its id moves in the sort, but that's
 	// expected: a rename is a path change, which is part of the input.
+	// A script with rw access to an asset yields both a write (script → asset)
+	// and a read/trigger (asset → script) edge — a 2-cycle. The layout resolves
+	// it producer-above-asset by omitting the backward direction from its
+	// input; the rendered edges are untouched (both arrows still drawn).
+	let writeEdgePairs = $derived(
+		new Set(
+			model.edges.filter((e) => e.kind === 'lineage-write').map((e) => `${e.source}\n${e.target}`)
+		)
+	)
 	let layoutInput = $derived({
 		nodes: model.nodes
 			.map((n) => ({ id: n.id, data: n.data }))
 			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
 		edges: model.edges
+			.filter(
+				(e) =>
+					!(
+						(e.kind === 'lineage-read' || e.kind === 'trigger-asset') &&
+						writeEdgePairs.has(`${e.target}\n${e.source}`)
+					)
+			)
 			.map((e) => ({ source: e.source, target: e.target }))
 			.sort((a, b) =>
 				a.source === b.source
@@ -891,6 +939,16 @@
 						label = 'triggers'
 						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
 						break
+					case 'macro':
+						// Library → consumer: violet dashed, visually apart from both
+						// lineage (blue/gray solid) and trigger (gray dashed) families —
+						// it's a code dependency, not data flow or execution.
+						style = 'stroke: rgb(139 92 246); stroke-width: 1.25px;'
+						strokeDasharray = '5 3'
+						markerColor = 'rgb(139 92 246)'
+						label = e.via_use ? 'uses lib' : 'macros'
+						labelStyle = 'fill: rgb(139 92 246); font-size: 10px; font-weight: 600;'
+						break
 					default:
 						style = ''
 				}
@@ -940,7 +998,11 @@
 						testsRunStatus: e.data_tests?.length ? runStates?.get(e.source)?.status : undefined,
 						// Column-lineage badge on the same write-edge (the link is the
 						// transformation whose output columns the lineage describes).
-						column_lineage: e.column_lineage
+						column_lineage: e.column_lineage,
+						// Macro-edge badge: which of the library's macros the consumer
+						// calls (all of them when pulled in via `// use`).
+						macro_names: e.macro_names,
+						via_use: e.via_use
 					},
 					animated,
 					label,
@@ -1023,21 +1085,35 @@
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+		<InitialFitView {nodes} fitKey={viewportFitKey} />
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
 		{#if showMinimap}
+			<!-- Node hues mirror the canvas: blue asset cards, amber triggers,
+			     bordered neutral script cards. Visible strokes + rounded corners +
+			     a bordered container + the outlined viewport mask are what make
+			     this read as a minimap instead of a loading skeleton. -->
 			<MiniMap
 				pannable
 				zoomable
-				class="!bg-surface !mb-10"
+				class="!bg-surface !mb-10 rounded-md border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden"
+				nodeBorderRadius={12}
+				nodeStrokeWidth={6}
 				nodeColor={(n) =>
 					n.type === 'asset'
-						? 'rgb(96 165 250 / 0.5)'
+						? 'rgb(59 130 246 / 0.3)'
 						: n.type === 'trigger'
-							? 'rgb(251 191 36 / 0.5)'
-							: 'rgb(52 211 153 / 0.5)'}
-				nodeStrokeColor="transparent"
-				maskColor="rgb(0 0 0 / 0.2)"
+							? 'rgb(245 158 11 / 0.3)'
+							: 'rgb(148 163 184 / 0.15)'}
+				nodeStrokeColor={(n) =>
+					n.type === 'asset'
+						? 'rgb(59 130 246 / 0.8)'
+						: n.type === 'trigger'
+							? 'rgb(245 158 11 / 0.8)'
+							: 'rgb(100 116 139 / 0.7)'}
+				maskColor="rgb(100 116 139 / 0.12)"
+				maskStrokeColor="rgb(59 130 246 / 0.5)"
+				maskStrokeWidth={4}
 			/>
 		{/if}
 	</SvelteFlow>

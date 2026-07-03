@@ -20,7 +20,9 @@ const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
 	retry: true,
 	materialize: true,
 	dataTests: true,
-	columnLineage: true
+	columnLineage: true,
+	macros: true,
+	useLibs: true
 }
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
@@ -78,6 +80,10 @@ type Fixture = {
 		// Snake_case `ColumnLineage` serde shape — TS parser emits it verbatim,
 		// so the comparison is 1:1. Absent === [].
 		column_lineage?: Array<Record<string, unknown>>
+		// `// macros` marker. Absent === false.
+		macros?: boolean
+		// `// use <lib_path>` accumulation, declaration order, deduped. Absent === [].
+		use_libs?: string[]
 	}
 }
 
@@ -179,6 +185,10 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 			expect(got.dataTests, 'data tests').toEqual(f.expected.data_tests ?? [])
 
 			expect(got.columnLineage, 'column lineage').toEqual(f.expected.column_lineage ?? [])
+
+			expect(got.macros, 'macros').toBe(f.expected.macros ?? false)
+
+			expect(got.useLibs, 'use_libs').toEqual(f.expected.use_libs ?? [])
 		})
 	}
 })

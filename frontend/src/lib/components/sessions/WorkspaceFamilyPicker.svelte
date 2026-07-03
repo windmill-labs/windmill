@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { tick, type Snippet } from 'svelte'
-	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		isPremiumStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		findWorkspaceDescendants,
 		findCanonicalDevWorkspace,
@@ -138,12 +144,14 @@
 		rootRulesetsResource.loading || rootUserInfoResource.loading || !canDeployRoot
 	)
 
-	// Structural gate: hidden on cloud, in the admins workspace, or when the user
-	// can't fork. DisableWorkspaceForking on the active workspace (a locked prod)
-	// doesn't apply when there's a dev to fork from instead — the dev isn't
-	// locked, and devOfRoot only resolves when the user is a member of it.
+	// Structural gate: hidden in the admins workspace, or when the user can't fork; on cloud, forking
+	// is premium-only (backend caps it per paid seat). DisableWorkspaceForking on the active workspace
+	// (a locked prod) doesn't apply when there's a dev to fork from instead — the dev isn't locked, and
+	// devOfRoot only resolves when the user is a member of it.
 	const forksGateOpen = $derived(
-		!isCloudHosted() && $workspaceStore !== 'admins' && (canCreateFork($userStore) || !!devOfRoot)
+		(!isCloudHosted() || $isPremiumStore) &&
+			$workspaceStore !== 'admins' &&
+			(canCreateFork($userStore) || !!devOfRoot)
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,

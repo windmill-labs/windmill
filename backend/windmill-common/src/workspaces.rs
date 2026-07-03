@@ -348,8 +348,214 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "cloud")]
+lazy_static::lazy_static! {
+    // Maps a workspace id to its root (billing) ancestor. Value: (root_id, expiry_timestamp).
+    // Reparenting (attach/detach dev) is rare and self-heals via the 60s TTL, so a brief stale
+    // mapping only mis-attributes usage for <60s across other instances.
+    pub static ref BILLING_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
+}
+
+/// Resolve the "billing" workspace for `w_id`: the root ancestor of the fork/dev chain (the
+/// workspace whose plan and usage a fork draws from). Returns `w_id` unchanged for a standalone
+/// workspace, an unknown id, or a (malformed) cyclic chain.
+///
+/// Unauthenticated metering helper: it only reads the parent chain and returns another workspace id,
+/// so callers must already be authorized for `w_id` (or run in trusted server-side code); `w_id` is
+/// expected to be a server-side id, not raw user input.
+#[cfg(feature = "cloud")]
+pub async fn get_billing_workspace_id(db: &crate::DB, w_id: &str) -> Result<String> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some((root, expiry)) = BILLING_WORKSPACE_CACHE.get(w_id) {
+        if expiry > now {
+            return Ok(root);
+        }
+    }
+
+    // The depth bound is a cycle-safety backstop kept well above the enforced `MAX_FORK_DEPTH`, so a
+    // truncated (root-not-found) result — which would fall back to `w_id` and mis-attribute billing —
+    // is unreachable for any real hierarchy; only a malformed cycle could hit it.
+    let root = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT id AS "id!" FROM chain WHERE parent_workspace_id IS NULL LIMIT 1
+        "#,
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving billing workspace for {w_id}: {e:#}")))?
+    .unwrap_or_else(|| w_id.to_string());
+
+    BILLING_WORKSPACE_CACHE.insert(w_id.to_string(), (root.clone(), now + 60));
+    Ok(root)
+}
+
+/// Invalidate the billing-workspace mapping for a workspace (call after reparenting it).
+#[cfg(feature = "cloud")]
+pub fn invalidate_billing_workspace_cache(w_id: &str) {
+    BILLING_WORKSPACE_CACHE.remove(w_id);
+}
+
+/// Invalidate the cached team-plan (premium/past-due) status for a workspace. `TEAM_PLAN_CACHE` has
+/// no TTL — it's only evicted by the premium-change NOTIFY — so call this when a workspace id is
+/// permanently deleted, otherwise a reused id could inherit the old workspace's premium status.
+#[cfg(feature = "cloud")]
+pub fn invalidate_team_plan_cache(w_id: &str) {
+    TEAM_PLAN_CACHE.remove(w_id);
+}
+
+/// Depth of `w_id` in its fork chain: 0 for a root (no parent), 1 for a direct fork, and so on. Walks
+/// the parent chain up to the root. The recursion bound is a cycle-safety backstop set well above the
+/// enforced `MAX_FORK_DEPTH`; a (malformed) cyclic chain saturates it and so reads as "too deep",
+/// which safely rejects rather than allows.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn fork_chain_depth(db: &crate::DB, w_id: &str) -> Result<i64> {
+    let depth = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT COALESCE(MAX(depth), 0)::bigint AS "depth!" FROM chain
+        "#,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("computing fork depth for {w_id}: {e:#}")))?;
+    Ok(depth)
+}
+
+/// Height of the fork subtree rooted at `w_id`: 0 when it has no live child forks, 1 with direct
+/// children, and so on. Used so that attaching a candidate which already has its own child forks can't
+/// push the family past the depth limit.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
+    // The `deleted` filter is applied in the outer aggregation (not the recursive step, matching
+    // count_workspace_forks) so a live descendant under a soft-deleted intermediate is still measured
+    // at its true depth rather than pruned — otherwise the height could be underestimated and let the
+    // resulting chain exceed the depth limit.
+    let height = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20
+            )
+            SELECT COALESCE(MAX(depth) FILTER (WHERE NOT deleted), 0)::bigint AS "height!" FROM tree
+        "#,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("computing fork subtree height for {w_id}: {e:#}")))?;
+    Ok(height)
+}
+
+/// Ids of every fork/dev workspace anywhere under `w_id` (excludes `w_id` itself), including live
+/// descendants beneath a soft-deleted intermediate. Used to invalidate per-workspace caches for a
+/// whole subtree after its ancestor is reparented.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn list_fork_descendants(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let ids = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20
+            )
+            SELECT id AS "id!" FROM tree WHERE id != $1
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("listing fork descendants of {w_id}: {e:#}")))?;
+    Ok(ids)
+}
+
+/// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).
+///
+/// Unauthenticated metering helper: it reads workspace hierarchy for any `root` id, so callers must
+/// already be authorized for that workspace (or run in trusted server-side code). `root` is expected
+/// to be a server-resolved id, never raw user input.
+#[cfg(feature = "cloud")]
+pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
+    // The `deleted` filter is on the outer SELECT (not the recursive step) so that a live sub-fork
+    // whose intermediate parent was soft-deleted is still counted rather than pruned with it. The
+    // depth bound is a cycle-safety backstop kept well above the enforced `MAX_FORK_DEPTH`, so
+    // descendants are never silently dropped from the cap count.
+    let count = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20
+            )
+            SELECT COUNT(DISTINCT id) AS "count!" FROM tree WHERE id != $1 AND NOT deleted
+        "#,
+        root
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting forks of {root}: {e:#}")))?;
+    Ok(count)
+}
+
+/// Approximate paid seats of a workspace as `ceil(developers + operators/2)`, excluding disabled and
+/// service-account members. Reuses billing's author/operator weighting, but counts provisioned
+/// members rather than the active-user population billing meters, so it only ever loosens the fork
+/// cap (never blocks a paid seat) — good enough for a soft guardrail.
+///
+/// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+#[cfg(feature = "cloud")]
+pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
+    let row = sqlx::query!(
+        r#"SELECT
+            COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
+            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!"
+        FROM usr WHERE workspace_id = $1"#,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting paid seats of {w_id}: {e:#}")))?;
+    Ok(((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64)
+}
+
+#[cfg(feature = "cloud")]
 pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPlanStatus> {
-    let cached = TEAM_PLAN_CACHE.get(_w_id);
+    // A fork/dev workspace draws its plan from the root (billing) workspace. Resolve to the root and
+    // key the cache by it: the premium-change NOTIFY is keyed by the workspace whose premium row
+    // changed (the root), so keying by root keeps invalidation correct and lets forks share it.
+    let billing_w_id = get_billing_workspace_id(_db, _w_id).await?;
+    let cached = TEAM_PLAN_CACHE.get(&billing_w_id);
     if let Some(cached) = cached {
         return Ok(cached);
     }
@@ -368,7 +574,7 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
                 WHERE
                     w.id = $1
             "#,
-            _w_id
+            billing_w_id
         )
         .fetch_optional(_db)
         .await
@@ -380,13 +586,13 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
     )
     .notify(|err, dur| {
         tracing::error!(
-            "Failed to get team plan status for workspace {_w_id} (will retry in {dur:?}): {err:#}"
+            "Failed to get team plan status for workspace {billing_w_id} (will retry in {dur:?}): {err:#}"
         );
     })
     .await
     .map_err(|err| {
         Error::internal_err(format!(
-            "Failed to get team plan status for workspace {_w_id} after 10 retries: {err:#}"
+            "Failed to get team plan status for workspace {billing_w_id} after 10 retries: {err:#}"
         ))
     })?
     .unwrap_or_else(|| TeamPlanStatus {
@@ -395,7 +601,7 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
         max_tolerated_executions: None,
     });
 
-    TEAM_PLAN_CACHE.insert(_w_id.to_string(), team_plan_info.clone());
+    TEAM_PLAN_CACHE.insert(billing_w_id, team_plan_info.clone());
 
     Ok(team_plan_info)
 }

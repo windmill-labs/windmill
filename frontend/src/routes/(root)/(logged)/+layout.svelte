@@ -197,8 +197,15 @@
 			} catch (e) {
 				console.error('Could not persist username to local storage', e)
 			}
-			if (isCloudHosted() && user?.is_admin) {
-				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
+			// Populate for all members (not just admins) so non-admin developers also get premium-gated
+			// affordances like the fork entry points on cloud. The `is_premium` endpoint is a boolean
+			// and no longer admin-gated. Best-effort: a failure here must not block user-store init.
+			if (isCloudHosted()) {
+				try {
+					isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
+				} catch (e) {
+					console.error('Could not fetch premium status', e)
+				}
 			}
 		} else {
 			userStore.set(undefined)

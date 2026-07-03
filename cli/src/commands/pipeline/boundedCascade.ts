@@ -13,7 +13,13 @@
 // pipeline.ts.
 
 export type BCGraph = {
-  runnables: { path: string; usage_kind: "script" | "flow" | "job" }[];
+  runnables: {
+    path: string;
+    usage_kind: "script" | "flow" | "job";
+    // `// partitioned <kind>` on the script (daily/hourly/weekly/monthly/dynamic).
+    // Emitted by both the deployed graph endpoint and the local builder.
+    partition_kind?: string;
+  }[];
   assets: { kind: string; path: string }[];
   edges: {
     runnable_kind: string;
