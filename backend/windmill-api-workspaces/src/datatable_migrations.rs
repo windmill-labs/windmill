@@ -33,9 +33,7 @@ use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, Debounci
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::to_raw_value;
-use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, DataTable, DataTableCatalogResourceType,
-};
+use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, DB};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
@@ -102,15 +100,19 @@ struct RunDatatableMigrationsQuery {
     only: Option<i64>,
 }
 
-/// Build the `database` argument for a migration job. Resource-backed data
-/// tables pass a `$res:` reference (resolved + redacted by the worker); instance
-/// data tables have no resource, so the resolved credentials are passed.
+/// Build the `database` argument for a migration job. Both resource-backed and
+/// instance data tables pass a `datatable://<name>` reference; the pg executor
+/// resolves it to real credentials server-side at run time. It must never be
+/// resolved here: the resolved instance credentials include a single
+/// instance-wide Postgres password, and the job's `args` are readable by the —
+/// possibly non-admin — user who ran the migration.
 async fn datatable_database_arg(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
 ) -> Result<Box<serde_json::value::RawValue>> {
-    let config = sqlx::query_scalar!(
+    // Fail fast with a clear error if the data table doesn't exist.
+    sqlx::query_scalar!(
         "SELECT ws.datatable->'datatables'->$2 FROM workspace_settings ws WHERE ws.workspace_id = $1",
         w_id,
         datatable_name,
@@ -118,18 +120,8 @@ async fn datatable_database_arg(
     .fetch_one(db)
     .await?
     .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
-    let datatable: DataTable = serde_json::from_value(config)?;
-    match datatable.database.resource_type {
-        DataTableCatalogResourceType::Postgresql => Ok(to_raw_value(&format!(
-            "$res:{}",
-            datatable.database.resource_path
-        ))),
-        DataTableCatalogResourceType::Instance => {
-            let resolved =
-                get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-            Ok(to_raw_value(&resolved))
-        }
-    }
+
+    Ok(to_raw_value(&format!("datatable://{datatable_name}")))
 }
 
 /// Run a migration's SQL as a normal Windmill `postgresql` job, permissioned as
