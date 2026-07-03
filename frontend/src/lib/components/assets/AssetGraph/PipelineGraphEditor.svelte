@@ -73,6 +73,7 @@
 		selectionProducers = [],
 		selectionColumnGraph,
 		schemaCanEvolve = true,
+		selectionForkMaterialization = undefined,
 		downstreamSubscribers = 0,
 		onStartBoundedRunForOpen,
 		canBoundedRunOpenScript = false,
@@ -170,6 +171,8 @@
 		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
 		schemaCanEvolve?: boolean
+		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
+		selectionForkMaterialization?: 'fork' | 'deferred'
 		downstreamSubscribers?: number
 		onStartBoundedRunForOpen?: (path: string) => void
 		canBoundedRunOpenScript?: boolean
@@ -486,6 +489,7 @@
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{selectionColumnGraph}
 						{schemaCanEvolve}
+						{selectionForkMaterialization}
 						{runsRefreshKey}
 						{runsPendingJobId}
 						{activeRunnable}

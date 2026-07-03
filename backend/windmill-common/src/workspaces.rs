@@ -893,6 +893,14 @@ pub struct DucklakeForkDefer {
     /// Nearest-first (direct parent … root), each resolved from that workspace's own settings.
     pub ancestors: Vec<DucklakeAncestorAttach>,
     pub defer_tables: Vec<crate::materialization::ForkDeferTable>,
+    /// Views currently live in the fork namespace (read from the catalog's `ducklake_view` at
+    /// resolution time, lake-internal names). The worker's view→table transition (DROP VIEW
+    /// before a managed materialize) keys on THIS, not on recorded materialization status:
+    /// after a failed run the status can't distinguish a defer view from a real table, and
+    /// `DROP VIEW` against a table (or `CREATE TABLE` against a view) errors — either guess
+    /// would wedge the asset until manual repair.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fork_views: Vec<String>,
 }
 
 /// Connection data for one ancestor namespace of a fork's ducklake.
@@ -1162,6 +1170,7 @@ async fn fork_scoped_ducklake(
     } else {
         vec![]
     };
+    let fork_views = list_fork_catalog_views(&base, &metadata_schema, db).await?;
 
     base.storage.path = fork_path;
     base.extra_args = Some(match base.extra_args.take() {
@@ -1175,8 +1184,51 @@ async fn fork_scoped_ducklake(
         }
         None => format!("METADATA_SCHEMA '{metadata_schema}'"),
     });
-    base.fork_defer = Some(DucklakeForkDefer { ancestors, defer_tables });
+    base.fork_defer = Some(DucklakeForkDefer { ancestors, defer_tables, fork_views });
     Ok(base)
+}
+
+/// Lake-internal names of the views currently live in the fork's catalog namespace, straight
+/// from DuckLake's `ducklake_view` metadata. Missing metadata tables (namespace never attached
+/// yet) read as "no views" — correct, since nothing can exist there.
+async fn list_fork_catalog_views(
+    base: &DucklakeWithConnData,
+    metadata_schema: &str,
+    db: &DB,
+) -> Result<Vec<String>> {
+    let pg: crate::PgDatabase =
+        serde_json::from_value(base.catalog_resource.clone()).map_err(|e| {
+            Error::internal_err(format!("ducklake catalog resource is not postgres: {e}"))
+        })?;
+    let (client, connection) = pg.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    // Identifier-quoted schema: the name is server-derived (mangled + hashed) but quote anyway.
+    let q = format!(
+        r#"SELECT CASE WHEN s.schema_name = 'main' THEN v.view_name
+                       ELSE s.schema_name || '.' || v.view_name END AS name
+           FROM "{ms}".ducklake_view v
+           JOIN "{ms}".ducklake_schema s ON s.schema_id = v.schema_id AND s.end_snapshot IS NULL
+           WHERE v.end_snapshot IS NULL"#,
+        ms = metadata_schema.replace('"', "\"\"")
+    );
+    let rows = client.query(&q, &[]).await;
+    drop(client);
+    let _ = join_handle.await;
+    match rows {
+        Ok(rows) => Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect()),
+        // 42P01 undefined_table / 3F000 invalid_schema_name: namespace not bootstrapped yet.
+        Err(e)
+            if e.code().map_or(false, |c| {
+                c == &tokio_postgres::error::SqlState::UNDEFINED_TABLE
+                    || c == &tokio_postgres::error::SqlState::INVALID_SCHEMA_NAME
+            }) =>
+        {
+            Ok(vec![])
+        }
+        Err(e) => Err(Error::internal_err(format!(
+            "listing fork ducklake views in {metadata_schema}: {e}"
+        ))),
+    }
 }
 
 /// Record (once) that a fork attached this lake, so fork deletion knows exactly which pg

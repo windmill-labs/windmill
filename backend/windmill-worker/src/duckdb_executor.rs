@@ -1961,18 +1961,20 @@ fn fork_defer_statements(
         }
     }
     if let Some(t) = target_table {
-        if defer.defer_tables.iter().any(|d| d.table == t) {
-            // First fork materialize of a deferred table: replace its defer view(s) with the
-            // real table this job writes. `_current` is dropped too — SCD2 codegen recreates it
-            // with `IF NOT EXISTS`, which would otherwise silently keep a view over the parent.
-            stmts.push(format!(
-                "DROP VIEW IF EXISTS {alias_name}.{};",
-                quote_qualified_table(t)
-            ));
-            stmts.push(format!(
-                "DROP VIEW IF EXISTS {alias_name}.{};",
-                quote_qualified_table(&current_companion(t))
-            ));
+        // View→table transition: replace the target's defer view(s) with the real table this
+        // job writes (`CREATE [OR REPLACE] TABLE` refuses to replace a view). Keyed on the
+        // catalog's ACTUAL live views — not on recorded materialization status, which after a
+        // failed run can't tell a defer view from a real table, and a mismatched DROP VIEW
+        // would wedge the asset. `_current` is dropped too when it is a view — SCD2 codegen
+        // recreates it with `IF NOT EXISTS`, which would otherwise silently keep a view over
+        // the parent.
+        for name in [t.to_string(), current_companion(t)] {
+            if defer.fork_views.iter().any(|v| v == &name) {
+                stmts.push(format!(
+                    "DROP VIEW IF EXISTS {alias_name}.{};",
+                    quote_qualified_table(&name)
+                ));
+            }
         }
     }
     Ok(stmts)

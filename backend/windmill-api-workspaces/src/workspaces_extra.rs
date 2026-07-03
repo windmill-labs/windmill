@@ -1432,12 +1432,21 @@ async fn delete_fork_ducklake_data(
         )
         .map_err(|e| Error::internal_err(format!("parsing storage {name}: {e}")))?,
     };
-    let resource_value = windmill_common::workspaces::transform_json_value_unchecked(
-        &serde_json::Value::String(format!("$res:{}", lfs.get_s3_resource_path())),
-        w_id,
-        db,
-    )
-    .await?;
+    // Filesystem storage stores a direct path (`lfs_to_object_store_resource` ignores the
+    // resource value); everything else references a resource whose stored path may or may not
+    // carry the `$res:` prefix — same normalization as `get_workspace_s3_resource_from_lfs`.
+    let resource_value = if matches!(lfs, LargeFileStorage::FilesystemStorage(_)) {
+        serde_json::Value::Null
+    } else {
+        let path = lfs.get_s3_resource_path();
+        let path = path.strip_prefix("$res:").unwrap_or(path);
+        windmill_common::workspaces::transform_json_value_unchecked(
+            &serde_json::Value::String(format!("$res:{path}")),
+            w_id,
+            db,
+        )
+        .await?
+    };
     let store = windmill_object_store::build_object_store_client(
         &windmill_object_store::lfs_to_object_store_resource(&lfs, resource_value)?,
     )

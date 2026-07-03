@@ -4042,6 +4042,7 @@ async fn clone_workspace_data(
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
     clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
+    clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
@@ -4626,6 +4627,39 @@ async fn clone_macro_registry(
         "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name)
          SELECT $2, consumer_path, macro_name
          FROM macro_usage WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// Asset usage rows and `// on` subscriber triggers are deploy-derived like
+// ci_test_reference / the macro registry: without cloning them the fork's
+// pipeline graph has no asset nodes or lineage edges, and — worse — the asset
+// dispatch cascade never fires in the fork (it reads `script_trigger`), so
+// materializing an upstream node can't trigger its consumers until every
+// script is manually redeployed. `job`-kind usage rows (runtime-detected,
+// ephemeral) are skipped like the graph does.
+async fn clone_asset_usages_and_triggers(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+         SELECT $2, path, kind, usage_access_type, usage_path, usage_kind, columns
+         FROM asset WHERE workspace_id = $1 AND usage_kind IN ('script', 'flow')",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script_trigger (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s)
+         SELECT $2, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s
+         FROM script_trigger WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
     )
