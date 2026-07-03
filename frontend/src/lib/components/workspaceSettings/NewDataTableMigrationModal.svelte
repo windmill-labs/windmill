@@ -150,7 +150,7 @@
 			<Tab value="up" label="Up" />
 			<Tab value="down" label="Down" />
 			{#snippet content()}
-				<TabContent value="up" class="h-80">
+				<TabContent value="up" class="h-80 border rounded-md overflow-hidden">
 					<SimpleEditor class="h-full" lang="sql" bind:code={codeUp} />
 				</TabContent>
 				<TabContent value="down" class="h-80">
@@ -161,7 +161,7 @@
 							size="sm"
 						/>
 						{#if enableDown}
-							<div class="grow min-h-0">
+							<div class="grow min-h-0 border rounded-md overflow-hidden">
 								<SimpleEditor class="h-full" lang="sql" bind:code={codeDown} />
 							</div>
 						{/if}

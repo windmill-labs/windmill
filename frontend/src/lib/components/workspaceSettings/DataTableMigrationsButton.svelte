@@ -460,10 +460,10 @@
 				<Tab value="up" label="Up" />
 				<Tab value="down" label="Down" />
 				{#snippet content()}
-					<TabContent value="up" class="h-80">
+					<TabContent value="up" class="h-80 border rounded-md overflow-hidden">
 						<SimpleEditor class="h-full" lang="sql" code={viewMigration?.code_up ?? ''} readOnly />
 					</TabContent>
-					<TabContent value="down" class="h-80">
+					<TabContent value="down" class="h-80 border rounded-md overflow-hidden">
 						{#if viewMigration?.code_down}
 							<SimpleEditor class="h-full" lang="sql" code={viewMigration.code_down} readOnly />
 						{:else}
