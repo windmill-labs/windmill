@@ -30,8 +30,16 @@
 	let {
 		workspace,
 		datatable,
-		disabled = false
-	}: { workspace: string; datatable: string; disabled?: boolean } = $props()
+		disabled = false,
+		onSchemaChanged
+	}: {
+		workspace: string
+		datatable: string
+		disabled?: boolean
+		/** Called after a migration run/revert actually changes the data table
+		 * schema, so an open viewer (e.g. the database manager) can refresh. */
+		onSchemaChanged?: () => void
+	} = $props()
 
 	let listOpen = $state(false)
 	let migrations = $state<DatatableMigrationWithStatus[]>([])
@@ -102,6 +110,7 @@
 					: 'No pending migrations to run'
 			)
 			await loadMigrations()
+			if (res.applied.length > 0) onSchemaChanged?.()
 		} catch (e: any) {
 			sendUserToast(`Failed to run migrations: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
@@ -121,6 +130,7 @@
 				res.applied.length > 0 ? `Applied ${res.applied[0].name}` : 'Migration already applied'
 			)
 			await loadMigrations()
+			if (res.applied.length > 0) onSchemaChanged?.()
 		} catch (e: any) {
 			sendUserToast(`Failed to run migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
@@ -159,6 +169,7 @@
 					: 'Migration was not applied'
 			)
 			await loadMigrations()
+			if (res.rolled_back.length > 0) onSchemaChanged?.()
 		} catch (e: any) {
 			sendUserToast(`Failed to revert migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {

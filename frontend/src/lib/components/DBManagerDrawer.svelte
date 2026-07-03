@@ -106,6 +106,11 @@
 		return toSourceIdentifier(input.resourcePath)
 	}
 
+	function refreshManager() {
+		dbManagerContent?.refresh()
+		dbManagerContent?.dbManager()?.dbTable()?.refresh()
+	}
+
 	async function handleExportSchema() {
 		const source = currentSourceIdentifier()
 		if (!source || !$workspaceStore) return
@@ -206,6 +211,7 @@
 				<DataTableMigrationsButton
 					workspace={$workspaceStore}
 					datatable={uriState.selectedDatatable}
+					onSchemaChanged={refreshManager}
 				/>
 			{/if}
 			{#if enableImportExport}
@@ -216,10 +222,7 @@
 			{/if}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
-				on:click={() => {
-					dbManagerContent?.refresh()
-					dbManagerContent?.dbManager()?.dbTable()?.refresh()
-				}}
+				on:click={refreshManager}
 				startIcon={{ icon: RefreshCcw }}
 				iconOnly
 				title="Refresh"
