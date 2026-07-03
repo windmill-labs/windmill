@@ -9,6 +9,9 @@ const ann = (over: Partial<PipelineAnnotations> = {}): PipelineAnnotations => ({
 	triggerAssets: [],
 	nativeTriggers: [],
 	dataTests: [],
+	columnLineage: [],
+	macros: false,
+	useLibs: [],
 	...over
 })
 
@@ -451,5 +454,86 @@ describe('resolveGraph', () => {
 			unsaved: true,
 			missing: true
 		})
+	})
+
+	it('macro edges: base passes through; live `// use` adds an unsaved via_use edge', () => {
+		const base = baseGraph({
+			runnables: [
+				{
+					path: 'f/lib/stats',
+					usage_kind: 'script',
+					macros: [{ name: 'safe_div', params: 'a, b', is_table: false }]
+				},
+				{ path: 'f/x/cons', usage_kind: 'script' }
+			],
+			macro_edges: [
+				{
+					lib_path: 'f/lib/stats',
+					consumer_path: 'f/x/cons',
+					macro_names: ['safe_div'],
+					via_use: false
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: {
+					scriptPath: 'f/x/other',
+					annotations: ann({ useLibs: ['f/lib/stats'] })
+				}
+			})
+		)
+		// Detection edge preserved untouched.
+		expect(r.macro_edges).toContainEqual({
+			lib_path: 'f/lib/stats',
+			consumer_path: 'f/x/cons',
+			macro_names: ['safe_div'],
+			via_use: false
+		})
+		// Live `// use` synthesizes an unsaved whole-lib edge with the lib's names.
+		expect(r.macro_edges).toContainEqual({
+			lib_path: 'f/lib/stats',
+			consumer_path: 'f/x/other',
+			macro_names: ['safe_div'],
+			via_use: true,
+			unsaved: true
+		})
+	})
+
+	it('macro edges: removing the `// use` line of an overlaid consumer retires its via_use edge', () => {
+		const base = baseGraph({
+			macro_edges: [
+				{
+					lib_path: 'f/lib/stats',
+					consumer_path: 'f/x/cons',
+					macro_names: ['safe_div'],
+					via_use: true
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: { scriptPath: 'f/x/cons', annotations: ann() }
+			})
+		)
+		expect(r.macro_edges).toEqual([])
+	})
+
+	it('macro edges: draft `// macros` library gets the ƒ badge data from its body', () => {
+		const drafts = new Map([
+			[
+				'f/lib/new',
+				{
+					script: {
+						content: '// macros\nCREATE OR REPLACE MACRO dbl(a) AS a * 2;'
+					}
+				}
+			]
+		])
+		const r = resolveGraph(input({ drafts }))
+		const lib = r.runnables.find((x) => x.path === 'f/lib/new')
+		expect(lib?.macros).toEqual([{ name: 'dbl', params: 'a', is_table: false }])
 	})
 })

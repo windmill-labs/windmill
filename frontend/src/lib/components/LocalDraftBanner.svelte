@@ -10,7 +10,7 @@
 	} from '$lib/utils'
 	import { AlertCircle, Diff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
+	import { fade } from 'svelte/transition'
 
 	interface Props {
 		/** Whether there are unsaved local changes relative to the deployed baseline. */
@@ -25,6 +25,12 @@
 		disabled?: boolean
 		/** Diff drawer title. */
 		title?: string
+		/**
+		 * Whether the banner can appear, so it partially reserves its slot to keep
+		 * the shift small. Pass when `getDeployed()` is non-reactive; else defaults
+		 * to `getDeployed() != null`.
+		 */
+		reserveSpace?: boolean
 	}
 
 	let {
@@ -33,7 +39,8 @@
 		getCurrent,
 		onDiscard,
 		disabled = false,
-		title = 'Deployed <> Local changes'
+		title = 'Deployed <> Local changes',
+		reserveSpace
 	}: Props = $props()
 
 	/** Same cleaning + YAML serialization the DiffDrawer applies before
@@ -49,6 +56,11 @@
 		}
 	}
 
+	// Whether the banner can appear (a deployed baseline exists). Gates the
+	// partially-reserved slot below (keeps the toggle shift small); new entities
+	// have none, so no slot and no gap.
+	let hasBaseline = $derived(reserveSpace ?? getDeployed() != null)
+
 	// Suppress the banner when:
 	//   • There's no deployed baseline (brand-new entity — "Show diff"
 	//     would early-return and "Discard" is semantically backwards),
@@ -58,10 +70,8 @@
 	//     from baseline" check that can stale-fire after a save lands
 	//     or when `false`/`undefined` toggle noise flips a field.
 	let visible = $derived.by(() => {
-		if (!show) return false
-		const deployed = getDeployed()
-		if (deployed == null) return false
-		return diffKey(deployed) !== diffKey(getCurrent())
+		if (!show || !hasBaseline) return false
+		return diffKey(getDeployed()) !== diffKey(getCurrent())
 	})
 
 	let diffDrawer: DiffDrawer | undefined = $state()
@@ -99,37 +109,44 @@
 
 <DiffDrawer bind:this={diffDrawer} />
 
-{#if visible}
-	<div
-		transition:slide|local={{ duration: 120 }}
-		class={twMerge(
-			'flex flex-row items-center justify-between gap-2 px-4 py-1',
-			classes.warning.bgClass,
-			'!border-0 !rounded-none'
-		)}
-	>
-		<div class="flex flex-row items-center gap-2 min-w-0">
-			<AlertCircle class={classes.warning.iconClass} size={16} />
-			<span class={twMerge('text-xs font-semibold truncate', classes.warning.titleClass)}>
-				You have unsaved changes
-			</span>
-		</div>
-		<div class="flex flex-row items-center gap-2 shrink-0">
-			<Button
-				unifiedSize="sm"
-				variant="default"
-				startIcon={{ icon: Diff }}
-				btnClasses={classes.warning.titleClass}
-				on:click={showDiff}>Show diff</Button
+{#if hasBaseline}
+	<!-- Reserve ~a third of the banner height when idle (h-2.5), grow to the full
+	     h-8 when it shows: small idle gap, ~22px animated shift on appear. h-8 =
+	     button height + a couple px so the buttons don't touch the edges. -->
+	<div class={twMerge('shrink-0 transition-[height] duration-150', visible ? 'h-8' : 'h-2.5')}>
+		{#if visible}
+			<div
+				transition:fade|local={{ duration: 120 }}
+				class={twMerge(
+					'flex flex-row items-center justify-between gap-2 px-4 h-full',
+					classes.warning.bgClass,
+					'!border-0 !rounded-none'
+				)}
 			>
-			{#if !disabled}
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					btnClasses={classes.warning.titleClass}
-					on:click={onDiscard}>Discard</Button
-				>
-			{/if}
-		</div>
+				<div class="flex flex-row items-center gap-2 min-w-0">
+					<AlertCircle class={classes.warning.iconClass} size={16} />
+					<span class={twMerge('text-xs font-semibold truncate', classes.warning.titleClass)}>
+						You have unsaved changes
+					</span>
+				</div>
+				<div class="flex flex-row items-center gap-2 shrink-0">
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						startIcon={{ icon: Diff }}
+						btnClasses={classes.warning.titleClass}
+						on:click={showDiff}>Show diff</Button
+					>
+					{#if !disabled}
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							btnClasses={classes.warning.titleClass}
+							on:click={onDiscard}>Discard</Button
+						>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	</div>
 {/if}

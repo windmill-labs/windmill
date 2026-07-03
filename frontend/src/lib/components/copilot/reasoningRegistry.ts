@@ -153,6 +153,9 @@ function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
 			return /claude-opus-4-(6|7|8)/.test(m) || /claude-sonnet-4-6/.test(m) || m.includes('fable')
 		case 'openai':
 		case 'azure_openai':
+		// Azure AI Foundry hosts OpenAI models too; the model-id gate keeps
+		// this a no-op for its non-OpenAI catalog (Llama/DeepSeek/etc.).
+		case 'azure_foundry':
 			return base.startsWith('gpt-5') || /^o\d/.test(base)
 		case 'openrouter':
 			// Best-effort markers for models whose `supported_parameters` include
@@ -209,7 +212,7 @@ export function getReasoningCapability(provider: AIProvider, model: string): Rea
 			? anthropicReasoningLevels(bareModel)
 			: provider === 'googleai'
 				? geminiReasoningLevels(bareModel)
-				: provider === 'openai' || provider === 'azure_openai'
+				: provider === 'openai' || provider === 'azure_openai' || provider === 'azure_foundry'
 					? openaiReasoningLevels(bareModel)
 					: provider === 'openrouter'
 						? openrouterReasoningLevels(bareModel)
@@ -236,6 +239,7 @@ function canDisableReasoning(provider: AIProvider, model: string): boolean {
 			return geminiCanDisable(model)
 		case 'openai':
 		case 'azure_openai':
+		case 'azure_foundry':
 			// gpt-5.1+ accept effort 'none'; gpt-5 and o-series reject it and
 			// reason at `medium` by default, so omission isn't off either.
 			return /^gpt-5\./.test(base)
@@ -312,6 +316,7 @@ export function explicitOffToken(provider: AIProvider, model: string): Reasoning
 			return DEEPSEEK_OFF_SENTINEL
 		case 'openai':
 		case 'azure_openai':
+		case 'azure_foundry':
 			// gpt-5.1+ reasoning is off only via the explicit 'none' effort
 			// (gpt-5.5 defaults to medium when the field is omitted).
 			return /^gpt-5\./.test(baseModelId(model)) ? 'none' : undefined

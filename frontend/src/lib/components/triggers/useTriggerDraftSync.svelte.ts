@@ -48,6 +48,11 @@ export interface TriggerDraftSync {
 	 * loading and for brand-new triggers (no deployed baseline yet).
 	 */
 	readonly hasDraft: boolean
+	/**
+	 * Whether a deployed baseline exists (banner can appear). Reactive, unlike
+	 * reading `deployed` directly (a plain `let`), so callers can reserve its slot.
+	 */
+	readonly hasBaseline: boolean
 	/** The deployed baseline the dirty check compares against. */
 	readonly deployed: Cfg | undefined
 	/** The current form config (the live local draft). */
@@ -103,6 +108,10 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			opts.deployed() != null &&
 			cfgDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
 	)
+
+	// Reactive "banner is possible" — depends on `drawerLoading()` so it
+	// re-evaluates (and re-reads the plain-`let` baseline) once the load settles.
+	const hasBaseline = $derived(!opts.drawerLoading() && opts.deployed() != null)
 
 	/** `auto: true` marks a discard from the reactive persist-effect (not an
 	 * explicit user action), so it respects the "Enable auto-save" toggle — else
@@ -188,6 +197,9 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		},
 		get hasDraft() {
 			return hasDraft
+		},
+		get hasBaseline() {
+			return hasBaseline
 		},
 		get deployed() {
 			return opts.deployed()

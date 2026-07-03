@@ -991,13 +991,15 @@
 		</div>
 	{:else if step == 2 && manual}
 		<div class="flex flex-col gap-8">
-			<Path
-				bind:error={pathError}
-				bind:path
-				initialPath=""
-				namePlaceholder={resourceType}
-				kind="resource"
-			/>
+			<Label label="Path">
+				<Path
+					bind:error={pathError}
+					bind:path
+					initialPath=""
+					namePlaceholder={resourceType}
+					kind="resource"
+				/>
+			</Label>
 			<LabelsInput bind:labels class="-mt-5" />
 			{#if deployTo}
 				<Label
@@ -1247,13 +1249,15 @@
 			<span class="text-xs text-primary font-normal"> Finish connection in popup window </span>
 		{/if}
 	{:else}
-		<Path
-			initialPath=""
-			namePlaceholder={resourceType}
-			bind:error={pathError}
-			bind:path
-			kind="resource"
-		/>
+		<Label label="Path">
+			<Path
+				initialPath=""
+				namePlaceholder={resourceType}
+				bind:error={pathError}
+				bind:path
+				kind="resource"
+			/>
+		</Label>
 		<LabelsInput bind:labels class="-mt-5" />
 		{#if deployTo}
 			<Label

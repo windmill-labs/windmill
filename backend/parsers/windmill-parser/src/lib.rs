@@ -13,6 +13,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 pub mod asset_parser;
+pub mod duckdb_builtins;
+pub mod duckdb_macros;
 pub mod sql_materialize;
 
 /// S3 output format for SQL queries (moved here to avoid pulling sqlx into WASM via windmill-types)

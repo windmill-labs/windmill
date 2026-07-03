@@ -413,9 +413,18 @@ async fn fetch_authed_from_permissioned_as_inner(
             })
         }
     } else {
+        // Bare (no `u/`|`g/` prefix) permissioned_as is reached for superadmins
+        // whose identifier is their email (they are not a workspace member). Use
+        // the instance-derived username when available so no email leaks
+        // downstream as the acting username.
+        let username = if is_super_admin && permissioned_as == email {
+            crate::usernames::get_instance_username_or_fallback_to_email(&mut *conn, email).await?
+        } else {
+            permissioned_as.to_string()
+        };
         Ok(Authed {
             email: email.to_string(),
-            username: permissioned_as.to_string(),
+            username,
             is_admin: is_super_admin,
             is_operator: true,
             groups: vec![],

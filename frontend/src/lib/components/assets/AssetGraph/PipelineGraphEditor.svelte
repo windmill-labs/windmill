@@ -31,6 +31,7 @@
 		mode,
 		workspace,
 		folder,
+		viewportFitKey = undefined,
 		stackBelow = 680,
 		persistDrafts = false,
 		pathPrefix,
@@ -95,6 +96,13 @@
 		workspace: string | undefined
 		/** Folder the pipeline is scoped to — drives the autosave draft path. */
 		folder: string
+		/** Folder whose graph is actually *loaded* (not the route param). On an
+		 * in-place folder switch the stale graph stays rendered while the new
+		 * fetch is in flight, so keying the canvas's one-shot initial fit on
+		 * `folder` would consume the new folder's fit on the old graph. Pages
+		 * that stale-while-revalidate should pass the folder captured when the
+		 * fetch resolved; defaults to `folder`. */
+		viewportFitKey?: string
 		/** Below this container width (px) the graph/details split stacks
 		 * vertically instead of side-by-side — for narrow side panels / AI
 		 * session previews. Defaults to 680. */
@@ -433,6 +441,7 @@
 					{onPickEnd}
 					{panToNodeId}
 					showMinimap={!stacked}
+					viewportFitKey={viewportFitKey ?? folder}
 				/>
 				{#if boundBar}{@render boundBar()}{/if}
 				{#if mode === 'edit'}
