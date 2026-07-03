@@ -453,6 +453,11 @@ struct CreateWorkspaceFork {
     /// forked workspace's datatable config to point to the new database.
     #[serde(default)]
     forked_datatables: Vec<ForkedDatatableInfo>,
+    /// Lakes the user explicitly chose to SHARE with the parent (the fork then reads and
+    /// writes the parent's lake directly). Every lake not listed gets the default isolated
+    /// fork namespace + read-defer.
+    #[serde(default)]
+    shared_ducklakes: Vec<String>,
     /// Create the fork as a persistent dev workspace: the id is not required to carry the
     /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
     #[serde(default)]
@@ -5484,6 +5489,27 @@ async fn create_workspace_fork(
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
+    }
+
+    // Stamp the per-lake ducklake fork choice into the fork's own settings. Only the `shared`
+    // opt-out needs stamping — absent `fork_behavior` already means isolated (the default),
+    // so unlisted lakes and API callers that omit the field stay safe.
+    for lake in &nw.shared_ducklakes {
+        let stamped = sqlx::query_scalar!(
+            r#"UPDATE workspace_settings
+               SET ducklake = jsonb_set(ducklake, ARRAY['ducklakes', $2, 'fork_behavior'], '"shared"')
+               WHERE workspace_id = $1 AND ducklake->'ducklakes' ? $2
+               RETURNING 1 AS "one!""#,
+            &forked_id,
+            lake,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if stamped.is_none() {
+            return Err(Error::BadRequest(format!(
+                "cannot mark ducklake `{lake}` as shared: no such lake in the workspace settings"
+            )));
+        }
     }
 
     // Lock the parent ("prod") so edits are funneled through this dev workspace.

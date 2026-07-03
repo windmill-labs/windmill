@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT DISTINCT asset_path AS \"asset_path!\", workspace_id AS \"workspace_id!\"\n                FROM materialized_partition\n                WHERE workspace_id IN ($1, $2)\n                  AND asset_kind = 'ducklake' AND status = 'materialized'\n                ",
+  "query": "\n                    SELECT DISTINCT asset_path AS \"asset_path!\", workspace_id AS \"workspace_id!\"\n                    FROM materialized_partition\n                    WHERE workspace_id IN ($1, $2)\n                      AND asset_kind = 'ducklake' AND status = 'materialized'\n                    ",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       false
     ]
   },
-  "hash": "841c7ae4124882dc1535ff988bedee1abf10bfcd9f2b93abb7b3892eb8d81ee8"
+  "hash": "d471fb37cb452a6557c0537bada37c9b5c699aa60e0a995adcd545c682e0a97d"
 }

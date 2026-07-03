@@ -842,6 +842,23 @@ pub struct Ducklake {
     pub storage: DucklakeStorage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_args: Option<String>,
+    /// How this lake behaves when the workspace is a fork/dev workspace. Only meaningful in a
+    /// fork's own settings; stamped at fork creation from the user's per-lake choice. Absent =
+    /// `Isolated` — the safe default, so forks created before this field existed (and API
+    /// callers that omit it) never write the parent's lake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_behavior: Option<DucklakeForkBehavior>,
+}
+
+/// Per-lake fork data-environment choice, made at fork creation.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DucklakeForkBehavior {
+    /// Fork-scoped namespace + read-defer to the parent (default).
+    Isolated,
+    /// The fork reads AND WRITES the parent's lake directly — explicit opt-out of isolation
+    /// (e.g. a fork meant to run prod-equivalent backfills).
+    Shared,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -1042,16 +1059,22 @@ pub async fn get_ducklake_from_db_unchecked(
     w_id: &str,
     db: &DB,
 ) -> Result<DucklakeWithConnData> {
-    let base = ducklake_conn_data(name, w_id, db).await?;
+    let (base, fork_behavior) = ducklake_conn_data(name, w_id, db).await?;
     let chain = fork_ancestor_chain(db, w_id).await?;
-    if chain.is_empty() {
+    // `Shared` is the explicit fork-creation opt-out of isolation: the fork reads and writes
+    // the parent's lake through its own (cloned) config, exactly like a non-fork workspace.
+    if chain.is_empty() || fork_behavior == Some(DucklakeForkBehavior::Shared) {
         return Ok(base);
     }
     fork_scoped_ducklake(name, w_id, base, chain, db).await
 }
 
 /// Resolve one workspace's own config for lake `name` — no fork awareness.
-async fn ducklake_conn_data(name: &str, w_id: &str, db: &DB) -> Result<DucklakeWithConnData> {
+async fn ducklake_conn_data(
+    name: &str,
+    w_id: &str,
+    db: &DB,
+) -> Result<(DucklakeWithConnData, Option<DucklakeForkBehavior>)> {
     let ducklake = sqlx::query_scalar!(
         r#"
             SELECT ws.ducklake->'ducklakes'->$2 AS config
@@ -1084,6 +1107,7 @@ async fn ducklake_conn_data(name: &str, w_id: &str, db: &DB) -> Result<DucklakeW
             )
             .await?
         };
+    let fork_behavior = ducklake.fork_behavior;
     let ducklake = DucklakeWithConnData {
         catalog_resource,
         catalog: ducklake.catalog,
@@ -1091,7 +1115,7 @@ async fn ducklake_conn_data(name: &str, w_id: &str, db: &DB) -> Result<DucklakeW
         extra_args: ducklake.extra_args,
         fork_defer: None,
     };
-    Ok(ducklake)
+    Ok((ducklake, fork_behavior))
 }
 
 /// The fork namespace's data path within the same bucket: a bucket-root
@@ -1142,9 +1166,13 @@ async fn fork_scoped_ducklake(
     let mut ancestors = Vec::with_capacity(chain.len());
     for (i, ancestor_id) in chain.iter().enumerate() {
         match ducklake_conn_data(name, ancestor_id, db).await {
-            Ok(mut a) => {
-                let is_fork = i + 1 < chain.len();
-                let metadata_schema = if is_fork {
+            Ok((mut a, ancestor_behavior)) => {
+                // A fork ancestor lives in its own namespace UNLESS its lake is `Shared` —
+                // then it never redirected and its data sits at its config's default
+                // location, exactly like a root workspace.
+                let is_isolated_fork =
+                    i + 1 < chain.len() && ancestor_behavior != Some(DucklakeForkBehavior::Shared);
+                let metadata_schema = if is_isolated_fork {
                     a.storage.path = fork_data_path(&a.storage.path, ancestor_id);
                     Some(fork_ducklake_metadata_schema(ancestor_id))
                 } else {

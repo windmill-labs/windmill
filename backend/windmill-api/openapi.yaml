@@ -28155,6 +28155,11 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+        shared_ducklakes:
+          type: array
+          items:
+            type: string
+          description: "Lake names the fork SHARES with the parent (reads and writes the parent's lake directly). Every lake not listed gets the default isolated fork namespace with read-defer to the parent."
         is_dev_workspace:
           type: boolean
           description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"

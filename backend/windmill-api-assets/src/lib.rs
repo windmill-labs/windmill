@@ -1207,28 +1207,53 @@ async fn asset_graph(
             .next();
         match parent {
             None => std::collections::HashMap::new(),
-            Some(parent_id) => sqlx::query!(
-                r#"
-                SELECT DISTINCT asset_path AS "asset_path!", workspace_id AS "workspace_id!"
-                FROM materialized_partition
-                WHERE workspace_id IN ($1, $2)
-                  AND asset_kind = 'ducklake' AND status = 'materialized'
-                "#,
-                &w_id,
-                &parent_id,
-            )
-            .fetch_all(&db)
-            .await?
-            .into_iter()
-            .fold(std::collections::HashMap::new(), |mut m, r| {
-                // A fork row wins over an inherited 'deferred' from the parent row.
-                if r.workspace_id == w_id {
-                    m.insert(r.asset_path, "fork");
-                } else {
-                    m.entry(r.asset_path).or_insert("deferred");
-                }
-                m
-            }),
+            Some(parent_id) => {
+                // Lakes the fork chose to SHARE at creation have no fork namespace — their
+                // assets live in the parent's tables for real, so no chip applies.
+                let shared_lakes: std::collections::HashSet<String> = sqlx::query_scalar!(
+                    "SELECT ducklake->'ducklakes' FROM workspace_settings WHERE workspace_id = $1",
+                    &w_id,
+                )
+                .fetch_optional(&db)
+                .await?
+                .flatten()
+                .and_then(|v| v.as_object().cloned())
+                .map(|lakes| {
+                    lakes
+                        .into_iter()
+                        .filter(|(_, cfg)| {
+                            cfg.get("fork_behavior").and_then(|b| b.as_str()) == Some("shared")
+                        })
+                        .map(|(name, _)| name)
+                        .collect()
+                })
+                .unwrap_or_default();
+                sqlx::query!(
+                    r#"
+                    SELECT DISTINCT asset_path AS "asset_path!", workspace_id AS "workspace_id!"
+                    FROM materialized_partition
+                    WHERE workspace_id IN ($1, $2)
+                      AND asset_kind = 'ducklake' AND status = 'materialized'
+                    "#,
+                    &w_id,
+                    &parent_id,
+                )
+                .fetch_all(&db)
+                .await?
+                .into_iter()
+                .filter(|r| {
+                    !shared_lakes.contains(r.asset_path.split('/').next().unwrap_or_default())
+                })
+                .fold(std::collections::HashMap::new(), |mut m, r| {
+                    // A fork row wins over an inherited 'deferred' from the parent row.
+                    if r.workspace_id == w_id {
+                        m.insert(r.asset_path, "fork");
+                    } else {
+                        m.entry(r.asset_path).or_insert("deferred");
+                    }
+                    m
+                })
+            }
         }
     };
 
@@ -1236,7 +1261,11 @@ async fn asset_graph(
         .into_iter()
         .map(|(kind, path)| GraphAssetNode {
             fork_materialization: (kind == AssetKind::Ducklake)
-                .then(|| fork_materialization_by_path.get(&path).map(|s| s.to_string()))
+                .then(|| {
+                    fork_materialization_by_path
+                        .get(&path)
+                        .map(|s| s.to_string())
+                })
                 .flatten(),
             kind,
             path,

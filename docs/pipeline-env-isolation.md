@@ -22,6 +22,26 @@ pg schema of the same catalog DB — auto-created on first attach; default is `p
 `READ_ONLY`, plus catalog-stored views that may reference other attached catalogs and rebind
 per session.
 
+### Fork-time choice: isolated (default) vs shared, per lake
+
+The fork-creation dialog offers a per-lake data-environment choice (the section renders only
+when the parent workspace has lakes configured, mirroring the datatable section):
+
+- **Isolated** (default — also what unlisted lakes and API callers that omit the field get) —
+  the full behavior described below.
+- **Shared** — explicit opt-out: the fork reads and writes the parent's lake directly through
+  its cloned config, like a non-fork workspace (e.g. a fork meant to run prod-equivalent
+  backfills). Stamped as `fork_behavior: "shared"` on the lake entry in the fork's own
+  `workspace_settings.ducklake` at creation (`shared_ducklakes` on the create-fork request);
+  the resolver, the graph indicator, and (trivially — nothing registers) cleanup all key off
+  it. Shared also lifts the mysql-catalog restriction, since nothing needs namespacing.
+
+Absent-field-means-isolated keeps every pre-existing fork and API caller on the safe path. A
+shared fork ancestor in a fork chain resolves like a root (its data lives at its config's
+default location). Flipping a fork's lake to `shared` later (settings edit) orphans any
+namespace it already materialized until fork deletion cleans it — the registry row survives
+the flip.
+
 ### Write redirect — one seam, no grammar changes
 
 `get_ducklake_from_db_unchecked` (windmill-common/src/workspaces.rs) is fork-aware: when the
