@@ -1,7 +1,5 @@
 import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
 import { DraftService } from '$lib/gen'
-import { get } from 'svelte/store'
-import { userStore } from '$lib/stores'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
@@ -336,29 +334,26 @@ function getGlobalDraftSlot(
 }
 
 // Current user's persisted draft value (+ records the sync baseline so a later
-// save detects external conflicts). undefined on 404 (no draft at that path).
+// save detects external conflicts). undefined when no draft exists at that path.
+// Uses `getOwnDraft` (not `getDraftForUser`): the latter rejects drawer kinds
+// (schedule/trigger/resource/variable drafts are private to their owner), which
+// would make those drafts write-only here — listed but never readable/deployable.
+// Errors (403/500/network) MUST propagate: swallowing one would make the write
+// merge fall through to the deployed item instead of the user's in-progress
+// draft, silently overwriting their draft-only changes.
 async function fetchBackendDraftValue(
 	workspace: string,
 	itemKind: UserDraftItemKind,
 	storagePath: string
 ): Promise<unknown | undefined> {
-	try {
-		const resp = await DraftService.getDraftForUser({
-			workspace,
-			kind: itemKind as any,
-			path: storagePath,
-			username: get(userStore)?.username
-		})
-		UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, resp.created_at)
-		return resp.value ?? undefined
-	} catch (e) {
-		// 404 = no draft for this owner at that path (the intended empty case).
-		// Anything else (403/500/network) MUST propagate: swallowing it would make
-		// the write merge fall through to the deployed item instead of the user's
-		// in-progress draft, silently overwriting their draft-only changes.
-		if ((e as { status?: number } | null | undefined)?.status === 404) return undefined
-		throw e
-	}
+	const resp = await DraftService.getOwnDraft({
+		workspace,
+		kind: itemKind,
+		path: storagePath
+	})
+	if (!resp) return undefined
+	UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, resp.created_at)
+	return resp.value ?? undefined
 }
 
 // Draft VALUE for a write merge: cell-if-present (the user's freshest in-tab

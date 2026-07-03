@@ -36,7 +36,7 @@ const { backendDrafts, serverTimestamps, failingWrites, failingReads } = vi.hois
 	// concurrent writer advancing the row; otherwise empty, so the conflict
 	// branch in `updateDraft` stays inert for every pre-existing test.
 	serverTimestamps: new Map<string, string>(),
-	// Keys whose `updateDraft` / `getDraftForUser` throw a non-404 (network/5xx);
+	// Keys whose `updateDraft` / draft reads throw a non-404 (network/5xx);
 	// only set by the error-handling tests, empty otherwise.
 	failingWrites: new Set<string>(),
 	failingReads: new Set<string>()
@@ -132,7 +132,9 @@ vi.mock('$lib/gen', async () => {
 			existsSchedule: vi.fn(async () => false),
 			getSchedule: vi.fn(async () => {
 				throw new Error('getSchedule mock not configured')
-			})
+			}),
+			createSchedule: vi.fn(async () => 'created'),
+			updateSchedule: vi.fn(async () => 'updated')
 		}),
 		HttpTriggerService: wrapService(actual.HttpTriggerService, {
 			existsHttpTrigger: vi.fn(async () => false),
@@ -190,12 +192,25 @@ vi.mock('$lib/gen', async () => {
 				return { status: 'saved', current_timestamp: '2026-06-15T00:00:00Z' }
 			}),
 			getDraftForUser: vi.fn(async ({ kind, path }: any) => {
+				// The real endpoint rejects drawer kinds up front (drafts for
+				// schedule/trigger/resource/variable are private to their owner) —
+				// mirror it so a caller regressing to this route for those kinds
+				// fails in tests the same way it does against the backend.
+				if (!['script', 'flow', 'app', 'raw_app'].includes(kind))
+					throw Object.assign(new Error('drafts for this item kind are private to their owner'), {
+						status: 404
+					})
 				const key = `${kind}:${path}`
 				if (failingReads.has(key)) throw Object.assign(new Error('server error'), { status: 500 })
-				// 404-shaped (status) like the real ApiError, so the adapter's
-				// narrowed catch treats it as "no draft" rather than re-throwing.
 				if (!backendDrafts.has(key))
 					throw Object.assign(new Error('no draft for that owner at that path'), { status: 404 })
+				return { value: backendDrafts.get(key), created_at: '2026-06-15T00:00:00Z' }
+			}),
+			getOwnDraft: vi.fn(async ({ kind, path }: any) => {
+				const key = `${kind}:${path}`
+				if (failingReads.has(key)) throw Object.assign(new Error('server error'), { status: 500 })
+				// The real endpoint returns 200 with null when the user has no draft.
+				if (!backendDrafts.has(key)) return null
 				return { value: backendDrafts.get(key), created_at: '2026-06-15T00:00:00Z' }
 			}),
 			listDrafts: vi.fn(async () =>
@@ -1161,6 +1176,50 @@ describe('global AI tools', () => {
 		})
 		expect(draft).toBeTruthy()
 		expect(draft).not.toHaveProperty('override')
+	})
+
+	// Schedule drafts (like all drawer kinds) are private to their owner, so the
+	// cross-user draft route 404s on them. Reading them back must go through the
+	// own-draft route, else a freshly written schedule draft is listed but can
+	// never be read or deployed.
+	it('reads and deploys a schedule draft written by the chat', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'u/admin/test_schedule_greet',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/greet',
+			is_flow: false,
+			args: {}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'schedule',
+			path: 'u/admin/test_schedule_greet'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'schedule',
+			path: 'u/admin/test_schedule_greet',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'schedule',
+			path: 'u/admin/test_schedule_greet'
+		})
+		expect(ScheduleService.createSchedule).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/test_schedule_greet',
+				schedule: '0 0 9 * * *',
+				script_path: 'f/scripts/greet'
+			})
+		})
+		// The draft is consumed by the deploy.
+		expect(
+			getBackendDraft('trigger_schedule', 'u/admin/test_schedule_greet', {
+				workspace: WORKSPACE
+			})
+		).toBeUndefined()
 	})
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {
@@ -3086,9 +3145,7 @@ describe('folder tools', () => {
 	})
 
 	it('create_folder surfaces a backend error (e.g. name conflict)', async () => {
-		vi.mocked(FolderService.createFolder).mockRejectedValueOnce(
-			new Error('Folder already exists')
-		)
+		vi.mocked(FolderService.createFolder).mockRejectedValueOnce(new Error('Folder already exists'))
 		const raw = await callGlobalTool('create_folder', { name: 'taken' })
 		const parsed = JSON.parse(raw)
 		expect(parsed.success).toBe(false)
