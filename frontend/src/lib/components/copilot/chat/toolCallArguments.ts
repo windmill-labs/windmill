@@ -5,6 +5,10 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
  * cut mid-arguments) must never reach a provider: the whole request is
  * rejected, and once persisted in the session history every follow-up request
  * fails the same way.
+ *
+ * Empty arguments count as valid: some providers stream '' for no-arg tool
+ * calls, and flagging those would wrongly report the tool as not executed.
+ * Callers persisting arguments must normalize '' to '{}' themselves.
  */
 export function hasValidToolCallArguments(args: string | undefined): boolean {
 	if (!args) {
@@ -18,12 +22,18 @@ export function hasValidToolCallArguments(args: string | undefined): boolean {
 	}
 }
 
+// '' is valid per hasValidToolCallArguments but JSON.parse('') still throws
+// provider-side, so replaying history additionally requires non-empty args.
+function isReplayableArguments(args: string | undefined): boolean {
+	return !!args && hasValidToolCallArguments(args)
+}
+
 /**
- * Replaces unparseable assistant tool_call arguments with '{}' in the outgoing
- * copy of the history, so a session that already persisted a truncated tool
- * call (before parseOpenAICompletion guarded against it) recovers instead of
- * failing every request. The paired tool result already tells the model the
- * call failed.
+ * Replaces unparseable or empty assistant tool_call arguments with '{}' in the
+ * outgoing copy of the history, so a session that already persisted a
+ * truncated tool call (before parseOpenAICompletion guarded against it)
+ * recovers instead of failing every request. The paired tool result already
+ * tells the model the call failed.
  */
 export function sanitizeToolCallArguments(
 	messages: ChatCompletionMessageParam[]
@@ -32,7 +42,7 @@ export function sanitizeToolCallArguments(
 		if (
 			m.role !== 'assistant' ||
 			!m.tool_calls?.some(
-				(t) => t.type === 'function' && !hasValidToolCallArguments(t.function.arguments)
+				(t) => t.type === 'function' && !isReplayableArguments(t.function.arguments)
 			)
 		) {
 			return m
@@ -40,7 +50,7 @@ export function sanitizeToolCallArguments(
 		return {
 			...m,
 			tool_calls: m.tool_calls.map((t) =>
-				t.type === 'function' && !hasValidToolCallArguments(t.function.arguments)
+				t.type === 'function' && !isReplayableArguments(t.function.arguments)
 					? { ...t, function: { ...t.function, arguments: '{}' } }
 					: t
 			)

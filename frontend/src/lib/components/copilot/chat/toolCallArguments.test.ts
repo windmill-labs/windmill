@@ -41,6 +41,15 @@ describe('sanitizeToolCallArguments', () => {
 		expect((poisoned as any).tool_calls[0].function.arguments).toContain('trunc')
 	})
 
+	it('rewrites empty arguments to {} so replayed history stays parseable', () => {
+		const emptyArgs: ChatCompletionMessageParam = {
+			role: 'assistant',
+			tool_calls: [{ id: 'c1', type: 'function', function: { name: 'list_files', arguments: '' } }]
+		}
+		const [sanitized] = sanitizeToolCallArguments([emptyArgs]) as any[]
+		expect(sanitized.tool_calls[0].function.arguments).toBe('{}')
+	})
+
 	it('returns untouched messages by reference', () => {
 		const user: ChatCompletionMessageParam = { role: 'user', content: 'hi' }
 		const validAssistant: ChatCompletionMessageParam = {
