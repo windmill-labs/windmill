@@ -196,6 +196,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { userWorkspaces } from '$lib/stores'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import YAML from 'yaml'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -351,14 +352,54 @@
 		const dtName = drawerDiff.datatableName
 
 		try {
-			await runScriptAndPollResult({
-				workspace: targetWorkspace,
-				requestBody: {
-					args: { database: `datatable://${dtName}` },
-					language: 'postgresql',
-					content: migrationSql
+			// If the target data table opted in to migrations, record this merge as a
+			// tracked migration (named after the fork) and run it, instead of applying
+			// raw SQL that would bypass the target's migration history.
+			let targetUsesMigrations = false
+			try {
+				const status = await WorkspaceService.getDatatableMigrationsStatus({
+					workspace: targetWorkspace,
+					datatableName: dtName
+				})
+				targetUsesMigrations = status.enabled
+			} catch {
+				// Fall back to a raw apply if the status can't be read.
+			}
+
+			if (targetUsesMigrations) {
+				const forkName =
+					$userWorkspaces.find((w) => w.id === currentWorkspaceId)?.name || currentWorkspaceId
+				const migName = `merge_${forkName}`.replace(/[^a-zA-Z0-9_-]+/g, '_')
+				const created = await WorkspaceService.createDatatableMigration({
+					workspace: targetWorkspace,
+					datatableName: dtName,
+					requestBody: { name: migName, code_up: migrationSql }
+				})
+				try {
+					await WorkspaceService.runDatatableMigrations({
+						workspace: targetWorkspace,
+						datatableName: dtName,
+						only: created.timestamp
+					})
+				} catch (runErr: any) {
+					// Undo the insertion so the user can fix and retry from a clean state.
+					await WorkspaceService.deleteDatatableMigration({
+						workspace: targetWorkspace,
+						datatableName: dtName,
+						timestamp: created.timestamp
+					}).catch(() => {})
+					throw runErr
 				}
-			})
+			} else {
+				await runScriptAndPollResult({
+					workspace: targetWorkspace,
+					requestBody: {
+						args: { database: `datatable://${dtName}` },
+						language: 'postgresql',
+						content: migrationSql
+					}
+				})
+			}
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 			migrationRunning = false
