@@ -78,8 +78,10 @@ export function splitSqlStatements(code: string): string[] {
 			continue
 		}
 		if (char === '/' && nextChar === '*') {
+			// Consume both chars so the '*' of '/*' can't double as a '*/' close.
 			inBlockComment = true
-			currentStatement += char
+			currentStatement += '/*'
+			i += 1
 			continue
 		}
 		if (char === '$') {
