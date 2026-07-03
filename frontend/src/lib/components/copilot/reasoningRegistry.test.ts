@@ -243,6 +243,36 @@ describe('supportsReasoning (static registry)', () => {
 	})
 })
 
+describe('Azure AI Foundry reasoning follows the model family', () => {
+	it('treats Foundry Claude deployments like the Anthropic provider', () => {
+		// Live-verified: Foundry Claude accepts the adaptive-thinking effort ladder.
+		expect(supportsReasoning('azure_foundry', 'claude-sonnet-5')).toBe(true)
+		expect(supportsReasoning('azure_foundry', 'claude-opus-4-8')).toBe(true)
+		expect(getReasoningCapability('azure_foundry', 'claude-opus-4-8').levels).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max'
+		])
+		// Off is achieved by omission (Foundry rejects effort 'none'), like Anthropic.
+		expect(getReasoningCapability('azure_foundry', 'claude-sonnet-5').canDisable).toBe(true)
+		expect(
+			resolveRequestReasoning({
+				provider: 'azure_foundry',
+				model: 'claude-sonnet-5',
+				reasoning: REASONING_OFF
+			})
+		).toBeUndefined()
+	})
+
+	it('treats Foundry OpenAI deployments like the OpenAI provider', () => {
+		expect(supportsReasoning('azure_foundry', 'gpt-5.1')).toBe(true)
+		expect(supportsReasoning('azure_foundry', 'gpt-4o')).toBe(false)
+		expect(supportsReasoning('azure_foundry', 'DeepSeek-R1')).toBe(false)
+	})
+})
+
 describe('resolveEffectiveReasoning', () => {
 	it('defaults capable models to high when unset', () => {
 		expect(resolveEffectiveReasoning({ provider: 'anthropic', model: 'claude-sonnet-4-6' })).toBe(
