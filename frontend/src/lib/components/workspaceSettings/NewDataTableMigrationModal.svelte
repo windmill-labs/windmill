@@ -56,7 +56,7 @@
 		const trimmed = body.trimEnd()
 		return trimmed.endsWith(';') ? trimmed : `${trimmed};`
 	}
-	const UP_PLACEHOLDER = wrapInTransaction('-- Add your migration here')
+	const PLACEHOLDER = wrapInTransaction('-- Add your migration here')
 
 	export function open(prefill?: { name?: string; codeUp?: string; codeDown?: string }) {
 		name = prefill?.name ?? ''
@@ -64,8 +64,8 @@
 		// wrap that DDL in the same BEGIN; ... END; frame.
 		codeUp = prefill?.codeUp
 			? wrapInTransaction(ensureTrailingSemicolon(prefill.codeUp))
-			: UP_PLACEHOLDER
-		codeDown = prefill?.codeDown ?? ''
+			: PLACEHOLDER
+		codeDown = prefill?.codeDown ?? PLACEHOLDER
 		enableDown = (prefill?.codeDown ?? '') !== ''
 		tab = 'up'
 		isOpen = true
