@@ -305,4 +305,31 @@ mod tests {
         assert_eq!(body["user"], "user-1");
         assert_eq!(body["model"], "gpt-4o");
     }
+
+    #[test]
+    fn foundry_routes_claude_to_anthropic_messages_api() {
+        use crate::providers::create_query_builder;
+        use crate::types::OutputType;
+
+        let creds = credentials(
+            AIProvider::AzureFoundry,
+            "https://wm-test-ai.services.ai.azure.com/openai/v1",
+        );
+
+        // Claude deployment -> Anthropic Messages API surface + x-api-key auth.
+        let claude = create_query_builder(&creds, "claude-sonnet-5");
+        assert_eq!(
+            claude.get_endpoint(&creds.base_url, "claude-sonnet-5", &OutputType::Text),
+            "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
+        );
+        let auth = claude.get_auth_headers("api-key", &creds.base_url, &OutputType::Text);
+        assert!(auth.contains(&("x-api-key", "api-key".to_string())));
+
+        // OpenAI-compatible deployment -> chat completions surface.
+        let gpt = create_query_builder(&creds, "gpt-4o");
+        assert_eq!(
+            gpt.get_endpoint(&creds.base_url, "gpt-4o", &OutputType::Text),
+            "https://wm-test-ai.services.ai.azure.com/openai/v1/chat/completions"
+        );
+    }
 }
