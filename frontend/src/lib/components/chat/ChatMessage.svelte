@@ -1,16 +1,7 @@
 <script lang="ts">
 	import { Markdown } from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import {
-		Loader2,
-		CheckCircle2,
-		AlertTriangle,
-		Brain,
-		ChevronDown,
-		ChevronRight
-	} from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
+	import { Loader2, CheckCircle2, AlertTriangle } from 'lucide-svelte'
 	import CodeDisplay from '$lib/components/copilot/chat/script/CodeDisplay.svelte'
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -19,8 +10,6 @@
 	interface Props {
 		role: 'user' | 'assistant' | 'tool' | 'system'
 		content: string
-		reasoning?: string
-		streaming?: boolean
 		loading?: boolean
 		success?: boolean
 		stepName?: string
@@ -35,8 +24,6 @@
 	let {
 		role,
 		content,
-		reasoning = undefined,
-		streaming = false,
 		loading = false,
 		success = undefined,
 		stepName = undefined,
@@ -44,14 +31,6 @@
 		enableS3Display = true,
 		customCss = undefined
 	}: Props = $props()
-
-	// Reasoning / "thinking" affordance, mirroring the copilot chat's reasoning box.
-	const reasoningText = $derived(role !== 'user' ? reasoning?.trim() || undefined : undefined)
-	// Spinner while reasoning streams ahead of the answer.
-	const reasoningStreaming = $derived(!!reasoningText && streaming && !content)
-	// Expanded while thinking, collapse once the answer begins — unless toggled.
-	let reasoningToggled = $state<boolean | undefined>(undefined)
-	const reasoningExpanded = $derived(reasoningToggled ?? reasoningStreaming)
 
 	// Parse S3 objects if enabled
 	const s3Object = $derived.by(() => {
@@ -99,47 +78,6 @@
 		</div>
 	{/if}
 
-	{#if reasoningText}
-		<!-- Reasoning / "thinking" affordance, consistent with the copilot chat -->
-		<div
-			class="mx-3 mt-3 mb-2 bg-surface border border-border-light rounded-md overflow-hidden text-xs"
-		>
-			<button
-				class={twMerge(
-					'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center gap-2 text-left',
-					reasoningExpanded ? 'border-b border-border-light' : ''
-				)}
-				aria-expanded={reasoningExpanded}
-				onclick={() => (reasoningToggled = !reasoningExpanded)}
-			>
-				{#if reasoningExpanded}
-					<ChevronDown class="w-3 h-3 text-secondary" />
-				{:else}
-					<ChevronRight class="w-3 h-3 text-secondary" />
-				{/if}
-				{#if reasoningStreaming}
-					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-				{:else}
-					<Brain class="w-3.5 h-3.5 text-secondary" />
-				{/if}
-				<span class="text-primary font-medium text-2xs">Thinking</span>
-			</button>
-
-			{#if reasoningExpanded}
-				<div
-					transition:slide={{ duration: 150 }}
-					class="p-2 bg-surface text-secondary break-words prose prose-sm dark:prose-invert max-w-full leading-snug
-						prose-p:text-2xs prose-li:text-2xs prose-code:text-2xs prose-pre:text-2xs prose-ul:!pl-5
-						prose-headings:font-medium prose-headings:text-secondary prose-headings:mt-2 prose-headings:mb-1
-						prose-h1:text-2xs prose-h2:text-2xs prose-h3:text-2xs prose-h4:text-2xs prose-h5:text-2xs prose-h6:text-2xs
-						prose-strong:text-secondary"
-				>
-					<Markdown md={reasoningText} plugins={[gfmPlugin()]} />
-				</div>
-			{/if}
-		</div>
-	{/if}
-
 	{#if role === 'user'}
 		<p class="whitespace-pre-wrap text-sm text-right">{content}</p>
 	{:else if loading}
@@ -183,7 +121,7 @@
 		{:else}
 			<p class="whitespace-pre-wrap text-sm px-3 pb-3 {!stepName ? 'pt-3' : ''}">{content}</p>
 		{/if}
-	{:else if !reasoningText}
+	{:else}
 		<p class="text-tertiary text-sm px-3 py-3">No result</p>
 	{/if}
 </div>

@@ -12,8 +12,6 @@ import { randomUUID } from '$lib/utils/uuid'
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
 	streaming?: boolean
-	/// Streamed reasoning / thinking summary (live only; not persisted).
-	reasoning?: string
 }
 
 export interface ConversationWithDraft extends FlowConversation {
@@ -366,29 +364,9 @@ export class FlowChatManager {
 			// Only remove temporary messages when explicitly requested (e.g., after job completion)
 			// During streaming, we keep temp messages to avoid them disappearing due to race conditions
 			if (options?.removeTempMessages) {
-				// Reasoning isn't persisted server-side, so carry each temp assistant
-				// turn's streamed "thinking" summary onto its persisted counterpart
-				// before dropping temps — otherwise it vanishes when the run completes.
-				// Walk newest-first and match the newest pending summary with equal
-				// content: this response's turns (always at the end) claim their own
-				// reasoning — even with identical or empty text — before older history
-				// is reached, and once summaries run out older turns keep what they had.
-				const pending = this.messages
-					.filter((m) => m.id.startsWith('temp-') && m.message_type === 'assistant' && m.reasoning)
-					.map((m) => ({ content: m.content ?? '', reasoning: m.reasoning as string }))
-				const persisted = this.messages.filter(
+				this.messages = this.messages.filter(
 					(msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user'
 				)
-				for (let i = persisted.length - 1; i >= 0 && pending.length > 0; i--) {
-					const msg = persisted[i]
-					if (msg.message_type !== 'assistant' || msg.reasoning) continue
-					const idx = pending.findLastIndex((p) => p.content === (msg.content ?? ''))
-					if (idx !== -1) {
-						persisted[i] = { ...msg, reasoning: pending[idx].reasoning }
-						pending.splice(idx, 1)
-					}
-				}
-				this.messages = persisted
 			}
 		} catch (error) {
 			console.error('Polling error:', error)
@@ -499,7 +477,6 @@ export class FlowChatManager {
 
 		// Track stream state for this message
 		let accumulatedContent = ''
-		let accumulatedReasoning = ''
 		let assistantMessageId = ''
 		let isCompleted = false
 
@@ -578,11 +555,9 @@ export class FlowChatManager {
 							const {
 								type,
 								content: newContent,
-								reasoning: newReasoning,
 								success
 							} = parseStreamDeltas(data.new_result_stream)
 							accumulatedContent += newContent
-							accumulatedReasoning += newReasoning
 
 							// Create tool message if type is tool_result
 							if (type === 'tool_result') {
@@ -611,16 +586,13 @@ export class FlowChatManager {
 								// Reset assistant message ID since we are creating a tool message
 								assistantMessageId = ''
 								accumulatedContent = ''
-								accumulatedReasoning = ''
 							}
 
-							// Create the assistant message as soon as there is reasoning
-							// (thinking) or answer content, so a thinking affordance can show
-							// before the answer streams.
+							// Create message on first content
 							else if (
 								type === 'message' &&
 								assistantMessageId.length === 0 &&
-								(accumulatedContent.length > 0 || accumulatedReasoning.length > 0)
+								accumulatedContent.length > 0
 							) {
 								assistantMessageId = 'temp-' + randomUUID()
 								this.messages = [
@@ -628,7 +600,6 @@ export class FlowChatManager {
 									{
 										id: assistantMessageId,
 										content: accumulatedContent,
-										reasoning: accumulatedReasoning,
 										created_at: new Date().toISOString(),
 										created_seq: 0,
 										message_type: 'assistant',
@@ -641,9 +612,7 @@ export class FlowChatManager {
 							} else {
 								// Update existing message
 								this.messages = this.messages.map((msg) =>
-									msg.id === assistantMessageId
-										? { ...msg, content: accumulatedContent, reasoning: accumulatedReasoning }
-										: msg
+									msg.id === assistantMessageId ? { ...msg, content: accumulatedContent } : msg
 								)
 							}
 						}

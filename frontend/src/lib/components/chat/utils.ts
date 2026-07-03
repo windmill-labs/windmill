@@ -1,12 +1,10 @@
 export function parseStreamDeltas(streamData: string): {
 	content: string
-	reasoning: string
 	type?: string
 	success?: boolean
 } {
 	const lines = streamData.trim().split('\n')
 	let content = ''
-	let reasoning = ''
 	let type = 'message'
 	let success = true
 
@@ -23,14 +21,10 @@ export function parseStreamDeltas(streamData: string): {
 			if (parsed.type === 'token_delta' && parsed.content) {
 				content += parsed.content
 			}
-			// Model reasoning / thinking summary, streamed before the answer.
-			if (parsed.type === 'reasoning_token_delta' && parsed.content) {
-				reasoning += parsed.content
-			}
 		} catch (e) {
 			console.error('Failed to parse stream line:', line, e)
 		}
 	}
 
-	return { content, reasoning, type, success }
+	return { content, type, success }
 }
