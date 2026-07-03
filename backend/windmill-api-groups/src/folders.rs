@@ -61,6 +61,8 @@ pub struct Folder {
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub default_permissioned_as: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -71,6 +73,7 @@ pub struct NewFolder {
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
     pub default_permissioned_as: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -80,6 +83,15 @@ pub struct UpdateFolder {
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
     pub default_permissioned_as: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
+}
+
+// Folder labels are surfaced verbatim as `inherited_labels` and rendered in keyed
+// `{#each}` blocks; a repeated label is a duplicate key that crashes the list views.
+// The UI dedups on entry but API/CLI/git-sync writes do not, so normalize on write.
+fn dedup_labels(labels: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    labels.retain(|l| seen.insert(l.clone()));
 }
 
 #[derive(Deserialize)]
@@ -99,7 +111,7 @@ async fn list_folders(
 
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -134,12 +146,11 @@ async fn list_foldernames(
 }
 
 fn validate_owner(owner: &str) -> Result<()> {
-    if !owner
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/' || c == '-')
-    {
+    if !owner.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '/' || c == '-' || c == '.' || c == '@'
+    }) {
         return Err(error::Error::BadRequest(
-            "Invalid owner: must contain only alphanumeric characters, underscores, hyphens, or slashes".to_string(),
+            "Invalid owner: must contain only alphanumeric characters, underscores, hyphens, slashes, dots, or at-signs".to_string(),
         ));
     }
     Ok(())
@@ -211,7 +222,7 @@ async fn check_name_conflict<'c>(
 }
 
 lazy_static! {
-    static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+    static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9-]+$"#).unwrap();
 }
 
 async fn create_folder(
@@ -222,8 +233,11 @@ async fn create_folder(
     Extension(webhook): Extension<WebhookShared>,
     Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
-    Json(ng): Json<NewFolder>,
+    Json(mut ng): Json<NewFolder>,
 ) -> Result<String> {
+    if let Some(labels) = ng.labels.as_mut() {
+        dedup_labels(labels);
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -240,7 +254,7 @@ async fn create_folder(
 
     if !VALID_FOLDER_NAME.is_match(&ng.name) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Folder name can only contain alphanumeric characters, underscores"
+            "Folder name can only contain alphanumeric characters, underscores, and hyphens"
         )));
     }
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
@@ -280,7 +294,7 @@ async fn create_folder(
     if let Err(e) =
     sqlx::query_as!(
         Folder,
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8)",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9)",
         w_id,
         ng.name,
         ng.display_name.unwrap_or(ng.name.clone()),
@@ -288,7 +302,8 @@ async fn create_folder(
         extra_perms,
         ng.summary,
         authed.username,
-        default_permissioned_as
+        default_permissioned_as,
+        ng.labels.as_deref().filter(|l| !l.is_empty()) as Option<&[String]>
     )
     .execute(&mut *tx)
     .await {
@@ -466,6 +481,26 @@ async fn update_folder(
         );
     }
 
+    if let Some(labels) = ng.labels.as_mut() {
+        dedup_labels(labels);
+        if labels.is_empty() {
+            // normalize cleared labels to NULL so the field stays out of API/tarball output
+            sqlb.set("labels", "NULL");
+        } else {
+            sqlb.set(
+                "labels",
+                "?".bind(&format!(
+                    "{{{}}}",
+                    labels
+                        .iter()
+                        .map(|x| format!("\"{}\"", x.replace('\\', "\\\\").replace('"', "\\\"")))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )),
+            );
+        }
+    }
+
     sqlb.returning("*");
 
     let mut tx = user_db.begin(&authed).await?;
@@ -570,7 +605,7 @@ pub async fn get_folderopt<'c>(
 ) -> Result<Option<Folder>> {
     let folderopt = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as FROM folder WHERE name = $1 AND workspace_id = $2",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE name = $1 AND workspace_id = $2",
         name,
         w_id
     )
@@ -942,4 +977,23 @@ pub async fn log_folder_permission_change<'c, E: sqlx::Executor<'c, Database = P
     .execute(db)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_name_allows_hyphens() {
+        // #8474: hyphens are valid in folder names, consistent with owner/path
+        // validation (which already permits them) and with folders created via
+        // the CLI / by deploying to an `f/<folder>/...` path.
+        assert!(VALID_FOLDER_NAME.is_match("folder-name"));
+        assert!(VALID_FOLDER_NAME.is_match("foo_bar"));
+        assert!(VALID_FOLDER_NAME.is_match("Foo123"));
+        // Disallowed characters are still rejected.
+        assert!(!VALID_FOLDER_NAME.is_match("foo/bar"));
+        assert!(!VALID_FOLDER_NAME.is_match("foo bar"));
+        assert!(!VALID_FOLDER_NAME.is_match(""));
+    }
 }

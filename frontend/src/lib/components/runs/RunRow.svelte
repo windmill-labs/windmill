@@ -110,7 +110,7 @@
 			{#if job}
 				{#if ('started_at' in job && job.started_at) || ('completed_at' in job && job.completed_at)}
 					{#if 'completed_at' in job && job.completed_at}
-						{isJobRecent ? 'Ended' : ''}
+						{isJobRecent ? (job.canceled ? 'Canceled' : 'Ended') : ''}
 						<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.completed_at ?? ''} />
 					{:else if 'started_at' in job && job.started_at}
 						{isJobRecent ? 'Started' : ''}
@@ -127,7 +127,7 @@
 					{displayDate(job.scheduled_for)}<Clock size={12} />
 				{:else if job.canceled}
 					{#if job.type == 'CompletedJob'}
-						Cancelled <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />
+						Canceled <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />
 					{:else}
 						Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 					{/if}

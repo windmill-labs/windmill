@@ -5,18 +5,19 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
-	import { ScriptService, type Script, DraftService } from '$lib/gen'
-	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { ScriptService, type Script } from '$lib/gen'
+	import { hubBaseUrlStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { capitalize, copyToClipboard, DELETE, isOwner } from '$lib/utils'
+	import { capitalize, copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
 
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -42,16 +43,22 @@
 	import WacExportDrawer from '$lib/components/scripts/WacExportDrawer.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { scriptToHubUrl } from '$lib/hub'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		script: Script & { canWrite: boolean; use_codebase: boolean }
+		script: Script & {
+			canWrite: boolean
+			use_codebase: boolean
+			is_draft?: boolean
+			draft_path?: string
+			draft_users?: { username?: string | null }[]
+		}
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -103,7 +110,20 @@
 	}
 
 	async function deleteScript(path: string): Promise<void> {
-		await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
+		// Draft-only items have no deployed row to delete — the regular
+		// route would 404. Route the delete through the syncer so the
+		// per-user draft row is removed instead.
+		if (script.draft_only) {
+			await UserDraftDbSyncer.save({
+				workspace: $workspaceStore!,
+				itemKind: 'script',
+				path,
+				value: null,
+				immediate: true
+			})
+		} else {
+			await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
+		}
 		dispatch('change')
 		sendUserToast(`Deleted script ${path}`)
 	}
@@ -126,8 +146,10 @@
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
-	path={script.path}
-	summary={script.summary}
+	path={script.draft_path ?? script.path}
+	summary={script.is_draft
+		? `${script.summary || script.draft_path || script.path}*`
+		: script.summary}
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
@@ -168,7 +190,16 @@
 			>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
-		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
+		<DraftBadge
+			is_draft={script.is_draft}
+			draft_only={script.draft_only}
+			draft_users={script.draft_users}
+			currentUsername={$userStore?.username}
+			workspace={$workspaceStore ?? undefined}
+			itemKind="script"
+			path={script.path}
+			onMigrated={() => dispatch('change')}
+		/>
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each script.labels.slice(0, 3) as label}
@@ -187,6 +218,7 @@
 				{/if}
 			</div>
 		{/if}
+		<InheritedLabels labels={script.inherited_labels} />
 		<div class="w-8 center-center">
 			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>
@@ -218,7 +250,7 @@
 						</div>
 					{/if}
 				{/if}
-				{#if !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !script.canWrite)}
+				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !script.canWrite)}
 					<div>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
@@ -227,7 +259,7 @@
 							startIcon={{ icon: GitFork }}
 							href={buildForkEditUrl('script', script.path)}
 						>
-							Edit in fork
+							{editInForkLabel($workspaceStore, $userWorkspaces)}
 						</Button>
 					</div>
 				{/if}
@@ -263,7 +295,10 @@
 								}
 							},
 							type: dlt,
-							disabled: !canEdit
+							// A draft-only row is always the authed user's own draft (the
+							// list endpoint only surfaces own/legacy draft-only rows), so
+							// discarding it never requires write permission on the path.
+							disabled: !showEditButton
 						}
 					]
 				}
@@ -298,10 +333,13 @@
 						hide: $userStore?.operator
 					},
 					{
-						displayName: 'Edit in workspace fork',
+						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
 						icon: GitFork,
 						href: buildForkEditUrl('script', script.path),
-						hide: $userStore?.operator || isCloudHosted() || isRuleActive('DisableWorkspaceForking')
+						hide:
+							$userStore?.operator ||
+							isCloudHosted() ||
+							!editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
 					{
 						displayName: 'Move/Rename',
@@ -404,25 +442,6 @@
 						hide: $userStore?.operator
 					},
 
-					...(script.has_draft
-						? [
-								{
-									displayName: 'Delete Draft',
-									icon: Trash,
-									action: async () => {
-										await DraftService.deleteDraft({
-											workspace: $workspaceStore ?? '',
-											path: script.path,
-											kind: 'script'
-										})
-										dispatch('change')
-									},
-									type: DELETE,
-									disabled: !owner,
-									hide: $userStore?.operator
-								}
-							]
-						: []),
 					...($userStore?.is_admin || $userStore?.is_super_admin
 						? [
 								{

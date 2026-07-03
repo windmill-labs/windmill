@@ -67,7 +67,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				title: 'Build a flow',
 				description: 'Learn how to build workflows in Windmill with our interactive tutorial.',
 				onClick: () => {
-					window.location.href = `${base}/flows/add?tutorial=flow-live-tutorial&nodraft=true`
+					window.location.href = `${base}/flows/add?tutorial=flow-live-tutorial`
 				},
 				index: 2,
 				active: true,
@@ -81,7 +81,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				title: 'Fix a broken flow',
 				description: 'Learn how to monitor and debug your script and flow executions.',
 				onClick: () => {
-					window.location.href = `${base}/flows/add?tutorial=troubleshoot-flow&nodraft=true`
+					window.location.href = `${base}/flows/add?tutorial=troubleshoot-flow`
 				},
 				index: 3,
 				active: true,
@@ -131,7 +131,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				title: 'Background runnables',
 				description: 'Learn how to create and use background runnables in your apps.',
 				onClick: () => {
-					window.location.href = `${base}/apps/add?tutorial=backgroundrunnables&nodraft=true`
+					window.location.href = `${base}/apps/add?tutorial=backgroundrunnables`
 				},
 				index: 4,
 				active: true,
@@ -145,7 +145,7 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				title: 'Connection',
 				description: 'Learn how to connect component inputs to outputs in your apps.',
 				onClick: () => {
-					window.location.href = `${base}/apps/add?tutorial=connection&nodraft=true`
+					window.location.href = `${base}/apps/add?tutorial=connection`
 				},
 				index: 5,
 				active: true,

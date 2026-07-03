@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
-use windmill_common::workspaces::WM_FORK_PREFIX;
 use windmill_common::DB;
 
 use crate::workspaces::{
@@ -26,7 +25,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     utils::require_admin,
-    workspaces::DataTable,
+    workspaces::{DataTable, DEV_WORKSPACE_LOCK_RULE_NAME, WM_FORK_PREFIX},
 };
 use windmill_queue::schedule::{get_schedule_opt, push_scheduled_job};
 
@@ -65,13 +64,42 @@ pub(crate) async fn change_workspace_id(
         old_id, rw.new_id
     );
 
-    // Create new workspace with new id and name
+    // Create new workspace with new id and name. Fork lineage AND the dev designation are preserved
+    // from the source row, not inferred from the new id's prefix: a prefix-less fork (a dev or
+    // detached-dev workspace) would otherwise be silently promoted to a root workspace, and a dev
+    // would lose its flag — leaving its prod locked with no canonical dev. Promoting out of a fork is
+    // a separate, explicit action — a rename never does it implicitly.
     info!("Creating new workspace row");
+    let old = sqlx::query!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!", is_dev_workspace
+           FROM workspace WHERE id = $1"#,
+        &old_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let new_is_fork = old.as_ref().map(|o| o.has_parent).unwrap_or(false);
+    let new_is_dev = new_is_fork && old.as_ref().map(|o| o.is_dev_workspace).unwrap_or(false);
+    // Neutralize the old row's dev flag BEFORE inserting the new one: the move-and-archive archives
+    // the old row only later, so without this the new dev row and the not-yet-archived old dev row
+    // would momentarily both be active under the same parent and trip the one-dev-per-parent index.
+    if new_is_dev {
+        sqlx::query!(
+            "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+            &old_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     sqlx::query!(
-        "INSERT INTO workspace SELECT $1, $2, owner, false, premium FROM workspace WHERE id = $3",
+        "INSERT INTO workspace (id, name, owner, deleted, premium, parent_workspace_id, is_dev_workspace)
+         SELECT $1, $2, owner, false, premium,
+                CASE WHEN $4 THEN parent_workspace_id ELSE NULL END, $5
+         FROM workspace WHERE id = $3",
         &rw.new_id,
         &rw.new_name,
-        &old_id
+        &old_id,
+        new_is_fork,
+        new_is_dev
     )
     .execute(&mut *tx)
     .await?;
@@ -248,6 +276,24 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating macro_definition table");
+    sqlx::query!(
+        "UPDATE macro_definition SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating macro_usage table");
+    sqlx::query!(
+        "UPDATE macro_usage SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating deployment_metadata table");
     sqlx::query!(
         "UPDATE deployment_metadata SET workspace_id = $1 WHERE workspace_id = $2",
@@ -279,8 +325,8 @@ pub(crate) async fn change_workspace_id(
     info!("Duplicating flow table rows");
     sqlx::query!(
         "INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs)
-        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs)
+        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs
             FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -341,6 +387,28 @@ pub(crate) async fn change_workspace_id(
     .await?;
     sqlx::query!(
         "UPDATE workspace_fork_deployment_request SET fork_workspace_id = $1 WHERE fork_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Re-parent child forks: any fork whose parent_workspace_id was the old id
+    // must follow the renamed parent to the new id, otherwise it is left
+    // pointing at the soft-deleted old shell (whose data has moved here).
+    info!("Re-parenting child forks to the new workspace id");
+    let reparented_children: Vec<String> = sqlx::query_scalar!(
+        "UPDATE workspace SET parent_workspace_id = $1 WHERE parent_workspace_id = $2 RETURNING id",
+        &rw.new_id,
+        &old_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // A dev/fork's `deploy_to` points at the prod root, so it must follow the rename too — otherwise
+    // the child re-parents to the new id but still deploys to the soft-deleted old shell.
+    sqlx::query!(
+        "UPDATE workspace_settings SET deploy_to = $1 WHERE deploy_to = $2",
         &rw.new_id,
         &old_id
     )
@@ -469,8 +537,8 @@ pub(crate) async fn change_workspace_id(
     // Duplicate folders with new workspace id (FK constraint)
     info!("Duplicating folder table rows");
     sqlx::query!(
-        "INSERT INTO folder (name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as) \
-         SELECT name, $1, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as \
+        "INSERT INTO folder (name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels) \
+         SELECT name, $1, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels \
          FROM folder WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -675,11 +743,21 @@ pub(crate) async fn change_workspace_id(
 
     tx.commit().await?;
 
+    // The children's parent_workspace_id changed (old root -> new root); invalidate their fork-parent
+    // routing cache and their billing-workspace mapping so jobs route + meter under the renamed root
+    // rather than the old (archived) one, instead of waiting for the caches' TTLs. Deeper descendants
+    // (fork-of-fork) self-heal via the 60s billing-cache TTL.
+    for child in &reparented_children {
+        windmill_queue::tags::invalidate_fork_parent_cache(child);
+        #[cfg(feature = "cloud")]
+        windmill_common::workspaces::invalidate_billing_workspace_cache(child);
+    }
+
     // Archive old workspace: disable schedules, cancel remaining jobs, set deleted=true
     // Note: schedules were already moved to new workspace, so this will find 0 schedules
     info!("Archiving old workspace");
     let (_schedules_count, canceled_count, _deleted_tokens_count) =
-        archive_workspace_impl(&db, &old_id, &authed.username).await?;
+        archive_workspace_impl(&db, &old_id, &authed.username, None).await?;
 
     info!(
         "Workspace id change completed: moved {} to {}, archived old workspace",
@@ -713,15 +791,65 @@ pub(crate) async fn delete_workspace(
         _ => Ok(w_id),
     }?;
 
-    if dwq.only_delete_forks.unwrap_or(false) && !w_id.starts_with(WM_FORK_PREFIX) {
+    let is_fork = workspace_is_fork(&db, &w_id).await?;
+    if dwq.only_delete_forks.unwrap_or(false) && !is_fork {
         return Err(Error::BadRequest(
             "Cannot delete this workspace because it is not a workspace fork.".to_string(),
         ));
     }
 
     let mut tx = db.begin().await?;
-    if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
-        require_super_admin(&db, &authed.email).await?;
+    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
+        && !is_super_admin_email(&db, &authed.email).await?
+    {
+        return Err(Error::PermissionDenied(
+            "Deleting this workspace requires being the fork's owner or a superadmin".to_string(),
+        ));
+    }
+
+    // Don't hard-delete a workspace that still has a dev workspace paired to it: the FK is
+    // ON DELETE SET NULL, which would orphan the (prefix-less) dev into a parentless, non-fork row
+    // its owner could no longer self-delete. Require detaching/deleting the dev first. Ordinary
+    // forks have no such guard — they keep their prefix and stay owner-deletable when orphaned.
+    // Archived devs (deleted = true) are included: they keep is_dev_workspace = true, so SET NULL on
+    // their parent would violate the `is_dev ⇒ has parent` CHECK and fail the whole delete with a 500.
+    if let Some(dev_id) = sqlx::query_scalar!(
+        "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        return Err(Error::BadRequest(format!(
+            "Cannot delete workspace '{}' because it has a dev workspace ('{}'). Detach or delete the dev workspace first.",
+            w_id, dev_id
+        )));
+    }
+
+    // Deleting an attached dev workspace removes the parent prod's dev_workspace_lock (below), so it
+    // must be a prod-admin action, not just the dev's own owner (dev ownership can diverge from
+    // prod's) — mirrors detach_dev_workspace, which is prod-admin gated.
+    if let Some(prod) = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    {
+        let is_prod_admin = sqlx::query_scalar!(
+            "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+            &prod,
+            &authed.email
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !is_prod_admin && !is_super_admin_email(&db, &authed.email).await? {
+            return Err(Error::PermissionDenied(format!(
+                "Deleting dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
+            )));
+        }
     }
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
@@ -742,9 +870,30 @@ pub(crate) async fn delete_workspace(
     sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query!("DELETE FROM macro_usage WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!(
+        "DELETE FROM macro_definition WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM v2_job_queue WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+    // dispatch_event / flow_conversation_message / zombie_job_counter no longer cascade from
+    // v2_job (see migration drop_v2_job_side_table_cascades); delete them before v2_job so the
+    // workspace's jobs leave no orphan side rows. One round-trip, scanning v2_job once.
+    sqlx::query!(
+        "WITH ids AS (SELECT id FROM v2_job WHERE workspace_id = $1),
+              _de AS (DELETE FROM dispatch_event WHERE workspace_id = $1),
+              _fc AS (DELETE FROM flow_conversation_message WHERE job_id IN (SELECT id FROM ids))
+         DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM ids)",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM v2_job WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -868,21 +1017,94 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    // workspace_diff and skip_workspace_diff_tally are keyed by workspace id with no
+    // FK cascade. A fork id is reused when a fork is deleted and recreated under the
+    // same name, so leaving these rows behind leaks the previous fork's cached diff
+    // verdicts onto the new fork — causing a spurious "changes not visible" warning
+    // that hides the deploy button.
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // If this workspace is itself a dev workspace, deleting it dissolves the pairing, so also drop
+    // the parent prod's reserved dev_workspace_lock (mirrors detach_dev_workspace) — otherwise prod
+    // stays locked against direct deploy/forking with no dev workspace left to make changes in.
+    let dev_lock_parent: Option<String> = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    // Capture direct child forks before the delete: the FK is ON DELETE SET NULL, so they're about to
+    // be orphaned (their billing root changes from this workspace's root to themselves). We drop their
+    // cached mappings after commit alongside the deleted id itself.
+    let orphaned_children: Vec<String> = sqlx::query_scalar!(
+        "SELECT id FROM workspace WHERE parent_workspace_id = $1",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
 
+    if let Some(ref parent) = dev_lock_parent {
+        sqlx::query!(
+            "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
+            parent,
+            DEV_WORKSPACE_LOCK_RULE_NAME
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Record under the instance-level "admins" workspace. The per-workspace audit
+    // rows are deleted along with the workspace, so this instance-level entry is the
+    // only durable, superadmin-discoverable record of who deleted the workspace.
     audit_log(
         &mut *tx,
         &authed,
         "workspaces.delete",
         ActionKind::Delete,
-        &w_id,
-        Some(&authed.email),
+        "admins",
+        Some(&w_id),
         None,
     )
     .await?;
     tx.commit().await?;
+
+    if let Some(parent) = dev_lock_parent {
+        windmill_common::workspaces::invalidate_protection_rules_cache(&parent);
+    }
+
+    // Workspace ids are reusable after permanent deletion, so drop every cached mapping keyed by the
+    // deleted id (and any just-orphaned children) — otherwise a recreated id could inherit the gone
+    // workspace's state within the caches' lifetimes. This covers fork->parent (tag routing) and
+    // fork->root (billing), plus the premium/team-plan status: TEAM_PLAN_CACHE has no TTL and is only
+    // evicted by the premium-change NOTIFY, so without this a reused id would keep the old workspace's
+    // premium indefinitely (free forks/usage). Deeper (grandchild) descendants self-heal via the 60s
+    // billing TTL.
+    for id in std::iter::once(&w_id).chain(orphaned_children.iter()) {
+        windmill_queue::tags::invalidate_fork_parent_cache(id);
+        #[cfg(feature = "cloud")]
+        {
+            windmill_common::workspaces::invalidate_billing_workspace_cache(id);
+            windmill_common::workspaces::invalidate_team_plan_cache(id);
+        }
+    }
 
     Ok(format!("Deleted workspace {}", &w_id))
 }
@@ -902,9 +1124,15 @@ pub async fn drop_forked_datatable_databases(
     Json(req): Json<DropForkedDatatableDatabasesRequest>,
 ) -> Result<Json<Vec<String>>> {
     // Same permission check as delete_workspace: fork owner or super admin
+    let is_fork = workspace_is_fork(&db, &w_id).await?;
     let mut tx = db.begin().await?;
-    if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
-        require_super_admin(&db, &authed.email).await?;
+    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
+        && !is_super_admin_email(&db, &authed.email).await?
+    {
+        return Err(Error::PermissionDenied(
+            "Dropping forked datatable databases requires being the fork's owner or a superadmin"
+                .to_string(),
+        ));
     }
     tx.commit().await?;
 
@@ -1047,4 +1275,22 @@ async fn is_workspace_owner(
         .fetch_optional(&mut **tx)
         .await?;
     Ok(owner.map(|o| o == authed.email).unwrap_or(false))
+}
+
+/// Whether a workspace is a fork or dev workspace. Both forks and dev workspaces set
+/// `parent_workspace_id`, but a `wm-fork-` workspace can outlive its parent (the FK is
+/// `ON DELETE SET NULL`), so also treat the prefix as fork-ness — otherwise an orphaned fork would
+/// lose owner-self-delete. Used to gate owner-self-delete, which is permitted for forks/dev
+/// workspaces but requires superadmin otherwise.
+async fn workspace_is_fork(db: &DB, w_id: &str) -> Result<bool> {
+    if w_id.starts_with(WM_FORK_PREFIX) {
+        return Ok(true);
+    }
+    Ok(sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
 }

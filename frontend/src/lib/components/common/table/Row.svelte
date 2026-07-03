@@ -6,6 +6,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import Tooltip from '../../meltComponents/Tooltip.svelte'
+	import Checkbox from '../checkbox/Checkbox.svelte'
 
 	interface Props {
 		marked: string | undefined
@@ -14,6 +16,14 @@
 		disabled?: boolean
 		canFavorite?: boolean
 		isSelectable?: boolean
+		/** When the row is not selectable, render a disabled checkbox with this
+		 * reason as a hover tooltip (instead of an empty slot) — explains why the
+		 * row can't be selected without greying the whole row via `disabled`. */
+		selectDisabledReason?: string
+		/** When true, clicking anywhere on the row card (except interactive
+		 * children — checkbox, buttons, links) toggles selection. Opt-in so
+		 * existing tables that don't want it are unaffected. */
+		selectOnRowClick?: boolean
 		alignWithSelectable?: boolean
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
@@ -39,6 +49,7 @@
 			| 'gcp_trigger'
 			| 'azure_trigger'
 			| 'email_trigger'
+			| 'data_pipeline'
 		triggerKind?: string | undefined
 		summary?: string | undefined
 		path: string
@@ -48,6 +59,9 @@
 		badges?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
 		customSummary?: import('svelte').Snippet
+		/** Overrides the secondary path line (e.g. to strike a renamed path).
+		 * Falls back to the plain `path` string when not provided. */
+		pathDisplay?: import('svelte').Snippet
 		onSelect?: (
 			e: Event & {
 				currentTarget: EventTarget & HTMLInputElement
@@ -62,6 +76,8 @@
 		disabled = false,
 		canFavorite = true,
 		isSelectable = false,
+		selectDisabledReason = undefined,
+		selectOnRowClick = false,
 		alignWithSelectable = false,
 		errorHandlerMuted = false,
 		aiId = undefined,
@@ -76,6 +92,7 @@
 		badges,
 		actions,
 		customSummary,
+		pathDisplay,
 		onSelect = () => {}
 	}: Props = $props()
 
@@ -92,6 +109,32 @@
 			rowEl?.scrollIntoView({ block: 'nearest' })
 		}
 	})
+
+	const clickToSelect = $derived(selectOnRowClick && isSelectable && !disabled)
+
+	// Interactive children that handle their own activation — selecting the row on
+	// top of them would double-fire (mouse) or hijack their keyboard activation.
+	function fromInteractiveChild(e: Event): boolean {
+		return !!(e.target as HTMLElement | null)?.closest('a, button, input, [data-row-actions]')
+	}
+
+	function handleRowClick(e: MouseEvent) {
+		if (!clickToSelect) return
+		// Don't double-toggle when the click originated from an interactive child
+		// (the checkbox itself, action buttons, or the title link).
+		if (fromInteractiveChild(e)) return
+		onSelect?.(e as unknown as Event & { currentTarget: EventTarget & HTMLInputElement })
+	}
+
+	function handleRowKeydown(e: KeyboardEvent) {
+		if (!clickToSelect) return
+		if (e.key !== 'Enter' && e.key !== ' ') return
+		// Same guard as the click path: activating a child (checkbox / action button
+		// / title link) via Enter/Space must not also toggle the row's selection.
+		if (fromInteractiveChild(e)) return
+		e.preventDefault()
+		onSelect?.(e as unknown as Event & { currentTarget: EventTarget & HTMLInputElement })
+	}
 </script>
 
 {#if href}
@@ -112,12 +155,22 @@
 		'w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
 		depth > 0 ? '!rounded-none' : '',
 		disabled ? 'opacity-25' : 'hover:bg-surface-hover',
+		clickToSelect ? 'cursor-pointer select-none' : '',
 		selected ? 'bg-surface-accent-selected' : keyboardSelected ? 'bg-gray-200 dark:bg-gray-700' : ''
 	)}
 	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
+	role={clickToSelect ? 'button' : undefined}
+	tabindex={clickToSelect ? 0 : undefined}
+	onclick={handleRowClick}
+	onkeydown={clickToSelect ? handleRowKeydown : undefined}
 >
 	{#if isSelectable}
-		<input type="checkbox" checked={selected} onchange={onSelect} class="rounded max-w-4 w-full" />
+		<Checkbox checked={selected} onChange={onSelect} />
+	{:else if selectDisabledReason}
+		<Tooltip class="cursor-not-allowed">
+			<Checkbox disabled checked={false} />
+			{#snippet text()}{selectDisabledReason}{/snippet}
+		</Tooltip>
 	{:else if alignWithSelectable}
 		<div class="rounded max-w-4 w-full"></div>
 	{/if}
@@ -172,7 +225,11 @@
 			{/if}
 		</div>
 		<div class="text-hint text-3xs truncate text-left font-normal" title={path}>
-			{path}
+			{#if pathDisplay}
+				{@render pathDisplay()}
+			{:else}
+				{path}
+			{/if}
 		</div>
 	</div>
 {/snippet}

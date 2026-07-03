@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -25,6 +26,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -96,11 +98,14 @@
 	}
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await HttpTriggerService.listHttpTriggers({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await HttpTriggerService.listHttpTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'routes', $usedTriggerKinds)
 		loading = false
 	}
@@ -361,7 +366,7 @@
 				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args } (path)}
+					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -390,7 +395,7 @@
 											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
 												? workspace_id + '/' + route_path
 												: route_path}
-										{/if}
+										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft) ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-normal">
 										{path}
@@ -406,6 +411,9 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if draft_only}
+										<DraftBadge draft_only is_draft={false} />
+									{/if}
 								</div>
 
 								<TriggerModeToggle

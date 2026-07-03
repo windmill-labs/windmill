@@ -15,6 +15,7 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getViewToken } from '$lib/viewToken'
 	import { WM_LOGS_SKIPPED } from '$lib/consts'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -47,6 +48,9 @@
 		noLogs?: boolean
 		workspaceOverride?: string | undefined
 		notfound?: boolean
+		/** Status/body of the last load failure, so callers can distinguish e.g. a
+		 * 403 (job exists but no access — offer a share link) from a 404. */
+		loadError?: { status?: number; message?: string } | undefined
 		allowConcurentRequests?: boolean
 		jobUpdateLastFetch?: Date | undefined
 		toastError?: boolean
@@ -65,6 +69,7 @@
 		allowConcurentRequests = false,
 		workspaceOverride = undefined,
 		notfound = $bindable(false),
+		loadError = $bindable(undefined),
 		jobUpdateLastFetch = $bindable(undefined),
 		toastError = false,
 		onlyResult = false,
@@ -330,12 +335,15 @@
 		hash?: string,
 		callbacks?: Callbacks,
 		flowPath?: string,
-		modules?: Record<string, import('$lib/gen').ScriptModule> | null
+		modules?: Record<string, import('$lib/gen').ScriptModule> | null,
+		tempScriptRefs?: Record<string, string>,
+		timeout?: number
 	): Promise<string> {
 		return abstractRun(
 			() =>
 				JobService.runScriptPreview({
 					workspace: $workspaceStore!,
+					timeout,
 					requestBody: {
 						path,
 						content: code,
@@ -345,7 +353,8 @@
 						lock,
 						script_hash: hash,
 						flow_path: flowPath,
-						modules: modules ?? undefined
+						modules: modules ?? undefined,
+						temp_script_refs: tempScriptRefs
 					}
 				}),
 			callbacks
@@ -600,9 +609,14 @@
 					}
 				}
 				notfound = false
+				loadError = undefined
 			} catch (err) {
+				const status = (err as any)?.status
+				loadError = { status, message: (err as any)?.body ?? (err as any)?.message }
 				errorIteration += 1
-				if (errorIteration == 5) {
+				// Auth failures won't resolve by retrying: surface them immediately so
+				// the caller can show the right message (e.g. 403 -> request a share link).
+				if (status === 403 || status === 404 || errorIteration == 5) {
 					notfound = true
 					job = undefined
 					clearCurrentId()
@@ -752,6 +766,13 @@
 
 					if (token?.token && token.token != '') {
 						params.set('token', token.token)
+					}
+
+					// Share read link: SSE/EventSource can't set the X-View-Token header,
+					// so carry the token as a query param instead.
+					const viewToken = getViewToken()
+					if (viewToken) {
+						params.set('view_token', viewToken)
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`

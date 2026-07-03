@@ -43,6 +43,9 @@ pub enum JobTriggerKind {
     #[serde(rename = "ci_test")]
     #[sqlx(rename = "ci_test")]
     CiTest,
+    // A run dispatched because an upstream pipeline script wrote an asset
+    // this runnable subscribes to via `// on s3://...` annotations.
+    Asset,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -64,6 +67,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Google => "google",
             JobTriggerKind::Github => "github",
             JobTriggerKind::CiTest => "ci_test",
+            JobTriggerKind::Asset => "asset",
         };
         write!(f, "{}", kind)
     }
@@ -228,6 +232,14 @@ pub struct QueuedJob {
     pub runnable_settings_handle: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    // True when this job is a native retry attempt (has a native_retry_attempt
+    // marker). Lets the run-page chain distinguish real retries from other
+    // same-script children (e.g. WAC inline children). The list and single-job
+    // GET endpoints select it; `#[sqlx(default)]` lets any other query omit the
+    // column and default to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_retry: Option<bool>,
 }
 
 impl QueuedJob {
@@ -303,6 +315,7 @@ impl Default for QueuedJob {
             preprocessed: None,
             runnable_settings_handle: None,
             labels: None,
+            is_retry: None,
         }
     }
 }
@@ -358,6 +371,14 @@ pub struct CompletedJob {
     pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    // True when this job is a native retry attempt (has a native_retry_attempt
+    // marker). Lets the run-page chain distinguish real retries from other
+    // same-script children (e.g. WAC inline children). The list and single-job
+    // GET endpoints select it; `#[sqlx(default)]` lets any other query omit the
+    // column and default to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_retry: Option<bool>,
 }
 
 impl CompletedJob {
@@ -469,6 +490,10 @@ pub enum JobPayload {
         path: String,
         hash: Option<ScriptHash>,
         flow_version: Option<i64>,
+        // Set when wrapping a script (not a flow). Lets `push` materialize a
+        // bare-script-with-retry as a native retryable `Script` job instead of
+        // spawning a one-step flow.
+        language: Option<ScriptLang>,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Option<Retry>,
         error_handler_path: Option<String>,
@@ -556,6 +581,13 @@ pub struct OnBehalfOf {
 }
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
+
+/// Reserved job-arg key holding the inbound W3C `traceparent` captured from the
+/// request that enqueued the job (run endpoints). It rides the `args` jsonb like
+/// [`ENTRYPOINT_OVERRIDE`]; normal scripts never see it because args are bound by
+/// declared parameter name. Read back at root-job completion to link the job's
+/// OTLP span to the originating distributed trace (EE/OTel only).
+pub const WM_TRACEPARENT: &str = "_wm_traceparent";
 
 /// The entrypoint override (`_ENTRYPOINT_OVERRIDE` job arg ->
 /// `v2_job.script_entrypoint_override`) is interpolated verbatim into

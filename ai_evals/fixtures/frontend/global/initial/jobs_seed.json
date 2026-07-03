@@ -1,0 +1,30 @@
+{
+  "workspace": {
+    "jobs": [
+      {
+        "id": "01920000-0000-7000-8000-0000000000f1",
+        "scriptPath": "f/etl/sync_customers",
+        "jobKind": "script",
+        "createdBy": "alice",
+        "success": false,
+        "logs": "Starting customer sync...\nFetched 0 records\nERROR: connection refused to https://api.upstream.example.com\n  at fetchCustomers (sync_customers.ts:42)\nJob failed with exit code 1"
+      },
+      {
+        "id": "01920000-0000-7000-8000-0000000000f2",
+        "scriptPath": "f/reports/daily_digest",
+        "jobKind": "script",
+        "createdBy": "bob",
+        "success": true,
+        "logs": "Generating daily digest...\nDigest emailed to 12 recipients\nDone in 1.2s"
+      },
+      {
+        "id": "01920000-0000-7000-8000-0000000000f3",
+        "scriptPath": "f/billing/charge_invoices",
+        "jobKind": "flow",
+        "createdBy": "alice",
+        "success": true,
+        "logs": "Processing invoices...\nCharged 8 invoices totalling $1,240.00\nDone"
+      }
+    ]
+  }
+}

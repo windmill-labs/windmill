@@ -269,6 +269,70 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Sandbox image max size (MB)',
+			key: 'sandbox_image_max_size_mb',
+			description:
+				'Reject a <code># sandbox &lt;image&gt;</code> whose compressed download size exceeds this many MB, before any layer is downloaded. Leave empty for no limit.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image cache cap (MB)',
+			key: 'sandbox_image_cache_max_mb',
+			description:
+				"Best-effort cap on the worker's cached sandbox rootfs tars. When exceeded, the oldest (by creation time) are evicted after a run. Leave empty for unbounded.",
+			fieldType: 'number',
+			placeholder: 'unbounded',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image pull policy',
+			key: 'sandbox_image_pull_policy',
+			description:
+				'When to re-pull a <code># sandbox</code> image. <strong>newer</strong> (default) re-pulls only when the registry digest changed, so moving tags like <code>:latest</code> stay fresh without re-downloading unchanged layers. <strong>missing</strong> pulls only if absent (fastest, tags can go stale). <strong>always</strong> re-checks every job.',
+			fieldType: 'select',
+			storage: 'setting',
+			placeholder: 'newer',
+			defaultValue: () => 'newer',
+			select_items: [
+				{ label: 'Newer (default)', value: 'newer' },
+				{ label: 'Missing', value: 'missing' },
+				{ label: 'Always', value: 'always' },
+				{ label: 'Never', value: 'never' }
+			]
+		},
+		{
+			label: 'Sandbox image default registry',
+			key: 'sandbox_image_default_registry',
+			description:
+				'If set, unqualified <code># sandbox</code> images (e.g. <code>alpine</code>) are pulled from this registry instead of <code>docker.io</code>. Fully-qualified refs (e.g. <code>ghcr.io/org/img</code>) are unaffected. Example: <code>myregistry.example.com</code>.',
+			fieldType: 'text',
+			placeholder: 'docker.io',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox registry auth',
+			key: 'sandbox_registry_auth',
+			description:
+				'Credentials for private registries used by <code># sandbox</code> images, in docker <code>config.json</code> / <code>auth.json</code> format. Written to a per-job <code>DOCKER_CONFIG</code> dir (removed with the job) and used by crane for the pull.',
+			fieldType: 'codearea',
+			codeAreaLang: 'json',
+			placeholder:
+				'{\n  "auths": {\n    "myregistry.example.com": {\n      "auth": "BASE64(username:password)"\n    }\n  }\n}',
+			storage: 'setting'
+		},
+		{
+			label: 'SSH execution (#ssh)',
+			key: 'ssh_execution_enabled',
+			fieldType: 'boolean',
+			description:
+				'Allow bash scripts starting with a <code>#ssh &lt;resource_path&gt;</code> directive to run on the remote host described by the referenced <code>ssh_target</code> resource instead of the worker. Off by default.',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:
@@ -379,7 +443,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Store audit logs in object storage',
 			description:
-				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Pre-existing history is not backfilled: export starts from when the setting is enabled (transactions in flight at that moment may include a bounded set of just-prior rows). No audit log committed after enabling is ever skipped.',
+				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Enabling (or re-enabling) anchors the export at ~now: while it stays enabled, every audit log committed from that point on is exported (transactions in flight at the moment of enabling may include a bounded set of just-prior rows). Pre-existing history, and any window during which export was disabled, are NOT exported by this cursor — use the opt-in backfill API to export a chosen historical range, back to when audit-log partitioning was introduced (older rows in the legacy audit table are not exported, and a window overlapping them is rejected): POST /settings/audit_logs_s3_backfill {from, to} (status at GET /settings/audit_logs_s3_backfill_status).',
 			key: 'store_audit_logs_s3',
 			fieldType: 'boolean',
 			storage: 'setting',
@@ -459,6 +523,14 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'smtp_connect',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Disable workspace invite emails',
+			description:
+				'Do not send email notifications when a user is invited or added to a workspace. Useful for automated workflows that add users programmatically.',
+			key: 'disable_workspace_invite_emails',
+			fieldType: 'boolean',
+			storage: 'setting'
 		}
 	],
 	'Auth/OAuth/SAML': [

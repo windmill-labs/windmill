@@ -10,7 +10,7 @@
 	import { base } from '$lib/base'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/state'
-	import { goto as gotoUrl } from '$app/navigation'
+	import { replaceState } from '$app/navigation'
 	import Version from './Version.svelte'
 	import Uptodate from './Uptodate.svelte'
 	import InstanceSettings from './InstanceSettings.svelte'
@@ -70,7 +70,16 @@
 		const index = page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = page.url.href.slice(0, index)
-		gotoUrl(hashRemoved)
+		// Strip the drawer's URL hash without a SvelteKit navigation: a `goto`
+		// here re-fires path-reactive effects on the underlying page (e.g. the
+		// script editor's load effect), wiping unsaved editor content.
+		try {
+			replaceState(hashRemoved, page.state)
+		} catch (e) {
+			// replaceState throws if the router isn't initialized yet — possible
+			// when onDestroy runs during router teardown.
+			console.error(e)
+		}
 	}
 
 	onDestroy(() => {

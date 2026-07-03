@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            usage_path AS \"usage_path!\",\n            kind AS \"kind!: AssetKind\",\n            path AS \"path!\"\n        FROM asset\n        WHERE workspace_id = $1\n          AND usage_kind = 'script'\n          AND usage_access_type IN ('w', 'rw')\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "usage_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!: AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "path!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5c609ea0696df96ca02cba7fee359b785515a79dcda3745663e4c4f2cf328389"
+}

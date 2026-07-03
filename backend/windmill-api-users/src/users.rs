@@ -27,7 +27,7 @@ use axum::{
     Json, Router,
 };
 use hyper::{header::LOCATION, StatusCode};
-use windmill_api_auth::require_super_admin;
+use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin, OptJobAuthed};
 use windmill_common::usernames::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -139,6 +139,10 @@ pub fn global_service() -> Router {
             "/tokens/update_scopes/{token_prefix}",
             post(update_token_scopes),
         )
+        .route(
+            "/tokens/update_label/{token_prefix}",
+            post(update_token_label),
+        )
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
@@ -236,6 +240,11 @@ pub struct UserInfo {
     pub folders_owners: Vec<String>,
     pub name: Option<String>,
     pub is_service_account: bool,
+    // True when this row is a superadmin viewing a workspace they are not a
+    // member of (so `is_admin`/`role` reflect the superadmin fallback, not an
+    // actual membership). Always false for real member rows.
+    #[serde(default)]
+    pub non_member: bool,
 }
 
 #[derive(FromRow, Serialize)]
@@ -695,13 +704,17 @@ async fn whoami(
 ) -> JsonResult<UserInfo> {
     let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
     let user = get_user(&w_id, &username, &db).await?;
-    if let Some(user) = user {
+    // Only treat the row as "this user is a member" when its email matches; the
+    // derived username is instance-unique so a match on a different email should
+    // never happen, but guard against it so a non-member superadmin is never
+    // shown another member's identity/role.
+    if let Some(user) = user.filter(|u| u.email == email) {
         Ok(Json(user))
     } else {
         Ok(Json(UserInfo {
             workspace_id: w_id,
-            email: email.clone(),
-            username: email,
+            email,
+            username,
             name: None,
             is_admin,
             is_super_admin: is_admin,
@@ -721,6 +734,7 @@ async fn whoami(
                 .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
             is_service_account: false,
+            non_member: true,
         }))
     }
 }
@@ -885,6 +899,7 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
             .filter_map(|x| if x.2 { Some(x.0) } else { None })
             .collect(),
         is_service_account: usr.is_service_account,
+        non_member: false,
     }))
 }
 
@@ -1411,11 +1426,13 @@ async fn convert_user_to_group(
 
 async fn update_user(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Path(email_to_update): Path<String>,
     Extension(db): Extension<DB>,
     Json(eu): Json<EditUser>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
     let mut new_super_admin: Option<bool> = None;
@@ -1546,6 +1563,15 @@ async fn update_user(
     }
 
     if let Some(d) = eu.disabled {
+        #[cfg(feature = "enterprise")]
+        if !d {
+            if let Some(msg) =
+                windmill_common::ee_oss::check_seat_cap_for_reactivation(&db, &email_to_update)
+                    .await?
+            {
+                return Err(Error::BadRequest(msg));
+            }
+        }
         sqlx::query_scalar!(
             "UPDATE password SET disabled = $1 WHERE email = $2",
             d,
@@ -1577,10 +1603,12 @@ async fn update_user(
 
 async fn delete_user(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Path(email_to_delete): Path<String>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
@@ -1836,7 +1864,7 @@ async fn delete_workspace_user(
         username_to_delete,
         &w_id,
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
@@ -1873,9 +1901,11 @@ async fn set_login_type(
     Extension(db): Extension<DB>,
     Path(email): Path<String>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(et): Json<EditLoginType>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -2015,8 +2045,6 @@ async fn refresh_token(
     authed: ApiAuthed,
     cookies: Cookies,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
-
     if let Some(thresh_s) = query.if_expiring_in_less_than_s {
         let t_hash = windmill_common::auth::hash_token(&token);
         let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token_hash = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &t_hash, thresh_s)
@@ -2028,6 +2056,8 @@ async fn refresh_token(
             return Ok("token expiry is far enough".to_string());
         }
     }
+
+    let mut tx = db.begin().await?;
 
     let super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
@@ -2155,8 +2185,10 @@ pub async fn create_session_token<'c>(
 async fn create_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
@@ -2172,6 +2204,7 @@ async fn create_token(
 async fn impersonate(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
@@ -2185,6 +2218,7 @@ async fn impersonate(
         Some(&token)
     };
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     if new_token.impersonate_email.is_none() {
         return Err(Error::BadRequest(
@@ -2408,6 +2442,89 @@ async fn update_token_scopes(
     Ok(format!("updated scopes for token {prefix}"))
 }
 
+#[derive(Deserialize)]
+struct UpdateTokenLabelRequest {
+    label: Option<String>,
+}
+
+async fn update_token_label(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(token_prefix): Path<String>,
+    Json(req): Json<UpdateTokenLabelRequest>,
+) -> Result<String> {
+    // The new label must not collide with a system-token namespace (`session`,
+    // `ephemeral*`, `debugger-token`, `mcp-oauth-*`): those labels are
+    // load-bearing, and a user-set collision would orphan the token — hidden
+    // from the UI (`isUserToken`) and rejected by the editability guard below —
+    // while it still authenticates. (`is_user_token(None)` is true, so clearing
+    // the label is allowed.)
+    if !windmill_common::auth::is_user_token(req.label.as_deref()) {
+        return Err(Error::BadRequest(
+            "label collides with a reserved system-token namespace".to_string(),
+        ));
+    }
+
+    // Matches the `token.label VARCHAR(1000)` column — reject overlong labels with
+    // a 400 rather than letting Postgres raise a 500.
+    const MAX_TOKEN_LABEL_LEN: usize = 1000;
+    if req
+        .label
+        .as_deref()
+        .is_some_and(|l| l.chars().count() > MAX_TOKEN_LABEL_LEN)
+    {
+        return Err(Error::BadRequest(format!(
+            "label must be at most {MAX_TOKEN_LABEL_LEN} characters"
+        )));
+    }
+
+    let mut tx = db.begin().await?;
+
+    // Only user-created tokens may be relabeled — system tokens carry the
+    // load-bearing labels described above. This SQL mirrors the canonical
+    // `windmill_common::auth::is_user_token`; keep the two in sync (note the
+    // case-insensitive `ephemeral` match).
+    let updated: Option<String> = sqlx::query_scalar!(
+        "UPDATE token SET label = $1
+           WHERE email = $2 AND token_prefix = $3
+             AND (label IS NULL OR (
+                 label <> 'session'
+                 AND lower(label) NOT LIKE 'ephemeral%'
+                 AND label <> 'debugger-token'
+                 AND label NOT LIKE 'mcp-oauth-%'
+             ))
+           RETURNING token_prefix",
+        req.label.as_deref(),
+        &authed.email,
+        &token_prefix,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let prefix = updated.ok_or_else(|| {
+        Error::NotFound(format!(
+            "token {token_prefix} not found, not owned by user, or not editable"
+        ))
+    })?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.token.update_label",
+        ActionKind::Update,
+        &"global",
+        Some(&prefix),
+        Some([("label", req.label.as_deref().unwrap_or(""))].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    windmill_api_auth::invalidate_token_from_cache(&prefix);
+
+    Ok(format!("updated label for token {prefix}"))
+}
+
 async fn leave_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -2589,6 +2706,12 @@ async fn username_to_email(
     Path((w_id, username)): Path<(String, String)>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
+    // Members only: this workspace-scoped endpoint has no superadmin/target gate,
+    // so it must NOT use the `password` superadmin fallback — otherwise any
+    // workspace-authenticated caller could turn a guessed derived username into a
+    // non-member superadmin's email. Internal callers that legitimately need the
+    // fallback (schedule/trigger/draft resolution) use `resolve_username_to_email`
+    // directly and never return the email to an arbitrary caller.
     let email = sqlx::query_scalar!(
         "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
         &username,
@@ -2620,8 +2743,10 @@ struct ExportedGlobalUser {
 async fn export_global_users(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
 ) -> JsonResult<Vec<ExportedGlobalUser>> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     let users = sqlx::query_as!(
         ExportedGlobalUser,
@@ -2657,9 +2782,11 @@ async fn export_global_users() -> JsonResult<String> {
 async fn overwrite_global_users(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(users): Json<Vec<ExportedGlobalUser>>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     sqlx::query!("DELETE FROM password")
         .execute(&mut *tx)

@@ -123,6 +123,7 @@ export function useDbManagerUriState(): DbManagerUriState {
 			return {
 				type: 'ducklake' as const,
 				ducklake: parsed.path,
+				specificSchema: parsed.schema,
 				specificTable: parsed.table
 			}
 		}
@@ -161,6 +162,7 @@ export function useDbManagerUriState(): DbManagerUriState {
 			params.dbm = buildDbm({
 				type: 'ducklake',
 				path: nInput.ducklake,
+				schema: nInput.specificSchema,
 				table: nInput.specificTable
 			})
 		}

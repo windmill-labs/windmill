@@ -1114,21 +1114,18 @@ export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
-# docker
-# The annotation "docker" above is important, it tells windmill that after 
-# the end of the bash script, it should manage the container at id $WM_JOB_ID:
-# pipe logs, monitor memory usage, kill container if job is cancelled.
+# sandbox alpine:latest
+# The "# sandbox <image>" annotation runs this script INSIDE the image above,
+# sandboxed via nsjail: the image's rootfs is extracted (rootless podman) and the
+# body runs chrooted in it, inheriting the job's confinement. The body runs with
+# the image's /bin/sh and windmill args bind positionally as $1, $2, ...
+# Daemonless — no docker run/-d/exec/build and no host -v bind mounts.
+# (A bare "# docker" still uses the legacy daemon runtime instead.)
 
 msg="\${1:-world}"
 
-IMAGE="alpine:latest"
-COMMAND="/bin/echo Hello $msg"
-
-# ensure that the image is up-to-date
-docker pull $IMAGE
-
-# if using the 'docker' mode, name it with $WM_JOB_ID for windmill to monitor it
-docker run --name $WM_JOB_ID -it -d $IMAGE $COMMAND
+echo "Hello $msg"
+cat /etc/os-release | head -1
 `
 
 const POWERSHELL_INIT_CODE = `param($Msg, [string[]]$Names, [PSCustomObject]$Obj, $Dflt = "default value", [int]$Nb = 3)

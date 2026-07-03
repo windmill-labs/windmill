@@ -18,7 +18,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -68,8 +68,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	let flow: Flow | undefined = $state()
@@ -281,10 +280,10 @@
 			flow &&
 			!$userStore?.operator &&
 			!isCloudHosted() &&
-			!isRuleActive('DisableWorkspaceForking')
+			editInForkAllowed($workspaceStore, $userWorkspaces)
 		) {
 			buttons.push({
-				label: 'Edit in fork',
+				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
 					unifiedSize: 'md',
@@ -329,7 +328,7 @@
 					onClick: async () => {
 						const app = createAppFromFlow(flow.path, flow.schema)
 						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add?nodraft=true')
+						await goto('/apps/add')
 					},
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -341,7 +340,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `${base}/flows/edit/${path}?nodraft=true`,
+					href: `${base}/flows/edit/${path}`,
 					variant: 'accent',
 					unifiedSize: 'md',
 					disabled: !can_write || !showEditButtons,
@@ -538,6 +537,7 @@
 			errorHandlerKind="flow"
 			tag={flow?.tag ?? ''}
 			labels={flow?.labels}
+			inheritedLabels={flow?.inherited_labels}
 			summary={flow?.summary}
 			path={flow?.path}
 			onSaved={can_write

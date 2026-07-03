@@ -6,264 +6,26 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-//! Secret backend extension for the API layer
+//! Secret backend extension for the store layer
 //!
-//! This module provides helper functions for integrating the SecretBackend
-//! trait with variable operations in the API.
+//! Write-side helpers for integrating the SecretBackend trait with variable
+//! operations. Backend resolution and read helpers live in
+//! `windmill_common::secret_backend` (so lower-level crates can resolve secrets
+//! too) and are re-exported here for existing callers.
 //!
 //! Note: HashiCorp Vault integration requires Enterprise Edition.
 //! The OSS version only supports the database backend.
 
-use std::sync::Arc;
-
 use windmill_common::{
     db::DB,
     error::{Error, Result},
-    secret_backend::{database::DatabaseBackend, SecretBackend},
-    variables::{build_crypt, decrypt, encrypt},
+    variables::{build_crypt, encrypt},
 };
 
-#[cfg(all(feature = "private", feature = "enterprise"))]
-use windmill_common::{
-    global_settings::{load_value_from_global_settings, SECRET_BACKEND_SETTING},
-    secret_backend::{AwsSecretsManagerBackend, AwsSecretsManagerSettings, AzureKeyVaultBackend, AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings},
+pub use windmill_common::secret_backend::{
+    get_secret_backend, get_secret_value, is_aws_sm_stored_value, is_azure_kv_stored_value,
+    is_external_stored_value, is_vault_backend_configured, is_vault_stored_value,
 };
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-use tokio::sync::RwLock;
-
-// Cached Vault backend to avoid recreating it for every request
-// This enables connection pooling and avoids repeated setup overhead
-#[cfg(all(feature = "private", feature = "enterprise"))]
-struct CachedVaultBackend {
-    backend: Arc<dyn SecretBackend>,
-    settings: VaultSettings,
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-lazy_static::lazy_static! {
-    static ref VAULT_BACKEND_CACHE: RwLock<Option<CachedVaultBackend>> = RwLock::new(None);
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-struct CachedAzureKvBackend {
-    backend: Arc<dyn SecretBackend>,
-    settings: AzureKeyVaultSettings,
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-lazy_static::lazy_static! {
-    static ref AZURE_KV_BACKEND_CACHE: RwLock<Option<CachedAzureKvBackend>> = RwLock::new(None);
-}
-
-// Cached AWS Secrets Manager backend
-#[cfg(all(feature = "private", feature = "enterprise"))]
-struct CachedAwsSmBackend {
-    backend: Arc<dyn SecretBackend>,
-    settings: AwsSecretsManagerSettings,
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-lazy_static::lazy_static! {
-    static ref AWS_SM_BACKEND_CACHE: RwLock<Option<CachedAwsSmBackend>> = RwLock::new(None);
-}
-
-/// Get the current secret backend based on global settings
-///
-/// OSS: Always returns DatabaseBackend
-/// EE: Returns configured backend (Database or Vault)
-#[cfg(not(all(feature = "private", feature = "enterprise")))]
-pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
-    Ok(Arc::new(DatabaseBackend::new(db.clone())))
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
-    let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
-        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
-        None => SecretBackendConfig::default(),
-    };
-
-    match config {
-        SecretBackendConfig::Database => Ok(Arc::new(DatabaseBackend::new(db.clone()))),
-        SecretBackendConfig::HashiCorpVault(settings) => {
-            get_or_create_vault_backend(db, settings).await
-        }
-        SecretBackendConfig::AzureKeyVault(settings) => {
-            get_or_create_azure_kv_backend(db, settings).await
-        }
-        SecretBackendConfig::AwsSecretsManager(settings) => {
-            get_or_create_aws_sm_backend(db, settings).await
-        }
-    }
-}
-
-/// Get a cached Vault backend or create a new one if settings changed
-#[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_or_create_vault_backend(
-    _db: &DB,
-    settings: VaultSettings,
-) -> Result<Arc<dyn SecretBackend>> {
-    // Check if we have a cached backend with matching settings (read lock)
-    {
-        let cache = VAULT_BACKEND_CACHE.read().await;
-        if let Some(ref cached) = *cache {
-            if cached.settings == settings {
-                return Ok(cached.backend.clone());
-            }
-        }
-    }
-
-    // Need to create a new backend - acquire write lock
-    let mut cache = VAULT_BACKEND_CACHE.write().await;
-
-    // Double-check (another task may have created it while we waited)
-    if let Some(ref cached) = *cache {
-        if cached.settings == settings {
-            return Ok(cached.backend.clone());
-        }
-    }
-
-    // Create new backend
-    let backend: Arc<dyn SecretBackend> = {
-        #[cfg(feature = "openidconnect")]
-        if settings.token.is_none() {
-            Arc::new(VaultBackend::new_with_db(settings.clone(), _db.clone()))
-        } else {
-            Arc::new(VaultBackend::new(settings.clone()))
-        }
-
-        #[cfg(not(feature = "openidconnect"))]
-        Arc::new(VaultBackend::new(settings.clone()))
-    };
-
-    // Cache it
-    *cache = Some(CachedVaultBackend { backend: backend.clone(), settings });
-
-    Ok(backend)
-}
-
-/// Get a cached Azure Key Vault backend or create a new one if settings changed
-#[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_or_create_azure_kv_backend(
-    _db: &DB,
-    settings: AzureKeyVaultSettings,
-) -> Result<Arc<dyn SecretBackend>> {
-    // Check if we have a cached backend with matching settings (read lock)
-    {
-        let cache = AZURE_KV_BACKEND_CACHE.read().await;
-        if let Some(ref cached) = *cache {
-            if cached.settings == settings {
-                return Ok(cached.backend.clone());
-            }
-        }
-    }
-
-    // Need to create a new backend - acquire write lock
-    let mut cache = AZURE_KV_BACKEND_CACHE.write().await;
-
-    // Double-check (another task may have created it while we waited)
-    if let Some(ref cached) = *cache {
-        if cached.settings == settings {
-            return Ok(cached.backend.clone());
-        }
-    }
-
-    // Create new backend
-    let backend: Arc<dyn SecretBackend> = Arc::new(AzureKeyVaultBackend::new(settings.clone()));
-
-    // Cache it
-    *cache = Some(CachedAzureKvBackend { backend: backend.clone(), settings });
-
-    Ok(backend)
-}
-
-/// Get a cached AWS SM backend or create a new one if settings changed
-#[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_or_create_aws_sm_backend(
-    _db: &DB,
-    settings: AwsSecretsManagerSettings,
-) -> Result<Arc<dyn SecretBackend>> {
-    {
-        let cache = AWS_SM_BACKEND_CACHE.read().await;
-        if let Some(ref cached) = *cache {
-            if cached.settings == settings {
-                return Ok(cached.backend.clone());
-            }
-        }
-    }
-
-    let mut cache = AWS_SM_BACKEND_CACHE.write().await;
-
-    if let Some(ref cached) = *cache {
-        if cached.settings == settings {
-            return Ok(cached.backend.clone());
-        }
-    }
-
-    let backend: Arc<dyn SecretBackend> =
-        Arc::new(AwsSecretsManagerBackend::new_with_client(settings.clone()).await?);
-
-    *cache = Some(CachedAwsSmBackend { backend: backend.clone(), settings });
-
-    Ok(backend)
-}
-
-/// Check if a Vault backend is currently configured
-///
-/// OSS: Always returns false
-/// EE: Checks global settings
-#[cfg(not(all(feature = "private", feature = "enterprise")))]
-pub async fn is_vault_backend_configured(_db: &DB) -> Result<bool> {
-    Ok(false)
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-pub async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
-    let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
-        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
-        None => SecretBackendConfig::default(),
-    };
-
-    Ok(matches!(config, SecretBackendConfig::HashiCorpVault(_) | SecretBackendConfig::AzureKeyVault(_) | SecretBackendConfig::AwsSecretsManager(_)))
-}
-
-/// Get a secret value using the configured backend
-///
-/// For database backend: decrypts using workspace key
-/// For vault backend (EE only): fetches from Vault directly
-pub async fn get_secret_value(
-    db: &DB,
-    workspace_id: &str,
-    path: &str,
-    encrypted_value: &str,
-) -> Result<String> {
-    let backend = get_secret_backend(db).await?;
-
-    match backend.backend_name() {
-        "database" => {
-            // Use existing database decryption
-            let mc = build_crypt(db, workspace_id).await?;
-            decrypt(&mc, encrypted_value.to_string()).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
-            })
-        }
-        "hashicorp_vault" => {
-            // Fetch from Vault directly
-            backend.get_secret(workspace_id, path).await
-        }
-        "azure_key_vault" => {
-            backend.get_secret(workspace_id, path).await
-        }
-        "aws_secrets_manager" => {
-            backend.get_secret(workspace_id, path).await
-        }
-        _ => Err(Error::internal_err(format!(
-            "Unknown backend: {}",
-            backend.backend_name()
-        ))),
-    }
-}
 
 /// Store a secret value using the configured backend
 ///
@@ -303,6 +65,93 @@ pub async fn store_secret_value(
     }
 }
 
+/// Persist a freshly minted OAuth access token to the secret variable backing
+/// a resource, routing through the configured secret backend.
+///
+/// This is the write counterpart of the lazy on-fetch OAuth refresh: it stores
+/// the token via [`store_secret_value`] (which writes to the external backend —
+/// AWS Secrets Manager / Azure Key Vault / Vault — when one is configured, or
+/// encrypts for the database backend) and updates `variable.value` with the
+/// returned value (the encrypted blob for the DB backend, or a `$...:` marker
+/// for an external backend). Using a raw `UPDATE variable SET value = <encrypted>`
+/// here instead would leave the external store frozen at its connect-time token
+/// while reads (which resolve through the backend) keep serving the stale value.
+///
+/// The caller has already committed the `account` row as fresh (advanced
+/// `expires_at`) by the time we get here. If persisting the token fails — most
+/// likely a transient error talking to an external backend — that would leave
+/// the account marked fresh while the served secret is stale, so the on-fetch
+/// refresh gate (`now() > expires_at`) would skip refresh and keep serving the
+/// stale token for the whole token lifetime. To avoid that we reset `expires_at`
+/// to the past (and record `refresh_error`) on failure — looking the account up
+/// via `variable.account` — so the very next fetch retries the refresh instead.
+///
+/// Authorization contract: this performs NO access control. It writes the
+/// caller-supplied token into the secret variable at `path` and may mutate the
+/// linked `account` row, so callers MUST have already authorized the operation
+/// against `workspace_id`/`path` (the OAuth refresh adapters only run after the
+/// read path has resolved and gated the variable). It is therefore kept
+/// `pub(crate)` and intended solely for the in-crate refresh adapters.
+#[cfg(feature = "oauth2")]
+pub(crate) async fn store_oauth_token_value(
+    db: &DB,
+    workspace_id: &str,
+    path: &str,
+    token: &str,
+) -> Result<()> {
+    let persist = async {
+        let value = store_secret_value(db, workspace_id, path, token).await?;
+        sqlx::query("UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3")
+            .bind(value)
+            .bind(workspace_id)
+            .bind(path)
+            .execute(db)
+            .await?;
+        Ok::<(), Error>(())
+    }
+    .await;
+
+    if let Err(e) = persist {
+        // Mark the account expired again so the next fetch re-runs the refresh
+        // instead of serving the now-stale token until it naturally expires. The
+        // account id is the one linked from the variable being refreshed.
+        let account_id: Option<i32> = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT account FROM variable WHERE workspace_id = $1 AND path = $2",
+        )
+        .bind(workspace_id)
+        .bind(path)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .flatten();
+
+        if let Some(account_id) = account_id {
+            if let Err(reset_err) = sqlx::query(
+                "UPDATE account SET expires_at = now() - interval '1 minute', refresh_error = $1 \
+                 WHERE workspace_id = $2 AND id = $3",
+            )
+            .bind(format!(
+                "OAuth token was refreshed but persisting it to the secret backend failed: {e}"
+            ))
+            .bind(workspace_id)
+            .bind(account_id)
+            .execute(db)
+            .await
+            {
+                tracing::error!(
+                    workspace_id = %workspace_id,
+                    account_id = %account_id,
+                    "failed to reset account expiry after token persistence error: {reset_err}"
+                );
+            }
+        }
+        return Err(e);
+    }
+
+    Ok(())
+}
+
 /// Delete a secret from the configured backend (if using Vault)
 ///
 /// For database backend: no-op (DB delete is handled separately)
@@ -319,26 +168,6 @@ pub async fn delete_secret_from_backend(db: &DB, workspace_id: &str, path: &str)
     } else {
         Ok(())
     }
-}
-
-/// Check if a value is stored in Vault (indicated by the $vault: prefix)
-pub fn is_vault_stored_value(value: &str) -> bool {
-    value.starts_with("$vault:")
-}
-
-/// Check if a value is stored in Azure Key Vault (indicated by the $azure_kv: prefix)
-pub fn is_azure_kv_stored_value(value: &str) -> bool {
-    value.starts_with("$azure_kv:")
-}
-
-/// Check if a value is stored in AWS Secrets Manager (indicated by the $aws_sm: prefix)
-pub fn is_aws_sm_stored_value(value: &str) -> bool {
-    value.starts_with("$aws_sm:")
-}
-
-/// Check if a value is stored in any external secret backend
-pub fn is_external_stored_value(value: &str) -> bool {
-    is_vault_stored_value(value) || is_azure_kv_stored_value(value) || is_aws_sm_stored_value(value)
 }
 
 /// Rename a secret in Vault when a variable path changes (EE only)

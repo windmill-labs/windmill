@@ -51,6 +51,7 @@ pub fn supports_openai_compatible_proxy(provider: &AIProvider) -> bool {
         provider,
         AIProvider::OpenAI
             | AIProvider::AzureOpenAI
+            | AIProvider::AzureFoundry
             | AIProvider::Mistral
             | AIProvider::DeepSeek
             | AIProvider::Groq
@@ -64,6 +65,7 @@ pub fn proxy_execution_mode(provider: &AIProvider) -> ProxyExecutionMode {
     match provider {
         AIProvider::OpenAI
         | AIProvider::AzureOpenAI
+        | AIProvider::AzureFoundry
         | AIProvider::Anthropic
         | AIProvider::Mistral
         | AIProvider::DeepSeek
@@ -89,7 +91,7 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
     };
 
     let base_url = credentials.base_url.trim_end_matches('/');
-    let is_azure = credentials.provider.is_azure_openai(base_url);
+    let is_azure = credentials.provider.is_azure(base_url);
     let url = if is_azure {
         AIProvider::build_azure_openai_url(base_url, args.path)
     } else {
@@ -165,7 +167,6 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             platform: AIPlatform::Standard,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
     }
@@ -202,6 +203,7 @@ mod tests {
         let cases = [
             (AIProvider::OpenAI, ProxyExecutionMode::HttpForward),
             (AIProvider::AzureOpenAI, ProxyExecutionMode::HttpForward),
+            (AIProvider::AzureFoundry, ProxyExecutionMode::HttpForward),
             (AIProvider::Anthropic, ProxyExecutionMode::HttpForward),
             (AIProvider::Mistral, ProxyExecutionMode::HttpForward),
             (AIProvider::DeepSeek, ProxyExecutionMode::HttpForward),
@@ -248,6 +250,35 @@ mod tests {
         assert_eq!(
             request.url,
             "https://example.openai.azure.com/openai/v1/chat/completions"
+        );
+        assert!(request
+            .headers
+            .contains(&("api-key".to_string(), "api-key".to_string())));
+    }
+
+    #[test]
+    fn builds_azure_foundry_proxy_request() {
+        // Foundry's OpenAI-compatible endpoint uses the same Azure conventions
+        // (api-key header, /openai -> /openai/v1 path) as Azure OpenAI.
+        let credentials = credentials(
+            AIProvider::AzureFoundry,
+            "https://example.services.ai.azure.com/openai",
+        );
+        let method = Method::POST;
+        let headers = HeaderMap::new();
+
+        let request = build_openai_compatible_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "chat/completions",
+            headers: &headers,
+            body: br#"{"model":"gpt-4o","messages":[]}"#,
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        assert_eq!(
+            request.url,
+            "https://example.services.ai.azure.com/openai/v1/chat/completions"
         );
         assert!(request
             .headers

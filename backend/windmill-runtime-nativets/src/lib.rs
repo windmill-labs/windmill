@@ -18,6 +18,9 @@ pub use dedicated::{ExecutingIsolate, PrewarmedIsolate, PrewarmedResult};
 #[cfg(test)]
 mod smoke_tests;
 
+#[cfg(test)]
+mod cert_tests;
+
 use std::{
     borrow::Cow,
     cell::RefCell,
@@ -35,8 +38,10 @@ use deno_core::{
     v8::{self, IsolateHandle},
     Extension, JsRuntime, OpState, PollEventLoopOptions, RuntimeOptions,
 };
+use deno_error::JsErrorBox;
 use deno_fetch::FetchPermissions;
 use deno_net::NetPermissions;
+use deno_tls::{rustls::pki_types::CertificateDer, rustls::RootCertStore, RootCertStoreProvider};
 use deno_web::{BlobStore, TimersPermission};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -212,6 +217,123 @@ lazy_static::lazy_static! {
 lazy_static! {
     static ref RE_PROXY: Regex =
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
+}
+
+lazy_static! {
+    /// Root cert store for the in-process nativets fetch runtime.
+    ///
+    /// Unlike the Deno/Bun executors, nativets never spawns a child process, so
+    /// the CA env vars those executors forward (`DENO_CERT`, `DENO_TLS_CA_STORE`,
+    /// `SSL_CERT_FILE`/`NODE_EXTRA_CA_CERTS`) are never consumed by deno's CLI
+    /// layer. `deno_fetch` with `root_cert_store_provider: None` falls back to
+    /// the Mozilla webpki roots only, so corporate CAs fail with `UnknownIssuer`.
+    /// We read those env vars here and merge the certs into the default store.
+    ///
+    /// Snapshotted once for the process lifetime, like the Deno executor's
+    /// `DENO_CERT`/`DENO_TLS_CA_STORE` lazy statics (`deno_executor.rs`): the
+    /// fetch root store is shared across all (potentially prewarmed) isolates, so
+    /// per-job CA reconfiguration is out of scope. A later `WORKER_CONFIG` reload
+    /// is not picked up until the process restarts.
+    static ref NATIVE_ROOT_CERT_STORE_PROVIDER: Option<Arc<dyn RootCertStoreProvider>> =
+        build_native_root_cert_store_provider();
+}
+
+struct NativeRootCertStoreProvider {
+    store: RootCertStore,
+}
+
+impl RootCertStoreProvider for NativeRootCertStoreProvider {
+    fn get_or_try_init(&self) -> Result<&RootCertStore, JsErrorBox> {
+        Ok(&self.store)
+    }
+}
+
+/// Resolve a CA-related env var the same way the child executors see it: the
+/// worker's own process env, then the worker-group config (`env_vars_allowlist`
+/// forwarded values + DB `env_vars_static` literals, resolved into
+/// `WORKER_CONFIG.env_vars`). Child Deno/Bun jobs receive that config map via
+/// `.envs(...)`, so nativets must consult it too or a CA set only through worker
+/// config would silently not apply in-process.
+fn resolve_ca_env_var(name: &str) -> Option<String> {
+    if let Ok(v) = std::env::var(name) {
+        if !v.is_empty() {
+            return Some(v);
+        }
+    }
+    windmill_common::worker::WORKER_CONFIG
+        .load()
+        .env_vars
+        .get(name)
+        .filter(|v| !v.is_empty())
+        .cloned()
+}
+
+/// Build a root cert store seeded with the Mozilla webpki roots plus any custom
+/// CAs configured via env. Returns `None` when no custom CA is configured, which
+/// preserves the previous default-only behaviour.
+fn build_native_root_cert_store_provider() -> Option<Arc<dyn RootCertStoreProvider>> {
+    let mut store = deno_tls::create_default_root_cert_store();
+    let mut added = 0usize;
+
+    // File-path env vars, each pointing at a PEM bundle of one or more certs.
+    // `DENO_CERT` mirrors the Deno CLI; `SSL_CERT_FILE` is the OpenSSL standard
+    // also honoured by Bun/Node (via NODE_EXTRA_CA_CERTS). Dedupe by path because
+    // the tracing proxy points several of these at the same bundle, and rustls'
+    // RootCertStore::add does not dedupe — we'd otherwise trust the same root N times.
+    let mut seen_paths = std::collections::HashSet::new();
+    for var in ["DENO_CERT", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"] {
+        let Some(path) = resolve_ca_env_var(var).filter(|p| !p.is_empty()) else {
+            continue;
+        };
+        if !seen_paths.insert(path.clone()) {
+            continue;
+        }
+        match load_pem_certs_from_path(&path) {
+            Ok(certs) => {
+                for cert in certs {
+                    if let Err(e) = store.add(cert) {
+                        tracing::warn!("nativets: failed to add cert from {var}={path}: {e}");
+                    } else {
+                        added += 1;
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("nativets: failed to read CA file {var}={path}: {e}"),
+        }
+    }
+
+    // `DENO_TLS_CA_STORE=system` (comma-separated, may also contain `mozilla`)
+    // pulls in the OS trust store. Unlike the Deno CLI — where the list selects
+    // and orders the stores — this is purely additive: the Mozilla defaults are
+    // always seeded above, and `system` augments them. That is a strict superset
+    // of the public roots, which is what the corporate-CA use case needs.
+    if resolve_ca_env_var("DENO_TLS_CA_STORE")
+        .map(|v| v.split(',').any(|s| s.trim() == "system"))
+        .unwrap_or(false)
+    {
+        match deno_tls::deno_native_certs::load_native_certs() {
+            Ok(certs) => {
+                for cert in certs {
+                    if store.add(CertificateDer::from(cert.0)).is_ok() {
+                        added += 1;
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("nativets: failed to load system CA store: {e}"),
+        }
+    }
+
+    if added == 0 {
+        return None;
+    }
+    tracing::info!("nativets: loaded {added} custom CA cert(s) into fetch root store");
+    Some(Arc::new(NativeRootCertStoreProvider { store }))
+}
+
+fn load_pem_certs_from_path(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    deno_tls::load_certs(&mut reader).map_err(|e| anyhow::anyhow!(e))
 }
 
 // ── Public interface ─────────────────────────────────────────────────
@@ -433,7 +555,7 @@ pub(crate) fn create_nativets_runtime(
     let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
     let fetch_options = deno_fetch::Options {
-        root_cert_store_provider: None,
+        root_cert_store_provider: NATIVE_ROOT_CERT_STORE_PROVIDER.clone(),
         user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
         proxy: ann.proxy.map(|x| deno_tls::Proxy::Http {
             url: x.0,

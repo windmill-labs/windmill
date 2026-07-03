@@ -66,6 +66,7 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
+mod ai_skills;
 mod apps;
 pub mod args;
 mod audit;
@@ -77,8 +78,9 @@ mod capture;
 mod concurrency_groups;
 mod db;
 mod db_health;
-
+mod docs;
 mod drafts;
+
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
@@ -94,9 +96,6 @@ mod health;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
-#[cfg(feature = "private")]
-mod inkeep_ee;
-mod inkeep_oss;
 mod integration;
 mod internal_db;
 mod live_migrations;
@@ -545,7 +544,15 @@ pub async fn run_server(
                     Router::new()
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
-                        .nest("/apps", apps::workspaced_service(request_size_limit * 5))
+                        // CORS so the opaque-origin in-workspace app viewer (WIN-2006,
+                        // sandboxed /apps/get) can read the app definition by path
+                        // (apps/get/p, apps/embed_token/p) with a scoped embed token.
+                        // Bearer-token-only (no cookies), consistent with the other
+                        // workspaced services the iframe calls.
+                        .nest(
+                            "/apps",
+                            apps::workspaced_service(request_size_limit * 5).layer(cors.clone()),
+                        )
                         .nest("/assets", windmill_api_assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
@@ -553,8 +560,8 @@ pub async fn run_server(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
                         )
-                        .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/drafts", drafts::workspaced_service())
+                        .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
                         .nest(
@@ -565,7 +572,13 @@ pub async fn run_server(
                             "/flow_conversations",
                             windmill_api_flow_conversations::workspaced_service(),
                         )
-                        .nest("/folders", folders::workspaced_service())
+                        // CORS so an opaque-origin app iframe (WIN-2006 embed,
+                        // no separate domain) can read folders/listnames with a
+                        // scoped embed token. Consistent with apps_u/jobs_u cors.
+                        .nest(
+                            "/folders",
+                            folders::workspaced_service().layer(cors.clone()),
+                        )
                         .nest("/folders_history", folder_history::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/groups_history", group_history::workspaced_service())
@@ -608,20 +621,30 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
+                        .nest("/ai_skills", ai_skills::workspaced_service())
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest(
                             "/path_autocomplete",
                             path_autocomplete::workspaced_service(),
                         )
                         .nest("/raw_apps", raw_apps::workspaced_service())
-                        .nest("/resources", resources::workspaced_service())
+                        // CORS so the opaque-origin app iframe can read
+                        // resources/list, resources/type/* with a scoped token.
+                        .nest(
+                            "/resources",
+                            resources::workspaced_service().layer(cors.clone()),
+                        )
                         .nest("/shared_ui", workspace_shared_ui::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
                         .nest("/trash", trash::workspaced_service())
                         .nest(
                             "/users",
-                            users::workspaced_service().layer(Extension(argon2.clone())),
+                            // CORS so the opaque-origin app iframe can read
+                            // users/whoami with a scoped embed token.
+                            users::workspaced_service()
+                                .layer(Extension(argon2.clone()))
+                                .layer(cors.clone()),
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/volumes", volumes_oss::workspaced_service())
@@ -662,7 +685,7 @@ pub async fn run_server(
                 .nest("/schedules", windmill_api_schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
-                .nest("/inkeep", inkeep_oss::global_service())
+                .nest("/docs", docs::global_service())
                 .nest("/indexer", indexer_oss::management_service())
                 .nest("/mcp/w/{workspace_id}/list_tools", mcp_list_tools_service)
                 .nest("/db_health", db_health::global_service())
@@ -727,7 +750,11 @@ pub async fn run_server(
                 .nest("/apps_u", {
                     #[cfg(feature = "enterprise")]
                     {
-                        apps_oss::global_unauthed_service()
+                        // CORS so the opaque-origin app viewer (WIN-2006 embed, no
+                        // separate domain) can load a custom-path public app via
+                        // public_app_by_custom_path cross-origin. Consistent with
+                        // the workspaced /w/{workspace_id}/apps_u mount below.
+                        apps_oss::global_unauthed_service().layer(cors.clone())
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -1162,6 +1189,7 @@ async fn list_workspace_labels(
             UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL
             UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL
             UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM folder WHERE workspace_id = $1 AND labels IS NOT NULL
         ) t ORDER BY 1",
         &w_id
     )

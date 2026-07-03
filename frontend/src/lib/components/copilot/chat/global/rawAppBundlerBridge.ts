@@ -1,4 +1,5 @@
 import { WorkspaceService } from '$lib/gen'
+import { randomUUID } from '$lib/utils/uuid'
 
 export type RawAppBundle = {
 	js: string
@@ -20,7 +21,7 @@ type BundleRawAppDraftParams = BundleRawAppFilesParams & {
 const DEFAULT_TIMEOUT_MS = 120_000
 
 function makeRequestId(): string {
-	return globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)
+	return randomUUID()
 }
 
 async function loadSharedUiFiles(workspace: string): Promise<Record<string, string>> {

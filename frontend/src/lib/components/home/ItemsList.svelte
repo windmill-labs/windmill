@@ -4,6 +4,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AppService,
+		AssetService,
 		FlowService,
 		type ListableApp,
 		type Script,
@@ -11,6 +12,8 @@
 		type Flow,
 		type ListableRawApp
 	} from '$lib/gen'
+	import { resource } from 'runed'
+	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
@@ -43,6 +46,8 @@
 	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { NetworkIcon } from 'lucide-svelte'
+	import { base } from '$lib/base'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -61,7 +66,6 @@
 		type?: U
 		time?: number
 		starred?: boolean
-		has_draft?: boolean
 		hash?: string
 	}
 
@@ -69,6 +73,45 @@
 	type TableFlow = TableItem<Flow, 'flow'>
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
+
+	// Folders that are data pipelines, surfaced as their own "Pipeline" entry
+	// (the member scripts are folded into it, not listed individually). Two
+	// sources: deployed pipelines (folders with ≥1 `auto_kind='pipeline'` script,
+	// cheap via the partial index) AND bundle-phase pipelines that only exist as a
+	// `data_pipeline` draft so far — so a pipeline shows up the moment its first
+	// node is drafted, before anything is deployed.
+	let pipelineFoldersRes = resource(
+		() => $workspaceStore,
+		async (ws) => {
+			if (!ws) return new Set<string>()
+			const folders = new Set<string>()
+			try {
+				for (const r of await AssetService.listPipelineFolders({ workspace: ws }))
+					folders.add(r.folder)
+			} catch {
+				// Decorative entry — degrade gracefully on failure.
+			}
+			try {
+				for (const d of await getDraftItems(ws)) {
+					if (d.kind !== 'data_pipeline') continue
+					const m = d.path.match(/^f\/([^/]+)\/data_pipeline$/)
+					if (m) folders.add(m[1])
+				}
+			} catch {
+				// Drafts unavailable — show deployed pipelines only.
+			}
+			return folders
+		}
+	)
+	// Folders of pipeline-member scripts present in the current listing (captured
+	// in loadScripts before they're filtered out). Unioned in so a folder whose
+	// only pipeline node is a never-deployed `// pipeline` script draft — not in
+	// listPipelineFolders (deployed-only) nor a `data_pipeline` bundle — still gets
+	// a pipeline entry instead of vanishing.
+	let pipelineMemberFolders = $state(new Set<string>())
+	let pipelineFolders = $derived(
+		new Set<string>([...(pipelineFoldersRes.current ?? []), ...pipelineMemberFolders])
+	)
 
 	let scripts: TableScript[] | undefined = $state()
 	let flows: TableFlow[] | undefined = $state()
@@ -94,12 +137,26 @@
 			withoutDescription: true
 		})
 
-		scripts = loadedScripts.map((script: Script) => {
-			return {
-				canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
-				...script
-			}
-		})
+		// Pipeline-member scripts (`auto_kind='pipeline'`) are represented by their
+		// pipeline's entry, not listed individually — but capture their folders so
+		// the pipeline entry still surfaces (incl. a members-only / draft-only folder).
+		const memberFolders = new Set<string>()
+		scripts = loadedScripts
+			.filter((script: Script) => {
+				if (script.auto_kind === 'pipeline') {
+					const m = script.path.match(/^f\/([^/]+)\//)
+					if (m) memberFolders.add(m[1])
+					return false
+				}
+				return true
+			})
+			.map((script: Script) => {
+				return {
+					canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
+					...script
+				}
+			})
+		pipelineMemberFolders = memberFolders
 		loading = false
 	}
 
@@ -218,13 +275,32 @@
 	const INCLUDE_WITHOUT_MAIN_SETTING_NAME = 'includeWithoutMain'
 	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
 	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
-		$userStore?.is_super_admin && $userStore.username.includes('@')
+		$userStore?.non_member
 			? 'only f/*'
 			: $userStore?.is_admin || $userStore?.is_super_admin
 				? 'u/username and f/*'
 				: undefined
 	)
 	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
+
+	// Pipeline entries are rendered independently of the item list, so apply the
+	// same gates the items get — otherwise a pipeline would still show under the
+	// Flows/Apps tabs, in the archived view, under a label filter, or outside a
+	// selected owner. Pipelines are script-based units always at `f/<folder>`, so
+	// kind=script and the user-folder toggle always include them; kind=flow/app,
+	// archived, a label filter (pipelines carry no labels), and a non-matching
+	// owner exclude them.
+	let visiblePipelineFolders = $derived.by(() => {
+		if (archived) return new Set<string>()
+		if (itemKind !== 'all' && itemKind !== 'script') return new Set<string>()
+		if (labelFilter != undefined) return new Set<string>()
+		if (ownerFilter == undefined) return pipelineFolders
+		return new Set(
+			[...pipelineFolders].filter(
+				(f) => `f/${f}` === ownerFilter || `f/${f}`.startsWith(ownerFilter + '/')
+			)
+		)
+	})
 	let includeWithoutMain = $state(
 		getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME)
 			? getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME) == 'true'
@@ -241,9 +317,13 @@
 	async function showCode(path: string, summary: string) {
 		viewCodeTitle = summary || path
 		await viewCodeDrawer?.openDrawer()
+		// `getDraft: true` so draft-only scripts (no deployed row at this
+		// path) still return their content via the per-user draft overlay
+		// instead of 404'ing.
 		script = await ScriptService.getScriptByPath({
 			workspace: $workspaceStore!,
-			path
+			path,
+			getDraft: true
 		})
 	}
 
@@ -298,16 +378,23 @@
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
 				)
 	)
+	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
+		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
+	}
 	let allLabels = $derived(
-		Array.from(
-			new Set(combinedItems?.flatMap((x) => ('labels' in x && x.labels) || []) ?? [])
-		).sort()
+		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
+	let prevWorkspace: string | undefined = undefined
+	// Clear filters only when the workspace actually changes. The initial
+	// resolution must be left alone so URL-loaded filter values (set by
+	// ListFilters.loadFilterFromUrl on mount) survive the async store settling.
 	$effect(() => {
-		if ($workspaceStore) {
+		const ws = $workspaceStore
+		if (ws && prevWorkspace !== undefined && ws !== prevWorkspace) {
 			ownerFilter = undefined
 			labelFilter = undefined
 		}
+		prevWorkspace = ws
 	})
 	let preFilteredItems = $derived(
 		ownerFilter != undefined
@@ -316,13 +403,13 @@
 						x.path.startsWith(ownerFilter + '/') &&
 						(x.type == itemKind || itemKind == 'all') &&
 						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || ('labels' in x && x.labels?.includes(labelFilter)))
+						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
 				)
 			: combinedItems?.filter(
 					(x) =>
 						(x.type == itemKind || itemKind == 'all') &&
 						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || ('labels' in x && x.labels?.includes(labelFilter)))
+						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
 				)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
@@ -474,7 +561,8 @@
 		if (menuItem) {
 			if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
 				const menu = menuItem.closest<HTMLElement>('[role="menu"]')
-				if (menu) {
+				// menus marked data-arrow-loop keep melt's cyclic wrap instead of exiting
+				if (menu && !menu.hasAttribute('data-arrow-loop')) {
 					const items = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
 					const idx = items.indexOf(menuItem)
 					const isFirst = idx === 0
@@ -793,13 +881,17 @@
 			{#each new Array(6) as _}
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
-		{:else if filteredItems.length === 0}
+		{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0)}
+			<!-- Pipelines aren't part of the text filter, so only fall through to show
+			     them (list rows / injected tree folders) when not actively searching;
+			     a no-match search still reads as empty. -->
 			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
 		{:else if treeView}
 			<TreeViewRoot
 				{items}
 				{nbDisplayed}
 				{collapseAll}
+				pipelineFolders={visiblePipelineFolders}
 				isSearching={filter !== ''}
 				on:scriptChanged={() => loadScripts(includeWithoutMain)}
 				on:flowChanged={loadFlows}
@@ -815,6 +907,17 @@
 			/>
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary">
+				{#if filter === ''}
+					{#each [...visiblePipelineFolders].sort() as folder (folder)}
+						<a
+							href="{base}/pipeline/{encodeURIComponent(folder)}"
+							class="w-full inline-flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-surface-hover transition-colors text-sm first-of-type:rounded-t-md"
+						>
+							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
+							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
+						</a>
+					{/each}
+				{/if}
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}

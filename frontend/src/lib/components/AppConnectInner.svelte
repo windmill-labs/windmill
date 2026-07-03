@@ -13,9 +13,10 @@
 		type ResourceType
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Path from './Path.svelte'
-	import { Button, Skeleton } from './common'
+	import { Button, RadioCard, Skeleton } from './common'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
 	import WhitelistIp from './WhitelistIp.svelte'
@@ -26,11 +27,10 @@
 	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
-	import { Pen } from 'lucide-svelte'
+	import { Pen, Search } from 'lucide-svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 	import type { SchemaProperty } from '$lib/common'
-	import Tooltip from './Tooltip.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
@@ -74,6 +74,18 @@
 	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
 	let connects: string[] | undefined = $state(undefined)
+	/** Per-provider instance-entry metadata, keyed by provider name. */
+	let connectsInfo: Record<
+		string,
+		{ supports_client_credentials: boolean; has_shared_credentials: boolean }
+	> = $state({})
+
+	/** An instance entry with shared credentials (admin id+secret): connect with
+	 * no input. Shown under "Instance-configured"; bring-your-own-only providers
+	 * (no shared creds) are shown under "Others" instead. */
+	function isSharedConnect(key: string): boolean {
+		return connectsInfo[key]?.has_shared_credentials ?? false
+	}
 
 	const SANDBOX_SUFFIX = '_sandbox'
 	function stripSandboxSuffix(name: string): string {
@@ -118,6 +130,9 @@
 	}
 
 	let scopes: string[] = $state([])
+	/** The authorization-code default scopes (instance entry / registry), kept so
+	 * toggling back from client-credentials can restore them. */
+	let instanceScopes: string[] = $state([])
 	let extra_params: [string, string][] = []
 	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
@@ -146,10 +161,135 @@
 	 */
 	let clientId = $state('')
 	let clientSecret = $state('')
+	let ccInstance = $state('')
+	/** Bring-your-own resource-level token endpoint override (optional). Only sent
+	 * for non-instance-templated providers, where it isn't host-pinned. */
 	let tokenUrl = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let resourceTypeNotFound = $state(false)
+
+	function registryEntry(): any {
+		const reg = oauthConnectRegistry as Record<string, any>
+		// Resolve `_sandbox` clients to their parent registry entry (e.g.
+		// salesforce_sandbox -> salesforce) so sandbox connections see CC metadata.
+		return reg[stripSandboxSuffix(connectClient)] ?? reg[stripSandboxSuffix(resourceType)]
+	}
+
+	/** The static registry declares this provider supports client credentials */
+	function registryCcCapable(): boolean {
+		return registryEntry()?.grant_types?.includes('client_credentials') ?? false
+	}
+
+	/** Instance-name metadata for providers whose token URL is instance-templated
+	 * (carried in `connect_config_template`): the user enters an instance name
+	 * instead of a full token URL, and the backend substitutes it into the
+	 * fixed-host template so the exchange host stays pinned. */
+	let ccInstanceMeta = $derived(
+		registryEntry()?.connect_config_template as
+			| { label: string; placeholder: string; help_url?: string }
+			| undefined
+	)
+
+	/** Instance entry declares client credentials but not authorization_code
+	 * (custom provider configured with only a token URL) */
+	let authCodeUnavailable = $state(false)
+
+	/** Instance entry carries shared client-credentials (id + secret); the user
+	 * doesn't enter their own — the exchange runs server-side with those creds */
+	let ccInstanceConfigured = $state(false)
+
+	/** The user wants their own credentials (picked the provider from the "Others"
+	 * section) — overrides the shared instance credentials for this connection */
+	let ccBringYourOwn = $state(false)
+
+	/** Connect with the shared instance credentials (no form) rather than the
+	 * bring-your-own form */
+	let useSharedInstanceCreds = $derived(ccInstanceConfigured && !ccBringYourOwn)
+
+	/** Connectable via client credentials only: registry-declared provider with
+	 * no instance OAuth client, or instance provider without an authorize URL */
+	let ccOnly = $derived.by(
+		() =>
+			authCodeUnavailable ||
+			(registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false))
+	)
+
+	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
+	function resetClientCredentialsState() {
+		supportsClientCredentials = false
+		useClientCredentials = false
+		authCodeUnavailable = false
+		ccInstanceConfigured = false
+		ccBringYourOwn = false
+		clientId = ''
+		clientSecret = ''
+		ccInstance = ''
+		tokenUrl = ''
+		scopes = []
+	}
+
+	/** Default scopes for the client-credentials grant. Registry providers use
+	 * their `cc_scopes` (auth-code scopes are invalid in a 2-legged request);
+	 * custom (non-registry) providers configured at the instance level have no
+	 * registry entry, so they keep their admin-configured scopes (`instanceScopes`)
+	 * instead of being zeroed. */
+	function defaultCcScopes(): string[] {
+		const entry = registryEntry()
+		return entry ? (entry.cc_scopes ?? []) : instanceScopes
+	}
+
+	function enableClientCredentials() {
+		manual = false
+		supportsClientCredentials = true
+		if (!useClientCredentials) {
+			// Switching into client-credentials: default to the CC scopes (never the
+			// authorization-code scopes — most providers reject member/consent scopes
+			// in a 2-legged request). Only reset on the transition so edits made while
+			// already in CC mode are preserved.
+			scopes = defaultCcScopes()
+		}
+		useClientCredentials = true
+	}
+
+	/** Switch to the browser sign-in (authorization-code) grant, restoring its
+	 * default scopes when coming from the client-credentials grant. */
+	function selectAuthCodeGrant() {
+		if (useClientCredentials) {
+			scopes = instanceScopes
+		}
+		useClientCredentials = false
+	}
+
+	/** Static registry declares client-credentials support for `key`. */
+	function isCcCapable(key: string): boolean {
+		return (
+			(oauthConnectRegistry as Record<string, any>)[stripSandboxSuffix(key)]?.grant_types?.includes(
+				'client_credentials'
+			) ?? false
+		)
+	}
+
+	/** Step-1 "Others" selection: CC-capable resource types open the client-
+	 * credentials form with the user's own credentials — even when the instance
+	 * has shared ones (the "Instance-configured OAuth APIs" section is the entry
+	 * point for those). Every other type opens the raw manual form. */
+	function selectFromOthers(key: string) {
+		connectClient = key
+		resourceType = key
+		resetClientCredentialsState()
+		// Registry CC providers and instance-configured providers that declare the
+		// client-credentials grant (incl. custom providers set up with only a token
+		// URL and no shared creds) open the bring-your-own form. Everything else is
+		// a manual resource.
+		if (isCcCapable(key) || (connectsInfo[key]?.supports_client_credentials ?? false)) {
+			ccBringYourOwn = true
+			enableClientCredentials()
+		} else {
+			manual = true
+		}
+		next()
+	}
 
 	let pathError = $state('')
 
@@ -167,22 +307,33 @@
 		resourceType = stripSandboxSuffix(rawRt)
 		valueToken = undefined
 
-		// Reset client credentials state
-		supportsClientCredentials = false
-		useClientCredentials = false
-		clientId = ''
-		clientSecret = ''
-		tokenUrl = ''
+		resetClientCredentialsState()
 
 		await loadConnects()
-		manual = !connects?.includes(connectClient)
+		const inConnects = connects?.includes(connectClient) ?? false
+		// Registry-declared client-credentials providers are connectable even
+		// without an instance OAuth client
+		manual = !inConnects && !(rt && registryCcCapable())
 		if (manual && express) {
 			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
 			return
 		}
+		if (!inConnects && !manual && express) {
+			// Client-credentials connections need interactive credential entry
+			dispatch('error', 'Express OAuth setup is not available for client credentials providers')
+			return
+		}
+		if (!inConnects && !manual) {
+			enableClientCredentials()
+		}
 		if (rt) {
 			if (!manual && express) {
 				await getScopesAndParams()
+				if (authCodeUnavailable) {
+					// No popup flow to drive express setup with
+					dispatch('error', 'Express OAuth setup is not available for client credentials providers')
+					return
+				}
 				step = 2
 			}
 			next()
@@ -192,17 +343,18 @@
 	async function loadConnects() {
 		if (!connects) {
 			try {
-				connects = (await OauthService.listOauthConnects())
-					.filter((x) => x != 'supabase_wizard')
-					.sort((a, b) => a.localeCompare(b))
+				const list = (await OauthService.listOauthConnects())
+					.filter((x) => x.name != 'supabase_wizard')
+					.sort((a, b) => a.name.localeCompare(b.name))
+				connects = list.map((x) => x.name)
+				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
 			} catch (e) {
 				connects = []
+				connectsInfo = {}
 				console.error('Error loading OAuth connects', e)
 			}
 		}
 	}
-
-	const connectAndManual = ['gitlab']
 
 	run(() => {
 		isGoogleSignin =
@@ -226,7 +378,11 @@
 						args['api_key'] == '' &&
 						args['key'] == '' &&
 						linkedSecrets.length > 0
-					: false)) ||
+					: useClientCredentials &&
+						!useSharedInstanceCreds &&
+						(clientId.trim() == '' ||
+							clientSecret.trim() == '' ||
+							(!!ccInstanceMeta && ccInstance.trim() == '')))) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
 			!isValid
@@ -240,8 +396,11 @@
 			workspace: effectiveWorkspace
 		})
 
+		// "Others" lists every resource type — including instance-configured OAuth
+		// providers — so any of them can also be connected with the user's own
+		// credentials or manually, not only via the shared instance setup (same as
+		// the authorization-code behavior).
 		connectsManual = availableRts
-			.filter((x) => connectAndManual.includes(x) || !Object.keys(connects ?? {}).includes(x))
 			.map(
 				(x) =>
 					({
@@ -338,15 +497,39 @@
 	}
 
 	async function getScopesAndParams() {
+		if (!connects?.includes(connectClient)) {
+			// No instance OAuth client (registry-declared CC-only provider):
+			// defaults come from the static registry instead.
+			instanceScopes = registryEntry()?.scopes ?? []
+			scopes = useClientCredentials ? defaultCcScopes() : instanceScopes
+			extra_params = []
+			supportsClientCredentials = registryCcCapable()
+			return
+		}
 		const connect = await OauthService.getOauthConnect({ client: connectClient })
-		scopes = connect.scopes ?? []
+		instanceScopes = connect.scopes ?? []
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
 
 		/**
-		 * Check if the OAuth provider supports client_credentials grant type
-		 * This determines whether to show the OAuth flow selection UI
+		 * The CC flow is offered when the static registry declares it for the
+		 * provider, or the admin enabled it on the instance entry (custom
+		 * providers)
 		 */
-		supportsClientCredentials = connect.grant_types?.includes('client_credentials') ?? false
+		supportsClientCredentials =
+			registryCcCapable() || (connect.grant_types?.includes('client_credentials') ?? false)
+		// Shared instance credentials: the user connects without entering any creds
+		ccInstanceConfigured = connect.client_credentials_configured ?? false
+		// Custom provider configured with only a token URL: no popup flow possible
+		authCodeUnavailable =
+			supportsClientCredentials && !(connect.grant_types?.includes('authorization_code') ?? true)
+		if (authCodeUnavailable) {
+			useClientCredentials = true
+		}
+		// Default scopes to the active grant: client-credentials uses the registry's
+		// cc_scopes (auth-code scopes are invalid in a 2-legged request), every other
+		// path keeps the instance entry's scopes. Applies to shared instance creds,
+		// not just bring-your-own. Switching grants resets to these defaults.
+		scopes = useClientCredentials ? defaultCcScopes() : instanceScopes
 	}
 
 	async function getResourceTypeInfo() {
@@ -385,37 +568,52 @@
 			if (useClientCredentials) {
 				/**
 				 * Client credentials flow: Direct API call to backend
-				 * No popup window or user interaction required
-				 * Uses instance-level OAuth credentials for server-to-server auth
+				 * No popup window or user interaction required — the resource-level
+				 * credentials are exchanged directly against the token URL
 				 */
 				try {
 					// Trim whitespace from credentials to avoid false negatives
 					const trimmedClientId = clientId.trim()
 					const trimmedClientSecret = clientSecret.trim()
+					const trimmedInstance = ccInstance.trim()
+					// Instance-templated providers collect an instance name; the backend
+					// builds the host-pinned token URL from it. Other registry providers
+					// need no URL input (the token URL comes from the registry).
+					const needsInstance = !!ccInstanceMeta
 
-					// Validate required fields
-					if (!trimmedClientId || !trimmedClientSecret) {
+					// Bring-your-own credentials are required unless the provider has
+					// shared instance credentials, in which case the exchange runs
+					// server-side with those and no input is collected here.
+					if (
+						!useSharedInstanceCreds &&
+						(!trimmedClientId || !trimmedClientSecret || (needsInstance && !trimmedInstance))
+					) {
 						sendUserToast(
-							'Client ID and Client Secret are required for client credentials flow',
+							needsInstance
+								? `Client ID, Client Secret and ${ccInstanceMeta?.label} are required for client credentials flow`
+								: 'Client ID and Client Secret are required for client credentials flow',
 							true
 						)
 						return
 					}
 
-					const requestBody: any = {
-						scopes: scopes,
-						cc_client_id: trimmedClientId,
-						cc_client_secret: trimmedClientSecret
-					}
-
-					// Add token URL override if provided
-					if (tokenUrl.trim()) {
-						requestBody.cc_token_url = tokenUrl.trim()
-					}
-
 					const tokenResponse = await OauthService.connectClientCredentials({
+						workspace: effectiveWorkspace,
 						client: connectClient,
-						requestBody
+						requestBody: useSharedInstanceCreds
+							? { scopes: scopes }
+							: {
+									scopes: scopes,
+									cc_client_id: trimmedClientId,
+									cc_client_secret: trimmedClientSecret,
+									// Instance-templated providers are host-pinned via the instance
+									// name; only other providers accept a free-form token URL override.
+									...(needsInstance
+										? { cc_instance: trimmedInstance }
+										: tokenUrl.trim()
+											? { cc_token_url: tokenUrl.trim() }
+											: {})
+								}
 					})
 
 					// Process the token response like in popup flow
@@ -489,12 +687,38 @@
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
 
-			if (resourceType == 'snowflake_oauth') {
-				const account_identifier = extra_params.find(([key, _]) => key == 'account_identifier')
-				if (account_identifier) {
-					args['account_identifier'] = account_identifier[1]
+			// Per-instance OAuth providers (Snowflake, ServiceNow, …): fill the
+			// resource args from the connection's instance, per the registry
+			// template's resource_mapping (e.g. ServiceNow -> instance_url:
+			// https://{instance}.service-now.com). Bring-your-own carries the instance
+			// the user entered in `ccInstance` (raw, possibly a full host); the shared
+			// path carries it (already normalized) in the connect entry's extra_params.
+			// Prefer the user-entered one so the saved resource matches the exchange.
+			const connectTemplate = (oauthConnectRegistry as Record<string, any>)[resourceType]
+				?.connect_config_template
+			if (connectTemplate?.resource_mapping) {
+				const instanceKey = connectTemplate.extra_params_key ?? 'instance'
+				let instanceValue = extra_params.find(([key, _]) => key === instanceKey)?.[1] ?? ''
+				if (ccInstance.trim()) {
+					const stripSuffix = connectTemplate.strip_suffix as string | undefined
+					let v = ccInstance
+						.trim()
+						.replace(/^https?:\/\//, '')
+						.replace(/\/.*$/, '')
+					if (stripSuffix && v.endsWith(stripSuffix)) {
+						v = v.slice(0, -stripSuffix.length)
+					}
+					instanceValue = v.replace(/\.+$/, '')
 				}
-			} else if (resourceType === 'quickbooks' && responseExtra['realmId']) {
+				if (instanceValue) {
+					for (const [argField, valueTemplate] of Object.entries(
+						connectTemplate.resource_mapping as Record<string, string>
+					)) {
+						args[argField] = valueTemplate.replaceAll('{instance}', instanceValue)
+					}
+				}
+			}
+			if (resourceType === 'quickbooks' && responseExtra['realmId']) {
 				args['realmId'] = responseExtra['realmId']
 			}
 
@@ -512,12 +736,20 @@
 					accountData.scopes = scopes
 				}
 
-				// Add client credentials if using client_credentials flow
-				if (useClientCredentials) {
+				// Client-credentials accounts are self-contained: the refresh worker
+				// re-exchanges using only what is stored on the account row. With
+				// shared instance credentials the backend copies them onto the row,
+				// so nothing is sent from here.
+				if (useClientCredentials && !useSharedInstanceCreds) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
-					// Add token URL override if provided
-					if (tokenUrl.trim()) {
+					// Instance-templated providers send an instance name; the backend
+					// resolves and stores the host-pinned token URL. Other providers may
+					// send an optional token URL override (stored for refresh); without
+					// it the token URL comes from the registry/instance config.
+					if (ccInstanceMeta) {
+						accountData.cc_instance = ccInstance.trim()
+					} else if (tokenUrl.trim()) {
 						accountData.cc_token_url = tokenUrl.trim()
 					}
 				}
@@ -643,7 +875,7 @@
 	<SearchItems
 		{filter}
 		items={connects
-			? connects.map((key) => ({
+			? connects.filter(isSharedConnect).map((key) => ({
 					key
 				}))
 			: undefined}
@@ -657,17 +889,18 @@
 		f={(x) => x.key}
 	/>
 	{#if step == 1}
-		<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
-			<input
-				type="text"
-				placeholder="Search resource type"
-				bind:value={filter}
-				class="text-2xl grow"
-				id="search-resource-type"
-			/>
+		<div class="pb-2 my-1">
+			<div class="relative w-full">
+				<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
+				<TextInput
+					inputProps={{ placeholder: 'Search resource type', id: 'search-resource-type' }}
+					bind:value={filter}
+					class="pl-7 text-xs w-full"
+				/>
+			</div>
 		</div>
 
-		<h2 class="mb-4 text-sm font-semibold text-emphasis">OAuth APIs</h2>
+		<h2 class="mb-4 text-sm font-semibold text-emphasis">Instance-configured OAuth APIs</h2>
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center">
 			{#if filteredConnects}
 				{#each filteredConnects as { key }}
@@ -679,6 +912,7 @@
 							manual = false
 							connectClient = key
 							resourceType = stripSandboxSuffix(key)
+							resetClientCredentialsState()
 							next()
 						}}
 					>
@@ -691,10 +925,10 @@
 				{/each}
 			{/if}
 		</div>
-		{#if connects && connects.length == 0}
+		{#if connects && connects.filter(isSharedConnect).length == 0}
 			<div class="text-secondary text-xs w-full"
-				>No OAuth APIs has been setup on the instance. To add oauth APIs, first sync the resource
-				types with the hub, then add oauth configuration. See <a
+				>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync the resource
+				types with the hub, then add OAuth configuration. See <a
 					href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
 				>
 			</div>
@@ -704,7 +938,7 @@
 
 		{#if connectsManual && connectsManual?.length < 10}
 			<div class="text-secondary text-xs p-2">
-				Resource Types have not been synced with the hub
+				Resource types have not been synced with the hub
 			</div>
 		{/if}
 
@@ -716,12 +950,7 @@
 							unifiedSize="md"
 							variant="default"
 							selected={key === resourceType}
-							on:click={() => {
-								manual = true
-								connectClient = key
-								resourceType = key
-								next()
-							}}
+							on:click={() => selectFromOthers(key)}
 						>
 							<IconedResourceType name={key} after={true} width="20px" height="20px" />
 						</Button>
@@ -735,16 +964,10 @@
 						<Button
 							aiId={`app-connect-inner-${key}`}
 							aiDescription={`Connect to ${key}`}
-							size="sm"
+							unifiedSize="md"
 							variant="default"
-							color={key === resourceType ? 'blue' : 'light'}
-							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
-							on:click={() => {
-								manual = true
-								connectClient = key
-								resourceType = key
-								next()
-							}}
+							selected={key === resourceType}
+							on:click={() => selectFromOthers(key)}
 						>
 							<IconedResourceType name={key} after={true} width="20px" height="20px" />
 						</Button>
@@ -768,13 +991,15 @@
 		</div>
 	{:else if step == 2 && manual}
 		<div class="flex flex-col gap-8">
-			<Path
-				bind:error={pathError}
-				bind:path
-				initialPath=""
-				namePlaceholder={resourceType}
-				kind="resource"
-			/>
+			<Label label="Path">
+				<Path
+					bind:error={pathError}
+					bind:path
+					initialPath=""
+					namePlaceholder={resourceType}
+					kind="resource"
+				/>
+			</Label>
 			<LabelsInput bind:labels class="-mt-5" />
 			{#if deployTo}
 				<Label
@@ -853,6 +1078,14 @@
 					<SyncResourceTypes onSynced={getResourceTypeInfo} />
 				</div>
 			{/if}
+			{#if registryCcCapable()}
+				<button
+					onclick={() => enableClientCredentials()}
+					class="text-xs font-normal text-accent w-fit -mt-4"
+				>
+					Acquire the token automatically via client credentials instead
+				</button>
+			{/if}
 			{#key resourceTypeInfo}
 				<ApiConnectForm
 					bind:linkedSecrets
@@ -875,12 +1108,17 @@
 						>Create a resource backed by an OAuth connection, whose token is fetched from the
 						external services and refreshed automatically if needed before expiration.</div
 					>
-					<button
-						onclick={() => (manual = true)}
-						class="text-xs font-normal text-accent w-fit mt-2"
-					>
-						Create resource manually instead
-					</button>
+					{#if ccBringYourOwn}
+						<button
+							onclick={() => {
+								manual = true
+								useClientCredentials = false
+							}}
+							class="text-xs font-normal text-accent w-fit mt-2"
+						>
+							Create resource manually instead
+						</button>
+					{/if}
 				</div>
 
 				{#if resourceTypeInfo?.description}
@@ -895,26 +1133,40 @@
 				<LabelsInput bind:labels class="-mt-5" />
 
 				{#if supportsClientCredentials}
-					<div>
-						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication Method</h3>
-						<div class="flex items-center gap-2 mb-2">
-							<input
-								type="checkbox"
-								style="width: 16px; height: 16px; margin: 0;"
-								bind:checked={useClientCredentials}
-								id="useClienCrediential"
-							/>
-							<label for="useClienCrediential" class="text-xs font-semibold text-emphasis"
-								>Use Client Credentials Flow</label
-							>
-							<Tooltip>
-								Server-to-server authentication without user interaction.
-								<br /><br />
-								Provide your own OAuth client credentials for this resource.
-							</Tooltip>
-						</div>
+					<div class="flex flex-col gap-1">
+						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
+						{#if ccOnly || ccBringYourOwn}
+							<div class="text-xs text-secondary font-normal mb-2">
+								{#if useSharedInstanceCreds}
+									{resourceType} connects server-to-server using the credentials configured for this
+									instance. The token is acquired and refreshed automatically.
+								{:else}
+									{resourceType} connects server-to-server. Enter a client ID and secret; the token is
+									acquired and refreshed automatically.
+								{/if}
+							</div>
+						{:else}
+							<div class="flex flex-col gap-2 mb-2">
+								<RadioCard
+									label={`Sign in through ${resourceType}`}
+									description="Opens a browser window to log in and authorize. Connects as you."
+									selected={!useClientCredentials}
+									onSelect={selectAuthCodeGrant}
+								/>
+								<RadioCard
+									label={useSharedInstanceCreds
+										? 'Use the configured instance credentials'
+										: 'Use a client ID and secret'}
+									description={useSharedInstanceCreds
+										? "Runs server-to-server with this instance's credentials. No input needed."
+										: 'Runs server-to-server. Best for automation or service accounts.'}
+									selected={useClientCredentials}
+									onSelect={() => enableClientCredentials()}
+								/>
+							</div>
+						{/if}
 
-						{#if useClientCredentials}
+						{#if useClientCredentials && !useSharedInstanceCreds}
 							<form class="flex flex-col gap-6">
 								<label class="flex flex-col gap-1">
 									<span class="text-xs font-semibold text-emphasis">Client ID</span>
@@ -924,7 +1176,7 @@
 									/>
 								</label>
 								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis">Client Secret</span>
+									<span class="text-xs font-semibold text-emphasis">Client secret</span>
 									<TextInput
 										inputProps={{
 											type: 'password',
@@ -934,22 +1186,36 @@
 										bind:value={clientSecret}
 									/>
 								</label>
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis"
-										>Token URL Override (Optional)</span
-									>
-									<div class="text-xs text-primary font-normal">
-										Override the instance-level token URL for this resource
-									</div>
-									<TextInput
-										inputProps={{
-											type: 'url',
-											placeholder: 'Custom token endpoint URL',
-											required: false
-										}}
-										bind:value={tokenUrl}
-									/>
-								</label>
+								{#if ccInstanceMeta}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-semibold text-emphasis">{ccInstanceMeta.label}</span>
+										<div class="text-xs text-secondary font-normal">
+											Used to build this provider's token endpoint, stored with the connection for
+											automatic token refresh
+										</div>
+										<TextInput
+											inputProps={{ placeholder: ccInstanceMeta.placeholder, required: true }}
+											bind:value={ccInstance}
+										/>
+									</label>
+								{:else}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-semibold text-emphasis"
+											>Token URL override (optional)</span
+										>
+										<div class="text-xs text-secondary font-normal">
+											Override the provider's token endpoint for this resource, stored with the
+											connection and reused on token refresh
+										</div>
+										<TextInput
+											inputProps={{
+												type: 'url',
+												placeholder: 'https://provider.example.com/oauth/token'
+											}}
+											bind:value={tokenUrl}
+										/>
+									</label>
+								{/if}
 							</form>
 						{/if}
 					</div>
@@ -983,13 +1249,15 @@
 			<span class="text-xs text-primary font-normal"> Finish connection in popup window </span>
 		{/if}
 	{:else}
-		<Path
-			initialPath=""
-			namePlaceholder={resourceType}
-			bind:error={pathError}
-			bind:path
-			kind="resource"
-		/>
+		<Label label="Path">
+			<Path
+				initialPath=""
+				namePlaceholder={resourceType}
+				bind:error={pathError}
+				bind:path
+				kind="resource"
+			/>
+		</Label>
 		<LabelsInput bind:labels class="-mt-5" />
 		{#if deployTo}
 			<Label

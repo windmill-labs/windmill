@@ -6,6 +6,7 @@
 	import type { ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -13,6 +14,8 @@
 	import { ArrowUp, Square } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import { type PasteAttachment } from './pasteTokens'
+	import { chatDraft, expanded } from './chatDraft'
 
 	const aiChatManager = getAiChatManager()
 
@@ -23,6 +26,7 @@
 		disabled?: boolean
 		placeholder?: string
 		initialInstructions?: string
+		initialPastes?: PasteAttachment[]
 		editingMessageIndex?: number | null
 		onEditEnd?: () => void
 		className?: string
@@ -47,6 +51,7 @@
 		isFirstMessage = false,
 		placeholder,
 		initialInstructions = '',
+		initialPastes = undefined,
 		editingMessageIndex = null,
 		onEditEnd = () => {},
 		className = '',
@@ -113,6 +118,8 @@
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
 	let instructions = $state(untrack(() => initialInstructions))
+	// Collapsed big-paste blobs referenced by tokens in `instructions`.
+	let pastes = $state<PasteAttachment[]>(untrack(() => initialPastes ?? []))
 
 	// App mode @ mention state
 	let showAppContextTooltip = $state(false)
@@ -129,12 +136,72 @@
 			aiChatManager.mode === AIMode.GLOBAL
 	)
 
+	/** Append `@title` to the textarea so the button-picker path stays in
+	 * sync with the inline `@<word>` mention path — both leave a visible
+	 * token tied to the selectedContext entry, which the textarea diffs on
+	 * to auto-remove items when the user deletes them. No-op when the
+	 * mention is already present so re-picking the same item doesn't
+	 * leave duplicate tokens. */
+	export function insertMention(title: string) {
+		const target = `@${title}`
+		if (instructions.split(/\s+/).includes(target)) return
+		const sep = instructions.length === 0 || /\s$/.test(instructions) ? '' : ' '
+		instructions = `${instructions}${sep}${target} `
+	}
+
+	/** Strip every `@title` token from the textarea — used when the user
+	 * deletes the corresponding badge so the badge X-button mirrors the
+	 * inverse (text-delete-to-badge-remove) sync. Only matches `@title` as a
+	 * standalone token (boundary on both sides) so substring matches don't
+	 * bleed into other words; only the whitespace adjacent to the removed
+	 * mention is collapsed so unrelated double-spaces stay intact. */
+	export function removeMention(title: string) {
+		// Pre-zap the textarea's mention diff snapshot so the upcoming strip
+		// doesn't refire the removal effect on a same-title sibling — the host
+		// has already mutated `selectedContext` to drop the targeted entry.
+		contextTextareaComponent?.unsyncMention(title)
+		const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+		const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'g')
+		instructions = instructions.replace(re, (_m, lead, trail) => {
+			// Boundary on at least one side → drop the mention entirely.
+			if (!lead || !trail) return ''
+			// Middle of text: keep ONE of the bracketing whitespace chars so
+			// the surviving tokens are still separated; preserve the leading
+			// one verbatim so newlines/tabs aren't downgraded to spaces.
+			return lead
+		})
+	}
+
 	export function focusInput() {
 		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
 		}
+	}
+
+	// Restore composer contents after a rolled-back turn. No-op when the user
+	// already typed a new draft — restoring would clobber it.
+	export function restoreInstructions(value: string, restoredPastes: PasteAttachment[] = []) {
+		if (instructions.trim()) return
+		instructions = value
+		pastes = restoredPastes
+		focusInput()
+	}
+
+	/** Put text back into the textarea (queued-message delete, or restore
+	 * after a cancelled/errored turn), prepended to any draft so nothing
+	 * the user typed is lost. */
+	export function prependText(text: string) {
+		instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
+		focusInput()
+	}
+
+	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
+	export function insertFileMention(name: string) {
+		const sep = instructions.length === 0 || instructions.endsWith(' ') ? '' : ' '
+		instructions = `${instructions}${sep}${formatMention(name)} `
+		focusInput()
 	}
 
 	function clickOutside(node: HTMLElement) {
@@ -163,7 +230,9 @@
 		// Workspace items are fetched on-demand and not in availableContext,
 		// so skip the availableContext check for them
 		const isWorkspaceItem =
-			contextElement.type === 'workspace_script' || contextElement.type === 'workspace_flow'
+			contextElement.type === 'workspace_script' ||
+			contextElement.type === 'workspace_flow' ||
+			contextElement.type === 'workspace_app'
 		if (
 			!isWorkspaceItem &&
 			!availableContext.find(
@@ -219,14 +288,43 @@
 
 	function sendRequest() {
 		if (aiChatManager.loading) {
+			// Queue the message instead of silently discarding it — it is
+			// auto-sent when the streaming turn completes successfully.
+			// Editing-while-loading keeps the old discard behavior. Paste
+			// tokens are expanded into the queued text (the queue is plain
+			// strings), so the full content survives the auto-send.
+			if (editingMessageIndex === null && instructions.trim()) {
+				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)))
+				contextTextareaComponent?.clearForSend()
+				instructions = ''
+				pastes = []
+			}
 			return
 		}
 		if (editingMessageIndex !== null) {
-			aiChatManager.restartGeneration(editingMessageIndex, instructions)
+			aiChatManager.restartGeneration(editingMessageIndex, instructions, pastes)
 			onEditEnd()
 		} else {
-			aiChatManager.sendRequest({ instructions })
+			aiChatManager.sendRequest({ instructions, pastes })
+			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
+			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
+			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
+			// fallback textarea still rely on the plain `instructions = ''`
+			// reset (no `@`-mention state to coordinate).
+			contextTextareaComponent?.clearForSend()
 			instructions = ''
+			pastes = []
+		}
+	}
+
+	// A custom `onSendRequest` consumer (e.g. the inline ⌘K widget) has no chip
+	// display, so it gets the fully expanded text; the default path keeps tokens
+	// for the conversation bubble and expands them for the LLM inside the manager.
+	function submitRequest() {
+		if (onSendRequest) {
+			onSendRequest(expanded(chatDraft(instructions, pastes)))
+		} else {
+			sendRequest()
 		}
 	}
 
@@ -443,7 +541,7 @@
 			if (isLoading) {
 				onCancel ? onCancel() : aiChatManager.cancel()
 			} else if (!sendDisabled) {
-				onSendRequest ? onSendRequest(instructions) : sendRequest()
+				submitRequest()
 			}
 		}}
 	/>
@@ -460,6 +558,7 @@
 						selectedContext = selectedContext?.filter(
 							(c) => c.type !== element.type || c.title !== element.title
 						)
+						removeMention(element.title)
 					}}
 				/>
 			{/each}
@@ -486,16 +585,21 @@
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
 				bind:value={instructions}
+				bind:pastes
 				{availableContext}
 				{selectedContext}
-				{isFirstMessage}
 				placeholder={modePlaceholder}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
+				onRemoveContext={(element) => {
+					selectedContext = selectedContext?.filter(
+						(c) => c.type !== element.type || c.title !== element.title
+					)
+				}}
 				onSendRequest={() => {
 					if (disabled) {
 						return
 					}
-					onSendRequest ? onSendRequest(instructions) : sendRequest()
+					submitRequest()
 				}}
 				{disabled}
 				{onKeyDown}
@@ -514,7 +618,7 @@
 			<textarea
 				bind:this={instructionsTextareaComponent}
 				bind:value={instructions}
-				use:autosize
+				use:autosize={{ maxHeight: '40vh' }}
 				oninput={handleAppInput}
 				onblur={() => {
 					setTimeout(() => {
@@ -578,7 +682,7 @@
 			<textarea
 				bind:this={instructionsTextareaComponent}
 				bind:value={instructions}
-				use:autosize
+				use:autosize={{ maxHeight: '40vh' }}
 				onkeydown={(e) => {
 					if (onKeyDown) {
 						onKeyDown(e)

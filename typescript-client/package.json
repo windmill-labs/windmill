@@ -1,9 +1,18 @@
 {
   "name": "windmill-client",
   "description": "Windmill SDK client for browsers and Node.js",
-  "version": "1.714.0",
+  "version": "1.746.0",
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
+  "homepage": "https://github.com/windmill-labs/windmill/tree/main/typescript-client#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/windmill-labs/windmill.git",
+    "directory": "typescript-client"
+  },
+  "bugs": {
+    "url": "https://github.com/windmill-labs/windmill/issues"
+  },
   "sideEffects": false,
   "devDependencies": {
     "@types/node": "^20.17.16",

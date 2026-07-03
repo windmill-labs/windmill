@@ -36,10 +36,12 @@
 		ClipboardCopy,
 		GitBranch,
 		GitFork,
-		EllipsisVertical
+		EllipsisVertical,
+		Share2
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import {
 		enterpriseLicense,
 		initialArgsStore,
@@ -54,6 +56,7 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
 	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
+	import ScriptRetryChain from '$lib/components/runs/ScriptRetryChain.svelte'
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -85,12 +88,13 @@
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 	import { page } from '$app/state'
+	import { setViewToken } from '$lib/viewToken'
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -120,6 +124,7 @@
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
+	let loadError: { status?: number; message?: string } | undefined = $state(undefined)
 
 	// Flow execution status state
 	let suspendStatus: import('$lib/utils').StateStore<Record<string, { job: Job; nb: number }>> =
@@ -144,6 +149,34 @@
 		if (!job) return
 		lastJobId = job.id
 		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
+	}
+
+	// Share read link: if the URL carries a `view_token`, install it so every job
+	// read on this page (incl. flow steps, args, logs, SSE) is authorized by it.
+	// Set eagerly at init (before JobLoader mounts and fires its first fetch), and
+	// reactively keep it in sync across client-side navigation.
+	setViewToken(page.url.searchParams.get('view_token') ?? undefined)
+	$effect(() => {
+		setViewToken(page.url.searchParams.get('view_token') ?? undefined)
+	})
+	onDestroy(() => setViewToken(undefined))
+
+	async function shareReadLink(id: string): Promise<void> {
+		try {
+			const workspace = $workspaceStore!
+			const token = (await JobService.getJobViewToken({ workspace, id })).trim()
+			// Pin the workspace in the link: the token is signed with this workspace's
+			// key, and the logged layout only switches `$workspaceStore` when the URL
+			// carries `workspace=`. Without it a recipient whose active workspace
+			// differs would open the run (and validate the token) against the wrong one.
+			const url = `${window.location.origin}${base}/run/${id}?workspace=${encodeURIComponent(
+				workspace
+			)}&view_token=${encodeURIComponent(token)}`
+			copyToClipboard(url)
+			sendUserToast('Read-only share link copied to clipboard')
+		} catch (e) {
+			sendUserToast(`Failed to create share link: ${e}`, true)
+		}
 	}
 
 	async function deleteCompletedJob(id: string): Promise<void> {
@@ -447,6 +480,7 @@
 		bind:jobUpdateLastFetch
 		workspaceOverride={$workspaceStore}
 		bind:notfound
+		bind:loadError
 	/>
 {/if}
 
@@ -454,7 +488,28 @@
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
 
-{#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
+{#if loadError?.status === 403}
+	<div class="max-w-3xl px-4 mx-auto w-full">
+		<div class="mt-6">
+			<Alert type="warning" title="You don't have access to this run">
+				<div class="flex flex-col gap-2">
+					<p>
+						This run exists in <span class="font-semibold">{$workspaceStore}</span>, but you don't
+						have permission to view it.
+					</p>
+					<p>
+						Ask a colleague who can see it to open the run and use the
+						<span class="font-semibold">Share</span> button to send you a read-only link. Opening that
+						link will grant you access to this run (and its steps).
+					</p>
+				</div>
+			</Alert>
+			<div class="mt-4">
+				<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
+			</div>
+		</div>
+	</div>
+{:else if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
 			<h1 class="text-red-400 mt-6 text-2xl font-semibold"
@@ -534,6 +589,17 @@
 						View runs
 					</Button>
 				{/if}
+			{/if}
+			{#if job}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: Share2 }}
+					title="Copy a read-only share link to this run for another workspace member"
+					onclick={() => job && shareReadLink(job.id)}
+				>
+					Share
+				</Button>
 			{/if}
 			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}`}
@@ -676,7 +742,7 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							href={`${stem}/edit/${job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}${isScript ? `` : `&nodraft=true`}`}
+							href={`${stem}/edit/${job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}`}
 							on:click={() => {
 								$initialArgsStore = job?.args
 							}}
@@ -687,13 +753,14 @@
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
-					{#if !showEditButton && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')}
+					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
 							unifiedSize="md"
 							variant="default"
 							size="sm"
-							startIcon={{ icon: GitFork }}>Edit in fork</Button
+							startIcon={{ icon: GitFork }}
+							>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
 				{/if}
@@ -803,6 +870,10 @@
 			</div>
 		</div>
 
+		{#if job}
+			<ScriptRetryChain {job} />
+		{/if}
+
 		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
 				<ExecutionDuration {job} bind:longRunning={currentJobIsLongRunning} />
@@ -846,6 +917,9 @@
 							{/if}
 						</div>
 					</div>
+					{#if job.id && job.workspace_id}
+						<DispatchEventsPanel workspace={job.workspace_id} jobId={job.id} />
+					{/if}
 				{/if}
 
 				<!-- Logs and outputs-->

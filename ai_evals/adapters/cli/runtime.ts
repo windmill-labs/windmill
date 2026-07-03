@@ -16,6 +16,9 @@ export interface PromptRunResult {
   output: string;
   durationMs: number;
   tokenUsage: BenchmarkTokenUsage | null;
+  // Input tokens on the last assistant turn. The SDK `result` message reports
+  // usage cumulatively, so the final context size comes from per-turn usage.
+  finalContextTokens: number | null;
   trace: CliTrace;
 }
 
@@ -144,6 +147,7 @@ export async function runPromptAndCapture(
   let output = "";
   let assistantMessageCount = 0;
   let tokenUsage: BenchmarkTokenUsage | null = null;
+  let finalContextTokens: number | null = null;
   const startedAt = Date.now();
   const stubBinDir = join(cwd, WMILL_STUB_DIR_NAME);
   const wmillLogPath = join(cwd, WMILL_LOG_FILE_NAME);
@@ -166,6 +170,12 @@ export async function runPromptAndCapture(
   for await (const message of query({ prompt, options })) {
     if (message.type === "assistant") {
       assistantMessageCount += 1;
+      const turnContext = anthropicUsageToBenchmarkTokenUsage(
+        message.message?.usage
+      )?.prompt;
+      if (turnContext && turnContext > 0) {
+        finalContextTokens = turnContext;
+      }
       const content = message.message?.content;
       if (Array.isArray(content)) {
         for (const block of content) {
@@ -210,6 +220,7 @@ export async function runPromptAndCapture(
     output,
     durationMs: Date.now() - startedAt,
     tokenUsage,
+    finalContextTokens,
     trace: {
       toolsUsed,
       skillsInvoked,

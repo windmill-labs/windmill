@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    jobs::{CompletedJob, JobKind, JobTriggerKind, QueuedJob},
+    jobs::{CompletedJob, JobKind, JobStatus, JobTriggerKind, QueuedJob},
     scripts::{ScriptHash, ScriptLang},
     utils::now_from_db,
     DB,
@@ -142,6 +142,7 @@ pub struct ListCompletedQuery {
     pub created_after_queue: Option<chrono::DateTime<chrono::Utc>>,
     pub completed_after: Option<chrono::DateTime<chrono::Utc>>,
     pub completed_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub status: Option<JobStatus>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
@@ -302,6 +303,7 @@ pub struct UnifiedJob {
     pub preprocessed: Option<bool>,
     pub worker: Option<String>,
     pub runnable_settings_handle: Option<i64>,
+    pub is_retry: Option<bool>,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -343,6 +345,7 @@ const CJ_FIELDS: &[&str] = &[
     "v2_job.preprocessed",
     "v2_job_completed.worker",
     "null as runnable_settings_handle",
+    "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
 ];
 
 const QJ_FIELDS: &[&str] = &[
@@ -384,6 +387,7 @@ const QJ_FIELDS: &[&str] = &[
     "v2_job.preprocessed",
     "v2_job_queue.worker",
     "v2_job_queue.runnable_settings_handle",
+    "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
 ];
 
 impl UnifiedJob {
@@ -437,6 +441,7 @@ impl From<UnifiedJob> for Job {
                     priority: uj.priority,
                     labels: uj.labels,
                     preprocessed: uj.preprocessed,
+                    is_retry: uj.is_retry,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(
@@ -486,6 +491,7 @@ impl From<UnifiedJob> for Job {
                     preprocessed: uj.preprocessed,
                     runnable_settings_handle: uj.runnable_settings_handle,
                     labels: uj.labels,
+                    is_retry: uj.is_retry,
                 },
             )),
             t => panic!("job type {} not valid", t),
@@ -680,6 +686,7 @@ mod tests {
             created_after_queue: None,
             completed_after: None,
             completed_before: None,
+            status: None,
             success: None,
             running: Some(true),
             parent_job: None,
@@ -752,6 +759,7 @@ mod tests {
             created_after_queue: Some(specific_time),
             completed_after: None,
             completed_before: None,
+            status: None,
             success: None,
             running: None,
             parent_job: None,

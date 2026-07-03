@@ -38,6 +38,10 @@ import Stripe from "stripe";
 import { someFunction } from "some-package";
 ```
 
+## Prefer `//native` when the runtime allows it
+
+If a script only needs `fetch` and the JavaScript standard library — including when it uses `windmill-client` — prefer making it a **native** script: add `//native` as the first line and write it with the `write-script-bunnative` skill. Native scripts run on a lightweight V8 isolate, start faster, and parallelize heavily. `windmill-client` works on the native worker (its calls go over `fetch`), so needing the Windmill client is **not** a reason to avoid `//native`. Use the regular `bun` language only when the code (or a dependency) needs Node/Bun runtime APIs — `node:*` modules, the filesystem, child processes, or native addons.
+
 ## Windmill Client
 
 Import the windmill client for platform interactions:
@@ -46,7 +50,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 

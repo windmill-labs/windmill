@@ -9,12 +9,14 @@
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
 	import LabelsInput from './LabelsInput.svelte'
+	import InheritedLabels from './InheritedLabels.svelte'
 	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		summary?: string
 		path?: string
 		labels?: string[] | undefined
+		inheritedLabels?: string[] | undefined
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
@@ -24,6 +26,7 @@
 		summary = $bindable(''),
 		path = $bindable(''),
 		labels = $bindable(),
+		inheritedLabels = undefined,
 		editable = false,
 		onSaved,
 		kind = 'flow'
@@ -113,6 +116,7 @@
 							{/each}
 						</div>
 					{/if}
+					<InheritedLabels labels={inheritedLabels} />
 				</div>
 			</div>
 		{/snippet}
@@ -134,13 +138,22 @@
 							bind:value={editSummary}
 						/>
 					</Label>
-					<LabelsInput
-						bind:labels
-						class="-mt-4"
-						onchange={() => {
-							labelsDirty = true
-						}}
-					/>
+					<div class="-mt-4 flex items-center gap-2">
+						<LabelsInput
+							bind:labels
+							onchange={() => {
+								labelsDirty = true
+							}}
+						/>
+						{#if inheritedLabels?.length}
+							<InheritedLabels labels={inheritedLabels} />
+						{/if}
+					</div>
+					{#if inheritedLabels?.length}
+						<p class="-mt-5 text-2xs text-tertiary">
+							Gray labels are inherited from the folder and can only be edited there.
+						</p>
+					{/if}
 					<Label label="Path">
 						{#if own}
 							<Path

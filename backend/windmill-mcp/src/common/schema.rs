@@ -193,6 +193,14 @@ pub fn enrich_resource_schemas(
     }
 }
 
+/// The seven type names permitted by the JSON Schema draft 2020-12 `type` keyword.
+fn is_valid_json_schema_type(t: &str) -> bool {
+    matches!(
+        t,
+        "null" | "boolean" | "object" | "array" | "number" | "string" | "integer"
+    )
+}
+
 /// Transform a JSON schema for maximum MCP client compatibility.
 ///
 /// Ensures schemas conform to JSON Schema draft 2020-12 by:
@@ -200,9 +208,12 @@ pub fn enrich_resource_schemas(
 /// - Removing invalid non-array `enum` values
 /// - Stripping non-standard keywords (`originalType`, `format` with `resource-*` prefix)
 /// - Rewriting the Windmill pseudo-type `type: "resource"` to `type: "string"`
-/// - Fixing contradictory schemas (`type: "string"` with `properties` → `type: "object"`)
+/// - Fixing contradictory schemas (`type: "string"` with `properties` → `type: "object"`,
+///   or with `items` → `type: "array"`)
+/// - Dropping invalid `type` values (e.g. the empty string `""` Windmill emits for
+///   untyped fields) so the node validates as "any type"
 /// - Removing `default: null` when the type doesn't include `null`
-/// - Adding `type: "object"` to empty schemas that have no type
+/// - Adding `type: "object"` to property-bearing schemas that have no type
 pub fn make_schema_compatible(schema: &mut Value) {
     let Value::Object(obj) = schema else { return };
 
@@ -239,6 +250,55 @@ pub fn make_schema_compatible(schema: &mut Value) {
         }
     }
 
+    // 3b. Fix contradictory type: if `items` is present (and the node isn't an
+    // object), type must be "array". Windmill serializes a `list[...]` field as
+    // `type: "string"` with an `items` subschema; "string" + items is nonsense
+    // and leaves the element schema unreachable to the client.
+    if obj.contains_key("items") && !obj.contains_key("properties") {
+        match obj.get("type").and_then(|v| v.as_str()) {
+            Some("array") => {}
+            _ => {
+                obj.insert("type".to_string(), Value::String("array".to_string()));
+            }
+        }
+    }
+
+    // 3c. Drop invalid `type` values. Windmill emits `type: ""` for fields
+    // declared without an explicit type; the empty string (and any other name
+    // outside the draft 2020-12 type enum) makes a strict validator reject the
+    // whole schema (e.g. Anthropic's tool registration). Removing it leaves the
+    // node untyped, which accepts any value -- the meaning of an untyped field.
+    match obj.get("type") {
+        None => {}
+        Some(Value::String(s)) => {
+            if !is_valid_json_schema_type(s) {
+                obj.remove("type");
+            }
+        }
+        Some(Value::Array(arr)) => {
+            let filtered: Vec<Value> = arr
+                .iter()
+                .filter(|v| v.as_str().is_some_and(is_valid_json_schema_type))
+                .cloned()
+                .collect();
+            match filtered.len() {
+                0 => {
+                    obj.remove("type");
+                }
+                1 => {
+                    obj.insert("type".to_string(), filtered.into_iter().next().unwrap());
+                }
+                _ => {
+                    obj.insert("type".to_string(), Value::Array(filtered));
+                }
+            }
+        }
+        // `type` as null/number/bool/object is not a valid keyword value at all.
+        Some(_) => {
+            obj.remove("type");
+        }
+    }
+
     // 4. Convert integer to number
     if let Some(type_val) = obj.get_mut("type") {
         match type_val {
@@ -271,11 +331,6 @@ pub fn make_schema_compatible(schema: &mut Value) {
     // 6. Invalid enum values like `enum: null` are not valid draft 2020-12.
     if obj.get("enum").is_some_and(|enum_val| !enum_val.is_array()) {
         obj.remove("enum");
-    }
-
-    // 7. Ensure schemas with no type but with properties get type: "object"
-    if !obj.contains_key("type") && !obj.is_empty() {
-        obj.insert("type".to_string(), Value::String("object".to_string()));
     }
 
     // Recursively process nested schemas
@@ -781,5 +836,138 @@ mod tests {
             node["properties"]["outer"]["properties"]["inner"]["items"]["type"],
             json!("string")
         );
+    }
+
+    /// Recursively assert no `type` keyword anywhere in the schema carries an
+    /// empty string or a name outside the draft 2020-12 type enum -- the exact
+    /// shape Anthropic rejects with "input_schema: JSON Schema is invalid".
+    fn assert_all_types_valid(node: &Value) {
+        if let Some(obj) = node.as_object() {
+            match obj.get("type") {
+                Some(Value::String(s)) => {
+                    assert!(is_valid_json_schema_type(s), "invalid type string: {s:?}")
+                }
+                Some(Value::Array(arr)) => {
+                    for t in arr {
+                        let s = t.as_str().expect("type array entries must be strings");
+                        assert!(is_valid_json_schema_type(s), "invalid type entry: {s:?}");
+                    }
+                }
+                _ => {}
+            }
+            for v in obj.values() {
+                assert_all_types_valid(v);
+            }
+        } else if let Some(arr) = node.as_array() {
+            for v in arr {
+                assert_all_types_valid(v);
+            }
+        }
+    }
+
+    #[test]
+    fn drops_empty_type_string() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "", "description": "" }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        // Empty type is removed entirely (untyped == accepts any value); it is
+        // NOT re-typed to object, so a scalar value still validates.
+        assert!(schema["properties"]["value"].get("type").is_none());
+        assert_all_types_valid(&schema);
+    }
+
+    #[test]
+    fn infers_array_type_from_items() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "services": {
+                    "type": "string",
+                    "description": "An object parameter.",
+                    "items": { "type": "object" }
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["properties"]["services"]["type"], json!("array"));
+        assert_all_types_valid(&schema);
+    }
+
+    #[test]
+    fn items_does_not_override_object_with_properties() {
+        // A node carrying both `properties` and a stray `items` is an object,
+        // not an array -- the object signal wins.
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" }
+            },
+            "items": { "type": "string" }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["type"], json!("object"));
+    }
+
+    #[test]
+    fn filters_invalid_type_array_entries() {
+        let mut schema = json!({ "type": ["string", ""] });
+
+        make_schema_compatible(&mut schema);
+
+        // Sole surviving entry collapses to a bare string.
+        assert_eq!(schema["type"], json!("string"));
+    }
+
+    #[test]
+    fn drops_type_array_when_all_entries_invalid() {
+        let mut schema = json!({ "type": ["", "bogus"], "description": "x" });
+
+        make_schema_compatible(&mut schema);
+
+        assert!(schema.get("type").is_none());
+    }
+
+    #[test]
+    fn customer_services_field_repro() {
+        // Repro of the reported failure: a `list[object]` script param that
+        // Windmill serialized as `type: "string"` + `items`, whose element
+        // object carried an untyped `value` field (`type: ""`). Anthropic
+        // rejected the whole tool list with
+        // "tools.<N>.custom.input_schema: JSON Schema is invalid".
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "services": {
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "serviceTypeId": { "description": "", "type": "string" },
+                            "value": { "description": "", "type": "" }
+                        }
+                    },
+                    "description": "An object parameter.",
+                    "type": "string"
+                }
+            },
+            "required": ["services"]
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["properties"]["services"]["type"], json!("array"));
+        assert!(schema["properties"]["services"]["items"]["properties"]["value"]
+            .get("type")
+            .is_none());
+        assert_all_types_valid(&schema);
     }
 }

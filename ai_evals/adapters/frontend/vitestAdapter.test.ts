@@ -33,18 +33,30 @@ vi.mock('$lib/components/vscode', () => ({}))
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
+		getBenchmarkAppByPath,
 		getBenchmarkCompletedJob,
+		getBenchmarkCompletedJobResultMaybe,
+		getBenchmarkDatatableSchema,
+		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
+		getBenchmarkJobLogs,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
 		hasBenchmarkWorkspace,
+		listBenchmarkApps,
+		listBenchmarkDatatables,
+		listBenchmarkDrafts,
 		listBenchmarkFlows,
+		listBenchmarkJobs,
 		listBenchmarkScripts,
+		createBenchmarkFolder,
 		createBenchmarkHttpTrigger,
 		createBenchmarkSchedule,
 		previewBenchmarkSchedule,
+		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
-		runBenchmarkScriptPreview
+		runBenchmarkScriptPreview,
+		updateBenchmarkDraft
 	} = await import('./mockBackend')
 
 	function wrapService<T extends object>(target: T, overrides: Record<string, unknown>): T {
@@ -60,6 +72,31 @@ vi.mock('$lib/gen', async () => {
 
 	return {
 		...actual,
+		DraftService: wrapService(actual.DraftService, {
+			updateDraft: async (data: {
+				workspace: string
+				kind: any
+				path: string
+				requestBody?: { value?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? updateBenchmarkDraft(data)
+					: actual.DraftService.updateDraft(data),
+			getDraftForUser: async (data: { workspace: string; kind: any; path: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkDraftForUser(data)
+					: actual.DraftService.getDraftForUser(data),
+			listDrafts: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkDrafts(data.workspace)
+					: actual.DraftService.listDrafts(data)
+		}),
+		FolderService: wrapService(actual.FolderService, {
+			createFolder: async (data: { workspace: string; requestBody: { name: string } }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? createBenchmarkFolder(data.workspace, data.requestBody.name)
+					: actual.FolderService.createFolder(data)
+		}),
 		ScriptService: wrapService(actual.ScriptService, {
 			listScripts: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
@@ -149,13 +186,27 @@ vi.mock('$lib/gen', async () => {
 					args?: Record<string, unknown>
 					path?: string
 				}
-			}) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? runBenchmarkScriptPreview({
-							workspace: data.workspace,
-							requestBody: data.requestBody ?? {}
-						})
-					: actual.JobService.runScriptPreview(data),
+			}) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.JobService.runScriptPreview(data)
+				}
+				const requestBody = data.requestBody ?? {}
+				const database = requestBody.args?.database
+				// Datatable SQL runs as a `postgresql` preview against `datatable://<name>`.
+				// Execute it through the canned-SQL mock instead of linting it as a script.
+				if (
+					requestBody.language === 'postgresql' &&
+					typeof database === 'string' &&
+					database.startsWith('datatable://')
+				) {
+					return runBenchmarkDatatableSql({
+						workspace: data.workspace,
+						datatableName: database.slice('datatable://'.length),
+						sql: requestBody.content ?? ''
+					})
+				}
+				return runBenchmarkScriptPreview({ workspace: data.workspace, requestBody })
+			},
 			runFlowByPath: async (data: {
 				workspace: string
 				path: string
@@ -177,7 +228,39 @@ vi.mock('$lib/gen', async () => {
 					return job
 				}
 				return actual.JobService.getJob(data)
-			}
+			},
+			getCompletedJobResultMaybe: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkCompletedJobResultMaybe({ workspace: data.workspace, id: data.id })
+					: actual.JobService.getCompletedJobResultMaybe(data),
+			listJobs: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkJobs(data.workspace) ?? [])
+					: actual.JobService.listJobs(data),
+			getJobLogs: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkJobLogs(data.workspace, data.id)
+					: actual.JobService.getJobLogs(data)
+		}),
+		WorkspaceService: wrapService(actual.WorkspaceService, {
+			listDataTableTables: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkDatatables(data.workspace) ?? [])
+					: actual.WorkspaceService.listDataTableTables(data),
+			getDataTableTableSchema: async (data: {
+				workspace: string
+				datatableName: string
+				schemaName: string
+				tableName: string
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkDatatableSchema({
+							workspace: data.workspace,
+							datatableName: data.datatableName,
+							schemaName: data.schemaName,
+							tableName: data.tableName
+						})
+					: actual.WorkspaceService.getDataTableTableSchema(data)
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: async (data: { workspace: string; path: string }) =>
@@ -225,12 +308,20 @@ vi.mock('$lib/gen', async () => {
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.AppService.existsApp(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkAppByPath(data.workspace, data.path))
+					: actual.AppService.existsApp(data),
 			listApps: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.AppService.listApps(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkApps(data.workspace) ?? [])
+					: actual.AppService.listApps(data),
 			getAppByPath: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`App "${data.path}" not found in benchmark workspace`)
+					const app = getBenchmarkAppByPath(data.workspace, data.path)
+					if (!app) {
+						throw new Error(`App "${data.path}" not found in benchmark workspace`)
+					}
+					return app
 				}
 				return actual.AppService.getAppByPath(data)
 			}
@@ -382,5 +473,6 @@ benchmarkIt(
 			resetBenchmarkMockBackend()
 		}
 	},
-	600_000
+	// Full-suite runs (30+ cases at concurrency 2-3) routinely exceed 10 minutes.
+	7_200_000
 )

@@ -26,6 +26,7 @@
 		placeholder?: string | undefined
 		selectInputClass?: string
 		class?: string
+		error?: boolean
 		onClear?: () => void
 		excludedValues?: string[]
 		datatableAsPgResource?: boolean
@@ -47,6 +48,7 @@
 		placeholder = undefined,
 		selectInputClass = '',
 		class: className = '',
+		error = false,
 		onClear = undefined,
 		excludedValues = undefined,
 		datatableAsPgResource = false,
@@ -236,6 +238,7 @@
 			}}
 			items={collection}
 			clearable
+			{error}
 			class="text-clip grow min-w-0"
 			inputClass={selectInputClass}
 			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}

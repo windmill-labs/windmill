@@ -16,6 +16,7 @@ export { default as TabContent } from './tabs/TabContent.svelte'
 export { default as Tabs } from './tabs/Tabs.svelte'
 export { default as Breadcrumb } from './breadcrumb/Breadcrumb.svelte'
 export { default as FileInput } from './fileInput/FileInput.svelte'
+export { default as RadioCard } from './radioCard/RadioCard.svelte'
 export { default as Section } from '../Section.svelte'
 export { default as Url } from './Url.svelte'
 

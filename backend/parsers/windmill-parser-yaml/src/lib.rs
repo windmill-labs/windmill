@@ -50,7 +50,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                                         has_default: default.is_some(),
                                         default,
                                         oidx: None,
-                                    otyp_inferred: false,
+                                        otyp_inferred: false,
                                     })
                                 }
                             }
@@ -69,7 +69,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                             has_default: inv.default.is_some(),
                             default: inv.default.map(|v| json!(format!("$res:{}", v))),
                             oidx: None,
-                        otyp_inferred: false,
+                            otyp_inferred: false,
                         });
                     }
                 }
@@ -83,7 +83,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                                 has_default: false,
                                 default: None,
                                 oidx: None,
-                            otyp_inferred: false,
+                                otyp_inferred: false,
                             });
                         }
                     }
@@ -269,6 +269,12 @@ pub struct DelegateToGitRepoDetails {
     pub commit: Option<String>,
     pub inventories_location: Option<String>,
     pub vars_location: Option<String>,
+    /// Path (relative to the cloned repo root) of an `ansible.cfg` to use as the
+    /// effective config for the run. When set, Windmill points `ANSIBLE_CONFIG` at
+    /// it so the repo's own settings (roles paths, inventory plugins, callbacks…)
+    /// apply, and only injects the settings that depend on runtime state it alone
+    /// controls (temp/home dirs, vault password) on top.
+    pub ansible_cfg: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub install_requirements: bool,
 }
@@ -435,6 +441,25 @@ pub fn parse_delegate_to_git_repo(inner_content: &str) -> anyhow::Result<Delegat
     Ok(DelegateWithSSHAuth { delegate_to_git_repo_details: None, git_ssh_identity })
 }
 
+/// Each `vault_id` entry is interpolated verbatim into the generated `ansible.cfg`
+/// (`vault_identity_list = <a>,<b>,...`). A newline or other config-meaningful
+/// character would let a script inject arbitrary `[defaults]` directives (e.g.
+/// `library`, `action_plugins`) and execute attacker-controlled code on the worker,
+/// and a `,` would smuggle in an extra entry. Restrict entries to the `label@source`
+/// charset so neither is possible.
+pub fn validate_vault_id(value: &str) -> anyhow::Result<()> {
+    let is_valid = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '@'));
+    if !is_valid {
+        return Err(anyhow!(
+            "Invalid vault_id `{value}`: expected `label@filename` using only letters, digits and the characters `.`, `_`, `-`, `/`, `@`"
+        ));
+    }
+    Ok(())
+}
+
 pub fn parse_ansible_reqs(
     inner_content: &str,
 ) -> anyhow::Result<(String, Option<AnsibleRequirements>, String)> {
@@ -528,6 +553,7 @@ pub fn parse_ansible_reqs(
                         let Yaml::String(filename) = f else {
                             return Err(anyhow!("The elements of the vault_id field should be strings in the format: `label@filename`"));
                         };
+                        validate_vault_id(filename)?;
                         ret.vault_id.push(filename.to_string());
                     }
                 }
@@ -609,6 +635,10 @@ fn extract_delegate_to_git_repo_details(value: &Yaml) -> Option<DelegateToGitRep
                 .get(&Yaml::String("vars_location".to_string()))
                 .and_then(|s| s.as_str())
                 .map(|s| s.to_string());
+            let ansible_cfg = v
+                .get(&Yaml::String("ansible_cfg".to_string()))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
             let install_requirements = v
                 .get(&Yaml::String("install_requirements".to_string()))
                 .and_then(|s| s.as_bool())
@@ -620,6 +650,7 @@ fn extract_delegate_to_git_repo_details(value: &Yaml) -> Option<DelegateToGitRep
                 commit,
                 inventories_location,
                 vars_location,
+                ansible_cfg,
                 install_requirements,
             });
         }
@@ -1030,6 +1061,39 @@ delegate_to_git_repo:
     }
 
     #[test]
+    fn test_parse_delegate_ansible_cfg() {
+        let p = r#"
+---
+delegate_to_git_repo:
+  resource: u/admin/repo
+  playbook: site.yml
+  ansible_cfg: config/ansible.cfg
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let d = reqs.unwrap().delegate_to_git_repo.unwrap();
+        assert_eq!(d.ansible_cfg.as_deref(), Some("config/ansible.cfg"));
+    }
+
+    #[test]
+    fn test_parse_delegate_ansible_cfg_absent() {
+        let p = r#"
+---
+delegate_to_git_repo:
+  resource: u/admin/repo
+  playbook: site.yml
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let d = reqs.unwrap().delegate_to_git_repo.unwrap();
+        assert_eq!(d.ansible_cfg, None);
+    }
+
+    #[test]
     fn test_parse_install_requirements_true() {
         let p = r#"
 ---
@@ -1050,5 +1114,56 @@ delegate_to_git_repo:
             d.inventories_location.as_deref(),
             Some("inventories/{{ env }}")
         );
+    }
+
+    #[test]
+    fn test_parse_vault_id_valid() {
+        let p = r#"
+---
+vault_id:
+  - dev@vault_pass_dev.txt
+  - prod@./secrets/prod-pass
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        assert_eq!(
+            reqs.unwrap().vault_id,
+            vec![
+                "dev@vault_pass_dev.txt".to_string(),
+                "prod@./secrets/prod-pass".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_vault_id_rejects_newline_injection() {
+        let p = "---\nvault_id:\n  - \"default@/tmp/wm/x\\nlibrary = /tmp/wm/evil_modules\"\n---\n- name: Test\n  hosts: all\n";
+        assert!(parse_ansible_reqs(p).is_err());
+    }
+
+    #[test]
+    fn test_parse_vault_id_rejects_comma() {
+        let p = r#"
+---
+vault_id:
+  - "a@b,c@d"
+---
+- name: Test
+  hosts: all
+"#;
+        assert!(parse_ansible_reqs(p).is_err());
+    }
+
+    #[test]
+    fn test_validate_vault_id() {
+        assert!(validate_vault_id("default@/tmp/wm/pass").is_ok());
+        assert!(validate_vault_id("dev@pass.txt").is_ok());
+        assert!(validate_vault_id("").is_err());
+        assert!(validate_vault_id("a@b\nlibrary = /evil").is_err());
+        assert!(validate_vault_id("a@b,c@d").is_err());
+        assert!(validate_vault_id("a@b c").is_err());
+        assert!(validate_vault_id("a@b=c").is_err());
     }
 }

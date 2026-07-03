@@ -49,6 +49,8 @@ pub enum AIProvider {
     OpenAI,
     #[serde(rename = "azure_openai")]
     AzureOpenAI,
+    #[serde(rename = "azure_foundry")]
+    AzureFoundry,
     Anthropic,
     Mistral,
     DeepSeek,
@@ -114,9 +116,12 @@ impl AIProvider {
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
-            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => Err(Error::BadRequest(
-                format!("{:?} provider requires a base URL in the resource", p),
-            )),
+            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI | AIProvider::AzureFoundry) => {
+                Err(Error::BadRequest(format!(
+                    "{:?} provider requires a base URL in the resource",
+                    p
+                )))
+            }
             AIProvider::AWSBedrock => {
                 // AWS Bedrock uses the SDK directly, not HTTP base URL
                 Err(Error::internal_err(
@@ -131,13 +136,16 @@ impl AIProvider {
         matches!(self, AIProvider::Anthropic)
     }
 
-    /// Check if this provider/URL combination represents Azure OpenAI
-    pub fn is_azure_openai(&self, base_url: &str) -> bool {
+    /// Check whether this provider/URL combination uses Azure conventions
+    /// (the `api-key` auth header and Azure URL building). This covers Azure
+    /// OpenAI, Azure AI Foundry, and the `OpenAI` provider pointed at an Azure
+    /// base path override.
+    pub fn is_azure(&self, base_url: &str) -> bool {
         (matches!(self, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL)
-            || matches!(self, AIProvider::AzureOpenAI)
+            || matches!(self, AIProvider::AzureOpenAI | AIProvider::AzureFoundry)
     }
 
-    /// Build Azure OpenAI URL with deployment model path
+    /// Build an Azure-style URL (Azure OpenAI / Azure AI Foundry) for the given path
     pub fn build_azure_openai_url(base_url: &str, path: &str) -> String {
         let base_url = base_url.trim_end_matches('/');
         if base_url.ends_with("/openai") {
@@ -177,6 +185,8 @@ impl TryFrom<&str> for AIProvider {
 pub struct ProviderConfig {
     pub resource_path: String,
     pub models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_search_enabled: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

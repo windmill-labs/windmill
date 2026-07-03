@@ -25,6 +25,12 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
   );
   const emitProgress = process.env.WMILL_FRONTEND_AI_EVAL_PROGRESS === "1";
   const verbose = process.env.WMILL_FRONTEND_AI_EVAL_VERBOSE === "1";
+  const executionOnly =
+    process.env.WMILL_FRONTEND_AI_EVAL_EXECUTION_ONLY === "1";
+  const judgeModel =
+    process.env.WMILL_FRONTEND_AI_EVAL_SKIP_JUDGE === "1" || executionOnly
+      ? null
+      : DEFAULT_JUDGE_MODEL;
   const model = resolveEvalModel(
     mode,
     process.env.WMILL_FRONTEND_AI_EVAL_MODEL,
@@ -48,7 +54,8 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
     cases: selectedCases,
     runs,
     runModel,
-    judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeModel,
+    executionOnly,
     concurrency: verbose ? 1 : undefined,
     verbose,
     onProgress: emitProgress
@@ -60,7 +67,7 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
     mode,
     runs,
     runModel,
-    judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeModel,
     caseResults,
   });
 }
@@ -96,7 +103,12 @@ async function getModeRunner(
 }
 
 function parseMode(value: string | undefined): FrontendBenchmarkMode {
-  if (value === "flow" || value === "app" || value === "script" || value === "global") {
+  if (
+    value === "flow" ||
+    value === "app" ||
+    value === "script" ||
+    value === "global"
+  ) {
     return value;
   }
   throw new Error(`Unsupported frontend benchmark mode: ${String(value)}`);

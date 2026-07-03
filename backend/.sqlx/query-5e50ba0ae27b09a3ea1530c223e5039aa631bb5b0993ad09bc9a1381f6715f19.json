@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO materialized_partition\n           (workspace_id, asset_kind, asset_path, partition, status,\n            snapshot_id, row_count, job_id, materialized_at, error)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)\n         ON CONFLICT (workspace_id, asset_kind, asset_path, partition)\n         DO UPDATE SET status = EXCLUDED.status,\n                       snapshot_id = EXCLUDED.snapshot_id,\n                       row_count = EXCLUDED.row_count,\n                       job_id = EXCLUDED.job_id,\n                       materialized_at = now(),\n                       error = EXCLUDED.error",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Text",
+        {
+          "Custom": {
+            "name": "materialization_status",
+            "kind": {
+              "Enum": [
+                "running",
+                "materialized",
+                "failed"
+              ]
+            }
+          }
+        },
+        "Int8",
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5e50ba0ae27b09a3ea1530c223e5039aa631bb5b0993ad09bc9a1381f6715f19"
+}

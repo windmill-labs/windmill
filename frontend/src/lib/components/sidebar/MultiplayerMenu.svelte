@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
+	import { onDestroy } from 'svelte'
 
 	import { enterpriseLicense, userStore, workspaceStore, awarenessStore } from '$lib/stores'
 
@@ -23,7 +24,17 @@
 			url: $page.url.pathname
 		})
 	}
+	function disconnectWorkspace() {
+		if (wsProvider) {
+			wsProvider.destroy()
+			wsProvider = undefined
+		}
+		connected = false
+		awareness = undefined
+	}
 	async function connectWorkspace(workspace: string) {
+		disconnectWorkspace()
+
 		let token: string | undefined
 		try {
 			token = await signMultiplayerRequest(workspace)
@@ -46,11 +57,18 @@
 
 		function setPeers() {
 			if (!awareness) return
-			$awarenessStore = Object.fromEntries(
-				Array.from(awareness.getStates().values())
-					.filter((x) => x.name)
-					.map((x) => [x.name, x.url])
-			)
+			const states = Array.from(awareness.getStates().values()).filter((x) => x.name)
+			const peerMap: Record<string, string> = {}
+			for (const state of states) {
+				if (state.name === $userStore?.username) {
+					// For current user, always use this tab's URL to avoid multi-tab flickering
+					peerMap[state.name] = $page.url.pathname
+				} else if (!Object.prototype.hasOwnProperty.call(peerMap, state.name)) {
+					// For other users, keep first seen URL per username (stable dedup)
+					peerMap[state.name] = state.url
+				}
+			}
+			$awarenessStore = peerMap
 		}
 
 		setPeers()
@@ -64,6 +82,10 @@
 	})
 	run(() => {
 		$enterpriseLicense && $workspaceStore && connectWorkspace($workspaceStore)
+	})
+
+	onDestroy(() => {
+		disconnectWorkspace()
 	})
 
 	let peers = $derived(

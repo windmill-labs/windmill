@@ -3,8 +3,9 @@
     Create a draft Bun script at `f/evals/global/greet_user`.
     It should take a string `name` input and return `Hello, ${name}!`.
     Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
   runtime:
-    maxTurns: 8
+    maxTurns: 10
   validate:
     draftCountExactly: 1
     requiredDrafts:
@@ -618,3 +619,692 @@
     - creates a Slack resource draft that references the secret variable instead of embedding the token
     - keeps both drafts under a sensible eval/global Slack-related path
     - does not create schedules, triggers, or deployed workspace changes
+
+- id: global-test19-datatable-not-configured-asks-to-set-up
+  prompt: |-
+    Here are two newsletter signups: alice@example.com and bob@example.com.
+    Save them into a workspace data table for me.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - checks which data tables exist in the workspace before acting
+    - recognizes that no data table is configured in this workspace
+    - explains that a data table must first be set up by the user in the workspace settings (Data Tables) and is not created via SQL
+    - does not run SQL, write a script, or invent a data table to work around the missing configuration
+    - tells the user to configure a data table and then try again
+
+- id: global-test20-datatable-no-hallucinated-main
+  prompt: |-
+    Pull the latest rows from the orders table in our data table so I can see recent orders.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - checks which data tables exist in the workspace before querying
+    - recognizes that no data table is configured in this workspace
+    - does not assume a data table named "main" (or any other name) exists
+    - does not run SQL against a guessed data table or fabricate order rows
+    - tells the user they need to set up a data table in the workspace settings first
+
+- id: global-test21-datatable-list-summarize
+  prompt: |-
+    What tables do we have in our workspace data table? Just give me the list.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - get_datatable_table_schema
+      - exec_datatable_sql
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - lists the tables available in the workspace data table (orders and customers)
+    - answers from the data table listing rather than fabricating table names
+    - does not fetch column details or run SQL just to produce a table list
+
+- id: global-test22-datatable-inspect-columns
+  prompt: |-
+    What columns does the orders table have in our workspace data table?
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_datatable_table_schema
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the orders table schema in the workspace data table
+    - reports the orders columns (such as id, customer_id, total, status, created_at)
+    - answers from the retrieved schema rather than guessing the columns
+
+- id: global-test23-datatable-query-select
+  prompt: |-
+    Show me the orders in our workspace data table, including their status and total.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - select
+  skipJudge: true
+  judgeChecklist:
+    - runs a SELECT query against the orders table in the workspace data table
+    - reports the orders returned by the query back to the user instead of fabricating data
+    - does not tell the user to set up a data table, since one already exists
+
+- id: global-test24-datatable-create-table
+  prompt: |-
+    Add a new table called refunds to our workspace data table, with an order id and a refund amount.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - create table
+  skipJudge: true
+  judgeChecklist:
+    - creates the refunds table with a plain CREATE TABLE statement on the data table
+    - includes an order id and a refund amount column
+    - treats creating the table as a normal SQL statement and does not claim a separate registration step is needed
+    - does not write a script to create the table
+
+- id: global-test25-datatable-mutate-rows
+  prompt: |-
+    Mark order number 2 as shipped in our workspace data table.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    # Headroom for inspect-schema -> UPDATE -> verify; the in-memory engine now
+    # persists the write, so verification confirms on the first try (no loop).
+    maxTurns: 12
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - update
+          - insert into
+  skipJudge: true
+  judgeChecklist:
+    - runs an UPDATE on the orders table setting the status of order id 2 to shipped
+    - targets only order number 2 rather than rewriting the whole table
+    - confirms the change back to the user
+
+- id: global-test26-datatable-script-sdk
+  prompt: |-
+    Write a script that reads our workspace data table and returns the total revenue across all orders.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        valueIncludes:
+          - wmill.datatable(
+  toolExpect:
+    requiredToolsUsed:
+      - get_instructions
+      - write_script
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - deploy_workspace_item
+      - delete_workspace_item
+  # The judge has no datatable SDK reference and wrongly penalizes correct
+  # wmill.datatable() tagged-template usage, so rely on the deterministic checks:
+  # required get_instructions + write_script, forbidden exec_datatable_sql, and a
+  # draft that contains wmill.datatable(.
+  skipJudge: true
+  judgeChecklist:
+    - writes a script (not a chat-time SQL execution) that reads the workspace data table at runtime
+    - uses the wmill.datatable() SDK to query the orders table and sum the order totals
+    - returns the total revenue from the script
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test27-list-recent-runs
+  prompt: |-
+    What are the most recent runs in this workspace? Give me a quick rundown of what ran and whether it succeeded.
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+  # Read-only job inspection produces no draft, so the global judge (which only
+  # sees the drafts artifact) would score it empty — validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - lists the recent runs from the workspace rather than fabricating them
+    - summarizes each run's path and success/failure from the returned data
+
+- id: global-test28-fetch-failed-run-logs
+  prompt: |-
+    The run with id 01920000-0000-7000-8000-0000000000f1 failed. Pull its logs and tell me what went wrong.
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_job_logs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+    toolCallArgs:
+      - tool: get_job_logs
+        field: id
+        stringIncludesAnyOf:
+          - 01920000-0000-7000-8000-0000000000f1
+  # Same as above — no draft is produced, so rely on the deterministic tool-use
+  # and argument checks rather than the judge.
+  skipJudge: true
+  judgeChecklist:
+    - fetches the logs for the requested job id
+    - explains the failure from the returned logs (connection refused to the upstream API)
+
+# --- Documentation search (search_docs) ---
+# Pure product-knowledge questions: the assistant should consult the docs via
+# search_docs and answer conversationally, not draft or mutate anything. No
+# draft is produced, so the global judge is skipped and we validate tool use.
+
+- id: global-docs-ai-agent-step
+  prompt: |-
+    Does Windmill support a flow step where an LLM decides which of my scripts to call based on the input?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-retry-step
+  prompt: |-
+    How does automatic retry work for a flow step that calls a flaky API?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-key-value-store
+  prompt: |-
+    Can I use a Redis-style key-value store from my Windmill scripts, and how?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-cron-schedule-format
+  prompt: |-
+    How do Windmill's cron schedules work, and what format does the schedule expression use?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+# --- Raw app on a large project (context-usage benchmark) ---
+# These cases run against the deliberately large `analytics_dashboard` raw-app
+# fixture (~20 frontend files incl. a 5k-line data module, plus backend runnables).
+# They exist to measure how much context the global chat consumes when working in a
+# big raw app: test29 is a read-heavy debugging hunt, test30 is a small edit baseline.
+# tokenUsage is recorded per run, so the same cases re-run after a read-tool change
+# (the read_app_file cap + offset/limit paging) quantify the optimization. skipJudge:
+# the judge only sees the drafts artifact and cannot run the app, so we validate
+# deterministically.
+
+- id: global-test29-raw-app-debug-large
+  prompt: |-
+    The analytics dashboard app at `f/evals/global/analytics_dashboard` has a bug:
+    the Revenue Summary tile shows a total that is lower than the per-order line
+    totals and the per-region breakdown. Track down what is computing revenue
+    incorrectly and fix it. Keep the change as an AI draft only; do not deploy or
+    save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 20
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by either reading them directly
+      # or grepping for the revenue calculation.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the dashboard app's files to locate the revenue calculation
+    - fixes the per-order revenue so it multiplies unit price by quantity
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test30-raw-app-small-edit-large
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, change the main
+    page heading from "Operations Console" to "Revenue Overview". Leave everything
+    else unchanged. Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "Revenue Overview"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the main page heading to Revenue Overview
+    - does not change other dashboard behavior
+    - leaves the result as an AI draft only
+
+- id: global-test31-raw-app-debug-inspect-data
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` is reporting
+    revenue totals that look too low. Inspect the app's files — both the sample
+    order data module and the revenue calculation — to work out whether the bug is
+    in the data or in the calculation, then fix the actual cause. Keep the change as
+    an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects both the sample order data module and the revenue aggregation logic
+    - identifies the per-order revenue bug and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
+
+- id: global-test32-raw-app-cross-file-consistency
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` shows revenue
+    totals that disagree between the Revenue Summary tile, the orders table, and the
+    regional breakdown. Investigate how each of those computes revenue, work out
+    which calculation is wrong, and fix it. Keep the change as an AI draft only; do
+    not deploy or save it.
+  # Cross-file investigation: forces the model through several overlapping files
+  # (the summary's aggregation helper, the orders table, the regional breakdown) —
+  # a realistic multi-file read load that exercises the read_app_file cap.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 24
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the revenue calculation behind the summary tile, the orders table, and the regional breakdown
+    - identifies that the per-order revenue helper omits quantity and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
+
+- id: global-test33-raw-app-rename-across-files
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, rename the
+    `formatCurrency` helper to `formatMoney` everywhere it is defined, imported, and
+    called. Leave the separate `formatCurrencyPrecise` helper exactly as it is. Keep
+    the change as an AI draft only; do not deploy or save it.
+  # Find-all-usages rename: formatCurrency is defined once and called in 6 places
+  # spread across 4 component files (and imported in 4). Locating every usage is the
+  # exact task search_app is meant to make cheap — one grep returns all file:line
+  # rows instead of reading each component whole. valueExcludes "formatCurrency("
+  # asserts the definition and all call sites were renamed while tolerating the
+  # preserved formatCurrencyPrecise (which is never followed by "(").
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "export function formatMoney"
+          - "formatMoney("
+        valueExcludes:
+          - "formatCurrency("
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the formatCurrency definition, imports, and all call sites to formatMoney
+    - leaves the unrelated formatCurrencyPrecise helper unchanged
+    - leaves the result as an AI draft only
+
+# --- Path selection (u/<user> vs f/<folder>) ---
+# These cases assert how the assistant picks a workspace path when the user gives
+# none: a bare name defaults to the personal scope `u/<user>/`, an existing folder
+# whose purpose matches is used, a non-admin targets a writable folder and never a
+# read-only one, and shared intent with no matching folder asks rather than invents.
+# Each depends on the seeded `user` fixture (username / is_admin / folders /
+# folders_read) so the prompt's folder guidance and `u/{username}` are well-formed.
+
+- id: global-path1-bare-name-defaults-to-personal
+  prompt: |-
+    Stage a quick draft helper that takes a string and returns it trimmed of
+    leading and trailing whitespace. Just keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        pathStartsWith: u/admin/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - stages a single script draft for a trim helper
+    - defaults the path to the current user's personal scope (u/admin/...) since no path or folder was given
+    - does not invent an f/<folder> path
+    - leaves the result as a draft only
+
+- id: global-path2-match-existing-folder
+  prompt: |-
+    Draft a flow for the marketing team's weekly campaign report.
+    It should take a week number and return a short summary string.
+    Keep it as a draft only.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_folders.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        pathStartsWith: f/marketing/
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - drafts a flow for the marketing campaign report
+    - places it in the existing marketing folder (f/marketing/...) rather than the personal scope or an invented folder
+    - leaves the result as a draft only
+
+- id: global-path3-shared-intent-unknown-folder-asks
+  prompt: |-
+    Put together a draft onboarding checklist flow for the People Ops team to use
+    when a new hire joins. Keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_folders.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - askUserQuestion
+    forbiddenToolsUsed:
+      - write_flow
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - recognizes the request implies shared/team work but names no existing folder (none of marketing/data_engineering/shared_utils fit People Ops)
+    - asks which folder to use instead of guessing or inventing one
+    - does not create a draft until the folder is known
+
+- id: global-path4-nonadmin-avoids-readonly-folder
+  prompt: |-
+    Draft a small flow that returns today's date as an ISO string, and stage it in
+    one of our shared team folders. Keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_bob_nonadmin_teams.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        pathStartsWith: f/team_a/
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/team_b/
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - drafts a flow that returns the current date as an ISO string
+    - places it in team_a (writable by this non-admin user) and not team_b (read-only)
+    - leaves the result as a draft only
+
+- id: global-test-pipeline-create-node
+  prompt: |-
+    Set up the first step of a data pipeline at `f/evals/global/orders_ingest`.
+    On a schedule, it should pull raw orders and land them in a managed DuckLake
+    table so later steps can build on it. Keep it as an AI draft only — don't
+    deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/orders_ingest
+        valueIncludes:
+          - pipeline
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - builds a data pipeline node as a script (not a flow)
+    - marks the script as a pipeline member with the pipeline annotation in the script's comment syntax (`-- pipeline` for a DuckDB/SQL node, not `// pipeline`)
+    - declares a schedule trigger and writes its output to a managed DuckLake table
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test-pipeline-two-node-chain
+  prompt: |-
+    Build a small data pipeline in the `f/evals/global` folder: one step that
+    ingests orders into a DuckLake table, and a second step that reads that table
+    and writes a daily order-count rollup table. Wire the second step to run off
+    the first step's output. Keep everything as drafts — don't deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 14
+  validate:
+    draftCountAtLeast: 2
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates two data pipeline nodes as scripts (not a flow) in f/evals/global
+    - both scripts carry the pipeline annotation in their comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
+    - the first ingests orders into a DuckLake table
+    - the second reads that same table and writes a daily rollup, wired to the first step's output asset
+    - leaves both as AI drafts without deploying
+
+- id: global-path5-create-folder-then-draft
+  prompt: |-
+    Create a new shared folder called "analytics" for our data work, then draft a
+    script in it that returns the current timestamp as an ISO string. Keep the
+    script as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        pathStartsWith: f/analytics/
+  toolExpect:
+    requiredToolsUsed:
+      - create_folder
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - creates a new shared folder named "analytics" via create_folder
+    - drafts a script placed in that folder (f/analytics/...) returning an ISO timestamp
+    - leaves the script as a draft only

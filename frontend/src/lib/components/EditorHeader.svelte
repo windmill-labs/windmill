@@ -237,6 +237,7 @@
 			value={summary ?? ''}
 			placeholder="Add a summary..."
 			editable={summaryEditable}
+			commitOnInput
 			size="sm"
 			onSave={handleSummarySave}
 			textClass="text-xs font-semibold text-emphasis leading-tight"

@@ -104,25 +104,25 @@ export async function requireLogin(
           // 403 means the token authenticated but lacks scope — re-issuing
           // won't help. Keep this distinct from the 401 message so the user
           // doesn't waste time reproducing the token.
-          log.info(colors.red(
+          log.infoStderr(colors.red(
             `Permission denied: the token is valid but lacks the required scope.${bodyStr ? `\n${bodyStr}` : ""}`
           ));
         } else if (status === 401) {
-          log.info(colors.red(
+          log.infoStderr(colors.red(
             `Could not authenticate with the provided credentials. Please check your --token and --base-url and try again.${bodyStr ? `\n${bodyStr}` : ""}`
           ));
         } else {
-          log.info(colors.red(
+          log.infoStderr(colors.red(
             `Request failed (${status ?? "unknown"}): ${bodyStr}`
           ));
         }
         return process.exit(1);
       }
-      log.info(colors.red("Could not authenticate with the provided credentials. Please check your --token and --base-url and try again."));
+      log.infoStderr(colors.red("Could not authenticate with the provided credentials. Please check your --token and --base-url and try again."));
       return process.exit(1);
     }
 
-    log.info(
+    log.infoStderr(
       "! Could not reach API given existing credentials. Attempting to reauth..."
     );
     const newToken = await loginInteractive(workspace.remote);

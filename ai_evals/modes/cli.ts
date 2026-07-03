@@ -106,6 +106,7 @@ export function createCliModeRunner(
           toolsUsed: run.trace.toolsUsed.map((entry) => entry.tool),
           skillsInvoked: run.trace.skillsInvoked,
           tokenUsage: run.tokenUsage ?? null,
+          finalContextTokens: run.finalContextTokens ?? null,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -122,6 +123,7 @@ export function createCliModeRunner(
           toolsUsed: [],
           skillsInvoked: [],
           tokenUsage: null,
+          finalContextTokens: null,
         };
       } finally {
         await rm(workspaceDir, { recursive: true, force: true });

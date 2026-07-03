@@ -5,7 +5,6 @@ type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 	type?: U
 	time?: number
 	starred?: boolean
-	has_draft?: boolean
 }
 
 type TableScript = TableItem<Script, 'script'>

@@ -16,6 +16,7 @@ export const SPECIAL_MODULE_IDS = {
 	FAILURE: 'failure'
 } as const
 import { get } from 'svelte/store'
+import type { PasteAttachment } from './pasteTokens'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -421,6 +422,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
 			workspaceItemsContext += `- type: flow, path: ${context.path}\n`
+		} else if (context.type === 'workspace_app') {
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
+			}
+			workspaceItemsContext += `- type: raw_app, path: ${context.path}\n`
 		}
 	}
 
@@ -456,6 +462,9 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	role: 'user'
 	index: number // Used to match index with actual chat messages
 	error?: boolean
+	// Collapsed big-paste blobs referenced by tokens in `content`. Lets the
+	// bubble render/expand chips; the LLM message stores the expanded text.
+	pastes?: PasteAttachment[]
 }
 
 export type CreatedResourceTriggerKind =
@@ -510,9 +519,33 @@ export type ToolDisplayMessage = {
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
+	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
+	reasoning?: string
+	/**
+	 * True only on the synthetic live message appended while tokens stream
+	 * (see AIChat.svelte). Finalized messages never set it — without the flag,
+	 * a reasoning-only message (thinking that led straight to a tool call)
+	 * would look like it is still streaming forever.
+	 */
+	streaming?: boolean
 }
 
-export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
+/**
+ * Compaction boundary: replaces the summarized prefix in BOTH displayMessages
+ * and the API messages (where it is a plain user message). It carries no index
+ * because it is never a restart target — only the surviving tail's user
+ * messages are rewound to.
+ */
+export type SummaryDisplayMessage = {
+	role: 'summary'
+	content: string
+}
+
+export type DisplayMessage =
+	| UserDisplayMessage
+	| ToolDisplayMessage
+	| AssistantDisplayMessage
+	| SummaryDisplayMessage
 
 // A tool message whose askUserQuestion is still awaiting an answer: the AI loop
 // is paused on the user. Drives the question card's interactivity, the
@@ -715,6 +748,11 @@ export interface Tool<T> {
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
+	/** Streamed reasoning/thinking deltas, rendered as a collapsible block in the chat. */
+	onReasoningDelta?: (token: string) => void
+	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
+	 * no summary text is returned (e.g. OpenAI reasoning models). */
+	onReasoningStart?: () => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
 	requestUserQuestion?: (
@@ -903,14 +941,20 @@ export async function buildSchemaForTool(
 			throw new Error(`Invalid flow inputs schema: ${invalidProperties.join(', ')}`)
 		}
 
-		toolDef.function.parameters = { ...schema, additionalProperties: false }
+		// Anthropic requires input_schema.type to be present; flows with no inputs
+		// can produce a sparse schema (e.g. { order: [] }) lacking it.
+		toolDef.function.parameters = { type: 'object', ...schema, additionalProperties: false }
 
 		// recursively normalize provider-incompatible schema fragments
 		normalizeToolParameterSchema(toolDef.function.parameters)
 
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
 		const model = getCurrentModel()
-		if (model.provider === 'openai' || model.provider === 'azure_openai') {
+		if (
+			model.provider === 'openai' ||
+			model.provider === 'azure_openai' ||
+			model.provider === 'azure_foundry'
+		) {
 			toolDef.function.strict = false
 		}
 		return true

@@ -537,6 +537,11 @@ impl PyV {
                 &v,
                 "--python-preference=only-managed",
                 "--no-bin",
+                // Compile the runtime's stdlib to bytecode at install time. The
+                // runtime is mounted read-only into the job nsjail, so without
+                // precompiled .pyc Python would recompile ~stdlib from source on
+                // every job (and can never persist it). Requires uv >= 0.9.25.
+                "--compile-bytecode",
             ])
             // TODO: Do we need these?
             .envs([
@@ -545,6 +550,13 @@ impl PyV {
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            child_cmd.env("SSL_CERT_FILE", cert_path);
+        }
+        if *NATIVE_CERT {
+            child_cmd.env("UV_NATIVE_TLS", "true");
+        }
 
         if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
             child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);

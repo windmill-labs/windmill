@@ -27,6 +27,10 @@ pub struct StandardTriggerQuery {
     pub is_flow: Option<bool>,
     pub path_start: Option<String>,
     pub label: Option<String>,
+    /// When true, append per-user draft rows whose path has no
+    /// deployed trigger of this kind. Same gate as scripts/flows/apps:
+    /// non-operators, offset 0, no narrowing filters.
+    pub include_draft_only: Option<bool>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -42,6 +46,22 @@ pub struct BaseTrigger {
     pub extra_perms: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when this row is a per-user draft with no deployed trigger
+    /// at the same path. Set by `list_triggers` when the response
+    /// includes synthesized draft-only rows (gated on
+    /// `include_draft_only`). Always `None`/omitted on deployed rows
+    /// fetched from the trigger table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// either layered over a deployed trigger (EXISTS subquery in the
+    /// list SQL) or a synthesized draft-only row. Drives the `*` suffix
+    /// on the trigger list pages. `None`/omitted for callers that list
+    /// without an authed context (e.g. workspace export).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -192,6 +212,7 @@ impl Default for StandardTriggerQuery {
             path_start: None,
             is_flow: None,
             label: None,
+            include_draft_only: None,
         }
     }
 }
@@ -260,6 +281,7 @@ mod tests {
             is_flow: None,
             path_start: None,
             label: None,
+            include_draft_only: None,
         };
         assert_eq!(q.offset(), 100);
         assert_eq!(q.limit(), 50);
@@ -274,6 +296,7 @@ mod tests {
             is_flow: None,
             path_start: None,
             label: None,
+            include_draft_only: None,
         };
         assert_eq!(q.offset(), 0);
         assert_eq!(q.limit(), 100);

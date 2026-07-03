@@ -15,7 +15,7 @@
 	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
 	import ChatInput from '$lib/components/chat/ChatInput.svelte'
 	import { parseStreamDeltas } from '$lib/components/chat/utils'
-	import { randomUUID } from '$lib/components/flows/conversations/FlowChatManager.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Message {
 		id: string

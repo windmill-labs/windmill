@@ -163,14 +163,14 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini gnupg lsb-release \
+    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 tini gnupg libargon2-1 \
     && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install latest PostgreSQL client (pg_dump) from official PostgreSQL apt repository
 RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release; echo "$VERSION_CODENAME")-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client \
     && apt-get clean \
@@ -184,11 +184,11 @@ RUN if [ "$WITH_GIT" = "true" ]; then \
     else echo 'Building the image without git'; fi;
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
-    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && apt-get clean \
+    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu72 -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && apt-get clean \
     && rm -rf /var/lib/apt/lists/* && \
     dpkg --install 'pwsh.deb' && \
     rm 'pwsh.deb'; \
-    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O powershell.tar.gz "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-arm64.tar.gz" && apt-get clean \
+    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update -y && apt install libicu72 -y && wget -O powershell.tar.gz "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-arm64.tar.gz" && apt-get clean \
     && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /opt/microsoft/powershell/7 && \
     tar zxf powershell.tar.gz -C /opt/microsoft/powershell/7 && \
@@ -233,11 +233,14 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.11.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
-RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11
-RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY
+# --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
+# under the read-only nsjail runtime mount (uv >= 0.9.25). The copy below MUST preserve
+# timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11 --compile-bytecode
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
 
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
@@ -259,7 +262,7 @@ RUN export GOCACHE=/tmp/build_cache/go && \
 # chmod a+rw adds read+write WITHOUT removing execute bits (755->777, 644->666)
 # Note: uv python install only creates py_runtime, not uv cache - we create uv/go dirs for runtime
 RUN mkdir -p /tmp/windmill/cache && \
-    cp -r /tmp/build_cache/* /tmp/windmill/cache/ && \
+    cp -r --preserve=timestamps /tmp/build_cache/* /tmp/windmill/cache/ && \
     chmod -R a+rw /tmp/windmill/cache && \
     rm -rf /tmp/build_cache && \
     mkdir -p -m 777 /tmp/windmill/cache/uv /tmp/windmill/cache/go /tmp/windmill/cache/rustup /tmp/windmill/cache/cargo
@@ -300,9 +303,19 @@ ENV CARGO_HOME="/tmp/windmill/cache/cargo"
 ENV LD_LIBRARY_PATH="."
 
 # nsjail runtime deps and binary
-RUN apt-get update && apt-get install -y libprotobuf-dev libnl-route-3-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends libprotobuf32 libnl-route-3-200 libnl-3-200 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
+
+# crane: pulls + flattens images for the sandboxed container runtime (`# sandbox <image>`).
+# Single static binary — no daemon/store/root needed. See docs/docker-v2-runtime.md.
+ARG CRANE_VERSION=v0.20.6
+RUN arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) crane_arch=x86_64 ;; arm64) crane_arch=arm64 ;; *) echo >&2 "error: unsupported arch '$arch' for crane"; exit 1 ;; esac; \
+    wget -O /tmp/crane.tgz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz" \
+    && tar -xzf /tmp/crane.tgz -C /usr/local/bin crane \
+    && rm /tmp/crane.tgz \
+    && chmod +x /usr/local/bin/crane
 
 WORKDIR ${APP}
 

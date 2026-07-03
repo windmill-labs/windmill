@@ -35,7 +35,13 @@
 	let tokenPage = $state(1)
 	let newTokenLabel = $state<string | undefined>(untrack(() => defaultNewTokenLabel))
 	let editingToken = $state<
-		{ prefix: string; scopes: string[] | undefined; workspaceId: string | undefined } | undefined
+		| {
+				prefix: string
+				label: string | undefined
+				scopes: string[] | undefined
+				workspaceId: string | undefined
+		  }
+		| undefined
 	>(undefined)
 	let editModalOpen = $state(false)
 
@@ -43,9 +49,9 @@
 		listTokens()
 	})
 
-	// When updating this filter, also update:
-	// - `is_user_token` in backend/src/monitor.rs
-	// - `register_token_expiry_notification` in backend/windmill-api-auth/src/lib.rs
+	// Mirror of the canonical `is_user_token` in backend/windmill-common/src/auth.rs.
+	// When updating this filter, also update that function and the SQL `WHERE`
+	// mirror in `update_token_label` (backend/windmill-api-users/src/users.rs).
 	function isUserToken(label: string | undefined): boolean {
 		if (!label) return true
 		return (
@@ -104,11 +110,13 @@
 
 	function handleEditClick(
 		tokenPrefix: string,
+		tokenLabel: string | undefined,
 		tokenScopes: string[] | undefined,
 		tokenWorkspaceId: string | undefined
 	) {
 		editingToken = {
 			prefix: tokenPrefix,
+			label: tokenLabel,
 			scopes: tokenScopes,
 			workspaceId: tokenWorkspaceId
 		}
@@ -198,9 +206,11 @@
 									<div class="flex items-center justify-center gap-1">
 										<Button
 											variant="subtle"
+											title="Edit token"
 											on:click={() =>
 												handleEditClick(
 													token_prefix,
+													label ?? undefined,
 													scopes ?? undefined,
 													workspace_id ?? undefined
 												)}
@@ -244,6 +254,8 @@
 <EditTokenScopesModal
 	bind:open={editModalOpen}
 	tokenPrefix={editingToken?.prefix}
+	initialLabel={editingToken?.label}
+	labelEditable={isUserToken(editingToken?.label)}
 	initialScopes={editingToken?.scopes}
 	tokenWorkspaceId={editingToken?.workspaceId}
 	onSaved={listTokens}

@@ -3,7 +3,7 @@
 
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
@@ -123,7 +123,7 @@ If none of the available results are appropriate, are already used or are more a
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only return the expression without any wrapper.`
-			generatedContent = await getNonStreamingCompletion(
+			generatedContent = await getNonStreamingMetadataCompletion(
 				[
 					{
 						role: 'user',

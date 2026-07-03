@@ -1,5 +1,39 @@
 import { describe, it, expect } from 'vitest'
-import { getQueryStmtCountHeuristic } from './utils'
+import {
+	cleanValueProperties,
+	getQueryStmtCountHeuristic,
+	parseDbInputFromAssetSyntax
+} from './utils'
+
+describe('parseDbInputFromAssetSyntax', () => {
+	it('parses a table path', () => {
+		expect(parseDbInputFromAssetSyntax('ducklake://main/orders')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: 'orders',
+			specificSchema: undefined
+		})
+	})
+
+	it('parses a schema-qualified table path', () => {
+		expect(parseDbInputFromAssetSyntax('ducklake://main/analytics.orders')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: 'orders',
+			specificSchema: 'analytics'
+		})
+	})
+
+	it('handles a catalog-only path without throwing (no table segment)', () => {
+		// e.g. `// materialize ducklake` → `ducklake://main` — must not throw.
+		expect(parseDbInputFromAssetSyntax('ducklake://main')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: undefined,
+			specificSchema: undefined
+		})
+	})
+})
 
 describe('getQueryStmtCountHeuristic', () => {
 	describe('basic statements', () => {
@@ -281,5 +315,78 @@ DELETE FROM logs WHERE timestamp < NOW() - INTERVAL '30 days'
 			`
 			expect(getQueryStmtCountHeuristic(query)).toBe(3)
 		})
+	})
+})
+
+describe('cleanValueProperties', () => {
+	const serverManagedKeys = [
+		'parent_hash',
+		'hash',
+		'assets',
+		'inherited_labels',
+		'draft',
+		'draft_only',
+		'draft_saved_at',
+		'draft_created_at',
+		'is_draft',
+		'other_drafts_users',
+		'created_at',
+		'created_by',
+		'workspace_id',
+		'parent_hashes',
+		'lock_error_logs'
+	]
+
+	it('strips every server-managed bookkeeping key', () => {
+		const input: any = { summary: 'hi' }
+		for (const key of serverManagedKeys) {
+			input[key] = 'noise'
+		}
+		const cleaned = cleanValueProperties(input) as any
+		for (const key of serverManagedKeys) {
+			expect(cleaned).not.toHaveProperty(key)
+		}
+	})
+
+	it('preserves user-editable keys', () => {
+		const input: any = {
+			summary: 'my script',
+			description: 'does things',
+			content: 'export function main() {}',
+			schema: { properties: { x: { type: 'string' } } },
+			language: 'bun',
+			created_at: '2024-01-01'
+		}
+		const cleaned = cleanValueProperties(input) as any
+		expect(cleaned.summary).toBe('my script')
+		expect(cleaned.description).toBe('does things')
+		expect(cleaned.content).toBe('export function main() {}')
+		expect(cleaned.schema).toEqual({ properties: { x: { type: 'string' } } })
+		expect(cleaned.language).toBe('bun')
+		expect(cleaned).not.toHaveProperty('created_at')
+	})
+
+	it('preserves lock so version-to-version diffs still surface lockfile changes', () => {
+		const cleaned = cleanValueProperties({ summary: 'hi', lock: 'resolved deps' } as any) as any
+		expect(cleaned.lock).toBe('resolved deps')
+	})
+
+	it('preserves extra_perms so folder workspace/fork diffs still surface permission changes', () => {
+		const cleaned = cleanValueProperties({
+			summary: 'hi',
+			extra_perms: { 'u/foo': true }
+		} as any) as any
+		expect(cleaned.extra_perms).toEqual({ 'u/foo': true })
+	})
+
+	it('returns non-object values unchanged', () => {
+		expect(cleanValueProperties('hello' as any)).toBe('hello')
+		expect(cleanValueProperties(42 as any)).toBe(42)
+	})
+
+	it('does not mutate the input object', () => {
+		const input: any = { summary: 'hi', created_at: '2024-01-01' }
+		cleanValueProperties(input)
+		expect(input).toHaveProperty('created_at')
 	})
 })

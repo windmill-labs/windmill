@@ -69,12 +69,17 @@
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
 			s3FilePicker?.open(assetUri)
 		} else if (asset.kind === 'volume') {
-			const storage = (await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
+			const storage =
+				(await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
 			s3FilePicker?.open({ s3: `volumes/${$workspaceStore}/${asset.path}/`, storage })
 		} else if (asset.kind === 'ducklake') {
 			let ducklake = asset.path.split('/')[0]
-			let specificTable = asset.path.split('/')[1] as string | undefined
-			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake, specificTable })
+			let specificTableSplit = asset.path.split('/')[1]?.split('.') as string[] | undefined
+			let [specificSchema, specificTable] =
+				specificTableSplit?.length === 2
+					? [specificTableSplit[0], specificTableSplit[1]]
+					: [undefined, specificTableSplit?.[0]]
+			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake, specificSchema, specificTable })
 		} else if (asset.kind === 'datatable') {
 			let datatable = asset.path.split('/')[0]
 			let specificTableSplit = asset.path.split('/')[1]?.split('.') as string[] | undefined

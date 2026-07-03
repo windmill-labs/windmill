@@ -3,10 +3,9 @@
 
 	const bubble = createBubbler()
 	import {
-		DraftService,
 		ScriptService,
-		type NewScriptWithDraft,
 		type Script,
+		type NewScript,
 		type TriggersCount,
 		PostgresTriggerService,
 		CaptureService,
@@ -27,11 +26,11 @@
 		enterpriseLicense,
 		usedTriggerKinds,
 		userStore,
+		userWorkspaces,
 		workerTags,
 		workspaceStore
 	} from '$lib/stores'
 	import {
-		cleanValueProperties,
 		emptySchema,
 		emptyString,
 		generateRandomString,
@@ -55,17 +54,21 @@
 		Bug,
 		CheckCircle,
 		Code,
+		DiffIcon,
 		EllipsisVertical,
+		Network,
 		Plus,
 		Rocket,
-		Save,
 		Settings,
 		Shuffle,
 		Tag,
 		X
 	} from 'lucide-svelte'
+	import { base } from '$lib/base'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
-	import { isMac, type Item } from '$lib/utils'
+	import { type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -81,8 +84,9 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
+	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -91,29 +95,26 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
-	import {
-		type NewScriptWithDraftAndDraftTriggers,
-		type Trigger,
-		deployTriggers,
-		filterDraftTriggers,
-		handleSelectTriggerFromKind
-	} from './triggers/utils'
+	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
-	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	let {
 		script = $bindable(),
 		fullyLoaded = true,
 		initialPath = $bindable(''),
+		userDraftPath = '',
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		template = $bindable('script'),
 		initialArgs = {},
 		lockedLanguage = false,
@@ -129,14 +130,16 @@
 		children,
 		onDeploy,
 		onDeployError,
-		onSaveInitial,
 		onSeeDetails,
-		onSaveDraftError,
-		onSaveDraft,
 		onNavigate,
+		onTestJob,
 		disableAi,
 		initialTestPanelCollapsed = false,
-		initialPathChosen = false
+		initialPathChosen = false,
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -162,21 +165,23 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 
-	// Top-bar responsive collapse — container width, not viewport.
+	// Top-bar responsive collapse — container width, not viewport. Collapse the
+	// right group (hide the ~200px tag select, icon-only Diff/Settings) before the
+	// full group crowds the path into heavy truncation; ~900 is where the path
+	// keeps a usable width given the right group's natural ~440px.
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
-	const mod = isMac() ? '⌘' : 'Ctrl+'
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 900)
+
+	// AutosaveIndicator watch key. Falls back to the full-page editor's
+	// global store + URL draft path; the sessions preview overrides both so the
+	// icon tracks the session's (forked) workspace + target path where autosave
+	// actually happens.
+	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
 	function getCompactMenuItems(): Item[] {
 		const hasTags = ($workerTags?.length ?? 0) > 0
 		return [
-			{
-				displayName: 'Save draft',
-				icon: Save,
-				action: () => saveDraft(),
-				shortcut: `${mod}S`,
-				disabled: initialPath != '' && !savedScript
-			},
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
 						{
@@ -291,13 +296,6 @@
 			$primaryScheduleStore,
 			$userStore
 		)
-
-		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
-			savedScript = filterDraftTriggers(
-				savedScript,
-				triggersState
-			) as NewScriptWithDraftAndDraftTriggers
-		}
 	}
 
 	// Add triggers context store
@@ -319,6 +317,21 @@
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
+
+	// Languages the pipeline editor treats as warehouse/dataset transforms —
+	// the ones where a `-- pipeline` annotation is a natural next step.
+	const pipelineHintLangs = ['duckdb', 'postgresql', 'bigquery', 'snowflake', 'mysql', 'mssql']
+	const pipelineHintDismissed = useLocalStorageValue(
+		'pipelineScriptHintDismissed',
+		false,
+		'boolean'
+	)
+	let showPipelineHint = $derived(
+		!pipelineHintDismissed.val &&
+			(script.kind === 'script' || script.kind === undefined) &&
+			pipelineHintLangs.includes(script.language ?? '') &&
+			!parsePipelineAnnotations(script.content ?? '').inPipeline
+	)
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -368,9 +381,12 @@
 
 	let pathError = $state('')
 	let loadingSave = $state(false)
-	let loadingDraft = $state(false)
 
 	if (script.content == '') {
+		// Suspend autosave around the bootstrap mutations: seeding the template
+		// content is a programmatic write, not the user's first edit. The handle
+		// keys on `userDraftPath` (URL path), not the editor-displayed `initialPath`.
+		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
 				'helper.py': {
@@ -386,7 +402,36 @@
 				}
 			}
 		}
-		initContent(script.language, script.kind, template)
+		// Sync resumes only after two cascades settle: the async `initContent`,
+		// and the stores-gated `initPath → reset → onMetaChange → bind:path`
+		// auto-naming chain. Whichever lands last calls `tryRestart`; otherwise
+		// the auto-generated path posts as the first "user edit".
+		let initContentDone = false
+		let storesReady = !!($userStore && $workspaceStore)
+		let restarted = false
+		async function tryRestart() {
+			if (restarted || !initContentDone || !storesReady) return
+			// 500ms covers the bind:path cascade even on cold reload; two ticks
+			// weren't enough (bind:path fired ~100ms after restart, posting an edit).
+			await new Promise((r) => setTimeout(r, 500))
+			if (restarted) return
+			restarted = true
+			UserDraft.restartSync('script', userDraftPath)
+		}
+		initContent(script.language, script.kind, template).finally(() => {
+			initContentDone = true
+			void tryRestart()
+		})
+		// Cold reload: auth stores may load after mount; the `restarted` guard
+		// makes the effect self-cleaning.
+		if (!storesReady) {
+			$effect(() => {
+				if ($userStore && $workspaceStore) {
+					storesReady = true
+					untrack(() => void tryRestart())
+				}
+			})
+		}
 	}
 
 	async function isTemplateScript() {
@@ -426,8 +471,13 @@
 			| 'ci_test_python'
 	) {
 		scriptEditor?.disableCollaboration()
+		// Seed synchronously so a Deploy before the async template fetch resolves
+		// doesn't run `inferArgs` on empty content and toast "Could not parse code".
+		script.content = initialCode(language, kind, template, false)
 		const templateScript = await isTemplateScript()
-		script.content = initialCode(language, kind, template, templateScript != undefined)
+		if (templateScript) {
+			script.content = initialCode(language, kind, template, true)
+		}
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}
@@ -532,7 +582,12 @@
 
 		loadingSave = true
 		try {
-			script.schema = script.schema ?? emptySchema()
+			// Legacy drafts can carry `schema: {}` (no `properties`), which trips
+			// `inferArgs` on `JSON.stringify(schema.properties)` and toasts "Could
+			// not parse code". Backfill an empty schema so it parses.
+			if (!script.schema || !(script.schema as any).properties) {
+				script.schema = emptySchema()
+			}
 			try {
 				const result = await inferArgs(
 					script.language,
@@ -622,7 +677,7 @@
 			}
 
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
-			savedScript = structuredClone($state.snapshot(newScript)) as NewScriptWithDraft
+			savedScript = structuredClone($state.snapshot(newScript))
 			setDraftTriggers([])
 
 			if (!disableHistoryChange) {
@@ -652,165 +707,61 @@
 		loadingSave = false
 	}
 
-	async function saveDraft(forceSave = false): Promise<void> {
-		scriptEditor?.flushModuleState()
-		if (initialPath != '' && !savedScript) {
-			return
-		}
-
-		if (savedScript) {
-			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
-			const currentTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-			const current = cleanValueProperties({ ...script, draft_triggers: currentTriggers })
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				sendUserToast('No changes detected, ignoring', false, [
-					{
-						label: 'Save anyway',
-						callback: () => {
-							saveDraft(true)
-						}
-					}
-				])
-				return
-			}
-		}
-
-		loadingDraft = true
-		try {
-			script.schema = script.schema ?? emptySchema()
-			try {
-				const result = await inferArgs(
-					script.language,
-					script.content,
-					script.schema as any,
-					script.kind === 'preprocessor' ? 'preprocessor' : undefined
-				)
-				if (script.kind === 'preprocessor') {
-					script.auto_kind = undefined
-					script.has_preprocessor = undefined
-				} else {
-					script.auto_kind = result?.auto_kind || undefined
-					script.has_preprocessor = result?.has_preprocessor || undefined
-				}
-			} catch (error) {
-				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
-			}
-			let newHash = ''
-			if (initialPath == '' || savedScript?.draft_only) {
-				if (savedScript?.draft_only) {
-					await ScriptService.deleteScriptByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-					script.parent_hash = undefined
-				}
-				if (!initialPath || script.path != initialPath) {
-					await CaptureService.moveCapturesAndConfigs({
-						workspace: $workspaceStore!,
-						path: initialPath || fakeInitialPath,
-						requestBody: {
-							new_path: script.path
-						},
-						runnableKind: 'script'
-					})
-				}
-				newHash = await ScriptService.createScript({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: script.path,
-						summary: script.summary,
-						description: script.description ?? '',
-						content: script.content,
-						schema: script.schema,
-						is_template: script.is_template,
-						language: script.language,
-						kind: script.kind,
-						tag: script.tag,
-						draft_only: true,
-						envs: script.envs,
-						concurrent_limit: script.concurrent_limit,
-						concurrency_time_window_s: script.concurrency_time_window_s,
-						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
-						debounce_delay_s: script.debounce_delay_s,
-						debounce_args_to_accumulate:
-							script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
-								? script.debounce_args_to_accumulate
-								: undefined,
-						max_total_debouncing_time: script.max_total_debouncing_time,
-						max_total_debounces_amount: script.max_total_debounces_amount,
-						cache_ttl: script.cache_ttl,
-						cache_ignore_s3_path: script.cache_ignore_s3_path,
-						ws_error_handler_muted: script.ws_error_handler_muted,
-						priority: script.priority,
-						restart_unless_cancelled: script.restart_unless_cancelled,
-						timeout: script.timeout,
-						concurrency_key: emptyString(script.concurrency_key)
-							? undefined
-							: script.concurrency_key,
-						visible_to_runner_only: script.visible_to_runner_only,
-						auto_kind: script.auto_kind,
-						has_preprocessor: script.has_preprocessor,
-						on_behalf_of_email: script.on_behalf_of_email,
-						assets: script.assets,
-						modules: script.modules,
-						labels: script.labels
-					}
-				})
-			}
-			const draftTriggers = triggersState.getDraftTriggersSnapshot()
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
-					typ: 'script',
-					value: {
-						...script,
-						draft_triggers: draftTriggers
-					}
-				}
-			})
-
-			const clonedScript = structuredClone($state.snapshot(script))
-			savedScript = {
-				...(initialPath == '' || savedScript?.draft_only
-					? { ...clonedScript, draft_only: true }
-					: savedScript),
-				draft: {
-					...clonedScript,
-					draft_triggers: draftTriggers
-				}
-			} as NewScriptWithDraftAndDraftTriggers
-
-			let savedAtNewPath = false
-			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
-				savedAtNewPath = true
-				initialPath = script.path
-				onSaveInitial?.({ path: script.path, hash: newHash })
-			}
-			onSaveDraft?.({ path: script.path, savedAtNewPath, script })
-
-			sendUserToast('Saved as draft')
-		} catch (error) {
-			sendUserToast(
-				`Error while saving the script as a draft: ${error.body || error.message}`,
-				true
-			)
-			onSaveDraftError?.({ path: script.path, error })
-		}
-		loadingDraft = false
+	// Ctrl/Cmd+S forces an immediate flush of the pending autosave. Flush Monaco
+	// + `tick()` first so the last keystrokes reach the bindable before the
+	// syncer flushes. No toast — the AutosaveIndicator narrates the result, and
+	// `flush` never rejects (postSave routes errors to the failures map).
+	async function saveDraft(): Promise<void> {
+		if (!$workspaceStore || !userDraftPath) return
+		editor?.flushPendingChanges()
+		await tick()
+		await UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'script',
+			path: userDraftPath
+		})
 	}
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the
 	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
 	// fork, Exit & See details, Export — don't make sense: the session always
-	// stays put and is already scoped to a fork. Only "Show diff" is kept.
+	// stays put and is already scoped to a fork. Diff is exposed as a standalone
+	// top-bar button (rendered independently of the session pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
+
+	async function openDiffDrawer() {
+		if (!savedScript) {
+			return
+		}
+		await syncWithDeployed()
+
+		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+
+		const deployed = deployedValue ?? savedScript
+		// `script` comes from the full DB row (since #9351), so it carries `lock`/`extra_perms`
+		// while the deployed side is trimmed in `syncWithDeployed` — null them here to match
+		// that strip. They stay in the shared `cleanValueProperties` so version-to-version and
+		// folder workspace/fork diffs still surface lockfile / sharing-permission changes.
+		const current = {
+			...script,
+			lock: undefined,
+			extra_perms: undefined,
+			draft_triggers: currentDraftTriggers
+		}
+		if (current.assets && !current.assets.length) delete current.assets
+
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed,
+			draft: savedScript['draft'],
+			current
+		})
+	}
 
 	function computeDropdownItems(
 		initialPath: string,
-		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
-		diffDrawer: DiffDrawerI | undefined
+		savedScript: ((Script | NewScript) & { no_deployed?: boolean }) | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
@@ -829,10 +780,10 @@
 											window.open(`/scripts/add?template=${initialPath}`)
 										}
 									},
-									...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+									...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
 										? [
 												{
-													label: 'Edit in workspace fork',
+													label: editInForkLabel($workspaceStore, $userWorkspaces),
 													onClick: () => {
 														window.open(buildForkEditUrl('script', initialPath))
 													}
@@ -841,37 +792,8 @@
 										: [])
 								]
 							: []),
-						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
-							? [
-									{
-										label: 'Show diff',
-										onClick: async () => {
-											if (!savedScript) {
-												return
-											}
-											await syncWithDeployed()
-
-											const currentDraftTriggers = structuredClone(
-												triggersState.getDraftTriggersSnapshot()
-											)
-
-											const deployed = deployedValue ?? savedScript
-											const current = { ...script, draft_triggers: currentDraftTriggers }
-											if (current.assets && !current.assets.length) delete current.assets
-
-											diffDrawer?.openDrawer()
-											diffDrawer?.setDiff({
-												mode: 'normal',
-												deployed,
-												draft: savedScript['draft'],
-												current
-											})
-										}
-									}
-								]
-							: []),
 						...(!inSessionPane &&
-						!script.draft_only &&
+						savedScript?.no_deployed !== true &&
 						script.kind === 'script' &&
 						!script.auto_kind
 							? [
@@ -1001,35 +923,10 @@
 		}
 	}
 
-	function handleDeployTrigger(trigger: Trigger) {
-		const { id, path, type } = trigger
-		//Update the saved script to remove the draft trigger that is deployed
-		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
-			const newSavedDraftTrigers = savedScript.draft.draft_triggers.filter(
-				(t) => t.id !== id || t.path !== path || t.type !== type
-			)
-			savedScript.draft.draft_triggers =
-				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
-		}
-	}
+	function handleDeployTrigger(_trigger: Trigger) {}
 
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
 		if (lang == 'docker') {
-			if (isCloudHosted()) {
-				sendUserToast(
-					'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-					true,
-					[
-						{
-							label: 'Learn more',
-							callback: () => {
-								window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-							}
-						}
-					]
-				)
-				return
-			}
 			template = 'docker'
 		} else if (lang == 'bunnative') {
 			template = 'bunnative'
@@ -1074,9 +971,7 @@
 			}
 		})
 	})
-	$effect(() => {
-		readFieldsRecursively(script)
-	})
+
 	// Mirror the draft triggers (held in a separate `triggersState` $state)
 	// back into `script.draft_triggers` so the UserDraft autosave — which
 	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own
@@ -1588,7 +1483,7 @@
 													if (script.timeout && script.timeout != undefined) {
 														script.timeout = undefined
 													} else {
-														script.timeout = 300
+														script.timeout = customUi?.defaultTimeout ?? 300
 													}
 												}}
 												options={{
@@ -1968,7 +1863,7 @@
 									{hasPreprocessor}
 									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
-									isDeployed={savedScript && !savedScript?.draft_only}
+									isDeployed={savedScript && savedScript?.no_deployed !== true}
 									schema={script.schema}
 									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
@@ -1986,7 +1881,7 @@
 	<div class="flex flex-col h-screen">
 		<div bind:clientWidth={topbarWidth} class="flex h-12 items-center px-4">
 			<div class="flex gap-2 lg:gap-2 w-full items-center">
-				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
+				<div class="flex flex-row items-center gap-2 min-w-0 shrink">
 					<button
 						disabled={customUi?.topBar?.settings == false}
 						class="shrink-0"
@@ -1997,14 +1892,28 @@
 						<LanguageIcon lang={script.language} size={24} />
 					</button>
 					{#if customUi?.topBar?.path != false}
-						<EditorHeader
-							bind:summary={script.summary}
-							bind:path={script.path}
-							savedPath={initialPath}
-							kind="script"
-							summaryEditable={customUi?.topBar?.editableSummary != false}
-							pathEditable={customUi?.topBar?.editablePath != false}
-							onNavigate={(item) => onNavigate?.(item)}
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={script.summary}
+								bind:path={script.path}
+								savedPath={initialPath}
+								kind="script"
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
+					{/if}
+					{#if indicatorWorkspace}
+						<AutosaveIndicator
+							workspace={indicatorWorkspace}
+							itemKind="script"
+							path={indicatorPath}
+							draftOnly={savedScript?.no_deployed === true}
+							{onResetToDeployed}
+							{loadedFromDraft}
+							{othersDraftsCount}
+							{onOpenOthersDrafts}
 						/>
 					{/if}
 				</div>
@@ -2035,6 +1944,32 @@
 						</Button>
 					{/if}
 				{/snippet}
+				{#snippet diffButton()}
+					{#if customUi?.topBar?.diff != false}
+						{@const isDraftOnly = savedScript?.no_deployed === true}
+						{@const diffDisabled = !savedScript || !diffDrawer || isDraftOnly}
+						{@const diffTitle = isDraftOnly
+							? 'Deploy this script once to compare against the deployed version'
+							: 'Diff'}
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+						     never shows on hover. pointer-events-none on the button lets the hover
+						     reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								iconOnly={compactTopbar}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
+								Diff
+							</Button>
+						</div>
+					{/if}
+				{/snippet}
 				{#if compactTopbar}
 					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
 						{#snippet buttonReplacement()}
@@ -2048,8 +1983,10 @@
 							/>
 						{/snippet}
 					</DropdownV2>
+					{@render diffButton()}
 					{@render settingsButton()}
 				{:else}
+					{@render diffButton()}
 					{#if customUi?.topBar?.tagEdit != false}
 						{#if $workerTags}
 							{#if $workerTags?.length ?? 0 > 0}
@@ -2064,32 +2001,58 @@
 						{/if}
 					{/if}
 					{@render settingsButton()}
-					<Button
-						loading={loadingDraft}
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={initialPath != '' && !savedScript}
-						shortCut={{ key: 'S' }}
-					>
-						<span> Draft </span>
-					</Button>
 				{/if}
 
 				<DeployButton
 					loading={!fullyLoaded}
 					{loadingSave}
-					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+					dropdownItems={computeDropdownItems(initialPath, savedScript)}
 					on:save={({ detail }) => handleEditScript(false, detail)}
 				/>
 			</div>
 		</div>
 
+		{#if showPipelineHint}
+			<div
+				class="flex items-center gap-2 px-4 py-1 border-y bg-surface-secondary text-xs text-secondary"
+			>
+				<Network size={14} class="shrink-0 text-tertiary" />
+				<span class="truncate">
+					This script can become a data pipeline step: annotate it with
+					<code class="font-mono text-2xs bg-surface px-1 py-0.5 rounded border">-- pipeline</code>
+					and
+					<code class="font-mono text-2xs bg-surface px-1 py-0.5 rounded border">
+						-- materialize
+					</code>
+					to materialize its result, or build it in the
+					<a href="{base}/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
+					<a
+						href="https://www.windmill.dev/docs/pipelines"
+						target="_blank"
+						rel="noreferrer"
+						class="text-blue-500 hover:underline"
+					>
+						Learn more
+					</a>
+				</span>
+				<div class="ml-auto shrink-0">
+					<Button
+						iconOnly
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: X }}
+						title="Dismiss pipelines hint"
+						onclick={() => (pipelineHintDismissed.val = true)}
+					/>
+				</div>
+			</div>
+		{/if}
+
 		<ScriptEditor
 			{disableAi}
 			bind:selectedTab={selectedInputTab}
 			{customUi}
+			{onTestJob}
 			collabMode
 			edit={initialPath != ''}
 			on:format={() => {
@@ -2108,12 +2071,13 @@
 			stablePathForCaptures={initialPath || fakeInitialPath}
 			bind:code={script.content}
 			lang={script.language}
+			timeout={script.timeout}
 			kind={script.kind}
 			autoKind={script.auto_kind}
 			{template}
 			tag={script.tag}
-			lastSavedCode={savedScript?.draft?.content}
-			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
+			lastSavedCode={savedScript?.content}
+			lastDeployedCode={savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

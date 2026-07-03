@@ -47,8 +47,9 @@
 
 	async function isSupabaseAvailable() {
 		try {
-			supabaseWizard =
-				((await OauthService.listOauthConnects()) ?? {})['supabase_wizard'] != undefined
+			supabaseWizard = ((await OauthService.listOauthConnects()) ?? []).some(
+				(c) => c.name === 'supabase_wizard'
+			)
 		} catch (error) {}
 	}
 	async function loadSchema() {

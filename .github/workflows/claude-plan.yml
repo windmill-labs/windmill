@@ -45,7 +45,7 @@ jobs:
           allowed_bots: 'windmill-internal-app[bot]'
           trigger_phrase: '/plan'
           claude_args: |
-            --model opus
+            --model claude-opus-4-8
             --system-prompt "# Claude Planning Mode
 
             You are operating in PLANNING MODE ONLY. Your role is to create detailed, structured plans without making any code changes.

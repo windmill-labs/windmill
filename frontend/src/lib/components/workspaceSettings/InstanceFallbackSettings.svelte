@@ -36,7 +36,7 @@
 			</p>
 
 			<div class="flex flex-col gap-3">
-				{#each sortedInstanceProviders as providerSummary}
+				{#each sortedInstanceProviders as providerSummary (providerSummary.provider)}
 					<div class="rounded-md border bg-surface p-3 flex flex-col gap-2">
 						<div class="flex items-center gap-2">
 							<span class="text-xs font-medium">
@@ -45,7 +45,7 @@
 							<Badge color="blue">Instance</Badge>
 						</div>
 						<div class="flex flex-wrap gap-1">
-							{#each providerSummary.models as model}
+							{#each providerSummary.models as model (model)}
 								<Badge color="gray">{model}</Badge>
 							{/each}
 						</div>
@@ -59,6 +59,18 @@
 					<span class="text-primary font-medium">{instanceAiSummary.default_model.model}</span>
 					<span class="text-tertiary">
 						({getProviderLabel(instanceAiSummary.default_model.provider)})
+					</span>
+				</div>
+			{/if}
+
+			{#if instanceAiSummary.metadata_model}
+				<div class="text-xs text-secondary">
+					Metadata generation model:
+					<span class="text-primary font-medium">
+						{instanceAiSummary.metadata_model.model}
+					</span>
+					<span class="text-tertiary">
+						({getProviderLabel(instanceAiSummary.metadata_model.provider)})
 					</span>
 				</div>
 			{/if}

@@ -30,9 +30,13 @@
 
 <Popover>
 	{#snippet trigger()}
+		{@const label =
+			contextElement.type === 'diff'
+				? contextElement.title.replace(/_/g, ' ')
+				: contextElement.title}
 		<div
 			class={twMerge(
-				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-primary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
+				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-primary text-xs font-normal cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
 			)}
 			onmouseenter={() => (showDelete = true)}
 			onmouseleave={() => (showDelete = false)}
@@ -50,11 +54,7 @@
 					<SvelteComponent size={16} />
 				{/if}
 			</button>
-			<span class="truncate">
-				{contextElement.type === 'diff'
-					? contextElement.title.replace(/_/g, ' ')
-					: contextElement.title}
-			</span>
+			<span class="truncate" title={label}>{label}</span>
 		</div>
 	{/snippet}
 	{#snippet content()}
@@ -127,11 +127,7 @@
 				<div class="text-tertiary text-xs mb-1 px-2 pt-1">
 					{contextElement.source} (L{contextElement.startLine}-L{contextElement.endLine})
 				</div>
-				<HighlightCode
-					language="bun"
-					code={contextElement.content}
-					className="w-full p-2"
-				/>
+				<HighlightCode language="bun" code={contextElement.content} className="w-full p-2" />
 			</div>
 		{:else if contextElement.type === 'app_datatable'}
 			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">

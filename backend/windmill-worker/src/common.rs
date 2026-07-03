@@ -68,6 +68,16 @@ mount {
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
 
+/// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
+/// becomes its inner value, anything else is re-serialized compactly.
+pub(crate) fn raw_to_string(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(serde_json::Value::String(x)) => x,
+        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
+        _ => String::new(),
+    }
+}
+
 pub async fn build_args_map<'a>(
     job: &'a MiniPulledJob,
     client: &AuthedClient,
@@ -738,17 +748,20 @@ lazy_static! {
 const MEMORY_LIMIT_1CU: usize = 2 * 1024 * 1024 * 1024;
 
 /// Wrapper that holds a Windows Job Object handle alongside the child process.
-/// The job object enforces memory limits and is closed when the child is dropped.
+/// The job object carries KILL_ON_JOB_CLOSE and/or a memory limit. With
+/// KILL_ON_JOB_CLOSE, the worker process dying closes the handle and the OS reaps the
+/// whole child tree — preventing orphans when the worker is force-killed (e.g. a second
+/// CTRL_BREAK_EVENT or Nomad's kill_timeout) before a job has drained.
 #[cfg(windows)]
-struct MemoryLimitedChild {
+struct WindowsJobChild {
     inner: Box<dyn TokioChildWrapper>,
     _job_handle: Win32JobHandle,
 }
 
 #[cfg(windows)]
-impl std::fmt::Debug for MemoryLimitedChild {
+impl std::fmt::Debug for WindowsJobChild {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MemoryLimitedChild").finish()
+        f.debug_struct("WindowsJobChild").finish()
     }
 }
 
@@ -771,7 +784,7 @@ impl Drop for Win32JobHandle {
 }
 
 #[cfg(windows)]
-impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
+impl process_wrap::tokio::TokioChildWrapper for WindowsJobChild {
     fn inner(&self) -> &tokio::process::Child {
         self.inner.inner()
     }
@@ -779,7 +792,11 @@ impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
         self.inner.inner_mut()
     }
     fn into_inner(self: Box<Self>) -> tokio::process::Child {
-        self.inner.into_inner()
+        // Leak the job handle: with KILL_ON_JOB_CLOSE, closing the last handle reaps
+        // the (still-running) child, so extracting the inner Child must not close it.
+        let WindowsJobChild { inner, _job_handle } = *self;
+        std::mem::forget(_job_handle);
+        inner.into_inner()
     }
     fn start_kill(&mut self) -> std::io::Result<()> {
         self.inner.start_kill()
@@ -795,9 +812,59 @@ impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
     }
 }
 
-/// Create a Windows Job Object with a memory limit and assign the process to it.
+/// Resume all threads of a process created with CREATE_SUSPENDED. We create the child
+/// suspended so it can be assigned to its job object before running any code; otherwise
+/// a child that forks a helper at startup could create it before the assignment and
+/// leave it outside the job (escaping KILL_ON_JOB_CLOSE reaping / the memory cap).
+/// (Ported from process-wrap's resume_threads.)
 #[cfg(windows)]
-fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandle, std::io::Error> {
+fn resume_process(pid: u32) -> Result<(), std::io::Error> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("CreateToolhelp32Snapshot: {e}"),
+            )
+        })?;
+        let mut entry = THREADENTRY32 {
+            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+            cntUsage: 0,
+            th32ThreadID: 0,
+            th32OwnerProcessID: 0,
+            tpBasePri: 0,
+            tpDeltaPri: 0,
+            dwFlags: 0,
+        };
+        let mut res = Thread32First(snapshot, &mut entry);
+        while res.is_ok() {
+            if entry.th32OwnerProcessID == pid {
+                if let Ok(thread) = OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) {
+                    ResumeThread(thread);
+                    let _ = windows::Win32::Foundation::CloseHandle(thread);
+                }
+            }
+            res = Thread32Next(snapshot, &mut entry);
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+    }
+    Ok(())
+}
+
+/// Create a Windows Job Object and assign the process to it, optionally with
+/// KILL_ON_JOB_CLOSE (so the child tree is reaped when the worker drops the handle /
+/// dies) and/or a memory limit. Assigning post-spawn (rather than via process-wrap's
+/// suspend/resume JobObject wrap) keeps the dotnet-safe behavior that csharp relies on.
+#[cfg(windows)]
+fn assign_job_object(
+    pid: u32,
+    memory_limit: Option<usize>,
+    kill_on_close: bool,
+) -> Result<Win32JobHandle, std::io::Error> {
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
@@ -807,8 +874,13 @@ fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandl
         })?;
 
         let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_JOB_MEMORY;
-        info.JobMemoryLimit = memory_limit;
+        if kill_on_close {
+            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        }
+        if let Some(memory_limit) = memory_limit {
+            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+            info.JobMemoryLimit = memory_limit;
+        }
 
         SetInformationJobObject(
             job,
@@ -899,6 +971,28 @@ pub async fn start_child_process(
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
 
+    // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT
+    // sent to the worker's group (e.g. by Nomad on scale-in) is not delivered to it.
+    // Otherwise the whole child tree dies instantly with STATUS_CONTROL_C_EXIT
+    // (0xC000013A) before the worker can drain running jobs.
+    //
+    // This deliberately does NOT use process-wrap's JobObject wrap: its pre_spawn calls
+    // command.creation_flags(CREATE_SUSPENDED | get_wrap::<CreationFlags>()), but
+    // get_wrap returns None mid-spawn (process-wrap 8.2.1 takes the wrappers out of
+    // `self` before running pre_spawn), so it silently overwrites and drops
+    // CREATE_NEW_PROCESS_GROUP. Job-object grouping is done post-spawn below instead,
+    // which also matches the dotnet-safe assignment csharp already relies on.
+    #[cfg(windows)]
+    if !*DISABLE_PROCESS_GROUP {
+        use process_wrap::tokio::CreationFlags;
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_SUSPENDED};
+        // Also create the child suspended so it can be placed in its job object (below)
+        // before it runs any code; otherwise a child that forks a helper at startup could
+        // create it before the assignment and leave it outside the job. Resumed right
+        // after the job assignment.
+        cmd.wrap(CreationFlags(CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED));
+    }
+
     if !*DISABLE_PROCESS_GROUP && !disable_process_group {
         #[cfg(unix)]
         {
@@ -906,31 +1000,51 @@ pub async fn start_child_process(
 
             cmd.wrap(ProcessGroup::leader());
         }
-        #[cfg(windows)]
-        {
-            cmd.wrap(JobObject);
-        }
     }
 
     let child: Box<dyn TokioChildWrapper> = cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(err.into(), executable))?;
 
+    // On Windows, assign the child to a job object. KILL_ON_JOB_CLOSE makes the OS reap
+    // the whole child tree when the worker drops the handle or dies, so jobs aren't
+    // orphaned if the worker is force-killed (second CTRL_BREAK_EVENT, or Nomad exceeding
+    // kill_timeout) before they drain; it is gated on the DISABLE_PROCESS_GROUP escape
+    // hatch alongside CREATE_NEW_PROCESS_GROUP above. The LIMIT_WINDOWS_TO_1CU memory cap
+    // is independent of that hatch (it's its own opt-in), so it's applied whenever set.
+    // Assigning post-spawn does not touch the creation flags (so it composes with
+    // CREATE_NEW_PROCESS_GROUP) and is the dotnet-safe path csharp already uses.
     #[cfg(windows)]
-    if *windmill_common::worker::LIMIT_WINDOWS_TO_1CU {
-        if let Some(pid) = child.inner().id() {
-            match apply_job_memory_limit(pid, MEMORY_LIMIT_1CU) {
-                Ok(job_handle) => {
-                    tracing::info!(
-                        "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
-                    );
-                    return Ok(Box::new(MemoryLimitedChild {
-                        inner: child,
-                        _job_handle: job_handle,
-                    }));
+    {
+        let kill_on_close = !*DISABLE_PROCESS_GROUP;
+        let memory_limit =
+            (*windmill_common::worker::LIMIT_WINDOWS_TO_1CU).then_some(MEMORY_LIMIT_1CU);
+        if kill_on_close || memory_limit.is_some() {
+            if let Some(pid) = child.inner().id() {
+                let assigned = assign_job_object(pid, memory_limit, kill_on_close);
+                // When kill_on_close, the child was created suspended (CREATE_SUSPENDED
+                // above) so it could be placed in the job before running. Resume it now —
+                // unconditionally of assign success, so a failed assign never leaves it hung.
+                if kill_on_close {
+                    if let Err(e) = resume_process(pid) {
+                        tracing::error!("Failed to resume child process {pid}: {e}");
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to apply memory limit to child process {pid}: {e}");
+                match assigned {
+                    Ok(job_handle) => {
+                        if memory_limit.is_some() {
+                            tracing::info!(
+                                "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
+                            );
+                        }
+                        return Ok(Box::new(WindowsJobChild {
+                            inner: child,
+                            _job_handle: job_handle,
+                        }));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to assign child process {pid} to job object: {e}");
+                    }
                 }
             }
         }

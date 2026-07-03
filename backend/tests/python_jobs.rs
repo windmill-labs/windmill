@@ -1113,6 +1113,7 @@ async def main(item: str, qty: int, email: str):
                     RunJob::from(JobPayload::Code(RawCode {
                         language: ScriptLang::Python3,
                         content,
+                        tag: None,
                         ..RawCode::default()
                     }))
                     .arg("item", json!("widget"))
@@ -1298,6 +1299,7 @@ async def main(n: int):
                     RunJob::from(JobPayload::Code(RawCode {
                         language: ScriptLang::Python3,
                         content,
+                        tag: None,
                         ..RawCode::default()
                     }))
                     .arg("n", json!(1))

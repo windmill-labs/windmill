@@ -193,9 +193,6 @@ pub struct ProviderResource {
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AIPlatform,
-    /// Enable 1M context window for Anthropic
-    #[serde(alias = "enable_1M_context", default)]
-    pub enable_1m_context: bool,
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     pub headers: HashMap<String, String>,
@@ -246,7 +243,6 @@ impl ProviderWithResource {
             aws_secret_access_key: self.resource.aws_secret_access_key.clone(),
             aws_session_token: self.resource.aws_session_token.clone(),
             platform: self.resource.platform.clone(),
-            enable_1m_context: self.resource.enable_1m_context,
             custom_headers: self.resource.headers.clone(),
         })
     }
@@ -273,10 +269,6 @@ impl ProviderWithResource {
 
     pub fn get_platform(&self) -> &AIPlatform {
         &self.resource.platform
-    }
-
-    pub fn get_enable_1m_context(&self) -> bool {
-        self.resource.enable_1m_context
     }
 
     pub fn get_headers(&self) -> &HashMap<String, String> {
@@ -889,6 +881,26 @@ mod tests {
             ),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn provider_resource_ignores_legacy_enable_1m_context_keys() {
+        // Resources created before the field was removed still carry the legacy key
+        // (lowercase `enable_1m_context` or the frontend alias `enable_1M_context`).
+        // The struct has no `deny_unknown_fields`, so both must be silently ignored.
+        let json = r#"{
+            "base_url": "https://api.anthropic.com",
+            "enable_1m_context": true,
+            "enable_1M_context": true
+        }"#;
+
+        let resource: ProviderResource =
+            serde_json::from_str(json).expect("legacy resource must still deserialize");
+
+        assert_eq!(
+            resource.base_url.as_deref(),
+            Some("https://api.anthropic.com")
+        );
     }
 
     #[test]

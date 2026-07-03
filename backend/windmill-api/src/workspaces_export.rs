@@ -12,6 +12,8 @@ use crate::db::ApiAuthed;
 
 use crate::{apps::AppWithLastVersion, db::DB, folders::Folder};
 
+use windmill_api_auth::check_scopes;
+
 #[cfg(any(
     feature = "http_trigger",
     feature = "websocket",
@@ -125,10 +127,18 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
     }
 }
 
-/// Returns the keys to strip from trigger/schedule serialization when the
-/// source workspace is a fork. Stripping these keys avoids propagating
-/// fork-local operational state (enabled flag, runtime listener identifiers)
-/// back to the parent workspace through the git-sync round-trip.
+/// A fork's git-sync export rewrites each trigger's `mode` (and each schedule's
+/// `enabled`) to the *parent* workspace's value, instead of emitting the fork's
+/// own (clone-disabled / locally-toggled) state. This keeps the fork's synced
+/// file byte-identical to the parent on the operational-state field, so a
+/// normal-git PR merge has nothing to resolve — no dropped `mode:` line, no
+/// flipped parent trigger. Fork-only paths (absent from the parent) keep the
+/// fork's own value: there's no parent state to defer to, so the trigger lands
+/// with whatever the fork creator set. The write half of the same rule lives in
+/// `windmill-trigger::handler::workspace_is_fork`.
+///
+/// Maps trigger `path` → parent `mode` (as the lowercase enum text that matches
+/// `TriggerMode`'s serde representation). Empty when not a fork.
 #[cfg(any(
     feature = "http_trigger",
     feature = "websocket",
@@ -148,20 +158,78 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
         feature = "private"
     )
 ))]
-fn fork_trigger_ignore_keys(is_fork: bool) -> Option<Vec<&'static str>> {
-    if is_fork {
-        Some(vec!["mode", "enabled"])
-    } else {
-        None
-    }
+async fn fork_parent_trigger_modes(
+    db: &DB,
+    table_name: &str,
+    parent_workspace_id: Option<&str>,
+) -> Result<HashMap<String, String>> {
+    let Some(parent) = parent_workspace_id else {
+        return Ok(HashMap::new());
+    };
+    // Read the parent's rows on the non-RLS pool (like `workspace_is_fork`): the
+    // substitution must be complete regardless of the exporter's folder perms,
+    // otherwise a parent path the exporter can't read would fall back to the
+    // fork's own value and silently re-introduce the divergence we're fixing.
+    // No leak: only values for paths the fork already has (it's a clone) are used.
+    // SAFETY: `table_name` is a compile-time `TriggerCrud::TABLE_NAME` constant.
+    let rows: Vec<(String, String)> = sqlx::query_as(&format!(
+        "SELECT path, mode::text FROM {} WHERE workspace_id = $1",
+        table_name
+    ))
+    .bind(parent)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().collect())
 }
 
-fn fork_schedule_ignore_keys(is_fork: bool) -> Option<Vec<&'static str>> {
-    if is_fork {
-        Some(vec!["enabled"])
-    } else {
-        None
-    }
+/// Build the `{ "mode": <parent value> }` override for a single trigger, or
+/// `None` (keep the fork's own value) when the path is fork-only.
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "websocket",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    feature = "native_trigger",
+    all(
+        feature = "enterprise",
+        any(
+            feature = "kafka",
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "azure_trigger",
+            feature = "nats",
+            feature = "smtp",
+        ),
+        feature = "private"
+    )
+))]
+fn trigger_mode_override(
+    parent_modes: &HashMap<String, String>,
+    path: &str,
+) -> Option<serde_json::Map<String, Value>> {
+    parent_modes.get(path).map(|mode| {
+        let mut o = serde_json::Map::new();
+        o.insert("mode".to_string(), Value::String(mode.clone()));
+        o
+    })
+}
+
+/// Schedule analog of [`fork_parent_trigger_modes`]: maps schedule `path` →
+/// parent `enabled`. Empty when not a fork.
+async fn fork_parent_schedule_enabled(
+    db: &DB,
+    parent_workspace_id: Option<&str>,
+) -> Result<HashMap<String, bool>> {
+    let Some(parent) = parent_workspace_id else {
+        return Ok(HashMap::new());
+    };
+    // Non-RLS pool, same rationale as `fork_parent_trigger_modes`.
+    let rows: Vec<(String, bool)> =
+        sqlx::query_as("SELECT path, enabled FROM schedule WHERE workspace_id = $1")
+            .bind(parent)
+            .fetch_all(db)
+            .await?;
+    Ok(rows.into_iter().collect())
 }
 
 enum ArchiveImpl {
@@ -263,6 +331,25 @@ pub fn to_string_without_metadata<T>(
 where
     T: ?Sized + Serialize,
 {
+    to_string_without_metadata_inner(value, extra_perms, ignore_keys, None)
+}
+
+/// Like [`to_string_without_metadata`] but additionally lets the caller
+/// override top-level keys after stripping. Used for fork trigger/schedule
+/// exports, where `mode`/`enabled` is rewritten to the *parent* workspace's
+/// value so the fork's synced file is byte-identical to the parent on those
+/// fields — a clean 3-way git merge instead of a dropped line. See the write
+/// half of the rule in `windmill-trigger::handler::workspace_is_fork`.
+#[inline]
+pub fn to_string_without_metadata_inner<T>(
+    value: &T,
+    extra_perms: ExtraPermsBehavior,
+    ignore_keys: Option<Vec<&str>>,
+    overrides: Option<&serde_json::Map<String, Value>>,
+) -> Result<String>
+where
+    T: ?Sized + Serialize,
+{
     let mut value = serde_json::to_value(value).map_err(to_anyhow)?;
     value
         .as_object_mut()
@@ -282,7 +369,6 @@ where
                     "edited_by",
                     "permissioned_as",
                     "archived",
-                    "has_draft",
                     "error",
                     "last_server_ping",
                     "server_id",
@@ -322,6 +408,12 @@ where
                 .is_some_and(|a| a.is_empty())
             {
                 obj.remove("default_permissioned_as");
+            }
+
+            if let Some(overrides) = overrides {
+                for (k, v) in overrides {
+                    obj.insert(k.clone(), v.clone());
+                }
             }
 
             serde_json::to_string_pretty(&obj).ok()
@@ -492,6 +584,18 @@ pub(crate) async fn tarball_workspace(
         skip_resources
     );
 
+    // The route is gated by workspaces:read, but exporting DECRYPTED secrets is a
+    // variable-read capability beyond workspace metadata. Require variables:read
+    // only on the plaintext-secret path: ordinary tarball pulls (structure and
+    // encrypted-only values) keep working with workspaces:read, and the workspace
+    // key itself stays admin-only (include_key). No-op for unscoped tokens.
+    if plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+        && !skip_variables.unwrap_or(false)
+    {
+        check_scopes(&authed, || "variables:read".to_string())?;
+    }
+
     // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
     // Folder and group rows have always carried `extra_perms` in source and
     // continue to do so unconditionally (`KeepEvenEmpty`) so existing
@@ -502,20 +606,49 @@ pub(crate) async fn tarball_workspace(
         ExtraPermsBehavior::Drop
     };
 
+    // Resolve workspace dependencies on the pool *before* opening the RLS
+    // transaction: fetching them mid-transaction would hold a second
+    // simultaneous connection while `tx` is still checked out.
+    let workspace_dependencies = if include_workspace_dependencies.unwrap_or(false)
+        && require_admin(authed.is_admin, &authed.username).is_ok()
+    {
+        Some(WorkspaceDependencies::list(&w_id, &db).await?)
+    } else {
+        None
+    };
+
     let mut tx = user_db.begin(&authed).await?;
 
-    // Source-of-truth check for fork-ness: the workspace's parent_workspace_id
-    // column. The wm-fork-* prefix is a creation-time naming convention that
-    // could in principle drift (rename, manual SQL); the column is the
-    // contract that matches what the conflict-warning gates read.
-    let is_fork: bool = sqlx::query_scalar!(
-        "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
-        &w_id
+    // Exporting decrypted secrets in bulk is the same capability as a per-item
+    // secret read, so record it for parity with variables.decrypt_secret.
+    if plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_variables.unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+    {
+        windmill_audit::audit_oss::audit_log(
+            &mut *tx,
+            &authed,
+            "variables.decrypt_secret",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
+
+    // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
+    // The wm-fork-* prefix is a creation-time naming convention that could in
+    // principle drift (rename, manual SQL); the column is the contract that
+    // matches what the conflict-warning gates read. The id is also the workspace
+    // whose trigger `mode` / schedule `enabled` a fork export defers to.
+    let parent_workspace_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
     )
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?
-    .flatten()
-    .unwrap_or(false);
+    .flatten();
 
     let tmp_dir = TempDir::new_in(&*WINDMILL_DIR)?;
 
@@ -540,7 +673,7 @@ pub(crate) async fn tarball_workspace(
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
     {
-        let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as FROM folder WHERE workspace_id = $1")
+        let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -559,7 +692,6 @@ pub(crate) async fn tarball_workspace(
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
             "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
-                 AND (draft_only IS NULL OR draft_only = false)
                  AND created_at = (select max(created_at) from script where path = o.path AND \
                   workspace_id = $1)",
             windmill_common::scripts::SCRIPT_COLUMNS,
@@ -695,10 +827,10 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-             WHERE flow.workspace_id = $1 AND flow.archived = false AND (flow.draft_only IS NULL OR flow.draft_only = false)",
+             WHERE flow.workspace_id = $1 AND flow.archived = false",
          )
          .bind(&w_id)
          .fetch_all(&mut *tx)
@@ -747,8 +879,7 @@ pub(crate) async fn tarball_workspace(
              "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
              app.extra_perms, app_version.value,
              app_version.created_at, app_version.created_by, app_version.raw_app, app.labels from app, app_version
-             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]
-             AND (app.draft_only IS NULL OR app.draft_only = false)",
+             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
          )
          .bind(&w_id)
          .fetch_all(&mut *tx)
@@ -763,11 +894,8 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
-    if include_workspace_dependencies.unwrap_or(false)
-        && require_admin(authed.is_admin, &authed.username).is_ok()
-    {
+    if let Some(workspace_dependencies) = workspace_dependencies {
         tracing::info!("Including workspace dependencies in tarball export");
-        let workspace_dependencies = WorkspaceDependencies::list(&w_id, &db).await?;
         tracing::info!(
             "Found {} workspace dependencies",
             workspace_dependencies.len()
@@ -799,12 +927,21 @@ pub(crate) async fn tarball_workspace(
         .fetch_all(&mut *tx)
         .await?;
 
-        let schedule_ignore_keys = fork_schedule_ignore_keys(is_fork);
+        // For a fork, defer each schedule's `enabled` to the parent so the
+        // synced file matches the parent and the merge doesn't flip it.
+        let parent_enabled =
+            fork_parent_schedule_enabled(&db, parent_workspace_id.as_deref()).await?;
         for schedule in schedules {
-            let app_str = &to_string_without_metadata(
+            let enabled_override = parent_enabled.get(&schedule.path).map(|enabled| {
+                let mut o = serde_json::Map::new();
+                o.insert("enabled".to_string(), Value::Bool(*enabled));
+                o
+            });
+            let app_str = &to_string_without_metadata_inner(
                 &schedule,
                 ExtraPermsBehavior::Drop,
-                schedule_ignore_keys.clone(),
+                None,
+                enabled_override.as_ref(),
             )
             .unwrap();
             archive
@@ -814,38 +951,25 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_triggers.unwrap_or(false) {
-        #[cfg(any(
-            feature = "http_trigger",
-            feature = "websocket",
-            feature = "postgres_trigger",
-            feature = "mqtt_trigger",
-            feature = "native_trigger",
-            all(
-                feature = "enterprise",
-                any(
-                    feature = "kafka",
-                    feature = "sqs_trigger",
-                    feature = "gcp_trigger",
-                    feature = "azure_trigger",
-                    feature = "nats",
-                    feature = "smtp",
-                ),
-                feature = "private"
-            )
-        ))]
-        let trigger_ignore_keys = fork_trigger_ignore_keys(is_fork);
-
         #[cfg(feature = "http_trigger")]
         {
             use crate::triggers::http::HttpTrigger;
             let handler = HttpTrigger;
-            let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let http_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <HttpTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in http_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -861,13 +985,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::websocket::WebsocketTrigger;
             let handler = WebsocketTrigger;
-            let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <WebsocketTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in websocket_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -883,13 +1015,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::kafka::KafkaTrigger;
             let handler = KafkaTrigger;
-            let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <KafkaTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in kafka_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -905,13 +1045,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::sqs::SqsTrigger;
             let handler = SqsTrigger;
-            let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <SqsTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in sqs_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -927,13 +1075,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::gcp::GcpTrigger;
             let handler = GcpTrigger;
-            let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <GcpTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in gcp_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -949,13 +1105,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::azure::AzureTrigger;
             let handler = AzureTrigger;
-            let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <AzureTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in azure_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -971,13 +1135,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::nats::NatsTrigger;
             let handler = NatsTrigger;
-            let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <NatsTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in nats_triggers {
-                let trigger_str: &String = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str: &String = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -993,13 +1165,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::postgres::PostgresTrigger;
             let handler = PostgresTrigger;
-            let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <PostgresTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in postgres_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -1015,13 +1195,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::mqtt::MqttTrigger;
             let handler = MqttTrigger;
-            let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <MqttTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in mqtt_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -1037,13 +1225,21 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::email::EmailTrigger;
             let handler = EmailTrigger;
-            let email_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let email_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <EmailTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in email_triggers {
-                let trigger_str = &to_string_without_metadata(
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
                     &trigger,
                     ExtraPermsBehavior::Drop,
-                    trigger_ignore_keys.clone(),
+                    None,
+                    mode_override.as_ref(),
                 )
                 .unwrap();
                 archive
@@ -1065,10 +1261,12 @@ pub(crate) async fn tarball_workspace(
                     list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
                         .await?;
 
-                let mut native_ignore_keys = vec!["webhook_token_hash"];
-                if let Some(ref extra) = trigger_ignore_keys {
-                    native_ignore_keys.extend_from_slice(extra);
-                }
+                // Native triggers (Nextcloud, Google Drive, GitHub) are never
+                // cloned into a fork — a fork only has one if its owner created
+                // it there, so it's always "fork-only" and keeps its own mode.
+                // No parent-value substitution applies; we only strip the
+                // webhook token hash.
+                let native_ignore_keys = vec!["webhook_token_hash"];
 
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
@@ -1358,4 +1556,68 @@ pub(crate) async fn tarball_workspace(
         ),
     ];
     Ok((headers, body))
+}
+
+#[cfg(test)]
+mod fork_export_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A fork export rewrites `mode` to the parent's value: the serialized file
+    /// carries the parent's state (`enabled`), not the fork's clone-disabled DB
+    /// value — so a normal-git merge sees no change on that line.
+    #[test]
+    fn override_substitutes_parent_mode() {
+        let fork_trigger = json!({
+            "path": "f/triggers/x",
+            "script_path": "f/scripts/x",
+            "mode": "disabled", // fork's local (clone-disabled) state
+            "is_flow": false,
+        });
+        let mut overrides = serde_json::Map::new();
+        overrides.insert("mode".to_string(), Value::String("enabled".to_string()));
+
+        let out = to_string_without_metadata_inner(
+            &fork_trigger,
+            ExtraPermsBehavior::Drop,
+            None,
+            Some(&overrides),
+        )
+        .unwrap();
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+
+        assert_eq!(parsed["mode"], json!("enabled"), "parent mode substituted");
+        // `path` is in the metadata strip list, so it should be removed.
+        assert!(parsed.get("path").is_none());
+    }
+
+    /// A fork-only trigger (no parent counterpart, so no override) keeps the
+    /// fork creator's chosen state.
+    #[test]
+    fn no_override_keeps_fork_value() {
+        let fork_only = json!({ "mode": "enabled", "script_path": "f/scripts/x" });
+        let out =
+            to_string_without_metadata_inner(&fork_only, ExtraPermsBehavior::Drop, None, None)
+                .unwrap();
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["mode"], json!("enabled"));
+    }
+
+    /// `trigger_mode_override` builds an override only when the parent has the
+    /// path; fork-only paths return `None` (keep the fork's own value).
+    #[cfg(feature = "http_trigger")]
+    #[test]
+    fn trigger_mode_override_defers_to_parent_or_self() {
+        let mut parent_modes = HashMap::new();
+        parent_modes.insert("f/triggers/shared".to_string(), "enabled".to_string());
+
+        let shared = trigger_mode_override(&parent_modes, "f/triggers/shared");
+        assert_eq!(
+            shared.as_ref().and_then(|o| o.get("mode")),
+            Some(&Value::String("enabled".to_string())),
+        );
+
+        // Fork-only path: no parent entry → no override → keep fork's own value.
+        assert!(trigger_mode_override(&parent_modes, "f/triggers/fork_only").is_none());
+    }
 }

@@ -1,0 +1,111 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT asset_kind AS \"asset_kind: AssetKind\", asset_path, partition,\n                  status AS \"status: MaterializationStatus\", snapshot_id,\n                  row_count, job_id, materialized_at, error\n             FROM materialized_partition\n            WHERE workspace_id = $1 AND asset_kind = $2 AND asset_path = $3\n            ORDER BY partition DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset_kind: AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "asset_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "partition",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "status: MaterializationStatus",
+        "type_info": {
+          "Custom": {
+            "name": "materialization_status",
+            "kind": {
+              "Enum": [
+                "running",
+                "materialized",
+                "failed"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "snapshot_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "row_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "materialized_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "error",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "c28e066bf24263f9e3b48a2ecabdf037178ba246092dbc1d2b3816e7a9269dc3"
+}

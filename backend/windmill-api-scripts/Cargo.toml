@@ -12,7 +12,8 @@ path = "src/lib.rs"
 default = []
 enterprise = ["windmill-common/enterprise"]
 private = ["windmill-common/private", "windmill-dep-map/private"]
-python = ["dep:windmill-parser-py"]
+python = ["dep:windmill-parser-py", "dep:windmill-parser-py-asset"]
+prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
@@ -22,6 +23,11 @@ windmill-audit.workspace = true
 windmill-git-sync.workspace = true
 windmill-dep-map.workspace = true
 windmill-parser-ts.workspace = true
+windmill-parser.workspace = true
+windmill-parser-ts-asset.workspace = true
+windmill-parser-sql-asset.workspace = true
+windmill-parser-sql.workspace = true
+windmill-parser-yaml.workspace = true
 
 axum.workspace = true
 futures.workspace = true
@@ -38,4 +44,6 @@ tracing.workspace = true
 chrono.workspace = true
 lazy_static.workspace = true
 tokio.workspace = true
+prometheus = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }
+windmill-parser-py-asset = { workspace = true, optional = true }

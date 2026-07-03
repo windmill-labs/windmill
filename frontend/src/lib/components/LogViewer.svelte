@@ -17,6 +17,7 @@
 	import { base } from '$lib/base'
 	import { withExternalDomain } from '$lib/externalDomain'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 	import { workspaceStore } from '$lib/stores'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -241,7 +242,7 @@
 			fetchedSkippedJobId = undefined
 		}
 	})
-	let logsApiPath = $derived(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
+	let logsApiPath = $derived(appendViewToken(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`))
 	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
 	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
 	let truncatedContent = $derived(

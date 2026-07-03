@@ -1,5 +1,33 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { toSameOriginRelativePath } from './logoutRedirect'
+import { isValidLogoutRedirect, toSameOriginRelativePath } from './logoutRedirect'
+
+describe('isValidLogoutRedirect', () => {
+	beforeEach(() => {
+		vi.stubGlobal('window', { location: { origin: 'http://localhost:3000' } })
+	})
+
+	afterEach(() => {
+		vi.unstubAllGlobals()
+	})
+
+	it('accepts same-origin absolute URLs', () => {
+		expect(isValidLogoutRedirect('http://localhost:3000/')).toBe(true)
+		expect(isValidLogoutRedirect('http://localhost:3000/runs?workspace=foo')).toBe(true)
+	})
+
+	it('accepts root-relative paths', () => {
+		expect(isValidLogoutRedirect('/foo')).toBe(true)
+	})
+
+	it('accepts windmill.dev hosts', () => {
+		expect(isValidLogoutRedirect('https://app.windmill.dev/foo')).toBe(true)
+	})
+
+	it('rejects cross-origin and protocol-relative', () => {
+		expect(isValidLogoutRedirect('https://evil.com/')).toBe(false)
+		expect(isValidLogoutRedirect('//evil.com')).toBe(false)
+	})
+})
 
 describe('toSameOriginRelativePath', () => {
 	beforeEach(() => {

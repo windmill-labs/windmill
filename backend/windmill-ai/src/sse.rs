@@ -522,6 +522,7 @@ impl SSEParser for GeminiSSEParser {
 
             let extra_content = tool_call.thought_signature.map(|sig| ExtraContent {
                 google: Some(GoogleExtraContent { thought_signature: Some(sig) }),
+                bedrock: None,
             });
 
             self.accumulated_tool_calls.insert(

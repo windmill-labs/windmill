@@ -1190,8 +1190,10 @@ export function isCodeInjection(expr: string | undefined): boolean {
 // app logic via the `query` context. Only params we actually own are listed
 // here — the `wm_` prefix is a naming convention, not a reserved namespace, so
 // we don't strip it wholesale (that would break apps reading their own `wm_*`
-// params). `wm_coep` is a transport flag for cross-origin isolation headers.
-export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep'])
+// params). `wm_coep` is a transport flag for cross-origin isolation headers;
+// `wm_embed`/`wm_embedder_origin` are the opaque app viewer transport params
+// (see PublicAppFrame).
+export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep', 'wm_embed', 'wm_embedder_origin'])
 
 export function urlParamsToObject(
 	params: URLSearchParams,
@@ -1296,13 +1298,47 @@ function replaceFalseWithUndefinedRec(obj: any) {
 	return obj
 }
 
+// Keys that are server-managed bookkeeping, never user-editable, and therefore
+// must not surface in any value diff or unsaved-change comparison. `getScriptByPath`
+// (and the flow/app equivalents) return the full DB row, so the editing object
+// carries these while the deployed side is fetched trimmed — leaving them in would
+// render as spurious metadata diff.
+//
+// `hash` is the deployed version's identity, `assets` is re-derived from the
+// script content by the editor, and `inherited_labels` is computed at read time
+// from the parent folder — none is editable content, so all three are noise in a
+// fork/workspace or version diff.
+//
+// `lock` and `extra_perms` are deliberately NOT in this set: both are legitimate,
+// user-meaningful fields in some diff contexts (lockfile changes in version-to-version
+// diffs, folder sharing-permission changes in workspace/fork diffs). The script-editor
+// noise they would otherwise cause is stripped at the source instead (the deployed side
+// in `ScriptBuilder.syncWithDeployed`, the current side in `ScriptBuilder.openDiffDrawer`).
+const CLEANED_VALUE_KEYS = new Set([
+	'parent_hash',
+	'hash',
+	'assets',
+	'inherited_labels',
+	'draft',
+	'draft_only',
+	'draft_saved_at',
+	'draft_created_at',
+	'is_draft',
+	'other_drafts_users',
+	'created_at',
+	'created_by',
+	'workspace_id',
+	'parent_hashes',
+	'lock_error_logs'
+])
+
 export function cleanValueProperties(obj: Value) {
 	if (typeof obj !== 'object') {
 		return obj
 	} else {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
-			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
+			if (!CLEANED_VALUE_KEYS.has(key)) {
 				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
@@ -2084,17 +2120,27 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 
 export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
 	const [p1, _p2] = path.split('://')
-	const [p2, _p3] = _p2.split('/')
-	const [p3, p4] = _p3.split('.')
+	const [p2, _p3] = (_p2 ?? '').split('/')
+	// `_p3` is undefined for a catalog-only path (e.g. `ducklake://main`, no
+	// table segment) — guard the split so the helper returns a table-less input
+	// instead of throwing.
+	const [p3, p4] = (_p3 ?? '').split('.')
+	const specificTable = p4 || p3 || undefined
+	const specificSchema = p4 ? p3 : undefined
 	return p1 === 'ducklake'
-		? { type: 'ducklake', ducklake: p2 || 'main', specificTable: p4 ?? p3 }
+		? {
+				type: 'ducklake',
+				ducklake: p2 || 'main',
+				specificTable,
+				specificSchema
+			}
 		: p1 === 'datatable'
 			? {
 					type: 'database',
 					resourcePath: `datatable://${p2 || 'main'}`,
 					resourceType: 'postgresql',
-					specificTable: p4 ?? p3,
-					specificSchema: p4 ? p3 : undefined
+					specificTable,
+					specificSchema
 				}
 			: null
 }

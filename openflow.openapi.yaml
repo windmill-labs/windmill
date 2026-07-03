@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.714.0
+  version: 1.746.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -271,6 +271,9 @@ components:
           type: string
           nullable: true
           description: Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised.
+        error_include_result:
+          type: boolean
+          description: "When stopping with an error (error_message set), embed the stopping step's own result inside the raised error object (as error.result) instead of discarding it. The top-level result stays { error }. Defaults to false."
       required:
         - expr
 
@@ -449,6 +452,7 @@ components:
       enum:
         - openai
         - azure_openai
+        - azure_foundry
         - anthropic
         - mistral
         - deepseek
@@ -1075,6 +1079,9 @@ components:
           type: string
           enum:
             - aiagent
+        tag:
+          type: string
+          description: Worker group tag for execution routing. If not set, the AI agent step runs on the flow's tag (default `flow`)
         omit_output_from_conversation:
           type: boolean
           default: false

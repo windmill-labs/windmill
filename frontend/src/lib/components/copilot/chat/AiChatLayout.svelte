@@ -50,6 +50,23 @@
 	})
 </script>
 
+{#snippet burgerRow()}
+	<div
+		class={classNames(
+			'py-0.5 px-4 sm:px-4 shadow-sm max-w-7xl md:hidden justify-start flex',
+			noBorder || $userStore?.operator ? 'hidden' : ''
+		)}
+	>
+		<Button
+			variant="subtle"
+			unifiedSize="lg"
+			onClick={() => onMenuOpen?.()}
+			startIcon={{ icon: Menu }}
+			iconOnly
+		/>
+	</div>
+{/snippet}
+
 {#if !disableAi}
 	<CreatedResourceActionDrawers />
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
@@ -64,20 +81,7 @@
 			>
 				<main class="flex-1 flex flex-col min-h-0">
 					<div class="relative w-full flex-1 flex flex-col min-h-0">
-						<div
-							class={classNames(
-								'py-0.5 px-4 sm:px-4 shadow-sm max-w-7xl md:hidden justify-start flex',
-								noBorder || $userStore?.operator ? 'hidden' : ''
-							)}
-						>
-							<Button
-								variant="subtle"
-								unifiedSize="lg"
-								onClick={() => onMenuOpen?.()}
-								startIcon={{ icon: Menu }}
-								iconOnly
-							/>
-						</div>
+						{@render burgerRow()}
 						<div class="flex-1 min-h-0">
 							{@render children?.()}
 						</div>
@@ -97,12 +101,16 @@
 	</Splitpanes>
 {:else}
 	<div
+		id="content"
 		class={classNames(
 			'flex-1 min-h-0 flex flex-col',
 			noBorder || $userStore?.operator || isMobile ? '' : isCollapsed ? 'pl-12' : 'pl-40',
 			'transition-all ease-in-out duration-200'
 		)}
 	>
-		{@render children?.()}
+		{@render burgerRow()}
+		<div class="flex-1 min-h-0 flex flex-col">
+			{@render children?.()}
+		</div>
 	</div>
 {/if}

@@ -17,7 +17,7 @@ use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
-use crate::var_resource_cache::{cache_resource, get_cached_resource};
+use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
 use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
@@ -43,6 +43,11 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{self, Error, JsonResult, Result},
     get_database_url,
+    user_drafts::{
+        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only,
+        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
+    },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::{CLOUD_HOSTED, WINDMILL_DIR},
@@ -147,8 +152,21 @@ pub struct ListableResource {
     pub account: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_specific: Option<bool>,
+    /// `Some(true)` only on synthesized draft-only rows; `None` on deployed rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path (drives the
+    /// `*` suffix on the resources page).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +199,9 @@ pub struct ListResourceQuery {
     pub value: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
+    /// When true, append per-user draft-only rows; picker callers leave it off
+    /// to stay deployed-only. See list synthesis in scripts.rs.
+    pub include_draft_only: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -248,6 +269,7 @@ async fn list_resources(
     Query(lq): Query<ListResourceQuery>,
     Query(pagination): Query<Pagination>,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ListableResource>> {
     let (per_page, offset) = paginate(pagination);
@@ -269,8 +291,16 @@ async fn list_resources(
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
+            "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
         ])
+        // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
+        .field(
+            &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = resource.workspace_id \
+              AND draft.path = resource.path AND draft.typ = 'resource' \
+              AND draft.email = ?) as is_draft"
+                .bind(&authed.email),
+        )
         .left()
         .join("variable")
         .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
@@ -336,14 +366,18 @@ async fn list_resources(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("resource.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(resource.labels @> ARRAY[?] OR folder_labels(resource.workspace_id, resource.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
-    let rows = sqlx::query_as::<_, ListableResource>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableResource>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
@@ -351,6 +385,101 @@ async fn list_resources(
         .collect::<Vec<_>>();
 
     tx.commit().await?;
+
+    // Append the authed user's draft-only resources; see scripts.rs.
+    // `resource_type` / `resource_type_exclude` are deliberately NOT in the bail-out
+    // list (the resources page always passes `resource_type_exclude`); they're applied
+    // per-row below against the draft JSON's `resource_type` instead.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path.is_none()
+        && lq.description.is_none()
+        && lq.value.is_none()
+        && lq.broad_filter.is_none()
+        && lq.label.is_none()
+    {
+        let rt_filter: Option<Vec<&str>> = lq
+            .resource_type
+            .as_deref()
+            .map(|s| s.split(',').map(str::trim).collect());
+        let rt_exclude: Option<Vec<&str>> = lq
+            .resource_type_exclude
+            .as_deref()
+            .map(|s| s.split(',').map(str::trim).collect());
+        let draft_only_rows =
+            fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Resource)
+                .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
+            let path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() || !allowed(&path) {
+                continue;
+            }
+            let description = v
+                .get("description")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let value = v.get("args").cloned();
+            let resource_type = v
+                .get("resource_type")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            // Mirror the deployed query's resource_type narrowing for the
+            // synthesized rows (see the gate comment above).
+            if let Some(ref rts) = rt_filter {
+                if !rts.contains(&resource_type.as_str()) {
+                    continue;
+                }
+            }
+            if let Some(ref excl) = rt_exclude {
+                if excl.contains(&resource_type.as_str()) {
+                    continue;
+                }
+            }
+            let labels = v.get("labels").and_then(|x| {
+                x.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+            });
+            let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+
+            rows.push(ListableResource {
+                workspace_id: w_id.clone(),
+                path,
+                value,
+                description,
+                resource_type,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                created_by: None,
+                edited_at: Some(row.created_at),
+                is_linked: None,
+                is_refreshed: None,
+                is_oauth: None,
+                is_expired: None,
+                refresh_error: None,
+                account: None,
+                labels,
+                // No deployed row to inherit folder labels from.
+                inherited_labels: None,
+                ws_specific,
+                draft_only: Some(true),
+                // Synthesized rows are the authed user's draft.
+                is_draft: Some(true),
+            });
+        }
+    }
 
     Ok(Json(rows))
 }
@@ -360,22 +489,27 @@ async fn get_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ListableResource> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let resource_o = sqlx::query_as!(
         ListableResource,
+        // `null::bool` columns align with the struct fields; deployed rows are never draft-only.
         "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
         resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
         resource.labels,
+        folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
         (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
         account.refresh_error,
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account,
-        ws_specific.path IS NOT NULL as ws_specific
+        ws_specific.path IS NOT NULL as ws_specific,
+        null::bool as draft_only,
+        null::bool as is_draft
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
@@ -387,11 +521,30 @@ async fn get_resource(
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
+    if resource_o.is_none() && q.get_draft {
+        // No deployed row + `get_draft`: synthesize the response from the draft
+        // alone (`no_deployed = true`); see scripts.rs.
+        if let Some(overlay) =
+            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?
+        {
+            return Ok(Json(overlay));
+        }
+    }
     if resource_o.is_none() {
         explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
     }
     let resource = not_found_if_none(resource_o, "Resource", path)?;
-    Ok(Json(resource))
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Resource,
+        path,
+        q.get_draft,
+        resource,
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn exists_resource(
@@ -550,8 +703,18 @@ pub async fn get_resource_value_interpolated_internal<'a>(
         return Ok(Some(pg_creds));
     }
 
-    if allow_cache {
-        if let Some(cached_value) = get_cached_resource(&workspace, &path) {
+    // Scope the cache to the caller's full authorization identity (not just email): the
+    // cached value is already decrypted/interpolated under this caller's RLS context, so it
+    // must never be served to a context that resolves to different permissions. Only
+    // job-independent values are ever stored (see the write below), so a hit is always safe
+    // to return regardless of the current `job_id`.
+    let cache_identity = allow_cache.then(|| match db_with_opt_authed.authed() {
+        Some(authed) => auth_identity(authed),
+        None => format!("\0system:{}", db_with_opt_authed.email()),
+    });
+
+    if let Some(identity) = cache_identity.as_deref() {
+        if let Some(cached_value) = get_cached_resource(&workspace, &path, identity) {
             return Ok(Some(cached_value));
         }
     }
@@ -575,17 +738,24 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        let r = transform_json_value(
+        // Track whether interpolation pulled in a `$WM_*` contextual variable. If it did, the
+        // result is job-dependent (and may embed `$WM_TOKEN`) and must not be cached; if not,
+        // it's job-independent and safe to cache and to serve to any job context.
+        let used_job_context = std::sync::atomic::AtomicBool::new(false);
+        let r = transform_json_value_tracked(
             &db_with_opt_authed,
             workspace,
             value,
             &job_id,
             token_for_context,
             0,
+            &used_job_context,
         )
         .await?;
-        if allow_cache {
-            cache_resource(&workspace, &path, r.clone());
+        if let Some(identity) = cache_identity.as_deref() {
+            if !used_job_context.load(std::sync::atomic::Ordering::Relaxed) {
+                cache_resource(&workspace, &path, identity, r.clone());
+            }
         }
         Ok(Some(r))
     } else {
@@ -601,14 +771,41 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 // access could otherwise use to crash the API process.
 pub const MAX_RESOURCE_INTERPOLATION_DEPTH: u8 = 50;
 
-#[async_recursion]
 pub async fn transform_json_value(
-    db_with_opt_authed: &DbWithOptAuthed<ApiAuthed>,
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     workspace: &str,
     v: Value,
     job_id: &Option<Uuid>,
     token: Option<&str>,
     depth: u8,
+) -> Result<Value> {
+    // Discard the job-context flag; callers that need it use `transform_json_value_tracked`.
+    let used_job_context = std::sync::atomic::AtomicBool::new(false);
+    transform_json_value_tracked(
+        db_with_opt_authed,
+        workspace,
+        v,
+        job_id,
+        token,
+        depth,
+        &used_job_context,
+    )
+    .await
+}
+
+/// Like [`transform_json_value`], but records into `used_job_context` whether the value
+/// contains a `$WM_*` contextual variable (resolved from `job_id`/`token`). A value that did
+/// not is job-independent and safe to cache; one that did must not be cached or shared across
+/// jobs.
+#[async_recursion]
+pub async fn transform_json_value_tracked(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    workspace: &str,
+    v: Value,
+    job_id: &Option<Uuid>,
+    token: Option<&str>,
+    depth: u8,
+    used_job_context: &std::sync::atomic::AtomicBool,
 ) -> Result<Value> {
     if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
         return Err(Error::internal_err(format!(
@@ -652,15 +849,35 @@ pub async fn transform_json_value(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(db_with_opt_authed, workspace, v, job_id, token, depth + 1)
-                    .await
+                transform_json_value_tracked(
+                    db_with_opt_authed,
+                    workspace,
+                    v,
+                    job_id,
+                    token,
+                    depth + 1,
+                    used_job_context,
+                )
+                .await
             } else {
                 Ok(Value::Null)
             }
         }
-        Value::String(y) if y.starts_with("$") && job_id.is_some() => {
+        // `$WM_*` is the reserved contextual-variable namespace (`$WM_TOKEN`, `$WM_JOB_ID`,
+        // ...); its resolved value depends on the job, so a value containing one is
+        // job-dependent and must never be cached — including on a no-job read, where the
+        // placeholder is left unresolved (caching it would then serve a stale placeholder to a
+        // later job read). Any other `$...` string (custom workspace envs, `$5.00`, `$HOME`, jq
+        // paths) is NOT interpolated here — it resolves to itself regardless of context and so
+        // stays cacheable (handled by the catch-all below). Note: custom workspace envs are
+        // intentionally not resolved inside resource values (they remain available to scripts).
+        Value::String(y) if y.starts_with("$WM_") => {
+            used_job_context.store(true, std::sync::atomic::Ordering::Relaxed);
+            let Some(job_id) = *job_id else {
+                // No job context to resolve against; leave the placeholder unchanged.
+                return Ok(Value::String(y));
+            };
             let mut tx = db_with_opt_authed.begin().await?;
-            let job_id = job_id.unwrap();
             let job = sqlx::query!(
                 "SELECT
                     v2_job.permissioned_as_email,
@@ -731,13 +948,14 @@ pub async fn transform_json_value(
         Value::Array(mut arr) if depth <= 2 && arr.len() <= 1000 => {
             for i in 0..arr.len() {
                 let val = std::mem::take(&mut arr[i]);
-                arr[i] = transform_json_value(
+                arr[i] = transform_json_value_tracked(
                     db_with_opt_authed,
                     workspace,
                     val,
                     job_id,
                     token,
                     depth + 1,
+                    used_job_context,
                 )
                 .await?;
             }
@@ -754,13 +972,14 @@ pub async fn transform_json_value(
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                let v = transform_json_value(
+                let v = transform_json_value_tracked(
                     db_with_opt_authed,
                     workspace,
                     b,
                     job_id,
                     token,
                     depth + 1,
+                    used_job_context,
                 )
                 .await?;
                 m.insert(a.clone(), v);
@@ -869,21 +1088,48 @@ async fn create_resource(
         .execute(&db)
         .await?;
     }
-    sqlx::query!(
-        "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
-            VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), labels = EXCLUDED.labels",
-        w_id,
-        resource.path,
-        raw_json as sqlx::types::Json<&RawValue>,
-        resource.description,
-        resource.resource_type,
-        authed.username,
-        resource.labels.as_deref() as Option<&[String]>
-    )
-    .execute(&mut *tx)
-    .await?;
+    if update_if_exists {
+        sqlx::query!(
+            "INSERT INTO resource
+                (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
+                VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
+                DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), labels = EXCLUDED.labels",
+            w_id,
+            resource.path,
+            raw_json as sqlx::types::Json<&RawValue>,
+            resource.description,
+            resource.resource_type,
+            authed.username,
+            resource.labels.as_deref() as Option<&[String]>
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        // Create-only (the default): DO NOTHING + a row-count guard, so a path that appears between
+        // check_path_conflict above and this insert is rejected rather than overwritten. A plain
+        // DO UPDATE here would clobber a concurrently-created resource, breaking create-only callers
+        // (e.g. Compare & Deploy "Create in <other>").
+        let inserted = sqlx::query!(
+            "INSERT INTO resource
+                (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
+                VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path) DO NOTHING",
+            w_id,
+            resource.path,
+            raw_json as sqlx::types::Json<&RawValue>,
+            resource.description,
+            resource.resource_type,
+            authed.username,
+            resource.labels.as_deref() as Option<&[String]>
+        )
+        .execute(&mut *tx)
+        .await?;
+        if inserted.rows_affected() == 0 {
+            return Err(Error::BadRequest(format!(
+                "Resource {} already exists",
+                resource.path
+            )));
+        }
+    }
 
     // Mirror update_resource: Some(true) inserts, Some(false) clears (only
     // meaningful on the upsert path, since a pure create has no existing row),
@@ -1092,6 +1338,13 @@ async fn delete_resource(
     .await?;
     tx.commit().await?;
 
+    // Resource gone for everyone: wipe ALL users' drafts at this path (and any linked
+    // variables cascaded into) so teammates' drafts don't orphan. Idempotent on no-draft.
+    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    for var_path in &deleted_linked_variables {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
+    }
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -1159,7 +1412,12 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
-async fn mark_linked_variables_ws_specific(
+/// Marks every variable referenced by the resource at `resource_path` as workspace-specific.
+///
+/// AUTH CONTRACT: this mutates `ws_specific` and does NOT check authorization itself. The caller
+/// MUST verify that `authed` has write access to the resource at `resource_path` in `w_id` (e.g. via
+/// `require_owner_of_path`) before calling it.
+pub async fn mark_linked_variables_ws_specific(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
     w_id: &str,
@@ -1361,6 +1619,14 @@ async fn delete_resources_bulk(
 
     tx.commit().await?;
 
+    // Wipe ALL users' drafts at these paths (and linked variables); see delete_resource.
+    for path in &deleted_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    }
+    for var_path in &linked_var_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
+    }
+
     try_join_all(deleted_paths.iter().map(|path| {
         handle_deployment_metadata(
             &authed.email,
@@ -1400,6 +1666,12 @@ async fn update_resource(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+    // A rename moves the resource (and its linked variable) to ns.path, so the
+    // destination must also be within the token's write scope, not just the
+    // source path.
+    if let Some(npath) = ns.path.as_deref() {
+        check_scopes(&authed, || format!("resources:write:{}", npath))?;
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1587,6 +1859,28 @@ async fn update_resource(
 
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
+
+    // On rename the draft at the OLD path orphans (no SQL FK); clear the deployer's
+    // own (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). The linked
+    // variable renames alongside the resource, so its old-path draft orphans too.
+    if let Some(old_path) = old_path_if_renamed {
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Resource,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Variable,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+    }
 
     handle_deployment_metadata(
         &authed.email,

@@ -9,10 +9,12 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
+	import { AI_PROVIDERS, fetchAvailableModels, providerSupportsWebSearch } from '../copilot/lib'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Label from '../Label.svelte'
+	import AiSkillsSettings from './AiSkillsSettings.svelte'
+	import { isGlobalAiEnabled } from '../copilot/chat/global/gate'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -68,6 +70,7 @@
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
 	let defaultModel: string | undefined = $state(undefined)
+	let metadataModel: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
@@ -77,6 +80,7 @@
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let initialCodeCompletionModel: string | undefined = $state(undefined)
 	let initialDefaultModel: string | undefined = $state(undefined)
+	let initialMetadataModel: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
@@ -86,9 +90,23 @@
 		return JSON.parse(JSON.stringify(v))
 	}
 
+	function normalizeProviderSettings(
+		providers: Exclude<AIConfig['providers'], undefined>
+	): Exclude<AIConfig['providers'], undefined> {
+		return Object.fromEntries(
+			Object.entries(providers).map(([provider, config]) => [
+				provider,
+				providerSupportsWebSearch(provider as AIProvider)
+					? { ...config, web_search_enabled: config.web_search_enabled ?? true }
+					: config
+			])
+		)
+	}
+
 	function applyConfig(config: AIConfig | undefined) {
-		aiProviders = clone(config?.providers ?? {})
+		aiProviders = normalizeProviderSettings(clone(config?.providers ?? {}))
 		defaultModel = config?.default_model?.model
+		metadataModel = config?.metadata_model?.model
 		codeCompletionModel = config?.code_completion_model?.model
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
@@ -102,6 +120,7 @@
 	function storeInitialState() {
 		initialAiProviders = clone(aiProviders)
 		initialDefaultModel = defaultModel
+		initialMetadataModel = metadataModel
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
@@ -116,6 +135,7 @@
 	export function discard() {
 		aiProviders = clone(initialAiProviders)
 		defaultModel = initialDefaultModel
+		metadataModel = initialMetadataModel
 		codeCompletionModel = initialCodeCompletionModel
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
@@ -149,6 +169,7 @@
 	let dirty = $derived(
 		JSON.stringify(aiProviders) !== JSON.stringify(initialAiProviders) ||
 			defaultModel !== initialDefaultModel ||
+			metadataModel !== initialMetadataModel ||
 			codeCompletionModel !== initialCodeCompletionModel ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
 			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
@@ -196,10 +217,19 @@
 			)
 		)
 	)
+	// Keep model selections valid: when a selected model is no longer in the
+	// configured providers (provider disabled or model removed from the list),
+	// clear it. The default chat model then falls back to the first configured
+	// model rather than pointing at a model that no longer exists.
 	$effect(() => {
-		if (Object.keys(aiProviders).length < 1) {
-			codeCompletionModel = undefined
+		if (defaultModel && !selectedAiModels.includes(defaultModel)) {
 			defaultModel = undefined
+		}
+		if (metadataModel && !selectedAiModels.includes(metadataModel)) {
+			metadataModel = undefined
+		}
+		if (codeCompletionModel && !selectedAiModels.includes(codeCompletionModel)) {
+			codeCompletionModel = undefined
 		}
 	})
 
@@ -239,6 +269,10 @@
 			defaultModel && modelProviderMap[defaultModel]
 				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
 				: undefined
+		const metadata_model =
+			metadataModel && modelProviderMap[metadataModel]
+				? { model: metadataModel, provider: modelProviderMap[metadataModel] }
+				: undefined
 		const custom_prompts: Record<string, string> = Object.entries(customPrompts)
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
@@ -248,6 +282,7 @@
 					providers: aiProviders,
 					code_completion_model,
 					default_model,
+					metadata_model,
 					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
 					max_tokens_per_model:
 						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
@@ -258,8 +293,8 @@
 	function isSaveDisabled(): boolean {
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModel)
+			(metadataModel != undefined && metadataModel.length === 0) ||
+			(codeCompletionModel != undefined && codeCompletionModel.length === 0)
 		)
 	}
 
@@ -370,33 +405,17 @@
 												models:
 													availableAiModels[provider].length > 0
 														? [availableAiModels[provider][0]]
-														: []
+														: [],
+												...(providerSupportsWebSearch(provider as AIProvider)
+													? { web_search_enabled: true }
+													: {})
 											}
-										}
-
-										if (availableAiModels[provider].length > 0 && !defaultModel) {
-											defaultModel = availableAiModels[provider][0]
 										}
 									} else {
 										aiProviders = Object.fromEntries(
 											Object.entries(aiProviders).filter(([key]) => key !== provider)
 										)
-										if (defaultModel) {
-											const currentDefaultModel = Object.values(aiProviders).find(
-												(p) => defaultModel && p.models.includes(defaultModel)
-											)
-											if (!currentDefaultModel) {
-												defaultModel = undefined
-											}
-										}
-										if (codeCompletionModel) {
-											const currentCodeCompletionModel = Object.values(aiProviders).find(
-												(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
-											)
-											if (!currentCodeCompletionModel) {
-												codeCompletionModel = undefined
-											}
-										}
+										// Stale model selections are cleared reactively (see the validity $effect above).
 									}
 								}}
 							/>
@@ -458,6 +477,22 @@
 										If you don't see the model you want, you can type it manually in the selector.
 									</p>
 								</Label>
+
+								{#if providerSupportsWebSearch(provider as AIProvider)}
+									<Label label="Web search">
+										<Toggle
+											options={{
+												right: 'Enable native web search',
+												rightTooltip:
+													'Uses the provider-native web search tool automatically in chat.'
+											}}
+											checked={aiProviders[provider].web_search_enabled !== false}
+											on:change={(e) => {
+												aiProviders[provider].web_search_enabled = e.detail
+											}}
+										/>
+									</Label>
+								{/if}
 							</div>
 						{/if}
 					</div>
@@ -474,6 +509,24 @@
 					placeholder="Select a default model"
 					size="sm"
 					class="max-w-lg"
+					clearable
+				/>
+			{/key}
+		</SettingCard>
+
+		<SettingCard
+			label="Metadata generation model"
+			description="Used for automatic summaries, descriptions, and tool names. If unset, the default chat model is used."
+		>
+			{#key Object.keys(aiProviders).length}
+				<Select
+					items={safeSelectItems(selectedAiModels)}
+					bind:value={metadataModel}
+					disabled={false}
+					placeholder="Use default chat model"
+					size="sm"
+					class="max-w-lg"
+					clearable
 				/>
 			{/key}
 		</SettingCard>
@@ -535,6 +588,10 @@
 				{/if}
 			</div>
 		</SettingCard>
+	{/if}
+
+	{#if promptScope === 'workspace' && isGlobalAiEnabled()}
+		<AiSkillsSettings />
 	{/if}
 </div>
 

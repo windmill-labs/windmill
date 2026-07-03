@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT runnable_path AS \"runnable_path!\", join_all AS \"join_all!\", debounce_s,\n               retry_count, retry_delay_s\n        FROM script_trigger\n        WHERE workspace_id = $1\n          AND trigger_kind = 'asset'\n          AND trigger_ref = $2\n          AND runnable_kind = 'script'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "join_all!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "debounce_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "retry_count",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 4,
+        "name": "retry_delay_s",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "8bb2f6f4526231c1ce57182a779c9d7cb5d1022da6b5bf5a17c73c61773b50f4"
+}

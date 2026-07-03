@@ -11,7 +11,7 @@ After writing, tell the user which command fits what they want to do:
 
 - `wmill script preview <script_path>` — **default when iterating on a local script.** Runs the local file without deploying.
 - `wmill script run <path>` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- `wmill generate-metadata` — generate `.script.yaml` and `.lock` files for the script you modified.
+- `wmill generate-metadata` — regenerate the local `.script.yaml` (input schema) and `.lock` (resolved dependencies) for scripts you changed, and refresh their content hashes in `wmill-lock.yaml`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -26,13 +26,23 @@ Only use `sync push` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+`wmill-lock.yaml` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing `main`'s arguments** — invalidates that hash and leaves the `.lock`, the `.script.yaml` input schema, and the hash row out of date. Run `wmill generate-metadata` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by `.script.yaml`), and `wmill-lock.yaml` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's `AGENTS.md` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated `.lock` / `.script.lock` files and tell the user which dependency versions changed (e.g. `requests 2.31.0 → 2.32.0`), so they can catch an unwanted bump before deploying — even under `Metadata: auto`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, `generate-metadata` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run `wmill generate-metadata --dry-run` — it lists each stale item with a reason (`content changed` or `depends on <path>`) without changing anything — then narrow with a path argument (`wmill generate-metadata f/foo`) or `--strict-folder-boundaries`.
+
+If the on-disk `.lock` and `.script.yaml` are already correct and only `wmill-lock.yaml` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use `wmill generate-metadata rehash` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run `wmill script preview` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the script's declared parameters. The shape varies by language: `main(...)` for code languages, the SQL dialect's own placeholder syntax (`$1` for PostgreSQL, `?` for MySQL/Snowflake, `@P1` for MSSQL, `@name` for BigQuery, etc.), positional `$1`, `$2`, … for Bash, `param(...)` for PowerShell.
 
-`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill generate-metadata` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's `AGENTS.md` opts in), per "Keep metadata in sync" above. Only `wmill sync push` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
 
@@ -221,27 +231,27 @@ def create_token(duration = dt.timedelta(days=1)) -> str
 # Create a script job and return its job id.
 # 
 # .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
-def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None) -> str
+def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Create a script job by path and return its job id.
-def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None) -> str
+def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Create a script job by hash and return its job id.
-def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None) -> str
+def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Create a flow job and return its job id.
-def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str
+def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
 
 # Run script synchronously and return its result.
 # 
 # .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
-def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run script by path synchronously and return its result.
-def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run script by hash synchronously and return its result.
-def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run a script on the current worker without creating a job.
 # 
@@ -659,10 +669,11 @@ def get_version() -> str
 #     assert_result_is_not_none: Raise exception if result is None
 #     cleanup: Register cleanup handler to cancel job on exit
 #     timeout: Maximum time to wait
+#     tag: Override the worker tag the job runs on
 # 
 # Returns:
 #     Script result
-def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None, tag: str = None) -> Any
 
 # Run a script synchronously by path and return its result.
 # 
@@ -673,10 +684,11 @@ def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = Fals
 #     assert_result_is_not_none: Raise exception if result is None
 #     cleanup: Register cleanup handler to cancel job on exit
 #     timeout: Maximum time to wait
+#     tag: Override the worker tag the job runs on
 # 
 # Returns:
 #     Script result
-def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None, tag: str = None) -> Any
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
 # initiate an S3 connection from DuckDB
@@ -726,6 +738,27 @@ def stream_result(stream) -> None
 # Returns:
 #     SqlQuery instance for fetching results
 def query(sql: str, *args) -> SqlQuery
+
+# Idempotently materialize the rows of `select_sql` into ducklake
+# `table` for one `partition` (or the whole table when `partition` is
+# None). Client-side equivalent of the `// materialize` engine: with
+# `unique_key` it upserts within the slice (delete-by-key + insert);
+# without it, it replaces (whole table → CREATE OR REPLACE; partition →
+# delete the partition + insert). Re-running the same slice is safe — the
+# backfill / failure-recovery contract.
+# 
+# The partition value is bound as a DuckDB arg (never string-interpolated)
+# so it cannot inject SQL. `select_sql` is trusted (your own query).
+def upsert_partition(table: str, select_sql: str, partition: str = None, unique_key: str = None, partition_col: str = '_wm_partition', schema: str = None)
+
+# INSERT-only materialization (no dedup / no replace) for an immutable
+# event-log table — for one `partition`, or the whole table when
+# `partition` is None. NOTE: unlike `upsert_partition`, re-running the same
+# slice duplicates rows — use only for append-only sources.
+def append_partition(table: str, select_sql: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
+
+# Read a materialized ducklake table, optionally a single partition.
+def read(table: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
 
 # Execute query and fetch results.
 # 

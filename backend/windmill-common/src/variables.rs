@@ -9,6 +9,7 @@
 use crate::db::{Authable, UserDB};
 use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
+use crate::secret_backend::{get_secret_value, is_external_stored_value};
 use crate::utils::WarnAfterExt;
 use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
@@ -49,12 +50,29 @@ pub struct ListableVariable {
     pub expires_at: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_specific: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edited_by: Option<String>,
+    /// True when this row is a per-user draft with no deployed variable
+    /// at the same path. Surfaced by `include_draft_only` so the frontend
+    /// can render a "Draft" badge and the editor can open from the draft
+    /// alone. `None`/omitted on rows fetched from the `variable` table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// layered over a deployed variable or a synthesized draft-only row.
+    /// Drives the `*` suffix on the variables page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -174,6 +192,26 @@ pub async fn generate_approval_token(
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
+/// Stateless read-share signature for a job: `HMAC(workspace_key, job_id || "view_token")`.
+/// Mirrors [`generate_approval_token`] but in a distinct domain so an approval token can
+/// never be used as a view token (or vice-versa). Used to build a "share read link" that
+/// grants an authenticated workspace member read access to a job (and its flow subtree)
+/// they otherwise lack ACL on. No expiry/revocation (stateless), like the approval token.
+pub async fn generate_view_token(
+    w_id: &str,
+    job_id: uuid::Uuid,
+    db: &DB,
+) -> crate::error::Result<String> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
+        .map_err(|e| crate::Error::internal_err(format!("HMAC key error: {e}")))?;
+    mac.update(job_id.as_bytes());
+    mac.update(b"view_token");
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
 pub async fn get_secret_value_as_admin(
     db: &DB,
     w_id: &str,
@@ -197,13 +235,17 @@ pub async fn get_secret_value_as_admin(
     let r = if variable.is_secret {
         let value = variable.value;
         if !value.is_empty() {
-            let mc = build_crypt(db, w_id).await?;
-            decrypt(&mc, value).map_err(|e| {
-                crate::error::Error::internal_err(format!(
-                    "Error decrypting variable {}: {}",
-                    variable.path, e
-                ))
-            })?
+            if is_external_stored_value(&value) {
+                get_secret_value(db, w_id, &variable.path, &value).await?
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                decrypt(&mc, value).map_err(|e| {
+                    crate::error::Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?
+            }
         } else {
             "".to_string()
         }
@@ -509,10 +551,14 @@ pub async fn get_variable_or_self(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            let mc = build_crypt(db, w_id).await?;
-            value = decrypt(&mc, value).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
-            })?;
+            if is_external_stored_value(&value) {
+                value = get_secret_value(db, w_id, &path, &value).await?;
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                value = decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+                })?;
+            }
         }
 
         Ok(value)
@@ -554,10 +600,14 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            let mc = build_crypt(db, w_id).await?;
-            value = decrypt(&mc, value).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", var_path, e))
-            })?;
+            if is_external_stored_value(&value) {
+                value = get_secret_value(db, w_id, &var_path, &value).await?;
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                value = decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!("Error decrypting variable {}: {}", var_path, e))
+                })?;
+            }
         }
 
         Ok(value)

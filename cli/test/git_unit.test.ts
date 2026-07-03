@@ -219,8 +219,10 @@ describe("composeGitSyncCommitHeader", () => {
 // =============================================================================
 
 describe("gitSyncIncludePattern", () => {
-  test("script falls through to <path>.*", () => {
-    expect(gitSyncIncludePattern("script", "f/foo/bar")).toBe("f/foo/bar.*");
+  test("script includes __mod/ folder for module scripts", () => {
+    expect(gitSyncIncludePattern("script", "f/foo/bar")).toBe(
+      "f/foo/bar.*,f/foo/bar__mod/**"
+    );
   });
   test("flow/app expand to dotted + __ folder patterns", () => {
     expect(gitSyncIncludePattern("flow", "f/x")).toBe("f/x.flow/*,f/x__flow/*");

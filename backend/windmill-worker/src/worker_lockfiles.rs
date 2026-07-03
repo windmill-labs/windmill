@@ -1248,6 +1248,7 @@ async fn lock_modules(
                 FlowModuleValue::AIAgent {
                     input_transforms,
                     mut tools,
+                    tag,
                     omit_output_from_conversation,
                 } => {
                     // Extract FlowModules from tools and track their original indices
@@ -1299,6 +1300,7 @@ async fn lock_modules(
                     e.value = FlowModuleValue::AIAgent {
                         input_transforms,
                         tools,
+                        tag,
                         omit_output_from_conversation,
                     }
                     .into();
@@ -2070,6 +2072,32 @@ pub async fn handle_app_dependency_job(
         .and_then(|x| x.get("temp_script_refs"))
         .and_then(|v| serde_json::from_str(v.get()).ok());
 
+    // The version captured at job creation can be stale (the app may have been
+    // redeployed since). Relock the current latest instead, mirroring the flow
+    // dependency handler.
+    let id = if triggered_by_relative_import {
+        let latest_version = sqlx::query_scalar!(
+            "SELECT id FROM app_version WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2) ORDER BY created_at DESC LIMIT 1",
+            job_path,
+            job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?;
+        match latest_version {
+            Some(latest_version) if latest_version != id => {
+                tracing::info!(
+                    "App version changed since dependency job was queued ({} -> {}), using latest",
+                    id,
+                    latest_version
+                );
+                latest_version
+            }
+            _ => id,
+        }
+    } else {
+        id
+    };
+
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
         job_path,
@@ -2163,13 +2191,14 @@ pub async fn handle_app_dependency_job(
             .execute(db)
             .await?;
 
-        // NOTE: Temporary solution.
-        // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the app.
-        // NOTE: For now is not solving any problem but at some point we will introduce latest version caching
-        // and when we do this will be last operation that will make new version appear as the latest and will trigger cache invalidation for all worker.
+        // Re-publish the relocked version as latest for cache invalidation, but
+        // only if it is still the latest: the guard makes this a single atomic,
+        // never-demoting statement. Without it, a concurrent deploy that landed a
+        // newer version (e.g. same git-sync push) would be reverted, pointing a
+        // raw app's bundle_secret at a version with no bundle (404 / white screen).
         if triggered_by_relative_import {
             sqlx::query!(
-                "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE path = $2 AND workspace_id = $3",
+                "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE path = $2 AND workspace_id = $3 AND versions[array_upper(versions, 1)] = $1::bigint",
                 id,
                 &job_path,
                 &job.workspace_id

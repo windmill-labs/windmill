@@ -61,10 +61,10 @@ Text/HTML/inline parts are placed inline in `body` as strings.
 
 ## CLI Commands
 
-After writing, tell the user they can run these commands (do NOT run them yourself):
+`wmill sync push` deploys local changes to the workspace and can be destructive to remote state — only suggest/run it when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". `sync pull` is safe to run yourself — it never mutates remote state, though it does overwrite local files to match the remote (use `sync pull --dry-run` to only preview).
 
 ```bash
-# Push trigger configuration
+# Push trigger configuration — only when the user explicitly asks to deploy
 wmill sync push
 
 # Pull triggers from Windmill

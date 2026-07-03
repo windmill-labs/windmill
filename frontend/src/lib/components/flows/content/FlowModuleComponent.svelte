@@ -746,7 +746,7 @@
 						console.log('tagChange', e.detail)
 						if (flowModule.value.type == 'script') {
 							flowModule.value.tag_override = e.detail
-						} else if (flowModule.value.type == 'rawscript') {
+						} else if (flowModule.value.type == 'rawscript' || flowModule.value.type == 'aiagent') {
 							flowModule.value.tag = e.detail
 						}
 					}}
@@ -867,7 +867,6 @@
 														bind:this={editor}
 														class="h-full relative"
 														code={flowModule.value.content}
-														syncExternalCode
 														scriptLang={flowModule?.value?.language}
 														automaticLayout={true}
 														cmdEnterAction={async () => {
@@ -931,7 +930,6 @@
 												bind:this={editor}
 												class="h-full relative"
 												code={flowModule.value.content}
-												syncExternalCode
 												scriptLang={flowModule?.value?.language}
 												automaticLayout={true}
 												cmdEnterAction={async () => {

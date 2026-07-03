@@ -9,19 +9,42 @@ import {
 	createOpenAIProxyClient,
 	getAiProxyBaseURL,
 	getProviderAndCompletionConfig,
+	providerSupportsWebSearch,
 	workspaceAIClients
 } from '../lib'
+import { applyReasoningToConfig } from '../reasoningRegistry'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
-import {
-	openAIResponsesUsageToChatTokenUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 interface ParsedCompletionResult {
 	shouldContinue: boolean
 	tokenUsage: ChatTokenUsage
+}
+
+type WebSearchStatus = 'in_progress' | 'searching' | 'completed' | 'failed'
+
+const openAIWebSearchToolId = (itemId: string) => `openai_web_search:${itemId}`
+
+function setOpenAIWebSearchStatus(
+	callbacks: ToolCallbacks & { onMessageEnd: () => void },
+	itemId: string,
+	status: WebSearchStatus
+) {
+	const isLoading = status === 'in_progress' || status === 'searching'
+	const failed = status === 'failed'
+	callbacks.onMessageEnd()
+	callbacks.setToolStatus(openAIWebSearchToolId(itemId), {
+		content: failed ? 'Web search failed' : isLoading ? 'Searching the web...' : 'Searched the web',
+		error: failed ? 'Web search failed' : undefined,
+		isLoading,
+		isStreamingArguments: false,
+		needsConfirmation: false,
+		toolName: 'web_search',
+		showDetails: false,
+		autoCollapseDetails: true
+	})
 }
 
 // Conversion utilities for Responses API
@@ -107,10 +130,6 @@ function convertCompletionConfigToResponsesConfig(
 		responsesConfig.max_output_tokens = config.max_tokens
 	}
 
-	// Keep other relevant fields
-	if (config.temperature !== undefined) {
-		responsesConfig.temperature = config.temperature
-	}
 	if ('tools' in config && config.tools && config.tools.length > 0) {
 		responsesConfig.tools = config.tools.map((tool) => {
 			if (tool.type === 'function' && 'function' in tool) {
@@ -138,6 +157,8 @@ export async function getOpenAIResponsesCompletion(
 	options?: {
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		webSearch?: boolean
+		reasoningEffort?: string
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -147,7 +168,17 @@ export async function getOpenAIResponsesCompletion(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	const responsesConfig = applyReasoningToConfig(
+		convertCompletionConfigToResponsesConfig(config),
+		'responses',
+		options?.reasoningEffort
+	)
+
+	// Enable OpenAI's built-in web search tool. The proxy forwards the body
+	// verbatim, so this reaches OpenAI as a native server-side tool.
+	if (options?.webSearch && providerSupportsWebSearch(provider)) {
+		responsesConfig.tools = [...(responsesConfig.tools ?? []), { type: 'web_search' }]
+	}
 
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
@@ -172,13 +203,27 @@ export async function getOpenAIResponsesCompletion(
 export async function* getOpenAIResponsesCompletionStream(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	options?: {
+		forceModelProvider?: AIProviderModel
+		openaiClient?: OpenAI
+		reasoningEffort?: string
+	}
 ): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
-	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: true,
+		tools,
+		forceModelProvider: options?.forceModelProvider
+	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	const responsesConfig = applyReasoningToConfig(
+		convertCompletionConfigToResponsesConfig(config),
+		'responses',
+		options?.reasoningEffort
+	)
 
-	const openaiClient = workspaceAIClients.getOpenaiClient()
+	const openaiClient = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
 	const runner = openaiClient.responses.stream(
 		{
@@ -249,7 +294,11 @@ export async function parseOpenAIResponsesCompletion(
 	// Handle new output items (including function calls)
 	runner.on('response.output_item.added', (event) => {
 		const item = event.item
-		if (item.type === 'function_call' && item.id) {
+		if (item.type === 'reasoning') {
+			// Reasoning models (GPT/o-series) emit a reasoning item but no chain-of-thought
+			// text; surface a live "Thinking" indicator so the user can see it reason.
+			callbacks.onReasoningStart?.()
+		} else if (item.type === 'function_call' && item.id) {
 			const tool = tools.find((t) => t.def.function.name === item.name)
 			const shouldStream = tool?.streamArguments ?? false
 
@@ -273,7 +322,21 @@ export async function parseOpenAIResponsesCompletion(
 				showDetails: tool?.showDetails,
 				autoCollapseDetails: tool?.autoCollapseDetails
 			})
+		} else if (item.type === 'web_search_call' && item.id) {
+			setOpenAIWebSearchStatus(callbacks, item.id, item.status)
 		}
+	})
+
+	runner.on('response.web_search_call.in_progress', (event) => {
+		setOpenAIWebSearchStatus(callbacks, event.item_id, 'in_progress')
+	})
+
+	runner.on('response.web_search_call.searching', (event) => {
+		setOpenAIWebSearchStatus(callbacks, event.item_id, 'searching')
+	})
+
+	runner.on('response.web_search_call.completed', (event) => {
+		setOpenAIWebSearchStatus(callbacks, event.item_id, 'completed')
 	})
 
 	// Stream function call arguments incrementally
@@ -350,6 +413,12 @@ export async function parseOpenAIResponsesCompletion(
 	const finalResponse = await runner.finalResponse()
 	const tokenUsage = openAIResponsesUsageToChatTokenUsage(finalResponse.usage)
 
+	for (const item of finalResponse.output ?? []) {
+		if (item.type === 'web_search_call') {
+			setOpenAIWebSearchStatus(callbacks, item.id, item.status)
+		}
+	}
+
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {
 		const assistantWithTools = {
@@ -380,17 +449,17 @@ export async function parseOpenAIResponsesCompletion(
 export async function getNonStreamingOpenAIResponsesCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	testOptions?: {
+	options?: {
 		apiKey?: string
 		workspace?: string
 		resourcePath?: string
-		forceModelProvider: AIProviderModel
+		forceModelProvider?: AIProviderModel
 	}
 ): Promise<string> {
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: testOptions?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
@@ -406,22 +475,22 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		}
 	}
 
-	if (testOptions?.resourcePath) {
+	if (options?.resourcePath) {
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-Resource-Path': testOptions.resourcePath
+			'X-Resource-Path': options.resourcePath
 		}
-	} else if (testOptions?.apiKey) {
+	} else if (options?.apiKey) {
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-API-Key': testOptions.apiKey
+			'X-API-Key': options.apiKey
 		}
 	}
 
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = options?.apiKey
 		? createOpenAIProxyClient(getAiProxyBaseURL())
-		: testOptions?.workspace
-			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+		: options?.workspace
+			? workspaceAIClients.createOpenaiClient(options.workspace)
 			: workspaceAIClients.getOpenaiClient()
 
 	const response = await openaiClient.responses.create(

@@ -13,6 +13,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      `include_draft_only=true` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a `*` to the displayed name.
+
+      '
   nats_resource_path:
     type: string
     description: Path to the NATS resource containing connection configuration

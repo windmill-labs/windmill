@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ChevronRightSquare, ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import ArgInfo from './ArgInfo.svelte'
-	import { Button, Drawer, DrawerContent, Skeleton } from './common'
+	import { Badge, Button, Drawer, DrawerContent, Skeleton } from './common'
 
 	import { Highlight } from 'svelte-highlight'
 	import { copyToClipboard } from '$lib/utils'
@@ -14,6 +14,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { isWindmillTooBigObject } from './job_args'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 
 	interface Props {
 		id?: string | undefined
@@ -24,24 +25,48 @@
 
 	let { id = undefined, args, argLabel = undefined, workspace = undefined }: Props = $props()
 
+	// Internal flag injected by "test this step" runs to suppress the asset
+	// dispatcher. Not a real input: shown as a badge instead of a table row,
+	// but kept in the expanded JSON drawer and download.
+	const SKIP_ASSET_DISPATCH_ARG = '_wmill_skip_asset_dispatch'
+	// Internal map (path -> content digest) injected by local-dev previews so
+	// relative imports resolve from not-yet-deployed local content. Same
+	// treatment: badge, not a noisy table row.
+	const TEMP_SCRIPT_REFS_ARG = '_TEMP_SCRIPT_REFS'
+	const INTERNAL_ARGS = [SKIP_ASSET_DISPATCH_ARG, TEMP_SCRIPT_REFS_ARG]
+
+	let skippedAssetDispatch = $derived(
+		args != undefined && typeof args === 'object' && args[SKIP_ASSET_DISPATCH_ARG] === true
+	)
+	let hasTempScriptRefs = $derived(
+		args != undefined && typeof args === 'object' && args[TEMP_SCRIPT_REFS_ARG] != undefined
+	)
+	let displayArgs = $derived(
+		args != undefined && typeof args === 'object'
+			? Object.fromEntries(Object.entries(args).filter(([k]) => !INTERNAL_ARGS.includes(k)))
+			: args
+	)
+
 	let jsonViewer: Drawer | undefined = $state()
 	let runLocally: Drawer | undefined = $state()
 	let jsonStr = $state('')
 
 	const argsDownloadName = 'windmill-args.json'
-	let argsApiPath = $derived(id && workspace ? `/w/${workspace}/jobs_u/get_args/${id}` : undefined)
+	let argsApiPath = $derived(
+		id && workspace ? appendViewToken(`/w/${workspace}/jobs_u/get_args/${id}`) : undefined
+	)
 	let argsDataHref = $derived(`data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`)
 
 	function pythonCode() {
 		return `
 if __name__ == "__main__":
-${Object.entries(args)
+${Object.entries(displayArgs)
 	.map(([arg, value]) => {
 		return `    ${arg} = ${JSON.stringify(value)}`
 	})
 	.join('\n')}
 
-	main(${Object.keys(args)
+	main(${Object.keys(displayArgs)
 		.map((x) => `${x} = ${x}`)
 		.join(', ')})
 `
@@ -50,7 +75,7 @@ ${Object.entries(args)
 	function typescriptCode() {
 		return `
 if (import.meta.main) {
-${Object.entries(args)
+${Object.entries(displayArgs)
 	.map(([arg, value]) => {
 		return `  let ${arg} = ${JSON.stringify(value)}`
 	})
@@ -76,7 +101,27 @@ ${Object.entries(args)
 		<DataTable size="sm" containerClass="bg-surface-tertiary">
 			<Head>
 				<tr class="w-full">
-					<Cell head first>{argLabel ?? 'Input'}</Cell>
+					<Cell head first>
+						{argLabel ?? 'Input'}
+						{#if skippedAssetDispatch}
+							<Badge
+								color="gray"
+								verySmall
+								title="This run was started with {SKIP_ASSET_DISPATCH_ARG} and did not auto-trigger downstream asset consumers"
+							>
+								asset dispatch skipped
+							</Badge>
+						{/if}
+						{#if hasTempScriptRefs}
+							<Badge
+								color="gray"
+								verySmall
+								title="This preview carried {TEMP_SCRIPT_REFS_ARG} so relative imports resolve from local (not-yet-deployed) script content"
+							>
+								local import refs
+							</Badge>
+						{/if}
+					</Cell>
 					<Cell head last>Value</Cell>
 				</tr>
 				{#snippet headerAction()}
@@ -96,15 +141,15 @@ ${Object.entries(args)
 			</Head>
 
 			<tbody class="divide-y w-full">
-				{#if args && typeof args === 'object' && Object.keys(args ?? {}).length > 0}
-					{#each Object.entries(args ?? {}).sort( (a, b) => a?.[0]?.localeCompare(b?.[0]) ) as [arg, value]}
+				{#if displayArgs && typeof displayArgs === 'object' && Object.keys(displayArgs ?? {}).length > 0}
+					{#each Object.entries(displayArgs ?? {}).sort( (a, b) => a?.[0]?.localeCompare(b?.[0]) ) as [arg, value]}
 						<Row>
 							<Cell first>{arg}</Cell>
 							<Cell><ArgInfo {value} /></Cell>
 						</Row>
 					{/each}
-				{:else if args && typeof args !== 'object'}
-					<Row><Cell>Argument is not an object (type: {typeof args})</Cell></Row>
+				{:else if displayArgs && typeof displayArgs !== 'object'}
+					<Row><Cell>Argument is not an object (type: {typeof displayArgs})</Cell></Row>
 				{:else if args}
 					<Row><Cell>No arguments</Cell></Row>
 				{:else}

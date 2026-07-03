@@ -16,6 +16,7 @@ mod dependency_map {
         parent_hash: Option<String>,
     ) -> NewScript {
         NewScript {
+            draft_only: None,
             content: content.into(),
             language,
             lock,
@@ -26,7 +27,6 @@ mod dependency_map {
             cache_ttl: None,
             dedicated_worker: None,
             description: "".to_string(),
-            draft_only: None,
             envs: vec![],
             is_template: None,
             kind: None,
@@ -441,7 +441,6 @@ def main():
                     .unwrap(),
                 ),
                 schema: None,
-                draft_only: None,
                 tag: None,
                 dedicated_worker: None,
                 timeout: None,

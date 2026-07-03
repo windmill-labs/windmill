@@ -258,14 +258,15 @@ function Invoke-WindmillScript {
         [string] $Hash = $null,
         [Hashtable] $Arguments = @{},
         [boolean] $AssertResultIsNotNull = $true,
-        [int] $Timeout = $null
+        [int] $Timeout = $null,
+        [string] $Tag = $null
     )
 
     if (-not $script:WindmillConnection) {
         throw "Windmill connection not established. Run Connect-Windmill first."
     }
 
-    $jobId = Start-WindmillScript -Path $Path -Hash $Hash -Arguments $Arguments
+    $jobId = Start-WindmillScript -Path $Path -Hash $Hash -Arguments $Arguments -Tag $Tag
     $until = if ($Timeout) { (Get-Date).AddSeconds($Timeout) } else { [DateTime]::MaxValue }
     return $script:WindmillConnection.WaitJob($jobId, $until, $AssertResultIsNotNull)
 }
@@ -279,14 +280,15 @@ function Start-WindmillScript {
         [string] $Path = $null,
         [string] $Hash = $null,
         [Hashtable] $Arguments = @{},
-        [int] $ScheduledInSecs = $null
+        [int] $ScheduledInSecs = $null,
+        [string] $Tag = $null
     )
 
     if (-not $script:WindmillConnection) {
         throw "Windmill connection not established. Run Connect-Windmill first."
     }
 
-    return $script:WindmillConnection.RunScriptAsync($Path, $Hash, $Arguments, $ScheduledInSecs)
+    return $script:WindmillConnection.RunScriptAsync($Path, $Hash, $Arguments, $ScheduledInSecs, $Tag)
 }
 
 <#
@@ -297,14 +299,15 @@ function Start-WindmillFlow {
     param(
         [string] $Path = $null,
         [Hashtable] $Arguments = @{},
-        [int] $ScheduledInSecs = $null
+        [int] $ScheduledInSecs = $null,
+        [string] $Tag = $null
     )
 
     if (-not $script:WindmillConnection) {
         throw "Windmill connection not established. Run Connect-Windmill first."
     }
 
-    return $script:WindmillConnection.RunFlowAsync($Path, $Arguments, $ScheduledInSecs)
+    return $script:WindmillConnection.RunFlowAsync($Path, $Arguments, $ScheduledInSecs, $Tag)
 }
 
 <#
@@ -596,7 +599,13 @@ class Windmill {
         return $result
     }
 
+    # Preserve the original 4-arg arity (PowerShell class dispatch is by exact
+    # argument count, so existing direct callers would otherwise break).
     [PSCustomObject] RunScriptAsync([string] $Path, [string] $Hash, [Hashtable] $Arguments, [int] $ScheduledInSecs) {
+        return $this.RunScriptAsync($Path, $Hash, $Arguments, $ScheduledInSecs, $null)
+    }
+
+    [PSCustomObject] RunScriptAsync([string] $Path, [string] $Hash, [Hashtable] $Arguments, [int] $ScheduledInSecs, [string] $Tag) {
         $params = @{}
 
         if ($Path -and $Hash) {
@@ -605,6 +614,10 @@ class Windmill {
 
         if ($ScheduledInSecs -ne $null) {
             $params["scheduled_in_secs"] = $ScheduledInSecs
+        }
+
+        if ($Tag) {
+            $params["tag"] = $Tag
         }
 
         if ($env:WM_JOB_ID) {
@@ -631,11 +644,21 @@ class Windmill {
         return $this.Post($endpoint, $Arguments, $true).Content
     }
 
+    # Preserve the original 3-arg arity (PowerShell class dispatch is by exact
+    # argument count, so existing direct callers would otherwise break).
     [string] RunFlowAsync([string] $Path, [Hashtable] $Arguments, [int] $ScheduledInSecs) {
+        return $this.RunFlowAsync($Path, $Arguments, $ScheduledInSecs, $null)
+    }
+
+    [string] RunFlowAsync([string] $Path, [Hashtable] $Arguments, [int] $ScheduledInSecs, [string] $Tag) {
         $params = @{}
 
         if ($ScheduledInSecs -ne $null) {
             $params["scheduled_in_secs"] = $ScheduledInSecs
+        }
+
+        if ($Tag) {
+            $params["tag"] = $Tag
         }
 
         # TODO: Figure out why this fails when we set parent_job (at least for HN Discord Feed)

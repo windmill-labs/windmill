@@ -477,6 +477,117 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Regression test: the resource-value interpolation cache
+/// (`get_value_interpolated?allow_cache=true`) must be identity-scoped. test-user-2
+/// (folder access) warms the cache; test-user-3 (no access) must then be denied rather
+/// than served the cached, already-decrypted value. Pre-fix the unscoped key returned
+/// a 200 with the secret here.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "resource_cache_rls"))]
+async fn test_resource_value_cache_is_identity_scoped(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let url = format!(
+        "{}?allow_cache=true",
+        resource_url(port, "get_value_interpolated", "f/secret/cache_target")
+    );
+    let get = |token: &str| {
+        client()
+            .get(url.as_str())
+            .header("Authorization", format!("Bearer {token}"))
+    };
+
+    // test-user-2 has folder access and WARMS the cache.
+    let resp = get("SECRET_TOKEN_2").send().await?;
+    assert_eq!(resp.status(), 200);
+    assert!(resp.text().await?.contains("LEAKED_FOLDER_SECRET"));
+
+    // test-user-3 has no folder access: must miss the cache and be denied (401), not leak.
+    let resp = get("SECRET_TOKEN_3").send().await?;
+    assert_eq!(resp.status(), 401);
+    assert!(!resp.text().await?.contains("LEAKED_FOLDER_SECRET"));
+
+    Ok(())
+}
+
+/// A resource whose value contains a `$WM_*` contextual variable (e.g. `$WM_TOKEN`) is
+/// job-dependent and must NEVER be cached — even when first read WITHOUT a `job_id`, where the
+/// placeholder is left unresolved (caching that would serve a stale placeholder to a later job
+/// read). Any other value — plain, or a non-`$WM_` `$`-string like `$HOME` (which is NOT
+/// interpolated, so it's constant) — is job-independent and IS cached, with the entry shared
+/// across job contexts (a read carrying a `job_id` still hits it, keeping the hit ratio up).
+/// We prove all three by warming each (no job_id), deleting the row directly (cache survives),
+/// then re-reading: the job-independent ones are still served from cache — even under a
+/// `job_id` — while the `$WM_*` one was never cached and 404s.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_resource_cache_handles_job_context(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/resources");
+
+    let plain = "u/test-user/plain_res";
+    let dollar = "u/test-user/dollar_res"; // non-$WM_ `$`-string: not interpolated, cacheable
+    let jobctx = "u/test-user/jobctx_res";
+    for (path, value) in [
+        (plain, json!({"v": 1})),
+        (dollar, json!({"d": "$HOME"})),
+        (jobctx, json!({"j": "$WM_JOB_ID"})),
+    ] {
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(
+                &json!({ "path": path, "value": value, "description": "", "resource_type": "object" }),
+            )
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let get = |path: &str, query: &str| {
+        let url = format!("{base}/get_value_interpolated/{path}?{query}");
+        async move { authed(client().get(url)).send().await.unwrap() }
+    };
+
+    // Warm all three WITHOUT a job context (the placeholder is left unresolved for `jobctx`).
+    for path in [plain, dollar, jobctx] {
+        assert_eq!(get(path, "allow_cache=true").await.status(), 200);
+    }
+
+    // Delete the rows directly — bypasses the API/NOTIFY, so the in-memory cache survives.
+    for path in [plain, dollar, jobctx] {
+        sqlx::query("DELETE FROM resource WHERE workspace_id = 'test-workspace' AND path = $1")
+            .bind(path)
+            .execute(&db)
+            .await?;
+    }
+
+    // Job-independent values are cached and still served even under a job_id (a random uuid is
+    // fine: a cache hit short-circuits before any job lookup). `$HOME` is a non-`$WM_` string,
+    // so it's not interpolated and stays cacheable.
+    for path in [plain, dollar] {
+        let resp = get(
+            path,
+            "allow_cache=true&job_id=11111111-1111-4111-8111-111111111111",
+        )
+        .await;
+        assert_eq!(
+            resp.status(),
+            200,
+            "job-independent resource ({path}) must stay cached and be served under a job_id"
+        );
+    }
+
+    // The `$WM_*` resource was never cached → the (now deleted) row is not found.
+    let resp = get(jobctx, "allow_cache=true").await;
+    assert_ne!(
+        resp.status(),
+        200,
+        "resource with a $WM_* contextual variable must not be cached"
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "mcp")]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "resources_test"))]
 async fn test_mcp_tools(db: Pool<Postgres>) -> anyhow::Result<()> {

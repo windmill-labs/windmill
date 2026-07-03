@@ -11,7 +11,7 @@ After writing, tell the user which command fits what they want to do:
 
 - `wmill script preview <script_path>` — **default when iterating on a local script.** Runs the local file without deploying.
 - `wmill script run <path>` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- `wmill generate-metadata` — generate `.script.yaml` and `.lock` files for the script you modified.
+- `wmill generate-metadata` — regenerate the local `.script.yaml` (input schema) and `.lock` (resolved dependencies) for scripts you changed, and refresh their content hashes in `wmill-lock.yaml`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -26,13 +26,23 @@ Only use `sync push` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+`wmill-lock.yaml` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing `main`'s arguments** — invalidates that hash and leaves the `.lock`, the `.script.yaml` input schema, and the hash row out of date. Run `wmill generate-metadata` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by `.script.yaml`), and `wmill-lock.yaml` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's `AGENTS.md` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated `.lock` / `.script.lock` files and tell the user which dependency versions changed (e.g. `requests 2.31.0 → 2.32.0`), so they can catch an unwanted bump before deploying — even under `Metadata: auto`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, `generate-metadata` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run `wmill generate-metadata --dry-run` — it lists each stale item with a reason (`content changed` or `depends on <path>`) without changing anything — then narrow with a path argument (`wmill generate-metadata f/foo`) or `--strict-folder-boundaries`.
+
+If the on-disk `.lock` and `.script.yaml` are already correct and only `wmill-lock.yaml` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use `wmill generate-metadata rehash` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run `wmill script preview` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the script's declared parameters. The shape varies by language: `main(...)` for code languages, the SQL dialect's own placeholder syntax (`$1` for PostgreSQL, `?` for MySQL/Snowflake, `@P1` for MSSQL, `@name` for BigQuery, etc.), positional `$1`, `$2`, … for Bash, `param(...)` for PowerShell.
 
-`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill generate-metadata` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's `AGENTS.md` opts in), per "Keep metadata in sync" above. Only `wmill sync push` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
 
@@ -78,6 +88,10 @@ import Stripe from "stripe";
 import { someFunction } from "some-package";
 ```
 
+## Prefer `//native` when the runtime allows it
+
+If a script only needs `fetch` and the JavaScript standard library — including when it uses `windmill-client` — prefer making it a **native** script: add `//native` as the first line and write it with the `write-script-bunnative` skill. Native scripts run on a lightweight V8 isolate, start faster, and parallelize heavily. `windmill-client` works on the native worker (its calls go over `fetch`), so needing the Windmill client is **not** a reason to avoid `//native`. Use the regular `bun` language only when the code (or a dependency) needs Node/Bun runtime APIs — `node:*` modules, the filesystem, child processes, or native addons.
+
 ## Windmill Client
 
 Import the windmill client for platform interactions:
@@ -86,7 +100,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 
@@ -190,25 +206,27 @@ async getRootJobId(jobId?: string): Promise<string>
 /**
  * @deprecated Use runScriptByPath or runScriptByHash instead
  */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its path and wait for the result
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
-async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its hash and wait for the result
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
-async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Append a text to the result stream
@@ -227,9 +245,10 @@ async streamResult(stream: AsyncIterable<string>): Promise<void>
  * @param path - Flow path in Windmill
  * @param args - Arguments to pass to the flow
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Flow execution result
  */
-async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Wait for a job to complete and return its result
@@ -256,25 +275,27 @@ async getResultMaybe(jobId: string): Promise<any>
 /**
  * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
  */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -282,9 +303,10 @@ async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = nul
  * @param args - Arguments to pass to the flow
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
  * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
+async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true, tag: string | null = null): Promise<string>
 
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
@@ -697,7 +719,7 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
+ * @param name - DuckDB database name, optionally with a schema as `name:schema` (default: "main")
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
@@ -707,5 +729,31 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}
  * `.fetch()
+ * @example
+ * // Target a specific schema within the ducklake
+ * let sql = wmill.ducklake("my_lake:analytics")
  */
 ducklake(name: string = "main"): SqlTemplateFunction
+
+/**
+ * Idempotently materialize `selectSql` into a ducklake table for one
+ * partition (or the whole table when `partition` is omitted) — the client-side
+ * equivalent of the `// materialize` engine.
+ * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
+ * replaces it (whole table → `CREATE OR REPLACE`; partition → delete + insert).
+ * Safe to re-run for the same partition (backfill / failure-recovery).
+ * 
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.upsertPartition({ table, selectSql, partition }).execute()`.
+ */
+upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any>
+
+/**
+ * INSERT-only materialization (no dedup/replace) for append-only tables.
+ * Re-running the same partition duplicates rows — use only for immutable
+ * event-log sources.
+ * 
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.appendPartition({ table, selectSql, partition }).execute()`.
+ */
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatement<any>

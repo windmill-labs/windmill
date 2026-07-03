@@ -12,6 +12,7 @@
   "bitbucket": {
     "auth_url": "https://bitbucket.org/site/oauth2/authorize",
     "token_url": "https://bitbucket.org/site/oauth2/access_token",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": ["repository"]
   },
   "slack": {
@@ -103,6 +104,7 @@
   "linkedin": {
     "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
     "req_body_auth": true
   },
@@ -114,13 +116,45 @@
   "visma": {
     "auth_url": "https://connect.visma.com/connect/authorize",
     "token_url": "https://connect.visma.com/connect/token",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": [
       "offline_access",
       "vismanet_erp_interactive_api:create",
       "vismanet_erp_interactive_api:delete",
       "vismanet_erp_interactive_api:read",
       "vismanet_erp_interactive_api:update"
+    ],
+    "cc_scopes": [
+      "vismanet_erp_service_api:create",
+      "vismanet_erp_service_api:delete",
+      "vismanet_erp_service_api:read",
+      "vismanet_erp_service_api:update"
     ]
+  },
+  "coupa": {
+    "grant_types": ["client_credentials"],
+    "cc_scopes": [
+      "core.supplier.read",
+      "core.supplier.write",
+      "core.purchase_order.read",
+      "core.purchase_order.write",
+      "core.requisition.read",
+      "core.requisition.write",
+      "core.invoice.read",
+      "core.invoice.write",
+      "core.contract.read",
+      "core.expense.read"
+    ],
+    "connect_config_template": {
+      "display_name": "Coupa",
+      "label": "Coupa instance",
+      "placeholder": "your-instance",
+      "token_url": "https://{instance}.coupahost.com/oauth2/token",
+      "strip_suffix": ".coupahost.com",
+      "resource_mapping": {
+        "instance_url": "https://{instance}.coupahost.com"
+      }
+    }
   },
   "sage_intacct": {
     "auth_url": "https://api.intacct.com/ia/api/v1/oauth2/authorize",
@@ -130,6 +164,7 @@
   "spotify": {
     "auth_url": "https://accounts.spotify.com/authorize",
     "token_url": "https://accounts.spotify.com/api/token",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": [
       "user-read-playback-state",
       "user-modify-playback-state",
@@ -149,34 +184,43 @@
   "xero": {
     "auth_url": "https://login.xero.com/identity/connect/authorize",
     "token_url": "https://identity.xero.com/connect/token",
-    "scopes": ["offline_access", "accounting.transactions"]
+    "grant_types": ["authorization_code", "client_credentials"],
+    "scopes": ["offline_access", "accounting.transactions"],
+    "cc_scopes": ["accounting.transactions"]
   },
   "zoho": {
     "auth_url": "https://accounts.zoho.com/oauth/v2/auth",
     "token_url": "https://accounts.zoho.com/oauth/v2/token",
-    "scopes": [
-      "ZohoAssist.sessionapi.ALL"
-    ],
+    "grant_types": ["authorization_code", "client_credentials"],
+    "scopes": ["ZohoAssist.sessionapi.ALL"],
+    "cc_scopes": ["ZohoAssist.sessionapi.ALL"],
     "extra_params": {
       "access_type": "offline"
     }
   },
-  "snowflake_oauth": {},
+  "snowflake_oauth": {
+    "connect_config_template": {
+      "display_name": "Snowflake",
+      "label": "Snowflake Account Identifier",
+      "placeholder": "<orgname>-<account_name>",
+      "help_url": "https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier",
+      "auth_url": "https://{instance}.snowflakecomputing.com/oauth/authorize",
+      "token_url": "https://{instance}.snowflakecomputing.com/oauth/token-request",
+      "req_body_auth": false,
+      "extra_params_key": "account_identifier",
+      "resource_mapping": { "account_identifier": "{instance}" }
+    }
+  },
   "apify": {
     "auth_url": "https://console.apify.com/authorize/oauth",
     "token_url": "https://console-backend.apify.com/oauth/apps/token",
-    "scopes": [
-      "profile",
-      "full_api_access"
-    ],
+    "scopes": ["profile", "full_api_access"],
     "extra_params": {}
   },
   "docusign": {
     "auth_url": "https://account.docusign.com/oauth/auth",
     "token_url": "https://account.docusign.com/oauth/token",
-    "scopes": [
-      "signature"
-    ],
+    "scopes": ["signature"],
     "sandbox": {
       "auth_url": "https://account-d.docusign.com/oauth/auth",
       "token_url": "https://account-d.docusign.com/oauth/token"
@@ -185,14 +229,58 @@
   "salesforce": {
     "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
     "token_url": "https://login.salesforce.com/services/oauth2/token",
-    "scopes": [
-      "api",
-      "refresh_token",
-      "offline_access"
-    ],
+    "scopes": ["api", "refresh_token", "offline_access"],
     "sandbox": {
       "auth_url": "https://test.salesforce.com/services/oauth2/authorize",
       "token_url": "https://test.salesforce.com/services/oauth2/token"
     }
+  },
+  "servicenow": {
+    "grant_types": ["authorization_code", "client_credentials"],
+    "req_body_auth": true,
+    "connect_config_template": {
+      "display_name": "ServiceNow",
+      "label": "ServiceNow Instance",
+      "placeholder": "<instance> (e.g. dev12345)",
+      "help_url": "https://www.servicenow.com/docs/bundle/zurich-platform-security/page/administer/security/concept/c_OAuthApplications.html",
+      "auth_url": "https://{instance}.service-now.com/oauth_auth.do",
+      "token_url": "https://{instance}.service-now.com/oauth_token.do",
+      "req_body_auth": true,
+      "strip_suffix": ".service-now.com",
+      "resource_mapping": {
+        "instance_url": "https://{instance}.service-now.com"
+      }
+    }
+  },
+  "netsuite": {
+    "connect_config_template": {
+      "display_name": "NetSuite",
+      "label": "NetSuite Account ID",
+      "placeholder": "<account id> as in your NetSuite domain, e.g. 1234567 or 1234567-sb1",
+      "help_url": "https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/chapter_157769826287.html",
+      "auth_url": "https://{instance}.app.netsuite.com/app/login/oauth2/authorize.nl",
+      "token_url": "https://{instance}.suitetalk.api.netsuite.com/services/rest/auth/oauth2/v1/token",
+      "req_body_auth": false,
+      "strip_suffix": ".app.netsuite.com",
+      "scopes": ["rest_webservices"],
+      "extra_params_key": "account_id",
+      "resource_mapping": {
+        "account_id": "{instance}"
+      }
+    }
+  },
+  "outreach": {
+    "auth_url": "https://api.outreach.io/oauth/authorize",
+    "token_url": "https://api.outreach.io/oauth/token",
+    "scopes": [
+      "accounts.all",
+      "prospects.all",
+      "sequences.all",
+      "sequenceStates.all",
+      "tasks.all",
+      "mailings.read",
+      "mailboxes.read"
+    ],
+    "req_body_auth": true
   }
 }

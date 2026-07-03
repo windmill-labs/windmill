@@ -15,6 +15,10 @@
 		concat?: boolean
 		gray?: boolean
 		spacerClass?: string
+		/** Overrides the default gray/blue bar color (e.g. to mark an approval wait). */
+		colorClass?: string
+		/** Tooltip label shown on hover instead of the default job link. */
+		tooltip?: string
 	}
 
 	let {
@@ -27,7 +31,9 @@
 		running,
 		concat = false,
 		gray = false,
-		spacerClass = ''
+		spacerClass = '',
+		colorClass = undefined,
+		tooltip = undefined
 	}: Props = $props()
 </script>
 
@@ -37,20 +43,26 @@
 	{/if}
 	<Popover
 		style="width: {(len / total) * 100}%"
-		class="h-5 relative {gray
-			? 'bg-gray-300 dark:bg-gray-600'
-			: running
-				? 'bg-blue-400/90'
-				: 'bg-blue-500/90'} {position == 'left'
+		class="h-5 relative {colorClass
+			? colorClass
+			: gray
+				? 'bg-gray-300 dark:bg-gray-600'
+				: running
+					? 'bg-blue-400/90'
+					: 'bg-blue-500/90'} {position == 'left'
 			? 'rounded-l-md'
 			: position == 'right'
 				? 'rounded-r-md'
 				: 'rounded-md'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
 	>
 		{#snippet text()}
-			<a href="{base}/run/{id}" class="inline-flex items-center gap-1" target="_blank"
-				>{id} <ExternalLink size={14} /></a
-			>
+			{#if tooltip}
+				<span>{tooltip}</span>
+			{:else}
+				<a href="{base}/run/{id}" class="inline-flex items-center gap-1" target="_blank"
+					>{id} <ExternalLink size={14} /></a
+				>
+			{/if}
 		{/snippet}
 		{#if len > 0}
 			{@const narrow = len / total < 0.09}

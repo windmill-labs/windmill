@@ -92,8 +92,8 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
 
     // Create app
     sqlx::query!(
-        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only)
-         VALUES ('test-workspace', 'f/shared/dashboard', 'Dashboard app', '{}', ARRAY[1::bigint], '{}', false)"
+        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms)
+         VALUES ('test-workspace', 'f/shared/dashboard', 'Dashboard app', '{}', ARRAY[1::bigint], '{}')"
     )
     .execute(&db)
     .await?;
@@ -632,6 +632,69 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     assert!(
         lazy_test.is_none(),
         "Non-existent item should be deleted from workspace_diff"
+    );
+
+    // ==============================================================
+    // Stale Archived Cache Test (regression)
+    // ==============================================================
+    //
+    // Unlike the lazy_test above (has_changes = NULL → always re-evaluated), a
+    // cached `has_changes = true` row is trusted without re-running the per-kind
+    // comparison. It can go stale: after a rename the old path keeps only
+    // archived versions, and for lock-gen languages the `has_changes = NULL`
+    // reset is deferred to the dependency job — so until that runs the archived
+    // old path lingers as a live "ahead" change carrying `exists_in_fork = true`.
+    // The visibility check treats archived as non-existent and finds nothing, so
+    // even this superadmin used to get `all_ahead_items_visible = false`. The fix
+    // re-validates such rows and drops the archived (== non-existent) item.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted)
+         VALUES ('wm-fork-test-workspace', 'f/shared/renamed_away', 67890, 'def main(): return 1', '', '', 'python3', 'test@windmill.dev', NOW(), true, false, false, false)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-test-workspace', 'f/shared/renamed_away', 'script', 1, 0, true, false, true)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison3: serde_json::Value = client
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    // The archived item must be dropped (not surfaced) and must not trip the
+    // "changes not visible to your user" warning for a superadmin.
+    assert_eq!(
+        comparison3["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "archived (renamed-away) item must not trip the 'changes not visible' warning: {comparison3}"
+    );
+    assert!(
+        !comparison3["diffs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "f/shared/renamed_away"),
+        "archived item should be dropped, not surfaced as a diff: {comparison3}"
+    );
+    let stale_archived = sqlx::query!(
+        "SELECT has_changes FROM workspace_diff
+         WHERE path = 'f/shared/renamed_away' AND kind = 'script' AND source_workspace_id = 'test-workspace'"
+    )
+    .fetch_optional(&db)
+    .await?;
+    assert!(
+        stale_archived.is_none(),
+        "stale archived diff row should be re-evaluated and deleted"
     );
 
     Ok(())
@@ -1269,6 +1332,439 @@ async fn test_compare_workspaces_fork_only_folder_visibility(
             .iter()
             .any(|d| d["path"] == "f/folder2/myscript" && d["kind"] == "script"),
         "fork-only script should appear in diffs; got {diffs:?}"
+    );
+
+    Ok(())
+}
+
+/// Regression test: deleting a fork must purge its `workspace_diff` and
+/// `skip_workspace_diff_tally` rows. These tables are keyed by workspace id with
+/// no FK cascade, and a fork id is reused when a fork is deleted and recreated
+/// under the same name. If the cached diff rows survive the delete, they leak
+/// onto the next fork sharing that id and produce a spurious "changes not
+/// visible" warning that hides the deploy button (WIN-2066).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_delete_fork_purges_workspace_diff(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // Create the fork so the caller owns it (delete is authorized for fork owners).
+    let fork_response = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-test-workspace",
+            "name": "Test Fork",
+            "color": "#0000ff"
+        }))
+        .send()
+        .await?;
+    assert!(
+        fork_response.status().is_success(),
+        "Fork creation should succeed: {}",
+        fork_response.status()
+    );
+
+    // Seed cached diff state for the fork: as the fork side of a pair, as the
+    // source side of a pair, and a skip-tally row.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-test-workspace', 'f/shared/leaky', 'script', 1, 0, true, true, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('wm-fork-test-workspace', 'test-workspace', 'f/shared/other', 'script', 0, 1, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO skip_workspace_diff_tally (workspace_id) VALUES ('wm-fork-test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Delete the fork through the real handler.
+    let delete_response = client
+        .client()
+        .delete(&format!(
+            "{base_url}/workspaces/delete/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        delete_response.status().is_success(),
+        "Fork deletion should succeed: {}",
+        delete_response.status()
+    );
+
+    let leftover_diffs = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace_diff
+         WHERE source_workspace_id = 'wm-fork-test-workspace'
+            OR fork_workspace_id = 'wm-fork-test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        leftover_diffs,
+        Some(0),
+        "workspace_diff rows referencing the deleted fork must be purged"
+    );
+
+    let leftover_skip = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM skip_workspace_diff_tally WHERE workspace_id = 'wm-fork-test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        leftover_skip,
+        Some(0),
+        "skip_workspace_diff_tally row for the deleted fork must be purged"
+    );
+
+    Ok(())
+}
+
+/// Regression test: creating a fork must start with clean diff state even when
+/// the (reusable) fork id was previously occupied by a deleted fork. Stale
+/// `workspace_diff` / `skip_workspace_diff_tally` rows left behind by an earlier
+/// occupant would otherwise leak onto the new fork — a stale skip row suppresses
+/// comparison entirely, and stale diff rows produce a spurious "changes not
+/// visible" warning that hides the deploy button (WIN-2066).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_fork_purges_stale_diff_state(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // Simulate leftovers from a previously deleted fork that reused this id:
+    // diff rows on both sides plus a skip-tally row, with no workspace yet.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-test-workspace', 'f/shared/leaky', 'script', 1, 0, true, true, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('wm-fork-test-workspace', 'test-workspace', 'f/shared/other', 'script', 0, 1, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO skip_workspace_diff_tally (workspace_id) VALUES ('wm-fork-test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Create the fork reusing that id; the conflict check passes because no
+    // workspace row exists for it.
+    let fork_response = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-test-workspace",
+            "name": "Test Fork",
+            "color": "#0000ff"
+        }))
+        .send()
+        .await?;
+    assert!(
+        fork_response.status().is_success(),
+        "Fork creation should succeed: {}",
+        fork_response.status()
+    );
+
+    let leftover_diffs = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace_diff
+         WHERE source_workspace_id = 'wm-fork-test-workspace'
+            OR fork_workspace_id = 'wm-fork-test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        leftover_diffs,
+        Some(0),
+        "stale workspace_diff rows must be purged on fork creation"
+    );
+
+    let leftover_skip = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM skip_workspace_diff_tally WHERE workspace_id = 'wm-fork-test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        leftover_skip,
+        Some(0),
+        "stale skip_workspace_diff_tally row must be purged on fork creation"
+    );
+
+    Ok(())
+}
+
+/// Regression: a stale/phantom trigger diff row must never block a privileged
+/// user's deploy. Triggers (unlike scripts/flows) are not re-validated by
+/// `compare_workspaces`, so a cached `has_changes=true` row for a trigger that
+/// no longer exists in the table is trusted, then dropped by the visibility
+/// filter (the row is gone) — flipping `all_ahead_items_visible` to false and
+/// hiding the deploy button. This used to happen even for a superadmin, because
+/// the item's absence is indistinguishable from a permission-hidden item.
+///
+/// The blast-radius guard forces the flag true for anyone who sees the relevant
+/// side in full: a target/fork admin (or superadmin) for ahead items. A regular
+/// user with no such visibility still gets the (conservative) warning, since we
+/// cannot tell a phantom from a genuine permission gap on their behalf.
+///
+/// The diff row and visibility query are OSS, so this runs on any build (no
+/// tally needed — the row is inserted directly, mimicking a delete that left the
+/// diff behind).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_phantom_trigger_shortfuse(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let superadmin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // Fork of test-workspace (INSERT directly; we only need the pair to exist).
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Phantom rows: cached diffs for http_triggers with no backing row (the exact
+    // state a trigger delete used to leave behind before it reset the tally). One
+    // ahead (fork side), one behind (source side) so both guard branches are hit.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/ghost', 'http_trigger', 1, 0, true, false, true),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/ghost_behind', 'http_trigger', 0, 1, true, true, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    // Superadmin: the guard forces `all_ahead_items_visible = true`, and the
+    // non-existent trigger is not surfaced as a diff.
+    let comparison: serde_json::Value = superadmin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "phantom trigger row must not trip the 'not visible' warning for a superadmin: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(true),
+        "phantom behind trigger row must not trip the warning for a superadmin: {comparison}"
+    );
+    assert!(
+        !comparison["diffs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "f/rt/ghost" || d["path"] == "f/rt/ghost_behind"),
+        "non-existent triggers must not be surfaced as diffs: {comparison}"
+    );
+
+    // Non-superadmin, non-fork-admin member of the source: no full-visibility
+    // guarantee, so the warning still (conservatively) fires.
+    let comparison: serde_json::Value = non_admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(false),
+        "a user without full visibility must not be short-circuited by the guard: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(false),
+        "the behind-side guard must not fire for a non-admin either: {comparison}"
+    );
+
+    Ok(())
+}
+
+/// Regression: the "sees everything" guard must require admin of BOTH sides, not
+/// just the fork. `filter_visible_diffs` keeps a modified/conflict row (one that
+/// exists in the source AND the fork) only when the caller can see it on both
+/// sides, so an ahead diff can be dropped for a *source-side* visibility gap even
+/// when the caller is a fork admin. If the guard cleared the ahead flag on
+/// fork-admin alone, the UI would report "all ahead visible" and let the user
+/// deploy from an incomplete comparison. Here test-user-2 is admin of the fork
+/// but only a plain member of the parent with no access to folder `restricted`,
+/// so the parent copy of the modified script is hidden from them and the ahead
+/// diff is (correctly) dropped — the flag must stay false.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_fork_admin_source_hidden_ahead(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let fork_admin_user = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // Parent folder `restricted` owned by test-user (the admin), NOT test-user-2,
+    // and a script inside it (access flows through the folder). test-user-2 is a
+    // plain member of the parent, so RLS hides this script from them.
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by)
+         VALUES ('test-workspace', 'restricted', 'restricted', ARRAY['u/test-user']::varchar[], '{\"u/test-user\": true}'::jsonb, '', 'test-user')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted, extra_perms)
+         VALUES ('test-workspace', 'f/restricted/item', 314159, 'def main(): return 1', '', '', 'python3', 'test-user', NOW(), false, false, false, false, '{}'::jsonb)"
+    )
+    .execute(&db)
+    .await?;
+
+    // Fork (clones the folder + script into the fork).
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-guard-test", "name": "Guard Fork", "color": "#0000ff"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // test-user-2 is ADMIN of the fork (so they see the fork copy via RLS bypass)
+    // but only a plain member of the parent.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('wm-fork-guard-test', 'test2@windmill.dev', 'test-user-2', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+
+    // A confirmed modified/ahead diff on the script that exists on both sides.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-guard-test', 'f/restricted/item', 'script', 1, 0, true, true, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id IN ('test-workspace', 'wm-fork-guard-test')"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = fork_admin_user
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-guard-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    // The parent copy is hidden from test-user-2, so the ahead diff is dropped.
+    // Fork-admin alone must NOT clear the flag — the comparison is incomplete.
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(false),
+        "fork admin without source-side visibility must not be reported as seeing all ahead items: {comparison}"
+    );
+    assert!(
+        !comparison["diffs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "f/restricted/item"),
+        "source-hidden item must not appear in the fork admin's diff list: {comparison}"
+    );
+
+    // Sanity: a superadmin (admin of both sides) still sees everything.
+    let comparison: serde_json::Value = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-guard-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "superadmin must see all ahead items: {comparison}"
     );
 
     Ok(())

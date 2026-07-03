@@ -2,14 +2,13 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
-	import { untrack } from 'svelte'
-	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import type { Flow } from '$lib/gen'
-	import { UserDraft } from '$lib/userDraft.svelte'
-	import { flowDraftSig } from './flowDraftSig'
-	import { initFlowState } from '$lib/components/flows/flowState'
-	import SessionItemNotFound from './SessionItemNotFound.svelte'
+	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	let {
 		runtime,
@@ -22,160 +21,89 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
-		/**
-		 * Only the visible session should claim the workspace's live-editor
-		 * slot — without this, a hidden warm-mounted session can overwrite the
-		 * active session's UserDraft live-editor target (one slot per
-		 * (workspace, kind)), so chat actions like discard / "the open editor"
-		 * resolve to the wrong session.
-		 */
+		/** Forwarded to SessionEditorTarget — only the visible session claims the
+		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
 	} = $props()
 
 	let selectedId = $state('settings-metadata')
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	$effect(() => {
-		if (workspaceId && path) {
-			untrack(() => runtime.loadFlow(workspaceId, path))
+	// Restore actions for the diff drawer. A `loadFlow`-based handler is a no-op:
+	// loadFlow early-returns on the already-loaded path (and would re-read the
+	// local draft anyway). Instead reset the live UserDraft cell to the target
+	// baseline — useUserDraftSync's inbound effect then syncs the editor preview.
+	// Mirrors ScriptEditorView.
+	async function restoreDeployed() {
+		const saved = runtime.savedFlow.val
+		if (!saved) {
+			sendUserToast('Could not restore to deployed', true)
+			return
 		}
-	})
-
-	// In a session pane, "restore" just reloads from the current state — the
-	// session target stays put. The Diff drawer's primary use here is viewing
-	// the diff; restore is best-effort.
-	async function restoreFromCurrentTarget() {
 		diffDrawer?.closeDrawer()
-		await runtime.loadFlow(workspaceId, path)
-	}
-
-	// Mark this editor as the "live editor" for the session's workspace so
-	// the chat's `isLiveDraft` hint and `discard_local_draft` tool resolve to
-	// this path. Same registration the regular /flows/edit page does on
-	// mount, scoped to the session's (forked) workspace.
-	// Gated on `isActiveSession`: warm-but-hidden session editors must not
-	// claim the workspace's single live-editor slot, else chat actions on the
-	// visible session resolve to the hidden one's path.
-	$effect(() => {
-		if (!workspaceId || !path) return
-		if (!isActiveSession) return
-		UserDraft.setLiveEditorDraft({
-			workspace: workspaceId,
-			itemKind: 'flow',
-			storagePath: path,
-			effectivePath: runtime.flowStore.val?.path ?? path
-		})
-		return () =>
-			UserDraft.clearLiveEditorDraft('flow', { workspace: workspaceId, storagePath: path })
-	})
-
-	// Bidirectional sync between this preview and `UserDraft<Flow>`.
-	// We hold a *live* handle (useMany) rather than reading via the static
-	// `UserDraft.get`. The handle materializes UserDraft's shared reactive
-	// `$state` cell for (workspace, 'flow', path), and that cell is what lets
-	// the chat's writes (UserDraft.save, from write_flow / patch_flow_json /
-	// set_flow_module_code) reach this preview. Without a live entry those
-	// writes only touch localStorage and the inbound effect below never
-	// re-fires. A reactive getter is used (not `use()`) because switching
-	// open_preview to another flow swaps `path` without remounting this view,
-	// so the handle must re-acquire.
-	//
-	// One-way-reactive discipline: inbound tracks only the handle's draft,
-	// outbound tracks only `flowStore.val`; the read on the "other side"
-	// inside each effect goes through `untrack()`. Without that asymmetry, a
-	// user keystroke would re-fire the inbound effect with the pre-keystroke
-	// stored value and revert the edit.
-	const draftHandles = UserDraft.useMany<Flow>(() => [
-		{ itemKind: 'flow', path, workspace: workspaceId }
-	])
-	let lastInboundSig: string | undefined = $state(undefined)
-
-	// Store → editor. Re-runs when the handle's draft changes (AI write from
-	// this session's chat or another session). flowStore reads are untracked
-	// so the editor's own mutations don't refire this effect.
-	$effect(() => {
-		if (!workspaceId || !path) return
-		const incoming = draftHandles[0]?.draft
-		if (!incoming) return
-		const sig = flowDraftSig(incoming)
-		untrack(() => {
-			if (runtime.loadedPath !== path) return
-			if (sig === lastInboundSig) return
-			const current = runtime.flowStore.val
-			if (!current) return
-			lastInboundSig = sig
-			runtime.flowStore.val = {
-				...current,
-				value: incoming.value,
-				schema: incoming.schema ?? current.schema,
-				summary: incoming.summary ?? current.summary
-			}
-			// flowStateStore is keyed by module_id; after an AI write the set
-			// of module ids may differ, so rebuild the UI state. This wipes
-			// per-module test args / preview output for the new flow — a
-			// known v1 trade-off, see the plan's caveats.
-			void initFlowState(runtime.flowStore.val, runtime.flowStateStore)
-		})
-	})
-
-	// Editor → store. Re-runs on any deep mutation of flowStore.val
-	// (modules, schema, module bodies). The store read is untracked.
-	// Debounced 150ms so a typing burst inside an inline rawscript editor
-	// results in one serialise-and-write instead of one per keystroke.
-	let outboundTimer: ReturnType<typeof setTimeout> | undefined
-	$effect(() => {
-		if (!workspaceId || !path) return
-		if (runtime.loadedPath !== path) return
-		const flow = runtime.flowStore.val
-		if (!flow) return
-		const sig = flowDraftSig(flow)
-		if (sig === lastInboundSig) return
-		if (outboundTimer) clearTimeout(outboundTimer)
-		outboundTimer = setTimeout(() => {
-			untrack(() => {
-				const current = UserDraft.get<Flow>('flow', path, { workspace: workspaceId })
-				if (current && flowDraftSig(current) === sig) return
-				UserDraft.save('flow', path, flow, { workspace: workspaceId })
-			})
-		}, 150)
-		return () => {
-			if (outboundTimer) clearTimeout(outboundTimer)
+		// Drop the user's per-user draft too, so "deployed" sticks across a
+		// reload. The syncer's `value: null` POST is the canonical per-user
+		// delete; fire-and-forget since the in-memory reset below is what the
+		// preview reflects immediately.
+		if (saved.is_draft) {
+			saved.is_draft = false
+			UserDraftDbSyncer.save({
+				workspace: workspaceId,
+				itemKind: 'flow',
+				path: saved.path,
+				value: null
+			}).catch((e) => console.error('restoreDeployed: draft delete failed', e))
+			invalidateWorkspaceDrafts(workspaceId)
 		}
-	})
+		const deployed = structuredClone($state.snapshot(saved)) as Flow & { draft?: unknown }
+		delete deployed.draft
+		UserDraft.discard<Flow>('flow', path, deployed, { workspace: workspaceId })
+	}
 </script>
 
 {#if runtime.savedFlow.val}
-	<DiffDrawer
-		bind:this={diffDrawer}
-		restoreDeployed={restoreFromCurrentTarget}
-		restoreDraft={restoreFromCurrentTarget}
-		isFlow
-	/>
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} isFlow />
 {/if}
-{#if runtime.loadingFlow && !runtime.loadedPath}
-	<div class="p-4 text-secondary text-sm">Loading flow {path}…</div>
-{:else if runtime.notFound && !runtime.loadedPath}
-	<SessionItemNotFound kind="flow" {path} {onNavigate} />
-{:else}
-	<!-- customUi hides the in-editor "Flow AI Chat" button: the session already
-	     has its own AI chat in the left pane, so the toggle is redundant here. -->
-	<FlowBuilder
-		flowStore={runtime.flowStore}
-		flowStateStore={runtime.flowStateStore}
-		initialPath={path}
-		newFlow={!runtime.savedFlow.val}
-		{selectedId}
-		loading={runtime.loadingFlow && !runtime.loadedPath}
-		bind:savedFlow={runtime.savedFlow.val}
-		{diffDrawer}
-		{onNavigate}
-		customUi={{ topBar: { aiBuilder: false } }}
-		onSaveDraft={() => runtime.scheduleForkComparisonRefresh()}
-		onDeploy={() => {
-			// FlowBuilder has no deploy toast and the session stays put, so toast
-			// here, then sync the preview to deployed (pulls the new locks + version_id).
-			sendUserToast('Deployed')
-			runtime.syncPreviewWithDeployed(workspaceId, 'flow', path)
-		}}
-	/>
-{/if}
+<SessionEditorTarget
+	{runtime}
+	kind="flow"
+	{path}
+	{workspaceId}
+	{onNavigate}
+	{isActiveSession}
+	effectivePath={() => runtime.flowStore.val?.path ?? path}
+>
+	{#snippet editor()}
+		<!-- customUi hides the in-editor "Flow AI Chat" button: the session already
+		     has its own AI chat in the left pane, so the toggle is redundant here.
+		     newFlow: a draft-only flow has a synthesized `savedFlow` (no_deployed=true)
+		     but no deployed row, so it must deploy via createFlow — treating it as
+		     !newFlow would updateFlow the draft_<uuid> path and 404 "Flow not found".
+		     initialPath: a brand-new flow is stored under a `draft_<uuid>` path with
+		     its intended name in `draft_path`; seed the builder from `draft_path`
+		     (as the full-page editor does) so the Path widget and deploy use the
+		     friendly name rather than creating a flow literally named draft_<uuid>. -->
+		<FlowBuilder
+			flowStore={runtime.flowStore}
+			flowStateStore={runtime.flowStateStore}
+			initialPath={(runtime.savedFlow.val as any)?.draft_path ?? path}
+			autosaveWorkspace={workspaceId}
+			autosavePath={path}
+			newFlow={!runtime.savedFlow.val || runtime.savedFlow.val.no_deployed === true}
+			{selectedId}
+			loading={false}
+			bind:savedFlow={runtime.savedFlow.val}
+			{diffDrawer}
+			{onNavigate}
+			customUi={{ topBar: { aiBuilder: false } }}
+			onDeploy={() => {
+				// FlowBuilder has no deploy toast and the session stays put, so toast
+				// here, then sync the preview to deployed (pulls the new locks + version_id).
+				sendUserToast('Deployed')
+				runtime.syncPreviewWithDeployed(workspaceId, 'flow', path)
+				// Deploying clears the item's pending draft — refresh the Draft Count.
+				invalidateWorkspaceDrafts(workspaceId)
+			}}
+		/>
+	{/snippet}
+</SessionEditorTarget>

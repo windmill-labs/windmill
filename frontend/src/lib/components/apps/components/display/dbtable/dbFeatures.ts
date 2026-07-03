@@ -17,7 +17,7 @@ export function getDbFeatures(dbInput: DbInput): Required<DbFeatures> {
 		primaryKeys: true,
 		defaultValues: true,
 		enforcedForeignKeys: true,
-		schemas: dbInput.type !== 'ducklake' && dbSupportsSchemas(dbInput.resourceType)
+		schemas: dbInput.type === 'ducklake' ? true : dbSupportsSchemas(dbInput.resourceType)
 	}
 
 	if (dbInput.type == 'ducklake')

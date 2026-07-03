@@ -1,6 +1,7 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { get } from 'svelte/store'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
@@ -9,9 +10,20 @@ import {
 	WorkspaceService,
 	type Flow,
 	type NewScript,
-	type NewScriptWithDraft,
+	type Script,
+	type UserDraftOverlay,
 	type WorkspaceComparison
 } from '$lib/gen'
+
+// `get_draft=true` does NOT merge: the top-level fields stay the deployed
+// payload and the user's draft rides in a sibling `.draft` pocket (with
+// `is_draft` / `draft_saved_at` alongside). Hence the `saved.draft ?? saved`
+// fall-throughs below prefer the draft, else the deployed payload.
+// The generated `UserDraftOverlay` types `draft` permissively; locally it's a
+// `NewScript` / `Flow`, so `Omit` and re-add the precise type (assignments from
+// the response type still need an explicit cast).
+type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
+type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { workspaceStore } from '$lib/stores'
@@ -22,36 +34,66 @@ import {
 	ensureChatIdsSeeded,
 	materializeTransient,
 	sessionState,
+	setGeneratedSessionSummary,
 	setSessionChatId,
 	setSessionTarget,
 	type Session,
 	type SessionTarget
 } from './sessionState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
 import {
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
+	setGetRuntimeLogsHandler,
+	setListAppRunsHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
+import {
+	formatRuntimeLogsForChat,
+	formatAppRunsForChat,
+	type RawAppRuntimeLogEntry,
+	type RawAppRuntimeLogRequester,
+	type RawAppRunSummary,
+	type RawAppRunsProvider
+} from '$lib/components/raw_apps/utils'
+import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
+import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+
+// Per-kind load state for a session's editor target. Pure state container the
+// load methods write into; the editor-target gate reads it to decide between
+// the loading overlay, the not-found state, and a remount of the heavy editor.
+// `loadedPath` flips to the requested path only once the load settles (data
+// ready), which is what lets the gate remount on data-ready rather than on the
+// (synchronous) target swap.
+export interface LoadSlot {
+	loadedPath: string | undefined
+	loading: boolean
+	notFound: boolean
+}
+
+export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 
 export interface SessionRuntime {
 	readonly sessionId: string
 	readonly manager: AIChatManager
+	// Pipeline target state — persists across editor hide/show (the pane unmounts
+	// on hide, so this can't be component-local) and across session switches.
+	readonly pipelineEditorState: PipelineEditorState
+	// Kind-agnostic accessor over the per-kind load slots, for consumers (the
+	// editor-target gate) that only need load state and not the typed store.
+	slot(kind: SessionTargetKind): LoadSlot
 	// Flow target state
 	readonly flowStore: StateStore<Flow>
 	readonly flowStateStore: { val: Record<string, any> }
-	readonly savedFlow: { val: (Flow & { draft?: Flow | undefined }) | undefined }
-	readonly loadingFlow: boolean
-	readonly notFound: boolean
-	readonly loadedPath: string | undefined
+	readonly savedFlow: { val: SavedFlow | undefined }
 	loadFlow(workspace: string, path: string, force?: boolean): Promise<void>
 	// Script target state (parallel to flow, populated only for script-targeted sessions)
 	readonly scriptStore: { val: NewScript | undefined }
-	readonly savedScript: { val: NewScriptWithDraft | undefined }
-	readonly loadingScript: boolean
-	readonly notFoundScript: boolean
-	readonly loadedScriptPath: string | undefined
+	readonly savedScript: { val: SavedScript | undefined }
 	loadScript(workspace: string, path: string, force?: boolean): Promise<void>
 	// Note: legacy drag-and-drop apps are intentionally NOT hosted in the
 	// session preview pane (only code-based raw apps are), so there's no
@@ -67,6 +109,7 @@ export interface SessionRuntime {
 					summary: string
 					path: string
 					custom_path?: string
+					draft_path?: string
 			  }
 			| undefined
 	}
@@ -82,14 +125,22 @@ export interface SessionRuntime {
 					summary: string
 					policy: any
 					draft_only?: boolean
+					/** No deployed counterpart (draft-only); disables the topbar Diff. */
+					no_deployed?: boolean
 					custom_path?: string
 			  }
 			| undefined
 	}
-	readonly loadingRawApp: boolean
-	readonly notFoundRawApp: boolean
-	readonly loadedRawAppPath: string | undefined
-	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
+	loadRawApp(
+		workspace: string,
+		path: string,
+		force?: boolean,
+		deployedOnly?: boolean
+	): Promise<void>
+	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
+	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
+	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
+	getAppRuns(): RawAppRunSummary[] | undefined
 	// Discard the local draft + refresh the fork diff + force-reload the editor,
 	// so the preview matches the deployed version. Used by editor onDeploy + the
 	// chat deploy handler.
@@ -138,6 +189,74 @@ function emptyFlow(): Flow {
 	}
 }
 
+const GENERATED_SUMMARY_TIMEOUT_MS = 15000
+const GENERATED_SUMMARY_MAX_TRANSCRIPT_CHARS = 4000
+const GENERATED_SUMMARY_MAX_LENGTH = 60
+
+function buildSummaryTranscript(displayMessages: DisplayMessage[]): string {
+	return displayMessages
+		.filter((message) => message.role === 'user' || message.role === 'assistant')
+		.slice(0, 6)
+		.map((message) => `${message.role}: ${message.content}`)
+		.join('\n\n')
+		.slice(0, GENERATED_SUMMARY_MAX_TRANSCRIPT_CHARS)
+}
+
+function normalizeGeneratedSummary(summary: string | undefined): string | undefined {
+	const firstLine = summary
+		?.split('\n')
+		.map((line) => line.trim())
+		.find((line) => line.length > 0)
+	if (!firstLine) return undefined
+	const title = firstLine
+		.replace(/^title:\s*/i, '')
+		.replace(/^[-*]\s*/, '')
+		.replace(/^["'`]+|["'`]+$/g, '')
+		.replace(/[.!?]+$/g, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+	if (!/[A-Za-z0-9]/.test(title)) return undefined
+	if (title.length <= GENERATED_SUMMARY_MAX_LENGTH) return title
+	return title.slice(0, GENERATED_SUMMARY_MAX_LENGTH).trim()
+}
+
+async function generateSessionSummary(
+	displayMessages: DisplayMessage[]
+): Promise<string | undefined> {
+	const transcript = buildSummaryTranscript(displayMessages)
+	if (!transcript) return undefined
+	const abortController = new AbortController()
+	const timeout = setTimeout(() => abortController.abort(), GENERATED_SUMMARY_TIMEOUT_MS)
+	const messages: ChatCompletionMessageParam[] = [
+		{
+			role: 'system',
+			content:
+				'Name this AI chat session. Return only a concise title, 2 to 6 words, no quotes, no period.'
+		},
+		{
+			role: 'user',
+			content: `Conversation:\n${transcript}`
+		}
+	]
+	try {
+		return normalizeGeneratedSummary(
+			await getNonStreamingMetadataCompletion(messages, abortController)
+		)
+	} finally {
+		clearTimeout(timeout)
+	}
+}
+
+async function generateAndApplySessionSummary(sessionId: string, manager: AIChatManager) {
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session || session.summarySource !== 'placeholder') return
+	const chatId = session.chatId
+	if (!chatId) return
+	const title = await generateSessionSummary([...manager.displayMessages])
+	if (!title) return
+	setGeneratedSessionSummary(sessionId, title, chatId)
+}
+
 function createRuntime(session: Session): SessionRuntime {
 	const manager = new AIChatManager()
 	manager.disabledModes = { navigator: true }
@@ -159,6 +278,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
 		materializeTransient(session.id)
+		// Session is now persisted → flush any linked files buffered while it was transient.
+		await manager.attachedFiles.flushPending()
 		const committed = await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
 		// commitSessionWorkspace returns undefined only when the session did NOT
 		// commit to a workspace — most importantly when a staged fork failed to
@@ -173,28 +294,31 @@ function createRuntime(session: Session): SessionRuntime {
 			)
 		}
 	}
+	manager.afterFirstTurnSaved = () => generateAndApplySessionSummary(session.id, manager)
 
 	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })
 	const flowStateStore: { val: Record<string, any> } = $state({ val: {} })
-	const savedFlow: { val: (Flow & { draft?: Flow | undefined }) | undefined } = $state({
+	const savedFlow: { val: SavedFlow | undefined } = $state({
 		val: undefined
 	})
 
-	let loadingFlow = $state(false)
-	let notFound = $state(false)
-	let loadedPath = $state<string | undefined>(undefined)
+	const flowSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
 	const scriptStore: { val: NewScript | undefined } = $state({ val: undefined })
-	const savedScript: { val: NewScriptWithDraft | undefined } = $state({ val: undefined })
-	let loadingScript = $state(false)
-	let notFoundScript = $state(false)
-	let loadedScriptPath = $state<string | undefined>(undefined)
+	const savedScript: { val: SavedScript | undefined } = $state({ val: undefined })
+	const scriptSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
-	let loadingRawApp = $state(false)
-	let notFoundRawApp = $state(false)
-	let loadedRawAppPath = $state<string | undefined>(undefined)
+	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+
+	// Pipeline target state lives on the runtime (not the PipelineEditorView
+	// component) so the in-session drafts survive hide/show of the editor pane —
+	// the pane unmounts on hide, and a component-local store would be discarded.
+	const pipelineEditorState = new PipelineEditorState()
+
+	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
+	let appRunsProvider: RawAppRunsProvider | undefined = undefined
 
 	const forkComparison: { val: WorkspaceComparison | undefined } = $state({ val: undefined })
 	let loadingForkComparison = $state(false)
@@ -227,25 +351,20 @@ function createRuntime(session: Session): SessionRuntime {
 	return {
 		sessionId: session.id,
 		manager,
+		slot(kind: SessionTargetKind): LoadSlot {
+			return kind === 'flow' ? flowSlot : kind === 'script' ? scriptSlot : rawAppSlot
+		},
+		pipelineEditorState,
 		flowStore,
 		flowStateStore,
 		savedFlow,
-		get loadingFlow() {
-			return loadingFlow
-		},
-		get notFound() {
-			return notFound
-		},
-		get loadedPath() {
-			return loadedPath
-		},
 
 		async loadFlow(workspace: string, path: string, force = false) {
-			if (loadedPath === path && !force) return
+			if (flowSlot.loadedPath === path && !force) return
 			// See loadScript: forced reload remounts via the render gate.
-			if (force) loadedPath = undefined
-			loadingFlow = true
-			notFound = false
+			if (force) flowSlot.loadedPath = undefined
+			flowSlot.loading = true
+			flowSlot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (write_flow / patch_flow_json /
@@ -254,9 +373,8 @@ function createRuntime(session: Session): SessionRuntime {
 				// when the path has never been deployed.
 				const aiDraft = UserDraft.get<Flow>('flow', path, { workspace })
 
-				// getFlowByPathWithDraft omits version_id (the diff's deployed side,
-				// via getFlowByPath, has it) — stamp it onto the editing flow so it
-				// doesn't always diff. Best-effort (a never-deployed flow has none).
+				// getDraft=true omits version_id (the plain getFlowByPath has it) —
+				// stamp it on so the flow doesn't always diff. Best-effort.
 				let deployedVersionId: number | undefined
 				try {
 					deployedVersionId = (await FlowService.getFlowByPath({ workspace, path }))?.version_id
@@ -269,55 +387,56 @@ function createRuntime(session: Session): SessionRuntime {
 					// drawer. Don't fail the load if the path doesn't exist
 					// yet on the backend — draft-only flows are a valid state.
 					try {
-						const result = await FlowService.getFlowByPathWithDraft({ workspace, path })
-						savedFlow.val = result
+						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
+						savedFlow.val = result as SavedFlow
 					} catch {
 						savedFlow.val = undefined
 					}
 					await initFlow(aiDraft, flowStore, flowStateStore)
 					if (deployedVersionId != null && flowStore.val)
 						flowStore.val.version_id = deployedVersionId
-					loadedPath = path
+					flowSlot.loadedPath = path
 					return
 				}
 
-				// No draft yet. Seed one from the last deploy (or the
-				// backend-side draft, if one exists).
-				const result = await FlowService.getFlowByPathWithDraft({ workspace, path })
-				savedFlow.val = result
-				const flow: Flow = (result.draft as Flow | undefined) ?? (result as Flow)
+				// No local draft yet — seed from `result.draft ?? result`.
+				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
+				savedFlow.val = result as SavedFlow
+				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
+				// Seed the per-tab last_sync from the server draft's timestamp so the
+				// seeding save below attaches a matching last_sync and the server can
+				// reject stale writes (see loadRawApp). Without this a server draft —
+				// saved from the standalone editor or another device — is clobbered
+				// with a fresh created_at, so the standalone editor's next autosave
+				// (carrying its own last_sync) is rejected as a conflict.
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'flow', path },
+					(result as SavedFlow).draft_saved_at
+				)
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, flowStore, flowStateStore)
 				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
-				loadedPath = path
+				flowSlot.loadedPath = path
 			} catch (err) {
 				console.error('Failed to load flow', err)
-				notFound = true
+				flowSlot.notFound = true
 			} finally {
-				loadingFlow = false
+				flowSlot.loading = false
 			}
 		},
 
 		scriptStore,
 		savedScript,
-		get loadingScript() {
-			return loadingScript
-		},
-		get notFoundScript() {
-			return notFoundScript
-		},
-		get loadedScriptPath() {
-			return loadedScriptPath
-		},
 
 		async loadScript(workspace: string, path: string, force = false) {
-			if (loadedScriptPath === path && !force) return
-			// Forced reload: clearing loadedScriptPath drops us into the
-			// `{#if loading && !loadedScriptPath}` gate, which unmounts then remounts
-			// the editor — avoids the Monaco init race a synchronous {#key} would hit.
-			if (force) loadedScriptPath = undefined
-			loadingScript = true
-			notFoundScript = false
+			if (scriptSlot.loadedPath === path && !force) return
+			// Forced reload: clearing the slot's loadedPath drops us into
+			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
+			// which unmounts then remounts the editor — avoids the Monaco init race a
+			// synchronous {#key} would hit.
+			if (force) scriptSlot.loadedPath = undefined
+			scriptSlot.loading = true
+			scriptSlot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (write_script / edit_script) and the
@@ -331,16 +450,13 @@ function createRuntime(session: Session): SessionRuntime {
 					// drawer + parent_hash. 404 means draft-only — leave
 					// savedScript undefined and skip parent_hash.
 					try {
-						const result = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-						savedScript.val = result
+						const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
+						savedScript.val = result as SavedScript
 					} catch {
 						savedScript.val = undefined
 					}
-					// Clone the deployed/backend baseline before layering the AI
-					// draft on top — otherwise we'd mutate `savedScript.val` in
-					// place (it's the same object) and lose the pristine baseline
-					// that the diff drawer + the deploy/discard affordance compare
-					// against.
+					// Clone before layering the AI draft on top, else we'd mutate
+					// `savedScript.val` in place and lose the pristine diff baseline.
 					const baseline: NewScript = savedScript.val
 						? (structuredClone(
 								$state.snapshot(
@@ -348,7 +464,15 @@ function createRuntime(session: Session): SessionRuntime {
 								)
 							) as NewScript)
 						: {
-								path,
+								// Seed from the draft's own path (a rename lives in `draft_path`,
+								// else `path`), not the storage key. Otherwise re-seeding a renamed
+								// never-deployed draft (e.g. a script→script switch re-runs loadScript
+								// with the draft still in memory) resets the path to `draft_<uuid>`,
+								// and the next autosave drops `draft_path` — clobbering the rename.
+								path:
+									(aiDraft as NewScript & { draft_path?: string }).draft_path ??
+									aiDraft.path ??
+									path,
 								summary: aiDraft.summary ?? '',
 								content: '',
 								description: '',
@@ -362,71 +486,79 @@ function createRuntime(session: Session): SessionRuntime {
 					if (aiDraft.language) baseline.language = aiDraft.language
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
 					scriptStore.val = baseline
-					loadedScriptPath = path
+					scriptSlot.loadedPath = path
 					return
 				}
 
-				// No draft yet. Seed from backend.
-				const result = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-				savedScript.val = result
-				// Clone before mutating: when result.draft is falsy, `baseline` would
-				// otherwise alias `result` (= savedScript.val), so baseline.parent_hash
-				// would corrupt the pristine deployed baseline the diff drawer reads.
+				// No local draft yet — seed from `result.draft ?? result`.
+				const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
+				savedScript.val = result as SavedScript
+				// Clone before mutating, else `baseline` aliases `result` and
+				// `baseline.parent_hash` corrupts the diff baseline.
 				const baseline = structuredClone(
-					(result.draft as NewScript | undefined) ?? (result as NewScript)
+					((result as SavedScript).draft as NewScript | undefined) ?? (result as NewScript)
 				)
 				baseline.parent_hash = result.hash
+				// Seed the per-tab last_sync from the server draft's timestamp so the
+				// seeding save below attaches a matching last_sync and the server can
+				// reject stale writes (see loadRawApp). Without this a server draft —
+				// saved from the standalone editor or another device — is clobbered
+				// with a fresh created_at, so the standalone editor's next autosave
+				// (carrying its own last_sync) is rejected as a conflict.
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'script', path },
+					(result as SavedScript).draft_saved_at
+				)
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline
-				loadedScriptPath = path
+				scriptSlot.loadedPath = path
 			} catch (err) {
 				console.error('Failed to load script', err)
-				notFoundScript = true
+				scriptSlot.notFound = true
 			} finally {
-				loadingScript = false
+				scriptSlot.loading = false
 			}
 		},
 
 		rawApp,
 		savedRawApp,
-		get loadingRawApp() {
-			return loadingRawApp
-		},
-		get notFoundRawApp() {
-			return notFoundRawApp
-		},
-		get loadedRawAppPath() {
-			return loadedRawAppPath
-		},
 
-		async loadRawApp(workspace: string, path: string, force = false) {
-			if (loadedRawAppPath === path && !force) return
+		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
+			if (rawAppSlot.loadedPath === path && !force) return
 			// See loadScript: forced reload remounts via the render gate.
-			if (force) loadedRawAppPath = undefined
-			loadingRawApp = true
-			notFoundRawApp = false
+			if (force) rawAppSlot.loadedPath = undefined
+			rawAppSlot.loading = true
+			rawAppSlot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (init_app / write_app_file / ...) and the
 				// editor's outbound $effect both write through it. If a draft
 				// exists we render from it, even when the path has never been
 				// deployed.
-				const aiDraft = UserDraft.get<RawAppDraft>('raw_app', path, { workspace })
+				const aiDraft = deployedOnly
+					? undefined
+					: UserDraft.get<RawAppDraft>('raw_app', path, { workspace })
 
 				if (aiDraft) {
 					// Best-effort fetch the backend baseline for the diff
 					// drawer. Don't fail the load if the path doesn't exist
 					// yet on the backend — draft-only apps are a valid state.
 					try {
-						const result = await AppService.getAppByPathWithDraft({ workspace, path })
+						const result = await AppService.getAppByPath({
+							workspace,
+							path,
+							getDraft: true,
+							rawApp: true
+						})
+						// Top-level fields are the deployed payload — the diff
+						// baseline, since the session has its own `aiDraft`.
 						savedRawApp.val = {
 							summary: result.summary,
 							value: result.value as any,
 							path: result.path,
 							policy: result.policy,
-							draft_only: result.draft_only,
-							draft: result.draft,
-							custom_path: result.custom_path
+							custom_path: result.custom_path,
+							no_deployed: result.no_deployed
 						}
 					} catch {
 						savedRawApp.val = undefined
@@ -442,25 +574,32 @@ function createRuntime(session: Session): SessionRuntime {
 						},
 						aiDraft
 					)
-					loadedRawAppPath = path
+					rawAppSlot.loadedPath = path
 					return
 				}
 
-				// No draft yet. Seed one from the last deploy (or the
-				// backend-side draft, if one exists — that's the user's
-				// "Save draft" content from the standalone editor and is
-				// fresher than `value`).
-				const result = await AppService.getAppByPathWithDraft({ workspace, path })
+				// No local draft yet — seed from the server draft if present
+				// (the standalone editor's "Save draft"), else the deployed value.
+				const result = await AppService.getAppByPath({
+					workspace,
+					path,
+					getDraft: !deployedOnly,
+					rawApp: true
+				})
+				// Deployed baseline for the diff drawer (top-level fields).
 				savedRawApp.val = {
 					summary: result.summary,
 					value: result.value as any,
 					path: result.path,
 					policy: result.policy,
-					draft_only: result.draft_only,
-					draft: result.draft,
-					custom_path: result.custom_path
+					custom_path: result.custom_path,
+					no_deployed: result.no_deployed
 				}
-				const sourceValue: any = result.draft ?? result.value
+				// Prefer the server draft over the deployed value (mirrors the
+				// flow/script `result.draft ?? result`). A raw-app draft is already
+				// editor-shaped, same keys the extraction below reads.
+				const draftValue: any = deployedOnly ? undefined : (result as any).draft
+				const sourceValue: any = draftValue ?? result.value
 				let data: RawAppData = { ...DEFAULT_DATA }
 				if (sourceValue?.data) {
 					const d = sourceValue.data
@@ -480,28 +619,58 @@ function createRuntime(session: Session): SessionRuntime {
 					files: (sourceValue?.files ?? {}) as Record<string, string>,
 					runnables: (sourceValue?.runnables ?? {}) as Record<string, any>,
 					data,
-					policy: result.policy,
-					summary: result.summary ?? '',
+					policy: draftValue?.policy ?? result.policy,
+					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
-					custom_path: result.custom_path
+					custom_path: draftValue?.custom_path ?? result.custom_path,
+					draft_path: draftValue?.draft_path
 				}
+				// Seed the per-tab last_sync from the server draft's timestamp so
+				// later saves attach a matching last_sync and the server can reject
+				// stale writes (a fresh tab has none, so its first POST is treated
+				// as fresh and overwrites unconditionally).
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'raw_app', path },
+					(result as any).draft_saved_at as string | undefined
+				)
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue
-				loadedRawAppPath = path
+				rawAppSlot.loadedPath = path
 			} catch (err) {
 				console.error('Failed to load raw app', err)
-				notFoundRawApp = true
+				rawAppSlot.notFound = true
 			} finally {
-				loadingRawApp = false
+				rawAppSlot.loading = false
 			}
 		},
 
 		syncPreviewWithDeployed(workspace, kind, path) {
 			this.scheduleForkComparisonRefresh()
+			// After deploy the editor state equals the deployed value; the reload
+			// below re-seeds the cell from it, which must NOT POST as a fresh draft.
+			// The full-page editor guards this with discardDraftAfterDeploy, but the
+			// shared header skips that in a session pane (inSessionPane) and routes
+			// post-deploy cleanup here — so apply the same stopSync + arm-restart
+			// bracket. Covers all three kinds since they all funnel through this.
+			UserDraft.stopSync(kind, path, { workspace })
 			UserDraft.discard(kind, path, undefined, { workspace })
 			if (kind === 'script') void this.loadScript(workspace, path, true)
 			else if (kind === 'flow') void this.loadFlow(workspace, path, true)
 			else void this.loadRawApp(workspace, path, true)
+			armRestartOnFirstInteraction(workspace, kind, path)
+		},
+
+		setRuntimeLogRequester(requester) {
+			runtimeLogRequester = requester
+		},
+		async requestRuntimeLogs(limit) {
+			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
+		},
+		setAppRunsProvider(provider) {
+			appRunsProvider = provider
+		},
+		getAppRuns() {
+			return appRunsProvider ? appRunsProvider() : undefined
 		},
 
 		forkComparison,
@@ -567,6 +736,9 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	const { manager } = runtime
 	await manager.historyManager.init()
 	manager.historyManager.setSessionId(session.id)
+	// Restore linked files persisted for this session (live handles re-grant on send;
+	// snapshots restore directly). Non-transient sessions persist immediately.
+	await manager.attachedFiles.restore(session.id, !session.transient)
 	await ensureChatIdsSeeded(manager.historyManager)
 
 	if (session.chatId) {
@@ -680,12 +852,79 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	const runtime = runtimes.get(sessionId)
 	if (!session?.workspace_id || !runtime) return
-	const open =
-		(kind === 'script' && runtime.loadedScriptPath === path) ||
-		(kind === 'flow' && runtime.loadedPath === path) ||
-		(kind === 'raw_app' && runtime.loadedRawAppPath === path)
-	if (!open) return
+	if (runtime.slot(kind).loadedPath !== path) return
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
+})
+
+setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	const entries = await runtime.requestRuntimeLogs(limit)
+	if (entries === undefined) {
+		return {
+			aiResult:
+				'No runtime logs are available because no raw app preview is running for this session. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call get_app_runtime_logs again. Runtime logs are read live from the running preview and are not persisted.',
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	if (entries.length === 0) {
+		return {
+			aiResult:
+				'The raw app preview is running, but it has not emitted console logs, uncaught errors, or unhandled rejections yet. If the user reported a failure, reproduce the interaction in the preview, then call get_app_runtime_logs again. For backend.<id>() failures, call list_app_runs and then get_job_logs for the relevant job_id.',
+			uiMessage: 'No runtime logs',
+			toolResult: 'No runtime logs'
+		}
+	}
+	const limited = entries.slice(-limit)
+	return {
+		aiResult: formatRuntimeLogsForChat(limited),
+		uiMessage: `Read runtime logs`,
+		toolResult: formatRuntimeLogsForChat(limited)
+	}
+})
+
+setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview.',
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
+		}
+	}
+	const runs = runtime.getAppRuns()
+	if (runs === undefined) {
+		return {
+			aiResult:
+				'No raw app preview is open for this session, so no backend runs can be listed. Next step: call open_preview with kind="raw_app" and the app path, let the preview load, then call list_app_runs again.',
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
+		}
+	}
+	if (runs.length === 0) {
+		return {
+			aiResult: 'No backend runnable executions are tracked for this raw app preview yet.',
+			uiMessage: 'No app runs',
+			toolResult: 'No app runs'
+		}
+	}
+	const limited = limit > 0 ? runs.slice(0, limit) : runs
+	return {
+		aiResult: formatAppRunsForChat(limited),
+		uiMessage: `Fetched app runs`,
+		toolResult: formatAppRunsForChat(limited)
+	}
 })
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {

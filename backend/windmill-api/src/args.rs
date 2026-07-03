@@ -13,9 +13,10 @@ use serde_json::value::RawValue;
 use sqlx::types::JsonRawValue;
 use windmill_common::{
     error::Error,
+    jobs::WM_TRACEPARENT,
     triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
     worker::to_raw_value,
-    DB,
+    DB, OTEL_TRACING_ENABLED,
 };
 use windmill_queue::PushArgsOwned;
 
@@ -89,6 +90,10 @@ impl RawWebhookArgs {
         db: &DB,
         w_id: &str,
     ) -> Result<HashMap<String, Box<RawValue>>, Error> {
+        #[cfg(not(feature = "enterprise"))]
+        use crate::job_helpers_oss::{
+            bump_storage_usage, ce_storage_quota_remaining, spawn_storage_usage_recount_floored,
+        };
         use crate::job_helpers_oss::{
             get_random_file_name, get_workspace_s3_resource, upload_file_internal,
         };
@@ -138,8 +143,38 @@ impl RawWebhookArgs {
                             .into_stream()
                             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
 
-                        upload_file_internal(s3_client.clone(), &file_key, bytes_stream, options)
-                            .await?;
+                        // file_key is always freshly random here, so this never
+                        // overwrites an existing object; the full size is the delta.
+                        #[cfg(not(feature = "enterprise"))]
+                        let max_size = Some(ce_storage_quota_remaining(db, w_id, None).await? as usize);
+                        #[cfg(feature = "enterprise")]
+                        let max_size: Option<usize> = None;
+
+                        match upload_file_internal(
+                            s3_client.clone(),
+                            &file_key,
+                            bytes_stream,
+                            options,
+                            max_size,
+                        )
+                        .await
+                        {
+                            Ok((_, _size)) => {
+                                #[cfg(not(feature = "enterprise"))]
+                                bump_storage_usage(
+                                    db,
+                                    w_id,
+                                    windmill_object_store::DEFAULT_STORAGE,
+                                    _size as i64,
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                #[cfg(not(feature = "enterprise"))]
+                                spawn_storage_usage_recount_floored(db, w_id);
+                                return Err(e);
+                            }
+                        }
 
                         files.entry(name).or_insert(vec![]).push(serde_json::json!({
                             "s3": &file_key
@@ -280,6 +315,13 @@ impl WebhookArgs {
         self,
         runnable_format: RunnableFormat,
     ) -> Result<PushArgsOwned, Error> {
+        // Capture the inbound W3C `traceparent` before `self.metadata` is
+        // consumed below. Read back at root-job completion to link the job's
+        // OTLP span to the originating distributed trace. Deliberately bypasses
+        // the header whitelist, and is gated to OTel-enabled instances so others
+        // don't get a stray `_wm_traceparent` arg key.
+        let trace_context = inbound_traceparent(&self.metadata.headers);
+
         let headers = build_headers(
             &self.metadata.headers,
             self.metadata.query_include_header,
@@ -292,7 +334,7 @@ impl WebhookArgs {
             runnable_format.has_preprocessor,
         );
 
-        match runnable_format {
+        let mut push_args = match runnable_format {
             RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V2 } => {
                 let mut args = HashMap::new();
 
@@ -307,7 +349,7 @@ impl WebhookArgs {
                     }),
                 );
 
-                Ok(PushArgsOwned { args, extra: None })
+                PushArgsOwned { args, extra: None }
             }
             RunnableFormat { has_preprocessor, .. } => {
                 let mut extra = HashMap::new();
@@ -343,16 +385,40 @@ impl WebhookArgs {
                         if query_wrap_body {
                             body = HashMap::from([("body".to_string(), to_raw_value(&body))]);
                         }
-                        Ok(PushArgsOwned { args: body, extra })
+                        PushArgsOwned { args: body, extra }
                     }
                     Body::NoHashMap(args) => {
                         let mut hm = HashMap::new();
                         hm.insert("body".to_string(), args);
-                        Ok(PushArgsOwned { args: hm, extra })
+                        PushArgsOwned { args: hm, extra }
                     }
                 }
             }
+        };
+
+        // `_wm_traceparent` is Windmill-controlled: strip any caller-supplied
+        // value (e.g. smuggled through the request body) so only the header we
+        // captured above can become the job's inbound trace context. Then stash
+        // the captured value as a reserved arg key — it rides the `args` jsonb
+        // like `_ENTRYPOINT_OVERRIDE`; normal scripts never see it (args are
+        // bound by declared parameter name).
+        push_args.args.remove(WM_TRACEPARENT);
+        if let Some(ref mut extra) = push_args.extra {
+            extra.remove(WM_TRACEPARENT);
         }
+        if let Some(trace_context) = trace_context {
+            let raw = to_raw_value(&trace_context);
+            match push_args.extra {
+                Some(ref mut extra) => {
+                    extra.insert(WM_TRACEPARENT.to_string(), raw);
+                }
+                None => {
+                    push_args.args.insert(WM_TRACEPARENT.to_string(), raw);
+                }
+            }
+        }
+
+        Ok(push_args)
     }
 }
 
@@ -485,6 +551,23 @@ lazy_static::lazy_static! {
         .split(',')
         .map(|s| s.to_string())
         .collect()).unwrap_or_default();
+}
+
+/// Extract the inbound W3C `traceparent` header so the enqueued job can be
+/// linked back to the originating distributed trace. Returns `None` when OTel
+/// tracing is disabled (so non-tracing instances don't accumulate a stray
+/// reserved arg key) or when no `traceparent` header is present. The W3C format
+/// is not validated here — it is checked later at use time
+/// (`valid_w3c_traceparent` for the env, EE `span_cx_from_traceparent` for the
+/// span).
+fn inbound_traceparent(headers: &HeaderMap) -> Option<String> {
+    if !OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    headers
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
 }
 
 pub fn build_headers(

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job WHERE workspace_id = $1 AND trigger_kind = 'asset'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "09095af7cad650fb10781d9e39b0dad250c59ed0fca6cab7b5be4ee2516275d0"
+}

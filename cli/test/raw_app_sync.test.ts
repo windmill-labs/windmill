@@ -382,6 +382,81 @@ excludes: []`, "utf-8");
     });
 });
 
+test("Raw App: frontend .ts file sorting first does not short-circuit the app push", async () => {
+    // Regression: in the push apply loop, raw-app changes are collapsed to a
+    // single representative change (changes[0]). Because every file inside a
+    // raw_app folder shares the same sort order, changes[0] is just the
+    // alphabetically-first changed path. When that path was a frontend file
+    // with a script extension (e.g. "Api.ts", which sorts before "App.tsx"),
+    // handleFile() mistook it for a standalone script: it pushed a bogus script
+    // at the truncated path (f/test/<app>) AND returned true, so the loop
+    // `continue`d and pushRawApp() never ran. Result: the whole raw app silently
+    // failed to deploy while the CLI still reported success.
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_ts_first_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "ts_first_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // A frontend .ts file whose name sorts before "App.tsx".
+      const apiTsPath = path.join(appDir, "Api.ts");
+      await writeFile(apiTsPath, "export const API = '/api/v1'\n", "utf-8");
+
+      // Initial push: create the raw app on the backend.
+      const pushResult1 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_ts_first_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+
+      // Edit App.tsx (and the .ts file that sorts first) and push again.
+      const appTsxPath = path.join(appDir, "App.tsx");
+      const appTsxContent = await readFileContent(appTsxPath);
+      await writeFile(
+        appTsxPath,
+        appTsxContent.replace("hello world", "REGRESSION MARKER"),
+        "utf-8"
+      );
+      await writeFile(apiTsPath, "export const API = '/api/v2'\n", "utf-8");
+
+      const pushResult2 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_ts_first_test"
+      );
+      expect(pushResult2.code).toEqual(0);
+
+      // The App.tsx edit must have landed on the remote app's bundled files.
+      const appResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/apps/get/p/f/test/ts_first_app`
+      );
+      expect(appResp.status).toEqual(200);
+      const appJson = await appResp.json();
+      const files = appJson?.value?.files ?? {};
+      expect(files["/App.tsx"]).toContain("REGRESSION MARKER");
+      // The first-sorting .ts file is part of the app bundle, with fresh content.
+      expect(files["/Api.ts"]).toContain("/api/v2");
+
+      // And no bogus standalone script was created at the truncated path
+      // (f/test/ts_first_app.raw_app/Api.ts -> f/test/ts_first_app).
+      const scriptResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/get/p/f/test/ts_first_app`
+      );
+      expect(scriptResp.status).toEqual(404);
+    });
+});
+
 test("Raw App: delete file and push", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace

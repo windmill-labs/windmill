@@ -472,7 +472,6 @@
 		type?: U
 		time?: number
 		starred?: boolean
-		has_draft?: boolean
 	}
 
 	// interface SelectableSearchMenuItem {
@@ -506,12 +505,16 @@
 				time: new Date(x.edited_at).getTime(),
 				search_id: x.path
 			})),
-			...scripts.map((x) => ({
-				...x,
-				type: 'script' as 'script',
-				time: new Date(x.created_at).getTime(),
-				search_id: x.path
-			})),
+			// Pipeline-member scripts (`auto_kind='pipeline'`) are reached through
+			// their pipeline, not searched individually.
+			...scripts
+				.filter((x) => x.auto_kind !== 'pipeline')
+				.map((x) => ({
+					...x,
+					type: 'script' as 'script',
+					time: new Date(x.created_at).getTime(),
+					search_id: x.path
+				})),
 			...apps.map((x) => ({
 				...x,
 				type: 'app' as 'app',

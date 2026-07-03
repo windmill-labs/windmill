@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
@@ -15,9 +16,11 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -36,10 +39,12 @@
 		newPath,
 		hideSecretUrl = false,
 		preserveOnBehalfOf = $bindable(false),
-		rawApp = false
+		labels = $bindable(),
+		rawApp = false,
+		newApp = false
 	}: {
 		policy: any
-		setPublishState: () => void
+		setPublishState: (message?: string) => void
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
@@ -52,14 +57,30 @@
 		newPath: string
 		hideSecretUrl?: boolean
 		preserveOnBehalfOf?: boolean
+		labels?: string[] | undefined
 		// Raw apps need cross-origin isolation (wm_coep) to be embeddable. Classic
 		// (low-code) apps must NOT get the flag — it would force COEP on the
 		// document and break no-CORP cross-origin subresources (external images,
 		// {@html} embeds, CDN imports).
 		rawApp?: boolean
+		/** True while the editor is on a draft-only URL (`/edit/u/{user}/draft_{uuid}`
+		 *  with no deployed row yet). Suppresses the public-secret-URL fetch
+		 *  (`/secret_of/...` 404s with no `app` row) and renders a placeholder
+		 *  instead of the eternally-spinning link. */
+		newApp?: boolean
 	} = $props()
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	// Admins always pass the backend check. For everyone else, fail closed
+	// while the workspace protection rules are still loading so the toggle
+	// is never briefly enabled for a user the rules will end up restricting.
+	let rulesetsLoaded = $derived(protectionRulesState.rulesets !== undefined)
+	let canSetAnonymous = $derived(
+		!!$userStore?.is_admin ||
+			!!$userStore?.is_super_admin ||
+			(rulesetsLoaded &&
+				canUserBypassRuleKind('RestrictAnonymousAppDeployment', $userStore ?? undefined))
+	)
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
@@ -139,7 +160,15 @@
 	})
 
 	$effect(() => {
-		appPath && appPath != '' && savedApp && secretUrl == undefined && untrack(() => getSecretUrl())
+		// Skip the secret URL fetch on draft-only items — `/secret_of/...`
+		// has no `app` row to look up and would 404, leaving the UI
+		// component spinning indefinitely.
+		!newApp &&
+			appPath &&
+			appPath != '' &&
+			savedApp &&
+			secretUrl == undefined &&
+			untrack(() => getSecretUrl())
 	})
 </script>
 
@@ -175,6 +204,8 @@
 		bind:value={summary}
 	/>
 </div>
+<div class="pt-3"></div>
+<LabelsInput bind:labels class="-mt-4" />
 <div class="py-6"></div>
 <label for="deploymentMsg" class="text-emphasis text-xs font-semibold">Deployment message</label>
 <div class="w-full pt-1">
@@ -249,10 +280,51 @@
 
 <div class="mt-10"></div>
 
+<div class="flex items-center gap-2">
+	<h2>Sandbox isolation</h2>
+	<Badge color="yellow">Alpha</Badge>
+</div>
+<div class="my-6">
+	<Toggle
+		options={{ right: "Isolate the app from the viewer's browser session" }}
+		checked={policy.sandbox == true}
+		on:change={(e) => {
+			policy.sandbox = e.detail || undefined
+			setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
+		}}
+		disabled={!savedApp}
+	/>
+	<div class="text-xs text-secondary mt-1">
+		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
+		on-behalf-of model above (which sets who its runnables run as). Off by default, the app's code
+		uses the viewer's own session; enable it to confine the app to a narrowly-scoped token instead,
+		on every surface (public URL and in-workspace). Leave it off if the app needs full browser
+		features (IndexedDB, third-party auth/SDKs, OAuth redirects).
+	</div>
+	{#if !savedApp}
+		<div class="text-xs text-tertiary mt-1">Save the app once to change this setting.</div>
+	{/if}
+	{#if policy.sandbox == true}
+		<div class="mt-2">
+			<Alert type="warning" title="Alpha feature" size="xs">
+				Sandbox isolation is in alpha. After enabling, open the app from its public URL to confirm
+				it still works, and report any broken behavior.
+			</Alert>
+		</div>
+	{/if}
+</div>
+
 {#if !hideSecretUrl}
 	<h2>Public URL</h2>
 
 	<div class="my-6">
+		{#if rulesetsLoaded && !canSetAnonymous}
+			<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
+				Making this app publicly accessible without login is restricted to workspace admins and
+				bypass users by a workspace protection rule
+			</Alert>
+			<div class="mb-2"></div>
+		{/if}
 		<div class="flex gap-2 items-center mb-2">
 			<Toggle
 				options={{
@@ -264,11 +336,11 @@
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
-				disabled={!savedApp}
+				disabled={!savedApp || newApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
 			/>
 		</div>
-		{#if !savedApp}
-			<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
+		{#if !savedApp || newApp}
+			<ClipboardPanel content={`Deploy this app once to get the public secret URL`} size="md" />
 		{:else if secretUrlHref}
 			<div class="flex justify-end mb-1">
 				<Toggle

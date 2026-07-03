@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "Jsonb",
+        "Text",
+        "Varchar",
+        "Jsonb",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "813b91a338f2fe46a7d27a155c435f33faa61710388f71f04da2d4569bc3dd71"
+}

@@ -38,11 +38,70 @@ pub mod client_registration;
 pub mod oauth {
     //! Re-exports of rmcp auth and oauth2 types for MCP OAuth implementations
 
+    use std::time::Duration;
+
     pub use rmcp::transport::auth::AuthorizationManager;
+
+    const DEFAULT_OAUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
+    pub fn no_redirect_http_client() -> Result<reqwest::Client, reqwest::Error> {
+        no_redirect_http_client_with_timeout(DEFAULT_OAUTH_HTTP_TIMEOUT)
+    }
+
+    pub(crate) fn no_redirect_http_client_with_timeout(
+        timeout: Duration,
+    ) -> Result<reqwest::Client, reqwest::Error> {
+        reqwest::Client::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+    }
 
     // Re-export oauth2 types needed for MCP OAuth flow
     pub use oauth2::{
         basic::BasicClient, AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
         RedirectUrl, Scope, TokenUrl,
     };
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::{
+            io::Read,
+            net::TcpListener,
+            thread,
+            time::{Duration, Instant},
+        };
+
+        #[tokio::test]
+        async fn no_redirect_http_client_times_out_stalled_responses() {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+
+            let handle = thread::spawn(move || {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
+                    let mut buffer = [0; 1024];
+                    let _ = stream.read(&mut buffer);
+                    thread::sleep(Duration::from_millis(300));
+                }
+            });
+
+            let client = no_redirect_http_client_with_timeout(Duration::from_millis(50)).unwrap();
+            let started = Instant::now();
+            let err = client
+                .get(format!("http://{addr}/stall"))
+                .send()
+                .await
+                .expect_err("stalled response should time out");
+
+            assert!(err.is_timeout(), "expected timeout error, got: {err}");
+            assert!(
+                started.elapsed() < Duration::from_secs(2),
+                "stalled request should fail promptly"
+            );
+
+            handle.join().unwrap();
+        }
+    }
 }

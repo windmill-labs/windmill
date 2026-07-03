@@ -71,6 +71,26 @@
 		list-style-type: '- ';
 		padding-left: 3rem;
 	}
+
+	/* The '- ' list markers, horizontal rules and blockquote bars otherwise
+	   fall through to Tailwind Typography's default bullet/border colors, which
+	   are nearly invisible on dark backgrounds (e.g. the AI chat). Use
+	   theme-aware tokens so they stay readable in both light and dark mode. */
+	.prose-xs ul > li::marker,
+	.prose ul > li::marker {
+		color: rgb(var(--color-text-secondary));
+	}
+
+	.prose-xs hr,
+	.prose hr {
+		border-top-color: rgb(var(--color-border-normal));
+	}
+
+	.prose-xs blockquote,
+	.prose blockquote {
+		border-left-color: rgb(var(--color-border-normal));
+	}
+
 	.prose a {
 		@apply text-accent no-underline;
 	}

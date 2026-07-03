@@ -140,6 +140,154 @@ describe("validateToolExpectations", () => {
       details: "tools used: write_script, deploy_workspace_item",
     });
   });
+
+  it("accepts a stringIncludesAnyOf substring regardless of case or position", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: {
+              sql: "WITH recent AS (SELECT * FROM orders) SELECT count(*) FROM recent",
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsUsed: ["exec_datatable_sql"],
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["select"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("accepts stringIncludesAnyOf when only one of several calls matches", () => {
+    // Existential: a mutation mixed with verification SELECTs still passes.
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 2,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: { sql: "UPDATE orders SET status = 'shipped' WHERE id = 2" },
+          },
+          {
+            name: "exec_datatable_sql",
+            arguments: { sql: "SELECT * FROM orders WHERE id = 2" },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["insert into", "update"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("rejects stringIncludesAnyOf when no call matches any substring", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: {
+              sql: "DROP TABLE orders",
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["insert into", "update"],
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "exec_datatable_sql.sql includes a required substring",
+      passed: false,
+      details:
+        'accepted substrings: insert into, update; values: "DROP TABLE orders"',
+    });
+  });
+
+  it("passes requiredToolsAnyOf when any alternative in the group is used", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["search_app", "patch_app_file"],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsAnyOf: [["read_app_file", "search_app"]],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "uses one of read_app_file, search_app",
+      passed: true,
+    });
+  });
+
+  it("fails requiredToolsAnyOf when no alternative in the group is used", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["patch_app_file"],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsAnyOf: [["read_app_file", "search_app"]],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "uses one of read_app_file, search_app",
+      passed: false,
+      details: "tools used: patch_app_file",
+    });
+  });
 });
 
 describe("validateGlobalState", () => {

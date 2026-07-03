@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(DISTINCT trigger_ref) AS \"n!\"\n           FROM script_trigger\n           WHERE workspace_id = $1\n             AND runnable_path = $2\n             AND trigger_kind = 'asset'\n             AND runnable_kind = 'script'\n             AND trigger_ref LIKE '%' || $3 || '%'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3eb137e83c0aa6389b2893d59acd993e37d8a8bc67cd90682a7971760442b90a"
+}

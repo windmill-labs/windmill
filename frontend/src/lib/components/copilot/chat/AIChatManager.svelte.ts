@@ -1,4 +1,4 @@
-import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
+import type { ScriptLang } from '$lib/gen/types.gen'
 import { WorkspaceService } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
@@ -36,9 +36,17 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { getModelContextWindow, workspaceAIClients } from '../lib'
+import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { getKnownModelContextWindow } from '../modelConfig'
+import {
+	getCompactionSummaryPrompt,
+	formatCompactSummary,
+	buildSummaryMessageContent
+} from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
+import { type PasteAttachment } from './pasteTokens'
+import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
@@ -46,6 +54,7 @@ import { get } from 'svelte/store'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
+import { readDocsPageTool, searchDocsTool } from './docs/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
@@ -57,23 +66,74 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { runChatLoop } from './chatLoop'
+import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { normalizeContextUsage } from './tokenUsage'
 import type { ReviewChangesOpts } from './monaco-adapter'
-import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import {
+	getCurrentModel,
+	tryGetCurrentModel,
+	getCombinedCustomPrompt,
+	getCustomPromptParts,
+	getUserCustomPrompts,
+	setUserCustomPrompts,
+	isWebSearchEnabledForProvider
+} from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
+	loadWorkspaceSkills,
 	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
+	type AiSkillListItem,
 	type GlobalToolHelpers
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
+import {
+	pipelineTools,
+	getPipelinePromptSection,
+	type PipelineAIChatHelpers
+} from './pipeline/core'
+import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
+import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { appendAttachedFilesRoster } from './files/fileTools'
 
-// If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
-const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
-const MAX_TOKENS_HARD_LIMIT = 5000
+// Compaction of the stored history: once the projected request size
+// (contextTokens — the provider's report when current, a fresh chars/4
+// estimate otherwise — plus the new user message) reaches the trigger ratio of
+// the model's context window, the older prefix is summarized into a single
+// message while the recent tail is kept verbatim, bringing the history down to
+// roughly the target ratio. The trigger headroom absorbs what the projection
+// cannot see — the upcoming completion and tool results, system-prompt/tool-
+// schema changes from mode switches, and the estimate's chars/4 error.
+const COMPACTION_TRIGGER_RATIO = 0.8
+const COMPACTION_TARGET_RATIO = 0.7
+// Headroom reserved within the target budget for the summary message itself, so
+// the summary + kept tail + overhead land under the target ratio.
+const SUMMARY_OUTPUT_RESERVE_TOKENS = 8000
+// Below this many messages in the prefix there's little to gain from a summary
+// round-trip; skip straight to drop-oldest.
+const MIN_PREFIX_MESSAGES_TO_SUMMARIZE = 4
+// Stop attempting summarization after this many consecutive failures and use
+// drop-oldest directly; a successful summarization resets the counter.
+const MAX_CONSECUTIVE_COMPACTION_FAILURES = 3
+// Abort reason for a deliberate user cancel (Esc / Stop). Programmatic cancels
+// (panel teardown, save-and-clear) pass their own reason, so the queued-message
+// flush can tell "the user wants to move on" from "the turn was torn down".
+const USER_CANCEL_REASON = 'user_cancelled'
+// Built-in `/compact` session command — summarizes the conversation locally
+// instead of sending a turn to the model. Matched on the whole input so a
+// regular message that merely mentions "/compact" mid-sentence is unaffected.
+const COMPACT_COMMAND_NAME = 'compact'
+const COMPACT_COMMAND_RE = /^\/compact\s*$/
+// Built-in `/clear` session command — saves the conversation to history and
+// resets to a fresh chat (the "New chat" action), instead of sending a turn.
+const CLEAR_COMMAND_NAME = 'clear'
+const CLEAR_COMMAND_RE = /^\/clear\s*$/
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
+const WEB_SEARCH_ERROR_HINT =
+	'Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -129,46 +189,105 @@ function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
+// The autonomy mode is namespaced by the logged-in user's email (scopedKey).
+// It controls whether tool calls auto-execute, so leaking it across users on a
+// shared browser is a safety concern (user B inheriting user A's YOLO mode).
+// Returns the safe ACCEPT_EDIT default when no user is known yet — the
+// module-level singleton (constructed at import, before the email resolves)
+// re-reads via onUserChange once it does.
 function getPersistedAutonomyMode(): AIAutonomyMode {
-	if (!BROWSER || typeof localStorage === 'undefined') {
+	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
+	if (!BROWSER || !key) {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
-	const persistedMode = localStorage.getItem(AI_AUTONOMY_MODE_STORAGE_KEY)
+	const persistedMode = getLocalSetting(key)
 	if (isAIAutonomyMode(persistedMode)) {
 		return persistedMode
 	}
 	// No stored preference: default to auto-accepting edits (tool calls still
 	// require confirmation; only YOLO bypasses those). Note this means users who
 	// never opened the autonomy picker now start with edit auto-accept on.
-	return localStorage.getItem(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY) === 'true'
+	const legacyKey = scopedKey(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY)
+	return legacyKey && getLocalSetting(legacyKey) === 'true'
 		? AIAutonomyMode.YOLO
 		: AIAutonomyMode.ACCEPT_EDIT
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
-	if (!BROWSER || typeof localStorage === 'undefined') {
+	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
+	if (!BROWSER || !key) {
 		return
 	}
-	localStorage.setItem(AI_AUTONOMY_MODE_STORAGE_KEY, mode)
+	storeLocalSetting(key, mode)
+}
+
+// Claim the pre-namespacing autonomy keys for the first user to log in on a
+// previously single-user browser.
+function migrateLegacyAutonomyKeys() {
+	migrateLegacyLocalStorage(AI_AUTONOMY_MODE_STORAGE_KEY, scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY))
+	migrateLegacyLocalStorage(
+		LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY,
+		scopedKey(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY)
+	)
+}
+
+function appendWebSearchErrorHint(message: string, shouldAppend: boolean): string {
+	if (!shouldAppend) {
+		return message
+	}
+	const separator = /[.!?]$/.test(message.trim()) ? ' ' : '. '
+	return `${message}${separator}${WEB_SEARCH_ERROR_HINT}`
+}
+
+function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
+	const errorMessage =
+		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
+	const message = errorMessage
+		? `Failed to send request: ${errorMessage}`
+		: 'Failed to send request'
+	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	/** Files the user attached to the current GLOBAL-mode conversation. */
+	attachedFiles = new AttachedFilesStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
 	skipResponsesApi = false
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
+	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
+	// Message typed while a turn is streaming. There is only ever one queued
+	// message; pressing Enter again appends another line to it. Auto-sent when
+	// the turn finishes (clean completion or user cancel). Ephemeral — never
+	// saved to displayMessages or history.
+	queuedMessage = $state<string>('')
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
+	currentReasoning = $state<string>('')
+	currentReasoningActive = $state<boolean>(false)
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
+	/** Provider-reported context size of the last committed turn (prompt +
+	 * completion of its latest completion — exact, includes system prompt and
+	 * tools), or undefined whenever no report describes the current history
+	 * (provider never reported, turn failed, history rewound). Never holds a
+	 * guess: readers go through `contextTokens`, which estimates lazily. */
+	contextUsage = $state<number | undefined>(undefined)
+	// Circuit breaker for summary-based compaction: after repeated failures the
+	// summary round-trip is skipped in favor of drop-oldest. Reset on any
+	// successful summarization. Not persisted — a fresh load gets a fresh chance.
+	private consecutiveCompactionFailures = 0
+	// True while the summarization round-trip is in flight, so the UI can show a
+	// "Compacting conversation" label on the processing indicator.
+	compacting = $state(false)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
@@ -223,6 +342,31 @@ export class AIChatManager {
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
 
+	// Workspace AI skills (name + description) advertised in the GLOBAL system
+	// prompt and surfaced as slash commands in session chat. Loaded
+	// asynchronously when entering GLOBAL mode; the system message is rebuilt
+	// once they resolve.
+	globalSkills = $state<AiSkillListItem[]>([])
+	private globalSkillsRefreshId = 0
+
+	// Built-in session-chat slash commands, listed in the command picker
+	// alongside workspace skills. Unlike a skill, these run locally and never
+	// reach the model; the submit path intercepts them first, so they shadow any
+	// workspace skill of the same name.
+	readonly sessionBuiltinCommands: AiSkillListItem[] = [
+		{ name: COMPACT_COMMAND_NAME, description: 'Summarize the conversation to free up context' },
+		{ name: CLEAR_COMMAND_NAME, description: 'Clear the conversation and start a new chat' }
+	]
+
+	// Built-ins followed by workspace skills, with any skill whose name collides
+	// with a built-in dropped: the picker keys leaves by name, so a duplicate
+	// would break its keyed list and ambiguous-resolve nav. Built-ins win — they
+	// already shadow same-named skills at execution (the submit interception).
+	sessionCommands: AiSkillListItem[] = $derived([
+		...this.sessionBuiltinCommands,
+		...this.globalSkills.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
+	])
+
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
@@ -239,54 +383,312 @@ export class AIChatManager {
 
 	open = $derived(chatState.size > 0)
 
-	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
-		const estimatedTokens = messages.reduce((acc, message) => {
-			// one token is ~ 4 characters
+	// one token is ~ 4 characters
+	private estimateMessagesTokens = (messages: ChatCompletionMessageParam[]) => {
+		return messages.reduce((acc, message) => {
 			const tokenPerCharacter = 4
-			// handle content
-			if (message.content) {
+			if (typeof message.content === 'string') {
 				acc += message.content.length / tokenPerCharacter
+			} else if (message.content) {
+				acc += JSON.stringify(message.content).length / tokenPerCharacter
 			}
-			// Handle tool calls
 			if (message.role === 'assistant' && message.tool_calls) {
 				acc += JSON.stringify(message.tool_calls).length / tokenPerCharacter
 			}
 			return acc
 		}, 0)
-		const model = getCurrentModel()
-		const modelContextWindow = getModelContextWindow(model.model)
-		return (
-			estimatedTokens >
-			modelContextWindow -
-				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
-		)
 	}
 
-	deleteOldestMessage = (messages: ChatCompletionMessageParam[], maxDepth: number = 10) => {
-		if (maxDepth <= 0 || messages.length <= 1) {
-			return messages
-		}
-		const removed = messages.shift()
+	/** Estimated tokens of the parts the messages array doesn't carry: the
+	 * current system prompt and tool definitions. */
+	private estimateOverheadTokens = () => {
+		const tokenPerCharacter = 4
+		const systemTokens =
+			typeof this.systemMessage.content === 'string'
+				? this.systemMessage.content.length / tokenPerCharacter
+				: 0
+		const toolTokens =
+			this.tools.length > 0
+				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
+				: 0
+		return systemTokens + toolTokens
+	}
 
-		// if the removed message is an assistant with tool calls, we need to delete correspding tool response.
-		if (removed?.role === 'assistant' && removed.tool_calls) {
-			if (messages.length > 0 && messages[0]?.role === 'tool') {
-				messages.shift()
+	/**
+	 * chars/4 estimate of the full context as currently stored: messages plus
+	 * the system prompt and tool definitions the next request would carry.
+	 * Recomputed from scratch at each read — never accumulated — so errors
+	 * don't compound.
+	 */
+	private estimateWholeContextTokens = () =>
+		Math.round(this.estimateMessagesTokens(this.messages) + this.estimateOverheadTokens())
+
+	/**
+	 * How full the context is right now — the single fallback rule, shared by
+	 * the compaction trigger and the usage indicator: the provider's exact
+	 * report when one describes the current history, a fresh estimate
+	 * otherwise. Estimating at the read point (rather than writing estimates
+	 * into `contextUsage`) means no code path that mutates history can leave
+	 * a stale or missing value behind.
+	 */
+	contextTokens = $derived.by(() => this.contextUsage ?? this.estimateWholeContextTokens())
+
+	/**
+	 * Drop-oldest compaction. Deletes messages from the front of the STORED
+	 * history (the API messages — displayMessages keep the full conversation
+	 * for the user) until at least `tokensToFree` estimated tokens are freed
+	 * AND the remaining history starts on a user message: a leading tool
+	 * result or assistant turn would dangle without the messages that
+	 * introduced it. The most recent user message is never dropped. Returns
+	 * the estimated tokens freed.
+	 */
+	compactOldestMessages = (tokensToFree: number): number => {
+		const last = this.messages.length - 1
+		let drop = 0
+		let freed = 0
+		while (drop < last) {
+			if (freed >= tokensToFree && this.messages[drop].role === 'user') {
+				break
+			}
+			freed += this.estimateMessagesTokens([this.messages[drop]])
+			drop++
+		}
+		if (drop === 0) {
+			return 0
+		}
+		this.messages = this.messages.slice(drop)
+		// User display messages carry the index of their API message so restart
+		// can rewind to it; re-base them on the compacted history. A message
+		// whose API counterpart was dropped clamps to 0: everything before it
+		// was dropped too (compaction only removes prefixes), so restarting
+		// from it restarts from an empty history.
+		this.displayMessages = this.displayMessages.map((m) =>
+			m.role === 'user' ? { ...m, index: Math.max(0, m.index - drop) } : m
+		)
+		return freed
+	}
+
+	/**
+	 * Core summarize + rewrite, shared by automatic and manual compaction. Sends
+	 * the prefix to the summarizer, then replaces the summarized prefix with a
+	 * single summary message in `messages` (as a user message) and
+	 * `displayMessages` (as a `summary` boundary). Surviving tail user messages
+	 * have their restart `index` re-based onto the new history: the summary
+	 * occupies slot 0, so a tail user message that was at `keepFrom` lands at slot
+	 * 1. `displayKeepFrom` is where the kept tail begins in `displayMessages`.
+	 *
+	 * Owns only the `compacting` flag and the history rewrite; callers own trigger
+	 * policy (circuit breaker, gates) and persistence. Returns the outcome —
+	 * 'aborted' is a user Stop (history left untouched), distinct from 'error'.
+	 */
+	private runSummarization = async (
+		prefix: ChatCompletionMessageParam[],
+		tail: ChatCompletionMessageParam[],
+		keepFrom: number,
+		displayKeepFrom: number,
+		abortController: AbortController
+	): Promise<'ok' | 'empty' | 'aborted' | 'error'> => {
+		this.compacting = true
+		try {
+			const raw = await getNonStreamingCompletion(
+				[...prefix, { role: 'user', content: getCompactionSummaryPrompt() }],
+				abortController
+			)
+			const formatted = formatCompactSummary(raw ?? '')
+			if (!formatted) {
+				return 'empty'
+			}
+
+			this.messages = [{ role: 'user', content: buildSummaryMessageContent(formatted) }, ...tail]
+
+			// Replace the summarized display prefix with the boundary marker and
+			// re-base the surviving tail's restart indices (the summary occupies
+			// slot 0, so the tail now starts at slot 1).
+			this.displayMessages = [
+				{ role: 'summary', content: formatted },
+				...this.displayMessages
+					.slice(displayKeepFrom)
+					.map((m) => (m.role === 'user' ? { ...m, index: m.index - keepFrom + 1 } : m))
+			]
+
+			// The provider report described the pre-compaction history; the new
+			// history is much smaller, so clear it and let readers re-estimate.
+			this.contextUsage = undefined
+			return 'ok'
+		} catch (err) {
+			if (abortController.signal.aborted) {
+				return 'aborted'
+			}
+			console.error('Conversation summarization failed', err)
+			return 'error'
+		} finally {
+			this.compacting = false
+		}
+	}
+
+	/**
+	 * Summary-based partial compaction. Summarizes the older PREFIX of the stored
+	 * history into a single user message and keeps the recent tail verbatim,
+	 * bringing the history down to roughly the target ratio while preserving the
+	 * intent, decisions, and recent work that drop-oldest would discard.
+	 *
+	 * The tail grows from the most recent message until it fills `tailBudget`,
+	 * then snaps forward to a user-message boundary (a leading tool/assistant
+	 * message would dangle without the turn that introduced it). The summary
+	 * replaces the prefix in BOTH `messages` (as a user message) and
+	 * `displayMessages` (as a `summary` boundary); surviving tail user messages
+	 * have their restart `index` re-based onto the new history.
+	 *
+	 * Returns true on success. Returns false — caller falls back to drop-oldest —
+	 * when summarization isn't worthwhile or fails (user abort, empty summary, or
+	 * the circuit breaker being tripped).
+	 */
+	private summarizeAndCompact = async (contextWindow: number): Promise<boolean> => {
+		if (this.consecutiveCompactionFailures >= MAX_CONSECUTIVE_COMPACTION_FAILURES) {
+			return false
+		}
+		const abortController = this.abortController
+		if (!abortController) {
+			return false
+		}
+
+		const tailBudget =
+			contextWindow * COMPACTION_TARGET_RATIO -
+			SUMMARY_OUTPUT_RESERVE_TOKENS -
+			this.estimateOverheadTokens()
+		if (tailBudget <= 0) {
+			return false
+		}
+
+		const last = this.messages.length - 1
+		if (last < 1) {
+			return false
+		}
+
+		// Grow the tail from the most recent message downward while it fits the
+		// budget; always keep at least the last message.
+		let keepFrom = last
+		let tailTokens = 0
+		for (let i = last; i >= 1; i--) {
+			const t = this.estimateMessagesTokens([this.messages[i]])
+			if (i < last && tailTokens + t > tailBudget) {
+				break
+			}
+			tailTokens += t
+			keepFrom = i
+		}
+		// The tail must start on a user message — move the boundary forward over
+		// any leading tool/assistant messages, folding them into the prefix.
+		while (keepFrom < last && this.messages[keepFrom].role !== 'user') {
+			keepFrom++
+		}
+
+		const prefix = this.messages.slice(0, keepFrom)
+		const tail = this.messages.slice(keepFrom)
+		if (prefix.length < MIN_PREFIX_MESSAGES_TO_SUMMARIZE || tail.length === 0) {
+			return false
+		}
+
+		// The user message at the boundary has a display counterpart with the same
+		// index; resolve it before any mutation so a corrupt transcript can never
+		// result from an unexpected miss.
+		const displayKeepFrom = this.displayMessages.findIndex(
+			(m) => m.role === 'user' && m.index >= keepFrom
+		)
+		if (displayKeepFrom === -1) {
+			this.consecutiveCompactionFailures++
+			return false
+		}
+
+		const result = await this.runSummarization(
+			prefix,
+			tail,
+			keepFrom,
+			displayKeepFrom,
+			abortController
+		)
+		if (result === 'ok') {
+			this.consecutiveCompactionFailures = 0
+			return true
+		}
+		// 'aborted' is a user Stop during the in-flight summary — a turn cancel, not
+		// a compaction failure, so it doesn't count toward the circuit breaker.
+		if (result === 'empty' || result === 'error') {
+			this.consecutiveCompactionFailures++
+		}
+		return false
+	}
+
+	/**
+	 * Manual compaction (the `/compact` session command): summarize the ENTIRE
+	 * stored history into a single summary message and keep nothing verbatim, so
+	 * the next message continues from the summary alone. Unlike the automatic
+	 * trigger it ignores the context-window budget, the circuit breaker, and the
+	 * prefix-size gate — the user asked for it explicitly — and runs on its own
+	 * abort controller so the Stop button (`cancel`) can interrupt the in-flight
+	 * summary, leaving history untouched.
+	 */
+	compactManually = async (): Promise<void> => {
+		if (this.loading) {
+			return
+		}
+		// A summary round-trip only pays off once there's a prior exchange to fold
+		// in; a single message (or none) has nothing to compact.
+		if (this.messages.length < 2) {
+			sendUserToast('Nothing to compact yet.')
+			return
+		}
+
+		const abortController = new AbortController()
+		this.abortController = abortController
+		this.loading = true
+		let result: 'ok' | 'empty' | 'aborted' | 'error' = 'error'
+		try {
+			// Everything is the prefix, nothing is kept verbatim: keepFrom and
+			// displayKeepFrom point past the end so the kept tail is empty.
+			result = await this.runSummarization(
+				[...this.messages],
+				[],
+				this.messages.length,
+				this.displayMessages.length,
+				abortController
+			)
+			switch (result) {
+				case 'ok':
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					sendUserToast('Conversation compacted.')
+					break
+				case 'empty':
+					sendUserToast('Compaction produced an empty summary — conversation left unchanged.', true)
+					break
+				case 'error':
+					sendUserToast('Failed to compact the conversation.', true)
+					break
+				// 'aborted' (user Stop): history untouched, no toast.
+			}
+		} finally {
+			this.loading = false
+		}
+
+		// Flush a message typed while compaction ran. Mirrors the send-turn
+		// epilogue (loading gated its capture): auto-send after a successful
+		// compaction or a deliberate user cancel — the user is ready to move on —
+		// while a failed/empty compaction or a programmatic cancel leaves it queued.
+		if ((result === 'ok' || this.wasCancelledByUser()) && this.queuedMessage) {
+			const next = this.queuedMessage
+			this.queuedMessage = ''
+			const accepted = await this.sendRequest({ instructions: next })
+			if (accepted === false) {
+				this.queuedMessage = next
 			}
 		}
-
-		// keep deleting messages until we are under the limit
-		if (this.checkTokenUsageOverLimit(messages)) {
-			return this.deleteOldestMessage(messages, maxDepth - 1)
-		}
-		return messages
 	}
 
 	loadApiTools = async () => {
 		try {
 			this.apiTools = await loadApiTools()
 			if (this.mode === AIMode.API) {
-				this.tools = [...this.apiTools]
+				this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			}
 		} catch (err) {
 			console.error('Error loading api tools', err)
@@ -343,6 +745,17 @@ export class AIChatManager {
 		this.setAutonomyMode(enabled ? AIAutonomyMode.YOLO : AIAutonomyMode.DEFAULT)
 	}
 
+	// Re-read the autonomy mode from the user-scoped key when the logged-in
+	// email resolves or changes. Claims legacy un-namespaced keys on first
+	// login; falls back to the safe default when logged out so we never leave a
+	// prior user's YOLO mode active. Registered only for the module-level
+	// singleton (constructed before the email is known) — per-session managers
+	// are constructed post-login and read the scoped value directly.
+	hydrateUserScopedAutonomy = () => {
+		migrateLegacyAutonomyKeys()
+		this.autonomyMode = getPersistedAutonomyMode()
+	}
+
 	applyScriptEditorCode = async (code: string, opts?: ReviewChangesOpts) => {
 		if (this.autoAcceptEditsActive && opts?.mode === 'revert') {
 			return
@@ -391,6 +804,38 @@ export class AIChatManager {
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
 		this.aiChatInput = aiChatInput
+	}
+
+	/** Queue the message typed while a turn is streaming. There is only ever
+	 * one queued message; pressing Enter again appends the new text as another
+	 * line so it all goes out as a single message. */
+	queueMessage(text: string) {
+		const trimmed = text.trim()
+		if (!trimmed) {
+			return
+		}
+		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+	}
+
+	/** Remove the queued message and put its text back into the input. */
+	dequeueMessage() {
+		if (!this.queuedMessage) {
+			return
+		}
+		const message = this.queuedMessage
+		this.queuedMessage = ''
+		this.restoreToInput(message)
+	}
+
+	/** Put text the user typed back where they can see it: into the input
+	 * when it's mounted, otherwise back into the queue so it reappears with
+	 * the chat panel instead of being silently dropped. */
+	private restoreToInput(text: string) {
+		if (this.aiChatInput) {
+			this.aiChatInput.prependText(text)
+		} else {
+			this.queuedMessage = text
+		}
 	}
 
 	focusInput() {
@@ -464,7 +909,7 @@ export class AIChatManager {
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
-						code: this.scriptEditorOptions?.code ?? '',
+						code: this.scriptEditorOptions?.getCode() ?? '',
 						lang: lang,
 						path: this.scriptEditorOptions?.path ?? '',
 						args: this.scriptEditorOptions?.args ?? {}
@@ -509,25 +954,106 @@ export class AIChatManager {
 		} else if (mode === AIMode.API) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
-			this.tools = [...this.apiTools]
+			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
-			const customPrompt = getCombinedCustomPrompt(mode)
-			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
-				previewTools: this.isSessionChat
-			})
-			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
-			this.helpers = {
-				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args)
-			} satisfies GlobalToolHelpers
+			this.configureGlobalMode()
+			void this.refreshGlobalSkills()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
 			this.tools = [...getAppTools()]
 			this.helpers = this.appAiChatHelpers
 		}
+	}
+
+	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
+	// the system message so the next chat-loop iteration advertises them. Ignore
+	// stale resolves so workspace changes cannot overwrite newer skills.
+	// Build the global-mode system message, tools, and helpers, layering on the
+	// pipeline surface when a /pipeline editor has registered helpers. Centralized
+	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
+	// each rebuild would otherwise drop the pipeline augmentation the others added.
+	private configureGlobalMode = () => {
+		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+			previewTools: this.isSessionChat,
+			skills: this.globalSkills
+		})
+		const baseHelpers: GlobalToolHelpers = {
+			...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
+			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
+			attachedFiles: this.attachedFiles,
+			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
+			setUserInstructions: (instructions: string) => {
+				const prompts = getUserCustomPrompts()
+				if (instructions.trim()) {
+					prompts[AIMode.GLOBAL] = instructions
+				} else {
+					delete prompts[AIMode.GLOBAL]
+				}
+				setUserCustomPrompts(prompts)
+				this.rebuildGlobalSystemMessage()
+			}
+		}
+		const pipeline = this.pipelineAiChatHelpers
+		if (pipeline) {
+			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
+			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...pipelineTools]
+			this.helpers = { ...baseHelpers, pipeline }
+		} else {
+			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
+			this.helpers = baseHelpers
+		}
+		this.systemMessage = systemMessage
+	}
+
+	refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
+		const refreshId = ++this.globalSkillsRefreshId
+		const skills = await loadWorkspaceSkills(workspace)
+		if (refreshId !== this.globalSkillsRefreshId) {
+			return
+		}
+		this.globalSkills = skills
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
+	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
+	// re-reads this.systemMessage via a getter.
+	rebuildGlobalSystemMessage = () => {
+		if (this.mode !== AIMode.GLOBAL) {
+			return
+		}
+		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+			previewTools: this.isSessionChat,
+			skills: this.globalSkills
+		})
+		// Preserve the active pipeline-editor augmentation that configureGlobalMode
+		// adds — otherwise update_user_instructions (which calls this) would drop the
+		// /pipeline/<folder> context + direct-draft/materialize guidance mid-session.
+		const pipeline = this.pipelineAiChatHelpers
+		if (pipeline) {
+			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
+		}
+		this.systemMessage = systemMessage
+	}
+
+	private expandGlobalSkillCommand = (instructions: string): string => {
+		if (!this.isSessionChat || this.mode !== AIMode.GLOBAL || !instructions.startsWith('/')) {
+			return instructions
+		}
+		const match = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(instructions)
+		if (!match) {
+			return instructions
+		}
+		const skill = this.globalSkills.find((s) => s.name === match[1])
+		if (!skill) {
+			return instructions
+		}
+		const rest = match[2]?.trim()
+		return rest ? `Use the "${skill.name}" skill. ${rest}` : `Use the "${skill.name}" skill.`
 	}
 
 	canApplyCode = $derived(this.allowedModes.script && this.mode === AIMode.SCRIPT)
@@ -645,11 +1171,60 @@ export class AIChatManager {
 		}
 	}
 
+	// Commit an interrupted turn's usable output as context for a follow-up:
+	// the tool-paired prefix of completed steps (a dangling tool call would
+	// make providers reject the next request) plus the partial answer text.
+	// A reasoning-only interrupt instead drops its stuck-open bubble.
+	private commitInterruptedTurn = (
+		collectedMessages: ChatCompletionMessageParam[],
+		partialReply: string
+	) => {
+		const prefix = truncateToToolPairedPrefix(collectedMessages)
+		this.messages = [...this.messages, ...prefix]
+		// partialReply can be stale — equal to text already committed inside the
+		// prefix (see its capture in onMessageEnd) — so only append when new.
+		const lastCommittedText = [...prefix]
+			.reverse()
+			.find(
+				(m): m is ChatCompletionMessageParam & { content: string } =>
+					m.role === 'assistant' && typeof m.content === 'string' && !!m.content.trim()
+			)?.content
+		if (partialReply.trim() && partialReply !== lastCommittedText) {
+			this.messages = [...this.messages, { role: 'assistant', content: partialReply }]
+		} else {
+			const last = this.displayMessages[this.displayMessages.length - 1]
+			if (last?.role === 'assistant' && !last.content.trim() && !!last.reasoning) {
+				this.displayMessages = this.displayMessages.slice(0, -1)
+			}
+		}
+	}
+
+	// Roll a turn that produced nothing usable back out of the transcript and
+	// hand its text back to the composer for editing/resending. `restoreToInput`
+	// is false when a queued message is about to take over (a user cancel with
+	// something queued) — then the rolled-back prompt is dropped rather than
+	// shoved back into the input, so the handoff to the queued message is clean.
+	private restoreUnsentTurn = (
+		displayLenAfterUser: number,
+		modelLenAfterUser: number,
+		instructions: string,
+		pastes: PasteAttachment[],
+		restoreToInput: boolean = true
+	) => {
+		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
+		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
+		if (restoreToInput) {
+			this.aiChatInput?.restoreInstructions(instructions, pastes)
+		}
+	}
+
 	private chatRequest = async ({
 		messages,
 		abortController,
 		callbacks,
-		systemMessage: systemMessageOverride
+		addedMessages,
+		systemMessage: systemMessageOverride,
+		onWebSearchUnavailable
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -657,7 +1232,10 @@ export class AIChatManager {
 			onNewToken: (token: string) => void
 			onMessageEnd: () => void
 		}
+		// Caller-owned accumulator so partial output survives an abort/throw.
+		addedMessages?: ChatCompletionMessageParam[]
 		systemMessage?: ChatCompletionSystemMessageParam
+		onWebSearchUnavailable?: () => void
 	}) => {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
@@ -666,8 +1244,15 @@ export class AIChatManager {
 			const self = this
 			const result = await runChatLoop({
 				messages,
+				addedMessages,
 				get systemMessage() {
-					return systemMessageOverride ?? self.systemMessage
+					const base = systemMessageOverride ?? self.systemMessage
+					// Inject the attached-files roster at request time (re-read each iteration)
+					// so it always reflects the live file list without reactive bookkeeping.
+					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
+						return appendAttachedFilesRoster(base, self.attachedFiles)
+					}
+					return base
 				},
 				get tools() {
 					return self.tools
@@ -680,6 +1265,9 @@ export class AIChatManager {
 				get modelProvider() {
 					return getCurrentModel()
 				},
+				get webSearch() {
+					return isWebSearchEnabledForProvider(getCurrentModel().provider)
+				},
 				clients: {
 					openai: workspaceAIClients.getOpenaiClient(),
 					anthropic: workspaceAIClients.getAnthropicClient()
@@ -689,6 +1277,7 @@ export class AIChatManager {
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
 				},
+				onWebSearchUnavailable,
 				getPendingUserMessage: () => {
 					const pendingPrompt = this.pendingPrompt
 					if (!pendingPrompt) return undefined
@@ -721,7 +1310,7 @@ export class AIChatManager {
 					}
 				}
 			})
-			return result.addedMessages
+			return result
 		} catch (err) {
 			console.log('chatRequest error', err)
 			console.error('chatRequest error', err)
@@ -824,20 +1413,27 @@ export class AIChatManager {
 	// this to commit/materialise the workspace (creating a staged fork via
 	// the API) so the first message targets the correct workspace.
 	beforeSend?: () => Promise<void> | void
+	afterFirstTurnSaved?: () => Promise<void> | void
 
 	sendRequest = async (
 		options: {
 			removeDiff?: boolean
 			addBackCode?: boolean
 			instructions?: string
+			pastes?: PasteAttachment[]
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
 		} = {}
 	) => {
+		// Returns whether the input was consumed: true when it was sent as a chat
+		// turn OR handled as a local built-in command, false when it was dropped
+		// without being acted on (mode hidden, empty, beforeSend failed). The
+		// queue flush restores the queued message only on false, so a consumed
+		// command isn't re-queued and re-fired into the next conversation.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
-			return
+			return false
 		}
 		this.changeMode(requestedMode, undefined, {
 			lang: options.lang,
@@ -847,7 +1443,41 @@ export class AIChatManager {
 			this.instructions = options.instructions
 		}
 		if (!this.instructions.trim()) {
-			return
+			return false
+		}
+		// Built-in session commands run locally instead of becoming a chat turn.
+		// Intercepted here — before the beforeSend workspace commit, file regrants,
+		// and skill expansion. Scoped to session chat GLOBAL mode, where the
+		// slash-command UI lives. Return true (consumed, not dropped) so that a
+		// command flushed from the queue isn't restored and re-fired into the next
+		// conversation.
+		if (this.isSessionChat && this.mode === AIMode.GLOBAL) {
+			const trimmed = this.instructions.trim()
+			// `/compact`: summarize the conversation locally to free up context.
+			if (COMPACT_COMMAND_RE.test(trimmed)) {
+				this.instructions = ''
+				await this.compactManually()
+				return true
+			}
+			// `/clear`: save the conversation to history and start a fresh chat.
+			if (CLEAR_COMMAND_RE.test(trimmed)) {
+				this.instructions = ''
+				await this.saveAndClear()
+				return true
+			}
+		}
+		// Re-grant any locked File System Access handles within this send gesture, so the
+		// file tools can read the live files. requestPermission() needs a user gesture, and
+		// this runs before the first await/network call while the Send click is still active.
+		// Attachment upkeep must never block the send — affected files just stay locked/stale
+		// and the tools report their status to the model.
+		try {
+			await this.attachedFiles.regrantLocked()
+			// Re-enumerate linked folders so on-disk changes (renamed/added/removed/edited
+			// files) are reflected in the roster + indexes before this turn runs.
+			await this.attachedFiles.refreshFolders()
+		} catch (e) {
+			console.error('Attached-files upkeep failed before send', e)
 		}
 		if (this.beforeSend) {
 			try {
@@ -864,9 +1494,28 @@ export class AIChatManager {
 					}. Your message was not sent — please try again.`,
 					true
 				)
-				return
+				return false
 			}
 		}
+		// Session chats commit their workspace in beforeSend; skills must match the
+		// committed workspace before the system prompt is sent.
+		if (this.mode === AIMode.GLOBAL) {
+			await this.refreshGlobalSkills(get(workspaceStore) ?? '')
+		}
+		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		// Declared outside `try` so the catch can recover what the loop produced
+		// before a failure: the structured messages and the latest streamed text
+		// that never became one.
+		const collectedMessages: ChatCompletionMessageParam[] = []
+		let partialReply = ''
+		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
+		// from saveChat) must not make the catch commit the turn a second time.
+		let turnOutcomeHandled = false
+		let webSearchUnavailable = false
+		// Gates the queued-message flush below: only a cleanly committed turn
+		// auto-sends the next queued message. Cancel, error, and empty-response
+		// rollbacks leave it false so queued text is restored to the input.
+		let turnCommittedCleanly = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -904,6 +1553,7 @@ export class AIChatManager {
 				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
+			const pastes = options.pastes ?? []
 			this.displayMessages = [
 				...this.displayMessages,
 				{
@@ -913,11 +1563,22 @@ export class AIChatManager {
 						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
 							? oldSelectedContext
 							: undefined,
+					pastes: pastes.length > 0 ? pastes : undefined,
 					snapshot,
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
-			const oldInstructions = this.instructions
+			// For restoreUnsentTurn: the compact composer form (with paste tokens),
+			// not the expanded LLM text, plus the rollback anchor after the user turn.
+			const sentInstructions = this.instructions
+			const sentPastes = pastes
+			// The LLM gets the full pasted content; the display message above keeps
+			// the compact tokens + registry so the bubble can render/expand chips.
+			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
+			const modelInstructions =
+				this.mode === AIMode.GLOBAL
+					? this.expandGlobalSkillCommand(oldInstructions)
+					: oldInstructions
 			this.instructions = ''
 
 			if (this.mode === AIMode.SCRIPT && !this.scriptEditorOptions && !options.lang) {
@@ -950,7 +1611,7 @@ export class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext, {
+					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: get(workspaceStore)
 					})
 					break
@@ -963,15 +1624,59 @@ export class AIChatManager {
 					break
 			}
 
+			// Size of the request about to go out: contextTokens (provider report
+			// when current, fresh chars/4 estimate otherwise) plus the message
+			// being added below. Must be read BEFORE the push — the estimate path
+			// covers the stored history, so pushing first would double-count the
+			// new message.
+			const projectedContextTokens = this.contextTokens + this.estimateMessagesTokens([userMessage])
+
 			this.messages.push(userMessage)
-			await this.historyManager.saveChat(this.displayMessages, this.messages)
+			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 
 			this.currentReply = ''
+			this.currentReasoning = ''
+			this.currentReasoningActive = false
 
-			let trimmedMessages = [...this.messages]
-			if (this.checkTokenUsageOverLimit(trimmedMessages)) {
-				trimmedMessages = this.deleteOldestMessage(trimmedMessages)
+			// Compaction trigger. Without a known context window there is no limit
+			// to enforce, so compaction stays off rather than guessing one.
+			const contextWindow = model ? getKnownModelContextWindow(model.model) : undefined
+			if (
+				contextWindow !== undefined &&
+				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO
+			) {
+				// Preferred path: summarize the older prefix, keep the recent tail.
+				const summarized = await this.summarizeAndCompact(contextWindow)
+				// A Stop during the in-flight summary aborts this turn's controller;
+				// summarizeAndCompact then returns false without touching history. Skip
+				// the drop-oldest fallback (and its save) — it would destructively
+				// compact a conversation the user only meant to cancel, and the request
+				// can't run on an aborted controller anyway. The cancel path below rolls
+				// the pushed turn back cleanly on its own.
+				if (!this.abortController?.signal.aborted) {
+					if (!summarized) {
+						// Fallback when summarization isn't worthwhile or fails: drop the
+						// oldest messages. A report stays meaningful only debited by what
+						// was dropped; the estimate path needs no bookkeeping — the next
+						// read re-estimates the compacted history. chars/4 can
+						// underestimate the freed tokens, which errs toward compacting
+						// again — never toward overflowing.
+						const freed = this.compactOldestMessages(
+							projectedContextTokens - contextWindow * COMPACTION_TARGET_RATIO
+						)
+						if (this.contextUsage !== undefined) {
+							this.contextUsage = Math.max(0, this.contextUsage - freed)
+						}
+					}
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				}
 			}
+			// Rollback anchors for restoreUnsentTurn: captured after compaction so
+			// they index into the (possibly compacted) stored history. The summary
+			// path shrinks displayMessages too, so the display anchor must also be
+			// read here, not before compaction.
+			const modelLenAfterUser = this.messages.length
+			const displayLenAfterUser = this.displayMessages.length
 
 			const params: {
 				messages: ChatCompletionMessageParam[]
@@ -981,17 +1686,27 @@ export class AIChatManager {
 					onMessageEnd: () => void
 				}
 			} = {
-				messages: trimmedMessages,
+				messages: [...this.messages],
 				abortController: this.abortController,
 				callbacks: {
 					onNewToken: (token) => (this.currentReply += token),
+					onReasoningDelta: (token) => (this.currentReasoning += token),
+					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
+						// Keep the streamed text for the abort/error paths. Non-empty only:
+						// parsers flush (and reset) when a tool call starts after text, and
+						// the catch's later empty call would wipe it — stale keeps are
+						// deduped in commitInterruptedTurn.
 						if (this.currentReply) {
+							partialReply = this.currentReply
+						}
+						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
 								...this.displayMessages,
 								{
 									role: 'assistant',
 									content: this.currentReply,
+									...(this.currentReasoning ? { reasoning: this.currentReasoning } : {}),
 									contextElements:
 										this.mode === AIMode.SCRIPT
 											? oldSelectedContext.filter((c) => c.type === 'code')
@@ -1000,6 +1715,8 @@ export class AIChatManager {
 							]
 						}
 						this.currentReply = ''
+						this.currentReasoning = ''
+						this.currentReasoningActive = false
 					},
 					setToolStatus: (id, metadata) => {
 						const existingIdx = this.displayMessages.findIndex(
@@ -1045,25 +1762,142 @@ export class AIChatManager {
 				await this.loadApiTools()
 			}
 
-			const addedMessages = await this.chatRequest({
-				...params
+			const result = await this.chatRequest({
+				...params,
+				addedMessages: collectedMessages,
+				onWebSearchUnavailable: () => {
+					webSearchUnavailable = true
+				}
 			})
-			this.messages = [...this.messages, ...(addedMessages ?? [])]
-			if (this.autoAcceptEditsActive) {
-				this.acceptPendingFlowEdits()
+			const wasAborted = this.abortController?.signal.aborted ?? false
+			// Pure reasoning doesn't count as usable: it's not replayed as context,
+			// so a reasoning-only turn is as unsent as a literally empty one.
+			const hasUsableOutput =
+				truncateToToolPairedPrefix(collectedMessages).length > 0 || !!partialReply.trim()
+			turnOutcomeHandled = true
+
+			if (wasAborted && hasUsableOutput) {
+				// Interrupted after some output: keep it so a follow-up like
+				// "continue" picks up from there.
+				this.commitInterruptedTurn(collectedMessages, partialReply)
+				if (this.autoAcceptEditsActive) {
+					this.acceptPendingFlowEdits()
+				}
+				// The report from the last completed iteration still describes the
+				// stored history it was sent with (the kept partial tail is a small
+				// undercount the trigger headroom absorbs). Without one, clear the
+				// stale value — readers estimate via contextTokens.
+				this.contextUsage = result?.lastIterationUsage
+					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+					: undefined
+				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				// Still counts as the saved first turn — skipping the hook here would
+				// permanently miss it (the next turn isn't "first" anymore).
+				if (isFirstUserTurn && this.afterFirstTurnSaved) {
+					void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
+						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
+					})
+				}
+			} else if (wasAborted || !hasUsableOutput) {
+				// Cancelled before anything usable, or the model returned nothing
+				// (or only reasoning) — treat the turn as unsent (matches Claude Code).
+				// contextUsage is left as-is: the turn is rolled back, so the last
+				// report (pre-turn, possibly debited by compaction) still stands.
+				// When the user cancelled with a message queued, that message is
+				// about to auto-send (see the flush below) — drop the rolled-back
+				// prompt instead of restoring it to the input so the handoff is clean.
+				const willAutoSendQueued = this.wasCancelledByUser() && !!this.queuedMessage
+				this.restoreUnsentTurn(
+					displayLenAfterUser,
+					modelLenAfterUser,
+					sentInstructions,
+					sentPastes,
+					!willAutoSendQueued
+				)
+				if (this.displayMessages.length === 0) {
+					// saveChat no-ops on an empty transcript; the chat persisted earlier
+					// this turn would linger in history and resurface the rolled-back
+					// user message on reload. Remove it instead.
+					this.historyManager.deletePastChat(this.historyManager.getCurrentChatId())
+				} else {
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				}
+				if (!wasAborted) {
+					sendUserToast('The model returned no response — your message was restored to the input.')
+				}
+			} else {
+				// Clean turn with output → commit as-is.
+				this.messages = [...this.messages, ...collectedMessages]
+				// The provider's report describes the stored history exactly:
+				// compaction mutates it before sending, so what was sent IS what is
+				// stored — no anchoring or index bookkeeping needed. Without a
+				// report, clear the now-stale value — readers estimate via
+				// contextTokens.
+				this.contextUsage = result?.lastIterationUsage
+					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+					: undefined
+				if (this.autoAcceptEditsActive) {
+					this.acceptPendingFlowEdits()
+				}
+				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				// Only this branch is a clean send: the queued-message flush below
+				// auto-sends the next message after it (set after saveChat so a
+				// persistence failure falls through to the restore path instead).
+				turnCommittedCleanly = true
+				if (isFirstUserTurn && this.afterFirstTurnSaved) {
+					void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
+						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
+					})
+				}
 			}
-			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
-			this.flagLastMessageAsError()
-			if (err instanceof Error) {
-				sendUserToast('Failed to send request: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to send request', true)
+			// Request failure: keep the usable output as context for a follow-up.
+			// Skipped when the throw came from post-outcome code (e.g. saveChat) —
+			// re-committing would duplicate the turn's messages.
+			if (!turnOutcomeHandled) {
+				this.commitInterruptedTurn(collectedMessages, partialReply)
+				// Any prior report no longer describes the history (a partial turn
+				// was just committed); clear it so readers estimate instead. When
+				// the failure WAS a context-length error, that high estimate forces
+				// compaction on the next send instead of failing the same way again.
+				this.contextUsage = undefined
+				try {
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				} catch (saveErr) {
+					console.error('Failed to persist partial chat after error', saveErr)
+				}
+				this.flagLastMessageAsError()
 			}
+			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
 		}
+		// Flush the queued message. Send it after a cleanly committed turn OR a
+		// deliberate user cancel (Esc / Stop) — in both cases the user is ready
+		// to move on, so it sends automatically. A genuine error, an
+		// empty-response rollback, or a programmatic cancel (panel teardown,
+		// save-and-clear) leaves it in place as a card so it isn't fired into a
+		// failed or torn-down turn.
+		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.queuedMessage) {
+			const next = this.queuedMessage
+			this.queuedMessage = ''
+			const accepted = await this.sendRequest({ instructions: next })
+			if (accepted === false) {
+				// The auto-send bailed before becoming a turn (e.g. beforeSend
+				// failed); keep it as the queued message instead of losing it.
+				this.queuedMessage = next
+			}
+		}
+		return true
+	}
+
+	// True when the current turn's controller was aborted by a deliberate user
+	// cancel (Esc / Stop), as opposed to a programmatic cancel (panel teardown,
+	// save-and-clear) or no abort at all. Gates the queued-message auto-send.
+	private wasCancelledByUser(): boolean {
+		const signal = this.abortController?.signal
+		return !!signal?.aborted && signal.reason === USER_CANCEL_REASON
 	}
 
 	cancel = (reason?: string) => {
@@ -1075,7 +1909,7 @@ export class AIChatManager {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
-		const cancelReason = reason ?? 'user_cancelled'
+		const cancelReason = reason ?? USER_CANCEL_REASON
 		console.log('cancelling request:', {
 			reason: cancelReason,
 			abortController: this.abortController
@@ -1093,7 +1927,11 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
-	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
+	restartGeneration = (
+		displayMessageIndex: number,
+		newContent?: string,
+		pastes?: PasteAttachment[]
+	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
 		if (!userMessage || userMessage.role !== 'user') {
@@ -1112,9 +1950,15 @@ export class AIChatManager {
 
 		this.messages = this.messages.slice(0, actualMessageIndex)
 
+		// The last report described the pre-rewind history; clear it. Readers
+		// fall back to estimating the rewound history (contextTokens), so the
+		// compaction trigger stays armed — e.g. for Retry after a context-length
+		// error, which rewinds through here.
+		this.contextUsage = undefined
+
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content
-		this.sendRequest()
+		this.sendRequest({ pastes: pastes ?? userMessage.pastes })
 	}
 
 	fix = () => {
@@ -1145,16 +1989,32 @@ export class AIChatManager {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
-		await this.historyManager.save(this.displayMessages, this.messages)
+		// Drop any message queued in this conversation so it can't auto-send into
+		// the fresh chat or linger as a card across the switch.
+		this.queuedMessage = ''
+		await this.historyManager.save(this.displayMessages, this.messages, this.contextUsage)
 		this.displayMessages = []
 		this.messages = []
+		this.contextUsage = undefined
+		// In an AI session, linked files are session-scoped: they persist across conversations
+		// (cleared only when the session is deleted). The ephemeral global side-panel chat has no
+		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
+		// would still get the previous file roster and could read/search it.
+		if (!this.isSessionChat) this.attachedFiles.clear()
 	}
 
 	loadPastChat = async (id: string) => {
 		const chat = this.historyManager.loadPastChat(id)
 		if (chat) {
+			// Drop any message queued in the current conversation so it doesn't
+			// auto-send into the loaded one or linger as a card across the switch.
+			this.queuedMessage = ''
+			// Same isolation as saveAndClear: the ephemeral global chat's attachments belong to
+			// the conversation being left, not the one being loaded; sessions keep them.
+			if (!this.isSessionChat) this.attachedFiles.clear()
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
+			this.contextUsage = normalizeContextUsage(chat.contextUsage)
 			this.#automaticScroll = true
 		}
 	}
@@ -1184,17 +2044,13 @@ export class AIChatManager {
 		})
 	}
 
-	listenForContextChange = (
-		dbSchemas: DBSchemas,
-		workspaceStore: string | undefined,
-		copilotSessionModel: AIProviderModel | undefined
-	) => {
+	listenForContextChange = (dbSchemas: DBSchemas, workspaceStore: string | undefined) => {
 		if (this.mode === AIMode.SCRIPT && this.scriptEditorOptions) {
 			this.contextManager.updateAvailableContext(
 				this.scriptEditorOptions,
 				dbSchemas,
 				workspaceStore ?? '',
-				!copilotSessionModel?.model.endsWith('/thinking'),
+				true, // toolSupport: reasoning no longer disables DB/tool context
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		} else if (this.mode === AIMode.FLOW && this.flowOptions) {
@@ -1202,7 +2058,7 @@ export class AIChatManager {
 				this.flowOptions,
 				dbSchemas,
 				workspaceStore ?? '',
-				!copilotSessionModel?.model.endsWith('/thinking'),
+				true, // toolSupport: reasoning no longer disables DB/tool context
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		} else if (this.mode === AIMode.GLOBAL) {
@@ -1290,14 +2146,13 @@ export class AIChatManager {
 								lastDeployedCode: undefined,
 								lastSavedCode: undefined
 							}
-
 				return {
 					args: moduleState?.previewArgs ?? {},
 					error:
 						moduleState && !moduleState.previewSuccess
 							? getStringError(moduleState.previewResult)
 							: undefined,
-					code: module.value.content,
+					getCode: () => (module.value.type === 'rawscript' ? module.value.content : ''),
 					lang: module.value.language,
 					path: module.id,
 					...editorRelated
@@ -1338,6 +2193,28 @@ export class AIChatManager {
 
 		return () => {
 			this.flowAiChatHelpers = undefined
+		}
+	}
+
+	// Registered by the /pipeline editor while it is mounted. Rebuilds the global
+	// tool set so the pipeline tools appear (and disappear on unregister). Pipeline
+	// AI edits apply directly as drafts, so there is nothing to auto-accept.
+	// Returns a cleanup that tears the registration back down.
+	setPipelineHelpers = (pipelineHelpers: PipelineAIChatHelpers) => {
+		this.pipelineAiChatHelpers = pipelineHelpers
+		untrack(() => {
+			if (this.mode === AIMode.GLOBAL) {
+				this.configureGlobalMode()
+			}
+		})
+
+		return () => {
+			this.pipelineAiChatHelpers = undefined
+			untrack(() => {
+				if (this.mode === AIMode.GLOBAL) {
+					this.configureGlobalMode()
+				}
+			})
 		}
 	}
 
@@ -1439,3 +2316,17 @@ export class AIChatManager {
 }
 
 export const aiChatManager = new AIChatManager()
+
+// The singleton is constructed at import — before the logged-in email resolves
+// — so it starts at the safe autonomy default and an unopened chat-history DB.
+// Hydrate both from user-scoped storage once the email is known, and on any
+// later user change. Registered only here (not in the constructor) so
+// per-session managers don't accumulate never-removed callbacks.
+//
+// init() is email-gated and idempotent, so re-opening the scoped DB here
+// (alongside AiChatLayout's mount-time init()) is harmless and lets the
+// singleton self-heal on email change like the other user-scoped surfaces.
+onUserChange(() => {
+	aiChatManager.hydrateUserScopedAutonomy()
+	void aiChatManager.historyManager.init()
+})

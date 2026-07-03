@@ -58,6 +58,7 @@ import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
+import { getEsbuild } from "../../utils/esbuild_loader.ts";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
@@ -297,7 +298,9 @@ export async function handleFile(
   if (
     !isAppInlineScriptPath(path) &&
     !isFlowInlineScriptPath(path) &&
-    !isRawAppBackendPath(path) &&
+    // Raw-app files (frontend included) belong to the app bundle, never
+    // standalone scripts — pushed via pushRawApp, not here.
+    !isRawAppPath(path) &&
     (!isScriptModulePath(path) || moduleEntryPoint) &&
     exts.some((exts) => path.endsWith(exts))
   ) {
@@ -326,7 +329,7 @@ export async function handleFile(
         }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await import("esbuild");
+        const esbuild = await getEsbuild();
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
@@ -1563,7 +1566,7 @@ async function preview(
         maxBuffer: 1024 * 1024 * 50,
       }).toString();
     } else {
-      const esbuild = await import("esbuild");
+      const esbuild = await getEsbuild();
 
       if (!opts.silent) {
         log.info(`Bundling ${filePath} for preview...`);

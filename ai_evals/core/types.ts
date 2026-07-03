@@ -155,15 +155,34 @@ export interface ToolCallArgumentRule {
   field: string;
   stringStartsWithAnyOf?: string[];
   stringMustNotStartWithAnyOf?: string[];
+  /**
+   * Case-insensitive "contains", existential over calls: at least one recorded
+   * call to `tool` must have `field` containing one of these substrings. Other
+   * calls to the same tool may do anything. Use instead of `stringStartsWithAnyOf`
+   * (which is universal over calls) when the meaningful token can appear anywhere
+   * in the value and the model may make additional, unrelated calls to the same
+   * tool — e.g. SQL where a mutation is mixed with verification SELECTs.
+   */
+  stringIncludesAnyOf?: string[];
 }
 
 export interface ToolValidationSpec {
   requiredToolsUsed?: string[];
+  /**
+   * Each inner array is an alternatives group: the check passes when at least
+   * one tool in the group was used. Use when several tools satisfy the same
+   * intent so a model that picks any valid path passes — e.g. inspecting an
+   * app's files via either `read_app_file` or `search_app`.
+   */
+  requiredToolsAnyOf?: string[][];
   forbiddenToolsUsed?: string[];
   toolCallArgs?: ToolCallArgumentRule[];
 }
 
-export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec | GlobalValidationSpec;
+export type EvalValidationSpec =
+  | FlowValidationSpec
+  | AppValidationSpec
+  | GlobalValidationSpec;
 
 export interface EvalCase {
   id: string;
@@ -240,6 +259,12 @@ export interface ModeRunOutput<TActual> {
   toolCallDetails?: ToolCallDetail[];
   skillsInvoked: string[];
   tokenUsage?: BenchmarkTokenUsage | null;
+  /**
+   * Total input tokens occupying the context window on the LAST model request
+   * of the agentic loop (input + cache-creation + cache-read). Complements the
+   * cumulative `tokenUsage.prompt`, which sums every iteration's input.
+   */
+  finalContextTokens?: number | null;
 }
 
 export interface ModeRunContext {
@@ -285,6 +310,12 @@ export interface ModeRunner<TInitial, TExpected, TActual> {
     context: ModeRunContext;
   }): Promise<BackendValidationResult | null>;
   buildArtifacts?(actual: TActual): BenchmarkArtifactFile[];
+  /**
+   * Optional transform applied to `actual` before it is handed to the LLM judge.
+   * Use it to strip fields the judge must stay blind to (e.g. which docs-tool
+   * arm produced an answer). When omitted, the judge receives `actual` as-is.
+   */
+  prepareJudgeActual?(actual: TActual): unknown;
 }
 
 export interface BenchmarkAttemptResult {
@@ -301,6 +332,7 @@ export interface BenchmarkAttemptResult {
   judgeSummary: string | null;
   error: string | null;
   tokenUsage?: BenchmarkTokenUsage | null;
+  finalContextTokens?: number | null;
   artifactsPath?: string | null;
   artifactFiles?: BenchmarkArtifactFile[];
 }
@@ -331,6 +363,8 @@ export interface BenchmarkRunResult {
   totalPassedTokenUsage?: BenchmarkTokenUsage | null;
   averageTokenUsagePerAttempt?: BenchmarkTokenUsage | null;
   averageTokenUsagePerPassedAttempt?: BenchmarkTokenUsage | null;
+  averageFinalContextTokensPassed?: number | null;
+  maxFinalContextTokensPassed?: number | null;
   artifactsPath?: string | null;
   cases: BenchmarkCaseResult[];
 }

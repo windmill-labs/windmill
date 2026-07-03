@@ -49,25 +49,6 @@ services:
 
     logging: *default-logging
 
-  # Docker-in-Docker sidecar: provides an isolated Docker daemon so user scripts
-  # can run containers without accessing the host Docker socket.
-  dind:
-    image: docker:dind
-    privileged: true
-    restart: unless-stopped
-    environment:
-      DOCKER_TLS_CERTDIR: ""
-    volumes:
-      - dind-data:/var/lib/docker
-    expose:
-      - 2375
-    healthcheck:
-      test: ["CMD", "docker", "info"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    logging: *default-logging
-
   windmill_worker:
     image: ${WM_IMAGE}
     pull_policy: always
@@ -89,22 +70,19 @@ services:
       # If running with non-root/non-windmill UID (e.g., user: "1001:1001"),
       # add: - HOME=/tmp
       - FAVOR_UNSHARE_PID=true
-      # Connect to the dind sidecar instead of the host Docker socket
-      - DOCKER_HOST=tcp://dind:2375
     depends_on:
       db:
-        condition: service_healthy
-      dind:
         condition: service_healthy
     # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
-      ## WARNING: mounting the host Docker socket grants user scripts full access to
-      ## the host Docker daemon, enabling host filesystem access and privilege escalation.
-      ## Only use this if you fully trust all users who can run scripts.
-      ## To use it, remove the DOCKER_HOST env var and dind depends_on above,
-      ## and uncomment the line below:
+      ## Sandboxed containers (`# sandbox <image>`) run daemonless via crane + nsjail
+      ## inside the worker itself — no Docker socket or dind sidecar required.
+      ## For the legacy full-compat docker (a bare `# docker`, trusted users only),
+      ## mount the host Docker socket by uncommenting the line below. WARNING: this
+      ## grants user scripts full access to the host Docker daemon (host filesystem
+      ## access and privilege escalation) — only use it if you fully trust all users.
       # - /var/run/docker.sock:/var/run/docker.sock
 
     logging: *default-logging
@@ -204,8 +182,9 @@ services:
       - ENABLE_DEBUGGER=true # Set to true to enable debugger
       - DEBUGGER_PORT=3003 # Debugger service port
       - ENABLE_NSJAIL=false # Set to true for nsjail sandboxing (requires privileged: true)
-      - REQUIRE_SIGNED_DEBUG_REQUESTS=false # Set to true to require JWT tokens for debug sessions
+      - REQUIRE_SIGNED_DEBUG_REQUESTS=true # Require backend-signed JWT tokens for debug sessions. Do NOT set to false on any internet-reachable deployment: it exposes an unauthenticated code-execution debugger.
       - WINDMILL_BASE_URL=http://windmill_server:8000
+      # - DEBUG_ALLOWED_ORIGINS=https://your-windmill-host # Optional CSWSH hardening: comma-separated allowlist of browser Origins permitted to open debug WebSockets
     volumes:
       - lsp_cache:/pyls/.cache
     logging: *default-logging
@@ -237,4 +216,3 @@ volumes:
   windmill_index: null
   lsp_cache: null
   caddy_data: null
-  dind-data: null

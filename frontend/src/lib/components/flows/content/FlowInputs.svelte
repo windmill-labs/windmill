@@ -7,8 +7,6 @@
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
-	import { isCloudHosted } from '$lib/cloud'
-	import { sendUserToast } from '$lib/toast'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Check, Code, Zap } from 'lucide-svelte'
@@ -259,23 +257,6 @@
 						{label}
 						lang={lang == 'docker' ? 'bash' : lang}
 						on:click={() => {
-							if (lang == 'docker') {
-								if (isCloudHosted()) {
-									sendUserToast(
-										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-										true,
-										[
-											{
-												label: 'Learn more',
-												callback: () => {
-													window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-												}
-											}
-										]
-									)
-									return
-								}
-							}
 							dispatch('new', {
 								language: lang == 'docker' ? 'bash' : lang,
 								kind,

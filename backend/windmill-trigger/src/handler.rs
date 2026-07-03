@@ -16,6 +16,10 @@ use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    user_drafts::{
+        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
+        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
@@ -32,6 +36,27 @@ use std::sync::Arc;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_git_sync::handle_deployment_metadata;
 
+/// True when the workspace is a fork (`parent_workspace_id IS NOT NULL`).
+///
+/// Operational state (`mode`) belongs to the parent workspace: a git-sync /
+/// merge / clone / UI-create write into a fork must never set it. On create we
+/// force `disabled` so a fork trigger can't compete with the parent's listener;
+/// on update we preserve the fork's existing value. `setmode` is the intended
+/// explicit mutator of a fork's mode (and carries its own conflict warning) —
+/// runtime error handling may still auto-disable an errored trigger, which is
+/// orthogonal to this rule. This is the write half whose read half lives in
+/// `workspaces_export.rs` (parent-value substitution on fork export), and it is
+/// the single authority shared by both the git-sync round-trip and the in-app
+/// compare-workspaces merge.
+async fn workspace_is_fork(db: &DB, workspace_id: &str) -> Result<bool> {
+    let is_fork: Option<bool> =
+        sqlx::query_scalar("SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_optional(db)
+            .await?;
+    Ok(is_fork.unwrap_or(false))
+}
+
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
     type Trigger: Serialize
@@ -39,7 +64,10 @@ pub trait TriggerCrud: Send + Sync + 'static {
         + for<'r> FromRow<'r, sqlx::postgres::PgRow>
         + Send
         + Sync
-        + Unpin;
+        + Unpin
+        // `'static` so the deployed trigger can be boxed into
+        // `WithDraftOverlay`'s erased-serde inner (it's an owned row).
+        + 'static;
 
     type TriggerConfig: Debug
         + DeserializeOwned
@@ -56,6 +84,9 @@ pub trait TriggerCrud: Send + Sync + 'static {
     /// constant set by each trigger impl — it is never user-controllable.
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
+    /// `UserDraftItemKind` for this trigger's per-user `draft` rows. Required (no
+    /// default) so a trigger that forgets it is a compile error, not a runtime panic.
+    const DRAFT_KIND: UserDraftItemKind;
     const SUPPORTS_SERVER_STATE: bool;
     const SUPPORTS_TEST_CONNECTION: bool;
     const ROUTE_PREFIX: &'static str;
@@ -104,6 +135,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     fn scope_domain_name() -> &'static str {
         &Self::ROUTE_PREFIX[1..]
+    }
+
+    /// Accessor for `DRAFT_KIND` used at the draft-lookup call sites.
+    fn user_draft_item_kind() -> UserDraftItemKind {
+        Self::DRAFT_KIND
     }
 
     async fn create_trigger(
@@ -328,11 +364,14 @@ pub trait TriggerCrud: Send + Sync + 'static {
         count
     }
 
+    /// `authed_email = Some` adds the per-user `is_draft` flag (scalar EXISTS);
+    /// `None` (e.g. workspace export) leaves it omitted.
     async fn list_triggers(
         &self,
         tx: &mut PgConnection,
         workspace_id: &str,
         query: Option<&StandardTriggerQuery>,
+        authed_email: Option<&str>,
     ) -> Result<Vec<Self::Trigger>> {
         let mut fields = vec![
             "workspace_id",
@@ -359,6 +398,19 @@ pub trait TriggerCrud: Send + Sync + 'static {
         sqlb.fields(&fields)
             .order_by("edited_at", true)
             .and_where("workspace_id = ?".bind(&workspace_id));
+
+        if let Some(email) = authed_email {
+            // SAFETY: interpolated TABLE_NAME and draft kind are compile-time constants; email is bound.
+            sqlb.field(
+                &format!(
+                    "EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = {t}.workspace_id \
+                     AND draft.path = {t}.path AND draft.typ = '{k}' AND draft.email = ?) as is_draft",
+                    t = Self::TABLE_NAME,
+                    k = Self::user_draft_item_kind().as_str(),
+                )
+                .bind(&email),
+            );
+        }
 
         if let Some(query) = query {
             let (per_page, offset) =
@@ -439,6 +491,13 @@ async fn create_trigger<T: TriggerCrud>(
         .await?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Writing into a fork never sets operational state: force `disabled` so a
+    // cloned / synced / merged / UI-created trigger can't compete with the
+    // parent's listener. The fork owner re-enables locally via `setmode`.
+    if workspace_is_fork(&db, &workspace_id).await? {
+        new_trigger.base.set_mode(TriggerMode::Disabled);
+    }
 
     let new_path = new_trigger.base.path.clone();
     let labels = new_trigger.base.labels.clone();
@@ -535,14 +594,73 @@ async fn list_triggers<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<StandardTriggerQuery>,
 ) -> JsonResult<Vec<T::Trigger>> {
     let mut tx = user_db.begin(&authed).await?;
-    let triggers = handler
-        .list_triggers(&mut *tx, &workspace_id, Some(&query))
+    let mut triggers = handler
+        .list_triggers(&mut *tx, &workspace_id, Some(&query), Some(&authed.email))
         .await?;
     tx.commit().await?;
+
+    // Append the authed user's draft-only triggers of this kind; see scripts.rs.
+    // Best-effort: the editor's TriggerData shape overlaps T::Trigger but a per-kind
+    // config can deviate, so drop a row on deserialize failure rather than fail the list.
+    if query.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && query.page.unwrap_or(0) == 0
+        && query.path.is_none()
+        && query.is_flow.is_none()
+        && query.path_start.is_none()
+        && query.label.is_none()
+    {
+        let draft_only_rows = fetch_draft_only_list_rows(
+            &db,
+            &workspace_id,
+            &authed.email,
+            T::user_draft_item_kind(),
+        )
+        .await?;
+
+        for row in draft_only_rows {
+            let created_at = row.created_at;
+            let v: serde_json::Value = match serde_json::from_str(row.value.0.get()) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let serde_json::Value::Object(mut map) = v else {
+                continue;
+            };
+            // Fill operational fields the editor draft omits so the merged JSON matches
+            // `Trigger<T::TriggerConfig>`'s flattened shape (mode derived from `enabled`).
+            map.insert(
+                "workspace_id".into(),
+                serde_json::Value::String(workspace_id.clone()),
+            );
+            map.insert("edited_by".into(), serde_json::Value::String(String::new()));
+            if let Ok(at) = serde_json::to_value(&created_at) {
+                map.insert("edited_at".into(), at);
+            }
+            map.entry("permissioned_as")
+                .or_insert(serde_json::Value::String(String::new()));
+            map.entry("extra_perms").or_insert(serde_json::Value::Null);
+            if !map.contains_key("mode") {
+                let enabled = map.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+                map.insert(
+                    "mode".into(),
+                    serde_json::Value::String(if enabled { "enabled" } else { "disabled" }.into()),
+                );
+            }
+            map.insert("draft_only".into(), serde_json::Value::Bool(true));
+            // Synthesized rows are the authed user's draft.
+            map.insert("is_draft".into(), serde_json::Value::Bool(true));
+            match serde_json::from_value::<T::Trigger>(serde_json::Value::Object(map)) {
+                Ok(t) => triggers.push(t),
+                Err(_) => continue,
+            }
+        }
+    }
 
     Ok(Json(triggers))
 }
@@ -551,21 +669,41 @@ async fn get_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<T::Trigger> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || {
         format!("{}:read:{}", T::scope_domain_name(), &path)
     })?;
 
     let mut tx = user_db.begin(&authed).await?;
-    let trigger = handler
+    let trigger_res = handler
         .get_trigger_by_path(&mut *tx, &workspace_id, path)
-        .await?;
-
+        .await;
     tx.commit().await?;
 
-    Ok(Json(trigger))
+    // Map "no deployed trigger" to `None` and let the shared choreography
+    // handle the draft overlay / draft-only fallback / 404.
+    let deployed = match trigger_res {
+        Ok(t) => Some(t),
+        Err(Error::NotFound(_)) => None,
+        Err(e) => return Err(e),
+    };
+
+    let overlay = overlay_or_draft_only(
+        &db,
+        &workspace_id,
+        &authed.email,
+        T::user_draft_item_kind(),
+        path,
+        q.get_draft,
+        deployed,
+        || Error::NotFound(format!("Trigger not found at path: {}", path)),
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn update_trigger<T: TriggerCrud>(
@@ -591,11 +729,16 @@ async fn update_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // When the request omits `mode`/`enabled`, preserve the existing DB value
-    // instead of falling back to the BaseTriggerData default (Enabled). This
-    // keeps fork→parent git-sync round-trips from flipping the parent's
-    // operational state — see fork_trigger_ignore_keys in workspaces_export.rs.
-    if edit_trigger.base.is_mode_unspecified() {
+    // Preserve the existing DB `mode` instead of writing the incoming value
+    // when either:
+    //   * the target is a fork — a fork's operational state is fork-local and
+    //     is never set through a git-sync/merge write (only via `setmode`); or
+    //   * the request omits `mode`/`enabled` (legacy clients / YAML round-trip),
+    //     where falling back to the BaseTriggerData default (Enabled) would flip
+    //     the parent on a fork→parent merge.
+    // Read half of the rule: parent-value substitution on fork export in
+    // workspaces_export.rs.
+    if workspace_is_fork(&db, &workspace_id).await? || edit_trigger.base.is_mode_unspecified() {
         let existing_mode: Option<TriggerMode> = sqlx::query_scalar(&format!(
             "SELECT mode FROM {} WHERE workspace_id = $1 AND path = $2",
             T::TABLE_NAME
@@ -684,6 +827,19 @@ async fn update_trigger<T: TriggerCrud>(
 
     tx.commit().await?;
 
+    // On rename the old-path draft orphans (no SQL FK); clear the deployer's own
+    // (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). See scripts.rs.
+    if path != new_path {
+        delete_own_draft_for_path(
+            &db,
+            &workspace_id,
+            T::user_draft_item_kind(),
+            path,
+            &authed.email,
+        )
+        .await?;
+    }
+
     Ok(format!("Trigger '{}' updated", path))
 }
 
@@ -691,6 +847,7 @@ async fn delete_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -747,6 +904,29 @@ async fn delete_trigger<T: TriggerCrud>(
     .await?;
 
     tx.commit().await?;
+
+    // Reset the fork/parent workspace_diff tally for this path, exactly as
+    // create/update and every other kind's delete does. Without this a deleted
+    // trigger leaves its cached `has_changes=true` diff row behind: the compare
+    // trusts it (triggers aren't re-validated like scripts/flows), then drops it
+    // as it no longer exists in the table — a phantom "ahead" item that reads as
+    // "changes not visible to your user" and hides the deploy button, even for
+    // superadmins. Re-tallying sets has_changes=NULL so the next compare
+    // re-evaluates and corrects/removes the row.
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &workspace_id,
+        T::get_deployed_object(path.to_string(), None),
+        Some(format!("{} '{}' deleted", T::DEPLOYMENT_NAME, path)),
+        true,
+        None,
+    )
+    .await?;
+
+    // Trigger gone for everyone: wipe ALL users' drafts at this path; see scripts.rs.
+    delete_all_drafts_for_path(&db, &workspace_id, T::user_draft_item_kind(), path).await?;
 
     Ok(format!("Trigger '{}' deleted", path))
 }
@@ -897,6 +1077,10 @@ async fn test_connection<T: TriggerCrud>(
     Path(workspace_id): Path<String>,
     Json(config): Json<T::TestConnectionConfig>,
 ) -> Result<()> {
+    // Test connection opens an outbound connection to a caller-supplied target,
+    // so gate it behind write access like the other mutating trigger routes.
+    check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
+
     let connect_f = async move {
         handler
             .test_connection(&db, &authed, &user_db, &workspace_id, config)

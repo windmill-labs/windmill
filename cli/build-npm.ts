@@ -28,6 +28,9 @@ rmSync(outDir, { recursive: true, force: true });
 // Build with bun — bundle everything except esbuild (platform-specific binary),
 // svelte (optional, only needed for `wmill app bundle/dev`), and parser packages
 // (loaded at runtime via init() with readFileSync for the .wasm binary).
+// esbuild-wasm is not a dependency at all: the host/binary-mismatch fallback in
+// esbuild_loader.ts downloads and caches the whole esbuild-wasm package at
+// runtime, so it stays out of the bundle and the published dependencies.
 console.log("Bundling with bun build...");
 const buildResult = Bun.spawnSync([
   "bun", "build", "src/main.ts",

@@ -23,7 +23,7 @@ import {
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
-import { getModelContextWindow } from '../../lib'
+import { getModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
@@ -97,7 +97,8 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'powershell',
 	'csharp',
 	'java',
-	'duckdb'
+	'duckdb',
+	'ansible'
 ]
 
 export function getLangContext(
@@ -308,7 +309,11 @@ INSTRUCTIONS:
 export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
 	language: ScriptLang | 'bunnative',
-	options: { isPreprocessor?: boolean; allowResourcesFetch?: boolean; workflowAsCode?: boolean } = {},
+	options: {
+		isPreprocessor?: boolean
+		allowResourcesFetch?: boolean
+		workflowAsCode?: boolean
+	} = {},
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
 	let content = buildChatSystemPrompt(currentModel)

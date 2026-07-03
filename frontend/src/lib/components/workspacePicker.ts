@@ -44,9 +44,10 @@ type WorkspaceCache = {
 }
 
 /** Module-level session cache. Persists across picker mounts within a single
- * page session. NOT invalidated automatically — call `invalidate()` after
- * creating/deleting an item if the picker may be opened again before a full
- * reload. */
+ * page session so cached kinds render on the first frame. Pickers revalidate
+ * once per mount via `loadKind(..., { revalidate: true })`, so stale entries
+ * self-heal on the next open; call `invalidate()` after creating/deleting an
+ * item when even a brief flash of the stale list must be avoided. */
 const cache = new Map<string, WorkspaceCache>()
 const inflight = new Map<string, Promise<WorkspaceItem[]>>()
 /** Bumped by `invalidate()`. Each in-flight `loadKind` captures the version
@@ -87,11 +88,14 @@ export function invalidate(workspace: string, kind?: WorkspaceItemKind) {
 
 export async function loadKind(
 	workspace: string,
-	kind: WorkspaceItemKind
+	kind: WorkspaceItemKind,
+	opts?: { revalidate?: boolean }
 ): Promise<WorkspaceItem[]> {
 	const existing = cache.get(workspace)?.[kind]
-	if (existing) return existing
+	if (existing && !opts?.revalidate) return existing
 	const key = cacheKey(workspace, kind)
+	// An in-flight fetch is already hitting the network, so it satisfies a
+	// revalidate request too.
 	const flying = inflight.get(key)
 	if (flying) return flying
 

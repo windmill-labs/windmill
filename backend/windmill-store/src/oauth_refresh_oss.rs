@@ -24,9 +24,8 @@ pub async fn _refresh_token<'c>(
     id: i32,
     db: &DB,
 ) -> error::Result<String> {
-    windmill_oauth::refresh_token(
+    let token = windmill_oauth::refresh_token(
         tx,
-        path,
         w_id,
         id,
         db,
@@ -34,5 +33,12 @@ pub async fn _refresh_token<'c>(
         &windmill_oauth::OAUTH_HTTP_CLIENT,
         include_str!("../../oauth_connect.json"),
     )
-    .await
+    .await?;
+
+    // Persist the refreshed token through the configured secret backend so an
+    // external backend (Vault / Azure KV / AWS Secrets Manager) is updated too,
+    // not just the in-DB variable mirror.
+    crate::secret_backend_ext::store_oauth_token_value(db, w_id, path, &token).await?;
+
+    Ok(token)
 }

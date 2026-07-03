@@ -18,6 +18,31 @@ use crate::{
     DB,
 };
 
+/// Whether `label` denotes a user-created token rather than a system token
+/// (`session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
+/// labels are load-bearing — session cleanup, super_admin propagation, expiry
+/// notifications and username overrides all key off them — so they must not be
+/// user-editable. `None` (no label) is treated as a user token.
+///
+/// This is the canonical copy. When updating it, also update its mirrors:
+/// - the `update_token_label` editability guard (SQL `WHERE`) in
+///   windmill-api-users/src/users.rs
+/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
+pub fn is_user_token(label: Option<&str>) -> bool {
+    match label {
+        None => true,
+        Some(l) => {
+            // `ephemeral` is matched case-insensitively to agree exactly with the
+            // frontend mirror (`label.toLowerCase().startsWith('ephemeral')`) and
+            // the SQL `lower(label) NOT LIKE 'ephemeral%'` guard.
+            l != "session"
+                && !l.to_lowercase().starts_with("ephemeral")
+                && l != "debugger-token"
+                && !l.starts_with("mcp-oauth-")
+        }
+    }
+}
+
 /// Hash a raw token using SHA-256 (hex-encoded, 64 chars).
 /// Used to store and look up tokens without keeping plaintext in the DB.
 pub fn hash_token(token: &str) -> String {
@@ -262,7 +287,7 @@ impl From<JobPerms> for Authed {
     }
 }
 
-pub async fn is_super_admin_email(db: &DB, email: &str) -> Result<bool> {
+pub async fn is_super_admin_email<'c>(db: impl sqlx::PgExecutor<'c>, email: &str) -> Result<bool> {
     if email == SUPERADMIN_SECRET_EMAIL || email == SUPERADMIN_NOTIFICATION_EMAIL {
         return Ok(true);
     }
@@ -388,9 +413,18 @@ async fn fetch_authed_from_permissioned_as_inner(
             })
         }
     } else {
+        // Bare (no `u/`|`g/` prefix) permissioned_as is reached for superadmins
+        // whose identifier is their email (they are not a workspace member). Use
+        // the instance-derived username when available so no email leaks
+        // downstream as the acting username.
+        let username = if is_super_admin && permissioned_as == email {
+            crate::usernames::get_instance_username_or_fallback_to_email(&mut *conn, email).await?
+        } else {
+            permissioned_as.to_string()
+        };
         Ok(Authed {
             email: email.to_string(),
-            username: permissioned_as.to_string(),
+            username,
             is_admin: is_super_admin,
             is_operator: true,
             groups: vec![],
@@ -639,5 +673,37 @@ pub mod aws {
             .set_web_identity_token(Some(token));
 
         Ok(assume_role_with_web_identity_fluent_builder)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_user_token;
+
+    #[test]
+    fn user_tokens_are_editable() {
+        assert!(is_user_token(None)); // no label
+        assert!(is_user_token(Some("")));
+        assert!(is_user_token(Some("my-ci-token")));
+        assert!(is_user_token(Some("webhook-foo"))); // username-override prefix, not a system kind here
+    }
+
+    #[test]
+    fn system_tokens_are_not_editable() {
+        assert!(!is_user_token(Some("session")));
+        assert!(!is_user_token(Some("ephemeral-script")));
+        assert!(!is_user_token(Some("ephemeral-webhook-x")));
+        assert!(!is_user_token(Some("Ephemeral lsp token")));
+        assert!(!is_user_token(Some("debugger-token")));
+        assert!(!is_user_token(Some("mcp-oauth-client")));
+    }
+
+    #[test]
+    fn ephemeral_match_is_case_insensitive() {
+        // Must agree with the frontend mirror (`toLowerCase().startsWith('ephemeral')`)
+        // so a token can't be relabeled to a casing the backend allows but the UI hides.
+        assert!(!is_user_token(Some("Ephemeral-test")));
+        assert!(!is_user_token(Some("ePhemeral-test")));
+        assert!(!is_user_token(Some("EPHEMERAL-test")));
     }
 }

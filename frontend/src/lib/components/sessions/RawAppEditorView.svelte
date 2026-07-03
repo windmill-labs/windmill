@@ -1,13 +1,16 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
-	import { untrack } from 'svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
-	import { UserDraft } from '$lib/userDraft.svelte'
-	import type { RawAppDraft } from './appDraftCodec'
-	import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft } from './appDraftCodec'
-	import SessionItemNotFound from './SessionItemNotFound.svelte'
+	import SessionEditorTarget from './SessionEditorTarget.svelte'
+	import { runResetToDeployed } from '$lib/userDraftToast'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import type {
+		RawAppRuntimeLogRequester,
+		RawAppRunsProvider
+	} from '$lib/components/raw_apps/utils'
 
 	let {
 		runtime,
@@ -20,139 +23,109 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
-		/**
-		 * Only the visible session should claim the workspace's live-editor
-		 * slot — without this, a hidden warm-mounted session can overwrite the
-		 * active session's UserDraft live-editor target (one slot per
-		 * (workspace, kind)), so chat actions like discard / "the open editor"
-		 * resolve to the wrong session.
-		 */
+		/** Forwarded to SessionEditorTarget — only the visible session claims the
+		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
 	} = $props()
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
+	// Path typed in the editor header, surfaced when it differs from the stored
+	// path. Mirror it into the runtime draft as `draft_path` so the rename
+	// mutates runtime.rawApp.val → the autosave sig changes → the draft is saved
+	// (and the home/review/Drafts lists show the friendly name). Mirrors the
+	// full-page /apps_raw/edit route.
+	let pendingDraftPath = $state<string | undefined>(undefined)
+	// The header collapses both "not yet bound" and "reverted to baseline" to
+	// `undefined`. `surfacedDraftPath` tells them apart: the initial undefined
+	// (before the header binds) must not clobber the `draft_path` seeded by
+	// loadRawApp, but a revert/clear after a real typed path must drop the stale
+	// friendly name — mirroring the script codec's `else delete draft_path`.
+	let surfacedDraftPath = false
 	$effect(() => {
-		if (workspaceId && path) {
-			untrack(() => runtime.loadRawApp(workspaceId, path))
-		}
+		const dp = pendingDraftPath
+		untrack(() => {
+			const val = runtime.rawApp.val
+			if (!val) return
+			if (dp !== undefined) {
+				surfacedDraftPath = true
+				if (val.draft_path !== dp) val.draft_path = dp
+			} else if (surfacedDraftPath && val.draft_path !== undefined) {
+				val.draft_path = undefined
+			}
+		})
 	})
 
-	async function restoreFromCurrentTarget() {
-		diffDrawer?.closeDrawer()
-		await runtime.loadRawApp(workspaceId, path)
+	async function reloadDeployed() {
+		await runtime.loadRawApp(workspaceId, path, true, true)
 	}
 
-	// Mark this editor as the live editor draft for the session's workspace
-	// so the chat's `isLiveDraft` hint / `discard_local_draft` tool resolve
-	// to this path — same registration the regular /apps_raw/edit page does.
-	// Gated on `isActiveSession`: warm-but-hidden session editors must not
-	// claim the workspace's single live-editor slot, else chat actions on the
-	// visible session resolve to the hidden one's path.
-	$effect(() => {
-		if (!workspaceId || !path) return
-		if (!isActiveSession) return
-		UserDraft.setLiveEditorDraft({
+	async function restoreDeployed() {
+		diffDrawer?.closeDrawer()
+		await runResetToDeployed({
 			workspace: workspaceId,
 			itemKind: 'raw_app',
-			storagePath: path,
-			effectivePath: runtime.rawApp.val?.path ?? path
+			path,
+			onResetToDeployed: reloadDeployed
 		})
-		return () =>
-			UserDraft.clearLiveEditorDraft('raw_app', { workspace: workspaceId, storagePath: path })
-	})
+		invalidateWorkspaceDrafts(workspaceId)
+	}
 
-	// Bidirectional sync between this preview and `UserDraft<RawAppDraft>`.
-	// We hold a *live* handle (useMany) rather than reading via the static
-	// `UserDraft.get`: the handle materializes UserDraft's shared reactive
-	// `$state` cell for (workspace, 'raw_app', path), and that cell is what
-	// lets the chat's writes (UserDraft.save / setDraftAndMeta, from
-	// write_app_file / patch_app_file / write_app_runnable) reach this preview.
-	// Without a live entry those writes only touch localStorage and the inbound
-	// effect below never re-fires. A reactive getter is used (not `use()`)
-	// because switching open_preview to another app swaps `path` without
-	// remounting this view, so the handle must re-acquire.
-	//
-	// Same one-way-reactive discipline as ScriptEditorView: inbound tracks only
-	// the handle's draft, outbound tracks only rawApp.val; each side's read of
-	// the other goes through untrack() to break the keystroke-revert race.
-	const draftHandles = UserDraft.useMany<RawAppDraft>(() => [
-		{ itemKind: 'raw_app', path, workspace: workspaceId }
-	])
-	let lastInboundSig: string | undefined = $state(undefined)
+	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
+		runtime.setRuntimeLogRequester(requester)
+	}
 
-	// Store → editor. Re-runs when the handle's draft changes (chat write,
-	// other session edit).
-	$effect(() => {
-		if (!workspaceId || !path) return
-		const incoming = draftHandles[0]?.draft
-		if (!incoming) return
-		const sig = JSON.stringify(incoming)
-		untrack(() => {
-			if (runtime.loadedRawAppPath !== path) return
-			if (sig === lastInboundSig) return
-			const current = runtime.rawApp.val
-			if (!current) return
-			lastInboundSig = sig
-			runtime.rawApp.val = applyDraftToRuntimeRawApp(current, incoming)
-		})
-	})
-
-	// Editor → store. Debounced 150ms so a typing burst inside a frontend
-	// file's Monaco editor coalesces into one store write.
-	let outboundTimer: ReturnType<typeof setTimeout> | undefined
-	$effect(() => {
-		if (!workspaceId || !path) return
-		if (runtime.loadedRawAppPath !== path) return
-		const raw = runtime.rawApp.val
-		if (!raw) return
-		const draft = runtimeRawAppToDraft(raw)
-		const sig = JSON.stringify(draft)
-		if (sig === lastInboundSig) return
-		if (outboundTimer) clearTimeout(outboundTimer)
-		outboundTimer = setTimeout(() => {
-			untrack(() => {
-				const current = UserDraft.get<RawAppDraft>('raw_app', path, { workspace: workspaceId })
-				if (current && JSON.stringify(current) === sig) return
-				UserDraft.save('raw_app', path, draft, { workspace: workspaceId })
-			})
-		}, 150)
-		return () => {
-			if (outboundTimer) clearTimeout(outboundTimer)
-		}
-	})
+	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
+		runtime.setAppRunsProvider(provider)
+	}
 </script>
 
 {#if runtime.savedRawApp.val}
-	<DiffDrawer
-		bind:this={diffDrawer}
-		restoreDeployed={restoreFromCurrentTarget}
-		restoreDraft={restoreFromCurrentTarget}
-	/>
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 {/if}
-{#if runtime.loadingRawApp && !runtime.loadedRawAppPath}
-	<div class="p-4 text-secondary text-sm">Loading raw app {path}…</div>
-{:else if runtime.notFoundRawApp && !runtime.loadedRawAppPath}
-	<SessionItemNotFound kind="raw_app" {path} {onNavigate} />
-{:else if runtime.rawApp.val}
-	<RawAppEditor
-		bind:files={runtime.rawApp.val.files}
-		bind:runnables={runtime.rawApp.val.runnables}
-		bind:data={runtime.rawApp.val.data}
-		bind:summary={runtime.rawApp.val.summary}
-		newPath={runtime.rawApp.val.path}
-		{path}
-		policy={runtime.rawApp.val.policy}
-		bind:savedApp={runtime.savedRawApp.val}
-		newApp={!runtime.savedRawApp.val}
-		{diffDrawer}
-		{onNavigate}
-		onDeploy={(e) => {
-			// Sync the preview to deployed (raw apps deploy only from this editor).
-			runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
-		}}
-		defaultSidebarCollapsed
-		sidebarStorageKey="raw-app-sidebar-collapsed-preview"
-		defaultSplitWithPreview={false}
-	/>
-{/if}
+<SessionEditorTarget
+	{runtime}
+	kind="raw_app"
+	{path}
+	{workspaceId}
+	{onNavigate}
+	{isActiveSession}
+	effectivePath={() => runtime.rawApp.val?.path ?? path}
+>
+	{#snippet editor()}
+		{#if runtime.rawApp.val}
+			<!-- newApp: a draft-only app (no_deployed=true) has a truthy synthesized
+			     savedApp but no deployed row, so it must deploy via createApp — keying
+			     on !savedApp alone would updateApp a never-deployed path and 404
+			     "not found". -->
+			<RawAppEditor
+				bind:files={runtime.rawApp.val.files}
+				bind:runnables={runtime.rawApp.val.runnables}
+				bind:data={runtime.rawApp.val.data}
+				bind:summary={runtime.rawApp.val.summary}
+				bind:pendingDraftPath
+				newPath={runtime.rawApp.val.draft_path ?? runtime.rawApp.val.path}
+				{path}
+				autosaveWorkspace={workspaceId}
+				autosavePath={path}
+				policy={runtime.rawApp.val.policy}
+				bind:savedApp={runtime.savedRawApp.val}
+				newApp={!runtime.savedRawApp.val || runtime.savedRawApp.val.no_deployed === true}
+				{diffDrawer}
+				{onNavigate}
+				onResetToDeployed={reloadDeployed}
+				onDeploy={(e) => {
+					// Sync the preview to deployed (raw apps deploy only from this editor).
+					runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
+					// Deploying clears the item's pending draft — refresh the Draft Count.
+					invalidateWorkspaceDrafts(workspaceId)
+				}}
+				defaultSidebarCollapsed
+				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
+				defaultSplitWithPreview={false}
+				onRuntimeLogRequester={registerRuntimeLogRequester}
+				onRunsProvider={registerRunsProvider}
+			/>
+		{/if}
+	{/snippet}
+</SessionEditorTarget>

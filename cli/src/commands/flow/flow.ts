@@ -135,6 +135,31 @@ function warnAboutLocalPathScriptDivergence(
 
 const alreadySynced: string[] = [];
 
+// Collect every script/sub-flow step path in a flow value — recursively through loops,
+// branches, and the failure/preprocessor modules — for workspace-path validation. Unlike
+// `collectPathScriptPaths` this also includes `type: "flow"` sub-flow steps.
+function collectStepPaths(flowValue: any): string[] {
+  const paths: string[] = [];
+  const walk = (modules: any[] | undefined) => {
+    for (const m of modules ?? []) {
+      const v = m?.value;
+      if (!v) continue;
+      if ((v.type === "script" || v.type === "flow") && typeof v.path === "string") {
+        paths.push(v.path);
+      }
+      walk(v.modules);
+      walk(v.default);
+      for (const b of v.branches ?? []) walk(b?.modules);
+      // AI-agent tools are step-like and can carry script paths too.
+      walk(v.tools);
+    }
+  };
+  walk(flowValue?.modules);
+  if (flowValue?.failure_module) walk([flowValue.failure_module]);
+  if (flowValue?.preprocessor_module) walk([flowValue.preprocessor_module]);
+  return paths;
+}
+
 export async function pushFlow(
   workspace: string,
   remotePath: string,
@@ -187,6 +212,21 @@ export async function pushFlow(
     throw new Error(
       `Cannot push flow ${remotePath}: missing inline script file(s): ${missingFiles.join(", ")}. ` +
       `Either restore the file(s) or remove the !inline reference(s) from flow.yaml before pushing.`
+    );
+  }
+
+  // Reject script/sub-flow steps whose path is not a workspace path (u/, f/, g/ or hub/).
+  // A flow.yaml generated from a feature-branch checkout can carry absolute local paths
+  // (e.g. /tmp/.../ops/scripts/...); pushed, they silently mis-resolve at runtime (#9751).
+  // The backend re-validates the same rule for every step type, so this is a fail-fast.
+  const badStepPaths = collectStepPaths(localFlow.value).filter(
+    (p) => p !== "" && !/^(u|f|g|hub)\//.test(p)
+  );
+  if (badStepPaths.length > 0) {
+    throw new Error(
+      `Cannot push flow ${remotePath}: step(s) reference non-workspace path(s): ${badStepPaths.join(", ")}. ` +
+      `Flow step paths must be workspace paths (u/, f/, g/ or hub/), not absolute or local filesystem paths. ` +
+      `This usually means flow.yaml was generated with paths from a checkout directory.`
     );
   }
 

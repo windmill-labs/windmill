@@ -21,8 +21,8 @@ export async function computeDrift() {
 	}
 }
 
-export function forLater(scheduledString: string): boolean {
-	return getDbClockNow() < subtractSeconds(new Date(scheduledString), 5)
+export function forLater(scheduled: string | number | Date): boolean {
+	return getDbClockNow() < subtractSeconds(new Date(scheduled), 5)
 }
 const limit = pLimit(1)
 

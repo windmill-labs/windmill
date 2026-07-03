@@ -44,7 +44,7 @@ use windmill_common::{
     schema::{should_validate_schema, SchemaValidator},
     utils::{create_directory_async, WarnAfterExt},
     worker::{
-        make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
+        is_allowed_file_location, make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
         MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
     },
     worker_group_job_stats::JobStatsMap,
@@ -694,6 +694,27 @@ lazy_static::lazy_static! {
     /// RAM-backed tmpfs sized by `nsjail_tmpfs_size_mb`.
     pub static ref NSJAIL_TMP_BACKING: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    /// Reject a `# sandbox <image>` whose compressed download size exceeds this many
+    /// MB, before download. `None`/non-positive = no limit. (`sandbox_image_max_size_mb`.)
+    pub static ref SANDBOX_IMAGE_MAX_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// Best-effort cap (MB) on the worker's cached rootfs tars; oldest evicted after a
+    /// run when exceeded. `None`/non-positive = unbounded. (`sandbox_image_cache_max_mb`.)
+    pub static ref SANDBOX_IMAGE_CACHE_MAX_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// Sandbox image pull policy (`missing`/`newer`/`always`/`never`). `None`/unrecognized
+    /// falls back to `newer`. (`sandbox_image_pull_policy`.)
+    pub static ref SANDBOX_IMAGE_PULL_POLICY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+    /// If set, unqualified sandbox image refs (e.g. `alpine`) are pulled from this
+    /// registry instead of docker.io. Fully-qualified refs are unaffected.
+    /// (`sandbox_image_default_registry`.)
+    pub static ref SANDBOX_IMAGE_DEFAULT_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+    /// Optional docker `auth.json` blob for private registries, written to a per-job
+    /// `DOCKER_CONFIG` dir for crane. (`sandbox_registry_auth`.)
+    pub static ref SANDBOX_REGISTRY_AUTH: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
     /// Optional mirror URL for `uv python install`. Wires to the `UV_PYTHON_INSTALL_MIRROR`
     /// env var when forwarded to uv. Can be set via the `UV_PYTHON_INSTALL_MIRROR` env var
     /// or the `uv_python_install_mirror` instance setting.
@@ -919,14 +940,50 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
     }
 }
 
+/// Strict check that a string is a well-formed W3C `traceparent`
+/// (`version-traceid-spanid-flags`, lowercase hex, non-zero ids, version != ff).
+/// Used before forwarding an inbound header value verbatim to a job subprocess,
+/// so we don't hand downstream OTel parsers something they'll reject.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+fn valid_w3c_traceparent(tp: &str) -> bool {
+    let p: Vec<&str> = tp.split('-').collect();
+    p.len() == 4
+        && p[0].len() == 2
+        && p[1].len() == 32
+        && p[2].len() == 16
+        && p[3].len() == 2
+        // version "ff" is reserved/invalid per the W3C spec
+        && p[0] != "ff"
+        && p[1] != "00000000000000000000000000000000"
+        && p[2] != "0000000000000000"
+        // W3C mandates lowercase hex
+        && p
+            .iter()
+            .all(|s| s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+}
+
 /// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).
 /// Returns an empty vec when OTEL tracing is not enabled or on non-enterprise builds.
+///
+/// When the request that enqueued the job carried a valid inbound `traceparent`
+/// (propagated via the job's [`LogContext`](windmill_common::log_context::LogContext)),
+/// it is forwarded verbatim so the script's spans join the originating
+/// distributed trace. Otherwise the trace context is derived from the job UUID.
 pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if windmill_common::OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        let trace_id = format!("{:032x}", job_id.as_u128());
-        let span_id = format!("{:016x}", job_id.as_u64_pair().1);
-        let traceparent = format!("00-{}-{}-01", trace_id, span_id);
+        let inbound = windmill_common::log_context::current_log_context()
+            .and_then(|c| c.inbound_traceparent.clone())
+            .filter(|tp| valid_w3c_traceparent(tp));
+        let (traceparent, trace_id, span_id) = if let Some(tp) = inbound {
+            let trace_id = tp[3..35].to_string();
+            let span_id = tp[36..52].to_string();
+            (tp, trace_id, span_id)
+        } else {
+            let trace_id = format!("{:032x}", job_id.as_u128());
+            let span_id = format!("{:016x}", job_id.as_u64_pair().1);
+            (format!("00-{}-{}-01", trace_id, span_id), trace_id, span_id)
+        };
         return vec![
             ("TRACEPARENT", traceparent),
             ("OTEL_TRACE_ID", trace_id),
@@ -1020,6 +1077,15 @@ async fn get_otel_tracing_proxy_envs(
 /// through the proxy without TLS interception, so clients that pin their own CA (kubectl,
 /// helm, terraform, etc.) keep working. Empty when unset, matching the prior behavior of
 /// intercepting all destinations including loopback.
+///
+/// The worker's own `NO_PROXY` env is merged in so that enabling HTTP request tracing never
+/// silently narrows exclusions an operator already configured at the container level: hosts
+/// reachable directly before tracing was turned on stay reachable directly afterwards. The
+/// upstream-relay side (`build_no_proxy_intercept`) already honors the container `NO_PROXY`;
+/// this keeps the injected-into-jobs side symmetric. Note that job runtimes match `NO_PROXY`
+/// by hostname/suffix, not by resolving against CIDR ranges, so CIDR-only entries (e.g.
+/// `10.0.0.0/8`) carry over but won't match a hostname target — operators still need an
+/// explicit host/suffix entry for those.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 async fn build_tracing_proxy_no_proxy() -> String {
     let configured = OTEL_TRACING_PROXY_SETTINGS
@@ -1027,22 +1093,23 @@ async fn build_tracing_proxy_no_proxy() -> String {
         .await
         .no_proxy_hosts
         .clone();
-    normalize_no_proxy_hosts(configured.as_deref())
+    normalize_no_proxy_hosts([configured.as_deref(), NO_PROXY.as_deref()])
 }
 
-/// Split a comma-separated NO_PROXY value, trim whitespace, drop empty entries, and
-/// deduplicate while preserving order. `None` returns an empty string.
+/// Split comma-separated NO_PROXY sources, trim whitespace, drop empty entries, and
+/// deduplicate while preserving first-occurrence order. Sources are concatenated in the
+/// order given (earlier sources win on ordering). Returns an empty string when all sources
+/// are `None`/empty.
 #[cfg(all(feature = "private", feature = "enterprise"))]
-fn normalize_no_proxy_hosts(configured: Option<&str>) -> String {
-    let Some(configured) = configured else {
-        return String::new();
-    };
+fn normalize_no_proxy_hosts<'a>(sources: impl IntoIterator<Item = Option<&'a str>>) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut out: Vec<&str> = Vec::new();
-    for entry in configured.split(',') {
-        let trimmed = entry.trim();
-        if !trimmed.is_empty() && seen.insert(trimmed) {
-            out.push(trimmed);
+    for source in sources.into_iter().flatten() {
+        for entry in source.split(',') {
+            let trimmed = entry.trim();
+            if !trimmed.is_empty() && seen.insert(trimmed) {
+                out.push(trimmed);
+            }
         }
     }
     out.join(",")
@@ -1054,26 +1121,58 @@ mod no_proxy_tests {
 
     #[test]
     fn unset_returns_empty() {
-        assert_eq!(normalize_no_proxy_hosts(None), "");
+        assert_eq!(normalize_no_proxy_hosts([None]), "");
+        assert_eq!(normalize_no_proxy_hosts([None, None]), "");
     }
 
     #[test]
     fn empty_and_whitespace_only_returns_empty() {
-        assert_eq!(normalize_no_proxy_hosts(Some("")), "");
-        assert_eq!(normalize_no_proxy_hosts(Some("  ,  ,\t")), "");
+        assert_eq!(normalize_no_proxy_hosts([Some("")]), "");
+        assert_eq!(normalize_no_proxy_hosts([Some("  ,  ,\t")]), "");
     }
 
     #[test]
     fn trims_and_skips_empties() {
         assert_eq!(
-            normalize_no_proxy_hosts(Some("  *.eks.amazonaws.com  ,, *.internal ")),
+            normalize_no_proxy_hosts([Some("  *.eks.amazonaws.com  ,, *.internal ")]),
             "*.eks.amazonaws.com,*.internal"
         );
     }
 
     #[test]
     fn dedupes_preserving_first_occurrence_order() {
-        assert_eq!(normalize_no_proxy_hosts(Some("a,b,a,c,b,d")), "a,b,c,d");
+        assert_eq!(normalize_no_proxy_hosts([Some("a,b,a,c,b,d")]), "a,b,c,d");
+    }
+
+    #[test]
+    fn merges_configured_with_container_no_proxy() {
+        // Configured tracing hosts come first, then the container NO_PROXY is appended.
+        assert_eq!(
+            normalize_no_proxy_hosts([
+                Some("gitlab.internal"),
+                Some("localhost,127.0.0.1,10.0.0.0/8,.cluster.local")
+            ]),
+            "gitlab.internal,localhost,127.0.0.1,10.0.0.0/8,.cluster.local"
+        );
+    }
+
+    #[test]
+    fn merges_dedupe_across_sources() {
+        // Entries present in both sources are not duplicated.
+        assert_eq!(
+            normalize_no_proxy_hosts([Some("localhost,gitlab.internal"), Some("localhost,.svc")]),
+            "localhost,gitlab.internal,.svc"
+        );
+    }
+
+    #[test]
+    fn container_no_proxy_carries_over_when_unconfigured() {
+        // Tracing setting unset but container NO_PROXY present: exclusions still carry over,
+        // so enabling tracing does not silently drop them.
+        assert_eq!(
+            normalize_no_proxy_hosts([None, Some(".cluster.local,gitlab.internal")]),
+            ".cluster.local,gitlab.internal"
+        );
     }
 }
 
@@ -1466,7 +1565,10 @@ pub fn create_span_with_name(
         span.record("script_hash", script_hash.to_string().as_str());
     }
 
-    windmill_common::otel_oss::set_span_parent(&span, &rj);
+    // Parent the job span on the inbound distributed trace when the request that
+    // enqueued it (or its flow root) carried a W3C `traceparent`; otherwise on
+    // the UUID-derived context. See `otel_ee::set_job_span_parent`.
+    crate::otel_oss::set_job_span_parent(&span, arc_job, &rj);
     span
 }
 
@@ -1567,8 +1669,19 @@ pub fn log_context_for_job(
         trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
+        inbound_traceparent: job_inbound_traceparent(arc_job),
         ..existing
     }
+}
+
+/// Extract the inbound W3C `traceparent` captured at enqueue from a job's args
+/// (reserved `_wm_traceparent` key). Present only on directly-triggered jobs
+/// (and flow steps that inherited it).
+pub(crate) fn job_inbound_traceparent(job: &MiniPulledJob) -> Option<String> {
+    job.args
+        .as_ref()
+        .and_then(|a| a.get(windmill_common::jobs::WM_TRACEPARENT))
+        .and_then(|raw| serde_json::from_str::<String>(raw.get()).ok())
 }
 
 pub async fn handle_all_job_kind_error(
@@ -3695,6 +3808,9 @@ pub async fn handle_queued_job(
                 worker_name,
                 flow_runners,
                 &killpill_rx,
+                // A freshly pulled flow job is being executed by a live worker; the prior
+                // step (if any) completed normally, so this is never unrecoverable here.
+                false,
             ))
             .warn_after_seconds(10)
             .await
@@ -4188,6 +4304,114 @@ async fn try_validate_schema(
     Ok(())
 }
 
+/// Pipeline partition resolution at execution time. The script content is
+/// already loaded for this job, so parsing the `// partitioned` annotation
+/// here is free (no extra fetch / no DB column). The concrete partition
+/// value is resolved exactly once — schedule fire-time for time kinds
+/// (anchored on `scheduled_for`, NOT wall-clock, so a chain crossing
+/// midnight stays coherent) or the triggering payload for `dynamic`. It is
+/// then (a) injected into the in-memory args the body sees and (b)
+/// persisted back to `v2_job.args` so the asset-dispatch cascade reads the
+/// same value at completion and propagates it downstream (run identity is
+/// immutable — never re-resolve once set).
+///
+/// `Ok(Some(job))` = a value was injected (caller must use the returned
+/// clone). `Ok(None)` = nothing to do (no `// partitioned`, or the
+/// partition is already set: explicit / backfill / cascade-propagated, or
+/// before the `start` anchor). `Err` fails the job with a clear message
+/// (partitioned but unresolvable — e.g. `dynamic` with no payload).
+async fn resolve_partition_for_job(
+    job: &MiniPulledJob,
+    code: &str,
+    conn: &Connection,
+) -> error::Result<(Option<MiniPulledJob>, bool)> {
+    use windmill_common::partition::{resolve_partition, PARTITION_ARG};
+    use windmill_parser::asset_parser::PartitionKind;
+
+    // Only deployed scripts participate in asset pipelines. Cheap substring
+    // guard so the overwhelming majority of script jobs skip the annotation
+    // scan; when one might be present we parse *once* here and reuse the result
+    // for both `in_pipeline` (→ WM_PIPELINE env, read by the wmll.ducklake SDK to
+    // record state) and `partition` resolution — no second parse downstream. The
+    // bool is whether the script is a `// pipeline` member.
+    if !matches!(job.kind, JobKind::Script)
+        || !(code.contains("pipeline") || code.contains("partitioned"))
+    {
+        return Ok((None, false));
+    }
+    let ann = windmill_parser::asset_parser::parse_pipeline_annotations(code);
+    let in_pipeline = ann.in_pipeline;
+    let Some(spec) = ann.partition else {
+        return Ok((None, in_pipeline));
+    };
+
+    // Already resolved upstream — explicit run arg, backfill, or
+    // cascade-propagated (push_subscriber injects a top-level `partition`).
+    // Run identity is immutable: use it as-is, do not re-resolve.
+    let already_set = job.args.as_ref().is_some_and(|a| {
+        a.0.get(PARTITION_ARG)
+            .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+            .is_some_and(|s| !s.is_empty())
+    });
+    if already_set {
+        return Ok((None, in_pipeline));
+    }
+
+    // `dynamic` extracts from the triggering payload (the `trigger` object
+    // for a cascade/event hop, else the run args themselves). Time kinds
+    // ignore the payload.
+    let payload: Option<serde_json::Value> = match &spec.kind {
+        PartitionKind::Dynamic { .. } => job.args.as_ref().map(|a| {
+            a.0.get("trigger")
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(t.get()).ok())
+                .unwrap_or_else(|| {
+                    serde_json::Value::Object(
+                        a.0.iter()
+                            .filter_map(|(k, v)| {
+                                serde_json::from_str(v.get()).ok().map(|jv| (k.clone(), jv))
+                            })
+                            .collect(),
+                    )
+                })
+        }),
+        _ => None,
+    };
+
+    let resolved = resolve_partition(&spec, job.scheduled_for, payload.as_ref())
+        .map_err(|e| Error::ExecutionErr(format!("partition resolution failed: {e:#}")))?;
+    let Some(value) = resolved else {
+        // Before the `start` anchor: this run has no partition to
+        // materialize. v1 runs it without one (logged) rather than
+        // introducing a skip-the-queued-job mechanism.
+        tracing::warn!(
+            job_id = %job.id,
+            "partitioned script resolved to no partition (before start anchor); running without one"
+        );
+        return Ok((None, in_pipeline));
+    };
+
+    // Persist back so dispatch_asset_triggers (which reads the producer's
+    // completed v2_job.args) propagates the same value down the cascade.
+    if let Some(db) = conn.as_sql() {
+        windmill_common::partition::set_resolved_partition(db, job.id, &value).await?;
+    } else {
+        tracing::warn!(
+            job_id = %job.id,
+            "agent worker: resolved partition not persisted; downstream cascade will not propagate it"
+        );
+    }
+
+    // Inject into the in-memory args so the running body sees it.
+    let mut updated = job.clone();
+    let mut map = updated.args.take().map(|j| j.0).unwrap_or_default();
+    map.insert(
+        PARTITION_ARG.to_string(),
+        windmill_common::worker::to_raw_value(&value),
+    );
+    updated.args = Some(Json(map));
+    Ok((Some(updated), in_pipeline))
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &MiniPulledJob,
@@ -4343,6 +4567,19 @@ async fn handle_code_execution_job(
         ),
     };
 
+    // Pipeline partition resolution: the content is now loaded, so resolve
+    // `// partitioned` (if any) and shadow `job` with a clone whose args
+    // carry the resolved `partition` for the rest of execution.
+    let _job_with_partition;
+    let (resolved_job, in_pipeline) = resolve_partition_for_job(job, code, conn).await?;
+    let job = match resolved_job {
+        Some(j) => {
+            _job_with_partition = j;
+            &_job_with_partition
+        }
+        None => job,
+    };
+
     // For preview jobs, extract modules from args._MODULES if not already set
     let modules = modules_from_data.clone().or_else(|| {
         job.args.as_ref().and_then(|args| {
@@ -4388,8 +4625,19 @@ async fn handle_code_execution_job(
         lock,
         &modules,
         false,
+        in_pipeline,
     )
     .await
+}
+
+/// True when `path` contains only `Normal`/`CurDir` components, i.e. it cannot
+/// escape the directory it is joined onto (no `..`, no absolute root, no Windows
+/// drive prefix).
+fn is_contained_relative_path(path: &str) -> bool {
+    use std::path::Component;
+    std::path::Path::new(path)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
 }
 
 pub async fn write_module_files(
@@ -4397,37 +4645,131 @@ pub async fn write_module_files(
     modules: &std::collections::HashMap<String, ScriptModule>,
     base_dir: Option<&str>,
 ) -> error::Result<()> {
+    // base_dir is derived from the runnable path, which on a preview run can
+    // carry `..` traversal (it is not the validated module-map key). Reject it
+    // before it is used to build any write target, otherwise a module could
+    // escape job_dir and write arbitrary files.
+    if let Some(dir) = base_dir {
+        if !is_contained_relative_path(dir) {
+            return Err(error::Error::BadRequest(format!(
+                "Invalid module base directory (path traversal): {dir}"
+            )));
+        }
+    }
     for (relpath, module) in modules {
-        // Reject path traversal attempts in module paths
-        if relpath.contains("..") {
+        // Reject path traversal attempts in module paths (the module-map key).
+        if !is_contained_relative_path(relpath) {
             tracing::warn!("Skipping module with path traversal: {relpath}");
             continue;
         }
-        let full_path = match base_dir {
-            Some(dir) => format!("{}/{}/{}", job_dir, dir, relpath),
-            None => format!("{}/{}", job_dir, relpath),
+        let relpath_from_job_dir = match base_dir {
+            Some(dir) => format!("{}/{}", dir, relpath),
+            None => relpath.to_string(),
         };
-        if let Some(parent) = std::path::Path::new(&full_path).parent() {
+        // Authoritative guard: resolve the path and assert it stays inside job_dir.
+        let full_path = is_allowed_file_location(job_dir, &relpath_from_job_dir)?;
+        if let Some(parent) = full_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
         // For Python modules, create __init__.py in each intermediate directory
         // between base_dir and the module's parent so that relative imports work.
         if let Some(dir) = base_dir {
-            let rel = std::path::Path::new(relpath);
-            let base = std::path::Path::new(job_dir).join(dir);
-            let mut current = base.clone();
-            for component in rel.parent().into_iter().flat_map(|p| p.components()) {
+            let mut current = std::path::PathBuf::from(dir);
+            for component in std::path::Path::new(relpath)
+                .parent()
+                .into_iter()
+                .flat_map(|p| p.components())
+            {
                 current = current.join(component);
-                let init_py = current.join("__init__.py");
+                let init_py = is_allowed_file_location(
+                    job_dir,
+                    &current.join("__init__.py").to_string_lossy(),
+                )?;
                 if !init_py.exists() {
                     tokio::fs::write(&init_py, "").await?;
                 }
             }
         }
-        tracing::debug!("Writing module file: {full_path}");
+        tracing::debug!("Writing module file: {}", full_path.display());
         tokio::fs::write(&full_path, &module.content).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod write_module_files_tests {
+    use super::*;
+    use std::collections::HashMap;
+    use windmill_common::scripts::ScriptLang;
+
+    fn module(content: &str) -> ScriptModule {
+        ScriptModule { content: content.to_string(), language: ScriptLang::Python3, lock: None }
+    }
+
+    #[test]
+    fn contained_relative_path_rejects_traversal_and_absolute() {
+        assert!(is_contained_relative_path("u/admin/pkg"));
+        assert!(is_contained_relative_path("./pkg/sub"));
+        // A `..` in a filename is a valid name, not a traversal.
+        assert!(is_contained_relative_path("weird..name"));
+
+        assert!(!is_contained_relative_path("u/x/../../../etc"));
+        assert!(!is_contained_relative_path("../escape"));
+        assert!(!is_contained_relative_path("/etc/cron.d/wm"));
+    }
+
+    #[tokio::test]
+    async fn base_dir_traversal_is_rejected_and_writes_nothing() {
+        let job = tempfile::tempdir().unwrap();
+        let job_dir = job.path().to_str().unwrap();
+        // Sentinel just outside job_dir that a successful traversal would create.
+        let outside = job.path().parent().unwrap().join("wm_escaped_marker");
+
+        let mut modules = HashMap::new();
+        modules.insert(
+            "wm_escaped_marker".to_string(),
+            module("* * * * * root id\n"),
+        );
+
+        // base_dir derived from a preview path carrying `..` traversal.
+        let res = write_module_files(job_dir, &modules, Some("u/x/../../../../../..")).await;
+        assert!(res.is_err(), "traversal base_dir must be rejected");
+        assert!(!outside.exists(), "no file may be written outside job_dir");
+    }
+
+    #[tokio::test]
+    async fn relpath_traversal_is_skipped() {
+        let job = tempfile::tempdir().unwrap();
+        let job_dir = job.path().to_str().unwrap();
+        let outside = job.path().parent().unwrap().join("wm_relpath_escape.py");
+
+        let mut modules = HashMap::new();
+        modules.insert("../wm_relpath_escape.py".to_string(), module("x = 1"));
+
+        write_module_files(job_dir, &modules, None).await.unwrap();
+        assert!(!outside.exists());
+    }
+
+    #[tokio::test]
+    async fn legitimate_modules_are_written_with_init_py() {
+        let job = tempfile::tempdir().unwrap();
+        let job_dir = job.path().to_str().unwrap();
+
+        let mut modules = HashMap::new();
+        modules.insert("pkg/sub/mod.py".to_string(), module("VALUE = 42"));
+
+        write_module_files(job_dir, &modules, Some("u/admin"))
+            .await
+            .unwrap();
+
+        let base = job.path().join("u/admin");
+        assert_eq!(
+            std::fs::read_to_string(base.join("pkg/sub/mod.py")).unwrap(),
+            "VALUE = 42"
+        );
+        assert!(base.join("pkg/__init__.py").exists());
+        assert!(base.join("pkg/sub/__init__.py").exists());
+    }
 }
 
 pub async fn run_language_executor(
@@ -4454,6 +4796,9 @@ pub async fn run_language_executor(
     lock: &Option<String>,
     modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
+    // Whether the script is a `// pipeline` member (parsed once upstream) — sets
+    // WM_PIPELINE so the wmll.ducklake SDK helpers record materialization state.
+    in_pipeline: bool,
 ) -> error::Result<Box<RawValue>> {
     // Defense-in-depth (GHSA-wxjq-w5pj-jqhx): the entrypoint override is
     // interpolated verbatim into a code position of the generated language
@@ -4816,6 +5161,11 @@ mount {{
 
     #[allow(unused_mut)]
     let mut envs = build_envs(envs.as_ref())?;
+    // Signal pipeline context to the script so the wmll.ducklake SDK helpers
+    // record materialization state (the grid/backfill) and skip it otherwise.
+    if in_pipeline {
+        envs.insert("WM_PIPELINE".to_string(), "true".to_string());
+    }
 
     let Some(language) = language else {
         return Err(Error::ExecutionErr(
@@ -5601,6 +5951,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     true,
+                    false,
                 )
                 .await
             })
@@ -5682,6 +6033,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &content_info.lockfile,
                     &content_info.modules,
                     true,
+                    false,
                 )
                 .await
             })

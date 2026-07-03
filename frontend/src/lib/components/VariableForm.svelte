@@ -8,10 +8,12 @@
 	import Label from './Label.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
+	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
+	import EncryptedDraftField from './EncryptedDraftField.svelte'
 
 	interface Variable {
 		value: string
@@ -95,12 +97,27 @@
 <div class="flex flex-col gap-1">
 	<label for="variable-value" class="flex flex-row justify-left items-center">
 		<span class="text-xs font-semibold text-emphasis">Variable value&nbsp;</span>
-		<span class="text-xs text-secondary font-normal">
-			({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
-		</span>
+		{#if !isEncryptedDraftValue(variable.value)}
+			<span class="text-xs text-secondary font-normal">
+				({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
+			</span>
+		{/if}
 		{#if edit && variable.is_secret}
 			<div class="ml-3"></div>
-			{#if $userStore?.operator}
+			{#if isEncryptedDraftValue(variable.value)}
+				<!-- Encrypted draft value: it can't be loaded back, only cleared.
+				Loading the deployed secret here would silently replace the draft,
+				so the audit-logged load action is hidden until the field is reset. -->
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: RotateCcw }}
+					disabled={!can_write}
+					on:click={() => (variable.value = '')}
+				>
+					Reset
+				</Button>
+			{:else if $userStore?.operator}
 				<div class="p-2 border">Operators cannot load secret value</div>
 			{:else}
 				<Button size="xs" variant="default" on:click={() => onLoadSecret?.()}>
@@ -110,55 +127,62 @@
 		{/if}
 	</label>
 	<div>
-		<div class="flex flex-col gap-2">
-			<ToggleButtonGroup bind:selected={editorKind}>
-				{#snippet children({ item })}
-					<ToggleButton value="plain" label="Plain" {item} />
-					<ToggleButton value="json" label="Json" {item} />
-					<ToggleButton value="yaml" label="YAML" {item} />
-				{/snippet}
-			</ToggleButtonGroup>
-			{#if editorKind == 'plain'}
-				<textarea
-					disabled={!can_write}
-					rows="4"
-					use:autosize
-					bind:value={variable.value}
-					placeholder="Update variable value"
-					id="variable-value"
-				></textarea>
-			{:else if editorKind == 'json'}
-				<div class="border rounded mb-4 w-full">
-					{#await import('$lib/components/SimpleEditor.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default
-							bind:this={editor}
-							autoHeight
-							lang="json"
-							bind:code={variable.value}
-							fixedOverflowWidgets={false}
-							class="bg-surface-tertiary"
-						/>
-					{/await}
-				</div>
-			{:else if editorKind == 'yaml'}
-				<div class="border rounded mb-4 w-full">
-					{#await import('$lib/components/SimpleEditor.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default
-							bind:this={editor}
-							autoHeight
-							lang="yaml"
-							bind:code={variable.value}
-							fixedOverflowWidgets={false}
-							class="bg-surface-tertiary"
-						/>
-					{/await}
-				</div>
-			{/if}
-		</div>
+		{#if isEncryptedDraftValue(variable.value)}
+			<!-- The draft's secret value was encrypted server-side and can't be
+			loaded back. Saving deploys the last saved value as-is; Reset clears
+			it so a new secret can be typed. -->
+			<EncryptedDraftField disabled={!can_write} onReset={() => (variable.value = '')} />
+		{:else}
+			<div class="flex flex-col gap-2">
+				<ToggleButtonGroup bind:selected={editorKind}>
+					{#snippet children({ item })}
+						<ToggleButton value="plain" label="Plain" {item} />
+						<ToggleButton value="json" label="Json" {item} />
+						<ToggleButton value="yaml" label="YAML" {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+				{#if editorKind == 'plain'}
+					<textarea
+						disabled={!can_write}
+						rows="4"
+						use:autosize
+						bind:value={variable.value}
+						placeholder="Update variable value"
+						id="variable-value"
+					></textarea>
+				{:else if editorKind == 'json'}
+					<div class="border rounded mb-4 w-full">
+						{#await import('$lib/components/SimpleEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								bind:this={editor}
+								autoHeight
+								lang="json"
+								bind:code={variable.value}
+								fixedOverflowWidgets={false}
+								class="bg-surface-tertiary"
+							/>
+						{/await}
+					</div>
+				{:else if editorKind == 'yaml'}
+					<div class="border rounded mb-4 w-full">
+						{#await import('$lib/components/SimpleEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								bind:this={editor}
+								autoHeight
+								lang="yaml"
+								bind:code={variable.value}
+								fixedOverflowWidgets={false}
+								class="bg-surface-tertiary"
+							/>
+						{/await}
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 </div>
 <label class="flex flex-col gap-1">

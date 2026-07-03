@@ -507,3 +507,123 @@ async fn test_root_job_span_attributes_values() {
     assert_eq!(get_attr("workspace_id"), "test-workspace");
     assert_eq!(get_attr("script_path"), "f/test/script");
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// INBOUND TRACE CONTEXT (W3C traceparent → span link)
+// ═══════════════════════════════════════════════════════════════════════
+
+const SAMPLE_TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+fn sample_trace_id() -> opentelemetry::trace::TraceId {
+    opentelemetry::trace::TraceId::from_hex("0af7651916cd43dd8448eb211c80319c").unwrap()
+}
+
+fn sample_span_id() -> opentelemetry::trace::SpanId {
+    opentelemetry::trace::SpanId::from_hex("b7ad6b7169203331").unwrap()
+}
+
+#[test]
+fn test_span_cx_from_traceparent_valid() {
+    let cx = span_cx_from_traceparent(SAMPLE_TRACEPARENT).expect("valid traceparent");
+    assert_eq!(cx.trace_id(), sample_trace_id());
+    assert_eq!(cx.span_id(), sample_span_id());
+    assert!(cx.is_remote());
+    assert!(cx.is_sampled());
+}
+
+#[test]
+fn test_span_cx_from_traceparent_unsampled_flag() {
+    let cx = span_cx_from_traceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00")
+        .expect("valid traceparent");
+    assert!(!cx.is_sampled());
+}
+
+#[test]
+fn test_span_cx_from_traceparent_malformed() {
+    for bad in [
+        "",
+        "garbage",
+        "00-tooshort-b7ad6b7169203331-01",
+        // missing flags field
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331",
+        // trailing extra field
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-extra",
+        // all-zero trace id / span id are invalid per the spec
+        "00-00000000000000000000000000000000-b7ad6b7169203331-01",
+        "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01",
+        // non-hex
+        "00-zzf7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+    ] {
+        assert!(
+            span_cx_from_traceparent(bad).is_none(),
+            "expected None for {bad:?}"
+        );
+    }
+}
+
+fn job_with_traceparent(tp: Option<&str>) -> windmill_queue::MiniPulledJob {
+    let mut job = make_test_job(uuid::Uuid::new_v4(), None);
+    if let Some(tp) = tp {
+        let mut args = std::collections::HashMap::new();
+        args.insert(
+            windmill_common::jobs::WM_TRACEPARENT.to_string(),
+            windmill_common::worker::to_raw_value(&tp),
+        );
+        job.args = Some(sqlx::types::Json(args));
+    }
+    job
+}
+
+#[test]
+fn test_inbound_span_cx_from_job_present() {
+    let job = job_with_traceparent(Some(SAMPLE_TRACEPARENT));
+    let cx = windmill_worker::otel_ee::inbound_span_cx_from_job(&job).expect("link expected");
+    assert_eq!(cx.trace_id(), sample_trace_id());
+    assert_eq!(cx.span_id(), sample_span_id());
+}
+
+#[test]
+fn test_inbound_span_cx_from_job_absent_or_malformed() {
+    // No reserved key (e.g. a flow step or internally-created job) → no link.
+    assert!(
+        windmill_worker::otel_ee::inbound_span_cx_from_job(&job_with_traceparent(None)).is_none()
+    );
+    // Malformed header is ignored rather than producing a bogus link.
+    assert!(
+        windmill_worker::otel_ee::inbound_span_cx_from_job(&job_with_traceparent(Some("garbage")))
+            .is_none()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_root_job_span_relocated_to_inbound_trace() {
+    let state = ensure_setup().await;
+    state.span_exporter.reset();
+
+    let job = job_with_traceparent(Some(SAMPLE_TRACEPARENT));
+    let job_id = job.id;
+    windmill_worker::otel_ee::add_root_flow_job_to_otlp(&job, true);
+
+    let spans = state.span_exporter.get_finished_spans().unwrap();
+    let span = spans
+        .iter()
+        .find(|s| s.name == "full_job")
+        .expect("full_job span not found");
+
+    // Relocated into the inbound trace, keeping the job-UUID-derived span id and
+    // parented on the inbound caller span.
+    assert_eq!(span.span_context.trace_id(), sample_trace_id());
+    let expected_span_id =
+        opentelemetry::trace::SpanId::from_bytes(job_id.as_u64_pair().1.to_be_bytes());
+    assert_eq!(span.span_context.span_id(), expected_span_id);
+    assert_eq!(span.parent_span_id, sample_span_id());
+
+    // Linked back to the UUID-derived context so trace-by-job-id still resolves.
+    assert_eq!(span.links.links.len(), 1);
+    let expected_uuid_trace =
+        opentelemetry::trace::TraceId::from_bytes(job_id.as_u128().to_be_bytes());
+    assert_eq!(
+        span.links.links[0].span_context.trace_id(),
+        expected_uuid_trace
+    );
+}

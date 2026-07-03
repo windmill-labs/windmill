@@ -17,8 +17,8 @@ use windmill_native_triggers::{
     decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
     get_workspace_integration,
     google::{parse_stop_channel_params, should_renew_channel},
-    store_native_trigger, store_workspace_integration, NativeTriggerConfig, OAuthConfig,
-    ServiceName,
+    require_native_integration_use, store_native_trigger, store_workspace_integration,
+    NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -328,6 +328,26 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
 // ============================================================================
 // 3. Channel Expiration Renewal — should_renew_channel
 // ============================================================================
+
+#[test]
+fn test_require_native_integration_use_blocks_operators() {
+    // Regression: the integration *use* routes (calendar/drive/repo/event pickers)
+    // must reject read-only operators, who cannot create native triggers and so
+    // must not be able to drive the admin-configured integration's upstream API.
+    let mut operator = test_authed();
+    operator.is_admin = false;
+    operator.is_operator = true;
+    assert!(require_native_integration_use(&operator).is_err());
+
+    // A regular non-admin author (the population that configures triggers) is allowed.
+    let mut author = test_authed();
+    author.is_admin = false;
+    author.is_operator = false;
+    assert!(require_native_integration_use(&author).is_ok());
+
+    // Admins are allowed.
+    assert!(require_native_integration_use(&test_authed()).is_ok());
+}
 
 #[test]
 fn test_should_renew_drive_channel_expired() {

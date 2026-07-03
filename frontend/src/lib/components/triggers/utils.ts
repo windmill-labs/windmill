@@ -81,7 +81,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'gcp',
 	'azure',
 	'google',
-	'github'
+	'github',
+	'asset'
 ]
 
 export type Trigger = {
@@ -650,71 +651,8 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 	})
 }
 
-export type FlowWithDraftAndDraftTriggers = Flow & {
-	draft?: Flow & {
-		draft_triggers?: Trigger[]
-	}
-}
-
-export type NewScriptWithDraftAndDraftTriggers = NewScript & {
-	draft?: NewScript & { draft_triggers?: Trigger[] }
-	hash: string
-}
-
-// Get rid of deployed triggers from the saved flow in the case there is a match with a deployed trigger
-export function filterDraftTriggers(
-	savedValue: FlowWithDraftAndDraftTriggers | NewScriptWithDraftAndDraftTriggers,
-	triggersState: Triggers
-): FlowWithDraftAndDraftTriggers | NewScriptWithDraftAndDraftTriggers {
-	const deployedTriggers = triggersState.triggers.filter((t) => !t.draftConfig && !t.isDraft)
-
-	// Early return if no deployed triggers or no draft triggers to filter
-	if (deployedTriggers.length === 0 || !savedValue?.draft?.draft_triggers?.length) {
-		return savedValue
-	}
-
-	const deployedTriggerKeys = new Set(deployedTriggers.map((t) => `${t.path}:${t.type}`))
-
-	const originalSavedDraftTriggers = savedValue.draft.draft_triggers
-	const keptTriggers: Trigger[] = []
-	const removedTriggers: Trigger[] = []
-
-	// Single pass to separate kept vs removed triggers
-	for (const savedTrigger of originalSavedDraftTriggers) {
-		const triggerKey = `${savedTrigger.draftConfig?.path}:${savedTrigger.type}`
-		if (deployedTriggerKeys.has(triggerKey)) {
-			removedTriggers.push(savedTrigger)
-		} else {
-			keptTriggers.push(savedTrigger)
-		}
-	}
-
-	// Early return if nothing was filtered
-	if (removedTriggers.length === 0) {
-		return savedValue
-	}
-
-	// Update saved value
-	const newSavedValue = {
-		...savedValue,
-		draft: {
-			...savedValue.draft,
-			draft_triggers: keptTriggers.length > 0 ? keptTriggers : undefined
-		}
-	} as typeof savedValue
-
-	const removedTriggerKeys = new Set(removedTriggers.map((t) => `${t.draftConfig?.path}:${t.type}`))
-
-	// Remove filtered triggers from triggersState
-	triggersState.setTriggers(
-		triggersState.triggers.filter((trigger) => {
-			const triggerKey = `${trigger.draftConfig?.path}:${trigger.type}`
-			return !removedTriggerKeys.has(triggerKey)
-		})
-	)
-
-	return newSavedValue
-}
+export type FlowWithDraftAndDraftTriggers = Flow
+export type NewScriptWithDraftAndDraftTriggers = NewScript & { hash?: string }
 
 export function getHandlerType(scriptPath: string): ErrorHandler {
 	const handlerMap = {

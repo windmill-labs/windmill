@@ -17,6 +17,7 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -33,8 +34,8 @@ use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
-    format_completed_job_result, format_result, is_valid_entrypoint_name, DynamicInput,
-    ENTRYPOINT_OVERRIDE,
+    format_completed_job_result, format_result, is_safe_log_file_path, is_valid_entrypoint_name,
+    DynamicInput, ENTRYPOINT_OVERRIDE,
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::jobs::{
@@ -269,6 +270,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/dynamic_select", post(run_dynamic_select))
         .route("/list", get(list_jobs))
+        .route("/asset_dispatch_edges", get(list_asset_dispatch_edges))
         .route(
             "/list_selected_job_groups",
             // We use post because sending a huge array as a query param can produce
@@ -344,6 +346,10 @@ pub fn workspaced_service() -> Router {
             "/result_by_id/{job_id}/{node_id}",
             get(get_result_by_id).layer(cors.clone()),
         )
+        .route(
+            "/job_view_token/{id}",
+            get(get_job_view_token).layer(cors.clone()),
+        )
         .route("/run/dependencies", post(run_dependencies_job))
         .route("/run/dependencies_async", post(run_dependencies_job_async))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
@@ -385,6 +391,10 @@ pub fn workspace_unauthed_service() -> Router {
         .route("/get_logs/{id}", get(get_job_logs))
         .route("/get_flow_all_logs/{id}", get(get_flow_all_logs))
         .route(
+            "/get_flow_all_logs_structured/{id}",
+            get(get_flow_all_logs_structured),
+        )
+        .route(
             "/get_completed_logs_tail/{id}",
             get(get_completed_job_logs_tail),
         )
@@ -398,6 +408,7 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_result_maybe),
         )
         .route("/completed/get_timing/{id}", get(get_completed_job_timing))
+        .route("/dispatch_events/{id}", get(get_dispatch_events))
         .route("/getupdate/{id}", get(get_job_update))
         .route("/getupdate_sse/{id}", get(get_job_update_sse))
         .route("/get_log_file/{*file_path}", get(get_log_file))
@@ -426,12 +437,27 @@ struct JsonPath {
     pub approver: Option<String>,
 }
 async fn get_result_by_id(
+    OptViewToken(view_token): OptViewToken,
     authed: ApiAuthed,
     tokened: Tokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
     Query(JsonPath { json_path, .. }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
+    // Reading a node's result requires being able to read the flow itself (the node
+    // belongs to it). Gate on the flow's visibility (created_by / RLS / root
+    // inheritance) before resolving via the root DB.
+    require_job_update_read_access(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &flow_id,
+        view_token.as_deref(),
+    )
+    .await?;
+
     let res =
         windmill_queue::get_result_by_id(db.clone(), w_id.clone(), flow_id, node_id, json_path)
             .await?;
@@ -439,6 +465,25 @@ async fn get_result_by_id(
     log_job_view(&db, Some(&authed), Some(&tokened.token), &w_id, &flow_id).await?;
 
     Ok(Json(res))
+}
+
+/// Mint a stateless "share read link" token for a job. Only a caller who can already
+/// read the job (creator / RLS / flow ancestor / admin) may mint it. The returned
+/// `{job_id}.{hmac}` is passed back as the `view_token` query param on the run page's
+/// reads, granting an authenticated member read of this job and its flow subtree.
+async fn get_job_view_token(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<String> {
+    // No `view_token` here: minting requires the caller's own read access, so a share
+    // link cannot be used to mint further links. `require_job_read_access` also
+    // enforces the caller's `if_jobs:filter_tags` scope, so a tag-scoped token can't
+    // mint a transferable link for a job outside its allowed tags.
+    require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
+    let hmac = generate_view_token(&w_id, id, &db).await?;
+    Ok(format!("{id}.{hmac}"))
 }
 
 async fn get_root_job(
@@ -472,6 +517,26 @@ async fn cancel_job_api(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    // App embed tokens (the sandboxed app iframe) may cancel ONLY jobs they launched
+    // — their app's component runs, stamped created_by == viewer. cancel_job_api has
+    // no other per-job ownership check, so without this an embed token (which carries
+    // the viewer's identity) could cancel any job by id. NotFound (not 403) so the
+    // untrusted app can't probe job existence.
+    if let Some(authed) = opt_authed.as_ref() {
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                id,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+            if created_by.as_deref() != Some(authed.username.as_str()) {
+                return Err(Error::NotFound(format!("Job {id} not found")));
+            }
+        }
+    }
+
     let tx = db.begin().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
@@ -690,9 +755,11 @@ async fn get_scheduled_for(
 }
 
 async fn get_flow_job_debug_info(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     tokened_o: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     let job = GetQuery::new()
@@ -700,6 +767,18 @@ async fn get_flow_job_debug_info(
         .fetch_queued((&db).into(), &id, &w_id)
         .await?;
     if let Some(job) = job {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                &job.created_by,
+                view_token.as_deref(),
+            )
+            .await?;
+        }
         let is_flow = job.is_flow();
         if job.is_flow_step || !is_flow {
             return Err(error::Error::BadRequest(
@@ -857,10 +936,402 @@ struct GetJobQuery {
     pub approval_token: Option<String>,
 }
 
+/// Authorize an *authenticated* caller to read a single job's data
+/// (full job / args / result / logs / live updates).
+///
+/// Single-job read endpoints query through the root `DB` (RLS-bypassing), filtered
+/// only by job id + workspace (+ token scope tags). That is required for the
+/// unauthenticated approval / public-trigger / anonymous-job flows, but for a
+/// logged-in user it meant any workspace member — e.g. a viewer with no ACL on the
+/// runnable — could read another user's job args/result/logs simply by obtaining the
+/// job UUID, even though the same job is hidden from them in `jobs/list`
+/// (RLS-filtered) and the underlying script returns 404. (WIN-2026-jobs-read)
+///
+/// Unauthenticated callers are still handled by each handler's anonymous-job check;
+/// this gate applies only when a user is authenticated. Access is granted when:
+/// - the caller created the job (`created_by`) — covers app components, webhooks and
+///   the caller's own runs, whose `permissioned_as` is the policy identity rather
+///   than the caller, so they would otherwise fail the RLS probe; or
+/// - the job is visible to the caller under the same RLS as `jobs/list`, probed on
+///   `v2_job` via `user_db` (admins BYPASSRLS).
+///
+/// Optional share-read-link token (validated by [`validate_view_token`]). Read from
+/// the `view_token` query parameter — needed for `EventSource`/SSE and direct links,
+/// which can't set headers — falling back to the `X-View-Token` header, which lets the
+/// frontend attach it to every generated-client request via a single interceptor
+/// instead of threading it through each call. Read independently of each handler's own
+/// `Query<T>` extractor (axum allows only one typed `Query`).
+pub struct OptViewToken(pub Option<String>);
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OptViewToken {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        let from_query = parts.uri.query().and_then(|q| {
+            serde_urlencoded::from_str::<Vec<(String, String)>>(q)
+                .ok()
+                .and_then(|pairs| {
+                    pairs
+                        .into_iter()
+                        .find(|(k, _)| k == "view_token")
+                        .map(|(_, v)| v)
+                })
+        });
+        let token = from_query.or_else(|| {
+            parts
+                .headers
+                .get("x-view-token")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        });
+        Ok(OptViewToken(token))
+    }
+}
+
+/// Otherwise returns 404 — matching `scripts/get` and avoiding existence disclosure.
+async fn require_job_read_access(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: &Uuid,
+    created_by: &str,
+    view_token: Option<&str>,
+) -> error::Result<()> {
+    // Tag scope (`if_jobs:filter_tags:`) is an orthogonal hard restriction on a
+    // scoped token: it must never read a job outside its allowed tags, regardless of
+    // how authorization is otherwise satisfied (created_by / view token / RLS). Most
+    // read handlers also tag-filter their data query, but some (result_by_id,
+    // get_flow_job_debug_info, get_otel_traces) do not, so enforce it here — before
+    // the grants below — so a share token can't be used to escape the tag scope.
+    // `get_scope_tags` is `None` for unscoped callers (the common case), so this adds
+    // no query for normal sessions/tokens.
+    if let Some(tags) = get_scope_tags(authed) {
+        let in_scope = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2 AND tag = ANY($3))",
+            job_id,
+            w_id,
+            &tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+        )
+        .fetch_one(db)
+        .await?
+            == Some(true);
+        if !in_scope {
+            return Err(Error::NotFound(format!("Job {job_id} not found")));
+        }
+    }
+
+    // Fast path: you can always read a job you launched. This is also load-bearing
+    // for apps — a component job runs as the app policy's `permissioned_as`, but its
+    // `created_by` is the launching viewer, so the RLS probe below would hide it.
+    if created_by == authed.username {
+        return Ok(());
+    }
+
+    // App embed tokens (the sandboxed app iframe) carry the viewer's identity so the
+    // app can read its own component runs — which are stamped `created_by == viewer`
+    // and so already returned above. They must NOT inherit the viewer's *broader*
+    // job access (share links, folder ACLs, admin RLS): user-authored app JS holds
+    // this token, and letting it reach any job merely visible to the viewer would
+    // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
+    // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+        return Err(Error::NotFound(format!("Job {job_id} not found")));
+    }
+
+    // `username_override` is derived from the token *label* (`username_override_from_label`),
+    // which is fully user-controlled with no uniqueness/ownership check (webhook-/http-/
+    // email-/ws- trigger tokens, `ephemeral-script-end-user-*`, and the generic `label-*`
+    // all flow through it). A bare `username_override == created_by` match is therefore
+    // forgeable: any member can mint a token with a colliding label and read another
+    // principal's jobs (IDOR — results/args/logs with resolved secrets). Bind the grant to
+    // a non-forgeable attribute instead: the job must actually run as the caller's own
+    // identity, i.e. its `permissioned_as_email` (the token owner's email, never set from
+    // the label) equals `authed.email`. This still admits every legitimate same-owner
+    // re-read (trigger tokens reading their own webhook/http/email jobs, the
+    // ephemeral-script-end-user worker token, generic labeled tokens) while denying
+    // cross-principal collisions. The DB hit only happens when an override is present and
+    // matches, so the common session/token path stays query-free.
+    if authed
+        .username_override
+        .as_deref()
+        .is_some_and(|u| u == created_by)
+    {
+        let job_email = sqlx::query_scalar!(
+            "SELECT permissioned_as_email FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            job_id,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await?;
+        if job_email.as_deref() == Some(authed.email.as_str()) {
+            return Ok(());
+        }
+    }
+
+    // Share read link: a valid view token minted by someone with read access grants
+    // this authenticated member read of the shared job and its flow subtree.
+    if let Some(token) = view_token {
+        if validate_view_token(db, w_id, job_id, token).await? {
+            return Ok(());
+        }
+    }
+
+    // The probe below (chain walk + an RLS-scoped transaction) is comparatively
+    // expensive and the same (caller, job) is hit repeatedly — e.g. `getupdate`
+    // polling of a run you can see but did not launch, or an admin watching many
+    // runs. Cache the boolean outcome. All job-side inputs to the decision
+    // (created_by, runnable_path, permissioned_as, visible_to_owner, flow lineage)
+    // are immutable after creation, and every mutable caller-side input
+    // (is_admin / username / username_override / groups / folders) is folded into
+    // the key — so a permission change yields a new key rather than a stale hit, and
+    // no TTL is needed (size-bounded LRU; mirrors apps' PERMIT_CACHE).
+    let cache_key = job_read_access_cache_key(authed, w_id, job_id);
+    let visible = if let Some(visible) = JOB_READ_ACCESS_CACHE.get(&cache_key) {
+        visible
+    } else {
+        // Visibility is inherited along the flow hierarchy: if you can read ANY flow
+        // that (transitively) contains this job, you can read the job. A step runs as
+        // its flow's `permissioned_as` but its `runnable_path` is the inner runnable's
+        // — which the caller may have no direct ACL on — and the flow-run UI fetches
+        // each step by id, so gating purely on the step's own RLS visibility would
+        // break inspecting a flow you can see but did not launch. We therefore probe
+        // RLS visibility of the job OR any of its `parent_job` ancestors (admins
+        // BYPASSRLS) — the same visibility as `jobs/list`.
+        let chain_ids = job_ancestor_chain_ids(db, w_id, job_id).await?;
+
+        let mut tx = user_db.clone().begin(authed).await?;
+        let visible = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM v2_job WHERE id = ANY($1) AND workspace_id = $2)",
+            &chain_ids[..],
+            w_id,
+        )
+        .fetch_one(&mut *tx)
+        .await?
+            == Some(true);
+        tx.commit().await?;
+
+        JOB_READ_ACCESS_CACHE.insert(cache_key, visible);
+        visible
+    };
+
+    if visible {
+        return Ok(());
+    }
+
+    // Denied. Distinguish "the run exists but you lack access" (actionable: ask a
+    // colleague for a share link) from "no such run", so the UI can guide the user.
+    // Only authenticated members reach this point and job UUIDs are non-enumerable,
+    // so disclosing mere existence to a member is an acceptable trade-off for the UX.
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM v2_job WHERE id = ANY($1) AND workspace_id = $2)",
+        &[*job_id][..],
+        w_id,
+    )
+    .fetch_one(db)
+    .await?
+        == Some(true);
+    if exists {
+        Err(Error::PermissionDenied(format!(
+            "You do not have access to run {job_id}. Ask a user who can see it to open the run and \
+             share a read-only link with you (the \"Share\" button on the run page)."
+        )))
+    } else {
+        Err(Error::NotFound(format!("Job {job_id} not found")))
+    }
+}
+
+/// Self + every `parent_job` ancestor (intermediate sub-flows up to the top-level
+/// root) of `job_id`, resolved via the root DB (flow lineage is not sensitive).
+/// Falls back to `[job_id]` if the row is absent so callers still run their probe.
+async fn job_ancestor_chain_ids(db: &DB, w_id: &str, job_id: &Uuid) -> error::Result<Vec<Uuid>> {
+    let chain_ids = sqlx::query_scalar!(
+        r#"WITH RECURSIVE chain(id, parent_job) AS (
+                SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2
+                UNION ALL
+                SELECT j.id, j.parent_job FROM v2_job j
+                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
+            )
+            SELECT id AS "id!" FROM chain"#,
+        job_id,
+        w_id,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(if chain_ids.is_empty() {
+        vec![*job_id]
+    } else {
+        chain_ids
+    })
+}
+
+/// A share read link token has the form `{shared_job_id}.{hmac}` where `hmac` is
+/// [`windmill_common::variables::generate_view_token`] for `shared_job_id`. It grants
+/// read of that job and its whole flow subtree, so the run page can present a single
+/// link that also renders the flow's steps. Returns true iff the signature is valid
+/// AND `accessed_job_id` is the shared job or one of its descendants.
+async fn validate_view_token(
+    db: &DB,
+    w_id: &str,
+    accessed_job_id: &Uuid,
+    token: &str,
+) -> error::Result<bool> {
+    let Some((shared_id_str, provided_hmac)) = token.split_once('.') else {
+        return Ok(false);
+    };
+    let Ok(shared_id) = Uuid::parse_str(shared_id_str) else {
+        return Ok(false);
+    };
+    let Ok(provided_bytes) = hex::decode(provided_hmac) else {
+        return Ok(false);
+    };
+    // Constant-time verification (same domain as `generate_view_token`, mirroring
+    // `verify_suspended_secret`); avoids the timing side-channel of comparing the
+    // hex strings with `!=`.
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(shared_id.as_bytes());
+    mac.update(b"view_token");
+    if mac.verify_slice(&provided_bytes).is_err() {
+        return Ok(false);
+    }
+    if accessed_job_id == &shared_id {
+        return Ok(true);
+    }
+    // The token authorizes the shared job's subtree: accessed must descend from it,
+    // i.e. the shared job is among accessed's ancestors.
+    let chain = job_ancestor_chain_ids(db, w_id, accessed_job_id).await?;
+    Ok(chain.contains(&shared_id))
+}
+
+lazy_static::lazy_static! {
+    /// Caches the result of the `require_job_read_access` RLS visibility probe,
+    /// keyed by the caller's authorization-relevant identity plus the job id (see
+    /// [`job_read_access_cache_key`]). No TTL: the cached decision is a pure function
+    /// of immutable job-side state and the caller-side state encoded in the key, so a
+    /// permission change re-keys rather than going stale. Size-bounded LRU.
+    static ref JOB_READ_ACCESS_CACHE: Cache<[u8; 32], bool> = Cache::new(50_000);
+}
+
+/// Key for [`JOB_READ_ACCESS_CACHE`]: a SHA-256 over every caller-side input that
+/// affects job-read visibility (admin flag, username, username override, the sorted
+/// group set, and the sorted folder set the caller has any grant on — RLS reads from
+/// all of them) plus the workspace and job id. Sorting makes the key order-independent;
+/// each variable-length field is length-prefixed so no choice of input values can make
+/// two distinct identities hash equal (e.g. `["a","bc"]` vs `["ab","c"]`).
+fn job_read_access_cache_key(authed: &ApiAuthed, w_id: &str, job_id: &Uuid) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    // Length-prefix every variable-length field (u32 BE) to make the encoding injective.
+    let field = |hasher: &mut Sha256, bytes: &[u8]| {
+        hasher.update((bytes.len() as u32).to_be_bytes());
+        hasher.update(bytes);
+    };
+    hasher.update([authed.is_admin as u8]);
+    field(&mut hasher, authed.username.as_bytes());
+    field(
+        &mut hasher,
+        authed.username_override.as_deref().unwrap_or("").as_bytes(),
+    );
+    let mut groups: Vec<&str> = authed.groups.iter().map(String::as_str).collect();
+    groups.sort_unstable();
+    hasher.update((groups.len() as u32).to_be_bytes());
+    for g in groups {
+        field(&mut hasher, g.as_bytes());
+    }
+    let mut folders: Vec<&str> = authed.folders.iter().map(|f| f.0.as_str()).collect();
+    folders.sort_unstable();
+    hasher.update((folders.len() as u32).to_be_bytes());
+    for f in folders {
+        field(&mut hasher, f.as_bytes());
+    }
+    field(&mut hasher, w_id.as_bytes());
+    hasher.update(job_id.as_bytes());
+    hasher.finalize().into()
+}
+
+/// [`require_job_read_access`] for callers (job-update poll / SSE) that haven't
+/// already loaded `created_by` — fetches it (root DB, by id+workspace) first.
+async fn require_job_update_read_access(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: &Uuid,
+    view_token: Option<&str>,
+) -> error::Result<()> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
+    require_job_read_access(db, user_db, authed, w_id, job_id, &created_by, view_token).await
+}
+
+/// Whether a validated approval token should grant the job-read bypass. The token alone
+/// is sufficient unless the current approval step has `user_auth_required`, in which case
+/// only an authorized approver may read the job (and thus its args/flow inputs).
+async fn approval_token_grants_view(
+    db: &DB,
+    w_id: &str,
+    flow_id: Uuid,
+    opt_authed: &Option<ApiAuthed>,
+) -> error::Result<bool> {
+    #[derive(sqlx::FromRow)]
+    struct FlowAuthRow {
+        script_path: Option<String>,
+        email: String,
+        flow_status: Option<serde_json::Value>,
+    }
+    let row = sqlx::query_as::<_, FlowAuthRow>(
+        "SELECT j.runnable_path as script_path, j.permissioned_as_email as email, s.flow_status
+         FROM v2_job j
+         LEFT JOIN v2_job_status s ON s.id = j.id
+         WHERE j.id = $1 AND j.workspace_id = $2",
+    )
+    .bind(flow_id)
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+
+    // approval_conditions are stored at the top of flow_status for both classic and WAC flows.
+    let approval_conditions = row
+        .flow_status
+        .as_ref()
+        .and_then(|v| v.get("approval_conditions").cloned())
+        .and_then(|v| serde_json::from_value::<ApprovalConditions>(v).ok());
+
+    let user_auth_required = approval_conditions
+        .as_ref()
+        .map(|ac| ac.user_auth_required)
+        .unwrap_or(false);
+
+    if !user_auth_required {
+        return Ok(true);
+    }
+
+    Ok(can_approve_step(
+        opt_authed,
+        &approval_conditions,
+        row.script_path.as_deref(),
+        row.email.as_str(),
+    ))
+}
+
 async fn get_job(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetJobQuery { no_logs, no_code, approval_token }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
@@ -873,17 +1344,31 @@ async fn get_job(
     // so the approval page can render job metadata without login. The approval
     // URL usually carries the flow id directly — try that first and only
     // resolve the parent flow if the direct check fails.
-    let has_valid_approval_token = if let Some(ref token) = approval_token {
+    let approved_flow_id: Option<Uuid> = if let Some(ref token) = approval_token {
         if validate_approval_token(&db, token, id, &w_id).await.is_ok() {
-            true
+            Some(id)
         } else if let Ok(flow_id) = get_flow_id_for_job(&db, id).await {
-            flow_id != id
+            if flow_id != id
                 && validate_approval_token(&db, token, flow_id, &w_id)
                     .await
                     .is_ok()
+            {
+                Some(flow_id)
+            } else {
+                None
+            }
         } else {
-            false
+            None
         }
+    } else {
+        None
+    };
+
+    // A valid token grants the read bypass, but only to an authorized approver when the
+    // current approval step requires auth — otherwise the token (which lives in the shareable
+    // approval URL) would leak the flow inputs to anyone holding the link.
+    let has_valid_approval_token = if let Some(flow_id) = approved_flow_id {
+        approval_token_grants_view(&db, &w_id, flow_id, &opt_authed).await?
     } else {
         false
     };
@@ -903,6 +1388,23 @@ async fn get_job(
     let mut job = get.fetch(&db, &id, &w_id).await?;
     job.fetch_outstanding_wait_time(&db).await?;
 
+    // A valid approval token is itself the capability; otherwise an authenticated
+    // caller must pass the same visibility as `jobs/list` (see `require_job_read_access`).
+    if !has_valid_approval_token {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                job.created_by(),
+                view_token.as_deref(),
+            )
+            .await?;
+        }
+    }
+
     log_job_view(
         &db,
         opt_authed.as_ref(),
@@ -921,6 +1423,7 @@ macro_rules! get_job_query {
             @impl "v2_job_completed", ($($opts)*),
             "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, \
             v2_job.labels, \
+            EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -930,7 +1433,8 @@ macro_rules! get_job_query {
             @impl "v2_job_queue", ($($opts)*),
             "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
             flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, \
-            script_entrypoint_override, v2_job.labels",
+            script_entrypoint_override, v2_job.labels, \
+            EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
             "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
         )
     };
@@ -1447,11 +1951,16 @@ async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
-                    .await
-                    .is_ok()
-                {
+                if !is_safe_log_file_path(file_p) {
                     return None;
+                }
+                let local_file = format!("{}/{file_p}", *WINDMILL_DIR);
+                // Defense in depth: refuse to read through a symlink so a planted
+                // symlink under the log directory cannot exfiltrate arbitrary files.
+                match tokio::fs::symlink_metadata(&local_file).await {
+                    Ok(meta) if meta.file_type().is_symlink() => return None,
+                    Ok(_) => {}
+                    Err(_) => return None,
                 }
             }
 
@@ -1477,8 +1986,10 @@ async fn get_logs_from_disk(
 }
 
 async fn get_completed_job_logs_tail(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<String> {
     let tags = opt_authed
@@ -1501,7 +2012,18 @@ async fn get_completed_job_logs_tail(
         .await?;
 
     if let Some(record) = record {
-        if opt_authed.is_none() && record.created_by != "anonymous" {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                &record.created_by,
+                view_token.as_deref(),
+            )
+            .await?;
+        } else if record.created_by != "anonymous" {
             return Err(Error::BadRequest(
                 "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
             ));
@@ -1519,9 +2041,11 @@ struct QueryJobLogs {
 }
 
 async fn get_job_logs(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(query_job_logs): Query<QueryJobLogs>,
 ) -> error::Result<Response> {
@@ -1552,7 +2076,18 @@ async fn get_job_logs(
         .await?;
 
     if let Some(record) = record {
-        if opt_authed.is_none() && record.created_by != "anonymous" {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                &record.created_by,
+                view_token.as_deref(),
+            )
+            .await?;
+        } else if record.created_by != "anonymous" {
             return Err(Error::BadRequest(
                 "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
             ));
@@ -1679,12 +2214,40 @@ async fn resolve_logs_to_string(
     logs.to_string()
 }
 
-async fn get_flow_all_logs(
-    OptAuthed(opt_authed): OptAuthed,
+/// A single job in a flow's execution tree, with its resolved logs and a
+/// human-readable label describing its position (iteration, branch, subflow…).
+#[derive(Serialize)]
+struct FlowLogEntry {
+    job_id: String,
+    /// Human-readable label, e.g. "Step a (iteration 2/3)" or "Flow".
+    label: String,
+    /// Job kind (script, flow, forloopflow, …).
+    kind: String,
+    /// The flow step id this job corresponds to, if any.
+    flow_step_id: Option<String>,
+    /// Materialized step path (e.g. "a/b") used to locate the step in the flow.
+    step_path: Option<String>,
+    /// Depth in the flow tree (0 for the root flow job).
+    depth: i32,
+    /// The parent module type (forloopflow, branchall, …), if any.
+    parent_module_type: Option<String>,
+    /// 1-based index of this job among its siblings sharing the same step.
+    sibling_index: i32,
+    /// Total number of siblings sharing the same step.
+    sibling_count: i32,
+    /// Resolved logs for this job (pulled from disk/object store as needed).
+    logs: String,
+}
+
+async fn collect_flow_log_entries(
+    view_token: Option<String>,
+    opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
-    Extension(db): Extension<DB>,
-    Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::Result<Response> {
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    id: Uuid,
+) -> error::Result<Vec<FlowLogEntry>> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
@@ -1697,22 +2260,33 @@ async fn get_flow_all_logs(
         w_id,
         tags.as_ref().map(|v| v.as_slice())
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await?;
 
     let root_job = not_found_if_none(root_job, "Job", id.to_string())?;
 
-    if opt_authed.is_none() && root_job.created_by != "anonymous" {
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_read_access(
+            db,
+            user_db,
+            authed,
+            w_id,
+            &id,
+            &root_job.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    } else if root_job.created_by != "anonymous" {
         return Err(Error::BadRequest(
             "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
         ));
     }
 
     log_job_view(
-        &db,
+        db,
         opt_authed.as_ref(),
         opt_tokened.token.as_deref(),
-        &w_id,
+        w_id,
         &id,
     )
     .await?;
@@ -1779,10 +2353,10 @@ async fn get_flow_all_logs(
         w_id,
         id,
     )
-    .fetch_all(&db)
+    .fetch_all(db)
     .await?;
 
-    let mut all_logs = String::new();
+    let mut entries = Vec::with_capacity(records.len());
 
     for record in &records {
         let kind = record.kind.as_deref().unwrap_or("");
@@ -1845,22 +2419,95 @@ async fn get_flow_all_logs(
         };
 
         let job_id = record.id.map(|u| u.to_string()).unwrap_or_default();
-        all_logs.push_str(&format!("\n=== {} (Job: {}) ===\n", label, job_id));
         let logs = record.logs.as_deref().unwrap_or("");
         let resolved =
             resolve_logs_to_string(record.log_offset.unwrap_or(0), logs, &record.log_file_index)
                 .await;
-        all_logs.push_str(&resolved);
+
+        entries.push(FlowLogEntry {
+            job_id,
+            label,
+            kind: kind.to_string(),
+            flow_step_id: record.flow_step_id.clone(),
+            step_path: record.path_label.clone(),
+            depth,
+            parent_module_type: if parent_module_type.is_empty() {
+                None
+            } else {
+                Some(parent_module_type.to_string())
+            },
+            sibling_index,
+            sibling_count,
+            logs: resolved,
+        });
+    }
+
+    Ok(entries)
+}
+
+async fn get_flow_all_logs(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Response> {
+    let entries = collect_flow_log_entries(
+        view_token,
+        opt_authed,
+        opt_tokened,
+        &db,
+        &user_db,
+        &w_id,
+        id,
+    )
+    .await?;
+
+    let mut all_logs = String::new();
+    for entry in &entries {
+        all_logs.push_str(&format!(
+            "\n=== {} (Job: {}) ===\n",
+            entry.label, entry.job_id
+        ));
+        all_logs.push_str(&entry.logs);
         all_logs.push('\n');
     }
 
     Ok(content_plain(Body::from(all_logs)))
 }
 
-async fn get_args(
+/// Structured alternative to `get_flow_all_logs`: returns the same flow log
+/// tree as a JSON array of entries (one per job) instead of a flat text blob,
+/// so callers can render or process logs per-step without parsing delimiters.
+async fn get_flow_all_logs_structured(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> JsonResult<Vec<FlowLogEntry>> {
+    let entries = collect_flow_log_entries(
+        view_token,
+        opt_authed,
+        opt_tokened,
+        &db,
+        &user_db,
+        &w_id,
+        id,
+    )
+    .await?;
+
+    Ok(Json(entries))
+}
+
+async fn get_args(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> JsonResult<Box<RawValue>> {
     let tags = opt_authed
@@ -1879,7 +2526,18 @@ async fn get_args(
         .await?;
 
     if let Some(record) = record {
-        if opt_authed.is_none() && record.created_by != "anonymous" {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                &record.created_by,
+                view_token.as_deref(),
+            )
+            .await?;
+        } else if record.created_by != "anonymous" {
             return Err(Error::BadRequest(
                 "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
             ));
@@ -1907,7 +2565,18 @@ async fn get_args(
             .fetch_optional(&db)
             .await?;
         let record = not_found_if_none(record, "Job Args", id.to_string())?;
-        if opt_authed.is_none() && record.created_by != "anonymous" {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                &record.created_by,
+                view_token.as_deref(),
+            )
+            .await?;
+        } else if record.created_by != "anonymous" {
             return Err(Error::BadRequest(
                 "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
             ));
@@ -2114,15 +2783,19 @@ async fn list_filtered_job_uuids(
         false,
         get_scope_tags(&authed),
     );
-    let sqlb2 = list_queue_jobs_query(
-        w_id.as_str(),
-        &lq.into(),
-        &["v2_job.id"],
-        Pagination { page: None, per_page: None },
-        false,
-        get_scope_tags(&authed),
-    );
-    let query = sqlb.union_all(sqlb2.subquery()?).subquery()?;
+    let query = if lq.status.is_some() {
+        sqlb.subquery()?
+    } else {
+        let sqlb2 = list_queue_jobs_query(
+            w_id.as_str(),
+            &lq.into(),
+            &["v2_job.id"],
+            Pagination { page: None, per_page: None },
+            false,
+            get_scope_tags(&authed),
+        );
+        sqlb.union_all(sqlb2.subquery()?).subquery()?
+    };
     let ids = sqlx::query_scalar(query.as_str()).fetch_all(&db).await?;
     Ok(Json(ids))
 }
@@ -2280,9 +2953,9 @@ async fn list_jobs(
         tracing::warn!("offset is not 0, but is ignored for list_jobs. Use created_before or completed_before instead.");
     }
 
-    if lq.success.is_some() && lq.running.is_some_and(|x| x) {
+    if (lq.success.is_some() || lq.status.is_some()) && lq.running.is_some_and(|x| x) {
         return Err(error::Error::BadRequest(
-            "cannot specify both success and running".to_string(),
+            "cannot specify success/status with running".to_string(),
         ));
     }
 
@@ -2335,6 +3008,7 @@ async fn list_jobs(
     };
 
     let sql = if lq.success.is_none()
+        && lq.status.is_none()
         && lq.label.is_none()
         && lq.result.is_none()
         && !lq.is_skipped.unwrap_or(false)
@@ -2360,7 +3034,7 @@ async fn list_jobs(
     } else {
         if sqlc.is_none() {
             return Err(error::Error::BadRequest(
-                "cannot specify success, label, created_or_started_before, or starte
+                "cannot specify success, status, label, created_or_started_before, or starte
                     d_before with running"
                     .to_string(),
             ));
@@ -2453,7 +3127,7 @@ pub async fn resume_suspended_flow_as_owner(
 
 // --- New approval system endpoints ---
 
-use windmill_common::variables::generate_approval_token;
+use windmill_common::variables::{generate_approval_token, generate_view_token};
 
 /// Verify an approval token against the workspace key + job_id.
 async fn validate_approval_token(
@@ -2664,6 +3338,49 @@ struct ApprovalInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_cancel: Option<bool>,
     approvers: Vec<Approval>,
+    /// Share-read-link token for the flow, minted only for callers allowed to view this
+    /// approval. Lets an authenticated workspace-member approver open the run details of
+    /// a flow they don't otherwise have read access to (the run page reads it as a
+    /// `view_token` query param).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view_token: Option<String>,
+}
+
+/// Whether `opt_authed` is allowed to approve — and therefore view — this approval step.
+/// Mirrors the authorization performed at the resume boundary: workspace admins and owners
+/// of the runnable always qualify; otherwise the approval conditions (user_auth_required /
+/// user_groups_required / self_approval_disabled) decide. When the step does not require auth,
+/// an anonymous (token-only) caller qualifies.
+fn can_approve_step(
+    opt_authed: &Option<ApiAuthed>,
+    approval_conditions: &Option<ApprovalConditions>,
+    script_path: Option<&str>,
+    trigger_email: &str,
+) -> bool {
+    match opt_authed {
+        Some(authed) => {
+            if authed.is_admin {
+                return true;
+            }
+            let is_owner = script_path
+                .map(|p| require_owner_of_path(authed, p).is_ok())
+                .unwrap_or(false);
+            if is_owner {
+                return true;
+            }
+            conditionally_require_authed_user(
+                Some(authed.clone()),
+                approval_conditions.clone(),
+                trigger_email,
+            )
+            .is_ok()
+        }
+        // Not logged in — only acceptable when the step does not require auth.
+        None => !approval_conditions
+            .as_ref()
+            .map(|ac| ac.user_auth_required)
+            .unwrap_or(false),
+    }
 }
 
 async fn get_approval_info(
@@ -2824,32 +3541,34 @@ async fn get_approval_info(
         .map(|ac| ac.user_auth_required)
         .unwrap_or(false);
 
-    // Determine if current user can approve
-    let can_approve = if let Some(ref authed) = opt_authed {
-        if authed.is_admin {
-            true
-        } else {
-            let is_owner = row
-                .script_path
-                .as_deref()
-                .map(|p| require_owner_of_path(authed, p).is_ok())
-                .unwrap_or(false);
-            if is_owner {
-                true
-            } else {
-                let trigger_email = row.email.as_str();
-                conditionally_require_authed_user(
-                    Some(authed.clone()),
-                    approval_conditions.clone(),
-                    trigger_email,
-                )
-                .is_ok()
-            }
-        }
-    } else {
-        // Not logged in — can approve only if no auth required
-        !user_auth_required
-    };
+    // Determine if current user can approve this step.
+    let can_approve = can_approve_step(
+        &opt_authed,
+        &approval_conditions,
+        row.script_path.as_deref(),
+        row.email.as_str(),
+    );
+
+    // When the step requires auth, the approval details must be revealed only to authorized
+    // approvers — a valid token alone is not sufficient. Return a stripped response that lets
+    // the frontend render the sign-in / not-authorized state without leaking the form,
+    // description, prefilled args, or other approvers' identities.
+    let can_view = !user_auth_required || can_approve;
+    if !can_view {
+        return Ok(Json(ApprovalInfo {
+            flow_id: row.id,
+            form_schema: None,
+            description: None,
+            default_args: None,
+            enums: None,
+            approval_conditions,
+            can_approve: false,
+            user_auth_required,
+            hide_cancel: None,
+            approvers: vec![],
+            view_token: None,
+        }));
+    }
 
     // Get existing approvers
     let approvers: Vec<Approval> = sqlx::query_as::<_, (i32, Option<String>)>(
@@ -2865,6 +3584,12 @@ async fn get_approval_info(
     })
     .collect();
 
+    // Possession of view rights over this approval is sufficient to mint a
+    // share-read-link token for the flow: it only grants read (no resume), and only to
+    // an authenticated workspace member, so it never widens what the approver can do.
+    let hmac = generate_view_token(&w_id, row.id, &db).await?;
+    let view_token = Some(format!("{}.{hmac}", row.id));
+
     Ok(Json(ApprovalInfo {
         flow_id: row.id,
         form_schema,
@@ -2876,6 +3601,7 @@ async fn get_approval_info(
         user_auth_required,
         hide_cancel,
         approvers,
+        view_token,
     }))
 }
 
@@ -3270,6 +3996,12 @@ pub async fn cancel_suspended_job(
 pub struct SuspendedJobFlow {
     pub job: Job,
     pub approvers: Vec<Approval>,
+    /// Share-read-link token for the parent flow, minted because the caller proved
+    /// possession of the approval secret. Lets an authenticated workspace-member
+    /// approver open the run details of a flow they don't otherwise have read access
+    /// to (the run page reads it as a `view_token` query param).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_token: Option<String>,
 }
 
 pub async fn get_suspended_job_flow(
@@ -3354,7 +4086,13 @@ pub async fn get_suspended_job_flow(
     )
     .await?;
 
-    Ok(Json(SuspendedJobFlow { job: flow, approvers }).into_response())
+    // Possession of a valid approval secret is sufficient to mint a share-read-link
+    // token for the parent flow: it only grants read (no resume), and only to an
+    // authenticated workspace member, so it never widens what the approver can do.
+    let hmac = generate_view_token(&w_id, flow_id, &db).await?;
+    let view_token = Some(format!("{flow_id}.{hmac}"));
+
+    Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
 }
 
 fn conditionally_require_authed_user(
@@ -3418,11 +4156,17 @@ fn conditionally_require_authed_user(
 }
 
 pub async fn create_job_signature(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
+    // The HMAC is treated as full authority by the resume endpoints, so minting
+    // it requires run scope on the suspended job's flow — not merely any
+    // jobs:run scope. No-op for unscoped tokens (incl. the in-flow substep token
+    // used by wmill.get_resume_urls()).
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     let key = get_workspace_key(&w_id, &db).await?;
     create_signature(key, job_id, resume_id, approver.approver)
 }
@@ -3505,11 +4249,17 @@ fn build_resume_url(
 }
 
 pub async fn get_resume_urls(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
+    // These URLs embed a resume signature (full resume capability), so a scoped
+    // token must hold run scope on the suspended job's flow. No-op for unscoped
+    // tokens (incl. the in-flow substep token). Trusted internal callers use
+    // get_resume_urls_internal directly and are unaffected.
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     get_resume_urls_internal(
         Extension(db),
         Path((w_id, job_id, resume_id)),
@@ -3574,6 +4324,46 @@ pub async fn get_resume_urls_internal(
     };
 
     Ok(Json(res))
+}
+
+/// Resolve the runnable path of the flow a (possibly step) job belongs to, used
+/// to scope-check resume-signature minting against `jobs:run:flows:<path>`.
+/// Returns an empty string when the path can't be resolved (e.g. previews or an
+/// unknown job); an empty path only matters for path-restricted tokens, which
+/// would not be running such a flow. Never hard-fails, so it can't break resume
+/// for unscoped tokens (the in-flow `get_resume_urls()` path).
+async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let job = sqlx::query!(
+        r#"SELECT kind::text as "kind!", parent_job, runnable_path
+           FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some(job) = job else {
+        return Ok(String::new());
+    };
+    // All flow kinds: the job itself is the flow whose path scopes the resume.
+    if matches!(
+        job.kind.as_str(),
+        "flow" | "flowpreview" | "flownode" | "singlestepflow"
+    ) {
+        return Ok(job.runnable_path.unwrap_or_default());
+    }
+    // Otherwise it's a step; its parent is the flow.
+    if let Some(parent) = job.parent_job {
+        return Ok(sqlx::query_scalar!(
+            "SELECT runnable_path FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            parent,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_default());
+    }
+    Ok(job.runnable_path.unwrap_or_default())
 }
 
 /// Get the flow ID for a job. If the job is a flow, returns the job_id.
@@ -5744,8 +6534,14 @@ async fn run_inline_preview_script(
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
-    // Same arbitrary-code class as run_preview_script: a narrowly-scoped token
-    // must not be able to run request-supplied code through inline preview.
+    // Same arbitrary-code class as run_preview_script: operators are blocked from
+    // running request-supplied code, and a narrowly-scoped token must not escape
+    // its scope through inline preview.
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("jobs:run"))?;
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
@@ -6806,26 +7602,32 @@ async fn run_dynamic_select(
         ));
     }
 
+    if !is_valid_entrypoint_name(&request.entrypoint_function) {
+        return Err(error::Error::BadRequest(format!(
+            "Invalid entrypoint_function {:?}: must match \
+             ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
+             not starting with a digit)",
+            request.entrypoint_function
+        )));
+    }
+
+    // Deployed scripts keep their normal deployed-run path (a `script` job, resolved below by
+    // push_script_job_by_path_into_queue). Deployed flows and inline snippets have no deployed
+    // runnable, so they run their dyn-select code as a `preview`; the flow carries its path and
+    // worker tag so its option-fetching job lines up with the script run.
     let dynamic_input: DynamicInput;
+    let runnable_path: Option<String>;
+    let mut tag: Option<String> = None;
 
     match request.runnable_ref {
         DynamicSelectRunnableRef::Deployed { path, runnable_kind } => match runnable_kind {
             RunnableKind::Script => {
-                if !is_valid_entrypoint_name(&request.entrypoint_function) {
-                    return Err(error::Error::BadRequest(format!(
-                        "Invalid entrypoint_function {:?}: must match \
-                         ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
-                         not starting with a digit)",
-                        request.entrypoint_function
-                    )));
-                }
                 let mut script_args = request.args.unwrap_or_default();
                 script_args.insert(
-                    "_ENTRYPOINT_OVERRIDE".to_string(),
+                    ENTRYPOINT_OVERRIDE.to_string(),
                     serde_json::value::to_raw_value(&request.entrypoint_function)?,
                 );
-
-                let push_args = PushArgsOwned { extra: None, args: script_args.clone() };
+                let push_args = PushArgsOwned { extra: None, args: script_args };
 
                 let (uuid, _, _) = push_script_job_by_path_into_queue(
                     authed.clone(),
@@ -6835,7 +7637,7 @@ async fn run_dynamic_select(
                     w_id.clone(),
                     StripPath(path),
                     run_query.clone(),
-                    push_args.clone(),
+                    push_args,
                     None,
                 )
                 .await?;
@@ -6843,12 +7645,39 @@ async fn run_dynamic_select(
                 return Ok((StatusCode::CREATED, uuid.to_string()).into_response());
             }
             RunnableKind::Flow => {
-                // Runs the deployed flow's dynamic-select code. Enforce the same
-                // path-scoped check the script branch gets via
-                // push_script_job_by_path_into_queue, so a token not scoped to this
-                // flow cannot trigger its code through dynamic select.
+                // Runs the deployed flow's dynamic-select code. Path-scoped so a token not
+                // scoped to this flow cannot trigger its code through dynamic select.
                 check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
                 let mut conn = user_db.clone().begin(&authed).await?;
+
+                // Read the flow's tag under RLS. This runs on every request (including the
+                // cache hit below), so it doubles as the access check and routes the
+                // option-fetching preview to the flow's worker group, matching the script branch.
+                let Some(flow_tag) = sqlx::query_scalar!(
+                    "SELECT tag FROM flow WHERE workspace_id = $1 AND path = $2",
+                    &w_id,
+                    &path
+                )
+                .fetch_optional(&mut *conn)
+                .await?
+                else {
+                    conn.commit().await?;
+                    let exists = sqlx::query_scalar!(
+                        "SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 LIMIT 1",
+                        &w_id,
+                        &path
+                    )
+                    .fetch_optional(&db)
+                    .await?
+                    .is_some();
+                    if exists {
+                        return Err(error::Error::NotAuthorized(format!(
+                            "You are not authorized to access this flow: {path}"
+                        )));
+                    }
+                    return Err(Error::NotFound(format!("Flow not found at path {path}")));
+                };
+                tag = flow_tag;
 
                 let dynamic_input_res = match DYNAMIC_INPUT_CACHE.get(&format!("{}:{}", w_id, path))
                 {
@@ -6892,20 +7721,33 @@ async fn run_dynamic_select(
                 conn.commit().await?;
 
                 dynamic_input = dynamic_input_res;
+                runnable_path = Some(path);
             }
         },
         DynamicSelectRunnableRef::Inline { code, lang: language } => {
             // Inline dynamic select runs arbitrary, request-supplied code; require the broad
             // jobs:run scope so a narrowly-scoped token cannot escape its scope. The Deployed
-            // branches are path-scoped instead (scripts via push_script_job_by_path_into_queue,
-            // flows via the check_scopes above).
+            // branches are path-scoped instead.
             check_scopes(&authed, || format!("jobs:run"))?;
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),
             };
+            runnable_path = None;
         }
     }
+
+    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
+    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
+    // inline (tag is None); the script branch checked this inside its helper and returned above.
+    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+
+    // Invoke the dyn-select entrypoint instead of `main`.
+    let mut args = request.args.unwrap_or_default();
+    args.insert(
+        ENTRYPOINT_OVERRIDE.to_string(),
+        serde_json::value::to_raw_value(&request.entrypoint_function)?,
+    );
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -6917,7 +7759,7 @@ async fn run_dynamic_select(
         JobPayload::Code(RawCode {
             hash: None,
             content: dynamic_input.x_windmill_dyn_select_code,
-            path: None,
+            path: runnable_path,
             language: dynamic_input.x_windmill_dyn_select_lang,
             lock: None,
             cache_ttl: None,
@@ -6926,9 +7768,11 @@ async fn run_dynamic_select(
             concurrency_settings: ConcurrencySettings::default().into(),
             debouncing_settings: DebouncingSettings::default(),
             modules: None,
+            // RawCode.tag is ignored by the queue path (`JobPayload::Code` destructures it as
+            // `tag: _`); the effective tag is the `tag` argument to `push` below.
             tag: None,
         }),
-        PushArgs::from(&request.args.unwrap_or_default()),
+        PushArgs::from(&args),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -6943,7 +7787,8 @@ async fn run_dynamic_select(
         false,
         None,
         true,
-        None,
+        // Deployed flow → the flow's worker tag; inline → `None` (language default).
+        tag,
         run_query.timeout,
         None,
         None,
@@ -7107,8 +7952,10 @@ pub async fn run_job_by_hash_inner(
 }
 
 async fn get_log_file(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, file_p)): Path<(String, String)>,
 ) -> error::Result<Response> {
     if file_p.contains("..") {
@@ -7147,7 +7994,18 @@ async fn get_log_file(
     .fetch_optional(&db)
     .await?
     .ok_or_else(|| error::Error::NotFound(format!("Job {job_id} not found")))?;
-    if opt_authed.is_none() && created_by != "anonymous" {
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &job_id,
+            &created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    } else if created_by != "anonymous" {
         return Err(error::Error::BadRequest(
             "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
         ));
@@ -7217,9 +8075,11 @@ async fn get_log_file(
 }
 
 async fn get_job_update(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery {
         log_offset,
@@ -7232,6 +8092,17 @@ async fn get_job_update(
         ..
     }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_update_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &job_id,
+            view_token.as_deref(),
+        )
+        .await?;
+    }
     Ok(Json(
         get_job_update_data(
             &opt_authed,
@@ -7259,9 +8130,11 @@ async fn get_job_update(
 }
 
 async fn get_job_update_sse(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery {
         log_offset,
@@ -7275,6 +8148,20 @@ async fn get_job_update_sse(
         poll_delay_ms,
     }): Query<JobUpdateQuery>,
 ) -> error::Result<Response> {
+    // Authorize once at connection time; `created_by` cannot change for a given job,
+    // mirroring the per-stream `anonymous_verified` latch in the streaming loop.
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_update_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &job_id,
+            view_token.as_deref(),
+        )
+        .await?;
+    }
+
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
     start_job_update_sse_stream(
@@ -8034,9 +8921,11 @@ async fn list_completed_jobs(
 }
 
 async fn get_completed_job<'a>(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     let tags = opt_authed
@@ -8051,6 +8940,20 @@ async fn get_completed_job<'a>(
         .await?;
 
     let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
+
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &id,
+            &cj.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    }
+
     let response = Json(cj).into_response();
     // let extra_log = query_scalar!(
     //     "SELECT substr(logs, $1) as logs FROM large_logs WHERE workspace_id = $2 AND job_id = $3",
@@ -8081,9 +8984,11 @@ pub struct RawResult {
 }
 
 async fn get_completed_job_result(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(JsonPath { json_path, suspended_job, approver, resume_id, secret }): Query<JsonPath>,
 ) -> error::Result<Response> {
@@ -8128,26 +9033,40 @@ async fn get_completed_job_result(
 
     let mut raw_result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
 
-    if opt_authed.is_none() && raw_result.created_by.unwrap_or_default() != "anonymous" {
-        match (suspended_job, resume_id, approver, secret) {
-            (Some(suspended_job), Some(resume_id), approver, Some(secret)) => {
-                let mut parent_job = id;
-                while parent_job != suspended_job {
-                    let p_job = sqlx::query_scalar!(
-                        "SELECT parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2",
-                        parent_job,
-                        &w_id
-                    )
-                    .fetch_optional(&db)
-                    .await?
-                    .flatten();
-                    if let Some(p_job) = p_job {
-                        parent_job = p_job;
-                    } else {
-                        return Err(Error::BadRequest("Approval secret of suspended job is not a parent of the job whose id's is being searched not found".to_string()));
+    let created_by = raw_result.created_by.take().unwrap_or_default();
+
+    // A valid approval secret for the suspended parent flow grants access to this
+    // node's result for ANY caller — logged in or not — since the approval page
+    // renders its form from this result. Try it first. If the secret triple is absent,
+    // or present but invalid, fall through to normal authorization: an authenticated
+    // reader with ACL must NOT be blocked just because a stale/garbage secret was
+    // attached (pre-fix the secret branch was skipped entirely for authed callers),
+    // while an unauthenticated caller, for whom the secret is the only credential,
+    // still ends up rejected below.
+    let approval_secret_ok = match (suspended_job, resume_id, secret) {
+        (Some(suspended_job), Some(resume_id), Some(secret)) => {
+            // Walk from `id` up to the claimed suspended parent.
+            let mut parent_job = id;
+            let mut reached = true;
+            while parent_job != suspended_job {
+                let p_job = sqlx::query_scalar!(
+                    "SELECT parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                    parent_job,
+                    &w_id
+                )
+                .fetch_optional(&db)
+                .await?
+                .flatten();
+                match p_job {
+                    Some(p_job) => parent_job = p_job,
+                    None => {
+                        reached = false;
+                        break;
                     }
                 }
-                verify_suspended_secret(
+            }
+            reached
+                && verify_suspended_secret(
                     &w_id,
                     &db,
                     suspended_job,
@@ -8155,14 +9074,28 @@ async fn get_completed_job_result(
                     &QueryApprover { approver, flow_level: None },
                     secret,
                 )
-                .await?
-            }
-            _ => {
-                return Err(Error::BadRequest(
-                    "As a non logged in user, you can only see jobs ran by anonymous users"
-                        .to_string(),
-                ))
-            }
+                .await
+                .is_ok()
+        }
+        _ => false,
+    };
+
+    if !approval_secret_ok {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                &created_by,
+                view_token.as_deref(),
+            )
+            .await?;
+        } else if created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
         }
     }
 
@@ -8235,9 +9168,11 @@ struct GetCompletedJobQuery {
 }
 
 async fn get_completed_job_result_maybe(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
@@ -8263,7 +9198,18 @@ async fn get_completed_job_result_maybe(
 
     if let Some(mut res) = result_o {
         format_result(res.result_columns.as_ref(), res.result.as_mut());
-        if opt_authed.is_none() && res.created_by != "anonymous" {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                &res.created_by,
+                view_token.as_deref(),
+            )
+            .await?;
+        } else if res.created_by != "anonymous" {
             return Err(Error::BadRequest(
                 "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
             ));
@@ -8286,6 +9232,36 @@ async fn get_completed_job_result_maybe(
         })
         .into_response())
     } else if get_started.is_some_and(|x| x) {
+        // No completed row yet — the job may be queued/running. Returning its
+        // running-state still discloses information about a (possibly private) job, so
+        // authorize first when the job exists. If it doesn't exist, fall through to a
+        // `started: false` response (which leaks nothing).
+        let created_by = sqlx::query_scalar!(
+            "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            id,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?;
+        if let Some(created_by) = created_by {
+            if let Some(authed) = opt_authed.as_ref() {
+                require_job_read_access(
+                    &db,
+                    &user_db,
+                    authed,
+                    &w_id,
+                    &id,
+                    &created_by,
+                    view_token.as_deref(),
+                )
+                .await?;
+            } else if created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+        }
         let started = sqlx::query_scalar!(
             "SELECT running AS \"running!\" FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
             id,
@@ -8319,9 +9295,203 @@ struct JobTiming {
     duration_ms: Option<i64>,
 }
 
-async fn get_completed_job_timing(
+/// One row of the producer's "Dispatch" panel — what the asset-trigger
+/// dispatcher decided for a single (subscriber, asset write) pair. See
+/// `windmill_queue::asset_dispatch` for the writer and the discriminants
+/// of the `outcome` / `reason` fields.
+#[derive(Serialize)]
+struct DispatchEvent {
+    subscriber_path: String,
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_job_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partition: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    received_inputs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    required_inputs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    debounce_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    created_at: chrono::DateTime<Utc>,
+}
+
+async fn get_dispatch_events(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Vec<DispatchEvent>> {
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed))
+        .flatten();
+
+    // Gate on the producer job's visibility, exactly like
+    // get_completed_job_timing on the same unauthed router: scope tags
+    // first, then per-job read access for authed users, anonymous-only
+    // jobs otherwise. The dispatch_event FK to v2_job(id) guarantees the
+    // producer row exists for any extant event.
+    let producer = sqlx::query!(
+        r#"SELECT created_by AS "created_by!"
+           FROM v2_job
+           WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))"#,
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+    )
+    .fetch_optional(&db)
+    .await?;
+    let producer = not_found_if_none(producer, "Job", id.to_string())?;
+
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &id,
+            &producer.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    } else if producer.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
+    let rows = sqlx::query!(
+        r#"SELECT
+              subscriber_path AS "subscriber_path!",
+              asset_kind AS "asset_kind!: windmill_common::assets::AssetKind",
+              asset_path AS "asset_path!",
+              outcome::text AS "outcome!",
+              child_job_id,
+              partition,
+              received_inputs,
+              required_inputs,
+              debounce_s,
+              reason,
+              created_at AS "created_at!"
+           FROM dispatch_event
+           WHERE producer_job_id = $1 AND workspace_id = $2
+           ORDER BY id"#,
+        id,
+        &w_id,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| DispatchEvent {
+                subscriber_path: r.subscriber_path,
+                asset_kind: r.asset_kind,
+                asset_path: r.asset_path,
+                outcome: r.outcome,
+                child_job_id: r.child_job_id,
+                partition: r.partition,
+                received_inputs: r.received_inputs,
+                required_inputs: r.required_inputs,
+                debounce_s: r.debounce_s,
+                reason: r.reason,
+                created_at: r.created_at,
+            })
+            .collect(),
+    ))
+}
+
+/// One asset-cascade dispatch record, for reconstructing the cascade graph of a
+/// pipeline folder in the Activity panel. `dispatched` rows carry the resolved
+/// `child_job_id` (a real producer→child job edge); `join_pending` rows are the
+/// pre-completion inputs of an AND-join (no child yet) — the client links them
+/// to the eventual child of the same `subscriber_path` so a join's separate
+/// trigger chains merge into one group. `skipped` is omitted.
+#[derive(Serialize)]
+struct AssetDispatchEdge {
+    producer_job_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_job_id: Option<Uuid>,
+    subscriber_path: String,
+    outcome: String,
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    created_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+struct AssetDispatchEdgesQuery {
+    /// Folder path prefix the children live under, e.g. `f/orders/`. Matched
+    /// against `subscriber_path` — every intra-pipeline cascade edge has its
+    /// child in the folder, so this captures the whole folder's cascades.
+    path_start: String,
+    /// Only edges dispatched at/after this instant (align with the activity
+    /// window the client already loaded). Omit for the default cap.
+    created_after: Option<chrono::DateTime<Utc>>,
+}
+
+/// Asset-cascade edges for a pipeline folder. RLS on the joined `v2_job`
+/// producer row limits this to cascades whose producer the caller can already
+/// see (same visibility as the folder's job list).
+async fn list_asset_dispatch_edges(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<AssetDispatchEdgesQuery>,
+) -> error::JsonResult<Vec<AssetDispatchEdge>> {
+    let like = format!("{}%", query.path_start);
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"SELECT
+              de.producer_job_id AS "producer_job_id!",
+              de.child_job_id,
+              de.subscriber_path AS "subscriber_path!",
+              de.outcome::text AS "outcome!",
+              de.asset_kind AS "asset_kind!: windmill_common::assets::AssetKind",
+              de.asset_path AS "asset_path!",
+              de.created_at AS "created_at!"
+           FROM dispatch_event de
+           JOIN v2_job pj ON pj.id = de.producer_job_id
+           WHERE de.workspace_id = $1
+             AND de.outcome IN ('dispatched', 'join_pending')
+             AND de.subscriber_path LIKE $2
+             AND ($3::timestamptz IS NULL OR de.created_at >= $3)
+           ORDER BY de.created_at DESC, de.id DESC
+           LIMIT 4000"#,
+        &w_id,
+        like,
+        query.created_after,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AssetDispatchEdge {
+                producer_job_id: r.producer_job_id,
+                child_job_id: r.child_job_id,
+                subscriber_path: r.subscriber_path,
+                outcome: r.outcome,
+                asset_kind: r.asset_kind,
+                asset_path: r.asset_path,
+                created_at: r.created_at,
+            })
+            .collect(),
+    ))
+}
+
+async fn get_completed_job_timing(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<JobTiming> {
     let tags = opt_authed
@@ -8347,7 +9517,18 @@ async fn get_completed_job_timing(
 
     let result = not_found_if_none(result, "Completed Job", id.to_string())?;
 
-    if opt_authed.is_none() && result.created_by != "anonymous" {
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &id,
+            &result.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    } else if result.created_by != "anonymous" {
         return Err(Error::BadRequest(
             "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
         ));
@@ -8367,7 +9548,7 @@ async fn delete_completed_job<'a>(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     require_admin(authed.is_admin, &authed.username)?;
     let tags = get_scope_tags(&authed);
@@ -8411,17 +9592,21 @@ async fn delete_completed_job<'a>(
 
     tx.commit().await?;
     return get_completed_job(
+        OptViewToken(None),
         OptAuthed(Some(authed)),
         OptTokened { token: Some(token) },
         Extension(db),
+        Extension(user_db),
         Path((w_id, id)),
     )
     .await;
 }
 
 async fn get_otel_traces(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Json<Vec<serde_json::Value>>> {
     // Check job exists and user has permission to view it
@@ -8435,7 +9620,18 @@ async fn get_otel_traces(
 
     match job {
         Some(created_by) => {
-            if opt_authed.is_none() && created_by != "anonymous" {
+            if let Some(authed) = opt_authed.as_ref() {
+                require_job_read_access(
+                    &db,
+                    &user_db,
+                    authed,
+                    &w_id,
+                    &id,
+                    &created_by,
+                    view_token.as_deref(),
+                )
+                .await?;
+            } else if created_by != "anonymous" {
                 return Err(Error::BadRequest(
                     "As a non logged in user, you can only see jobs ran by anonymous users"
                         .to_string(),
@@ -8477,4 +9673,116 @@ async fn get_otel_traces(
     .await?;
 
     Ok(Json(traces))
+}
+
+#[cfg(test)]
+mod approval_view_gate_tests {
+    use super::*;
+
+    fn authed(username: &str, is_admin: bool, groups: Vec<String>) -> ApiAuthed {
+        ApiAuthed {
+            email: format!("{username}@example.com"),
+            username: username.to_string(),
+            is_admin,
+            is_operator: false,
+            groups,
+            folders: vec![],
+            scopes: None,
+            username_override: None,
+            token_prefix: None,
+            read_only: false,
+        }
+    }
+
+    fn conds(user_auth_required: bool, groups: Vec<String>) -> ApprovalConditions {
+        ApprovalConditions {
+            user_auth_required,
+            user_groups_required: groups,
+            self_approval_disabled: false,
+        }
+    }
+
+    // Mirrors the view gate applied in get_approval_info and get_job:
+    // details are revealed only when the step doesn't require auth OR the caller
+    // is an authorized approver.
+    fn can_view(
+        opt_authed: &Option<ApiAuthed>,
+        approval_conditions: &Option<ApprovalConditions>,
+        script_path: Option<&str>,
+        trigger_email: &str,
+    ) -> bool {
+        let user_auth_required = approval_conditions
+            .as_ref()
+            .map(|c| c.user_auth_required)
+            .unwrap_or(false);
+        !user_auth_required
+            || can_approve_step(opt_authed, approval_conditions, script_path, trigger_email)
+    }
+
+    #[test]
+    fn anonymous_cannot_view_when_auth_required() {
+        // The regression: an unauthenticated holder of the approval token must see nothing.
+        let c = Some(conds(true, vec![]));
+        assert!(!can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+    }
+
+    #[test]
+    fn anonymous_can_view_when_no_auth_required() {
+        // Unchanged behaviour: token alone is sufficient when auth isn't required.
+        let c = Some(conds(false, vec![]));
+        assert!(can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        // No approval conditions at all also allows token-only view.
+        assert!(can_view(
+            &None,
+            &None,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+    }
+
+    #[test]
+    fn admin_can_view_when_auth_required() {
+        let c = Some(conds(true, vec!["approvers".to_string()]));
+        let a = Some(authed("alice", true, vec![]));
+        assert!(can_view(&a, &c, Some("f/team/flow"), "trigger@example.com"));
+    }
+
+    #[test]
+    fn owner_can_view_when_auth_required() {
+        let c = Some(conds(true, vec!["approvers".to_string()]));
+        let a = Some(authed("bob", false, vec![]));
+        // bob owns u/bob/flow regardless of group membership.
+        assert!(can_view(&a, &c, Some("u/bob/flow"), "trigger@example.com"));
+    }
+
+    #[cfg(feature = "enterprise")]
+    #[test]
+    fn group_membership_decides_view_when_auth_required() {
+        let c = Some(conds(true, vec!["approvers".to_string()]));
+        let member = Some(authed("carol", false, vec!["approvers".to_string()]));
+        let outsider = Some(authed("dave", false, vec!["other".to_string()]));
+        // Use a non-owned folder path so ownership doesn't short-circuit the check.
+        assert!(can_view(
+            &member,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        assert!(!can_view(
+            &outsider,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+    }
 }

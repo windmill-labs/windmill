@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            asset.kind        AS \"asset_kind!: AssetKind\",\n            asset.path        AS \"asset_path!\",\n            asset.usage_kind  AS \"usage_kind!: AssetUsageKind\",\n            asset.usage_path  AS \"usage_path!\",\n            asset.usage_access_type::text AS \"access_type\"\n        FROM asset\n        WHERE asset.workspace_id = $1\n          AND asset.usage_kind IN ('script', 'flow')\n          AND ($2::asset_kind[] IS NULL OR asset.kind = ANY($2))\n          AND ($3::text IS NULL OR asset.usage_path LIKE $3)\n        GROUP BY asset.kind, asset.path, asset.usage_kind, asset.usage_path, asset.usage_access_type\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset_kind!: AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "asset_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "usage_kind!: AssetUsageKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_usage_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "job"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "usage_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "access_type",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "asset_kind[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "asset_kind",
+                  "kind": {
+                    "Enum": [
+                      "s3object",
+                      "resource",
+                      "variable",
+                      "ducklake",
+                      "datatable",
+                      "volume"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "5ae004333c20e6f7c28025f16ad87562dbdac633f3248ac228e00b7c8b49b800"
+}

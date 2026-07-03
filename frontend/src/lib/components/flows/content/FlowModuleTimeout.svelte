@@ -13,6 +13,7 @@
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { getStepPropPicker } from '../previousResults'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	interface Props {
 		flowModule: FlowModule
@@ -23,6 +24,8 @@
 
 	const { flowStore, flowStateStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	const customUi = getContext<FlowBuilderWhitelabelCustomUi | undefined>('customUi')
 
 	let schema = $state(emptySchema())
 	schema.properties['timeout'] = {
@@ -69,7 +72,7 @@
 			} else {
 				flowModule.timeout = {
 					type: 'static',
-					value: 300
+					value: customUi?.defaultTimeout ?? 300
 				}
 			}
 		}}
@@ -105,9 +108,14 @@
 		{/if}
 	</Label>
 
-	<div class="mt-4">
-		<Alert title="Only used when testing the full flow" type="info">
-			<p class="text-xs"> The timeout will be ignored when running "Test this step" </p>
-		</Alert>
-	</div>
+	{#if flowModule.timeout && flowModule.timeout.type !== 'static'}
+		<div class="mt-4">
+			<Alert title="Dynamic timeout only used when testing the full flow" type="info">
+				<p class="text-xs">
+					A dynamic timeout expression is evaluated when running the full flow. It is ignored when
+					running "Test this step" — only a static timeout value applies there.
+				</p>
+			</Alert>
+		</div>
+	{/if}
 </Section>

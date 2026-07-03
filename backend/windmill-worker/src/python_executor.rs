@@ -24,8 +24,10 @@ use tokio::{
 use windmill_queue::MiniPulledJob;
 
 use uuid::Uuid;
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
 use windmill_common::{
     error::{
         self,
@@ -35,8 +37,8 @@ use windmill_common::{
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, pad_string, split_python_requirements, write_file, Connection,
-        PyVAlias, PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, is_allowed_file_location, pad_string, split_python_requirements,
+        write_file, Connection, PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
 
@@ -60,6 +62,13 @@ lazy_static::lazy_static! {
     static ref PY_CONCURRENT_DOWNLOADS: usize =
     var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
+    // uv's HTTP request timeout (seconds). spawn_uv_install uses env_clear(), so a
+    // UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
+    // Only forwarded when set; otherwise uv keeps its own default. Lets operators
+    // raise it for slow/contended private registries ("operation timed out").
+    static ref UV_HTTP_TIMEOUT: Option<String> =
+    var("UV_HTTP_TIMEOUT").ok().filter(|v| !v.is_empty());
+
 
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
@@ -72,7 +81,7 @@ lazy_static::lazy_static! {
     static ref EPHEMERAL_TOKEN_CMD: Option<String> = var("EPHEMERAL_TOKEN_CMD").ok();
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 lazy_static::lazy_static! {
     static ref PIPTAR_UPLOAD_CHANNEL: tokio::sync::mpsc::UnboundedSender<PiptarUploadTask> = {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -84,14 +93,14 @@ lazy_static::lazy_static! {
     };
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 #[derive(Debug)]
 struct PiptarUploadTask {
     venv_path: String,
     cache_dir: String,
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
     use windmill_object_store::get_object_store;
@@ -137,10 +146,10 @@ pub fn has_relative_imports(content: &str) -> bool {
     RELATIVE_IMPORT_REGEX.is_match(content)
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use crate::global_cache::pull_from_tar;
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_object_store::OBJECT_STORE_SETTINGS;
 
 use crate::{
@@ -361,7 +370,9 @@ pub async fn uv_pip_compile(
             args.extend(["--index-url", url]);
         }
         if let Some(host) = TRUSTED_HOST.as_ref() {
-            args.extend(["--trusted-host", host]);
+            host.split_whitespace().for_each(|h| {
+                args.extend(["--trusted-host", h]);
+            });
         }
         if let Some(cert_path) = INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
@@ -597,11 +608,57 @@ async fn postinstall(
     Ok(())
 }
 
+/// Python hard keywords cannot be used as a bare name in `import <name>` /
+/// `from <pkg> import <name>`. A flow inline step whose id (or a folder on its
+/// path) is such a keyword — e.g. a step id `in` — otherwise generates
+/// `from pkg import in as inner_script`, a SyntaxError. Prefix these with `_`,
+/// mirroring the existing digit-leading guard.
+fn is_python_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        "False"
+            | "None"
+            | "True"
+            | "and"
+            | "as"
+            | "assert"
+            | "async"
+            | "await"
+            | "break"
+            | "class"
+            | "continue"
+            | "def"
+            | "del"
+            | "elif"
+            | "else"
+            | "except"
+            | "finally"
+            | "for"
+            | "from"
+            | "global"
+            | "if"
+            | "import"
+            | "in"
+            | "is"
+            | "lambda"
+            | "nonlocal"
+            | "not"
+            | "or"
+            | "pass"
+            | "raise"
+            | "return"
+            | "try"
+            | "while"
+            | "with"
+            | "yield"
+    )
+}
+
 /// Compute the directory (relative to job_dir) where Python writes the main script.
 /// Module files must be placed in this same directory for relative imports to work.
 pub fn compute_python_module_dir(script_path: &str) -> String {
     let script_path_splitted = script_path.split("/").map(|x| {
-        if x.starts_with(|x: char| x.is_ascii_digit()) {
+        if x.starts_with(|x: char| x.is_ascii_digit()) || is_python_keyword(x) {
             format!("_{}", x)
         } else {
             x.to_string()
@@ -614,10 +671,16 @@ pub fn compute_python_module_dir(script_path: &str) -> String {
         .replace("-", "_")
         .replace("@", ".");
     if dirs_full.len() > 0 {
-        dirs_full
-            .strip_prefix("/")
-            .unwrap_or(&dirs_full)
-            .to_string()
+        let dirs = dirs_full.strip_prefix("/").unwrap_or(&dirs_full);
+        // This directory is appended to job_dir and written to. Neutralize any
+        // `.`/`..` segment so the result stays a relative path inside job_dir: a
+        // Preview path is request-supplied and skips the DB `proper_id` CHECK that
+        // deployed runnables get, and the `@`->`.` rewrite above can also turn a
+        // segment like `@.` into `..`.
+        dirs.split('/')
+            .map(|seg| if seg == "." || seg == ".." { "_" } else { seg })
+            .collect::<Vec<_>>()
+            .join("/")
     } else {
         "tmp".to_string()
     }
@@ -1236,6 +1299,12 @@ pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
         .replace("-", "_")
         .replace(" ", "_")
         .to_lowercase();
+    // `last` is lowercased above, so this catches a keyword id in any case.
+    let last = if is_python_keyword(&last) {
+        format!("_{last}")
+    } else {
+        last
+    };
 
     let sig = windmill_parser_py::parse_python_signature(content, None, false).unwrap_or_default();
     let pre_sig = windmill_parser_py::parse_python_signature(
@@ -1605,7 +1674,17 @@ async fn prepare_wrapper(
         .replace("-", "_")
         .replace(" ", "_")
         .to_lowercase();
+    // `last` is lowercased above, so this catches a keyword id in any case.
+    let last = if is_python_keyword(&last) {
+        format!("_{last}")
+    } else {
+        last
+    };
     let module_dir = format!("{}/{}", job_dir, dirs);
+    // Defense-in-depth: `dirs`/`last` derive from the (request-supplied for
+    // previews) script path. compute_python_module_dir already neutralizes `..`,
+    // but assert containment here too so the write can never escape job_dir.
+    is_allowed_file_location(job_dir, &format!("{dirs}/{last}.py"))?;
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
 
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content)?;
@@ -1978,6 +2057,33 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
 
 lazy_static::lazy_static! {
     static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^\s\}]+)\}").unwrap();
+
+    /// venv paths whose wheel RECORD this process has already verified against
+    /// disk. A cache entry is only damaged out-of-band (disk-pressure eviction,
+    /// an interrupted extraction on a shared cache volume, or a corrupt entry
+    /// that predates this worker), never spontaneously while we keep running, so
+    /// re-verifying it once per process is enough — every later reuse trusts the
+    /// in-memory marker and pays only the original single stat.
+    static ref VERIFIED_VENVS: tokio::sync::Mutex<HashSet<String>> =
+        tokio::sync::Mutex::new(HashSet::new());
+
+    // In-process locks serializing concurrent installs into the same shared
+    // `venv_p` cache dir; `uv --reinstall` removes a package's .dist-info/RECORD
+    // before rewriting it, so a sibling install/verify racing it corrupts the
+    // dir. Keyed by venv_p so distinct deps still install in parallel.
+    static ref PY_INSTALL_LOCKS: tokio::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+        tokio::sync::Mutex::new(std::collections::HashMap::new());
+}
+
+/// Returns the in-process install lock for a given target cache dir, creating it
+/// on first use. Idle entries (only the map holds a reference) are pruned each
+/// call so the map stays bounded by the number of in-flight installs.
+async fn get_venv_install_lock(venv_p: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let mut map = PY_INSTALL_LOCKS.lock().await;
+    map.retain(|_, v| Arc::strong_count(v) > 1);
+    map.entry(venv_p.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
 }
 
 /// Spawn process of uv install
@@ -2022,6 +2128,9 @@ async fn spawn_uv_install(
         }
         if *NATIVE_CERT {
             vars.push(("UV_NATIVE_TLS", "true"));
+        }
+        if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
+            vars.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
         }
 
         let _owner;
@@ -2126,6 +2235,9 @@ async fn spawn_uv_install(
         let mut envs = vec![("PATH", PATH_ENV.as_str())];
         envs.push(("HOME", HOME_ENV.as_str()));
         envs.push(("UV_INDEX_STRATEGY", uv_index_strategy));
+        if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
+            envs.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
+        }
         if let Some(mirror) = uv_python_install_mirror.as_ref() {
             envs.push(("UV_PYTHON_INSTALL_MIRROR", mirror));
         }
@@ -2134,7 +2246,9 @@ async fn spawn_uv_install(
             command_args.extend(["--index-url", url]);
         }
         if let Some(host) = TRUSTED_HOST.as_ref() {
-            command_args.extend(["--trusted-host", &host]);
+            host.split_whitespace().for_each(|h| {
+                command_args.extend(["--trusted-host", h]);
+            });
         }
         if *NATIVE_CERT {
             command_args.extend(["--native-tls"]);
@@ -2326,12 +2440,12 @@ pub async fn handle_python_reqs(
         instant: std::time::Instant,
         conn: &Connection,
     ) {
-        #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         {
             (s3_pull, s3_push) = (false, false);
         }
 
-        #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if OBJECT_STORE_SETTINGS.read().await.is_none() {
             (s3_pull, s3_push) = (false, false);
         }
@@ -2415,8 +2529,53 @@ pub async fn handle_python_reqs(
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(venv_p.clone() + "/.valid.windmill").await.is_ok() {
-            req_paths.push(venv_p);
-            in_cache.push(req.to_string());
+            // The .valid.windmill marker is written once at creation time, after
+            // verify_wheel_record passes on the install/pull paths. It is an empty
+            // file with no binding to the directory contents, so a file dropped
+            // out-of-band afterwards (disk-pressure eviction, interrupted tar
+            // extraction on a shared cache volume, or a corrupt entry that
+            // predates this worker) leaves the marker intact while the wheel is
+            // incomplete. Re-verify the RECORD once per process so such an entry
+            // is repaired rather than trusted; VERIFIED_VENVS makes every later
+            // reuse skip the scan and pay only the single stat above.
+            let already_verified = VERIFIED_VENVS.lock().await.contains(&venv_p);
+            let verify_res = if already_verified {
+                Ok(())
+            } else {
+                verify_wheel_record(&venv_p).await
+            };
+            match verify_res {
+                Ok(()) => {
+                    if !already_verified {
+                        VERIFIED_VENVS.lock().await.insert(venv_p.clone());
+                    }
+                    req_paths.push(venv_p);
+                    in_cache.push(req.to_string());
+                }
+                Err(verify_err) => {
+                    tracing::warn!(
+                        workspace_id = %w_id,
+                        job_id = %job_id,
+                        "Local cache for {venv_p} failed wheel RECORD verification, will reinstall: {verify_err}"
+                    );
+                    append_logs(
+                        &job_id,
+                        w_id,
+                        format!(
+                            "\n[!] cached wheel for {req} failed integrity check, reinstalling: {verify_err}\n"
+                        ),
+                        conn,
+                    )
+                    .await;
+                    if let Err(rm_err) = tokio::fs::remove_dir_all(&venv_p).await {
+                        tracing::warn!(
+                            workspace_id = %w_id,
+                            "could not remove broken cache dir {venv_p}: {rm_err}"
+                        );
+                    }
+                    req_with_penv.push((req.to_string(), venv_p));
+                }
+            }
         } else {
             // There is no valid or no wheel at all. Regardless of if there is content or not, we will overwrite it with --reinstall flag
             req_with_penv.push((req.to_string(), venv_p));
@@ -2586,7 +2745,7 @@ pub async fn handle_python_reqs(
     let mut handles = Vec::with_capacity(total_to_install);
     // let mem_peak_thread_safe = Arc::new(tokio::sync::Mutex::new(0));
 
-    #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
     let total_time = std::time::Instant::now();
@@ -2634,7 +2793,7 @@ pub async fn handle_python_reqs(
         let pids = pids.clone();
         let worker_dir = worker_dir.clone();
 
-        #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
         let py_version = py_version.clone();
 
         handles.push(task::spawn(async move {
@@ -2652,7 +2811,97 @@ pub async fn handle_python_reqs(
             );
 
             let start = std::time::Instant::now();
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+
+            // Lock the shared target dir (see PY_INSTALL_LOCKS). In-process lock
+            // first; only one task per dir then contends the cross-process file
+            // lock below. Both guards drop on every return path.
+            let venv_lock = get_venv_install_lock(&venv_p).await;
+            let _venv_guard = tokio::select! {
+                _ = kill_rx.recv() => {
+                    pids.lock().await.get_mut(i).and_then(|e| e.take());
+                    return Err(Error::from(anyhow::anyhow!(
+                        "install of {venv_p} canceled while waiting for venv lock"
+                    )));
+                }
+                guard = venv_lock.lock_owned() => guard,
+            };
+
+            // Cross-process advisory lock. Best-effort: if the filesystem doesn't
+            // support flock we log and proceed — verify_wheel_record + job retry
+            // still guard correctness, just without the dedup.
+            #[cfg(unix)]
+            let _venv_file_lock: Option<std::fs::File> = {
+                use std::os::unix::io::AsRawFd;
+                let lock_path = format!("{venv_p}.lock");
+                if let Some(parent) = std::path::Path::new(&lock_path).parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                match std::fs::OpenOptions::new().create(true).write(true).open(&lock_path) {
+                    Ok(f) => {
+                        // Bounded wait: a holder that crashes releases the lock (the
+                        // kernel drops it on fd close), but a live-but-stuck holder
+                        // (e.g. uv wedged on a hung mount) would otherwise block us
+                        // forever. After the cap, proceed degraded rather than hang —
+                        // verify_wheel_record + retry still guard correctness.
+                        const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
+                        let waited_since = std::time::Instant::now();
+                        loop {
+                            match nix::fcntl::flock(f.as_raw_fd(), nix::fcntl::FlockArg::LockExclusiveNonblock) {
+                                Ok(()) => break Some(f),
+                                // EWOULDBLOCK == EAGAIN on Linux: another holder has the lock.
+                                Err(nix::errno::Errno::EWOULDBLOCK) => {
+                                    if waited_since.elapsed() >= MAX_WAIT {
+                                        tracing::warn!(
+                                            workspace_id = %w_id,
+                                            "venv install lock {lock_path} still held after {}s, proceeding without cross-process install lock",
+                                            MAX_WAIT.as_secs()
+                                        );
+                                        break Some(f);
+                                    }
+                                    tokio::select! {
+                                        _ = kill_rx.recv() => {
+                                            pids.lock().await.get_mut(i).and_then(|e| e.take());
+                                            return Err(Error::from(anyhow::anyhow!(
+                                                "install of {venv_p} canceled while waiting for venv file lock"
+                                            )));
+                                        }
+                                        _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        workspace_id = %w_id,
+                                        "could not flock {lock_path}, proceeding without cross-process install lock: {e}"
+                                    );
+                                    break Some(f);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            workspace_id = %w_id,
+                            "could not open install lock file {lock_path}, proceeding without cross-process install lock: {e}"
+                        );
+                        None
+                    }
+                }
+            };
+
+            // Double-checked: another job (this process or another sharing the
+            // mount) may have installed this exact dep while we waited on the
+            // locks. Reuse it instead of reinstalling.
+            if metadata(format!("{venv_p}/.valid.windmill")).await.is_ok() {
+                print_success(
+                    false, false, &job_id, &w_id, &req, req_tl, counter_arc,
+                    total_to_install, start, &conn,
+                )
+                .await;
+                pids.lock().await.get_mut(i).and_then(|e| e.take());
+                return Ok(());
+            }
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if is_not_pro {
                 if let Some(os) = windmill_object_store::get_object_store().await {
                     tokio::select! {
@@ -2834,10 +3083,10 @@ pub async fn handle_python_reqs(
                 }
             };
 
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             let s3_push = is_not_pro;
 
-            #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             let s3_push = false;
 
             if is_sandboxing_enabled() {
@@ -2891,7 +3140,7 @@ pub async fn handle_python_reqs(
             )
             .await;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if s3_push {
                 // Send to upload channel for sequential processing
                 let upload_task = PiptarUploadTask {
@@ -3287,6 +3536,24 @@ mod tests {
     }
 
     #[test]
+    fn test_compute_python_module_dir_keyword_segment() {
+        // A folder whose name is a Python keyword would otherwise produce an
+        // invalid `from f.in.x import ...`; it is underscore-prefixed.
+        assert_eq!(compute_python_module_dir("f/in/script"), "f/_in");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_neutralizes_traversal() {
+        // A Preview path skips the DB `proper_id` CHECK, so it can carry `..`.
+        // `..`/`.` segments must be neutralized so the dir stays inside job_dir.
+        let dirs = compute_python_module_dir("u/x/../../../../tmp/evil/payload");
+        assert!(!dirs.split('/').any(|s| s == ".." || s == "."));
+        assert_eq!(dirs, "u/x/_/_/_/_/tmp/evil");
+        // The `@`->`.` rewrite must not be able to synthesize a `..` segment.
+        assert_eq!(compute_python_module_dir("u/@./script"), "u/_");
+    }
+
+    #[test]
     fn test_compute_py_codegen_basic_args() {
         let code = "def main(x: str, y: int):\n    return x\n";
         let cg = compute_py_codegen(code, "f/test/script");
@@ -3295,6 +3562,22 @@ mod tests {
         assert!(cg.transforms.is_empty());
         assert!(cg.pre_spread.is_none());
         assert_eq!(cg.module_name, "script");
+    }
+
+    #[test]
+    fn test_compute_py_codegen_keyword_step_id() {
+        // Regression for a flow inline step whose auto-assigned id is a Python
+        // keyword (e.g. `in`): the generated wrapper must not emit
+        // `from pkg import in as inner_script` (SyntaxError). The module name is
+        // underscore-prefixed, matching the digit-leading guard.
+        let code = "def main():\n    return 1\n";
+        let cg = compute_py_codegen(code, "u/admin/myflow/in");
+        assert_eq!(cg.module_name, "_in");
+        assert_eq!(cg.module_dir_dot, "u.admin.myflow");
+
+        // Non-keyword ids are unaffected.
+        let cg2 = compute_py_codegen(code, "u/admin/myflow/step");
+        assert_eq!(cg2.module_name, "step");
     }
 
     #[test]
@@ -3358,5 +3641,180 @@ mod tests {
         );
         assert_eq!(kept, lines(&["# py: 3.11", "requests==2.0"]));
         assert_eq!(ignored, lines(&["pyyaml==6.0"]));
+    }
+
+    /// Materialize a fake installed wheel: every file in `files` is created, and
+    /// `record_entries` is written verbatim as the RECORD (so a test can list a
+    /// path in RECORD without creating it, to simulate out-of-band loss).
+    fn write_fake_wheel(root: &std::path::Path, files: &[&str], record_entries: &[&str]) {
+        for f in files {
+            let full = root.join(f);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, b"x").unwrap();
+        }
+        let dist_info = root.join("pkg-1.0.0.dist-info");
+        std::fs::create_dir_all(&dist_info).unwrap();
+        std::fs::write(dist_info.join("RECORD"), record_entries.join("\n") + "\n").unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_ok_when_all_present() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/__init__.py", "pkg/mod.py"],
+            &[
+                "pkg/__init__.py,sha256=aaa,1",
+                "pkg/mod.py,sha256=bbb,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_err_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        // RECORD lists pkg/mod.py but we never create it: the exact failure mode
+        // the customer hit (wmill/s3_reader.py present in RECORD, gone on disk).
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/__init__.py"],
+            &[
+                "pkg/__init__.py,sha256=aaa,1",
+                "pkg/mod.py,sha256=bbb,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        let err = verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .unwrap_err();
+        assert!(err.contains("pkg/mod.py"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_err_when_no_dist_info() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("loose.py"), b"x").unwrap();
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_skips_absolute_and_escaping_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        // Absolute and `..` RECORD entries are not package-relative and must be
+        // skipped rather than reported missing.
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/__init__.py"],
+            &[
+                "pkg/__init__.py,sha256=aaa,1",
+                "/etc/passwd,sha256=ccc,1",
+                "../outside.py,sha256=ddd,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_ok());
+    }
+
+    // Regression tests for the concurrent-install guard. Two jobs installing the
+    // same uncached dep into the shared `venv_p` used to race uv's `--reinstall`,
+    // corrupting the on-disk wheel and failing with "Env installation did not
+    // succeed". The guard serializes those installs.
+
+    #[tokio::test]
+    async fn test_venv_install_lock_serializes_same_path() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // Same target path => one shared lock => no two tasks install at once.
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_seen = Arc::new(AtomicUsize::new(0));
+        let mut handles = vec![];
+        for _ in 0..8 {
+            let active = active.clone();
+            let max_seen = max_seen.clone();
+            handles.push(tokio::spawn(async move {
+                let lock = get_venv_install_lock("/cache/py/3.11/samedep==1.0").await;
+                let _g = lock.lock_owned().await;
+                let cur = active.fetch_add(1, Ordering::SeqCst) + 1;
+                max_seen.fetch_max(cur, Ordering::SeqCst);
+                // Yield so any concurrency would be observed by another task.
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                active.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+        assert_eq!(
+            max_seen.load(Ordering::SeqCst),
+            1,
+            "installs into the same target dir must be serialized"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_venv_install_lock_distinct_paths_are_independent() {
+        // Different target paths get different locks and never block each other.
+        let a = get_venv_install_lock("/cache/py/3.11/depA==1.0").await;
+        let b = get_venv_install_lock("/cache/py/3.11/depB==1.0").await;
+        let _ga = a.lock_owned().await;
+        // Holding depA's lock must not prevent acquiring depB's.
+        assert!(
+            b.try_lock().is_ok(),
+            "distinct deps must install in parallel"
+        );
+        // Same path returns the same underlying lock.
+        let a2 = get_venv_install_lock("/cache/py/3.11/depA==1.0").await;
+        assert!(
+            a2.try_lock().is_err(),
+            "same target dir must map to the same lock"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_venv_file_lock_excludes_across_descriptions() {
+        // The cross-process layer: flock on a sibling `.lock` excludes a second
+        // independent open file description (i.e. another worker process) while
+        // held, and frees it on close. Mirrors the loop in handle_python_reqs.
+        use nix::fcntl::{flock, FlockArg};
+        use std::os::unix::io::AsRawFd;
+
+        let dir = std::env::temp_dir().join("wm_venv_lock_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock_path = dir.join("dep==1.0.lock");
+
+        let f1 = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&lock_path)
+            .unwrap();
+        flock(f1.as_raw_fd(), FlockArg::LockExclusiveNonblock).unwrap();
+
+        // A second descriptor (stand-in for another process) cannot take it.
+        let f2 = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&lock_path)
+            .unwrap();
+        assert_eq!(
+            flock(f2.as_raw_fd(), FlockArg::LockExclusiveNonblock),
+            Err(nix::errno::Errno::EWOULDBLOCK),
+            "a second holder must be blocked while the lock is held"
+        );
+
+        // Releasing the first lets the second acquire it.
+        drop(f1);
+        flock(f2.as_raw_fd(), FlockArg::LockExclusiveNonblock)
+            .expect("lock must be acquirable once the holder releases it");
+
+        drop(f2);
+        let _ = std::fs::remove_file(&lock_path);
     }
 }

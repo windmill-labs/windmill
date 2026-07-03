@@ -129,7 +129,10 @@ impl Visit for ImportsFinder {
 /// See also: [`parse_relative_imports`] for resolved absolute paths.
 pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.to_string());
+    let fm = cm.new_source_file(
+        FileName::Custom("main.d.ts".into()).into(),
+        code.to_string(),
+    );
     let mut tss = TsSyntax::default();
     tss.disallow_ambiguous_jsx_like;
     tss.tsx = true;

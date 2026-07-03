@@ -27,9 +27,12 @@ export interface UserExt {
 	groups: string[]
 	pgroups: string[]
 	folders: string[]
+	folders_read: string[]
 	folders_owners: string[]
 	is_service_account?: boolean
 	impersonating_email?: string
+	// true when the user is a superadmin viewing a workspace they are not a member of
+	non_member?: boolean
 }
 
 export interface UserWorkspace {
@@ -39,6 +42,7 @@ export interface UserWorkspace {
 	color?: string
 	operator_settings?: OperatorSettings
 	parent_workspace_id?: string | null
+	is_dev_workspace?: boolean
 	disabled: boolean
 }
 
@@ -118,6 +122,7 @@ export const RELATIVE_LINE_NUMBERS_SETTING_NAME = 'relativeLineNumbers'
 export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
 export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
 export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
+export const COPILOT_SESSION_REASONING_SETTING_NAME = 'copilotSessionReasoning'
 export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
@@ -127,6 +132,13 @@ export const relativeLineNumbers = writable<boolean>(
 )
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
+)
+
+export const AI_USER_DISABLED_SETTING_NAME = 'aiUserDisabled'
+// Master per-user (per-device) opt-out for all Windmill AI features. Initialized at
+// module load so it applies on startup, not only once the settings panel mounts.
+export const aiUserDisabled = writable<boolean>(
+	getLocalSetting(AI_USER_DISABLED_SETTING_NAME) === 'true'
 )
 
 export const usedTriggerKinds = writable<string[]>([])
@@ -177,6 +189,10 @@ export interface SQLSchema {
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string
+	/** MySQL only: the connection's default database (`DATABASE()`), surfaced by the
+	 * introspection script. Lets the table picker render the default db's tables
+	 * unprefixed even when the connection can also see other (non-system) schemas. */
+	defaultDb?: string
 }
 
 export interface GraphqlSchema {

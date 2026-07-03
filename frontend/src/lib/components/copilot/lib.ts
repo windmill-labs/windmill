@@ -14,7 +14,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { getDefaultChatTemperature } from './modelConfig'
+import { requiresMaxCompletionTokens } from './modelConfig'
+import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
@@ -24,7 +25,7 @@ import {
 import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
-import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel, getMetadataModel } from '$lib/aiStore'
 import {
 	emptyChatTokenUsage,
 	openAICompletionsUsageToChatTokenUsage,
@@ -33,6 +34,7 @@ import {
 import {
 	buildAssistantTextMessage,
 	buildAssistantToolCallMessage,
+	splitContentDelta,
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
 import { parseFimCompletionChoice } from './fim'
@@ -60,21 +62,9 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 		label: 'OpenAI',
 		defaultModels: OPENAI_MODELS
 	},
-	azure_openai: {
-		label: 'Azure OpenAI',
-		defaultModels: OPENAI_MODELS
-	},
 	anthropic: {
 		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-4-6', 'claude-sonnet-4-6/thinking', 'claude-3-5-haiku-latest']
-	},
-	mistral: {
-		label: 'Mistral',
-		defaultModels: ['codestral-latest']
-	},
-	deepseek: {
-		label: 'DeepSeek',
-		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
+		defaultModels: ['claude-sonnet-4-6', 'claude-3-5-haiku-latest']
 	},
 	googleai: {
 		label: 'Google AI',
@@ -86,6 +76,29 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 			'gemini-3.1-pro',
 			'gemini-3.1-flash-lite'
 		]
+	},
+	azure_openai: {
+		label: 'Azure OpenAI',
+		defaultModels: OPENAI_MODELS
+	},
+	azure_foundry: {
+		label: 'Azure AI Foundry',
+		defaultModels: [
+			'gpt-4o',
+			'gpt-4o-mini',
+			'DeepSeek-R1',
+			'Llama-3.3-70B-Instruct',
+			'Phi-4',
+			'Mistral-Large-2411'
+		]
+	},
+	mistral: {
+		label: 'Mistral',
+		defaultModels: ['codestral-latest']
+	},
+	deepseek: {
+		label: 'DeepSeek',
+		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
 	},
 	groq: {
 		label: 'Groq',
@@ -265,7 +278,10 @@ export async function fetchAvailableModels(
 export function getModelMaxTokens(provider: AIProvider, model: string) {
 	if (model.includes('gpt-5')) {
 		return 128000
-	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
+	} else if (
+		(provider === 'azure_openai' || provider === 'openai' || provider === 'azure_foundry') &&
+		model.startsWith('o')
+	) {
 		return 100000
 	} else if (
 		model.includes('claude-sonnet') ||
@@ -285,22 +301,6 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	return 8192
 }
 
-export function getModelContextWindow(model: string) {
-	if (model.includes('gpt-4.1') || model.includes('gemini')) {
-		return 1000000
-	} else if (model.includes('gpt-5')) {
-		return 400000
-	} else if (model.includes('gpt-4o') || model.includes('llama-3.3')) {
-		return 128000
-	} else if (model.includes('claude') || model.includes('o4-mini') || model.includes('o3')) {
-		return 200000
-	} else if (model.includes('codestral')) {
-		return 32000
-	} else {
-		return 128000
-	}
-}
-
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
@@ -314,10 +314,11 @@ function getModelSpecificConfig(
 		// copilotInfo store may not be initialized in vitest
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
-	const defaultTemperature = getDefaultChatTemperature(modelProvider)
 	if (
-		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
-		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
+		(modelProvider.provider === 'openai' ||
+			modelProvider.provider === 'azure_openai' ||
+			modelProvider.provider === 'azure_foundry') &&
+		requiresMaxCompletionTokens(modelProvider.model)
 	) {
 		return {
 			model: modelProvider.model,
@@ -326,18 +327,7 @@ function getModelSpecificConfig(
 		}
 	} else {
 		return {
-			...(modelProvider.model.endsWith('/thinking')
-				? {
-						thinking: {
-							type: 'enabled',
-							budget_tokens: 1024
-						},
-						model: modelProvider.model.slice(0, -9)
-					}
-				: {
-						model: modelProvider.model,
-						...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {})
-					}),
+			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens
 		}
@@ -377,6 +367,7 @@ const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
 	openai: DEFAULT_COMPLETION_CONFIG,
 	azure_openai: DEFAULT_COMPLETION_CONFIG,
+	azure_foundry: DEFAULT_COMPLETION_CONFIG,
 	groq: DEFAULT_COMPLETION_CONFIG,
 	openrouter: DEFAULT_COMPLETION_CONFIG,
 	togetherai: DEFAULT_COMPLETION_CONFIG,
@@ -720,6 +711,18 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
+/**
+ * Whether a provider can use native web search automatically in the web chat.
+ * Azure OpenAI can expose Responses API `web_search` for some deployments, but
+ * it is subscription/admin controlled and routes data through Grounding with
+ * Bing, so do not silently enable it until there is explicit Azure-specific UI.
+ * Providers behind OpenAI-compatible/native-translation proxy paths have no
+ * forwardable native web-search tool.
+ */
+export function providerSupportsWebSearch(provider: AIProvider | undefined): boolean {
+	return provider === 'openai' || provider === 'anthropic'
+}
+
 export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,
@@ -753,18 +756,18 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	testOptions?: {
+	options?: {
 		apiKey?: string // testing API KEY using the global ai proxy
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
 		workspace?: string // use a specific workspace proxy when testing a workspace resource
-		forceModelProvider: AIProviderModel
+		forceModelProvider?: AIProviderModel
 	}
 ) {
 	let response: string | undefined = ''
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: testOptions?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
@@ -773,7 +776,7 @@ export async function getNonStreamingCompletion(
 			const response = await getNonStreamingOpenAIResponsesCompletion(
 				messages,
 				abortController,
-				testOptions
+				options
 			)
 			return response
 		} catch (error) {
@@ -790,30 +793,39 @@ export async function getNonStreamingCompletion(
 			'X-Provider': provider
 		}
 	}
-	if (testOptions?.resourcePath) {
+	if (options?.resourcePath) {
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-Resource-Path': testOptions.resourcePath
+			'X-Resource-Path': options.resourcePath
 		}
-	} else if (testOptions?.apiKey) {
+	} else if (options?.apiKey) {
 		if (provider === 'customai') {
 			throw new Error('Cannot test API key for Custom AI, only resource path is supported')
 		}
 
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-API-Key': testOptions.apiKey
+			'X-API-Key': options.apiKey
 		}
 	}
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = options?.apiKey
 		? createOpenAIProxyClient(getAiProxyBaseURL())
-		: testOptions?.workspace
-			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+		: options?.workspace
+			? workspaceAIClients.createOpenaiClient(options.workspace)
 			: workspaceAIClients.getOpenaiClient()
 
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices?.[0]?.message.content || ''
 	return response
+}
+
+export async function getNonStreamingMetadataCompletion(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController
+) {
+	return getNonStreamingCompletion(messages, abortController, {
+		forceModelProvider: getMetadataModel()
+	})
 }
 
 export const FIM_MAX_TOKENS = 256
@@ -883,6 +895,7 @@ export async function getCompletion(
 		forceCompletions?: boolean
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		reasoningEffort?: string
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -895,7 +908,11 @@ export async function getCompletion(
 	// Use Responses API for OpenAI and Azure OpenAI
 	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
 		try {
-			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
+			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
+				forceModelProvider: options?.forceModelProvider,
+				openaiClient: options?.openaiClient,
+				reasoningEffort: options?.reasoningEffort
+			}) as any
 			return stream
 		} catch (error) {
 			console.error('Error using Responses API:', error)
@@ -904,9 +921,12 @@ export async function getCompletion(
 
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
-	const completionConfig =
-		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
-		config.stream
+	const completionConfig = applyReasoningToConfig(
+		(provider === 'openai' ||
+			provider === 'azure_openai' ||
+			provider === 'azure_foundry' ||
+			provider === 'googleai') &&
+			config.stream
 			? {
 					...config,
 					stream_options: {
@@ -914,7 +934,10 @@ export async function getCompletion(
 						include_usage: true
 					}
 				}
-			: config
+			: config,
+		provider === 'deepseek' ? 'deepseek' : provider === 'mistral' ? 'mistral' : 'completions',
+		options?.reasoningEffort
+	)
 	const completion = client.chat.completions.create(completionConfig, {
 		signal: abortController.signal,
 		headers: {
@@ -945,7 +968,7 @@ export async function parseOpenAICompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
-	options?: { workspace?: string }
+	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	let malformedFunctionCallError = false
@@ -976,13 +999,19 @@ export async function parseOpenAICompletion(
 			malformedFunctionCallError = true
 		}
 
+		// Mistral nests reasoning inside structured content parts; split them out
+		// so a content delta never leaks "[object Object]" into the answer.
+		const structured = splitContentDelta(delta.content)
 		const reasoningDelta = getReasoningContentDelta(delta)
-		if (typeof reasoningDelta === 'string') {
+		const reasoningText =
+			(typeof reasoningDelta === 'string' ? reasoningDelta : '') + structured.reasoning
+		if (typeof reasoningDelta === 'string' || structured.reasoning) {
 			hasReasoningContent = true
-			reasoningContent += reasoningDelta
+			reasoningContent += reasoningText
+			callbacks.onReasoningDelta?.(reasoningText)
 		}
 
-		const contentDelta = delta.content
+		const contentDelta = structured.text
 		if (contentDelta) {
 			answer += contentDelta
 			assistantContent += contentDelta
@@ -1097,7 +1126,8 @@ export async function parseOpenAICompletion(
 				hasReasoningContent,
 				reasoningContent
 			},
-			toolCalls: normalizedToolCalls
+			toolCalls: normalizedToolCalls,
+			provider: options?.provider
 		})
 		messages.push(toAdd)
 		addedMessages.push(toAdd)

@@ -87,6 +87,10 @@
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import {
+		listWorkspaceMacrosCached,
+		macroDefinitionSql
+	} from '$lib/components/assets/workspaceMacros'
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
 
@@ -136,7 +140,17 @@
 		lineNumbersMinChars?: number
 		files?: Record<string, { code: string; readonly?: boolean }> | undefined
 		extraLib?: string | undefined
+		/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent.
+		 * Each keystroke schedules (or reschedules) an `updateCode` call this
+		 * far in the future. */
 		changeTimeout?: number
+		/** Hard ceiling (ms) on how long `updateCode` can be deferred while
+		 * the user is typing continuously — measured from the FIRST
+		 * keystroke of the burst (the leading fire). Without this cap,
+		 * uninterrupted typing would hold the bindable `code` prop stale
+		 * indefinitely and downstream consumers (autosave, lint, live
+		 * preview) would never see the latest text. */
+		maxChangeTimeout?: number
 		loadAsync?: boolean
 		key?: string | undefined
 		class?: string | undefined
@@ -148,11 +162,6 @@
 		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 		// To execute preview scripts with the right worker group
 		customTag?: string
-		// Opt-in: reflect external `code` prop mutations back into Monaco (see
-		// the effect below). One-way `code={...}` callers that need live
-		// external updates — e.g. the inline flow rawscript — set this. Off by
-		// default so every other caller's behavior is unchanged.
-		syncExternalCode?: boolean
 	}
 
 	let {
@@ -177,6 +186,7 @@
 		files = {},
 		extraLib = undefined,
 		changeTimeout = 500,
+		maxChangeTimeout = 1000,
 		loadAsync = false,
 		key = undefined,
 		class: clazz = undefined,
@@ -184,8 +194,7 @@
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
 		preparedAssetsSqlQueries,
-		customTag,
-		syncExternalCode = false
+		customTag
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -364,23 +373,12 @@
 			code = ncode
 		}
 
-		if (noHistory) {
-			editor?.setValue(ncode)
-		} else {
-			if (editor?.getModel()) {
-				// editor.setValue(ncode)
-				editor.pushUndoStop()
-
-				editor.executeEdits('set', [
-					{
-						range: editor.getModel()!.getFullModelRange(), // full range
-						text: ncode
-					}
-				])
-
-				editor.pushUndoStop()
-			}
-		}
+		// setCode is an authoritative overwrite (reset, AI apply, module switch).
+		// Cancel any in-flight keystroke debounce first: otherwise alignCodeWithEditor
+		// skips on the `timeoutModel` guard (leaving Monaco stale), and the pending
+		// updateCode later reads the old buffer and writes it back over `ncode`.
+		cancelPendingChanges()
+		alignCodeWithEditor(!noHistory)
 		// Dispatch change immediately when code actually changed. This ensures
 		// callers like the Reset button and copilot trigger on:change handlers.
 		// The debounced onDidChangeModelContent handler will no-op since code
@@ -414,7 +412,31 @@
 			return
 		}
 		code = ncode
+		lastEditorCode = ncode
 		dispatch('change', ncode)
+	}
+
+	/** Force-materialize the latest Monaco content into the bindable
+	 * `code` prop right now, bypassing the trailing debounce. Use for
+	 * explicit "save now" shortcuts (Ctrl/Cmd+S) — without this, anything
+	 * the user typed within the last `changeTimeout` ms is still sitting
+	 * in Monaco's buffer and downstream consumers (autosave, lint) won't
+	 * see it. Clears the chain state so the next keystroke after this
+	 * flush is a fresh leading fire. */
+	export function flushPendingChanges(): void {
+		cancelPendingChanges()
+		updateCode()
+	}
+
+	/** Discard any in-flight keystroke debounce without materializing it, so a
+	 * deferred updateCode can't fire later. Resets chain state to a fresh leading
+	 * fire on the next keystroke. */
+	function cancelPendingChanges(): void {
+		if (timeoutModel !== undefined) {
+			clearTimeout(timeoutModel)
+			timeoutModel = undefined
+		}
+		changeChainStart = undefined
 	}
 
 	export function append(code: string): void {
@@ -603,6 +625,53 @@
 				return {
 					suggestions
 				}
+			}
+		})
+	}
+
+	let workspaceMacroCompletor: IDisposable | undefined = undefined
+
+	// Workspace DuckDB macros (deployed `// macros` libraries): suggest each
+	// macro while typing an identifier, with its signature + body as docs and
+	// a snippet insert that parks the cursor inside the call parens. Fetched
+	// via a short-TTL cache — macros are late-bound, so mild staleness is fine.
+	async function addWorkspaceMacroCompletions() {
+		workspaceMacroCompletor?.dispose()
+		const workspace = $workspaceStore
+		if (!workspace) return
+		let macros: Awaited<ReturnType<typeof listWorkspaceMacrosCached>> = []
+		try {
+			macros = await listWorkspaceMacrosCached(workspace)
+		} catch (e) {
+			console.error('error listing workspace macros', e)
+			return
+		}
+		if (macros.length === 0) return
+		workspaceMacroCompletor = languages.registerCompletionItemProvider('sql', {
+			provideCompletionItems: function (model, position) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+				const suggestions = macros.map((m) => ({
+					label: `${m.name}(${m.params})`,
+					kind: m.is_table
+						? languages.CompletionItemKind.Interface
+						: languages.CompletionItemKind.Function,
+					detail: `${m.is_table ? 'table macro' : 'macro'} · ${m.provider_path}`,
+					documentation: {
+						value: '```sql\n' + macroDefinitionSql(m) + '\n```'
+					},
+					insertText: `${m.name}($0)`,
+					insertTextRules: languages.CompletionItemInsertTextRule.InsertAsSnippet,
+					filterText: m.name,
+					range,
+					sortText: 'b' + m.name
+				}))
+				return { suggestions }
 			}
 		})
 	}
@@ -1327,6 +1396,10 @@
 	}
 
 	let timeoutModel: number | undefined = undefined
+	/** Wall-clock start (ms) of the current debounce chain. Reset whenever
+	 * the trailing fire lands — so a typing burst → pause → typing burst
+	 * gets a fresh leading fire instead of inheriting the previous cap. */
+	let changeChainStart: number | undefined = undefined
 	async function loadMonaco() {
 		setMonacoTypescriptOptions()
 		console.log('path', uri)
@@ -1433,10 +1506,29 @@
 		let ataModel: number | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
-			timeoutModel && clearTimeout(timeoutModel)
-			timeoutModel = setTimeout(() => {
+			// Leading fire on the first keystroke of a burst: every
+			// downstream consumer (autosave's 1.5s debouncer, the
+			// `bind:code` chain, change listeners) sees text within the
+			// same tick instead of after `changeTimeout` ms of silence.
+			// Subsequent keystrokes within the burst are trailing-only
+			// (debounced by `changeTimeout`), with a hard ceiling at
+			// `chainStart + maxChangeTimeout` so continuous typing still
+			// materializes at least once per `maxChangeTimeout` window.
+			const now = Date.now()
+			if (changeChainStart === undefined) {
 				updateCode()
-			}, changeTimeout)
+				changeChainStart = now
+			}
+			timeoutModel && clearTimeout(timeoutModel)
+			const fireAt = Math.min(now + changeTimeout, changeChainStart + maxChangeTimeout)
+			timeoutModel = setTimeout(
+				() => {
+					updateCode()
+					timeoutModel = undefined
+					changeChainStart = undefined
+				},
+				Math.max(0, fireAt - now)
+			)
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
@@ -1479,6 +1571,12 @@
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// Monaco swallows the keydown (addCommand prevents default and
+				// stops propagation), so page-level Ctrl/Cmd+S handlers never
+				// see it. Re-broadcast as a window event so editors that flush
+				// a draft on the shortcut (raw apps) can react regardless of
+				// which Monaco has focus.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
@@ -1786,8 +1884,10 @@
 		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		resultCollectionCompletor && resultCollectionCompletor.dispose()
+		workspaceMacroCompletor && workspaceMacroCompletor.dispose()
 		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
+		changeChainStart = undefined
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
 		absolutePathExtraLibs.forEach((d) => d.dispose())
@@ -1844,29 +1944,6 @@
 		lang = scriptLangToEditorLang(scriptLang)
 	})
 
-	// Opt-in (syncExternalCode): reflect external `code` prop mutations into
-	// Monaco's model. Parents that pass `code={...}` one-way (no bind) — e.g.
-	// the inline rawscript in the flow editor — otherwise mutate the prop
-	// without Monaco ever showing the change (the AI chat editing a flow
-	// module's content in a session is the motivating case). Gated off by
-	// default: Editor is sensitive and most callers either bind:code (and
-	// carry their own external-sync) or treat code as init-only, so a blanket
-	// setValue would risk clobbering them. The `getValue() !== code` guard
-	// keeps the caret intact when the change originated from typing inside
-	// Monaco (which round-trips code back via `$bindable`, re-firing this
-	// effect with `code === getValue()`).
-	let lastExternalCodeSync = code
-	$effect(() => {
-		if (!syncExternalCode) return
-		if (code === lastExternalCodeSync) return
-		lastExternalCodeSync = code
-		if (!editor) return
-		untrack(() => {
-			if (editor!.getValue() !== code) {
-				editor!.setValue(code ?? '')
-			}
-		})
-	})
 	$effect(() => {
 		filePath = computePath(path)
 	})
@@ -1881,6 +1958,14 @@
 		initialized && lang === 'sql' && scriptLang
 			? untrack(() => addSqlTypeCompletions())
 			: (sqlTypeCompletor?.dispose(), resultCollectionCompletor?.dispose())
+	})
+
+	$effect(() => {
+		initialized && lang === 'sql' && scriptLang === 'duckdb'
+			? untrack(() => {
+					addWorkspaceMacroCompletions()
+				})
+			: workspaceMacroCompletor?.dispose()
 	})
 
 	$effect(() => {
@@ -1924,7 +2009,7 @@
 		$copilotInfo.enabled && initialized && editor && untrack(() => editor && addChatHandler(editor))
 	})
 	$effect(() => {
-		!$codeCompletionSessionEnabled && autocompletor?.dispose()
+		;(!$codeCompletionSessionEnabled || !$copilotInfo.enabled) && autocompletor?.dispose()
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {
@@ -1954,25 +2039,50 @@
 		})
 	})
 
-	// External `code` prop changes should flow into the Monaco editor. The
-	// `untrack` block reads/writes Monaco without subscribing — only the
-	// prop read above is tracked — so the editor's own change handler
-	// (`updateCode`) re-running with the same value short-circuits and we
-	// don't loop.
-	$effect(() => {
-		const next = code ?? ''
+	let applyExternalCode = useDebounce(() => alignCodeWithEditor(true), 800)
+
+	// Last `code` value the editor itself produced or aligned to. Used to tell an
+	// echo (the bindable changed because the user typed — Monaco is already
+	// ahead) from a genuine external write. Without this, a typing burst longer
+	// than the debounce window would sync the lagging `code` back over newer
+	// keystrokes. Must be kept in step with every editor↔`code` sync point.
+	let lastEditorCode = code
+
+	function alignCodeWithEditor(history: boolean) {
 		const ed = editor
 		if (!ed) return
-		untrack(() => {
-			if (ed.getValue() === next) return
-			const model = ed.getModel()
-			if (!model) return
+		const next = code ?? ''
+		const value = ed.getValue()
+		const model = ed.getModel()
+		// Some keystrokes are still being debounced, don't overwrite them.
+		// When the debounce is done, updateCode will be called and the code will be aligned with the editor.
+		if (timeoutModel !== undefined) return
+		if (!model) return
+		lastEditorCode = next
+		if (value === next) return
+		if (history) {
 			ed.pushUndoStop()
 			ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
 			ed.pushUndoStop()
+		} else {
+			ed.setValue(next)
+		}
+	}
+
+	// External `code` prop changes should flow into the Monaco editor. Skip
+	// echoes: when `code` matches what the editor last produced (`updateCode`)
+	// or aligned to, the change came from the editor itself, so syncing back
+	// would clobber input typed since. Only genuine external writes — where
+	// `code` diverges from `lastEditorCode` — schedule a sync. The `untrack`
+	// block reads/writes Monaco without subscribing, so we don't loop.
+	$effect(() => {
+		;[code, editor]
+		if (!editor) return
+		untrack(() => {
+			if (code === lastEditorCode) return
+			applyExternalCode()
 		})
 	})
-
 	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
 		if (lang !== 'typescript' || !initialized) return false
 		// Use the stable model URI (computed once at mount), not filePath which changes on rename

@@ -1,7 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { basename } from "node:path";
+import { loadAppFixtureForEval } from "../adapters/frontend/core/app/appFixtureLoader";
 import {
   runGlobalEval,
   type GlobalLiveEditorDraftFixture,
+  type GlobalUserFixture,
 } from "../adapters/frontend/core/global/globalEvalRunner";
 import type { BenchmarkWorkspaceRunnables } from "../adapters/frontend/mockBackend";
 import type { FrontendEvalModelConfig } from "../core/models";
@@ -13,6 +16,7 @@ import { getFrontendApiKey } from "./frontendCommon";
 export interface GlobalInitialFixture {
   workspace?: BenchmarkWorkspaceRunnables;
   liveEditorDrafts?: GlobalLiveEditorDraftFixture[];
+  user?: GlobalUserFixture;
 }
 
 export function createGlobalModeRunner(
@@ -36,6 +40,7 @@ export function createGlobalModeRunner(
         {
           workspaceFixtures: initial?.workspace,
           liveEditorDrafts: initial?.liveEditorDrafts,
+          user: initial?.user,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           provider: modelConfig.provider,
           model: modelConfig.model,
@@ -54,6 +59,7 @@ export function createGlobalModeRunner(
         toolCallDetails: result.toolCallDetails,
         skillsInvoked: [],
         tokenUsage: result.tokenUsage,
+        finalContextTokens: result.finalContextTokens,
       };
     },
     validate({ evalCase, actual, expected }) {
@@ -75,10 +81,33 @@ export function createGlobalModeRunner(
 }
 
 async function loadGlobalInitialFixture(path: string): Promise<GlobalInitialFixture> {
+  if ((await stat(path)).isDirectory()) {
+    const { initialFrontend, initialBackend, initialDatatables } =
+      await loadAppFixtureForEval(path);
+    const name = basename(path);
+    return {
+      workspace: {
+        apps: [
+          {
+            path: `f/evals/global/${name}`,
+            summary: name,
+            value: {
+              files: initialFrontend,
+              runnables: initialBackend,
+              data: initialDatatables,
+            },
+          },
+        ],
+      },
+      liveEditorDrafts: [],
+    };
+  }
+
   const parsed = JSON.parse(await readFile(path, "utf8")) as GlobalInitialFixture;
   return {
     workspace: parsed.workspace ?? {},
     liveEditorDrafts: parsed.liveEditorDrafts ?? [],
+    user: parsed.user,
   };
 }
 

@@ -98,6 +98,7 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
         ("configs", "Configs", "Configuration management", false),
         ("oauth", "OAuth", "OAuth management", false),
         ("ai", "AI", "AI feature management", false),
+        ("ai_skills", "AI Skills", "AI skill management", false),
         (
             "agent_workers",
             "Agent Workers",
@@ -193,6 +194,19 @@ lazy_static! {
             ],
         }];
 
+        // Read-only: `/api/docs/*` exposes only GET routes, so there is no
+        // `docs:write`. Kept out of build_standard_scope_domains (which mints a
+        // read+write pair) for that reason.
+        groups.push(ScopeDomain {
+            name: "Documentation".to_string(),
+            description: Some("Read-only documentation search".to_string()),
+            scopes: vec![ScopeOption {
+                value: "docs:read".to_string(),
+                label: "Read".to_string(),
+                requires_resource_path: false,
+            }],
+        });
+
         groups.extend(build_standard_scope_domains());
         groups.extend(build_trigger_scope_domains());
 
@@ -206,4 +220,22 @@ pub fn global_service() -> Router {
 
 async fn get_all_available_scopes() -> JsonResult<Vec<ScopeDomain>> {
     Ok(Json(ALL_SCOPES.clone()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The token-scope picker is driven by this catalog, so a scope that is
+    /// enforced but absent here can't be granted through the supported UI.
+    #[test]
+    fn docs_read_scope_is_exposed_read_only() {
+        let values: Vec<&str> = ALL_SCOPES
+            .iter()
+            .flat_map(|d| d.scopes.iter())
+            .map(|s| s.value.as_str())
+            .collect();
+        assert!(values.contains(&"docs:read"), "docs:read must be selectable");
+        assert!(!values.contains(&"docs:write"), "docs has no write surface");
+    }
 }

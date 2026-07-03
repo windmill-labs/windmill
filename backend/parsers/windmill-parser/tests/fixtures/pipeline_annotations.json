@@ -1,0 +1,706 @@
+[
+	{
+		"name": "bare pipeline marker",
+		"code": "// pipeline\nexport function main() {}",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "pipeline keyword with trailing text is not a marker",
+		"code": "// pipeline for billing\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "asset triggers across kinds, duplicates deduped",
+		"code": "-- pipeline\n-- on datatable://main/orders\n-- on s3://bucket/raw.parquet\n-- on ducklake://lake/events\n-- on datatable://main/orders\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"datatable:main/orders",
+				"s3object:bucket/raw.parquet",
+				"ducklake:lake/events"
+			],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "native trigger markers",
+		"code": "# pipeline\n# on kafka\n# on schedule\n# on data_upload\nprint(1)",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [
+				"kafka",
+				"schedule",
+				"data_upload"
+			],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "native keyword must be a whole word and end the line",
+		"code": "// on kafkalike\n// on kafka topic-extra\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "partitioned daily with options",
+		"code": "// pipeline\n// partitioned daily tz=Europe/Paris format=%Y-%m-%d start=2024-01-01\nexport function main() {}",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": {
+				"kind": "daily",
+				"tz": "Europe/Paris",
+				"format": "%Y-%m-%d",
+				"start": "2024-01-01"
+			},
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "partitioned dynamic requires key, quoted values parse",
+		"code": "// partitioned dynamic key=\"customer id\"\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": {
+				"kind": "dynamic",
+				"key": "customer id",
+				"tz": null,
+				"format": null,
+				"start": null
+			},
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "partitioned with unknown kind is rejected",
+		"code": "// partitioned fortnightly\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "partitioned keyword does not match partition prefix",
+		"code": "// partition daily\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "freshness and tag, first value wins on duplicates",
+		"code": "# pipeline\n# freshness 1h\n# freshness 2h\n# tag heavy\n# tag light\nprint(1)",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": "1h",
+			"tag": "heavy",
+			"retry": null
+		}
+	},
+	{
+		"name": "retry with count and delay",
+		"code": "// pipeline\n// retry 3 5s\nexport function main() {}",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": {
+				"count": 3,
+				"delay": "5s"
+			}
+		}
+	},
+	{
+		"name": "retry count only",
+		"code": "// retry 2\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": {
+				"count": 2,
+				"delay": null
+			}
+		}
+	},
+	{
+		"name": "retry zero or malformed count is rejected",
+		"code": "// retry 0\n// retry 3foo\n// retry -1\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "annotations only count inside comments",
+		"code": "on datatable://main/raw\npipeline\nconst s = 'on s3://bucket/x'\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "partition token preserved in trigger path",
+		"code": "// pipeline\n// on s3://bucket/daily/{partition}/data.parquet\nexport function main() {}",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"s3object:bucket/daily/{partition}/data.parquet"
+			],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "leading whitespace and mixed comment prefixes",
+		"code": "   -- pipeline\n\t-- on datatable://main/x\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"datatable:main/x"
+			],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "on with empty or unparseable spec is ignored",
+		"code": "// on\n// on   \n// on notaprefix/foo\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "materialize managed (default) with merge key",
+		"code": "// pipeline\n// materialize ducklake://analytics/orders_daily key=order_id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders_daily",
+				"unique_key": "order_id"
+			}
+		}
+	},
+	{
+		"name": "materialize scd2 via history flag with key, track and deletes=close",
+		"code": "// pipeline\n// materialize ducklake://analytics/dim_customer key=id history track=name,tier deletes=close\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim_customer",
+				"unique_key": "id",
+				"scd2": true,
+				"track": [
+					"name",
+					"tier"
+				],
+				"close_deleted": true
+			}
+		}
+	},
+	{
+		"name": "materialize scd2 keyword alias with key only (track all non-key cols)",
+		"code": "// materialize scd2 ducklake://analytics/dim key=id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim",
+				"unique_key": "id",
+				"scd2": true
+			}
+		}
+	},
+	{
+		"name": "materialize key without history is plain merge (SCD1, not scd2)",
+		"code": "// materialize ducklake://analytics/dim key=id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/dim",
+				"unique_key": "id"
+			}
+		}
+	},
+	{
+		"name": "materialize manual escape hatch, first value wins",
+		"code": "// materialize manual ducklake://analytics/orders_daily\n// materialize ducklake://other/x\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders_daily",
+				"manual": true
+			}
+		}
+	},
+	{
+		"name": "materialize default-syntax shorthand with append",
+		"code": "// materialize ducklake append\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "main",
+				"append": true
+			}
+		}
+	},
+	{
+		"name": "materialize manual with no target is dropped",
+		"code": "// materialize manual\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "data_test built-ins accumulate in order",
+		"code": "-- pipeline\n-- materialize ducklake://analytics/orders key=order_id\n-- data_test unique order_id\n-- data_test not_null user_id\n-- data_test accepted_values status = paid,pending,refunded\n-- data_test relationships user_id -> datatable://prod/users.id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders",
+				"unique_key": "order_id"
+			},
+			"data_tests": [
+				{
+					"type": "unique",
+					"column": "order_id"
+				},
+				{
+					"type": "not_null",
+					"column": "user_id"
+				},
+				{
+					"type": "accepted_values",
+					"column": "status",
+					"values": [
+						"paid",
+						"pending",
+						"refunded"
+					]
+				},
+				{
+					"type": "relationships",
+					"column": "user_id",
+					"to_kind": "datatable",
+					"to_path": "prod/users",
+					"to_column": "id"
+				}
+			]
+		}
+	},
+	{
+		"name": "data_test accepted_values strips quotes and spacing",
+		"code": "# data_test accepted_values kind = \"a b\", 'c' ,d\nprint(1)",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [
+				{
+					"type": "accepted_values",
+					"column": "kind",
+					"values": [
+						"a b",
+						"c",
+						"d"
+					]
+				}
+			]
+		}
+	},
+	{
+		"name": "data_test custom escape hatch is a script path",
+		"code": "// data_test f/tests/orders_amount_sane\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [
+				{
+					"type": "custom",
+					"path": "f/tests/orders_amount_sane"
+				}
+			]
+		}
+	},
+	{
+		"name": "data_test relationships with ducklake shorthand target",
+		"code": "// data_test relationships sku -> ducklake://warehouse/dim_products.sku\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [
+				{
+					"type": "relationships",
+					"column": "sku",
+					"to_kind": "ducklake",
+					"to_path": "warehouse/dim_products",
+					"to_column": "sku"
+				}
+			]
+		}
+	},
+	{
+		"name": "malformed data_test lines are dropped fail-safe",
+		"code": "// data_test uniq order_id\n// data_test accepted_values s =\n// data_test relationships a -> b\n// data_test unique\n// data_test\n// data_test unique id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [
+				{
+					"type": "unique",
+					"column": "id"
+				}
+			]
+		}
+	},
+	{
+		"name": "ci test annotation is not a data test",
+		"code": "// test: f/foo/bar\n// data_test unique id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"data_tests": [
+				{
+					"type": "unique",
+					"column": "id"
+				}
+			]
+		}
+	},
+	{
+		"name": "column lineage maps output columns to upstream sources",
+		"code": "// column order_total <- ducklake://warehouse/orders.amount, ducklake://warehouse/orders.tax\n// column user_name <- datatable://prod/users.name\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "order_total",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						},
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "tax"
+						}
+					]
+				},
+				{
+					"column": "user_name",
+					"inputs": [
+						{
+							"from_kind": "datatable",
+							"from_path": "prod/users",
+							"from_column": "name"
+						}
+					]
+				}
+			]
+		}
+	},
+	{
+		"name": "column lineage keeps duplicate input refs (dedup is a view concern)",
+		"code": "// column total <- ducklake://warehouse/orders.amount, ducklake://warehouse/orders.amount\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "total",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						},
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/orders",
+							"from_column": "amount"
+						}
+					]
+				}
+			]
+		}
+	},
+	{
+		"name": "column lineage keeps schema-qualified table, drops malformed refs",
+		"code": "// column sku <- ducklake://warehouse/main.dim_products.sku, bad_no_dot\n// column no_arrow datatable://prod/x.y\n// column total <- bad_no_dot\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"column_lineage": [
+				{
+					"column": "sku",
+					"inputs": [
+						{
+							"from_kind": "ducklake",
+							"from_path": "warehouse/main.dim_products",
+							"from_column": "sku"
+						}
+					]
+				}
+			]
+		}
+	},
+	{
+		"name": "bare macros marker",
+		"code": "// macros\nCREATE MACRO dbl(a) AS a * 2;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"macros": true
+		}
+	},
+	{
+		"name": "macros with trailing prose is not a marker",
+		"code": "// macros are defined below\nCREATE MACRO dbl(a) AS a * 2;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "macros marker with sql comment prefix",
+		"code": "-- macros\n-- pipeline\nCREATE MACRO dbl(a) AS a * 2;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"macros": true
+		}
+	},
+	{
+		"name": "use accumulates in order and dedups",
+		"code": "// use f/lib/stats\n// use f/lib/dates\n// use f/lib/stats\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"use_libs": [
+				"f/lib/stats",
+				"f/lib/dates"
+			]
+		}
+	},
+	{
+		"name": "use requires a slashed single token",
+		"code": "// use this script to compute stuff\n// use standalone\n// use f/lib/ok extra\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "use stops at first code line",
+		"code": "// pipeline\nSELECT 1;\n-- use f/lib/late\n",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	}
+]

@@ -17,6 +17,7 @@
 	import { AIMode } from '../AIChatManager.svelte'
 	import { getAiChatManager } from '../aiChatManagerContext'
 	import { Check, Play } from 'lucide-svelte'
+	import MermaidDisplay from './MermaidDisplay.svelte'
 
 	const aiChatManager = getAiChatManager()
 
@@ -90,7 +91,7 @@
 		if (
 			aiChatManager.mode !== AIMode.SCRIPT ||
 			!aiChatManager.scriptEditorApplyCode ||
-			code === aiChatManager.scriptEditorOptions?.code
+			code === aiChatManager.scriptEditorOptions?.getCode()
 		) {
 			return false
 		}
@@ -108,14 +109,18 @@
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
-		<HighlightCode
-			className="p-1"
-			code={code ?? ''}
-			highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language as string)]}
-			language={undefined}
-			onApplyCode={handleApplyCode}
-			{showApplyButton}
-			applyButtonIcon={aiChatManager.pendingNewCode ? Check : Play}
-		/>
+		{#if language === 'mermaid'}
+			<MermaidDisplay code={code ?? ''} />
+		{:else}
+			<HighlightCode
+				className="p-1"
+				code={code ?? ''}
+				highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language as string)]}
+				language={undefined}
+				onApplyCode={handleApplyCode}
+				{showApplyButton}
+				applyButtonIcon={aiChatManager.pendingNewCode ? Check : Play}
+			/>
+		{/if}
 	</div>
 </div>

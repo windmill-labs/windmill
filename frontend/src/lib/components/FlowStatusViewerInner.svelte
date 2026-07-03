@@ -28,6 +28,7 @@
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 	import JobArgs from './JobArgs.svelte'
 	import { ChevronDown, Download, ExternalLink, Hourglass } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
@@ -412,7 +413,12 @@
 	function updateRecursiveRefresh(jobId: string) {
 		if (jobId) {
 			updateRecursiveRefreshFn?.(jobId, async (clear, root) => {
-				if (globalModuleStates.length > 0 || isSubflow) {
+				// During a clear pass we must descend into children even when this
+				// subtree is currently deselected (globalModuleStates empty): clearing
+				// the parent loop's selection deselects its iteration viewers before the
+				// recursion reaches them, and their stale branch-step states would leak
+				// into the newly selected iteration otherwise.
+				if (clear || globalModuleStates.length > 0 || isSubflow) {
 					await refresh(clear, root)
 				}
 			})
@@ -1174,15 +1180,25 @@
 	export type FlowModuleForTimeline = {
 		id: string
 		type: FlowModuleValue['type']
+		suspend?: boolean
 	}
 
 	function allModulesForTimeline(
 		modules: FlowModule[],
 		expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }>
 	): FlowModuleForTimeline[] {
-		const ids = dfs(modules, (x) => ({ id: x.id, type: x.value.type }) as FlowModuleForTimeline, {
-			skipToolNodes: true
-		})
+		const ids = dfs(
+			modules,
+			(x) =>
+				({
+					id: x.id,
+					type: x.value.type,
+					suspend: x.suspend != undefined
+				}) as FlowModuleForTimeline,
+			{
+				skipToolNodes: true
+			}
+		)
 
 		function rec(
 			ids: FlowModuleForTimeline[],
@@ -1202,7 +1218,8 @@
 									fms,
 									(x) => ({
 										id: x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix),
-										type: x.value.type
+										type: x.value.type,
+										suspend: x.suspend != undefined
 									}),
 									{ skipToolNodes: true }
 								),
@@ -1839,7 +1856,9 @@
 				style="min-height: {minTabHeight}px"
 			>
 				{#if !hideDownloadLogs && !isReplay && job?.id}
-					{@const logsApiPath = `/w/${workspace}/jobs_u/get_flow_all_logs/${job.id}`}
+					{@const logsApiPath = appendViewToken(
+						`/w/${workspace}/jobs_u/get_flow_all_logs/${job.id}`
+					)}
 					{@const logsName = `windmill_flow_logs_${job.id}.txt`}
 					<div class="flex justify-end p-1">
 						{#if shouldDownloadViaClient()}

@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            EXISTS(SELECT 1 FROM pg_proc WHERE proname = 'aurora_version') AS \"aurora!\",\n            EXISTS(SELECT 1 FROM pg_roles WHERE rolname = 'rds_superuser') AS \"rds!\",\n            EXISTS(SELECT 1 FROM pg_roles WHERE rolname = 'cloudsqlsuperuser') AS \"cloudsql!\",\n            EXISTS(SELECT 1 FROM pg_roles WHERE rolname IN ('azure_pg_admin', 'azuresu')) AS \"azure!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "aurora!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "rds!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "cloudsql!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "azure!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a90e3a1d7c7c0dfb422f44b0ed599f681f5630c024ae9a437a301f149636b0db"
+}

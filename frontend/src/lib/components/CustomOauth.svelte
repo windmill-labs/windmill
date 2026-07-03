@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import OauthExtraParams from './OauthExtraParams.svelte'
 	import OauthScopes from './OauthScopes.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 
-	let { connect_config = $bindable() } = $props();
+	let { connect_config = $bindable() } = $props()
 
 	run(() => {
 		if (!connect_config) {
@@ -19,12 +19,17 @@
 				extra_params_callback: {}
 			}
 		}
-	});
+	})
 </script>
 
 <div class="flex flex-col gap-6">
 	<label class="flex flex-col gap-1">
-		<span class="text-emphasis font-semibold text-xs">Auth URL</span>
+		<span class="text-emphasis font-semibold text-xs"
+			>Auth URL <Tooltip
+				>Leave empty for providers that only support the client credentials flow: the provider is
+				then offered exclusively with server-to-server authentication.</Tooltip
+			></span
+		>
 		<input
 			type="text"
 			placeholder="https://github.com/login/oauth/authorize"

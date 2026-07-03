@@ -23,7 +23,6 @@ pub fn create_query_builder(credentials: &ProviderCredentials) -> Box<dyn QueryB
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
             credentials.provider.clone(),
             credentials.platform.clone(),
-            credentials.enable_1m_context,
         )),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
         _ => Box::new(OtherQueryBuilder::new(credentials.provider.clone())),

@@ -15,13 +15,21 @@
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { genWmillTs, type Runnable } from './utils'
+	import {
+		genWmillTs,
+		normalizeRawAppRuntimeLogs,
+		type Runnable,
+		type RawAppRuntimeLogEntry,
+		type RawAppRuntimeLogRequester,
+		type RawAppRunSummary,
+		type RawAppRunsProvider
+	} from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount, untrack } from 'svelte'
+	import { onMount, onDestroy, untrack } from 'svelte'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
@@ -30,11 +38,19 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
-	import { MousePointerSquareDashed, RefreshCw, Columns2, ChevronDown, Eye } from 'lucide-svelte'
+	import {
+		MousePointerSquareDashed,
+		RefreshCw,
+		Columns2,
+		ChevronDown,
+		Eye,
+		SquareArrowOutUpRight
+	} from 'lucide-svelte'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -43,6 +59,7 @@
 		type RawAppData,
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
 		files?: Record<string, string>
@@ -54,6 +71,8 @@
 		summary?: string
 		path: string
 		newPath?: string | undefined
+		/** Initial labels for the app, threaded from the loaded app data. */
+		labels?: string[]
 		savedApp?:
 			| {
 					value: any
@@ -62,7 +81,10 @@
 					summary: string
 					policy: any
 					draft_only?: boolean
+					/** No deployed counterpart exists (draft-only); disables Diff. */
+					no_deployed?: boolean
 					custom_path?: string
+					labels?: string[]
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
@@ -78,6 +100,11 @@
 		 * preference. */
 		sidebarStorageKey?: string
 		liveEditorDraftStoragePath?: string
+		/** Indicator-only overrides forwarded to RawAppEditorHeader so the
+		 *  sessions preview's AutosaveIndicator watches the session's
+		 *  (workspace, path). Undefined on the full-page editor. */
+		autosaveWorkspace?: string
+		autosavePath?: string
 		/** Initial value for the "Split with Preview" tab-bar toggle. Defaults
 		 * to `true` (split mode, preview always pinned to the right). Set
 		 * `false` when the editor mounts inside a context that wants single-
@@ -86,6 +113,25 @@
 		 * still toggle the mode after mount; this prop only seeds the
 		 * initial state. */
 		defaultSplitWithPreview?: boolean
+		/** User-typed path when it differs from `savedApp.path`. The route injects
+		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
+		pendingDraftPath?: string | undefined
+		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
+		onResetToDeployed?: () => void | Promise<void>
+		// See ScriptBuilderProps — same indicator semantics.
+		loadedFromDraft?: boolean
+		othersDraftsCount?: number
+		onOpenOthersDrafts?: () => void
+		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
+		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
+		// Deploy created the app at a new path; the page navigates to it. Callback
+		// prop for the same reason as `onRestore` — `on:savedNewAppPath` forwarding
+		// through these runes-mode components is dropped.
+		onSavedNewAppPath?: (path: string) => void
 	}
 
 	let {
@@ -97,6 +143,7 @@
 		summary = $bindable(''),
 		path,
 		newPath = undefined,
+		labels = undefined,
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
 		onNavigate,
@@ -104,7 +151,18 @@
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
 		liveEditorDraftStoragePath = undefined,
-		defaultSplitWithPreview = true
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
+		defaultSplitWithPreview = true,
+		pendingDraftPath = $bindable(undefined),
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
+		onRuntimeLogRequester = undefined,
+		onRunsProvider = undefined,
+		onRestore,
+		onSavedNewAppPath
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -203,6 +261,10 @@
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
+	// Detached preview tab/window rendering the same app-preview bundle as the
+	// inline pane. Kept live-synced: every build is replayed into it until the
+	// user closes it. Not reactive — it's a window handle, not UI state.
+	let externalPreviewWindow: Window | null = null
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
 
@@ -945,6 +1007,22 @@
 	}
 
 	function listener(e: MessageEvent) {
+		// The detached preview window asks for the build every time it (re)loads,
+		// including a manual browser refresh — its app-preview.html shell starts
+		// blank and the one-shot `load` feed can't survive the tab reloading
+		// itself. Re-feed it here so it repaints. Gated to our own window handle
+		// AND a same-origin sender: the preview runs user app code that can
+		// navigate the window away, and a cross-origin doc must not be able to
+		// trigger a bundle replay (the build can carry app source/secrets).
+		if (
+			e.data?.type === 'appPreviewReady' &&
+			e.source === externalPreviewWindow &&
+			e.origin === window.location.origin
+		) {
+			feedExternalPreview()
+			return
+		}
+
 		// Two children speak to us now: the UI Builder iframe (source editor)
 		// and the preview iframe (rendered user app). Gate by source so they
 		// can't be confused or spoofed.
@@ -960,6 +1038,7 @@
 				{ type: 'preview', css: e.data.css, js: e.data.js },
 				'*'
 			)
+			syncExternalPreview()
 			return
 		}
 
@@ -980,6 +1059,11 @@
 		// `message: undefined` arrives on the next successful build and clears the banner.
 		if (fromUiBuilder && e.data.type === 'buildError') {
 			buildError = typeof e.data.message === 'string' ? e.data.message : undefined
+			return
+		}
+
+		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
+			resolvePendingRuntimeLogRequest(e.data.requestId, normalizeRawAppRuntimeLogs(e.data.logs))
 			return
 		}
 
@@ -1055,6 +1139,67 @@
 		}
 	}
 
+	function postToExternalPreview(msg: Record<string, unknown>) {
+		if (!externalPreviewWindow || externalPreviewWindow.closed) {
+			externalPreviewWindow = null
+			return
+		}
+		// Restrict to our own origin: the detached window loads same-origin
+		// app-preview.html, but user app code can navigate it elsewhere — don't
+		// post the build (potential app source/secrets) to a cross-origin doc.
+		externalPreviewWindow.postMessage(msg, window.location.origin)
+	}
+
+	function syncExternalPreview() {
+		if (lastBuild) {
+			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
+		}
+	}
+
+	// Full (re)feed of the detached window: theme first, then the build. Used
+	// when (re)attaching to a window — open, focus-reuse, load, handshake — so
+	// it always matches the editor's current state. Plain rebuilds use
+	// `syncExternalPreview` alone (the theme hasn't changed).
+	function feedExternalPreview() {
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		syncExternalPreview()
+	}
+
+	onDestroy(() => {
+		// Don't leave a detached preview behind when the editor unmounts: it
+		// would stop receiving builds and, once refreshed, has no opener to
+		// re-feed it — a permanently blank orphan.
+		if (externalPreviewWindow && !externalPreviewWindow.closed) externalPreviewWindow.close()
+		externalPreviewWindow = null
+	})
+
+	function openExternalPreview() {
+		// Reuse an already-open window instead of spawning duplicates.
+		if (externalPreviewWindow && !externalPreviewWindow.closed) {
+			externalPreviewWindow.focus()
+			feedExternalPreview()
+			return
+		}
+		// Scope the window name per app path so two open editors don't fight over
+		// (or take over / close) one shared OS-level preview window.
+		const win = window.open(
+			'/ui_builder/app-preview.html',
+			`windmillRawAppPreview:${encodeURIComponent(path)}`
+		)
+		if (!win) {
+			sendUserToast('Could not open the preview window (popup blocked?)', true)
+			return
+		}
+		externalPreviewWindow = win
+		// Initial feed: fires once when the freshly opened tab loads. This is the
+		// only feed path against an app-preview.html that predates the
+		// `appPreviewReady` handshake, so the window isn't blank on first open
+		// regardless of the pinned UI Builder artifact. A manual refresh is
+		// covered separately by the handshake in `listener` (this listener is
+		// bound to the now-stale document and won't fire again).
+		win.addEventListener('load', () => feedExternalPreview())
+	}
+
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
 
 	async function getBundle(): Promise<{ css: string; js: string }> {
@@ -1068,6 +1213,66 @@
 			)
 		})
 	}
+
+	const RUNTIME_LOGS_TIMEOUT_MS = 2000
+	type PendingRuntimeLogRequest = {
+		resolve: (entries: RawAppRuntimeLogEntry[] | undefined) => void
+		timer: ReturnType<typeof setTimeout>
+	}
+	const pendingRuntimeLogReqs = new Map<string, PendingRuntimeLogRequest>()
+
+	function resolvePendingRuntimeLogRequest(
+		requestId: string,
+		entries: RawAppRuntimeLogEntry[] | undefined
+	) {
+		const pending = pendingRuntimeLogReqs.get(requestId)
+		if (!pending) return
+		clearTimeout(pending.timer)
+		pendingRuntimeLogReqs.delete(requestId)
+		pending.resolve(entries)
+	}
+
+	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
+		const win = previewIframe?.contentWindow
+		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
+		const requestId = randomUUID()
+		return new Promise<RawAppRuntimeLogEntry[] | undefined>((resolve) => {
+			const timer = setTimeout(() => {
+				resolvePendingRuntimeLogRequest(requestId, undefined)
+			}, RUNTIME_LOGS_TIMEOUT_MS)
+			pendingRuntimeLogReqs.set(requestId, { resolve, timer })
+			win.postMessage({ type: 'getRuntimeLogs', requestId, limit }, '*')
+		})
+	}
+
+	const getRuns: RawAppRunsProvider = () => {
+		const out: RawAppRunSummary[] = []
+		for (const id of jobs) {
+			const j = jobsById[id]
+			if (!j) continue
+			const run: RawAppRunSummary = {
+				job_id: j.job ?? id,
+				component: j.component,
+				status: j.result !== undefined || j.duration_ms !== undefined ? 'completed' : 'running'
+			}
+			if (j.created_at !== undefined) run.created_at = j.created_at
+			if (j.started_at !== undefined) run.started_at = j.started_at
+			if (j.duration_ms !== undefined) run.duration_ms = j.duration_ms
+			out.push(run)
+		}
+		return out.reverse()
+	}
+
+	onMount(() => {
+		onRuntimeLogRequester?.(requestRuntimeLogs)
+		onRunsProvider?.(getRuns)
+		return () => {
+			onRuntimeLogRequester?.(undefined)
+			onRunsProvider?.(undefined)
+			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
+				resolvePendingRuntimeLogRequest(requestId, undefined)
+		}
+	})
 
 	let darkMode: boolean = $state(false)
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
@@ -1124,6 +1329,7 @@
 		if (previewIframe && previewIframeLoaded) {
 			previewIframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
 		}
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
 	})
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
@@ -1314,7 +1520,51 @@
 		return () => window.removeEventListener('keydown', onEscapeCapture, true)
 	})
 
+	// Force an immediate flush. No toast — the AutosaveIndicator narrates the
+	// result, and `flush` never rejects (postSave routes errors to the failures map).
+	function flushDraft() {
+		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		void UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'raw_app',
+			path: liveEditorDraftStoragePath
+		})
+	}
+
+	// The VS Code workbench iframe's keydowns don't bubble out, so the window
+	// handler can't see Ctrl/Cmd+S while editing code. Attach a capture listener
+	// inside the iframe per load (it dies with the iframe, so no leak). No
+	// preventDefault: VS Code's own save still runs; we just flush alongside it.
+	function attachIframeSaveShortcut() {
+		const win = iframe?.contentWindow
+		if (!win) return
+		win.addEventListener(
+			'keydown',
+			(e: KeyboardEvent) => {
+				if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
+					flushDraft()
+				}
+			},
+			true
+		)
+	}
+
+	// Monaco swallows Ctrl/Cmd+S in inline editors; Editor/SimpleEditor
+	// re-broadcast it as `wm-monaco-save-shortcut` (untyped, hence manual listener).
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', flushDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', flushDraft)
+	})
+
 	function handleKeydown(e: KeyboardEvent) {
+		// Ctrl/Cmd + S — catch this BEFORE the input/Monaco guard below so
+		// the shortcut fires regardless of focus.
+		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
+			e.preventDefault()
+			flushDraft()
+			return
+		}
+
 		// Skip when typing in an input, textarea, or Monaco editor.
 		const classes = (e.target as HTMLElement | null)?.className
 		if (
@@ -1350,6 +1600,8 @@
 	bind:jobsById
 	{runnables}
 	{path}
+	gateJobIds={false}
+	extraSourceWindow={() => externalPreviewWindow}
 />
 <div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">
 	<RawAppEditorHeader
@@ -1357,20 +1609,28 @@
 		bind:jobsById
 		bind:savedApp
 		bind:summary
-		on:restore
-		on:savedNewAppPath
+		bind:pendingDraftPath
+		{onRestore}
+		{onSavedNewAppPath}
 		{policy}
 		{diffDrawer}
 		{newApp}
 		{newPath}
+		{labels}
 		appPath={path}
 		{liveEditorDraftStoragePath}
+		{autosaveWorkspace}
+		{autosavePath}
 		{files}
 		{data}
 		{runnables}
 		{getBundle}
 		{onNavigate}
 		{onDeploy}
+		{onResetToDeployed}
+		{loadedFromDraft}
+		{othersDraftsCount}
+		{onOpenOthersDrafts}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}
@@ -1509,6 +1769,7 @@
 												title="UI builder"
 												src="/ui_builder/index.html"
 												class="w-full h-full block"
+												onload={attachIframeSaveShortcut}
 											></iframe>
 										{/if}
 									</div>
@@ -1607,6 +1868,14 @@
 												<RefreshCw size={14} />
 											</button>
 											<button
+												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+												title="Open preview in a separate window"
+												aria-label="Open preview in a separate window"
+												onclick={openExternalPreview}
+											>
+												<SquareArrowOutUpRight size={14} />
+											</button>
+											<button
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
@@ -1637,8 +1906,9 @@
 											title="Build failed"
 											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
 										>
-											<pre
-												class="overflow-auto whitespace-pre-wrap text-xs max-h-60">{buildError}</pre>
+											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
+												>{buildError}</pre
+											>
 										</Alert>
 									</div>
 								{/if}

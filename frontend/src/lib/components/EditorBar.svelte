@@ -86,6 +86,10 @@
 		iconOnly?: boolean
 		compactHelpers?: boolean
 		validCode?: boolean
+		// Asset-parse validity, when the context cares about it (pipeline
+		// editor). `undefined` = not applicable; `false` makes the badge red
+		// even if the main function parses.
+		validAssets?: boolean | undefined
 		kind?: 'script' | 'trigger' | 'approval'
 		template?:
 			| 'pgsql'
@@ -122,6 +126,7 @@
 		iconOnly = false,
 		compactHelpers = false,
 		validCode = true,
+		validAssets = undefined,
 		kind = 'script',
 		template = 'script',
 		collabMode = false,
@@ -168,6 +173,7 @@
 			'java',
 			'ruby',
 			'rlang',
+			'ansible',
 			'postgresql',
 			'mysql',
 			'bigquery',
@@ -607,6 +613,8 @@
 			editor.insertAtCursor(`ENV['${name}']`)
 		} else if (lang == 'rlang') {
 			editor.insertAtCursor(`Sys.getenv("${name}")`)
+		} else if (lang == 'ansible') {
+			editor.insertAtCursor(`{{ lookup('env', '${name}') }}`)
 		} else if (
 			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
 				lang ?? ''
@@ -945,8 +953,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex gap-3 items-center">
 		<div
-			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
-			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+			title={!validCode
+				? 'Main function not parsable'
+				: validAssets === false
+					? 'Assets not parsable'
+					: 'Parsable'}
+			class="rounded-full w-2 h-2 mx-2 {validCode && validAssets !== false
+				? 'bg-green-300'
+				: 'bg-red-300'}"
 		></div>
 		<div class="flex items-center gap-2">
 			{#if compactHelpers}

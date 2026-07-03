@@ -11,7 +11,8 @@
 		clearWorkspaceFromStorage,
 		globalForkModal
 	} from '$lib/stores'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { canCreateFork } from '$lib/utils/editInFork'
+	import { Badge } from '$lib/components/common'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
@@ -133,7 +134,9 @@
 				icon={GitFork}
 				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
 				label={removePrefix($workspaceStore ?? '', 'wm-fork-')}
-				sublabel={parentWorkspace?.name ? `Fork of ${parentWorkspace.name}` : undefined}
+				sublabel={parentWorkspace?.name
+					? `${forkedWorkspace.is_dev_workspace ? 'Dev workspace of' : 'Fork of'} ${parentWorkspace.name}`
+					: undefined}
 				{isCollapsed}
 				color={$workspaceColor}
 				{trigger}
@@ -172,16 +175,26 @@
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
 							<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
-								<WorkspaceIcon workspaceColor={workspace.color} {isForked} {parentName} />
+								<WorkspaceIcon
+									workspaceColor={workspace.color}
+									{isForked}
+									isDevWorkspace={workspace.is_dev_workspace}
+									{parentName}
+								/>
 								<div class="min-w-0 flex-1">
-									<div
-										class={twMerge(
-											'truncate text-left text-xs font-normal',
-											isSelected ? 'text-accent' : 'text-primary'
-										)}
-										title={workspace.name}
-									>
-										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
+									<div class="flex items-center gap-1 min-w-0">
+										<div
+											class={twMerge(
+												'truncate text-left text-xs font-normal',
+												isSelected ? 'text-accent' : 'text-primary'
+											)}
+											title={workspace.name}
+										>
+											{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
+										</div>
+										{#if workspace.is_dev_workspace}
+											<Badge color="indigo">dev</Badge>
+										{/if}
 									</div>
 									<div
 										class={twMerge(
@@ -206,7 +219,7 @@
 					</MenuItem>
 				</div>
 			{/if}
-			{#if !strictWorkspaceSelect && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'}
+			{#if !strictWorkspaceSelect && (!isCloudHosted() || $isPremiumStore) && canCreateFork($userStore) && $workspaceStore !== 'admins'}
 				<div class="py-1" role="none">
 					<MenuItem
 						class={itemClass}

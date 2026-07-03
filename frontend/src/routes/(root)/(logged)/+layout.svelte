@@ -59,8 +59,9 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
-	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
-	import { gcUserDrafts } from '$lib/userDraft.svelte'
+	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
+	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
+	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -176,8 +177,25 @@
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
-			if (isCloudHosted() && user?.is_admin) {
-				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
+			// Persist the workspace username so the synchronous `/add` →
+			// `/edit/u/{user}/draft_{uuid}` redirects (in each editor's
+			// `+page.ts`) can land on the right namespace without waiting
+			// for this async layout fetch. Without this they fall back to
+			// the `'me'` placeholder on every fresh nav.
+			try {
+				if (user?.username) localStorage.setItem('username', user.username)
+			} catch (e) {
+				console.error('Could not persist username to local storage', e)
+			}
+			// Populate for all members (not just admins) so non-admin developers also get premium-gated
+			// affordances like the fork entry points on cloud. The `is_premium` endpoint is a boolean
+			// and no longer admin-gated. Best-effort: a failure here must not block user-store init.
+			if (isCloudHosted()) {
+				try {
+					isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
+				} catch (e) {
+					console.error('Could not fetch premium status', e)
+				}
 			}
 		} else {
 			userStore.set(undefined)
@@ -193,8 +211,9 @@
 		const toPath = navigation.to?.url.pathname
 		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
 			const currentPath = navigation.from?.url.pathname
-			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
-			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
+			// Reload if we're not on an apps_raw path, or if we're on the raw app viewer
+			// (/apps_raw/get/): the viewer doesn't have cross-origin isolation headers, so
+			// we need a full reload to fetch them for the editor.
 			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
 				navigation.cancel()
 				window.location.href = navigation.to!.url.href
@@ -477,18 +496,20 @@
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
+	// One-shot UserDraft migration. `purgeLegacyUserDrafts` drops the oldest
+	// workspace-blind `flow` / `app-…` / `rawapp-…` LS autosave keys (they
+	// can't be attributed to a workspace, so promoting them would mis-file
+	// drafts). `migrateUserDraftsToDb` then pushes the workspace-scoped
+	// `userdraft/w/{ws}/{kind}/{path}` keys — written by the editor with the
+	// correct workspace — onto the server-side draft table, clearing LS on
+	// success.
 	$effect(() => {
-		if ($workspaceStore) untrack(() => migrateLegacyUserDrafts($workspaceStore!))
-	})
-	// Sweep UserDraft entries that haven't been touched in 30 days. Runs
-	// once on mount and on a 30-min timer so a single very long session
-	// also clears out stale autosaves over time. Live entries stamp
-	// `lastWrittenAt` on every persist, so the sweep only touches truly
-	// dormant records.
-	$effect(() => {
-		gcUserDrafts()
-		const interval = setInterval(() => gcUserDrafts(), 30 * 60 * 1000)
-		return () => clearInterval(interval)
+		if ($workspaceStore && $userStore) {
+			untrack(() => {
+				purgeLegacyUserDrafts()
+				void migrateUserDraftsToDb()
+			})
+		}
 	})
 	$effect(() => {
 		innerWidth && untrack(() => changeCollapsed())
@@ -543,6 +564,7 @@
 <svelte:window bind:innerWidth />
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
+<DraftMigrationErrorModal />
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
@@ -653,6 +675,13 @@
 											iconClasses="!text-ai"
 											shortcut={`${getModifierKey()}L`}
 										/>
+									</div>
+
+									<!-- w-40 cap: the drawer is max-w-min, and long session titles
+									     (nowrap before truncation) would otherwise inflate its
+									     min-content width to the full text width. -->
+									<div class="w-40">
+										<SessionPicker isCollapsed={false} />
 									</div>
 
 									<SidebarContent

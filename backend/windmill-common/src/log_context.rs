@@ -35,6 +35,11 @@ pub struct LogContext {
     pub uri: Option<String>,
     pub trace_id: Option<String>,
 
+    // Inbound W3C `traceparent` captured at enqueue (reserved `_wm_traceparent`
+    // arg). Carried here so the worker's OTLP span and the script's injected
+    // TRACEPARENT env can relocate into the originating distributed trace.
+    pub inbound_traceparent: Option<String>,
+
     // Auth (windmill-api-auth/src/auth.rs)
     pub email: Option<String>,
     pub username: Option<String>,

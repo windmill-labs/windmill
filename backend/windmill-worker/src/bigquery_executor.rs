@@ -378,6 +378,19 @@ pub async fn do_bigquery(
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
+    // Validate before it is interpolated into request URLs as a path segment
+    // (https://bigquery.googleapis.com/.../projects/<project_id>/...).
+    if project_id.is_empty()
+        || !project_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
+    {
+        return Err(Error::ExecutionErr(format!(
+            "Invalid BigQuery project id '{}': only alphanumeric, '.', '-', '_' and ':' allowed",
+            project_id.chars().take(64).collect::<String>()
+        )));
+    }
+
     let mut sig = parse_bigquery_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;

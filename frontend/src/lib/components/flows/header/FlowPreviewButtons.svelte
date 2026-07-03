@@ -14,7 +14,7 @@
 
 	interface Props {
 		loading?: boolean
-		onRunPreview?: () => void
+		onRunPreview?: (jobId?: string) => void
 		onJobDone?: () => void
 		localModuleStates?: Record<string, GraphModuleState>
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>

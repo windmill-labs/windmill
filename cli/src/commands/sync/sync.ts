@@ -1836,6 +1836,318 @@ export interface Skips {
   includeKey?: boolean | undefined;
 }
 
+// Detect paths (and their parent directories) within a single set that differ
+// only by letter case — e.g. a remote workspace that genuinely holds both
+// f/Caps/a and f/caps/b. On a case-insensitive filesystem (Windows, default
+// macOS) these cannot be represented as two distinct files/directories at all,
+// so we can only warn. Returns one group per collision, each listing the
+// distinct casings sorted for stable output.
+//
+// Only the shallowest clash is reported: when two case-variant folders also
+// contain same-named files (f/Caps/main.ts + f/caps/main.ts), the folder clash
+// is the root cause, so the nested per-file group is suppressed rather than
+// inflating the count with one entry per duplicated leaf.
+export function findCaseInsensitiveCollisions(
+  paths: Iterable<string>,
+): string[][] {
+  // lowercased prefix -> set of distinct original casings observed
+  const byLower = new Map<string, Set<string>>();
+  for (const full of paths) {
+    // Compare on normalized forward-slash prefixes so a Windows-style "\" map
+    // key and a remote "/" key collapse to the same prefix.
+    const segs = full.split(/[\\/]/).filter((s) => s.length > 0);
+    let acc = "";
+    for (let i = 0; i < segs.length; i++) {
+      // Accumulate every directory prefix as well as the full file path, so a
+      // "f/Caps" vs "f/caps" folder clash is caught even when the leaf files
+      // (e.g. a.ts vs b.ts) don't themselves collide.
+      acc = i === 0 ? segs[i] : `${acc}/${segs[i]}`;
+      const lower = acc.toLowerCase();
+      let set = byLower.get(lower);
+      if (!set) {
+        set = new Set();
+        byLower.set(lower, set);
+      }
+      set.add(acc);
+    }
+  }
+  const collidingLowers = new Set<string>();
+  for (const [lower, set] of byLower) {
+    if (set.size > 1) collidingLowers.add(lower);
+  }
+  const collisions: string[][] = [];
+  for (const lower of collidingLowers) {
+    // Drop this group if any ancestor prefix is itself a collision — the
+    // shallower folder clash already names the root cause.
+    const parts = lower.split("/");
+    let hasCollidingAncestor = false;
+    for (let i = 1; i < parts.length; i++) {
+      if (collidingLowers.has(parts.slice(0, i).join("/"))) {
+        hasCollidingAncestor = true;
+        break;
+      }
+    }
+    if (!hasCollidingAncestor) {
+      collisions.push([...byLower.get(lower)!].sort());
+    }
+  }
+  return collisions;
+}
+
+type CaseTrieNode = {
+  // lowercased segment -> child, recording the canonical (server) casing and
+  // whether the server holds more than one casing of that segment (ambiguous).
+  children: Map<
+    string,
+    { canonical: string; ambiguous: boolean; node: CaseTrieNode }
+  >;
+};
+
+// Rewrite `localMap` keys to the canonical casing recorded on the server
+// (`remoteMap`) when they differ only by letter case. This is the core
+// WIN-2020 fix: on a case-insensitive filesystem a folder such as `f/Caps`
+// can have its on-disk casing silently drift (e.g. to `f/caps`) — Windows
+// stores whatever case the directory was first created with and reports that
+// from readdir, regardless of the server's path. Without this, the diff sees
+// the drifted local path as an entirely different item and emits a destructive
+// "delete f/Caps + add f/caps" pair, so a single capitalized folder appears to
+// vanish and a lowercase clone shows up out of nowhere. Adopting the server
+// casing collapses that phantom and leaves the canonical path on the server
+// untouched.
+//
+// Canonicalization is segment-by-segment against a trie of remote paths, so it
+// also applies the server's folder casing to brand-new local files that have no
+// exact remote match (e.g. adding f/caps/New.ts under a drifted f/Caps folder
+// becomes f/Caps/New.ts) — otherwise the push would recreate the case-only
+// collision the fix is meant to prevent. A segment is only adopted when the
+// server casing is unambiguous; at the first ambiguous or unknown segment the
+// remainder of the path keeps its local casing.
+//
+// Returns the rewritten map, the per-key rewrites, and any genuinely ambiguous
+// server-side groups (two distinct remote paths differing only by case) — those
+// can't be canonicalized to a single target and are left for the caller to warn
+// about.
+export function canonicalizeCaseInsensitiveKeys(
+  localMap: Record<string, string>,
+  remoteMap: Record<string, string>,
+): {
+  map: Record<string, string>;
+  ambiguous: string[][];
+  rewritten: { from: string; to: string }[];
+} {
+  const root: CaseTrieNode = { children: new Map() };
+  for (const k of Object.keys(remoteMap)) {
+    let node = root;
+    for (const seg of k.split(/[\\/]/)) {
+      if (seg.length === 0) continue;
+      const lk = seg.toLowerCase();
+      let entry = node.children.get(lk);
+      if (!entry) {
+        entry = { canonical: seg, ambiguous: false, node: { children: new Map() } };
+        node.children.set(lk, entry);
+      } else if (entry.canonical !== seg) {
+        entry.ambiguous = true;
+      }
+      node = entry.node;
+    }
+  }
+
+  const out: Record<string, string> = {};
+  const rewritten: { from: string; to: string }[] = [];
+  for (const [k, v] of Object.entries(localMap)) {
+    // Preserve the key's own separator style so the rewritten key still matches
+    // the rest of the map (and round-trips through push) on every platform.
+    const sep = k.includes("\\") ? "\\" : "/";
+    const segs = k.split(/[\\/]/);
+    const canonSegs: string[] = [];
+    let node: CaseTrieNode | undefined = root;
+    let changed = false;
+    for (const seg of segs) {
+      if (seg.length === 0) {
+        canonSegs.push(seg);
+        continue;
+      }
+      const entry = node?.children.get(seg.toLowerCase());
+      if (entry && !entry.ambiguous) {
+        if (entry.canonical !== seg) changed = true;
+        canonSegs.push(entry.canonical);
+        node = entry.node;
+      } else {
+        // No unambiguous server guidance for this segment: keep the local
+        // casing here and below (deeper server structure is unknown).
+        canonSegs.push(seg);
+        node = undefined;
+      }
+    }
+    const canonKey = canonSegs.join(sep);
+    if (changed && canonKey !== k) {
+      out[canonKey] = v;
+      rewritten.push({ from: k, to: canonKey });
+    } else {
+      out[k] = v;
+    }
+  }
+
+  return {
+    map: out,
+    ambiguous: findCaseInsensitiveCollisions(Object.keys(remoteMap)),
+    rewritten,
+  };
+}
+
+// Summarize case-only key rewrites by their differing path prefix (typically a
+// folder such as f/caps -> f/Caps) so a folder whose casing drifted is reported
+// once instead of once per contained file.
+export function summarizeCaseRewrites(
+  rewritten: { from: string; to: string }[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const { from, to } of rewritten) {
+    const fromSegs = from.split(/[\\/]/);
+    const toSegs = to.split(/[\\/]/);
+    // Find the shortest prefix at which the two casings first differ; that is
+    // the folder (or file) whose casing actually changed.
+    let i = 0;
+    while (
+      i < fromSegs.length &&
+      i < toSegs.length &&
+      fromSegs[i] === toSegs[i]
+    ) {
+      i++;
+    }
+    const fromPrefix = fromSegs.slice(0, i + 1).join("/");
+    const toPrefix = toSegs.slice(0, i + 1).join("/");
+    const key = `${fromPrefix} -> ${toPrefix}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out;
+}
+
+// Emit a single grouped warning for case-only collisions that cannot be
+// represented on a case-insensitive filesystem (two distinct server paths
+// differing only by case). Unlike the drift handled by
+// canonicalizeCaseInsensitiveKeys, these require the user to rename one side.
+function warnUnrepresentableCaseCollisions(collisions: string[][]): void {
+  if (collisions.length === 0) return;
+  const groups = collisions.map((g) => `  - ${g.join("  <->  ")}`).join("\n");
+  log.warn(
+    `Found ${collisions.length} path(s) that differ only by letter case:\n` +
+      `${groups}\n` +
+      `On case-insensitive filesystems (Windows, default macOS) these collapse ` +
+      `into a single file/directory and cannot both be synced. Rename one side ` +
+      `to a distinct path to make the tree sync reliably across platforms.`,
+  );
+}
+
+// Probe (and cache) whether `dir` lives on a case-insensitive filesystem.
+// Auto-detected by round-tripping a probe file under two casings, with an
+// explicit WMILL_CASE_INSENSITIVE_FS=true/false override so Windows behaviour
+// can be forced (or emulated for cross-platform repos / tests) on any host.
+let _caseInsensitiveFsCache: boolean | undefined;
+export async function isCaseInsensitiveFilesystem(
+  dir: string,
+): Promise<boolean> {
+  const override = (process.env.WMILL_CASE_INSENSITIVE_FS ?? "")
+    .trim()
+    .toLowerCase();
+  if (override === "true" || override === "1") return true;
+  if (override === "false" || override === "0") return false;
+  if (_caseInsensitiveFsCache !== undefined) return _caseInsensitiveFsCache;
+  let result = false;
+  try {
+    const upper = path.join(dir, `.wmill-CASEPROBE-${process.pid}.tmp`);
+    const lower = path.join(dir, `.wmill-caseprobe-${process.pid}.tmp`);
+    await writeFile(upper, "", "utf-8");
+    try {
+      await stat(lower);
+      result = true; // lowercase name resolves to the file we wrote uppercase
+    } catch {
+      result = false;
+    }
+    await rm(upper).catch(() => {});
+    await rm(lower).catch(() => {});
+  } catch {
+    result = false;
+  }
+  _caseInsensitiveFsCache = result;
+  return result;
+}
+
+// A script's `lock` is NULL on the remote only while the server is still
+// (re)generating it — e.g. an importer relock is in flight after a dependent
+// relative-import module changed, or the script's own first lock job has not
+// settled yet. NULL means "lock pending", NOT "this script has no lock": a
+// genuinely lock-free script (no dependencies, or a codebase script) serializes
+// `lock: ''` (empty string), which keeps its metadata key. The git-sync deploy
+// mirror reads the workspace inside that window and would otherwise mirror the
+// transient NULL as a deletion of the committed `.script.lock` (and strip the
+// `lock: '!inline …'` line from the metadata), corrupting the mirror until the
+// relock writes the identical lock back seconds later (issue #9588).
+//
+// When pulling (remote -> local), if the remote reports a pending (NULL) lock
+// for a script whose committed lock still exists locally, carry the local lock
+// onto the remote map so the diff is a no-op for both the lock file and the
+// metadata `lock` line. An empty-string lock ('') is left untouched, so a real
+// "dependencies removed" transition still deletes the obsolete lock.
+export function preservePendingScriptLocks(
+  remote: Record<string, string>,
+  local: Record<string, string>,
+): void {
+  // A multi-module script keeps its metadata in the folder layout
+  // `…__mod/script.{yaml,json}` instead of `….script.{yaml,json}`.
+  // Map keys are always forward-slash normalized, on every platform.
+  const modMeta = getModuleFolderSuffix() + "/script";
+  for (const metaKey of Object.keys(remote)) {
+    const isYaml =
+      metaKey.endsWith(".script.yaml") || metaKey.endsWith(modMeta + ".yaml");
+    const isJson =
+      metaKey.endsWith(".script.json") || metaKey.endsWith(modMeta + ".json");
+    if (!isYaml && !isJson) continue;
+
+    const localMeta = local[metaKey];
+    if (localMeta === undefined) continue; // script not committed locally
+
+    let remoteParsed: any;
+    let localParsed: any;
+    try {
+      remoteParsed = isYaml
+        ? yamlParseContent(metaKey, remote[metaKey])
+        : JSON.parse(remote[metaKey]);
+      localParsed = isYaml ? yamlParseContent(metaKey, localMeta) : JSON.parse(localMeta);
+    } catch {
+      continue;
+    }
+    if (typeof remoteParsed !== "object" || remoteParsed === null) continue;
+    if (typeof localParsed !== "object" || localParsed === null) continue;
+
+    // Only a NULL/absent remote lock is "pending". An empty-string lock ('') is
+    // a real "no dependencies" state and must still propagate as a deletion.
+    const remoteLock = remoteParsed["lock"];
+    if (remoteLock !== undefined && remoteLock !== null) continue;
+
+    // The local side must reference an inline lock backed by a committed file.
+    const localLock = localParsed["lock"];
+    if (typeof localLock !== "string" || !localLock.startsWith("!inline ")) continue;
+
+    // Derive the lock-file key from the `!inline` reference itself, not from the
+    // metadata path: a multi-module script keeps its lock at `…__mod/script.lock`,
+    // which a `.script.yaml -> .script.lock` rewrite would miss. The reference and
+    // the map keys are both forward-slash, so no separator rewrite is needed.
+    const lockKey = localLock.slice("!inline ".length);
+    if (local[lockKey] === undefined) continue; // committed lock already gone
+
+    remoteParsed["lock"] = localLock;
+    remote[metaKey] = isYaml
+      ? yamlStringify(remoteParsed, yamlOptions)
+      : JSON.stringify(remoteParsed, null, 2);
+    remote[lockKey] = local[lockKey];
+  }
+}
+
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -1848,13 +2160,60 @@ async function compareDynFSElement(
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
   isEls1Remote?: boolean,
+  caseInsensitiveFs?: boolean,
 ): Promise<{ changes: Change[]; localMap: Record<string, string> }> {
-  const [m1, m2] = els2
+  let [m1, m2] = els2
     ? await Promise.all([
         elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote),
         elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote),
       ])
     : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote), {}];
+
+  // Reconcile letter-case differences between the local tree and the
+  // authoritative server casing. Only meaningful for an actual two-sided diff
+  // (els2 defined) where we know which side is the remote.
+  if (els2 && isEls1Remote !== undefined) {
+    const remoteMap = isEls1Remote ? m1 : m2;
+
+    // Always warn about server paths that differ only by case (e.g. f/Caps and
+    // f/caps as two distinct items). These cannot coexist on a case-insensitive
+    // filesystem, so flag them on every platform — a Linux author needs to know
+    // their tree won't round-trip for a Windows/macOS teammate.
+    warnUnrepresentableCaseCollisions(
+      findCaseInsensitiveCollisions(Object.keys(remoteMap)),
+    );
+
+    // On a case-insensitive filesystem, the local on-disk casing of a folder
+    // can drift from the server's (Windows reports the case the directory was
+    // first created with). Rewrite those drifted local keys to the server
+    // casing so the diff treats them as the same item instead of a destructive
+    // delete+add pair. This is the WIN-2020 fix.
+    if (caseInsensitiveFs) {
+      const { map, rewritten } = canonicalizeCaseInsensitiveKeys(
+        isEls1Remote ? m2 : m1,
+        remoteMap,
+      );
+      if (isEls1Remote) {
+        m2 = map;
+      } else {
+        m1 = map;
+      }
+      const summary = summarizeCaseRewrites(rewritten);
+      if (summary.length > 0) {
+        log.info(
+          `Reconciled ${summary.length} local path(s) to the server's casing ` +
+            `(case-insensitive filesystem):\n` +
+            summary.map((s) => `  ${s}`).join("\n"),
+        );
+      }
+    }
+  }
+
+  // Pull only (remote is els1): keep a committed `.script.lock` when the remote
+  // lock is transiently NULL (a relock is mid-flight). See #9588.
+  if (isEls1Remote === true) {
+    preservePendingScriptLocks(m1, m2);
+  }
 
   const changes: Change[] = [];
 
@@ -2613,6 +2972,7 @@ export async function pull(
     specificItems,
     wsNameForFiles,
     true, // els1 (remote) is the remote source
+    await isCaseInsensitiveFilesystem(process.cwd()),
   );
 
   log.info(
@@ -3182,6 +3542,14 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
+// Shown after a `wmill sync push --dry-run` preview that has changes. `sync push`
+// deploys to the remote workspace and is destructive (it overwrites and prunes
+// remote items that differ from or are absent locally), so the preview reminds
+// the caller — especially an AI agent that ran the dry-run to inspect changes —
+// to get explicit user confirmation before applying it for real.
+const SYNC_PUSH_DESTRUCTIVE_WARNING =
+  "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites or deletes remote items that differ from or are absent locally — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation.";
+
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
 ) {
@@ -3361,6 +3729,7 @@ export async function push(
     specificItems,
     wsNameForFiles,
     false, // els1 (local) is not the remote source
+    await isCaseInsensitiveFilesystem(process.cwd()),
   );
 
   // Detect resources/variables that the local config flags as ws_specific
@@ -3717,6 +4086,9 @@ export async function push(
           : {}),
       })),
       total: changes.length,
+      ...(changes.length > 0
+        ? { warning: SYNC_PUSH_DESTRUCTIVE_WARNING }
+        : {}),
     };
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -3760,6 +4132,7 @@ export async function push(
 
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
+      log.warn(colors.yellow(`\n⚠ ${SYNC_PUSH_DESTRUCTIVE_WARNING}`));
       return;
     }
 
@@ -4066,10 +4439,11 @@ export async function push(
                 continue;
               }
               if (
-                change.path.endsWith(".script.json") ||
-                change.path.endsWith(".script.yaml") ||
-                change.path.endsWith(".lock") ||
-                isFileResource(change.path)
+                !isRawAppFile(change.path) &&
+                (change.path.endsWith(".script.json") ||
+                  change.path.endsWith(".script.yaml") ||
+                  change.path.endsWith(".lock") ||
+                  isFileResource(change.path))
               ) {
                 continue;
               } else if (

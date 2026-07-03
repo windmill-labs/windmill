@@ -1226,6 +1226,20 @@ pub async fn store_workspace_integration(
     Ok(())
 }
 
+/// Authorization gate for the integration *use* routes (calendar/drive/repo/event
+/// pickers). A workspace admin configures the integration, but any member who can
+/// create a native trigger needs the pickers to configure one. Operators are
+/// read-only and cannot create triggers, so they must not be able to drive the
+/// admin-configured integration's upstream API and enumerate its data.
+pub fn require_native_integration_use(authed: &ApiAuthed) -> Result<()> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot use workspace integrations".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn get_workspace_integration<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
     workspace_id: &str,

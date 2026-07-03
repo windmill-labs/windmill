@@ -1,5 +1,6 @@
 import {
 	getLanguageByResourceType,
+	ColumnIdentity,
 	type ColumnDef,
 	type TableMetadata
 } from './apps/components/display/dbtable/utils'
@@ -45,12 +46,20 @@ export function dbTableOpsWithPreviewScripts({
 	input,
 	tableKey,
 	colDefs,
-	workspace
+	workspace,
+	whereClause,
+	version
 }: {
 	input: DbInput
 	tableKey: string
 	colDefs: ColumnDef[]
 	workspace: string
+	// Optional raw SQL predicate AND-ed into the read queries (count + rows).
+	// Caller-trusted — build it with escaped values.
+	whereClause?: string
+	// DuckLake time-travel: when set, reads are pinned to this catalog snapshot
+	// via `AT (VERSION => n)` (DuckDB/ducklake only). Read-only by nature.
+	version?: number
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
@@ -67,7 +76,12 @@ export function dbTableOpsWithPreviewScripts({
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
-			const content = makeMarker('COUNT', { table: tableKey, columnDefs: colDefs })
+			const content = makeMarker('COUNT', {
+				table: tableKey,
+				columnDefs: colDefs,
+				...(whereClause ? { whereClause } : {}),
+				...(version != undefined ? { version } : {})
+			})
 			const result = await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, quicksearch }, language, content }
@@ -79,7 +93,9 @@ export function dbTableOpsWithPreviewScripts({
 			const content = makeMarker('SELECT', {
 				table: tableKey,
 				columnDefs: colDefs,
-				fixPgIntTypes: true
+				fixPgIntTypes: true,
+				...(whereClause ? { whereClause } : {}),
+				...(version != undefined ? { version } : {})
 			})
 			let items = (await runScriptAndPollResult({
 				workspace,
@@ -120,6 +136,90 @@ export function dbTableOpsWithPreviewScripts({
 			})
 		}
 	}
+}
+
+export type DucklakeSnapshot = {
+	snapshot_id: number
+	// DuckLake returns this as microseconds-since-epoch serialized as a string
+	// (TIMESTAMP); callers must convert before formatting.
+	snapshot_time: string | number
+}
+
+/**
+ * Column metadata of a ducklake table *at a specific snapshot*. The catalog's
+ * `information_schema` only reflects the current schema, so a time-travel read
+ * pinned to an older version must enumerate the columns that existed *then* —
+ * otherwise a column added in a later snapshot would break the `SELECT … AT
+ * (VERSION => n)`. `DESCRIBE SELECT * FROM … AT (VERSION => n)` gives exactly
+ * that. Returns minimal `ColumnDef`s (field + datatype) — enough for the
+ * read-only preview's SELECT/COUNT and grid headers.
+ */
+export async function fetchDucklakeColumnsAtVersion({
+	workspace,
+	ducklake,
+	tableKey,
+	version
+}: {
+	workspace: string
+	ducklake: string
+	tableKey: string
+	version: number
+}): Promise<ColumnDef[]> {
+	// Quote each identifier part (schema.table) so a dotted/odd table name can't
+	// break the statement, and double single-quotes in the catalog name so it
+	// can't break out of the ATTACH string literal (mirrors the backend's
+	// `escape_sql_literal`). `version` is a number — injection-safe.
+	const quoted = tableKey
+		.split('.')
+		.map((p) => `"${p.replace(/"/g, '""')}"`)
+		.join('.')
+	const ducklakeLit = ducklake.replace(/'/g, "''")
+	const content =
+		`ATTACH 'ducklake://${ducklakeLit}' AS __dlv__; USE __dlv__; ` +
+		`DESCRIBE SELECT * FROM ${quoted} AT (VERSION => ${version});`
+	const rows = (await runScriptAndPollResult({
+		workspace,
+		requestBody: { args: {}, language: 'duckdb', content }
+	})) as { column_name: string; column_type: string }[]
+	if (!Array.isArray(rows)) return []
+	return rows.map((r) => ({
+		field: r.column_name,
+		datatype: r.column_type,
+		defaultvalue: '',
+		isprimarykey: false,
+		isidentity: ColumnIdentity.No,
+		isnullable: 'YES' as const,
+		isenum: false
+	}))
+}
+
+/**
+ * List a ducklake table's time-travel history, newest first. DuckLake snapshots
+ * are catalog-wide commits; passing `table` (schema-qualified, e.g.
+ * `main.events_daily`) scopes the list to snapshots where the table exists —
+ * otherwise an `AT (VERSION => n)` read could target a version predating the
+ * table's creation and error. Runs the `DUCKLAKE_SNAPSHOTS` marker as a duckdb
+ * preview job (server-side SQL build + ATTACH), so no raw SQL is constructed in
+ * the client.
+ */
+export async function fetchDucklakeSnapshots({
+	workspace,
+	ducklake,
+	table
+}: {
+	workspace: string
+	ducklake: string
+	table?: string
+}): Promise<DucklakeSnapshot[]> {
+	const content = `-- WM_INTERNAL_DB_DUCKLAKE_SNAPSHOTS ${JSON.stringify({
+		ducklake,
+		...(table ? { table } : {})
+	})}`
+	const rows = await runScriptAndPollResult({
+		workspace,
+		requestBody: { args: {}, language: 'duckdb', content }
+	})
+	return Array.isArray(rows) ? (rows as DucklakeSnapshot[]) : []
 }
 
 export type IDbSchemaOps = {
@@ -297,35 +397,45 @@ export async function getDucklakeSchema({
 			args: {}
 		}
 	})
-	let mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? [])
+	let schemas = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? {})
 	// Safety for agent workers (duckdb ffi lib used to return JSON as stringified json)
-	if (typeof mainSchema === 'string') mainSchema = JSON.parse(mainSchema)
+	if (typeof schemas === 'string') schemas = JSON.parse(schemas)
 
-	if (!mainSchema) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
-	assert('mainSchema is an object', typeof mainSchema === 'object')
+	if (!schemas) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	assert('schemas is an object', typeof schemas === 'object')
 	let schema: Omit<SQLSchema, 'stringified'> = {
-		schema: { main: mainSchema },
-		publicOnly: true,
+		schema: schemas,
+		publicOnly: false,
 		lang: 'ducklake'
 	}
 	return { ...schema, stringified: stringifySchema(schema) }
 }
 
+// Returns every schema in the ducklake (including empty ones, e.g. freshly created)
+// as a nested map { schema: { table: { column: {...} } } }.
 const DUCKLAKE_GET_SCHEMA_QUERY = `
-SELECT json_group_object(table_name, table_data) AS result FROM (
+SELECT json_group_object(schema_name, COALESCE(schema_data, json_object())) AS result FROM (
 	SELECT
-		table_name,
-		json_group_object(
-			c.column_name,
-			json_object(
-				'type', c.data_type,
-				'default', c.column_default,
-				'required', c.is_nullable == 'NO'
+		s.schema_name,
+		(
+			SELECT json_group_object(table_name, table_data) FROM (
+				SELECT
+					c.table_name,
+					json_group_object(
+						c.column_name,
+						json_object(
+							'type', c.data_type,
+							'default', c.column_default,
+							'required', c.is_nullable == 'NO'
+						)
+					) AS table_data
+				FROM information_schema.columns c
+				WHERE c.table_catalog = '__ducklake__' AND c.table_schema = s.schema_name
+				GROUP BY c.table_name
 			)
-		) AS table_data
-	FROM information_schema.columns c
-	WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()
-	GROUP BY c.table_name
+		) AS schema_data
+	FROM information_schema.schemata s
+	WHERE s.catalog_name = '__ducklake__'
 )`
 
 export function getDbType(input: DbInput): DbType {

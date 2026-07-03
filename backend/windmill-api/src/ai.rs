@@ -168,9 +168,6 @@ struct AIStandardResource {
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     platform: AIPlatform,
-    /// Enable 1M context window for Anthropic
-    #[serde(alias = "enable_1M_context", default)]
-    enable_1m_context: bool,
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
@@ -263,7 +260,6 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key,
                 aws_session_token,
                 platform: resource.platform,
-                enable_1m_context: resource.enable_1m_context,
                 custom_headers: resource.headers,
             })
         }
@@ -288,7 +284,6 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key: None,
                 aws_session_token: None,
                 platform: AIPlatform::Standard,
-                enable_1m_context: false,
                 custom_headers: HashMap::new(),
             })
         }
@@ -376,6 +371,8 @@ pub struct AIConfig {
     pub providers: Option<HashMap<AIProvider, ProviderConfig>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_model: Option<ProviderModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_model: Option<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -546,7 +543,6 @@ async fn global_proxy(
         aws_secret_access_key: None,
         aws_session_token: None,
         platform: AIPlatform::Standard,
-        enable_1m_context: false,
         custom_headers: HashMap::new(),
     };
 
@@ -956,9 +952,28 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             platform: AIPlatform::Standard,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn ai_standard_resource_ignores_legacy_enable_1m_context_keys() {
+        // Resources created before the field was removed still carry the legacy key
+        // (lowercase `enable_1m_context` or the frontend alias `enable_1M_context`).
+        // The struct has no `deny_unknown_fields`, so both must be silently ignored.
+        let json = r#"{
+            "base_url": "https://api.anthropic.com",
+            "enable_1m_context": true,
+            "enable_1M_context": true
+        }"#;
+
+        let resource: AIStandardResource =
+            serde_json::from_str(json).expect("legacy resource must still deserialize");
+
+        assert_eq!(
+            resource.base_url.as_deref(),
+            Some("https://api.anthropic.com")
+        );
     }
 
     #[test]

@@ -354,6 +354,22 @@ export class DoubleLinkedDependencyTree {
   }
 
   /**
+   * Returns path → contentHash for ALL uploaded nodes, regardless of which
+   * script imports them. Superset of getTempScriptRefs(path) for every path —
+   * used by `wmill dev`, where the previewed item changes at runtime so no
+   * single anchor node exists. Must be called after uploadScripts().
+   */
+  getAllTempScriptRefs(): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const [path, node] of this.nodes.entries()) {
+      if (node.contentHash) {
+        result[path] = node.contentHash;
+      }
+    }
+    return result;
+  }
+
+  /**
    * Persist workspace dep hashes to wmill-lock.yaml so getRawWorkspaceDependencies
    * considers them up-to-date on the next run.
    */

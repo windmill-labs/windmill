@@ -628,4 +628,53 @@ mod suspend_resume {
         );
         Ok(())
     }
+
+    /// A step that declares a `suspend` but is skipped via `skip_if` never arms
+    /// its approval, so it must not gate the following step. If it did, the flow
+    /// would park forever waiting for a resume event that is never dispatched.
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn skipped_suspend_step_does_not_block_next_step(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "id": "a",
+                    "skip_if": { "type": "javascript", "expr": "true" },
+                    "suspend": { "required_events": 1, "timeout": 86400 },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export async function main() { return 1 }",
+                        "input_transforms": {},
+                    },
+                },
+                {
+                    "id": "b",
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export async function main() { return 42 }",
+                        "input_transforms": {},
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+
+        let result =
+            RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+                .run_until_complete(&db, false, server.addr.port())
+                .await
+                .json_result()
+                .unwrap();
+
+        assert_eq!(result, json!(42));
+        Ok(())
+    }
 }

@@ -22,8 +22,9 @@
 	import {
 		createSession,
 		deriveForkStatus,
-		getEffectiveWorkspaceId,
+		deleteSessionsForWorkspace,
 		isForkSession,
+		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
 		sessionState,
@@ -31,7 +32,7 @@
 		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
-	import { forgetSessionSeen, unreadCountFor } from './sessionUnread.svelte'
+	import { unreadCountFor } from './sessionUnread.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -41,14 +42,16 @@
 		removeSession
 	} from './sessionRuntime.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
+	import SessionFilterMenu from './SessionFilterMenu.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { visibleWorkspaceIds } from './sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 
 	// Look up the cached fork comparison for a session through its runtime
 	// (if any). The deriveForkStatus helper handles the "no runtime yet"
@@ -101,40 +104,81 @@
 		'boolean'
 	)
 	const showArchived = useLocalStorageValue('windmill_sessions_show_archived', false, 'boolean')
+	// Off by default: the list is scoped to the current workspace family. Turn on
+	// to include sessions from every workspace (grouped by family) — handy when
+	// switching sessions across workspaces without switching workspace first.
+	const showAllWorkspaces = useLocalStorageValue(
+		'windmill_sessions_show_all_workspaces',
+		false,
+		'boolean'
+	)
 
 	let listRoot: HTMLDivElement | undefined = $state()
 
-	// Sessions visible in the current workspace (active workspace + its
-	// forks). Drafts (no committed workspace) are scoped by their
-	// pending workspace pick — set at create time to the workspace the
-	// user was in. Archived sessions are filtered out unless the user
-	// has opted in via the filter popover.
+	// A session's family root: the stored grouping id, else derived live.
+	function sessionRootOf(s: Session): string | undefined {
+		return (
+			s.workspace_root_id ??
+			workspaceRootId(s.workspace_id ?? s.pending_workspace_id, $userWorkspaces)
+		)
+	}
+
+	// Flat list passing the archive + scope filters. Grouping for display happens
+	// in `sessionGroups`; this flat view drives the runtime / fork-comparison
+	// effects, the unread total, and keyboard navigation.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
-			// Transient (not-yet-sent) sessions live as their own page but
-			// don't clutter the sidebar list.
 			if (s.transient) return false
+			// The open session always stays in the list, ignoring both filters.
+			if (s.id === sessionState.currentSessionId) return true
 			if (s.archived && !showArchived.val) return false
-			const ws = getEffectiveWorkspaceId(s)
-			if (!ws) return false
-			if ($visibleWorkspaceIds.has(ws)) return true
-			// Unavailable sessions (committed workspace was deleted /
-			// archived / access revoked) stay visible everywhere so the
-			// user can resolve them — move, archive, or delete. They'd
-			// otherwise be permanently hidden the moment their workspace
-			// disappeared.
-			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
-			return false
+			if (!showAllWorkspaces.val) {
+				const currentRoot = $currentWorkspaceRootId
+				if (currentRoot && sessionRootOf(s) !== currentRoot) return false
+			}
+			return true
 		})
 	)
+
+	// Sessions grouped by workspace family for display, each group newest-first.
+	// Family order is stable (by most-recent activity) and deliberately NOT tied
+	// to the current workspace: pinning the active family first reshuffled the
+	// whole list on every workspace switch, which is disorienting.
+	const sessionGroups = $derived.by(() => {
+		const byRoot = new Map<string, Session[]>()
+		for (const s of visibleSessions) {
+			const root = sessionRootOf(s) ?? s.workspace_id ?? s.pending_workspace_id ?? ''
+			const arr = byRoot.get(root)
+			if (arr) arr.push(s)
+			else byRoot.set(root, [s])
+		}
+		const groups = [...byRoot.entries()].map(([rootId, sessions]) => {
+			sessions.sort((a, b) => b.createdAt - a.createdAt)
+			return {
+				rootId,
+				name: $userWorkspaces.find((w) => w.id === rootId)?.name || rootId || 'Workspace',
+				sessions,
+				mostRecent: sessions[0]?.createdAt ?? 0
+			}
+		})
+		groups.sort((a, b) => b.mostRecent - a.mostRecent)
+		return groups
+	})
+
+	// Family labels are redundant when scoped to the current workspace (a single
+	// family) — show them when including all workspaces, and also if the
+	// active-session override surfaces a second family while scoped (avoids
+	// ambiguity).
+	const showGroupHeaders = $derived(showAllWorkspaces.val || sessionGroups.length > 1)
+
 	const archivedCount = $derived(
 		sessionState.sessions.filter((s) => {
 			if (!s.archived || s.transient) return false
-			const ws = getEffectiveWorkspaceId(s)
-			if (!ws) return false
-			if ($visibleWorkspaceIds.has(ws)) return true
-			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
-			return false
+			if (showAllWorkspaces.val) return true
+			const currentRoot = $currentWorkspaceRootId
+			return (
+				!currentRoot || sessionRootOf(s) === currentRoot || s.id === sessionState.currentSessionId
+			)
 		}).length
 	)
 
@@ -244,9 +288,12 @@
 	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
 	const pendingDeleteForkId = $derived.by(() => {
 		const wsId = pendingDelete?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
-		if (!ws || !ws.parent_workspace_id) return undefined
+		// Fork = prefix OR parent (so an orphaned wm-fork- fork still qualifies); exclude persistent
+		// dev workspaces, which are not ephemeral session forks.
+		if (!ws || !workspaceIsFork(wsId, $userWorkspaces)) return undefined
+		if (ws.is_dev_workspace) return undefined
 		return wsId
 	})
 
@@ -264,12 +311,12 @@
 		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
 		removeSession(session.id)
-		forgetSessionSeen(session.id)
 		if (forkToDelete) {
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+				await deleteSessionsForWorkspace(forkToDelete)
 				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+				await reconcileAfterWorkspaceChange()
 			} catch (e: any) {
 				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
 			}
@@ -319,12 +366,15 @@
 </script>
 
 {#if !globalEnabled}
-	<!-- Sessions hidden until the global-ai dev gate is enabled. -->
+	<!-- Sessions hidden until the global-ai dev gate is enabled. When AI is
+	     unavailable (no provider configured or disabled in the user's settings)
+	     the section still shows — the per-session chat input is disabled with an
+	     explanatory message, mirroring the sidebar AI chat. -->
 {:else if isCollapsed}
 	<div class="px-2 pt-3 pb-2 border-b border-light dark:border-gray-700">
 		<Menubar>
 			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside>
+				<Menu {createMenu} usePointerDownOutside submenuSafe>
 					{#snippet triggr({ trigger })}
 						<div class="relative">
 							<MenuButton
@@ -344,7 +394,7 @@
 							{/if}
 						</div>
 					{/snippet}
-					{#snippet children({ item })}
+					{#snippet children({ item, builders })}
 						<div class="divide-y min-w-48" role="none">
 							<div class="py-1" role="none">
 								<MenuItem class={menuItemBase} onClick={createAndOpen} {item}>
@@ -353,47 +403,66 @@
 								</MenuItem>
 							</div>
 							<div class="py-1" role="none">
-								{#each visibleSessions as session (session.id)}
-									{@const runtime = getRuntime(session.id)}
-									{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
-									{@const isSelected =
-										onSessionsPage && session.id === sessionState.currentSessionId}
-									{@const unread = unreadFor(session)}
-									{@const draft = hasDraft(session)}
-									<MenuItem
-										class={twMerge(menuItemBase, isSelected ? 'bg-surface-hover' : '')}
-										onClick={() => activate(session)}
-										{item}
-									>
-										<SessionStatusDot
-											{status}
-											isFork={isForkFor(session)}
-											forkStatus={forkStatusFor(session)}
-										/>
-										<span
-											class={twMerge(
-												'truncate flex-1 text-left',
-												unread > 0 ? 'font-semibold text-primary' : ''
-											)}
+								<SessionFilterMenu
+									{builders}
+									bind:showArchived={showArchived.val}
+									bind:showAllWorkspaces={showAllWorkspaces.val}
+									{archivedCount}
+								/>
+							</div>
+							<div class="py-1" role="none">
+								{#each sessionGroups as group (group.rootId)}
+									{#if showGroupHeaders}
+										<div
+											class="px-3 pt-1.5 pb-0.5 text-[0.5rem] uppercase text-tertiary truncate"
+											role="none"
+											title={group.name}
 										>
-											{session.summary ?? 'Untitled session'}
-										</span>
-										{#if draft || unread > 0}
-											<span class="ml-auto shrink-0 inline-flex items-center gap-1">
-												{#if draft}
-													<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-												{/if}
-												{#if unread > 0}
-													<span
-														class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-														aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-													>
-														{unread > 9 ? '9+' : unread}
-													</span>
-												{/if}
+											{group.name}
+										</div>
+									{/if}
+									{#each group.sessions as session (session.id)}
+										{@const runtime = getRuntime(session.id)}
+										{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+										{@const isSelected =
+											onSessionsPage && session.id === sessionState.currentSessionId}
+										{@const unread = unreadFor(session)}
+										{@const draft = hasDraft(session)}
+										<MenuItem
+											class={twMerge(menuItemBase, isSelected ? 'bg-surface-hover' : '')}
+											onClick={() => activate(session)}
+											{item}
+										>
+											<SessionStatusDot
+												{status}
+												isFork={isForkFor(session)}
+												forkStatus={forkStatusFor(session)}
+											/>
+											<span
+												class={twMerge(
+													'truncate flex-1 text-left',
+													unread > 0 ? 'font-semibold text-primary' : ''
+												)}
+											>
+												{session.summary ?? 'Untitled session'}
 											</span>
-										{/if}
-									</MenuItem>
+											{#if draft || unread > 0}
+												<span class="ml-auto shrink-0 inline-flex items-center gap-1">
+													{#if draft}
+														<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
+													{/if}
+													{#if unread > 0}
+														<span
+															class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+															aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
+														>
+															{unread > 9 ? '9+' : unread}
+														</span>
+													{/if}
+												</span>
+											{/if}
+										</MenuItem>
+									{/each}
 								{/each}
 							</div>
 						</div>
@@ -434,7 +503,8 @@
 							type="button"
 							title="Filter sessions"
 							aria-label="Filter sessions"
-							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {showArchived.val
+							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {showArchived.val ||
+							showAllWorkspaces.val
 								? 'text-emphasis'
 								: ''}"
 						>
@@ -443,18 +513,30 @@
 					{/snippet}
 					{#snippet content()}
 						<div
-							class="w-56 p-2 bg-surface-tertiary dark:border rounded-md shadow-lg flex flex-col gap-1"
+							class="w-56 p-2 bg-surface-tertiary dark:border rounded-md shadow-lg flex flex-col gap-2"
 						>
-							<Toggle
-								bind:checked={showArchived.val}
-								size="xs"
-								options={{ right: 'Show archived' }}
-							/>
-							{#if archivedCount > 0}
+							<div class="flex flex-col gap-0.5">
+								<Toggle
+									bind:checked={showAllWorkspaces.val}
+									size="xs"
+									options={{ right: 'Show all workspaces' }}
+								/>
 								<span class="text-2xs text-tertiary pl-1">
-									{archivedCount} archived session{archivedCount === 1 ? '' : 's'}
+									Include sessions from every workspace.
 								</span>
-							{/if}
+							</div>
+							<div class="flex flex-col gap-0.5">
+								<Toggle
+									bind:checked={showArchived.val}
+									size="xs"
+									options={{ right: 'Show archived' }}
+								/>
+								{#if archivedCount > 0}
+									<span class="text-2xs text-tertiary pl-1">
+										{archivedCount} archived session{archivedCount === 1 ? '' : 's'}
+									</span>
+								{/if}
+							</div>
 						</div>
 					{/snippet}
 				</Popover>
@@ -477,119 +559,137 @@
 				role="listbox"
 				tabindex="-1"
 			>
-				{#each visibleSessions as session (session.id)}
-					{@const runtime = getRuntime(session.id)}
-					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
-					{@const isSelected = onSessionsPage && session.id === sessionState.currentSessionId}
-					{@const isEditing = editingId === session.id}
-					{@const unread = unreadFor(session)}
-					{@const draft = hasDraft(session)}
-					<div
-						class={twMerge(
-							'flex flex-row items-center group rounded',
-							isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover',
-							session.archived ? 'italic opacity-60' : ''
-						)}
-					>
-						{#if isEditing}
-							<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
-								<SessionStatusDot
-									{status}
-									isFork={isForkFor(session)}
-									forkStatus={forkStatusFor(session)}
-								/>
-								<!-- svelte-ignore a11y_autofocus -->
-								<input
-									type="text"
-									bind:value={renameDraft}
-									onkeydown={(e) => {
-										if (e.key === 'Enter') commitRename()
-										else if (e.key === 'Escape') cancelRename()
-									}}
-									onblur={commitRename}
-									placeholder="Untitled session"
-									autofocus
-									spellcheck="false"
-									class="flex-1 min-w-0 bg-transparent border-0 outline-none text-xs font-normal text-primary"
-								/>
-							</span>
-						{:else}
-							<button
-								type="button"
-								data-session-button
-								role="option"
-								aria-selected={isSelected}
-								onclick={() => activate(session)}
-								class={twMerge(
-									'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
-									unread > 0 ? 'text-primary font-semibold' : 'text-secondary'
-								)}
-							>
-								<SessionStatusDot
-									{status}
-									isFork={isForkFor(session)}
-									forkStatus={forkStatusFor(session)}
-								/>
-								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
-								{#if draft || unread > 0}
-									<span class="shrink-0 inline-flex items-center gap-1">
-										{#if draft}
-											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-										{/if}
-										{#if unread > 0}
-											<span
-												class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-												aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-											>
-												{unread > 9 ? '9+' : unread}
-											</span>
-										{/if}
-									</span>
-								{/if}
-							</button>
-							<div
-								class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity pr-0.5"
-							>
-								<DropdownV2
-									fixedHeight={false}
-									placement="bottom-end"
-									items={[
-										{
-											displayName: 'Rename',
-											icon: Pencil,
-											action: () => startRename(session)
-										},
-										session.archived
-											? {
-													displayName: 'Unarchive',
-													icon: ArchiveRestore,
-													action: () => setSessionArchived(session.id, false)
-												}
-											: {
-													displayName: 'Archive',
-													icon: Archive,
-													action: () => setSessionArchived(session.id, true)
-												},
-										{
-											displayName: 'Delete',
-											icon: Trash2,
-											type: 'delete',
-											action: () => (pendingDelete = session)
-										}
-									]}
+				{#each sessionGroups as group (group.rootId)}
+					{#if showGroupHeaders}
+						<div
+							class="px-2 pt-1.5 pb-0.5 text-[0.5rem] uppercase text-tertiary truncate"
+							title={group.name}
+						>
+							{group.name}
+						</div>
+					{/if}
+					{#each group.sessions as session (session.id)}
+						{@const runtime = getRuntime(session.id)}
+						{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
+						{@const isSelected = onSessionsPage && session.id === sessionState.currentSessionId}
+						{@const isEditing = editingId === session.id}
+						{@const unread = unreadFor(session)}
+						{@const draft = hasDraft(session)}
+						<div
+							class={twMerge(
+								'flex flex-row items-center group rounded',
+								isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover',
+								session.archived ? 'opacity-60' : ''
+							)}
+						>
+							{#if isEditing}
+								<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
+									<SessionStatusDot
+										{status}
+										isFork={isForkFor(session)}
+										forkStatus={forkStatusFor(session)}
+									/>
+									<!-- svelte-ignore a11y_autofocus -->
+									<input
+										type="text"
+										bind:value={renameDraft}
+										onkeydown={(e) => {
+											if (e.key === 'Enter') commitRename()
+											else if (e.key === 'Escape') cancelRename()
+										}}
+										onblur={commitRename}
+										placeholder="Untitled session"
+										autofocus
+										spellcheck="false"
+										class="flex-1 min-w-0 bg-transparent border-0 outline-none text-xs font-normal text-primary"
+									/>
+								</span>
+							{:else}
+								<button
+									type="button"
+									data-session-button
+									role="option"
+									aria-selected={isSelected}
+									onclick={() => activate(session)}
+									class={twMerge(
+										'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
+										unread > 0 ? 'text-primary font-semibold' : 'text-secondary'
+									)}
 								>
-									{#snippet buttonReplacement()}
-										<span
-											class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-											title="More"
-										>
-											<EllipsisVertical size={14} />
+									<SessionStatusDot
+										{status}
+										isFork={isForkFor(session)}
+										forkStatus={forkStatusFor(session)}
+									/>
+									<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
+									{#if draft || unread > 0}
+										<span class="shrink-0 inline-flex items-center gap-1">
+											{#if draft}
+												<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
+											{/if}
+											{#if unread > 0}
+												<span
+													class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+													aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
+												>
+													{unread > 9 ? '9+' : unread}
+												</span>
+											{/if}
 										</span>
-									{/snippet}
-								</DropdownV2>
-							</div>
-						{/if}
-					</div>
+									{/if}
+								</button>
+								<div
+									class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity pr-0.5"
+								>
+									<DropdownV2
+										fixedHeight={false}
+										placement="bottom-end"
+										items={[
+											{
+												displayName: 'Rename',
+												icon: Pencil,
+												action: () => startRename(session)
+											},
+											...(session.archived
+												? // No Unarchive when the workspace is gone — it can't persist
+													// (putSession guard) and reconcile would re-archive it.
+													isUnavailableFork(session)
+													? []
+													: [
+															{
+																displayName: 'Unarchive',
+																icon: ArchiveRestore,
+																action: () => setSessionArchived(session.id, false)
+															}
+														]
+												: [
+														{
+															displayName: 'Archive',
+															icon: Archive,
+															action: () => setSessionArchived(session.id, true)
+														}
+													]),
+											{
+												displayName: 'Delete',
+												icon: Trash2,
+												type: 'delete',
+												action: () => (pendingDelete = session)
+											}
+										]}
+									>
+										{#snippet buttonReplacement()}
+											<span
+												class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+												title="More"
+											>
+												<EllipsisVertical size={14} />
+											</span>
+										{/snippet}
+									</DropdownV2>
+								</div>
+							{/if}
+						</div>
+					{/each}
 				{/each}
 			</div>
 		{/if}

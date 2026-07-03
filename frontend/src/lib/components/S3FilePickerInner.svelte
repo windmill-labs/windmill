@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import {
 		File as FileIcon,
 		FolderClosed,
@@ -46,6 +43,7 @@
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
+	import S3FilePreview from './S3FilePreview.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	let deletionModalOpen = $state(false)
@@ -145,7 +143,10 @@
 				lastModified: string | undefined
 		  }
 		| undefined = $state(undefined)
-	let filePreviewLoading: boolean = $state(false)
+	// `filePreviewLoading` was previously templated; now that the visual
+	// preview lives in <S3FilePreview/> the picker only uses filePreview to
+	// gate the toolbar and refine fileMetadata.mimeType, so the standalone
+	// loading flag is gone.
 	let filePreview:
 		| {
 				fileKey: string
@@ -298,7 +299,6 @@
 	}
 
 	async function loadFilePreview(fileKey: string, fileSizeInBytes?: number, fileMimeType?: string) {
-		filePreviewLoading = true
 		let filePreviewRaw = await loadFilePreviewRequest({
 			workspace: $workspaceStore!,
 			fileKey: fileKey,
@@ -339,7 +339,6 @@
 					filePreview.contentType
 			}
 		}
-		filePreviewLoading = false
 		fileInfoLoading = false
 	}
 
@@ -775,87 +774,20 @@
 				</div>
 			{/if}
 
-			<div class="flex flex-col h-full w-full overflow-auto text-xs p-4 bg-surface-secondary">
-				{#if filePreviewLoading || fileMetadata}
-					{#if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
-						<div>
-							<img
-								src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-									fileMetadata.fileKey
-								)}` + (storage ? `&storage=${storage}` : '')}
-								alt="S3 preview"
-							/>
-						</div>
-					{:else if fileMetadata?.fileKey.endsWith('.pdf')}
-						<div class="w-full h-[950px] border">
-							{#await import('$lib/components/display/PdfViewer.svelte')}
-								<Loader2 class="animate-spin" />
-							{:then Module}
-								<Module.default
-									source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-										fileMetadata.fileKey
-									)}` + (storage ? `&storage=${storage}` : '')}
-								/>
-							{/await}
-						</div>
-					{:else if filePreviewLoading}
-						<div class="flex h-6 items-center text-primary mb-4">
-							<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
-						</div>
-					{:else if fileMetadata !== undefined && filePreview !== undefined}
-						{#if filePreview.contentType === 'Unknown' || filePreview.contentType === 'Csv' || !hideS3SpecificDetails}
-							<div class="flex items-center text-primary mb-4">
-								{#if filePreview.contentType === 'Unknown'}
-									Type of file not supported for preview.
-								{:else if filePreview.contentType === 'Csv'}
-									Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
-									<div class="inline-flex w-12 ml-2 mr-2">
-										<select
-											class="h-8"
-											bind:value={csvSeparatorChar}
-											onchange={(e) =>
-												loadFilePreview(
-													fileMetadata?.fileKey ?? '',
-													fileMetadata?.size,
-													fileMetadata?.mimeType
-												)}
-										>
-											<option value=",">,</option>
-											<option value=";">;</option>
-											<option value="\t">\t</option>
-											<option value="|">|</option>
-										</select>
-									</div>
-									Header row:
-									<div class="inline-flex item-center w-4 ml-2 mr-2">
-										<input
-											onfocus={bubble('focus')}
-											onclick={bubble('click')}
-											disabled={false}
-											type="checkbox"
-											id="csv-header"
-											class="h-5"
-											bind:checked={csvHasHeader}
-											onchange={stopPropagation((e) =>
-												loadFilePreview(
-													fileMetadata?.fileKey ?? '',
-													fileMetadata?.size,
-													fileMetadata?.mimeType
-												)
-											)}
-										/>
-									</div>
-								{:else}
-									Previewing a {filePreview.contentType?.toLowerCase()} file.
-								{/if}
-							</div>
-						{/if}
-						<pre class="grow whitespace-no-wrap break-words"
-							>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}
-					</pre>
-					{/if}
-				{/if}
-			</div>
+			<!-- Visual preview extracted to a standalone S3FilePreview component
+			     so the asset detail pane (and other surfaces) can render the
+			     same image/PDF/CSV/text views without dragging in the rest
+			     of the picker. The picker keeps its own metadata loading
+			     above for the download/move toolbar; S3FilePreview does an
+			     independent load — fine on this non-hot path, and avoids
+			     plumbing pre-loaded state through component boundaries. -->
+			<S3FilePreview
+				fileKey={fileMetadata?.fileKey}
+				{storage}
+				{loadFilePreviewRequest}
+				{loadFileMetadataRequest}
+				class="h-full"
+			/>
 		</div>
 	</div>
 {/if}

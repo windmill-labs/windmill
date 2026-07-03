@@ -2,7 +2,6 @@
 	import {
 		FlowService,
 		type Flow,
-		DraftService,
 		type PathScript,
 		type OpenFlow,
 		type InputTransform,
@@ -11,9 +10,14 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
-	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
 	import {
-		cleanValueProperties,
+		enterpriseLicense,
+		userStore,
+		userWorkspaces,
+		workspaceStore,
+		usedTriggerKinds
+	} from '$lib/stores'
+	import {
 		generateRandomString,
 		orderedJsonStringify,
 		readFieldsRecursively,
@@ -25,11 +29,12 @@
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, onMount, setContext, untrack } from 'svelte'
+	import { createRawSnippet, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -46,7 +51,6 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
 	import {
-		Save,
 		DiffIcon,
 		HistoryIcon,
 		FileJson,
@@ -71,18 +75,15 @@
 	import { tutorialsToDo } from '$lib/stores'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 	import EditorHeader from './EditorHeader.svelte'
+	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
-	import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
-	import {
-		deployTriggers,
-		filterDraftTriggers,
-		handleSelectTriggerFromKind
-	} from './triggers/utils'
+	import type { Trigger } from './triggers/utils'
+	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
@@ -97,8 +98,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
 
@@ -118,23 +118,32 @@
 		disabledFlowInputs = false,
 		savedPrimarySchedule = undefined,
 		version = undefined,
-		setSavedraftCb = undefined,
+		draftBaseVersion = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
 		children,
 		loadedFromHistoryFromUrl,
 		noInitial = false,
 		liveEditorDraftStoragePath = undefined,
-		onSaveInitial,
-		onSaveDraft,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		onDeploy,
 		onDeployError,
 		onDetails,
-		onSaveDraftError,
-		onSaveDraftOnlyAtNewPath,
 		onHistoryRestore,
-		onNavigate
+		onNavigate,
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
+		onTestJob
 	}: FlowBuilderProps = $props()
+
+	// Key the AutosaveIndicator watches. Falls back to this component's own
+	// draft key, so the full-page editor is unchanged; the sessions preview
+	// overrides both to the (forked) workspace + path its autosave saves under.
+	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)
 
@@ -217,7 +226,12 @@
 	}
 	let onLatest = true
 	async function compareVersions() {
-		if (version === undefined) {
+		// Compare the draft's pinned fork base against the current head when editing
+		// a draft, else the load-time head. This catches both a concurrent deploy
+		// (head moved since open) AND a stale draft reopened after a deploy (head ==
+		// load-time head, but the draft was forked from an older version).
+		const base = draftBaseVersion ?? version
+		if (base === undefined) {
 			return
 		}
 		try {
@@ -227,7 +241,7 @@
 					path: initialPath
 				})
 
-				onLatest = version === flowVersion?.id
+				onLatest = base === flowVersion?.id
 			} else {
 				onLatest = true
 			}
@@ -261,128 +275,27 @@
 	}
 
 	let loadingSave = $state(false)
-	let loadingDraft = $state(false)
 
-	export async function saveDraft(forceSave = false): Promise<void> {
-		withAIChangesWarning(async () => {
-			await saveDraftInternal(forceSave)
+	// Ctrl/Cmd+S forces an immediate save of whatever the page-level
+	// autosave has pending. Unlike ScriptBuilder we don't have a direct
+	// Monaco ref to flush — any focused module Monaco's pending text is
+	// constrained by the editor's own ~1s max-wait cap, so the flush
+	// here picks up whatever's already in `pendingSaveOpts`. Worst case
+	// the user's very last keystroke (<1s ago) isn't in this POST and
+	// follows in the next autosave round.
+	//
+	// No toast — the AutosaveIndicator narrates the flush (Saving... →
+	// Saved / Save failed). A toast here would also lie on network
+	// failure: `flush` never rejects (postSave catches and routes errors
+	// to the failures map), so the success branch fired regardless.
+	export async function saveDraft(): Promise<void> {
+		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		await UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'flow',
+			path: liveEditorDraftStoragePath
 		})
 	}
-
-	async function saveDraftInternal(forceSave = false): Promise<void> {
-		if (!newFlow && !savedFlow) {
-			return
-		}
-
-		if (savedFlow) {
-			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-			const current = cleanValueProperties(
-				$state.snapshot({
-					...flowStore.val,
-					path: $pathStore,
-					draft_triggers: currentDraftTriggers
-				})
-			)
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				sendUserToast('No changes detected, ignoring', false, [
-					{
-						label: 'Save anyway',
-						callback: () => {
-							saveDraftInternal(true)
-						}
-					}
-				])
-				return
-			}
-		}
-		loadingDraft = true
-		try {
-			const flow = cleanFlow(flowStore.val)
-			if (newFlow || savedFlow?.draft_only) {
-				if (savedFlow?.draft_only) {
-					await FlowService.deleteFlowByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-				}
-				if (!initialPath || $pathStore != initialPath) {
-					await CaptureService.moveCapturesAndConfigs({
-						workspace: $workspaceStore!,
-						path: initialPath || fakeInitialPath,
-						requestBody: {
-							new_path: $pathStore
-						},
-						runnableKind: 'flow'
-					})
-				}
-				await FlowService.createFlow({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: $pathStore,
-						summary: flow.summary ?? '',
-						description: flow.description ?? '',
-						value: flow.value,
-						schema: flow.schema,
-						tag: flow.tag,
-						draft_only: true,
-						ws_error_handler_muted: flow.ws_error_handler_muted,
-						visible_to_runner_only: flow.visible_to_runner_only,
-						on_behalf_of_email: flow.on_behalf_of_email,
-						labels: (flow as any).labels
-					}
-				})
-			}
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: newFlow || savedFlow?.draft_only ? $pathStore : initialPath,
-					typ: 'flow',
-					value: {
-						...flow,
-						path: $pathStore,
-						draft_triggers: triggersState.getDraftTriggersSnapshot()
-					}
-				}
-			})
-
-			savedFlow = {
-				...(newFlow || savedFlow?.draft_only
-					? {
-							...structuredClone($state.snapshot(flowStore.val)),
-							path: $pathStore,
-							draft_only: true
-						}
-					: savedFlow),
-				draft: {
-					...structuredClone($state.snapshot(flowStore.val)),
-					path: $pathStore,
-					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
-				}
-			} as FlowWithDraftAndDraftTriggers
-
-			let savedAtNewPath = false
-			if (newFlow) {
-				onSaveInitial?.({ path: $pathStore, id: getSelectedId() ?? 'settings' })
-			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
-				savedAtNewPath = true
-				initialPath = $pathStore
-				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() ?? 'settings' })
-				// this is so we can use the flow builder outside of sveltekit
-			}
-			onSaveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
-			sendUserToast('Saved as draft')
-		} catch (error) {
-			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
-			onSaveDraftError?.({ error })
-		}
-		loadingDraft = false
-	}
-
-	onMount(() => {
-		setSavedraftCb?.(() => saveDraft())
-	})
 
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
@@ -400,7 +313,7 @@
 
 	async function handleSaveFlowInternal(deploymentMsg?: string) {
 		await compareVersions()
-		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
+		if (onLatest || initialPath == '' || newFlow) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
@@ -677,7 +590,7 @@
 			[
 				{ type: 'webhook', path: '', isDraft: false },
 				{ type: 'default_email', path: '', isDraft: false },
-				...(untrack(() => draftTriggersFromUrl) ?? savedFlow?.draft?.draft_triggers ?? [])
+				...(untrack(() => draftTriggersFromUrl) ?? [])
 			],
 			untrack(() => selectedTriggerIndexFromUrl)
 		)
@@ -706,10 +619,6 @@
 			$primaryScheduleStore,
 			$userStore
 		)
-
-		if (savedFlow && savedFlow.draft) {
-			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
-		}
 	}
 
 	function handleUndo() {
@@ -735,7 +644,18 @@
 		flowStore.val = redo(history)
 	}
 
+	let flowBuilderRoot: HTMLDivElement | undefined = $state()
+
 	function onKeyDown(event: KeyboardEvent) {
+		// Defer to anything that has explicitly grabbed focus — menus, modals,
+		// drawers etc. live outside the flow root. Flow nodes aren't focusable,
+		// so the unfocused default (activeElement === body) means "flow is the
+		// canvas" and we should react.
+		const active = document.activeElement
+		if (active && active !== document.body && !flowBuilderRoot?.contains(active)) {
+			return
+		}
+
 		let classes = event.target?.['className']
 		if (
 			(typeof classes === 'string' && classes.includes('inputarea')) ||
@@ -800,7 +720,7 @@
 	}> = []
 
 	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
-		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
+		if (!newFlow) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter
@@ -817,9 +737,13 @@
 			})
 		}
 
-		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+		if (
+			!untrack(() => newFlow) &&
+			!isCloudHosted() &&
+			editInForkAllowed($workspaceStore, $userWorkspaces)
+		) {
 			dropdownItems.push({
-				label: 'Edit in workspace fork',
+				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
 			})
 		}
@@ -834,7 +758,6 @@
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? savedFlow,
-			draft: savedFlow?.draft,
 			current: {
 				...currentFlow,
 				path: $pathStore,
@@ -879,25 +802,7 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
-		// When the top bar is compact, fold the inline Diff + Save draft buttons
-		// in here so they stay reachable. Save draft keeps its keyboard shortcut.
-		const compactExtras: Item[] = compactTopbar
-			? [
-					...(customUi?.topBar?.draft !== false
-						? [
-								{
-									displayName: 'Save draft',
-									icon: Save,
-									action: () => saveDraft(),
-									shortcut: `${mod}S`,
-									disabled: (!newFlow && !savedFlow) || loading
-								}
-							]
-						: [])
-				]
-			: []
 		return [
-			...compactExtras,
 			...baseMenuItems,
 			{
 				displayName: 'Undo',
@@ -905,7 +810,7 @@
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
 				shortcut: `${mod}Z`,
-				separatorTop: compactExtras.length > 0 || baseMenuItems.length > 0
+				separatorTop: baseMenuItems.length > 0
 			},
 			{
 				displayName: 'Redo',
@@ -1018,17 +923,7 @@
 		]
 	}
 
-	function handleDeployTrigger(trigger: Trigger) {
-		const { id, path, type } = trigger
-		//Update the saved flow to remove the draft trigger that is deployed
-		if (savedFlow && savedFlow.draft && savedFlow.draft.draft_triggers) {
-			const newSavedDraftTrigers = savedFlow.draft.draft_triggers.filter(
-				(t) => t.id !== id || t.path !== path || t.type !== type
-			)
-			savedFlow.draft.draft_triggers =
-				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
-		}
-	}
+	function handleDeployTrigger(_trigger: Trigger) {}
 
 	let forceTestTab: Record<string, boolean> = $state({})
 	let highlightArg: Record<string, string | undefined> = $state({})
@@ -1056,6 +951,29 @@
 		// `Flow` (with `path`) in it.
 		const p = (flowStore.val as Flow | undefined)?.path
 		if (p) untrack(() => ($pathStore = p))
+	})
+
+	// Persist the user-typed path into the draft JSON as `draft_path`
+	// when it differs from the deployed/seeded `flow.path`. The Path
+	// widget binds `$pathStore` one-way to the popover input — without
+	// this, the friendly auto-name on `/flows/add` and any in-place
+	// rename never reach the autosaved Flow, so the home-list draft row
+	// kept showing the autogenerated `u/{user}/draft_{uuid}` slot. Drop
+	// the field once it matches the baseline again so it doesn't
+	// linger after a revert; deploy clears the whole draft, so the
+	// field naturally disappears post-deploy too.
+	$effect(() => {
+		const typed = $pathStore
+		const baseline = (flowStore.val as Flow | undefined)?.path ?? ''
+		const flow = flowStore.val as (Flow & { draft_path?: string }) | undefined
+		if (!flow) return
+		untrack(() => {
+			if (typed && typed !== baseline) {
+				flow.draft_path = typed
+			} else if (flow.draft_path !== undefined) {
+				delete (flow as any).draft_path
+			}
+		})
 	})
 
 	$effect.pre(() => {
@@ -1175,13 +1093,13 @@
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
-		<div class="flex flex-col flex-1 h-screen">
+		<div bind:this={flowBuilderRoot} class="flex flex-col h-screen">
 			<!-- Nav between steps-->
 			<div
 				bind:clientWidth={topbarWidth}
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="min-w-[200px] max-w-full">
+				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
 					<EditorHeader
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
@@ -1189,6 +1107,18 @@
 						onBehalfOfEmail={$savedOnBehalfOfEmail}
 						onNavigate={(item) => onNavigate?.(item)}
 					/>
+					{#if indicatorWorkspace && indicatorPath !== undefined}
+						<AutosaveIndicator
+							workspace={indicatorWorkspace}
+							itemKind="flow"
+							path={indicatorPath}
+							draftOnly={newFlow}
+							{onResetToDeployed}
+							{loadedFromDraft}
+							{othersDraftsCount}
+							{onOpenOthersDrafts}
+						/>
+					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center">
 					{#if $enterpriseLicense && !newFlow}
@@ -1203,33 +1133,32 @@
 						{/if}
 					</div>
 					{#if customUi?.topBar?.diff != false}
-						<Button
-							variant="default"
-							unifiedSize="md"
-							on:click={() => openDiffDrawer()}
-							disabled={!savedFlow}
-							iconOnly={compactTopbar}
-							title="Diff"
-							startIcon={{ icon: DiffIcon }}
-						>
-							Diff
-						</Button>
+						{@const isDraftOnly = savedFlow?.no_deployed === true}
+						{@const diffDisabled = !savedFlow || newFlow || isDraftOnly}
+						{@const diffTitle =
+							newFlow || isDraftOnly
+								? 'Deploy this flow once to compare against the deployed version'
+								: 'Diff'}
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						     it never shows on hover. pointer-events-none on the button lets the
+						     hover reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								iconOnly={compactTopbar}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
+								Diff
+							</Button>
+						</div>
 					{/if}
 					{#if !compactTopbar}
 						{@render previewButtons()}
-					{/if}
-					{#if customUi?.topBar?.draft !== false && !compactTopbar}
-						<Button
-							loading={loadingDraft}
-							unifiedSize="md"
-							variant="accent"
-							startIcon={{ icon: Save }}
-							on:click={() => saveDraft()}
-							disabled={(!newFlow && !savedFlow) || loading}
-							shortCut={{ key: 'S' }}
-						>
-							Draft
-						</Button>
 					{/if}
 
 					<DeployButton
@@ -1256,11 +1185,14 @@
 					bind:localModuleStates
 					bind:this={flowPreviewButtons}
 					{loading}
-					onRunPreview={() => {
+					onRunPreview={(jobId) => {
 						stepsInputArgs.resetManuallyEditedArgs()
 						modulesTestStates.hideJobsInGraph()
 						localModuleStates = {}
 						showJobStatus = true
+						if (jobId) {
+							onTestJob?.({ jobId })
+						}
 					}}
 				/>
 			{/snippet}

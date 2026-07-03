@@ -369,12 +369,11 @@ pub struct AnthropicQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
     platform: AIPlatform,
-    enable_1m_context: bool,
 }
 
 impl AnthropicQueryBuilder {
-    pub fn new(provider_kind: AIProvider, platform: AIPlatform, enable_1m_context: bool) -> Self {
-        Self { provider_kind, platform, enable_1m_context }
+    pub fn new(provider_kind: AIProvider, platform: AIPlatform) -> Self {
+        Self { provider_kind, platform }
     }
 
     fn is_vertex(&self) -> bool {
@@ -454,13 +453,6 @@ impl AnthropicQueryBuilder {
                         .to_string(),
                 ));
             }
-        }
-
-        if is_anthropic_sdk && credentials.enable_1m_context {
-            headers.push((
-                "anthropic-beta".to_string(),
-                "context-1m-2025-08-07".to_string(),
-            ));
         }
 
         if let Some(api_key) = credentials.api_key.as_ref() {
@@ -713,14 +705,10 @@ impl QueryBuilder for AnthropicQueryBuilder {
             vec![("Authorization", format!("Bearer {}", api_key))]
         } else {
             // Standard Anthropic API uses x-api-key and anthropic-version header
-            let mut headers = vec![
+            vec![
                 ("x-api-key", api_key.to_string()),
                 ("anthropic-version", ANTHROPIC_VERSION_STANDARD.to_string()),
-            ];
-            if self.enable_1m_context {
-                headers.push(("anthropic-beta", "context-1m-2025-08-07".to_string()));
-            }
-            headers
+            ]
         }
     }
 }
@@ -747,7 +735,6 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             platform,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
     }
@@ -762,7 +749,7 @@ mod tests {
     fn builds_standard_anthropic_proxy_request() {
         let credentials = credentials(AIPlatform::Standard);
         let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard, false);
+            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard);
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
@@ -795,40 +782,12 @@ mod tests {
     }
 
     #[test]
-    fn builds_anthropic_sdk_proxy_request_with_context_beta() {
-        let mut credentials = credentials(AIPlatform::Standard);
-        credentials.enable_1m_context = true;
-        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard, true);
-        let method = Method::POST;
-        let mut headers = HeaderMap::new();
-        headers.insert("X-Anthropic-SDK", HeaderValue::from_static("typescript"));
-        let body = br#"{"model":"claude-sonnet-4","messages":[]}"#;
-
-        let request = builder
-            .build_proxy_request(&ProxyBuildArgs {
-                method: &method,
-                path: "v1/messages",
-                headers: &headers,
-                body,
-                credentials: &credentials,
-            })
-            .unwrap();
-
-        assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
-        assert!(has_header(
-            &request.headers,
-            "anthropic-beta",
-            "context-1m-2025-08-07"
-        ));
-    }
-
-    #[test]
     fn builds_vertex_anthropic_proxy_request() {
         let mut credentials = credentials(AIPlatform::GoogleVertexAi);
         credentials.base_url = "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/anthropic/models".to_string();
         credentials.user = Some("user-1".to_string());
         let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi, false);
+            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi);
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
@@ -872,7 +831,7 @@ mod tests {
     fn rejects_vertex_proxy_request_without_model() {
         let credentials = credentials(AIPlatform::GoogleVertexAi);
         let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi, false);
+            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi);
         let method = Method::POST;
         let headers = HeaderMap::new();
 

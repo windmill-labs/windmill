@@ -6,7 +6,8 @@
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { appendViewToken } from '$lib/viewToken'
+	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
 		Download,
@@ -15,8 +16,11 @@
 		Braces,
 		Highlighter,
 		ArrowDownFromLine,
+		Database,
 		Loader2
 	} from 'lucide-svelte'
+	import DucklakeResultPreview from './assets/AssetGraph/DucklakeResultPreview.svelte'
+	import DataTestsResult from './DataTestsResult.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
 
@@ -67,6 +71,7 @@
 		| 'filename'
 		| 's3object'
 		| 's3object-list'
+		| 'materialized'
 		| 'plain'
 		| 'markdown'
 		| 'map'
@@ -176,9 +181,11 @@
 
 	let resultApiPath = $derived(
 		workspaceId && jobId
-			? nodeId
-				? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-				: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+			? appendViewToken(
+					nodeId
+						? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+						: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+				)
 			: undefined
 	)
 	let resultDownloadHref = $derived(
@@ -192,6 +199,28 @@
 		return keys.includes('s3') && typeof result.s3 === 'string'
 	}
 
+	// The materialize-run summary — `[{ materialized: 'ducklake://…', rows,
+	// snapshot_id }]` or the bare object. The shape is narrow (a `ducklake://`
+	// value plus a `snapshot_id` key) so an ordinary user result isn't hijacked.
+	function parseMaterializedResult(
+		res: any
+	):
+		| { materialized: string; partition?: string; rows?: number; snapshot_id?: number | null }
+		| undefined {
+		const obj = Array.isArray(res) && res.length === 1 ? res[0] : res
+		if (
+			obj &&
+			typeof obj === 'object' &&
+			typeof obj.materialized === 'string' &&
+			obj.materialized.startsWith('ducklake://') &&
+			'snapshot_id' in obj
+		) {
+			return obj
+		}
+		return undefined
+	}
+
+	let showMaterializedPreview = $state(true)
 	let is_render_all = $state(false)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
@@ -218,6 +247,13 @@
 			}
 			try {
 				let keys = result && typeof result === 'object' ? Object.keys(result) : []
+
+				if (parseMaterializedResult(result)) {
+					largeObject = false
+					is_render_all = false
+					return 'materialized'
+				}
+
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
@@ -407,6 +443,23 @@
 		return json
 	}
 
+	// The explicit column order from a leading header row (see
+	// handleArrayOfObjectsHeaders). Returned as an array so the order survives:
+	// baking it into object keys loses integer-like names like "1234", which JS
+	// enumerates first in ascending numeric order.
+	function getForcedColumnOrder(json: any): string[] | undefined {
+		if (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
+			json[0].every((item) => typeof item === 'string')
+		) {
+			return json[0]
+		}
+		return undefined
+	}
+
 	type InputObject = { [key: string]: number[] }
 
 	function objectOfArraysToObjects(input: InputObject): any[] {
@@ -512,9 +565,53 @@
 			resultHeaderHeight
 		)
 	})
+
+	// Per-test breakdown of a managed `// materialize` run, rendered as a
+	// checklist above the raw result. On success it rides the result
+	// (`data_tests: [{ test, violating }]`, a one-row array). On failure the job
+	// result is the error, whose message is the worker's breakdown text — parsed
+	// back into the same shape so the checklist shows on both outcomes. Both
+	// formats are produced by this repo's worker (see duckdb_executor.rs); the
+	// derivation is inert (undefined) for every other DisplayResult use.
+	let dataTests = $derived.by(() => {
+		// Success: structured column on the summary row.
+		const row = Array.isArray(result) ? (result as any)?.[0] : (result as any)
+		let dt = row?.data_tests
+		if (typeof dt === 'string') {
+			try {
+				dt = JSON.parse(dt)
+			} catch {
+				dt = undefined
+			}
+		}
+		if (
+			Array.isArray(dt) &&
+			dt.length > 0 &&
+			dt.every((x) => x && typeof x.test === 'string' && typeof x.violating === 'number')
+		) {
+			return dt as Array<{ test: string; violating: number }>
+		}
+		// Failure: parse the worker's breakdown out of the error message.
+		const msg = (result as any)?.error?.message
+		if (typeof msg === 'string' && msg.includes('data tests failed on')) {
+			const out: Array<{ test: string; violating: number }> = []
+			for (const line of msg.split('\n')) {
+				const fail = line.match(/^\s*✗\s*(.+?)\s*—\s*(\d+)\s+violating/)
+				const pass = line.match(/^\s*✓\s*(.+?)\s*$/)
+				if (fail) out.push({ test: fail[1], violating: parseInt(fail[2], 10) })
+				else if (pass) out.push({ test: pass[1], violating: 0 })
+			}
+			if (out.length > 0) return out
+		}
+		return undefined
+	})
 </script>
 
 <HighlightTheme />
+
+{#if dataTests}
+	<DataTestsResult tests={dataTests} />
+{/if}
 
 {#if result_stream && result == undefined}
 	<div class="flex flex-col w-full gap-2">
@@ -640,6 +737,7 @@
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
 							: ''}
 						objects={handleArrayOfObjectsHeaders(data)}
+						headerOrder={getForcedColumnOrder(data)}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
@@ -811,6 +909,43 @@
 							></div
 						>
 					</div>
+				{:else if !forceJson && resultKind === 'materialized'}
+					{@const m = parseMaterializedResult(result)}
+					{#if m}
+						<div class="flex flex-col gap-2 w-full">
+							<div class="flex items-center gap-2 flex-wrap text-xs">
+								<Database size={14} class="text-tertiary shrink-0" />
+								<span class="font-mono text-emphasis break-all">{m.materialized}</span>
+								{#if m.partition}
+									<Badge color="blue">partition {m.partition}</Badge>
+								{/if}
+								{#if typeof m.rows === 'number'}
+									<Badge color="green">
+										{m.rows}
+										{m.rows === 1 ? 'row' : 'rows'}{m.partition ? ' in partition' : ''}
+									</Badge>
+								{/if}
+								{#if m.snapshot_id != null}
+									<Badge color="gray">snapshot {m.snapshot_id}</Badge>
+								{/if}
+							</div>
+							<Toggle
+								class="flex"
+								bind:checked={showMaterializedPreview}
+								size="xs"
+								options={{ right: 'Preview rows' }}
+							/>
+							{#if showMaterializedPreview}
+								<div class="border rounded-md h-80 min-h-0 overflow-hidden">
+									<DucklakeResultPreview
+										assetUri={m.materialized}
+										partition={m.partition}
+										class="h-full"
+									/>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				{:else if !forceJson && resultKind === 's3object'}
 					{@const s3object = parseS3Object(result) as typeof result}
 					<div
@@ -1016,9 +1151,7 @@
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
 								>{#if resultApiPath && shouldDownloadViaClient()}
-									<button
-										onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
-									>
+									<button onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}>
 										Download {filename ? '' : 'as JSON'}
 									</button>
 								{:else}

@@ -119,6 +119,7 @@ class TestToolCalling:
         assert "23" in result_str, f"Expected '23' in result: {result}"
         print(f"Workspace script tool result from {provider_config['name']}: {result}")
 
+    @pytest.mark.requires_provider("google_ai")
     def test_nested_ai_agent_tool_with_gemini_3(
         self,
         client: AIAgentTestClient,

@@ -169,6 +169,16 @@ export function validateToolExpectations(input: {
     );
   }
 
+  for (const group of expect.requiredToolsAnyOf ?? []) {
+    checks.push(
+      check(
+        `uses one of ${group.join(", ")}`,
+        group.some((toolName) => input.run.toolsUsed.includes(toolName)),
+        `tools used: ${input.run.toolsUsed.join(", ") || "none"}`
+      )
+    );
+  }
+
   for (const toolName of expect.forbiddenToolsUsed ?? []) {
     checks.push(
       check(
@@ -219,6 +229,25 @@ export function validateToolExpectations(input: {
           `${rule.tool}.${rule.field} avoids rejected prefixes`,
           invalidValues.length === 0,
           `rejected prefixes: ${rule.stringMustNotStartWithAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
+    if (rule.stringIncludesAnyOf && rule.stringIncludesAnyOf.length > 0) {
+      // Existential: at least one call must contain one of the substrings.
+      // Other calls to the same tool may do anything — this suits SQL, where a
+      // model mixes the requested statement (e.g. an UPDATE) with verification
+      // SELECTs that would otherwise fail an "all calls" check.
+      const needles = rule.stringIncludesAnyOf.map((needle) => needle.toLowerCase());
+      const hasMatch = values.some(
+        (value) =>
+          typeof value === "string" && needles.some((needle) => value.toLowerCase().includes(needle))
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} includes a required substring`,
+          hasMatch,
+          `accepted substrings: ${rule.stringIncludesAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
         )
       );
     }
