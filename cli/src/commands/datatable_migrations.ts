@@ -214,6 +214,66 @@ export async function pushMigrationFromDisk(
 }
 
 /**
+ * Upsert the on-disk migrations of a data table to the workspace, so a freshly
+ * created migration file works with `wmill datatable migrate up` even without a
+ * prior `wmill sync push`. Pushes only migrations that are new or edited
+ * (compared against the workspace's current definitions); it never deletes
+ * remote migrations absent on disk and never touches other item kinds.
+ */
+export async function pushLocalMigrations(
+  workspace: string,
+  datatableName: string,
+): Promise<void> {
+  const dir = path.join(process.cwd(), MIGRATIONS_DIR, datatableName);
+  if (!fs.existsSync(dir)) return;
+
+  // Local migrations are identified by their `.up.sql` file (the up file is
+  // mandatory); this deliberately ignores files that were only deleted locally.
+  const local: { timestamp: number; name: string }[] = [];
+  for (const file of fs.readdirSync(dir)) {
+    const m = file.match(/^(\d+)_(.*)\.up\.sql$/);
+    if (m) local.push({ timestamp: Number(m[1]), name: m[2] });
+  }
+  if (local.length === 0) return;
+
+  const remote = await wmill.listDatatableMigrations({ workspace });
+  const remoteByTs = new Map(
+    remote
+      .filter((r) => r.datatable === datatableName)
+      .map((r) => [r.timestamp, r] as const),
+  );
+
+  for (const { timestamp, name } of local) {
+    const base = `${timestamp}_${name}`;
+    const code_up = await readTextFile(path.join(dir, `${base}.up.sql`));
+    const downPath = path.join(dir, `${base}.down.sql`);
+    const code_down = fs.existsSync(downPath)
+      ? await readTextFile(downPath)
+      : undefined;
+
+    const r = remoteByTs.get(timestamp);
+    const unchanged =
+      r !== undefined &&
+      r.name === name &&
+      r.code_up === code_up &&
+      (r.code_down ?? undefined) === code_down;
+    if (unchanged) continue;
+
+    log.info(colors.green(`Pushing datatable_migration ${datatableName}/${base}`));
+    await wmill.upsertDatatableMigration({
+      workspace,
+      datatableName,
+      requestBody: {
+        timestamp,
+        name,
+        code_up,
+        ...(code_down !== undefined ? { code_down } : {}),
+      },
+    });
+  }
+}
+
+/**
  * After a push that introduced new migrations, list them and (interactively)
  * offer to run them, equivalent to `wmill datatable migrate up` on each affected
  * data table.

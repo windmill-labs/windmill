@@ -11,6 +11,7 @@ import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
 import {
   createMigration,
+  pushLocalMigrations,
   rollbackMigrations,
   runMigrations,
 } from "../datatable_migrations.ts";
@@ -73,6 +74,9 @@ async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
     return;
   }
   for (const dt of targets) {
+    // Push any locally-created/edited migration files first (without running
+    // them), so `migrate up` works even before a `wmill sync push`.
+    await pushLocalMigrations(workspace.workspaceId, dt);
     await runMigrations(workspace.workspaceId, dt);
   }
 }
