@@ -392,12 +392,17 @@ export class AIChatManager {
 	#maskPersistQueue: Promise<void> = Promise.resolve()
 	#persistModifiedItems(): Promise<void> {
 		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
-			this.historyManager.saveChat(
-				this.displayMessages,
-				this.messages,
-				this.contextUsage,
-				this.modifiedItems ? [...this.modifiedItems] : undefined
-			)
+			this.historyManager
+				.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
+				// Swallow (and log) a failed write so it can't wedge the queue as a
+				// rejected link — the next persist snapshots the full current set, so
+				// a lost write self-heals on the next mutation or turn-end save.
+				.catch((e) => console.error('Failed to persist modified-items mask', e))
 		)
 		return this.#maskPersistQueue
 	}
