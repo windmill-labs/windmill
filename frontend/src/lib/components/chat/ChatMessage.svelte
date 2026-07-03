@@ -101,7 +101,9 @@
 
 	{#if reasoningText}
 		<!-- Reasoning / "thinking" affordance, consistent with the copilot chat -->
-		<div class="mx-3 mt-3 bg-surface border border-border-light rounded-md overflow-hidden text-xs">
+		<div
+			class="mx-3 mt-3 mb-2 bg-surface border border-border-light rounded-md overflow-hidden text-xs"
+		>
 			<button
 				class={twMerge(
 					'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center gap-2 text-left',
