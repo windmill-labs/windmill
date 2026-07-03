@@ -184,47 +184,11 @@
 			class={twMerge('flex flex-col gap-1 p-2 w-56 shrink-0 overflow-auto')}
 			{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => languageEl) })}
 		>
-			<div class="text-2xs font-normal text-secondary ml-2 mb-1">Trigger</div>
-			{#each kinds as k}
-				{@const isSelected = selected.triggerId == k.id && !selected.templateId}
-				<Button
-					variant="subtle"
-					btnClasses={'text-left'}
-					onClick={() => {
-						selected.triggerId = k.id
-						selected.templateId = undefined
-					}}
-					selected={isSelected}
-				>
-					{#if k.icon}
-						{@const Icon = k.icon}
-						<Icon
-							size={14}
-							class={twMerge(
-								'shrink-0 my-auto mr-1.5',
-								isSelected ? 'text-accent' : 'text-secondary'
-							)}
-						/>
-					{/if}
-					<span class="flex flex-col items-start flex-1 min-w-0">
-						<span class="text-xs font-normal leading-tight">{k.label}</span>
-						{#if k.description}
-							<span
-								class={twMerge(
-									'text-2xs font-normal leading-snug mt-0.5',
-									isSelected ? 'text-accent/80' : 'text-hint'
-								)}
-							>
-								{k.description}
-							</span>
-						{/if}
-					</span>
-				</Button>
-			{/each}
+			<!-- Templates lead the column: the trigger list below is taller than
+			     the popover viewport, so anything after it sits below the fold
+			     and is effectively invisible. -->
 			{#if templates.length > 0}
-				<div class="text-2xs font-normal text-secondary ml-2 mb-1 mt-3 pt-2 border-t"
-					>Ingestion templates</div
-				>
+				<div class="text-2xs font-normal text-secondary ml-2 mb-1">Ingestion templates</div>
 				{#each templates as t}
 					{@const isSelected = selected.templateId === t.id}
 					<Button
@@ -265,6 +229,48 @@
 					</Button>
 				{/each}
 			{/if}
+			<div
+				class={twMerge(
+					'text-2xs font-normal text-secondary ml-2 mb-1',
+					templates.length > 0 ? 'mt-3 pt-2 border-t' : ''
+				)}>Trigger</div
+			>
+			{#each kinds as k}
+				{@const isSelected = selected.triggerId == k.id && !selected.templateId}
+				<Button
+					variant="subtle"
+					btnClasses={'text-left'}
+					onClick={() => {
+						selected.triggerId = k.id
+						selected.templateId = undefined
+					}}
+					selected={isSelected}
+				>
+					{#if k.icon}
+						{@const Icon = k.icon}
+						<Icon
+							size={14}
+							class={twMerge(
+								'shrink-0 my-auto mr-1.5',
+								isSelected ? 'text-accent' : 'text-secondary'
+							)}
+						/>
+					{/if}
+					<span class="flex flex-col items-start flex-1 min-w-0">
+						<span class="text-xs font-normal leading-tight">{k.label}</span>
+						{#if k.description}
+							<span
+								class={twMerge(
+									'text-2xs font-normal leading-snug mt-0.5',
+									isSelected ? 'text-accent/80' : 'text-hint'
+								)}
+							>
+								{k.description}
+							</span>
+						{/if}
+					</span>
+				</Button>
+			{/each}
 		</div>
 	{/if}
 
