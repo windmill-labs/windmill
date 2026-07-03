@@ -443,7 +443,13 @@ impl<'a> MaterializeCodegen<'a> {
         // Persist-and-mutate (partitioned, or merge/append): bootstrap the table
         // if absent, then write into it. The schema is fixed at first create —
         // a later SELECT-schema change needs a manual rebuild (schema evolution
-        // is a follow-up).
+        // is a follow-up). With a test guard the bootstrap goes INSIDE the
+        // transaction: otherwise the first run of a new asset whose tests fail
+        // would roll back the rows but leave an empty bootstrapped table (and
+        // its snapshot) visible to readers.
+        if self.test_guard.is_some() {
+            out.push("BEGIN TRANSACTION;".to_string());
+        }
         if self.partitioned {
             out.push(format!(
                 "CREATE TABLE IF NOT EXISTS {t} AS \
@@ -455,8 +461,9 @@ impl<'a> MaterializeCodegen<'a> {
                 "CREATE TABLE IF NOT EXISTS {t} AS SELECT * FROM ({sel}) WHERE false;"
             ));
         }
-
-        out.push("BEGIN TRANSACTION;".to_string());
+        if self.test_guard.is_none() {
+            out.push("BEGIN TRANSACTION;".to_string());
+        }
         // The rows to write, with the partition column appended when partitioned.
         let source = if self.partitioned {
             format!("SELECT *, {pval} AS {pcol} FROM ({sel})")
@@ -582,21 +589,30 @@ impl<'a> MaterializeCodegen<'a> {
             )
         };
 
-        let mut out = vec![
-            format!(
-                "CREATE TABLE IF NOT EXISTS {t} AS SELECT *, \
-                 CAST(NULL AS TIMESTAMP) AS {vf}, \
-                 CAST(NULL AS TIMESTAMP) AS {vt}, \
-                 CAST(NULL AS BOOLEAN) AS {ic} FROM ({sel}) WHERE false;"
-            ),
-            format!(
-                "CREATE OR REPLACE TEMP TABLE {changed} AS \
-                 SELECT {k} FROM ({src_proj} EXCEPT {tgt_proj});"
-            ),
-        ];
+        let mut out = Vec::new();
+        // With a test guard the transaction opens BEFORE the bootstrap:
+        // otherwise the first run of a new dimension whose tests fail would roll
+        // back the close/open but leave an empty bootstrapped history table (and
+        // its snapshot) visible. The temp-table captures work inside the write
+        // transaction (verified: DuckDB allows a `temp` write alongside the
+        // lake write); what matters is they run before the close flips
+        // `is_current`, which this ordering preserves.
+        if self.test_guard.is_some() {
+            out.push("BEGIN TRANSACTION;".to_string());
+        }
+        out.push(format!(
+            "CREATE TABLE IF NOT EXISTS {t} AS SELECT *, \
+             CAST(NULL AS TIMESTAMP) AS {vf}, \
+             CAST(NULL AS TIMESTAMP) AS {vt}, \
+             CAST(NULL AS BOOLEAN) AS {ic} FROM ({sel}) WHERE false;"
+        ));
+        out.push(format!(
+            "CREATE OR REPLACE TEMP TABLE {changed} AS \
+             SELECT {k} FROM ({src_proj} EXCEPT {tgt_proj});"
+        ));
         // Hard-delete-close (`deletes=close`): the keys that vanished from the
         // snapshot — present-and-current in the table, absent from the SELECT.
-        // Captured before the transaction (like `changed`) and disjoint from it (a
+        // Captured before the close (like `changed`) and disjoint from it (a
         // key is either in the snapshot or not), so the two closes never overlap.
         if close_deleted {
             out.push(format!(
@@ -604,7 +620,9 @@ impl<'a> MaterializeCodegen<'a> {
                  SELECT {k} FROM (SELECT {k} FROM {t} WHERE {ic} EXCEPT SELECT {k} FROM ({sel}));"
             ));
         }
-        out.push("BEGIN TRANSACTION;".to_string());
+        if self.test_guard.is_none() {
+            out.push("BEGIN TRANSACTION;".to_string());
+        }
         out.push(format!(
             "UPDATE {t} SET {vt} = {ts}, {ic} = false \
              WHERE {ic} AND EXISTS (SELECT 1 FROM {changed} \
@@ -666,11 +684,11 @@ impl<'a> MaterializeCodegen<'a> {
 /// the post-commit path, built in SQL (`chr(10)` newlines) since the worker
 /// only sees the run's error string.
 ///
-/// A pure read on purpose: capturing the counts into a temp table for the
-/// summary to reuse would write a second database (`temp`) in a transaction
-/// that already wrote the target, which DuckDB forbids. On the passing path the
-/// post-commit summary therefore recomputes the same checks (they pass by
-/// construction; the double count is the price of the rollback guarantee).
+/// A pure read on purpose: the counts could be captured into a temp table for
+/// the post-commit summary to reuse, but that would couple the summary's shape
+/// to whether a guard ran. Instead the summary recomputes the same checks on
+/// the passing path (they pass by construction; probe counts are cheap next to
+/// the write itself).
 pub fn data_test_guard_sql(asset_path: &str, checks: &[DataTestCheck]) -> String {
     let cte_cols = checks
         .iter()
@@ -1611,10 +1629,15 @@ mod tests {
     fn wap_guard_runs_inside_txn_before_commit() {
         let blocks = wap_blocks(MaterializeStrategy::Replace, true, true);
         let begin = idx(&blocks, |b| b == "BEGIN TRANSACTION;");
+        let bootstrap = idx(&blocks, |b| b.starts_with("CREATE TABLE IF NOT EXISTS"));
+        let alter = idx(&blocks, |b| b.contains("SET PARTITIONED BY"));
         let insert = idx(&blocks, |b| b.starts_with("INSERT INTO"));
         let guard = idx(&blocks, |b| b.contains("error("));
         let commit = idx(&blocks, |b| b == "COMMIT;");
-        assert!(begin < insert && insert < guard && guard < commit);
+        // Bootstrap INSIDE the guarded txn: a first run whose tests fail must
+        // roll back to "no table", not leave an empty bootstrapped shell.
+        assert!(begin < bootstrap && bootstrap < alter && alter < insert);
+        assert!(insert < guard && guard < commit);
         // probes keep the partition scoping and the guard reports every test
         let g = &blocks[guard];
         assert!(g.contains("\"_wm_partition\" = '2026-06-19'"));
@@ -1669,12 +1692,28 @@ mod tests {
             true,
         );
         let begin = idx(&blocks, |b| b == "BEGIN TRANSACTION;");
+        let bootstrap = idx(&blocks, |b| b.starts_with("CREATE TABLE IF NOT EXISTS"));
+        let capture = idx(&blocks, |b| b.contains("TEMP TABLE _wm_scd2_changed"));
+        let close = idx(&blocks, |b| b.starts_with("UPDATE"));
         let view = idx(&blocks, |b| b.starts_with("CREATE VIEW IF NOT EXISTS"));
         let guard = idx(&blocks, |b| b.contains("error("));
         let commit = idx(&blocks, |b| b == "COMMIT;");
-        assert!(begin < view && view < guard && guard < commit);
+        // Guarded SCD2 wraps the bootstrap too (first-run rollback leaves no
+        // shell) while the capture still precedes the close that flips
+        // `is_current`.
+        assert!(begin < bootstrap && bootstrap < capture && capture < close);
+        assert!(close < view && view < guard && guard < commit);
         // probes assert the new current snapshot, not the closed history
         assert!(blocks[guard].contains("is_current"));
+        // unguarded SCD2 keeps captures outside the txn (unchanged behavior)
+        let plain = wap_blocks(
+            MaterializeStrategy::Scd2 { key: "a".into(), track: vec![], close_deleted: false },
+            false,
+            false,
+        );
+        let p_begin = idx(&plain, |b| b == "BEGIN TRANSACTION;");
+        let p_capture = idx(&plain, |b| b.contains("TEMP TABLE _wm_scd2_changed"));
+        assert!(p_capture < p_begin);
     }
 
     #[test]

@@ -354,10 +354,12 @@ load-bearing.
   `pipeline_advanced::transactional_data_tests()`) that raises on any
   violation, aborting the run before `COMMIT` — a failing slice is never
   published, readers keep the previous version, and no snapshot is created.
-  The guard is a pure read (capturing counts into a temp table would write a
-  second database inside the target's transaction, which DuckDB forbids), so
-  on the passing path the post-commit summary recomputes the counts for the
-  recorded per-test breakdown.
+  When guarded, the bootstrap DDL (`CREATE TABLE IF NOT EXISTS`,
+  `SET PARTITIONED BY`, the SCD2 history bootstrap) also moves inside the
+  transaction, so even the *first* run of a new asset rolls back to "no table"
+  rather than leaving an empty shell. The guard is a pure read; on the passing
+  path the post-commit summary recomputes the counts for the recorded per-test
+  breakdown (probe counts are cheap next to the write).
 - **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
   script's content (a single DuckDB `SELECT`/CTE returning the violating rows —
   it's embedded as a subquery, so a multi-statement body is rejected with a
