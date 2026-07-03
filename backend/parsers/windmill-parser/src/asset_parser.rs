@@ -77,11 +77,12 @@ pub struct ParseAssetsOutput {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partition: Option<PartitionSpec>,
     // `// freshness <duration>` — SLA stating outputs must be at most
-    // `duration` old. Drives passive monitoring: the asset graph colors the
-    // node's badge fresh/stale against its last successful run. Distinct
-    // from schedule (which is producer cadence); freshness is consumer SLA
-    // and applies regardless of which trigger last fired. An active backstop
-    // (watchdog re-run when stale) is a future enterprise feature.
+    // `duration` old. Drives passive monitoring in CE (the asset graph
+    // colors the node's badge fresh/stale against its last successful run)
+    // and the enterprise watchdog (windmill-queue `freshness_watchdog`),
+    // which re-runs a stale unpartitioned producer. Distinct from schedule
+    // (which is producer cadence); freshness is consumer SLA and applies
+    // regardless of which trigger last fired.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub freshness: Option<FreshnessSpec>,
     // `// trigger all` → AND join barrier; default (`any`) = OR (current
@@ -638,7 +639,7 @@ fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
 //   - `on <trigger-spec>`        → asset / native trigger edge (including
 //                                  the marker-only `on schedule` form)
 //   - `partitioned <kind> [opts]` → partition declaration
-//   - `freshness <duration>`     → SLA window (fresh/stale monitoring)
+//   - `freshness <duration>`     → SLA window (badge + EE watchdog)
 //   - `tag <name>`               → worker-tag override (annotation wins
 //                                  over UI-set value at deploy)
 //   - `retry <count> [<delay>]`  → cascade-only retry policy

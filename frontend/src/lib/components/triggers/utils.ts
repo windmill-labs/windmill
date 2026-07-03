@@ -82,7 +82,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'azure',
 	'google',
 	'github',
-	'asset'
+	'asset',
+	'freshness'
 ]
 
 export type Trigger = {

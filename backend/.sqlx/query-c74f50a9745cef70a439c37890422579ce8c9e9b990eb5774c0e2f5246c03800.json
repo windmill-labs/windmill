@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT EXISTS(\n            SELECT 1 FROM v2_job j\n            JOIN v2_job_completed c ON c.id = j.id\n            WHERE j.workspace_id = $1\n              AND j.runnable_path = $2\n              AND j.parent_job IS NULL\n              AND j.kind IN ('script', 'preview', 'singlestepflow')\n              AND c.status = 'success'\n              AND c.completed_at > now() - ($3::bigint::text || ' seconds')::interval\n        ) AS \"fresh!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fresh!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c74f50a9745cef70a439c37890422579ce8c9e9b990eb5774c0e2f5246c03800"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT EXISTS(\n            SELECT 1 FROM v2_job_queue q\n            JOIN v2_job j ON j.id = q.id\n            WHERE q.workspace_id = $1\n              AND j.runnable_path = $2\n              AND j.parent_job IS NULL\n              AND j.kind IN ('script', 'preview', 'singlestepflow')\n              AND (q.running = true OR q.scheduled_for <= now())\n        ) AS \"in_flight!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "in_flight!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8d668a92438487c331ce6f23b48f9a9ce41c6fff078de9f7887f7a40e09f86ac"
+}
