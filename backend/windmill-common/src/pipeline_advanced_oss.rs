@@ -14,3 +14,12 @@ pub fn freshness_enforcement_todo() -> Error {
 pub fn backfill_todo() -> Error {
     Error::internal_err("Pipeline partition backfill requires the enterprise edition".to_string())
 }
+
+/// Whether `// data_test` probes run inside the materialization write
+/// transaction (write-audit-publish: a violation aborts the transaction, so a
+/// failing slice is never published). Enterprise-only; the public build keeps
+/// the dbt-like commit-then-test behavior — a failed test still fails the run
+/// and stops the cascade, but the written slice stays live.
+pub fn transactional_data_tests() -> bool {
+    false
+}

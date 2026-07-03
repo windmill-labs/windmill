@@ -75,6 +75,12 @@ the annotation→verifier pattern that column-lineage will reuse. The keyword is
 `data_test`, not `test`, to stay clear of the unrelated `// test:` CI-test
 annotation.
 
+Enterprise goes one step *beyond* dbt here: write-audit-publish. dbt commits
+the model then tests it, so a failing test leaves the bad table live for BI
+readers; the enterprise build runs the same probes inside the write
+transaction and rolls back on violation, so a failing slice is never
+published (see `ducklake-materialization.md` §"Scoping decisions").
+
 ### 2. Incremental materializations
 
 See [Incremental deep-dive](#incremental-deep-dive) below.

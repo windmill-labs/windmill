@@ -344,10 +344,20 @@ load-bearing.
   repeats the natural key across closed versions, so an unscoped
   `unique(<key>)` would fail the run on the second change of any key. Custom
   tests see the raw history and scope themselves.
-- **Commit-then-test.** Like dbt, the write commits before tests run; a failed
-  test fails the *run* (and records `Failed`, so downstream cascade stops) but
-  does not roll back the committed snapshot. Time-travel still lets you inspect
-  exactly what failed.
+- **Commit-then-test (public) / write-audit-publish (enterprise).** In the
+  public build, like dbt, the write commits before tests run; a failed test
+  fails the *run* (and records `Failed`, so downstream cascade stops) but does
+  not roll back the committed snapshot — time-travel still lets you inspect
+  exactly what failed. Enterprise upgrades this to write-audit-publish: the
+  same checks also run *inside* the write transaction as a guard statement
+  (`sql_materialize::data_test_guard_sql`, gated by
+  `pipeline_advanced::transactional_data_tests()`) that raises on any
+  violation, aborting the run before `COMMIT` — a failing slice is never
+  published, readers keep the previous version, and no snapshot is created.
+  The guard is a pure read (capturing counts into a temp table would write a
+  second database inside the target's transaction, which DuckDB forbids), so
+  on the passing path the post-commit summary recomputes the counts for the
+  recorded per-test breakdown.
 - **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
   script's content (a single DuckDB `SELECT`/CTE returning the violating rows —
   it's embedded as a subquery, so a multi-statement body is rejected with a

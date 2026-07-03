@@ -390,6 +390,13 @@ pub struct MaterializeCodegen<'a> {
     /// and the partition column / `SET PARTITIONED BY` are omitted.
     pub partitioned: bool,
     pub strategy: MaterializeStrategy,
+    /// Write-audit-publish gate (enterprise): a statement (see
+    /// [`data_test_guard_sql`]) placed inside the write transaction, after the
+    /// mutation and before `COMMIT`, that raises when any data test is
+    /// violated — aborting the run so the transaction rolls back and the bad
+    /// slice is never published. `None` (public build, or no tests) keeps the
+    /// dbt-like commit-then-test behavior.
+    pub test_guard: Option<&'a str>,
 }
 
 impl<'a> MaterializeCodegen<'a> {
@@ -417,11 +424,19 @@ impl<'a> MaterializeCodegen<'a> {
         // schema each run with one atomic `CREATE OR REPLACE` (which DuckLake
         // still snapshots). This is the only path that survives a changed SELECT
         // or a pre-existing table with a different schema — the persist-and-
-        // mutate paths below fix the schema at first create.
+        // mutate paths below fix the schema at first create. With a test guard
+        // the single statement gains an explicit transaction so a violation can
+        // roll the replace back (DuckLake DDL is transactional).
         if !self.partitioned && matches!(self.strategy, MaterializeStrategy::Replace) {
-            out.push(format!(
-                "CREATE OR REPLACE TABLE {t} AS SELECT * FROM ({sel});"
-            ));
+            let replace = format!("CREATE OR REPLACE TABLE {t} AS SELECT * FROM ({sel});");
+            if let Some(guard) = self.test_guard {
+                out.push("BEGIN TRANSACTION;".to_string());
+                out.push(replace);
+                out.push(guard.to_string());
+                out.push("COMMIT;".to_string());
+            } else {
+                out.push(replace);
+            }
             return out;
         }
 
@@ -479,6 +494,9 @@ impl<'a> MaterializeCodegen<'a> {
             }
             // Handled by the early return above (scd2 has no partitioned form).
             MaterializeStrategy::Scd2 { .. } => unreachable!("scd2 handled before this match"),
+        }
+        if let Some(guard) = self.test_guard {
+            out.push(guard.to_string());
         }
         out.push("COMMIT;".to_string());
         out
@@ -628,9 +646,64 @@ impl<'a> MaterializeCodegen<'a> {
             // no error) — documented as a reserved suffix.
             format!("CREATE VIEW IF NOT EXISTS {t}_current AS SELECT * FROM {t} WHERE {ic};"),
         );
+        // Write-audit-publish: the guard's probes carry the SCD2 `is_current`
+        // scoping (built with `DataTestCtx.scd2`), so in-transaction they assert
+        // the *new* current snapshot — the uncommitted close/open is visible to
+        // reads in the same transaction.
+        if let Some(guard) = self.test_guard {
+            out.push(guard.to_string());
+        }
         out.push("COMMIT;".to_string());
         out
     }
+}
+
+/// The write-audit-publish gate (enterprise): one SELECT, run inside the write
+/// transaction after the mutation and before `COMMIT`, that raises via
+/// `error(...)` when any data-test check counts a violation — aborting the run
+/// so the transaction rolls back and a failing slice is never published. The
+/// raised message carries the same per-test ✓/✗ breakdown the worker formats on
+/// the post-commit path, built in SQL (`chr(10)` newlines) since the worker
+/// only sees the run's error string.
+///
+/// A pure read on purpose: capturing the counts into a temp table for the
+/// summary to reuse would write a second database (`temp`) in a transaction
+/// that already wrote the target, which DuckDB forbids. On the passing path the
+/// post-commit summary therefore recomputes the same checks (they pass by
+/// construction; the double count is the price of the rollback guarantee).
+pub fn data_test_guard_sql(asset_path: &str, checks: &[DataTestCheck]) -> String {
+    let cte_cols = checks
+        .iter()
+        .enumerate()
+        .map(|(i, c)| format!("{} AS c{i}", c.violating))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let total = (0..checks.len())
+        .map(|i| format!("c{i}"))
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let n_failed = (0..checks.len())
+        .map(|i| format!("CASE WHEN c{i} > 0 THEN 1 ELSE 0 END"))
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let mut msg = format!(
+        "'data tests failed on {} (' || ({n_failed}) || '/{} failed) — write rolled back, previous version left live:'",
+        asset_path.replace('\'', "''"),
+        checks.len()
+    );
+    for (i, c) in checks.iter().enumerate() {
+        let name = c.name.replace('\'', "''");
+        msg.push_str(&format!(
+            " || chr(10) || CASE WHEN c{i} > 0 THEN '  ✗ {name} — ' || c{i} || ' violating row(s)' ELSE '  ✓ {name}' END"
+        ));
+    }
+    // `ELSE 'passed'` keeps both CASE branches VARCHAR (`error()` is declared
+    // VARCHAR); the message expression is row-dependent, so the planner cannot
+    // constant-fold the `error()` call into an unconditional raise.
+    format!(
+        "WITH _wm_tr AS (SELECT {cte_cols}) SELECT CASE WHEN {total} > 0 THEN \
+         error({msg}) ELSE 'passed' END AS _wm_data_test_gate FROM _wm_tr;"
+    )
 }
 
 /// The read that captures the DuckLake snapshot id produced by the write, for
@@ -659,6 +732,11 @@ pub const TARGET_ALIAS: &str = "_wm_target";
 /// the full `<name>/<table>` for the result summary. The trailing statement is
 /// a one-row summary read (asset / rows / snapshot_id) that is both the job's
 /// result (a useful preview) and what the worker records.
+///
+/// `transactional_tests` (enterprise write-audit-publish) additionally places a
+/// [`data_test_guard_sql`] gate inside the write transaction, so a data-test
+/// violation rolls the write back instead of leaving the failing slice
+/// published; `false` keeps commit-then-test.
 pub fn build_wrap_blocks(
     plan: &WrapPlan,
     target_attach: &str,
@@ -669,17 +747,10 @@ pub fn build_wrap_blocks(
     partitioned: bool,
     strategy: MaterializeStrategy,
     tests: &[DataTestResolved],
+    transactional_tests: bool,
 ) -> Result<Vec<String>, String> {
     let target_qualified = format!("{TARGET_ALIAS}.{target_table}");
     let scd2 = matches!(strategy, MaterializeStrategy::Scd2 { .. });
-    let cg = MaterializeCodegen {
-        target_qualified: &target_qualified,
-        select_sql: &plan.output,
-        partition_col,
-        partition_value_sql,
-        partitioned,
-        strategy,
-    };
     let ctx = DataTestCtx {
         target_qualified: &target_qualified,
         asset_path,
@@ -689,6 +760,20 @@ pub fn build_wrap_blocks(
         scd2,
     };
     let test_sql = build_data_test_checks(tests, &ctx)?;
+    let guard = if transactional_tests && !test_sql.checks.is_empty() {
+        Some(data_test_guard_sql(asset_path, &test_sql.checks))
+    } else {
+        None
+    };
+    let cg = MaterializeCodegen {
+        target_qualified: &target_qualified,
+        select_sql: &plan.output,
+        partition_col,
+        partition_value_sql,
+        partitioned,
+        strategy,
+        test_guard: guard.as_deref(),
+    };
     let mut blocks: Vec<String> = Vec::new();
     // Setup blocks come from the splitter with their `;` stripped — re-terminate
     // each so that when the executor re-joins and re-splits the assembled query,
@@ -1235,6 +1320,7 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Replace,
+            test_guard: None,
         };
         let st = cg.statements();
         assert!(st[0].contains("CREATE TABLE IF NOT EXISTS _wm_target.orders_daily"));
@@ -1260,6 +1346,7 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Merge { unique_key: "order_id".to_string() },
+            test_guard: None,
         };
         let st = cg.statements();
         // upsert = delete-by-key (partition-scoped) + insert — NO `MERGE INTO`
@@ -1286,6 +1373,7 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Append,
+            test_guard: None,
         };
         let st = cg.statements();
         assert!(st
@@ -1307,6 +1395,7 @@ mod tests {
             partition_value_sql: "''",
             partitioned: false,
             strategy: MaterializeStrategy::Replace,
+            test_guard: None,
         };
         let st = cg.statements();
         assert_eq!(
@@ -1332,6 +1421,7 @@ mod tests {
                 track: vec![],
                 close_deleted: false,
             },
+            test_guard: None,
         };
         let st = cg.statements();
         // bootstrap adds the three SCD metadata columns
@@ -1388,6 +1478,7 @@ mod tests {
                 track: vec!["name".to_string()],
                 close_deleted: false,
             },
+            test_guard: None,
         };
         let st = cg.statements();
         // only key + tracked cols are compared (addr changes don't rotate a version)
@@ -1407,6 +1498,7 @@ mod tests {
                 track: vec![],
                 close_deleted: true,
             },
+            test_guard: None,
         };
         let st = cg.statements();
         // the deleted-key set: current keys absent from the snapshot, captured
@@ -1464,6 +1556,7 @@ mod tests {
             true,
             MaterializeStrategy::Replace,
             &[],
+            false,
         )
         .unwrap();
         // setup block first, then the target ATTACH, then codegen, then result.
@@ -1486,6 +1579,123 @@ mod tests {
         assert!(last.contains("'2026-06-19' AS partition"));
         assert!(last.contains("WHERE _wm_partition = '2026-06-19') AS rows"));
         assert!(last.contains("ducklake_snapshots('_wm_target')"));
+    }
+
+    // -- write-audit-publish (transactional data tests) ----------------------
+
+    fn wap_blocks(strategy: MaterializeStrategy, partitioned: bool, wap: bool) -> Vec<String> {
+        let plan = ok("SELECT a, b FROM src");
+        build_wrap_blocks(
+            &plan,
+            "ATTACH 'ducklake:…' AS _wm_target;",
+            "orders",
+            "main/orders",
+            "_wm_partition",
+            "'2026-06-19'",
+            partitioned,
+            strategy,
+            &[
+                DataTestResolved::BuiltIn(DataTest::NotNull { column: "a".into() }),
+                DataTestResolved::BuiltIn(DataTest::Unique { column: "b".into() }),
+            ],
+            wap,
+        )
+        .unwrap()
+    }
+
+    fn idx(blocks: &[String], pred: impl Fn(&str) -> bool) -> usize {
+        blocks.iter().position(|b| pred(b)).expect("block present")
+    }
+
+    #[test]
+    fn wap_guard_runs_inside_txn_before_commit() {
+        let blocks = wap_blocks(MaterializeStrategy::Replace, true, true);
+        let begin = idx(&blocks, |b| b == "BEGIN TRANSACTION;");
+        let insert = idx(&blocks, |b| b.starts_with("INSERT INTO"));
+        let guard = idx(&blocks, |b| b.contains("error("));
+        let commit = idx(&blocks, |b| b == "COMMIT;");
+        assert!(begin < insert && insert < guard && guard < commit);
+        // probes keep the partition scoping and the guard reports every test
+        let g = &blocks[guard];
+        assert!(g.contains("\"_wm_partition\" = '2026-06-19'"));
+        assert!(g.contains("not_null(a)") && g.contains("unique(b)"));
+        assert!(g.contains("chr(10)"));
+        // the post-commit summary (with its own data_tests breakdown) is intact
+        assert!(blocks.last().unwrap().contains("AS data_tests"));
+    }
+
+    #[test]
+    fn wap_guard_absent_without_flag_and_without_tests() {
+        // flag off ⇒ commit-then-test exactly as before
+        let blocks = wap_blocks(MaterializeStrategy::Replace, true, false);
+        assert!(!blocks.iter().any(|b| b.contains("error(")));
+        // flag on but no tests ⇒ nothing to gate, no guard
+        let plan = ok("SELECT a FROM src");
+        let blocks = build_wrap_blocks(
+            &plan,
+            "ATTACH 'ducklake:…' AS _wm_target;",
+            "orders",
+            "main/orders",
+            "_wm_partition",
+            "''",
+            false,
+            MaterializeStrategy::Append,
+            &[],
+            true,
+        )
+        .unwrap();
+        assert!(!blocks.iter().any(|b| b.contains("error(")));
+    }
+
+    #[test]
+    fn wap_guard_wraps_whole_table_replace_in_explicit_txn() {
+        // Unpartitioned replace is a single CREATE OR REPLACE without a guard;
+        // with one it needs an explicit transaction for the rollback to exist.
+        let blocks = wap_blocks(MaterializeStrategy::Replace, false, true);
+        let begin = idx(&blocks, |b| b == "BEGIN TRANSACTION;");
+        let replace = idx(&blocks, |b| b.starts_with("CREATE OR REPLACE TABLE"));
+        let guard = idx(&blocks, |b| b.contains("error("));
+        let commit = idx(&blocks, |b| b == "COMMIT;");
+        assert!(begin < replace && replace < guard && guard < commit);
+        let no_wap = wap_blocks(MaterializeStrategy::Replace, false, false);
+        assert!(!no_wap.iter().any(|b| b == "BEGIN TRANSACTION;"));
+    }
+
+    #[test]
+    fn wap_guard_scd2_is_current_scoped_inside_txn() {
+        let blocks = wap_blocks(
+            MaterializeStrategy::Scd2 { key: "a".into(), track: vec![], close_deleted: false },
+            false,
+            true,
+        );
+        let begin = idx(&blocks, |b| b == "BEGIN TRANSACTION;");
+        let view = idx(&blocks, |b| b.starts_with("CREATE VIEW IF NOT EXISTS"));
+        let guard = idx(&blocks, |b| b.contains("error("));
+        let commit = idx(&blocks, |b| b == "COMMIT;");
+        assert!(begin < view && view < guard && guard < commit);
+        // probes assert the new current snapshot, not the closed history
+        assert!(blocks[guard].contains("is_current"));
+    }
+
+    #[test]
+    fn data_test_guard_sql_shape_and_escaping() {
+        let checks = vec![
+            DataTestCheck {
+                name: "not_null(o'brien)".into(),
+                violating: "(SELECT count(*) AS v FROM t WHERE x IS NULL)".into(),
+            },
+            DataTestCheck { name: "unique(b)".into(), violating: "(SELECT 0)".into() },
+        ];
+        let g = data_test_guard_sql("lake/o'tbl", &checks);
+        // single-quote-escaped asset path and test names inside the message
+        assert!(g.contains("lake/o''tbl"));
+        assert!(g.contains("not_null(o''brien)"));
+        // raises only when a count is nonzero; both CASE branches are VARCHAR
+        assert!(g.contains("CASE WHEN c0 + c1 > 0 THEN error("));
+        assert!(g.contains("ELSE 'passed' END"));
+        // one ✓/✗ line per test, newline-joined in SQL
+        assert_eq!(g.matches("chr(10)").count(), 2);
+        assert!(g.ends_with(";"));
     }
 
     // -- data tests ---------------------------------------------------------

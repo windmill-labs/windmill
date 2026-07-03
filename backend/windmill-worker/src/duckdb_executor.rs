@@ -98,6 +98,10 @@ fn build_materialized_query(
     // (`fetch_custom_test_bodies`) so this stays pure/sync and unit-testable —
     // the DB read is the only thing that needs a connection. Keyed by script path.
     custom_test_bodies: &std::collections::HashMap<String, String>,
+    // Write-audit-publish (enterprise, `pipeline_advanced::transactional_data_tests`):
+    // run the data-test probes inside the write transaction and roll back on
+    // violation, so a failing slice is never published. False = commit-then-test.
+    transactional_tests: bool,
 ) -> Result<Option<(Option<String>, MaterializeExec)>> {
     use windmill_parser::asset_parser::{
         parse_pipeline_annotations, AssetKind as PAssetKind, DataTest,
@@ -252,6 +256,7 @@ fn build_materialized_query(
         partitioned,
         strategy,
         &resolved,
+        transactional_tests,
     )
     .map_err(Error::ExecutionErr)?;
 
@@ -1024,7 +1029,12 @@ pub async fn do_duckdb(
             // itself stays pure/sync.
             let custom_test_bodies =
                 fetch_custom_test_bodies(query, conn, &job.workspace_id).await?;
-            build_materialized_query(query, partition_value.as_deref(), &custom_test_bodies)?
+            build_materialized_query(
+                query,
+                partition_value.as_deref(),
+                &custom_test_bodies,
+                windmill_common::pipeline_advanced::transactional_data_tests(),
+            )?
         } else {
             None
         };
@@ -1240,6 +1250,11 @@ pub async fn do_duckdb(
             // committed (like dbt), so the slice is recorded `Failed` and the
             // cascade stops. The error lists *every* test so the user sees the
             // whole picture, not just the first failure.
+            // Under enterprise write-audit-publish an in-transaction guard
+            // (`data_test_guard_sql`) already aborted a failing run before
+            // COMMIT — that surfaces on the Err path above with the same
+            // breakdown in the error string, and nothing was published; this
+            // post-commit path then only ever sees passing counts.
             let tests = extract_data_tests(&result);
             // Captured output schema (gap #2a) — recorded only on the successful
             // path below, not on the failure paths (a failed run shouldn't
@@ -2370,7 +2385,7 @@ mod tests {
         // The wrapped query still references `$file`, so the parsed sig binds it.
         // No custom data tests here, so no fetched bodies are needed.
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, &std::collections::HashMap::new(), false)
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -2406,6 +2421,7 @@ mod tests {
             script,
             Some("2026-07-02"),
             &std::collections::HashMap::new(),
+            false,
         )
         .expect("materialize builds")
         .expect("materialize present");
@@ -2426,7 +2442,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history track=name\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, &std::collections::HashMap::new(), false)
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
@@ -2457,7 +2473,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history deletes=close\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, &std::collections::HashMap::new(), false)
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
@@ -2470,7 +2486,12 @@ mod tests {
     #[test]
     fn materialize_scd2_requires_key() {
         let script = "-- materialize scd2 ducklake://main/dim\nSELECT id, name FROM dl.src";
-        let err = match build_materialized_query(script, None, &std::collections::HashMap::new()) {
+        let err = match build_materialized_query(
+            script,
+            None,
+            &std::collections::HashMap::new(),
+            false,
+        ) {
             Err(e) => e,
             Ok(_) => panic!("scd2 without key must error"),
         };
@@ -2488,6 +2509,7 @@ mod tests {
             script,
             Some("2026-07-01"),
             &std::collections::HashMap::new(),
+            false,
         ) {
             Err(e) => e,
             Ok(_) => panic!("partitioned + scd2 must error"),
@@ -2496,6 +2518,30 @@ mod tests {
             format!("{err}").contains("not supported with scd2"),
             "got: {err}"
         );
+    }
+
+    // Write-audit-publish threading: with the enterprise flag the rewritten SQL
+    // gains the in-transaction guard (raises → rollback on a failing test);
+    // without it the tests only appear in the post-commit summary.
+    #[test]
+    fn materialize_wap_flag_places_guard_in_rewrite() {
+        let script = "-- materialize ducklake://main/orders\n\
+                      -- data_test not_null id\n\
+                      SELECT id FROM dl.src";
+        let build = |wap: bool| {
+            let (rewritten, _) =
+                build_materialized_query(script, None, &std::collections::HashMap::new(), wap)
+                    .expect("materialize builds")
+                    .expect("materialize present");
+            rewritten.expect("managed mode rewrites the query")
+        };
+        let wap = build(true);
+        assert!(wap.contains("error("), "guard present:\n{wap}");
+        assert!(wap.contains("not_null(id)"), "guard names the test:\n{wap}");
+        let plain = build(false);
+        assert!(!plain.contains("error("), "no guard without the flag");
+        // both keep the summary breakdown the worker reads back
+        assert!(wap.contains("AS data_tests") && plain.contains("AS data_tests"));
     }
 
     // Tests for parse_attach_db_resource function
