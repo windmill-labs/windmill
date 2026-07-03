@@ -806,7 +806,7 @@
 										<SettingsMenu isCollapsed={false} hideWorkspaceSettings={sessionMode} />
 									</div>
 
-									<div class="px-4 pb-3.5 w-52">
+									<div class="px-4 pt-3 pb-3.5 w-52">
 										{@render brandMark(false)}
 									</div>
 								</div>
@@ -916,7 +916,7 @@
 							</div>
 
 							<div
-								class="flex-shrink-0 flex pb-3.5 {isCollapsed
+								class="flex-shrink-0 flex pt-3 pb-3.5 {isCollapsed
 									? 'flex-col items-center gap-3'
 									: 'items-center justify-between px-4'}"
 							>
