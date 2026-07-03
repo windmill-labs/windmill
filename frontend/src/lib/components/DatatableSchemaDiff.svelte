@@ -355,16 +355,17 @@
 			// If the target data table opted in to migrations, record this merge as a
 			// tracked migration (named after the fork) and run it, instead of applying
 			// raw SQL that would bypass the target's migration history.
-			let targetUsesMigrations = false
-			try {
-				const status = await WorkspaceService.getDatatableMigrationsStatus({
+			// Don't swallow a status-check failure by defaulting to raw apply: that
+			// would apply the DDL untracked (schema drift) — exactly what this feature
+			// prevents. Let the error propagate (fail closed, handled by the outer
+			// catch); only fall back to raw apply when the API explicitly returns
+			// enabled === false.
+			const targetUsesMigrations = (
+				await WorkspaceService.getDatatableMigrationsStatus({
 					workspace: targetWorkspace,
 					datatableName: dtName
 				})
-				targetUsesMigrations = status.enabled
-			} catch {
-				// Fall back to a raw apply if the status can't be read.
-			}
+			).enabled
 
 			if (targetUsesMigrations) {
 				const forkName =
