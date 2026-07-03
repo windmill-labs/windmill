@@ -3,7 +3,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, CopyButton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -360,198 +360,202 @@
 	     and a wrong split. -->
 	<div class="flex-1 min-h-0 flex flex-col" use:splitterPointerCapture>
 		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
-		<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
-			<header
-				class="flex flex-row items-center gap-1 {headerInset ? 'pl-11' : 'pl-4'} pr-4 py-2 shrink-0"
-			>
-				<EditableInput
-					bind:this={summaryInput}
-					value={session.summary ?? ''}
-					placeholder="Untitled session"
-					onSave={(v) => renameSession(session.id, v)}
-					class="text-sm font-semibold"
-					inputClass="!text-sm !font-semibold"
-				/>
-				<DropdownV2
-					fixedHeight={false}
-					placement="bottom-start"
-					items={[
-						{
-							displayName: 'Rename',
-							icon: Pencil,
-							action: () => summaryInput?.edit()
-						},
-						...(session.archived
-							? // No Unarchive when the workspace is gone — it can't persist
-								// (putSession guard) and reconcile would re-archive it.
-								isUnavailable
-								? []
+			<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
+				<header
+					class="flex flex-row items-center gap-1 {headerInset
+						? 'pl-11'
+						: 'pl-4'} pr-4 py-2 shrink-0"
+				>
+					<EditableInput
+						bind:this={summaryInput}
+						value={session.summary ?? ''}
+						placeholder="Untitled session"
+						onSave={(v) => renameSession(session.id, v)}
+						class="text-sm font-semibold"
+						inputClass="!text-sm !font-semibold"
+					/>
+					<DropdownV2
+						fixedHeight={false}
+						placement="bottom-start"
+						items={[
+							{
+								displayName: 'Rename',
+								icon: Pencil,
+								action: () => summaryInput?.edit()
+							},
+							...(session.archived
+								? // No Unarchive when the workspace is gone — it can't persist
+									// (putSession guard) and reconcile would re-archive it.
+									isUnavailable
+									? []
+									: [
+											{
+												displayName: 'Unarchive',
+												icon: ArchiveRestore,
+												action: () => setSessionArchived(session.id, false)
+											}
+										]
 								: [
 										{
-											displayName: 'Unarchive',
-											icon: ArchiveRestore,
-											action: () => setSessionArchived(session.id, false)
+											displayName: 'Archive',
+											icon: Archive,
+											action: () => archiveAndReset()
 										}
-									]
-							: [
-									{
-										displayName: 'Archive',
-										icon: Archive,
-										action: () => archiveAndReset()
-									}
-								]),
-						{
-							displayName: 'Delete',
-							icon: Trash2,
-							type: 'delete',
-							action: () => (deleteConfirmOpen = true)
-						}
-					]}
-				>
-					{#snippet buttonReplacement()}
-						<span
-							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-							title="More"
-						>
-							<EllipsisVertical size={14} />
-						</span>
-					{/snippet}
-				</DropdownV2>
-				{#if acting && hasFirstUserMessage}
-					<!-- "Acting on" context: workspace root (avatar + name) and, when the
+									]),
+							{
+								displayName: 'Delete',
+								icon: Trash2,
+								type: 'delete',
+								action: () => (deleteConfirmOpen = true)
+							}
+						]}
+					>
+						{#snippet buttonReplacement()}
+							<span
+								class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+								title="More"
+							>
+								<EllipsisVertical size={14} />
+							</span>
+						{/snippet}
+					</DropdownV2>
+					{#if acting && hasFirstUserMessage}
+						<!-- "Acting on" context: workspace root (avatar + name) and, when the
 					     session runs in a fork, the fork name (accent pill) — with a button
 					     to jump into that workspace. Compact; sits right after the title.
 					     Hidden until the session has started — a new (un-sent) session shows
 					     the "Run in" picker (SessionWorkspaceBar) instead. -->
-					<div class="flex items-center gap-1 min-w-0 text-2xs text-tertiary">
-						<span class="shrink-0">Acting on</span>
-						<WorkspaceScopeTrigger
-							workspaceId={acting.targetId}
-							showChevron={false}
-							class="max-w-[16rem]"
-						/>
-						<button
-							type="button"
-							onclick={navigateToActingWorkspace}
-							title="Go to this workspace"
-							aria-label="Go to this workspace"
-							class="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-						>
-							<ArrowUpRight size={13} />
-						</button>
-					</div>
-				{/if}
-				{#if !hideEditor && !session.target && hasFirstUserMessage}
-					<!-- Drill-picker for sessions that have started but haven't
+						<div class="flex items-center gap-1 min-w-0 text-2xs text-tertiary">
+							<span class="shrink-0">Acting on</span>
+							<WorkspaceScopeTrigger
+								workspaceId={acting.targetId}
+								showChevron={false}
+								interactive={false}
+								class="max-w-[16rem]"
+							/>
+							<CopyButton value={acting.targetId} title={`Copy id: ${acting.targetId}`} />
+							<button
+								type="button"
+								onclick={navigateToActingWorkspace}
+								title="Go to this workspace"
+								aria-label="Go to this workspace"
+								class="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+							>
+								<ArrowUpRight size={13} />
+							</button>
+						</div>
+					{/if}
+					{#if !hideEditor && !session.target && hasFirstUserMessage}
+						<!-- Drill-picker for sessions that have started but haven't
 				     picked an editor target yet. Hidden on fresh sessions
 				     (no messages yet) — the workspace bar is the only
 				     header affordance during the empty state. -->
-					<div class="ml-auto">
-						<Popover
-							placement="bottom-end"
-							usePointerDownOutside
-							disableFocusTrap
-							class="inline-flex"
-						>
-							{#snippet trigger()}
-								<Button variant="default" unifiedSize="xs" startIcon={{ icon: PanelRightOpen }}>
-									Open editor
-								</Button>
-							{/snippet}
-							{#snippet content()}
-								<WorkspaceItemDrillPicker
-									onPick={(item: WorkspaceItem) => pickEditorTarget(item)}
-								/>
-							{/snippet}
-						</Popover>
-					</div>
-				{:else if !hideEditor && hasTarget && mountEditor && !editorVisible}
-					<div class="ml-auto">
-						<Button
-							variant="subtle"
-							unifiedSize="xs"
-							startIcon={{ icon: PanelRightOpen }}
-							onclick={() => (editorVisible = true)}
-						>
-							Show editor
-						</Button>
-					</div>
-				{:else if hasEditor}
-					<div class="ml-auto flex flex-row items-center gap-1">
-						<button
-							type="button"
-							onclick={() => (editorVisible = false)}
-							title="Close editor"
-							aria-label="Close editor"
-							class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-						>
-							<PanelRightClose size={14} />
-						</button>
-					</div>
-				{/if}
-			</header>
-			<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
-				<AIChat
-					bind:this={aiChat}
-					hideHeader
-					hideModeSelector
-					wideLayout
-					initialInstructions={restoredDraftPrompt}
-					onDraftChange={(text) => queueTransientDraftPrompt(sessionId, text)}
-					forceDisabled={isUnavailable || !!session.archived}
-					forceDisabledMessage={isUnavailable
-						? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
-						: session.archived
-							? 'This session is archived. Unarchive it from the banner above to keep working.'
-							: ''}
-					emptyHint={sessionEmptyHint}
-					{inputPreface}
-				/>
-			</div>
-		</Pane>
-		{#if hasEditor && session.target}
-			<Pane minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
-				<div
-					transition:slide={{ axis: 'x', duration: 200 }}
-					class="flex flex-col flex-1 min-h-0 rounded-md border border-light overflow-hidden relative"
-				>
-					{#if session.target.kind === 'flow'}
-						<FlowEditorView
-							{runtime}
-							path={session.target.path}
-							workspaceId={effectiveWorkspaceId}
-							onNavigate={pickEditorTarget}
-							isActiveSession={sessionState.currentSessionId === sessionId}
-						/>
-					{:else if session.target.kind === 'script'}
-						<ScriptEditorView
-							{runtime}
-							path={session.target.path}
-							workspaceId={effectiveWorkspaceId}
-							onNavigate={pickEditorTarget}
-							initialTestPanelCollapsed
-							isActiveSession={sessionState.currentSessionId === sessionId}
-						/>
-					{:else if session.target.kind === 'raw_app'}
-						<RawAppEditorView
-							{runtime}
-							path={session.target.path}
-							workspaceId={effectiveWorkspaceId}
-							onNavigate={pickEditorTarget}
-							isActiveSession={sessionState.currentSessionId === sessionId}
-						/>
-					{:else if session.target.kind === 'pipeline'}
-						<PipelineEditorView
-							{runtime}
-							path={session.target.path}
-							workspaceId={effectiveWorkspaceId}
-							isActiveSession={sessionState.currentSessionId === sessionId}
-						/>
+						<div class="ml-auto">
+							<Popover
+								placement="bottom-end"
+								usePointerDownOutside
+								disableFocusTrap
+								class="inline-flex"
+							>
+								{#snippet trigger()}
+									<Button variant="default" unifiedSize="xs" startIcon={{ icon: PanelRightOpen }}>
+										Open editor
+									</Button>
+								{/snippet}
+								{#snippet content()}
+									<WorkspaceItemDrillPicker
+										onPick={(item: WorkspaceItem) => pickEditorTarget(item)}
+									/>
+								{/snippet}
+							</Popover>
+						</div>
+					{:else if !hideEditor && hasTarget && mountEditor && !editorVisible}
+						<div class="ml-auto">
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								startIcon={{ icon: PanelRightOpen }}
+								onclick={() => (editorVisible = true)}
+							>
+								Show editor
+							</Button>
+						</div>
+					{:else if hasEditor}
+						<div class="ml-auto flex flex-row items-center gap-1">
+							<button
+								type="button"
+								onclick={() => (editorVisible = false)}
+								title="Close editor"
+								aria-label="Close editor"
+								class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+							>
+								<PanelRightClose size={14} />
+							</button>
+						</div>
 					{/if}
+				</header>
+				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
+					<AIChat
+						bind:this={aiChat}
+						hideHeader
+						hideModeSelector
+						wideLayout
+						initialInstructions={restoredDraftPrompt}
+						onDraftChange={(text) => queueTransientDraftPrompt(sessionId, text)}
+						forceDisabled={isUnavailable || !!session.archived}
+						forceDisabledMessage={isUnavailable
+							? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
+							: session.archived
+								? 'This session is archived. Unarchive it from the banner above to keep working.'
+								: ''}
+						emptyHint={sessionEmptyHint}
+						{inputPreface}
+					/>
 				</div>
 			</Pane>
-		{/if}
-	</Splitpanes>
+			{#if hasEditor && session.target}
+				<Pane minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
+					<div
+						transition:slide={{ axis: 'x', duration: 200 }}
+						class="flex flex-col flex-1 min-h-0 rounded-md border border-light overflow-hidden relative"
+					>
+						{#if session.target.kind === 'flow'}
+							<FlowEditorView
+								{runtime}
+								path={session.target.path}
+								workspaceId={effectiveWorkspaceId}
+								onNavigate={pickEditorTarget}
+								isActiveSession={sessionState.currentSessionId === sessionId}
+							/>
+						{:else if session.target.kind === 'script'}
+							<ScriptEditorView
+								{runtime}
+								path={session.target.path}
+								workspaceId={effectiveWorkspaceId}
+								onNavigate={pickEditorTarget}
+								initialTestPanelCollapsed
+								isActiveSession={sessionState.currentSessionId === sessionId}
+							/>
+						{:else if session.target.kind === 'raw_app'}
+							<RawAppEditorView
+								{runtime}
+								path={session.target.path}
+								workspaceId={effectiveWorkspaceId}
+								onNavigate={pickEditorTarget}
+								isActiveSession={sessionState.currentSessionId === sessionId}
+							/>
+						{:else if session.target.kind === 'pipeline'}
+							<PipelineEditorView
+								{runtime}
+								path={session.target.path}
+								workspaceId={effectiveWorkspaceId}
+								isActiveSession={sessionState.currentSessionId === sessionId}
+							/>
+						{/if}
+					</div>
+				</Pane>
+			{/if}
+		</Splitpanes>
 	</div>
 
 	<ConfirmationModal

@@ -28,9 +28,7 @@
 		const root = findWorkspaceRoot(effectiveId, $userWorkspaces)
 		return root ? findWorkspaceDescendants(root.id, $userWorkspaces).length : 0
 	})
-	const rootLabel = $derived(
-		forkCount > 0 ? `in root (${forkCount} fork${forkCount === 1 ? '' : 's'})` : 'in root'
-	)
+	const rootLabel = $derived(`${forkCount} fork${forkCount === 1 ? '' : 's'}`)
 
 	// Settings link at the bottom of the picker — admin/superadmin only, scoped
 	// to the active workspace (fork or root).

@@ -18,6 +18,7 @@
 		rootLabel = undefined,
 		wrap = false,
 		color = undefined,
+		interactive = true,
 		class: className = ''
 	}: {
 		workspaceId?: string
@@ -38,6 +39,9 @@
 		// Overrides the fork accent color (used by the creation form's live
 		// preview). Real forks read their workspace's `color` automatically.
 		color?: string
+		// False for read-only displays (e.g. the session header): keeps the chip
+		// visually inert — no hover/press feedback suggesting a click action.
+		interactive?: boolean
 		class?: string
 	} = $props()
 
@@ -67,6 +71,19 @@
 			? 'bg-[color:var(--fork-accent-bg)] dark:bg-[color:var(--fork-accent-bg-dark)] text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)] font-semibold'
 			: 'bg-surface-accent-selected text-accent font-semibold'
 	)
+	// Inert mode: pin the hover background to the resting one and drop the
+	// pointer/press affordances (the title tooltip still works).
+	const inertClasses = $derived(
+		interactive
+			? ''
+			: `cursor-default active:opacity-100 ${
+					accentStyle
+						? 'hover:bg-[color:var(--fork-accent-bg)] dark:hover:bg-[color:var(--fork-accent-bg-dark)]'
+						: showFork
+							? 'hover:bg-surface-accent-selected'
+							: 'hover:bg-surface-secondary'
+				}`
+	)
 </script>
 
 <Button
@@ -94,7 +111,7 @@
 			// min height keeps the single-line variant from looking squashed next
 			// to the two-row one.
 			'h-auto py-1 min-h-7'
-		: ''}"
+		: ''} {inertClasses}"
 >
 	{#if !isCollapsed}
 		{#if showFork && shownParent}

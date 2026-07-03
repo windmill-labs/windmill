@@ -699,23 +699,6 @@
 					</div>
 				{/if}
 			</Label>
-			{#if isFork}
-				<label class="flex flex-col gap-1">
-					<div class="flex flex-row gap-2 items-baseline">
-						<span class="text-xs font-semibold text-emphasis">Base workspace</span>
-						<span class="text-2xs text-secondary">(optional)</span>
-					</div>
-					<span class="text-xs text-secondary">
-						Workspace to fork from. Defaults to the root; pick an existing fork to create a fork of
-						a fork (the new branch is based on the selected workspace's branch).
-					</span>
-					<Select
-						items={baseItems}
-						bind:value={baseWorkspaceId}
-						placeholder="Select a base workspace"
-					/>
-				</label>
-			{/if}
 			{#if isFork && canDesignateDevWorkspace}
 				<Label label="Persistent dev workspace">
 					<span class="text-xs text-secondary">
@@ -755,6 +738,28 @@
 						<Toggle bind:checked={copyMembers} options={{ right: 'Copy members' }} />
 					</div>
 				</Label>
+			{/if}
+			{#if isFork}
+				<label class="flex flex-col gap-1">
+					<div class="flex flex-row gap-2 items-baseline">
+						<span class="text-xs font-semibold text-emphasis">Base workspace</span>
+						<span class="text-2xs text-secondary">(optional)</span>
+					</div>
+					<span class="text-xs text-secondary">
+						{#if createAsDevWorkspace}
+							A dev workspace is always based on the root workspace.
+						{:else}
+							Workspace to fork from. Defaults to the root; pick an existing fork to create a fork
+							of a fork (the new branch is based on the selected workspace's branch).
+						{/if}
+					</span>
+					<Select
+						items={baseItems}
+						bind:value={baseWorkspaceId}
+						placeholder="Select a base workspace"
+						disabled={createAsDevWorkspace}
+					/>
+				</label>
 			{/if}
 			{#if isFork}
 				<ForkDatatableSection
