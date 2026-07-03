@@ -229,6 +229,16 @@
 				{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
 					{@const isActive = $workspaceStore === workspace.id}
 					{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
+					<!-- Selection is a trailing tick (single-choice picker convention). A
+					     collapsed root carries the tick while one of its forks is active —
+					     the fork row is hidden and its family is the only trace of the
+					     selection; expanding moves the tick to the fork itself. -->
+					{@const isSelected =
+						isActive ||
+						(!strictWorkspaceSelect &&
+							depth === 0 &&
+							currentFamily?.id === workspace.id &&
+							!expandedFamilies.has(workspace.id))}
 					{@const expandable =
 						!strictWorkspaceSelect && depth === 0 && familiesWithForks.has(workspace.id)}
 					<!-- The expand chevron sits OUTSIDE the melt item: melt activates items
@@ -259,7 +269,7 @@
 							onClick={(e) => onWorkspaceItemClick(e, workspace)}
 							{item}
 						>
-							<div class="flex items-center justify-between min-w-0 w-full">
+							<div class="flex items-center justify-between gap-2 min-w-0 w-full">
 								<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
 									<WorkspaceIcon
 										workspaceColor={workspace.color}
@@ -289,7 +299,7 @@
 										</div>
 									</div>
 								</div>
-								{#if isActive}
+								{#if isSelected}
 									<Check size={14} class="shrink-0 ml-2 text-accent" />
 								{/if}
 							</div>
