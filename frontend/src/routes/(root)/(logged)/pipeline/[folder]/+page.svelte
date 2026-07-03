@@ -1040,8 +1040,17 @@
 		const tpl = INGESTION_TEMPLATES.find((t) => t.id === templateId)
 		if (!tpl) return
 		const base = scriptPath.split('/').pop() ?? scriptPath
+		const scripts = tpl.generate({ folder, base })
+		// Companion paths (`<base>_load`) are derived, not shown in the picker —
+		// guard every target so an existing draft's unsaved work is never
+		// silently replaced (same rule as renameDraft's collision check).
+		const clash = scripts.map((s) => scriptPath + s.suffix).find((p) => pe.drafts.has(p))
+		if (clash) {
+			sendUserToast(`A draft already exists at ${clash} — rename or discard it first`, true)
+			return
+		}
 		const next = new Map(pe.drafts)
-		for (const s of tpl.generate({ folder, base })) {
+		for (const s of scripts) {
 			const path = scriptPath + s.suffix
 			next.set(path, {
 				localId: pe.newDraftLocalId(),

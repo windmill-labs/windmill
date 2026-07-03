@@ -285,6 +285,10 @@
 				btnClasses="justify-start"
 				selected={isSelected}
 				onClick={() => {
+					// Leaving template mode: a language pick means the user is
+					// back on the column-by-column flow (symmetric with the
+					// trigger buttons above).
+					selected.templateId = undefined
 					selected.language = l.lang
 					const _compatibleOutputKinds = compatibleOutputKinds(l.lang)
 					if (selected.outputId && !_compatibleOutputKinds.includes(selected.outputId)) {
@@ -309,7 +313,14 @@
 		<div class="text-2xs font-normal text-secondary ml-2 mb-1">Output asset</div>
 		{#each visibleOutputKinds.length ? visibleOutputKinds : PIPELINE_OUTPUT_KINDS as k}
 			{@const isSelected = selected.outputId === k.id}
-			<Button variant="subtle" selected={isSelected} onClick={() => (selected.outputId = k.id)}>
+			<Button
+				variant="subtle"
+				selected={isSelected}
+				onClick={() => {
+					selected.templateId = undefined
+					selected.outputId = k.id
+				}}
+			>
 				<span class="flex flex-col items-start flex-1 min-w-0 text-left">
 					<span class="text-xs font-normal leading-tight">{k.label}</span>
 					{#if k.description}
