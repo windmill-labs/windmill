@@ -30,10 +30,9 @@ function isReplayableArguments(args: string | undefined): boolean {
 
 /**
  * Replaces unparseable or empty assistant tool_call arguments with '{}' in the
- * outgoing copy of the history, so a session that already persisted a
- * truncated tool call (before parseOpenAICompletion guarded against it)
- * recovers instead of failing every request. The paired tool result already
- * tells the model the call failed.
+ * outgoing copy of the history, so a session whose persisted history contains
+ * a truncated tool call recovers instead of failing every request. The paired
+ * tool result already tells the model the call failed.
  */
 export function sanitizeToolCallArguments(
 	messages: ChatCompletionMessageParam[]
