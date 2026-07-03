@@ -8,8 +8,10 @@ import type {
 import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
 import { resolveRequestReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
+import { usesAnthropicMessagesApi } from '../modelConfig'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
+import { sanitizeToolCallArguments } from './toolCallArguments'
 import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 export interface ChatClients {
@@ -257,7 +259,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 		const isOpenAI =
 			modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai'
-		const isAnthropic = modelProvider.provider === 'anthropic'
+		const isAnthropic = usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)
 		// Resolve effort once in chat context (applies the default-on level for
 		// capable models, and the provider-native disable token for an explicit
 		// off on reasoning-by-default providers); passed explicitly to each seam
@@ -266,7 +268,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 		const messageParams = [
 			systemMessage,
-			...messages,
+			...sanitizeToolCallArguments(messages),
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
