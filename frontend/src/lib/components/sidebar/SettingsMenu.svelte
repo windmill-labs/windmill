@@ -4,33 +4,90 @@
 		User,
 		ServerCog,
 		Logs,
+		Eye,
+		AlertCircle,
 		HelpCircle,
 		LogOut,
 		ChevronDown,
 		Building,
 		Moon,
-		Sun
+		Sun,
+		GraduationCap,
+		BookOpen,
+		Github,
+		Newspaper,
+		Crown,
+		Gauge
 	} from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
+	import { WorkspaceService } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import { clearStores } from '$lib/storeUtils'
+	import { isCloudHosted } from '$lib/cloud'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import MenuLink from './MenuLink.svelte'
+	import SideBarNotification from './SideBarNotification.svelte'
+	import { type Changelog, changelogs } from './changelogs'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
-	import { userWorkspaces, workspaceStore, userStore, superadmin, devopsRole } from '$lib/stores'
+	import {
+		userWorkspaces,
+		workspaceStore,
+		userStore,
+		superadmin,
+		devopsRole,
+		enterpriseLicense,
+		isCriticalAlertsUIOpen,
+		usageStore,
+		isPremiumStore
+	} from '$lib/stores'
 
 	let {
 		isCollapsed = false,
 		// Session mode drops the workspace-settings entry (the rail's global
 		// workspace context doesn't apply to a session's own forked workspace),
 		// but keeps the rest of the menu available.
-		hideWorkspaceSettings = false
-	}: { isCollapsed?: boolean; hideWorkspaceSettings?: boolean } = $props()
+		hideWorkspaceSettings = false,
+		numUnacknowledgedCriticalAlerts = 0,
+		// Overridable so the kitchen-sink page can preview the cloud variant
+		// (isCloudHosted reads window.location, which a dev page can't change).
+		cloudHosted = isCloudHosted()
+	}: {
+		isCollapsed?: boolean
+		hideWorkspaceSettings?: boolean
+		numUnacknowledgedCriticalAlerts?: number
+		cloudHosted?: boolean
+	} = $props()
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+
+	let leaveWorkspaceModal = $state(false)
+	async function leaveWorkspace() {
+		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
+		sendUserToast('You left the workspace')
+		clearStores()
+		goto('/user/workspaces')
+	}
+
+	const lastOpened = localStorage.getItem('changelogsLastOpened')
+	const recentChangelogs: Changelog[] = lastOpened
+		? changelogs.filter((changelog) => changelog.date > lastOpened)
+		: changelogs.slice(0, 3)
+	let hasNewChangelogs = $state(
+		lastOpened != null &&
+			recentChangelogs.length > 0 &&
+			lastOpened !== new Date().toISOString().split('T')[0]
+	)
+	function markChangelogsOpened() {
+		localStorage.setItem('changelogsLastOpened', new Date().toISOString().split('T')[0])
+		hasNewChangelogs = false
+	}
 
 	let darkMode = $state(false)
 	function toggleDarkMode() {
@@ -43,12 +100,44 @@
 		}
 	}
 
+	const helpItems: Item[] = [
+		{ displayName: 'Tutorials', icon: GraduationCap, href: `${base}/tutorials` },
+		{
+			displayName: 'Docs',
+			icon: BookOpen,
+			href: 'https://www.windmill.dev/docs/intro/',
+			hrefTarget: '_blank'
+		},
+		{
+			displayName: 'Feedbacks',
+			icon: DiscordIcon,
+			href: 'https://discord.gg/V7PM2YHsPB',
+			hrefTarget: '_blank'
+		},
+		{
+			displayName: 'Issues',
+			icon: Github,
+			href: 'https://github.com/windmill-labs/windmill/issues/new',
+			hrefTarget: '_blank'
+		},
+		{
+			displayName: 'Changelog',
+			icon: Newspaper,
+			href: 'https://www.windmill.dev/changelog/',
+			hrefTarget: '_blank'
+		},
+		...recentChangelogs.map((changelog, i) => ({
+			displayName: changelog.label,
+			href: changelog.href,
+			hrefTarget: '_blank' as const,
+			separatorTop: i === 0
+		}))
+	]
+
 	// Account / instance actions gathered under one "Settings" dropdown, shared by
 	// the session rail and the global sidebar so both expose the same entry point.
-	// The dropdown opens upward, so bottom-to-top the settings read: Instance,
-	// Workspace, User.
+	// User sits just above Logout so the account-scoped entries read as one block.
 	const items = $derived<Item[]>([
-		{ displayName: 'User', icon: User, action: () => goto(USER_SETTINGS_HASH) },
 		...(canManageWorkspace && !hideWorkspaceSettings
 			? [
 					{
@@ -67,21 +156,88 @@
 					}
 				]
 			: []),
+		...(!canManageWorkspace && !hideWorkspaceSettings
+			? [
+					{
+						displayName: 'Leave workspace',
+						icon: LogOut,
+						type: 'delete' as const,
+						action: () => (leaveWorkspaceModal = true)
+					}
+				]
+			: []),
 		{
 			displayName: 'Help',
 			icon: HelpCircle,
-			href: 'https://www.windmill.dev/docs/intro',
-			hrefTarget: '_blank'
+			submenuItems: helpItems,
+			extra: helpPing,
+			separatorTop: true
 		},
 		{
 			displayName: 'Switch theme',
 			icon: darkMode ? Sun : Moon,
-			action: () => toggleDarkMode(),
-			separatorTop: true
+			action: () => toggleDarkMode()
+		},
+		{
+			// The email is the label itself; the crown icon carries the admin role.
+			displayName: $userStore?.non_member
+				? `${$userStore?.email} (superadmin, not a member)`
+				: ($userStore?.email ?? 'User'),
+			icon: $userStore?.is_admin || $userStore?.non_member ? Crown : User,
+			submenuItems: [
+				{
+					displayName: 'Account settings',
+					icon: Settings,
+					action: () => goto(USER_SETTINGS_HASH)
+				},
+				...(cloudHosted && !$isPremiumStore
+					? [
+							{
+								displayName: `${$usageStore}/1000 user execs`,
+								icon: Gauge,
+								disabled: true
+							}
+						]
+					: [])
+			]
 		},
 		{ displayName: 'Logout', icon: LogOut, action: () => logout() }
 	])
+
+	const logsItems = $derived<Item[]>([
+		{ displayName: 'Audit logs', icon: Eye, href: `${base}/audit_logs` },
+		...($devopsRole
+			? [{ displayName: 'Service logs', icon: Logs, href: `${base}/service_logs` }]
+			: []),
+		...($enterpriseLicense
+			? [
+					{
+						displayName: 'Critical alerts',
+						icon: AlertCircle,
+						action: () => isCriticalAlertsUIOpen.set(true),
+						extra: criticalAlertsBadge
+					}
+				]
+			: [])
+	])
 </script>
+
+{#snippet criticalAlertsBadge()}
+	{#if numUnacknowledgedCriticalAlerts > 0}
+		<SideBarNotification notificationCount={numUnacknowledgedCriticalAlerts} />
+	{/if}
+{/snippet}
+
+{#snippet helpPing()}
+	{#if hasNewChangelogs}
+		<span class="relative flex h-2 w-2">
+			<span
+				class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+			></span>
+			<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
+		</span>
+	{/if}
+{/snippet}
 
 <!-- Workers and Logs are full pages (not account/instance actions), so they sit
      as plain links above the Settings dropdown rather than inside it. -->
@@ -96,22 +252,59 @@
 		aiDescription="Button to navigate to workers"
 	/>
 	{#if $devopsRole || $userStore?.is_admin}
+		<DropdownV2
+			items={logsItems}
+			placement="top-start"
+			class="w-full"
+			aiId="sidebar-menu-link-logs"
+			aiDescription="Button to open the logs menu (audit logs, service logs, critical alerts)"
+		>
+			{#snippet buttonReplacement()}
+				<span
+					class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
+						? 'justify-center'
+						: ''}"
+				>
+					<Logs size={16} />
+					{#if !isCollapsed}
+						Logs
+						<span class="ml-auto flex items-center gap-2">
+							{#if numUnacknowledgedCriticalAlerts > 0}
+								<SideBarNotification notificationCount={numUnacknowledgedCriticalAlerts} />
+							{/if}
+							<ChevronDown size={14} class="flex-shrink-0 text-tertiary" />
+						</span>
+					{:else if numUnacknowledgedCriticalAlerts > 0}
+						<span class="absolute top-0.5 right-0.5">
+							<SideBarNotification
+								notificationCount={numUnacknowledgedCriticalAlerts}
+								small={true}
+							/>
+						</span>
+					{/if}
+				</span>
+			{/snippet}
+		</DropdownV2>
+	{:else}
 		<MenuLink
 			class="!text-xs"
-			label="Logs"
+			label="Audit logs"
 			href="{base}/audit_logs"
-			icon={Logs}
+			icon={Eye}
+			disabled={$userStore?.operator}
 			{isCollapsed}
-			aiId="sidebar-menu-link-logs"
+			aiId="sidebar-menu-link-audit-logs"
 			aiDescription="Button to navigate to audit logs"
 		/>
 	{/if}
 </div>
 
-<DropdownV2 {items} placement="top-start" class="w-full">
+<!-- Changelogs count as seen once the menu closes (not on open), so the Help-row
+     dot stays visible while the user is looking at the open menu. -->
+<DropdownV2 {items} placement="top-start" class="w-full" on:close={markChangelogsOpened}>
 	{#snippet buttonReplacement()}
 		<span
-			class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
+			class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
 				? 'justify-center'
 				: ''}"
 		>
@@ -120,8 +313,37 @@
 				Settings
 				<ChevronDown size={14} class="ml-auto flex-shrink-0 text-tertiary" />
 			{/if}
+			{#if hasNewChangelogs}
+				<span
+					class="flex h-2 w-2 absolute {isCollapsed
+						? 'top-0.5 right-0.5'
+						: 'right-7 top-1/2 -translate-y-1/2'}"
+				>
+					<span
+						class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+					></span>
+					<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
+				</span>
+			{/if}
 		</span>
 	{/snippet}
 </DropdownV2>
+
+<ConfirmationModal
+	open={leaveWorkspaceModal}
+	title="Leave workspace"
+	confirmationText="Leave workspace"
+	on:canceled={() => {
+		leaveWorkspaceModal = false
+	}}
+	on:confirmed={() => {
+		leaveWorkspaceModal = false
+		leaveWorkspace()
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to leave this workspace?</span>
+	</div>
+</ConfirmationModal>
 
 <DarkModeObserver bind:darkMode />

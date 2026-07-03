@@ -803,7 +803,13 @@
 									<!-- Settings dropdown stays across both modes; session mode just hides
 									     the workspace-settings entry. -->
 									<div class="px-2 pb-2">
-										<SettingsMenu isCollapsed={false} hideWorkspaceSettings={sessionMode} />
+										<SettingsMenu
+											isCollapsed={false}
+											hideWorkspaceSettings={sessionMode}
+											numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+												? 0
+												: numUnacknowledgedCriticalAlerts}
+										/>
 									</div>
 
 									<div class="px-4 pt-3 pb-3.5 w-52">
@@ -912,7 +918,13 @@
 							<!-- Settings dropdown stays across both modes; session mode just hides
 							     the workspace-settings entry. -->
 							<div class="px-2 pb-1">
-								<SettingsMenu {isCollapsed} hideWorkspaceSettings={sessionMode} />
+								<SettingsMenu
+									{isCollapsed}
+									hideWorkspaceSettings={sessionMode}
+									numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+										? 0
+										: numUnacknowledgedCriticalAlerts}
+								/>
 							</div>
 
 							<div
