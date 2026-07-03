@@ -369,28 +369,24 @@ export class FlowChatManager {
 				// Reasoning isn't persisted server-side, so carry each temp assistant
 				// turn's streamed "thinking" summary onto its persisted counterpart
 				// before dropping temps — otherwise it vanishes when the run completes.
-				// Match by content so multi-turn responses attribute each turn's
-				// thinking to the right message rather than lumping it onto the last one.
-				const reasoningByContent = new Map<string, string>()
-				for (const m of this.messages) {
-					if (
-						m.id.startsWith('temp-') &&
-						m.message_type === 'assistant' &&
-						m.reasoning &&
-						m.content
-					) {
-						reasoningByContent.set(m.content, m.reasoning)
-					}
-				}
+				// Consume in streaming order, verifying content, so multi-turn responses
+				// (including turns with identical or empty text) attribute each turn's
+				// thinking to the right message instead of lumping it onto the last one.
+				const pending = this.messages
+					.filter((m) => m.id.startsWith('temp-') && m.message_type === 'assistant' && m.reasoning)
+					.map((m) => ({ content: m.content ?? '', reasoning: m.reasoning as string }))
 				this.messages = this.messages
 					.filter((msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user')
-					.map((msg) =>
-						msg.message_type === 'assistant' &&
-						!msg.reasoning &&
-						reasoningByContent.has(msg.content)
-							? { ...msg, reasoning: reasoningByContent.get(msg.content) }
-							: msg
-					)
+					.map((msg) => {
+						if (msg.message_type === 'assistant' && !msg.reasoning) {
+							const idx = pending.findIndex((p) => p.content === (msg.content ?? ''))
+							if (idx !== -1) {
+								const [match] = pending.splice(idx, 1)
+								return { ...msg, reasoning: match.reasoning }
+							}
+						}
+						return msg
+					})
 			}
 		} catch (error) {
 			console.error('Polling error:', error)

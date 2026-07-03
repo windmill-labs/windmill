@@ -107,6 +107,7 @@
 					'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center gap-2 text-left',
 					reasoningExpanded ? 'border-b border-border-light' : ''
 				)}
+				aria-expanded={reasoningExpanded}
 				onclick={() => (reasoningToggled = !reasoningExpanded)}
 			>
 				{#if reasoningExpanded}

@@ -72,7 +72,12 @@
 	// Sending an unsupported token would be rejected by the provider.
 	$effect(() => {
 		if (!provider || !model || value === undefined) return
-		const valid = capability.supported && (value === offToken || capability.levels.includes(value))
+		// Valid values are exactly the selectable options: the levels, plus the
+		// explicit off token only when this model can actually disable reasoning.
+		const valid =
+			capability.supported &&
+			(capability.levels.includes(value) ||
+				(capability.canDisable && offToken !== undefined && value === offToken))
 		if (!valid) value = undefined
 	})
 </script>

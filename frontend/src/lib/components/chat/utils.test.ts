@@ -36,4 +36,16 @@ describe('parseStreamDeltas', () => {
 		expect(content).toBe('Used lookup tool')
 		expect(success).toBe(true)
 	})
+
+	it('reports a failed tool_result', () => {
+		const stream = JSON.stringify({
+			type: 'tool_result',
+			function_name: 'lookup',
+			success: false
+		})
+		const { type, content, success } = parseStreamDeltas(stream)
+		expect(type).toBe('tool_result')
+		expect(content).toBe('Failed to use lookup tool')
+		expect(success).toBe(false)
+	})
 })
