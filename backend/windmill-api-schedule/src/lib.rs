@@ -766,11 +766,14 @@ async fn list_schedule(
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
         // managed ducklake-maintenance schedules are edited from the
-        // workspace ducklake settings, not the schedules UI/CLI
-        .and_where("path NOT LIKE ?".bind(&format!(
-            "{}%",
-            windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
-        )))
+        // workspace ducklake settings, not the schedules UI/CLI.
+        // starts_with, not LIKE: the prefix contains `_` which LIKE treats as
+        // a wildcard, and a user folder like `ducklake-maintenance` must not
+        // be swept up.
+        .and_where(
+            "NOT starts_with(path, ?)"
+                .bind(&windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX),
+        )
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -944,16 +947,13 @@ async fn list_schedule_with_jobs(
                 ORDER BY completed_at DESC
                 LIMIT 20
             ) AS jobs) t
-        WHERE workspace_id = $1 AND schedule.path NOT LIKE $4
+        WHERE workspace_id = $1 AND NOT starts_with(schedule.path, $4)
         ORDER BY edited_at DESC
         LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64,
-        format!(
-            "{}%",
-            windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
-        )
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
     )
     .fetch_all(&mut *tx)
     .await?;

@@ -15,17 +15,22 @@ use windmill_common::{
 
 /// Reconcile the managed `f/ducklake_maintenance/<lake>` schedule rows with the
 /// (already validated) ducklake settings, inside the caller's transaction.
+// Only newly-enabled maintenance is rejected: a config that already had it
+// enabled (e.g. an enterprise license lapsed) must not make every unrelated
+// ducklake settings save fail, and the admin must be able to save it off.
 pub async fn sync_ducklake_maintenance_schedules<'c>(
     _db: &DB,
     tx: Transaction<'c, Postgres>,
     _w_id: &str,
     ducklakes: &HashMap<String, Ducklake>,
+    previous: &HashMap<String, Ducklake>,
     _edited_by: &str,
     _email: &str,
 ) -> Result<Transaction<'c, Postgres>> {
+    let enabled = |dl: &Ducklake| -> bool { dl.maintenance.as_ref().is_some_and(|m| m.enabled) };
     if ducklakes
-        .values()
-        .any(|dl| dl.maintenance.as_ref().is_some_and(|m| m.enabled))
+        .iter()
+        .any(|(name, dl)| enabled(dl) && !previous.get(name).is_some_and(|prev| enabled(prev)))
     {
         return Err(Error::BadRequest(
             "Ducklake scheduled maintenance is only available in the enterprise edition"

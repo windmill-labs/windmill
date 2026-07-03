@@ -411,7 +411,7 @@
 							<div class="flex flex-col gap-3 w-96">
 								<Toggle
 									size="sm"
-									disabled={!$enterpriseLicense}
+									disabled={!$enterpriseLicense && !ducklake.maintenance?.enabled}
 									eeOnly
 									options={{
 										right: 'Scheduled maintenance',

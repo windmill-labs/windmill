@@ -2320,21 +2320,22 @@ async fn edit_ducklake_config(
     )
     .await?;
 
+    let old_ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT ws.ducklake->'ducklakes' AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(serde_json::Value::Null);
+    let old_ducklakes: HashMap<String, Ducklake> =
+        serde_json::from_value(old_ducklakes).unwrap_or_default();
+
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_ducklakes = sqlx::query_scalar!(
-            r#"
-                SELECT ws.ducklake->'ducklakes' AS ducklake_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_ducklakes: HashMap<String, Ducklake> =
-            serde_json::from_value(old_ducklakes).unwrap_or_default();
         for (name, dl) in new_config.settings.ducklakes.iter() {
             if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
                 let old_dl = old_ducklakes.get(name);
@@ -2370,6 +2371,7 @@ async fn edit_ducklake_config(
         tx,
         &w_id,
         &new_config.settings.ducklakes,
+        &old_ducklakes,
         &username,
         &email,
     )
@@ -4121,13 +4123,10 @@ async fn clone_triggers_and_schedules(
             on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
             summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
             cron_version, description, dynamic_skip, permissioned_as, labels
-        FROM schedule WHERE workspace_id = $2 AND path NOT LIKE $3"#,
+        FROM schedule WHERE workspace_id = $2 AND NOT starts_with(path, $3)"#,
         target_workspace_id,
         source_workspace_id,
-        format!(
-            "{}%",
-            windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
-        ),
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
     )
     .execute(&mut **tx)
     .await?;
