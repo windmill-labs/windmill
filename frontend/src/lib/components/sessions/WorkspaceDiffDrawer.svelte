@@ -643,6 +643,10 @@
 					{#if appItem}
 						{@render rowBadge(staged[appItem.key] ?? appItem)}
 					{/if}
+					<!-- Raw button (not the design-system Button) on purpose: it nests inside
+					     the <summary> whose native toggle is preventDefault'd, and needs the
+					     tree rows' compact w-5 footprint — Button's smallest size doesn't fit
+					     and its styling fights the row hover. -->
 					<button
 						type="button"
 						aria-expanded={open}
@@ -737,7 +741,11 @@
 						{@render rowBadge(staged[d.key] ?? d)}
 						{#if d.deployKind === 'raw_app'}
 							<!-- Unloaded app leaf: row click reveals the diff, the chevron
-							     loads the values and unwraps the file tree. -->
+							     loads the values and unwraps the file tree. A span (not a
+							     button/Button) because it nests inside WorkspaceItemRow's
+							     clickable row — nested interactive elements are invalid — and
+							     it stays out of the tab order: the keyboard path is ArrowRight
+							     on the highlighted row (handleSearchKeydown). -->
 							<span
 								role="button"
 								tabindex="-1"
@@ -872,6 +880,12 @@
 							style="scrollbar-gutter: stable;"
 							use:padRightForGutter
 						>
+							<!-- Raw input (not the design-system TextInput) on purpose: this is a
+							     bespoke filter wired to the file tree's keyboard navigation — it
+							     needs a direct element ref (focused on open) and a keydown handler
+							     that hands ArrowDown/Enter/ArrowLeft/Right off to the tree.
+							     TextInput/ClearableInput swallow/rebubble those and don't expose
+							     the element ref. -->
 							<input
 								bind:this={searchInputEl}
 								type="search"
@@ -1027,7 +1041,9 @@
 				</main>
 			</div>
 			<!-- Batch / PR (deploy all, request review, reconcile) is the compare page's
-			     job — the dock deploys per item; this footer is just the doorway there. -->
+			     job — the dock deploys per item; this footer is just the doorway there.
+			     A plain anchor (not Button href): it's a text-level navigation link, and
+			     the design-system Button renders link-hrefs with button chrome. -->
 			{#if model.items.length > 0 && compareSessionHref}
 				<div
 					class="shrink-0 border-t border-light bg-surface px-3 py-1.5 flex items-center justify-end text-xs"

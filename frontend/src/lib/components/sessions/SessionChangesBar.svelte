@@ -56,8 +56,8 @@
 	const runtime = $derived(getRuntime(session.id))
 
 	// The chat's modified-items mask (`${UserDraftItemKind}:${storagePath}`).
-	// undefined = legacy/untracked chat → fall back to showing every draft/diff
-	// (old behavior). A Set (even empty) → filter to just this chat's items.
+	// undefined = legacy/untracked chat → fall back to showing every draft.
+	// A Set (even empty) → filter to just this chat's items.
 	const mask = $derived(runtime?.manager.modifiedItems)
 
 	// Workspace Drafts (fetches on mount and on every Server-Draft invalidation);
@@ -123,9 +123,9 @@
 	const dockCounts = $derived(badgeCounts(dockItems))
 
 	// One "Edits" bar for both fork and non-fork sessions, shown when this chat
-	// edited anything. The fork's own name / sync status no longer lives on the bar
-	// — it's inside the modal (SessionDiffDrawer's title). Fork sessions still need
-	// the forking gate + a resolvable fork/parent pair.
+	// edited anything. The fork's identity lives in the modal (SessionDiffDrawer's
+	// title), not on the bar. Fork sessions still need the forking gate + a
+	// resolvable fork/parent pair.
 	const showBar = $derived(
 		!!committedId &&
 			dockItems.length > 0 &&
@@ -219,5 +219,8 @@
 		chatId={session.chatId}
 		keys={mask}
 		onDataChanged={refreshDock}
+		onItemDeployed={(item) =>
+			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)}
+		onItemDiscarded={(item) => void runtime?.manager.removeModifiedItem(item.draftKind, item.path)}
 	/>
 {/if}

@@ -15,7 +15,9 @@
 		parentWorkspaceId,
 		chatId,
 		keys,
-		onDataChanged
+		onDataChanged,
+		onItemDeployed,
+		onItemDiscarded
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -25,8 +27,13 @@
 		chatId?: string
 		keys?: Set<string>
 		/** Notified after a deploy/discard mutated workspace state, so the owner
-		 *  (session bar) can refresh its cached comparison/draft sources. */
+		 *  (session bar) can refresh its cached draft sources. */
 		onDataChanged?: () => void
+		/** Mask maintenance, forwarded to the deploy model (see its args' docs):
+		 *  a deploy moves the item's mask entry to its deployed path, a discard
+		 *  drops it. */
+		onItemDeployed?: (item: DeployItem) => void
+		onItemDiscarded?: (item: DeployItem) => void
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -40,7 +47,9 @@
 	const model = useSessionDeployModel(() => ({
 		workspaceId,
 		mask: keys,
-		onDataChanged
+		onDataChanged,
+		onItemDeployed,
+		onItemDiscarded
 	}))
 
 	// Editor URL for a row (every item lives in the session workspace).

@@ -22,6 +22,7 @@ import {
 	type DeployItem,
 	type DeployPlanEntry
 } from './sessionDeployModel'
+import { maskKey } from './modifiedItemsMask'
 
 export type DeploymentStatus = { status: 'loading' | 'failed'; error?: string }
 
@@ -37,6 +38,14 @@ export interface SessionDeployModelArgs {
 	 *  refresh ITS OWN data sources — without this, the bar shows stale counts
 	 *  until the next turn end / tab refocus / reload. */
 	onDataChanged?: () => void
+	/** A draft deployed: the consumer owning the mask moves the item's entry to
+	 *  its deployed path (`displayPath` — differs from the synthetic storage
+	 *  `path` for draft-only items, which never exists deployed). */
+	onItemDeployed?: (item: DeployItem) => void
+	/** A draft was discarded: the chat's touch is undone — the consumer drops
+	 *  the item's mask entry so a pre-existing deployed item doesn't keep
+	 *  reading as this chat's "Deployed" edit. */
+	onItemDiscarded?: (item: DeployItem) => void
 	/** Chat-modified-items mask; undefined shows every draft. */
 	mask?: Set<string>
 }
@@ -246,8 +255,17 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		try {
 			const res = await runPlan(plan)
 			setStatus(item.key, res.success ? undefined : { status: 'failed', error: res.error })
-			if (res.success && !discard) {
-				deployedKeys = new Set(deployedKeys).add(item.key)
+			if (res.success) {
+				if (discard) {
+					getArgs().onItemDiscarded?.(item)
+				} else {
+					// Bridge under the DEPLOYED path's key too: the mask rewrite
+					// (onItemDeployed) re-keys a synthetic-storage row to displayPath.
+					deployedKeys = new Set(deployedKeys)
+						.add(item.key)
+						.add(maskKey(item.draftKind, item.displayPath))
+					getArgs().onItemDeployed?.(item)
+				}
 			}
 			return res.success
 		} finally {

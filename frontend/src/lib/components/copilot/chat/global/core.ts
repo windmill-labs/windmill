@@ -3901,6 +3901,16 @@ async function discardLocalDraft(
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
 
+	// The chat's touch on the item is undone — drop it from the mask so a
+	// pre-existing deployed item doesn't keep reading as this chat's edit.
+	const discardedKind = itemKindFor(type, triggerKind)
+	if (discardedKind) {
+		toolCallbacks.onItemDiscarded?.(
+			discardedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded ${type} "${path}" draft`,
 		result: 'Draft discarded'
@@ -4480,6 +4490,18 @@ async function deployDraft(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+
+	// Move the chat's mask entry to the deployed path: a draft-only item's
+	// synthetic storage key never exists deployed, so the entry would otherwise
+	// stop matching anything after the draft is gone.
+	const deployedKind = itemKindFor(type, triggerKind)
+	if (deployedKind) {
+		toolCallbacks.onItemDeployed?.(
+			deployedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
+			path
+		)
+	}
 
 	// Reload the session preview if it's open on the deployed item. Map the
 	// deploy type to the preview kind — a raw app deploys under 'app' but the

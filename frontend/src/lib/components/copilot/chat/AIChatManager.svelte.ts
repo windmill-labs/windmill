@@ -364,6 +364,36 @@ export class AIChatManager {
 		this.modifiedItems?.add(maskKey(itemKind, storagePath))
 	}
 
+	// Un-record an item whose chat-made change was discarded — without this the
+	// still-existing deployed item would keep reading as this chat's "Deployed"
+	// edit. Persisted immediately: unlike recordModifiedItem (whose persistence
+	// rides on the turn's saveChat), a discard can fire from the review dock
+	// outside any turn, and waiting would resurrect the entry on reload.
+	async removeModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
+		if (!this.modifiedItems?.delete(maskKey(itemKind, storagePath))) return
+		await this.#persistModifiedItems()
+	}
+
+	// Move a mask entry to the path a draft actually deployed to. A draft-only
+	// flow/app parks at a synthetic `draft_{uuid}` storage path and deploys to
+	// its chosen path — without the move, the existence check at the synthetic
+	// path fails after reload and the deployed row vanishes from the dock.
+	async renameModifiedItem(itemKind: UserDraftItemKind, fromPath: string, toPath: string) {
+		if (fromPath === toPath) return
+		if (!this.modifiedItems?.delete(maskKey(itemKind, fromPath))) return
+		this.modifiedItems.add(maskKey(itemKind, toPath))
+		await this.#persistModifiedItems()
+	}
+
+	async #persistModifiedItems() {
+		await this.historyManager.saveChat(
+			this.displayMessages,
+			this.messages,
+			this.contextUsage,
+			this.modifiedItems ? [...this.modifiedItems] : undefined
+		)
+	}
+
 	// Workspace AI skills (name + description) advertised in the GLOBAL system
 	// prompt and surfaced as slash commands in session chat. Loaded
 	// asynchronously when entering GLOBAL mode; the system message is rebuilt
@@ -1792,7 +1822,9 @@ export class AIChatManager {
 					requestConfirmation: this.requestConfirmation,
 					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
 					requestUserQuestion: this.requestUserQuestion,
-					onItemModified: (kind, path) => this.recordModifiedItem(kind, path)
+					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
+					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
+					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path)
 				}
 			}
 

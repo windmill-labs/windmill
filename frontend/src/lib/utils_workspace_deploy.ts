@@ -22,7 +22,6 @@ import {
 	fetchProtectionRulesForWorkspace,
 	canUserBypassRuleKindInRulesets
 } from '$lib/workspaceProtectionRules.svelte'
-import type { UserExt } from '$lib/stores'
 import {
 	existsTrigger,
 	getTriggersDeployData,
@@ -414,7 +413,7 @@ export async function checkDeployPermission(workspace: string): Promise<DeployPe
 		const isDeployer = me.is_admin || (me.groups ?? []).includes('wm_deployers')
 		if (!isDeployer) {
 			const rulesets = await fetchProtectionRulesForWorkspace(workspace)
-			const userInfo = { ...me, groups: me.groups ?? [] } as unknown as UserExt
+			const userInfo = { is_admin: !!me.is_admin, username: me.username, groups: me.groups ?? [] }
 			if (!canUserBypassRuleKindInRulesets(rulesets, 'RestrictDeployToDeployers', userInfo)) {
 				return {
 					ok: false,
