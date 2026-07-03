@@ -153,7 +153,8 @@ export async function runScript(
   path: string | null = null,
   hash_: string | null = null,
   args: Record<string, any> | null = null,
-  verbose: boolean = false
+  verbose: boolean = false,
+  tag: string | null = null
 ): Promise<any> {
   console.warn(
     "runScript is deprecated. Use runScriptByPath or runScriptByHash instead."
@@ -161,14 +162,15 @@ export async function runScript(
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
   }
-  return _runScriptInternal(path, hash_, args, verbose);
+  return _runScriptInternal(path, hash_, args, verbose, tag);
 }
 
 async function _runScriptInternal(
   path: string | null = null,
   hash_: string | null = null,
   args: Record<string, any> | null = null,
-  verbose: boolean = false
+  verbose: boolean = false,
+  tag: string | null = null
 ): Promise<any> {
   args = args || {};
 
@@ -183,7 +185,7 @@ async function _runScriptInternal(
     }
   }
 
-  const jobId = await _runScriptAsyncInternal(path, hash_, args);
+  const jobId = await _runScriptAsyncInternal(path, hash_, args, null, tag);
   return await waitJob(jobId, verbose);
 }
 
@@ -192,14 +194,16 @@ async function _runScriptInternal(
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
 export async function runScriptByPath(
   path: string,
   args: Record<string, any> | null = null,
-  verbose: boolean = false
+  verbose: boolean = false,
+  tag: string | null = null
 ): Promise<any> {
-  return _runScriptInternal(path, null, args, verbose);
+  return _runScriptInternal(path, null, args, verbose, tag);
 }
 
 /**
@@ -207,14 +211,16 @@ export async function runScriptByPath(
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
 export async function runScriptByHash(
   hash_: string,
   args: Record<string, any> | null = null,
-  verbose: boolean = false
+  verbose: boolean = false,
+  tag: string | null = null
 ): Promise<any> {
-  return _runScriptInternal(null, hash_, args, verbose);
+  return _runScriptInternal(null, hash_, args, verbose, tag);
 }
 
 /**
@@ -240,12 +246,14 @@ export async function streamResult(stream: AsyncIterable<string>) {
  * @param path - Flow path in Windmill
  * @param args - Arguments to pass to the flow
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Flow execution result
  */
 export async function runFlow(
   path: string | null = null,
   args: Record<string, any> | null = null,
-  verbose: boolean = false
+  verbose: boolean = false,
+  tag: string | null = null
 ): Promise<any> {
   args = args || {};
 
@@ -253,7 +261,7 @@ export async function runFlow(
     console.info(`running \`${path}\` synchronously with args:`, args);
   }
 
-  const jobId = await runFlowAsync(path, args, null, false);
+  const jobId = await runFlowAsync(path, args, null, false, tag);
   return await waitJob(jobId, verbose);
 }
 
@@ -368,7 +376,8 @@ export async function runScriptAsync(
   path: string | null,
   hash_: string | null,
   args: Record<string, any> | null,
-  scheduledInSeconds: number | null = null
+  scheduledInSeconds: number | null = null,
+  tag: string | null = null
 ): Promise<string> {
   console.warn(
     "runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead."
@@ -377,14 +386,15 @@ export async function runScriptAsync(
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
   }
-  return _runScriptAsyncInternal(path, hash_, args, scheduledInSeconds);
+  return _runScriptAsyncInternal(path, hash_, args, scheduledInSeconds, tag);
 }
 
 async function _runScriptAsyncInternal(
   path: string | null = null,
   hash_: string | null = null,
   args: Record<string, any> | null = null,
-  scheduledInSeconds: number | null = null
+  scheduledInSeconds: number | null = null,
+  tag: string | null = null
 ): Promise<string> {
   // Create a script job and return its job id.
   args = args || {};
@@ -392,6 +402,10 @@ async function _runScriptAsyncInternal(
 
   if (scheduledInSeconds) {
     params["scheduled_in_secs"] = scheduledInSeconds;
+  }
+
+  if (tag) {
+    params["tag"] = tag;
   }
 
   let parentJobId = getEnv("WM_JOB_ID");
@@ -431,14 +445,16 @@ async function _runScriptAsyncInternal(
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
 export async function runScriptByPathAsync(
   path: string,
   args: Record<string, any> | null = null,
-  scheduledInSeconds: number | null = null
+  scheduledInSeconds: number | null = null,
+  tag: string | null = null
 ): Promise<string> {
-  return _runScriptAsyncInternal(path, null, args, scheduledInSeconds);
+  return _runScriptAsyncInternal(path, null, args, scheduledInSeconds, tag);
 }
 
 /**
@@ -446,14 +462,16 @@ export async function runScriptByPathAsync(
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
 export async function runScriptByHashAsync(
   hash_: string,
   args: Record<string, any> | null = null,
-  scheduledInSeconds: number | null = null
+  scheduledInSeconds: number | null = null,
+  tag: string | null = null
 ): Promise<string> {
-  return _runScriptAsyncInternal(null, hash_, args, scheduledInSeconds);
+  return _runScriptAsyncInternal(null, hash_, args, scheduledInSeconds, tag);
 }
 
 /**
@@ -462,6 +480,7 @@ export async function runScriptByHashAsync(
  * @param args - Arguments to pass to the flow
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
  * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
 export async function runFlowAsync(
@@ -471,7 +490,8 @@ export async function runFlowAsync(
   // can only be set to false if this the job will be fully await and not concurrent with any other job
   // as otherwise the child flow and its own child will store their state in the parent job which will
   // lead to incorrectness and failures
-  doNotTrackInParent: boolean = true
+  doNotTrackInParent: boolean = true,
+  tag: string | null = null
 ): Promise<string> {
   // Create a script job and return its job id.
 
@@ -480,6 +500,10 @@ export async function runFlowAsync(
 
   if (scheduledInSeconds) {
     params["scheduled_in_secs"] = scheduledInSeconds;
+  }
+
+  if (tag) {
+    params["tag"] = tag;
   }
 
   if (!doNotTrackInParent) {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
+	import { onDestroy } from 'svelte'
 
 	import { enterpriseLicense, userStore, workspaceStore, awarenessStore } from '$lib/stores'
 
@@ -23,7 +24,17 @@
 			url: $page.url.pathname
 		})
 	}
+	function disconnectWorkspace() {
+		if (wsProvider) {
+			wsProvider.destroy()
+			wsProvider = undefined
+		}
+		connected = false
+		awareness = undefined
+	}
 	async function connectWorkspace(workspace: string) {
+		disconnectWorkspace()
+
 		let token: string | undefined
 		try {
 			token = await signMultiplayerRequest(workspace)
@@ -71,6 +82,10 @@
 	})
 	run(() => {
 		$enterpriseLicense && $workspaceStore && connectWorkspace($workspaceStore)
+	})
+
+	onDestroy(() => {
+		disconnectWorkspace()
 	})
 
 	let peers = $derived(

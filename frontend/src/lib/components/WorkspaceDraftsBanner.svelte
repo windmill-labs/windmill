@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { Button } from './common'
 	import { Pencil } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
@@ -10,7 +11,7 @@
 	// ForkWorkspaceBanner: that one self-gates on `isFork`, this one on `!isFork`,
 	// so a fork workspace never shows both. In a fork, drafts are discovered via
 	// the on-page "Deployed ↔ draft (N)" toggle badge instead.
-	let isFork = $derived($workspaceStore?.startsWith('wm-fork-') ?? false)
+	let isFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces))
 
 	// Count comes from the shared Workspace Drafts resource (count ≡ the draft
 	// list; refreshes itself on deploy/discard). Pass undefined in a fork or with

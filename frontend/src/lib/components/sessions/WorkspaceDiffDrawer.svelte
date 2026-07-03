@@ -15,11 +15,16 @@
 		/** Summary supplied by the data source. Preferred over the one derived
 		 * from the loaded diff value, and shown before that value loads. */
 		summary?: string
+		/** Explicit unique row identity, overriding the default `kind/path`. For a
+		 * row whose `kind/path` isn't unique on its own (a pipeline-bundle node
+		 * shares `script/<path>` with a standalone script draft at the same path)
+		 * while `path` must stay the real edit/display target. */
+		key?: string
 	}
 </script>
 
 <script lang="ts">
-	import { parentFolderKey } from './forkDiffNav'
+	import { buildDiffTree, type AppRootMeta, type TreeNode } from './diffTree'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import {
@@ -38,6 +43,12 @@
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
+	import {
+		rawAppDiffToItems,
+		type RawAppish,
+		type RawAppFileItem,
+		type RawAppRunnableItem
+	} from '$lib/components/raw_apps/rawAppDiffUtils'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -87,18 +98,31 @@
 		// the eager-load effect below.
 		loadedDiffs = {}
 		summaries = {}
+		mountedRows = {}
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
 	}
 
-	function itemKey(d: DiffRow): string {
-		return `${d.kind}/${d.path}`
+	// A row in the list is either a real backend diff or a synthesized raw-app
+	// item: a file/metadata leaf (`RawAppFileItem`) or a runnable rendered as a
+	// script/flow (`RawAppRunnableItem`). All are diff-shaped, so the tree /
+	// search / count / nav operate over `DisplayDiff` uniformly.
+	type DisplayDiff = DiffRow | RawAppFileItem | RawAppRunnableItem
+
+	function itemKey(d: DisplayDiff): string {
+		// Synthetic raw-app items (files/runnables) carry their composite
+		// `<appPath>/…` path and can share kind+path with a real workspace item —
+		// e.g. a runnable rendered as `script` at `<appPath>/runnables/foo` vs a real
+		// script literally at that path. Prefix synthetic items so the {#each} key,
+		// load cache, row id and nav identity never collide with a real DiffRow.
+		if ('key' in d && d.key) return d.key
+		return ('appPath' in d ? 'rawapp:' : '') + `${d.kind}/${d.path}`
 	}
 
 	// Friendly path for display only; `path` stays the storage key everywhere
 	// keys/loads happen, so a never-deployed draft still loads from `…/draft_<uuid>`.
-	function displayPathOf(d: DiffRow): string {
-		return d.displayPath ?? d.path
+	function displayPathOf(d: DisplayDiff): string {
+		return ('displayPath' in d ? d.displayPath : undefined) ?? d.path
 	}
 
 	const KIND_LABELS: Record<string, string> = {
@@ -106,6 +130,7 @@
 		flow: 'Flow',
 		app: 'App',
 		raw_app: 'Raw app',
+		raw_app_file: 'File',
 		resource: 'Resource',
 		variable: 'Variable',
 		resource_type: 'Resource type',
@@ -131,6 +156,57 @@
 	}
 	let loadedDiffs: Record<string, LoadedDiff> = $state({})
 	let summaries: Record<string, string | undefined> = $state({})
+
+	// Lazy Monaco mount: exploding a raw app into N per-file rows would otherwise
+	// mount N DiffEditors at once. Each row's editor mounts only once its block
+	// scrolls within `MOUNT_MARGIN` of the viewport (rooted on the scroll
+	// container); `mountedRows` latches true so it never unmounts on scroll-away.
+	let mainScrollEl: HTMLElement | undefined = $state()
+	let mountedRows: Record<string, boolean> = $state({})
+	// Small look-ahead only: a large margin would catch the whole (collapsed-
+	// height) list at once, and each mount growing its block would cascade the
+	// rest into view. A modest margin mounts what's near the fold; as editors
+	// grow they push the pending blocks away, so the rest stay deferred.
+	const MOUNT_MARGIN = '200px 0px'
+	function lazyMount(node: HTMLElement, key: string) {
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) {
+					mountedRows[key] = true
+					io.disconnect()
+				}
+			},
+			{ root: mainScrollEl ?? null, rootMargin: MOUNT_MARGIN }
+		)
+		io.observe(node)
+		return { destroy: () => io.disconnect() }
+	}
+
+	// The rendered list: each raw_app whose value has loaded is expanded into
+	// its per-file items (so files are independent rows that flow through the
+	// tree / search / count). An unloaded raw_app stays a single placeholder row
+	// until its value arrives, then expands in place.
+	const displayDiffs = $derived.by(() => {
+		const out: DisplayDiff[] = []
+		for (const d of diffs) {
+			if (d.kind === 'raw_app') {
+				const loaded = loadedDiffs[itemKey(d)]
+				if (loaded?.state === 'ready') {
+					out.push(
+						...rawAppDiffToItems(
+							d.path,
+							loaded.before as RawAppish | undefined,
+							loaded.after as RawAppish | undefined,
+							displayPathOf(d)
+						)
+					)
+					continue
+				}
+			}
+			out.push(d)
+		}
+		return out
+	})
 
 	async function loadDiffFor(d: DiffRow) {
 		const key = itemKey(d)
@@ -161,7 +237,10 @@
 		})
 	})
 
-	function onDetailsToggle(d: DiffRow, e: Event) {
+	function onDetailsToggle(d: DisplayDiff, e: Event) {
+		// Synthetic raw-app items (files + runnables) carry their content
+		// already — nothing to fetch.
+		if ('appPath' in d) return
 		const target = e.currentTarget as HTMLDetailsElement | null
 		if (target?.open) void loadDiffFor(d)
 	}
@@ -176,89 +255,47 @@
 	const statusIcons = { added: Plus, removed: Minus, modified: Pencil, conflict: AlertTriangle }
 
 	// ── File tree ───────────────────────────────────────────────────────────
-	type FolderNode = {
-		type: 'folder'
-		name: string
-		fullPath: string
-		isScope: boolean
-		children: TreeNode[]
-	}
-	type FileNode = { type: 'file'; name: string; diff: DiffRow }
-	type TreeNode = FolderNode | FileNode
-
-	function buildTree(rows: DiffRow[]): FolderNode {
-		const root: FolderNode = {
-			type: 'folder',
-			name: '',
-			fullPath: '',
-			isScope: false,
-			children: []
-		}
-		const folderCache = new Map<string, FolderNode>()
-		for (const d of rows) {
-			const parts = displayPathOf(d).split('/')
-			if (parts.length < 2) {
-				root.children.push({ type: 'file', name: displayPathOf(d), diff: d })
-				continue
-			}
-			const scopeKey = parts.slice(0, 2).join('/')
-			let scope = folderCache.get(scopeKey)
-			if (!scope) {
-				scope = { type: 'folder', name: scopeKey, fullPath: scopeKey, isScope: true, children: [] }
-				folderCache.set(scopeKey, scope)
-				root.children.push(scope)
-			}
-			if (parts.length === 2) {
-				scope.children.push({ type: 'file', name: parts[1], diff: d })
-				continue
-			}
-			const rest = parts.slice(2)
-			let parent = scope
-			let fkey = scopeKey
-			for (let i = 0; i < rest.length - 1; i++) {
-				fkey = `${fkey}/${rest[i]}`
-				let folder = folderCache.get(fkey)
-				if (!folder) {
-					folder = { type: 'folder', name: rest[i], fullPath: fkey, isScope: false, children: [] }
-					folderCache.set(fkey, folder)
-					parent.children.push(folder)
-				}
-				parent = folder
-			}
-			parent.children.push({ type: 'file', name: rest[rest.length - 1], diff: d })
-		}
-		const sortRec = (n: FolderNode) => {
-			n.children.sort((a, b) => {
-				if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
-				return a.name.localeCompare(b.name)
+	// Friendly app path → app metadata, for tagging the matching tree folder as a
+	// raw-app root. Keyed on `displayPathOf` so it lines up with the friendly
+	// virtual paths the synthetic file items carry.
+	const appRootMeta = $derived.by(() => {
+		const m = new Map<string, AppRootMeta>()
+		for (const d of diffs) {
+			if (d.kind !== 'raw_app') continue
+			m.set(displayPathOf(d), {
+				summaryKey: itemKey(d),
+				summary: 'summary' in d ? d.summary : undefined
 			})
-			for (const c of n.children) if (c.type === 'folder') sortRec(c)
 		}
-		sortRec(root)
-		return root
-	}
+		return m
+	})
 
-	function searchableText(d: DiffRow): string {
+	function searchableText(d: DisplayDiff): string {
 		const parts = [displayPathOf(d), KIND_LABELS[d.kind] ?? d.kind]
-		const s = summaries[itemKey(d)] ?? d.summary
+		const s = summaries[itemKey(d)] ?? ('summary' in d ? d.summary : undefined)
 		if (s) parts.push(s)
 		return parts.join(' ')
 	}
-	let searchedDiffs: (DiffRow & { marked?: string })[] | undefined = $state(undefined)
+	let searchedDiffs: (DisplayDiff & { marked?: string })[] | undefined = $state(undefined)
 
 	const filteredDiffs = $derived.by(() => {
 		const q = searchQuery.trim()
-		if (!q) return diffs
-		return (searchedDiffs ?? []) as DiffRow[]
+		if (!q) return displayDiffs
+		return (searchedDiffs ?? []) as DisplayDiff[]
 	})
 
-	const tree = $derived(buildTree(filteredDiffs))
+	const treeModel = $derived(
+		buildDiffTree(
+			filteredDiffs.map((d) => ({ key: itemKey(d), structurePath: displayPathOf(d), data: d })),
+			appRootMeta
+		)
+	)
 
-	function rowId(d: DiffRow): string {
+	function rowId(d: DisplayDiff): string {
 		return `ws-diff-${itemKey(d)}`
 	}
 
-	function scrollToDiff(d: DiffRow) {
+	function scrollToDiff(d: DisplayDiff) {
 		const el = document.getElementById(rowId(d)) as HTMLDetailsElement | null
 		if (!el) return
 		el.open = true
@@ -270,29 +307,8 @@
 	function isFolderOpen(key: string): boolean {
 		return folderOpen[key] ?? true
 	}
-	function folderKey(node: FolderNode): string {
-		return `folder:${node.fullPath}`
-	}
 
-	type NavEntry =
-		| { type: 'folder'; key: string; node: FolderNode }
-		| { type: 'file'; key: string; diff: DiffRow }
-
-	function flattenVisible(node: FolderNode): NavEntry[] {
-		const out: NavEntry[] = []
-		const walk = (n: TreeNode) => {
-			if (n.type === 'file') {
-				out.push({ type: 'file', key: itemKey(n.diff), diff: n.diff })
-				return
-			}
-			const fkey = folderKey(n)
-			out.push({ type: 'folder', key: fkey, node: n })
-			if (isFolderOpen(fkey)) for (const c of n.children) walk(c)
-		}
-		for (const c of node.children) walk(c)
-		return out
-	}
-	const navEntries = $derived(flattenVisible(tree))
+	const navEntries = $derived(treeModel.order((k) => isFolderOpen(k)))
 	const navKeys = $derived(navEntries.map((e) => e.key))
 	const entryByKey = $derived(new Map(navEntries.map((e) => [e.key, e])))
 
@@ -334,21 +350,10 @@
 		const entry = entryByKey.get(highlightedKey)
 		if (!entry) return
 		if (entry.type === 'file') {
-			scrollToDiff(entry.diff)
+			scrollToDiff(entry.data)
 		} else {
 			folderOpen[entry.key] = !isFolderOpen(entry.key)
 		}
-	}
-
-	function parentFolderKeyFor(entry: NavEntry): string | undefined {
-		const path = entry.type === 'folder' ? entry.node.fullPath : entry.diff.path
-		return parentFolderKey(entry.type, path)
-	}
-
-	function firstChildKey(node: FolderNode): string | undefined {
-		const c = node.children[0]
-		if (!c) return undefined
-		return c.type === 'folder' ? folderKey(c) : itemKey(c.diff)
 	}
 
 	function selectKey(key: string) {
@@ -375,7 +380,7 @@
 				folderOpen[entry.key] = true
 				return
 			}
-			const child = firstChildKey(entry.node)
+			const child = treeModel.firstChildKeyOf(entry.key)
 			if (child) {
 				e.preventDefault()
 				selectKey(child)
@@ -388,7 +393,7 @@
 				folderOpen[entry.key] = false
 				return
 			}
-			const parent = parentFolderKeyFor(entry)
+			const parent = treeModel.parentKeyOf(entry.key)
 			if (parent && entryByKey.has(parent)) {
 				e.preventDefault()
 				selectKey(parent)
@@ -399,15 +404,15 @@
 
 <SearchItems
 	filter={searchQuery}
-	items={diffs}
+	items={displayDiffs}
 	bind:filteredItems={searchedDiffs}
-	f={(d: DiffRow) => searchableText(d)}
+	f={(d: DisplayDiff) => searchableText(d)}
 />
 
-{#snippet renderTreeNode(node: TreeNode, depth: number)}
+{#snippet renderTreeNode(node: TreeNode<DisplayDiff>, depth: number)}
 	{#if node.type === 'folder'}
 		{@const isUserScope = node.isScope && node.name.startsWith('u/')}
-		{@const fkey = folderKey(node)}
+		{@const fkey = node.key}
 		{@const open = isFolderOpen(fkey)}
 		{@const isHl = fkey === highlightedKey}
 		<details
@@ -415,61 +420,93 @@
 			ontoggle={(e) => (folderOpen[fkey] = (e.currentTarget as HTMLDetailsElement).open)}
 			class="select-none"
 		>
-			<summary
-				role="option"
-				aria-selected={isHl}
-				data-nav-key={fkey}
-				onmouseenter={() => setHoverHighlight(fkey)}
-				class="flex items-center gap-1.5 px-3 py-1 cursor-pointer text-xs font-medium font-mono text-emphasis hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
-					? 'bg-surface-hover'
-					: ''}"
-				style="padding-left: {depth * 12 + 8}px"
-			>
-				<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
-				<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
-				{#if isUserScope}
-					<User size={12} class="shrink-0 text-tertiary" />
-				{:else}
-					<Folder size={12} class="shrink-0 text-tertiary" />
-				{/if}
-				<span class="truncate" title={node.name}>{node.name}</span>
-			</summary>
-			<div>
+			{#if node.app}
+				{@const appSummary = summaries[node.app.summaryKey] ?? node.app.summary}
+				<!-- Raw-app root: expandable folder, but its header reads as a normal
+				     item row (icon + label). Single line showing the summary, falling
+				     back to the short name (the tree already places it under its scope;
+				     full path on hover). The expand chevron sits at the end of the row. -->
+				<summary
+					role="option"
+					aria-selected={isHl}
+					data-nav-key={fkey}
+					onmouseenter={() => setHoverHighlight(fkey)}
+					title={node.fullPath}
+					class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+						? 'bg-surface-hover'
+						: ''}"
+					style="padding-left: {depth * 12 + 8}px"
+				>
+					<RowIcon kind="raw_app" size={12} />
+					<span
+						class="flex-1 min-w-0 truncate text-xs font-normal text-primary {appSummary
+							? ''
+							: 'font-mono'}"
+					>
+						{appSummary ?? node.name}
+					</span>
+					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
+					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+				</summary>
+			{:else}
+				<summary
+					role="option"
+					aria-selected={isHl}
+					data-nav-key={fkey}
+					onmouseenter={() => setHoverHighlight(fkey)}
+					class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer text-xs font-normal font-mono text-secondary hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+						? 'bg-surface-hover'
+						: ''}"
+					style="padding-left: {depth * 12 + 8}px"
+				>
+					{#if isUserScope}
+						<User size={12} class="shrink-0 text-tertiary" />
+					{:else}
+						<Folder size={12} class="shrink-0 text-tertiary" />
+					{/if}
+					<span class="flex-1 min-w-0 truncate" title={node.name}>{node.name}</span>
+					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
+					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+				</summary>
+			{/if}
+			<div class="relative">
+				<!-- Indent guide: a vertical rule down the left of the folder's
+				     children, at the parent chevron's midpoint (depth*12+8 + 6).
+				     Absolute so it doesn't shift the rows; clicks pass through. -->
+				<div
+					class="pointer-events-none absolute top-0 bottom-0 border-l border-light"
+					style="left: {depth * 12 + 14}px"
+					aria-hidden="true"
+				></div>
 				{#each node.children as child}
 					{@render renderTreeNode(child, depth + 1)}
 				{/each}
 			</div>
 		</details>
 	{:else}
-		{@const status = node.diff.status}
-		{@const key = itemKey(node.diff)}
+		{@const d = node.data}
+		{@const key = node.key}
+		<!-- Folders place their icon at the base padding (depth*12+8) — the chevron
+		     now sits at the row's end, not the front. WorkspaceItemRow adds its own
+		     12px base, so indent = depth*12-4 lines a file's icon up with sibling
+		     folder icons. Keep in sync with the folder summary. -->
 		<WorkspaceItemRow
-			kind={node.diff.kind as any}
-			uniformHeight
-			summary={summaries[key] ?? node.diff.summary}
+			kind={d.kind as any}
+			iconPath={d.path}
+			baseClass="py-1.5"
+			singleLine
+			summary={summaries[key] ?? ('summary' in d ? d.summary : undefined)}
 			secondary={node.name}
 			highlighted={key === highlightedKey}
 			navKey={key}
-			indent={depth * 12 + 20}
-			title={displayPathOf(node.diff)}
+			indent={depth * 12 - 4}
+			title={displayPathOf(d)}
 			onclick={() => {
 				highlightedKey = key
-				scrollToDiff(node.diff)
+				scrollToDiff(d)
 			}}
 			onmouseenter={() => setHoverHighlight(key)}
-		>
-			{#snippet extras()}
-				<span
-					class="w-1.5 h-1.5 rounded-full shrink-0 {status === 'added'
-						? 'bg-green-500'
-						: status === 'removed'
-							? 'bg-red-500'
-							: status === 'conflict'
-								? 'bg-orange-500'
-								: 'bg-blue-500'}"
-				></span>
-			{/snippet}
-		</WorkspaceItemRow>
+		/>
 	{/if}
 {/snippet}
 
@@ -536,8 +573,8 @@
 						/>
 					</div>
 					<div class="flex-1 min-h-0 overflow-y-auto pb-3 flex flex-col gap-1">
-						{#if tree.children.length > 0}
-							{#each tree.children as child}
+						{#if treeModel.root.children.length > 0}
+							{#each treeModel.root.children as child}
 								{@render renderTreeNode(child, 0)}
 							{/each}
 						{:else}
@@ -546,7 +583,7 @@
 					</div>
 				</aside>
 			{/if}
-			<main class="flex-1 min-w-0 overflow-y-auto">
+			<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
 				<div class="px-3 pt-3 pb-4 flex flex-col gap-3">
 					{#if loading && diffs.length === 0}
 						<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
@@ -568,7 +605,12 @@
 								{@const status = d.status}
 								{@const StatusIcon = statusIcons[status]}
 								{@const loaded = loadedDiffs[key]}
-								{@const editUrl = editUrlFor?.(d)}
+								<!-- A synthesized raw-app item (file or runnable) links to its
+								     owning app's editor. -->
+								{@const editUrl =
+									'appPath' in d
+										? editUrlFor?.({ ...d, kind: 'raw_app', path: d.appPath })
+										: editUrlFor?.(d)}
 								{@const dpath = displayPathOf(d)}
 								<details
 									open
@@ -582,7 +624,7 @@
 										<ChevronDown
 											class="w-3.5 h-3.5 shrink-0 text-tertiary transition-transform chevron"
 										/>
-										<RowIcon kind={d.kind as any} size={14} />
+										<RowIcon kind={d.kind as any} path={d.path} size={14} />
 										<div class="min-w-0 flex-1">
 											{#if editUrl}
 												<ExternalEditLink
@@ -614,7 +656,33 @@
 									<div
 										class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
 									>
-										{#if !loaded || loaded.state === 'loading'}
+										{#if !mountedRows[key]}
+											<!-- Defer the Monaco mount until this block scrolls near the
+											     viewport, so an exploded many-file app doesn't mount every
+											     editor at once. -->
+											<div
+												use:lazyMount={key}
+												class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
+											>
+												<Loader2 class="w-3.5 h-3.5 animate-spin" />
+												Diff loads on scroll…
+											</div>
+										{:else if d.kind === 'raw_app_file'}
+											<!-- DiffRow.kind is a plain string, so the kind check doesn't narrow
+											     the union — assert the synthetic file item. -->
+											{@const rawFile = d as RawAppFileItem}
+											<WorkspaceItemDiffViewer kind="raw_app_file" {rawFile} {inlineDiff} />
+										{:else if 'appPath' in d}
+											<!-- Synthesized runnable: render script-style (Content + Metadata),
+											     forcing `script` so flow runnables don't hit FlowDiffViewer. -->
+											{@const runnable = d as RawAppRunnableItem}
+											<WorkspaceItemDiffViewer
+												kind="script"
+												originalRaw={runnable.originalRaw}
+												currentRaw={runnable.currentRaw}
+												{inlineDiff}
+											/>
+										{:else if !loaded || loaded.state === 'loading'}
 											<div class="flex items-center gap-2 text-xs text-secondary p-3">
 												<Loader2 class="w-3.5 h-3.5 animate-spin" />
 												Loading diff…

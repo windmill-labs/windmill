@@ -192,7 +192,7 @@
 	// side to diff the name against. Raw apps are fetched via the apps endpoint too
 	// (it auto-detects raw from the deployed row and overlays the raw_app draft).
 	const summaryCache = $state<
-		Record<string, { deployed?: string; draft?: string; loading?: boolean }>
+		Record<string, { deployed?: string; draft?: string; stale?: boolean; loading?: boolean }>
 	>({})
 
 	async function fetchDraftSummary(item: Row) {
@@ -216,9 +216,27 @@
 							path: item.path,
 							getDraft: true
 						}))) as any
+			// A draft is stale when the version it forked from no longer matches the
+			// current deployed head: a newer version was deployed after the draft began.
+			// Scripts compare `parent_hash` vs the deployed `hash`; flows the pinned
+			// `version_id` vs the deployed head `version_id`; apps the pinned
+			// `parent_version` vs the deployed head (`versions[last]`).
+			const draftBlob = r.draft as any
+			const appHead = Array.isArray(r.versions) ? r.versions[r.versions.length - 1] : undefined
+			const stale =
+				item.draftKind === 'script'
+					? !!r.hash && !!draftBlob?.parent_hash && draftBlob.parent_hash !== r.hash
+					: item.draftKind === 'flow'
+						? r.version_id != null &&
+							draftBlob?.version_id != null &&
+							draftBlob.version_id !== r.version_id
+						: appHead != null &&
+							draftBlob?.parent_version != null &&
+							draftBlob.parent_version !== appHead
 			summaryCache[item.key] = {
 				deployed: r.summary,
-				draft: (r.draft as any)?.summary,
+				draft: draftBlob?.summary,
+				stale,
 				loading: false
 			}
 		} catch (error) {
@@ -341,13 +359,10 @@
 		let deployedAny = false
 		for (const item of toDeploy) {
 			deploymentStatus[item.key] = { status: 'loading' }
-			const res = await deployDraft(
-				item.draftKind,
-				item.path,
-				currentWorkspaceId,
-				item.draft_only,
-				item.raw_app
-			)
+			const res = await deployDraft(item.draftKind, item.path, currentWorkspaceId, {
+				draftOnly: item.draft_only,
+				rawApp: item.raw_app
+			})
 			if (res.success) {
 				deploymentStatus[item.key] = { status: 'deployed' }
 				deployedAny = true
@@ -617,6 +632,19 @@
 								{others.length} other {others.length === 1 ? 'user' : 'users'} ({others.join(', ')})
 								{others.length === 1 ? 'has' : 'have'} a draft of this item. Deploying only deploys your
 								draft; theirs are left untouched.
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
+				{#if draftItem.mine && summaryCache[draftItem.key]?.stale}
+					<Popover openOnHover debounceDelay={50}>
+						{#snippet trigger()}
+							<AlertTriangle size={16} class="text-orange-500" />
+						{/snippet}
+						{#snippet content()}
+							<div class="text-xs p-3 max-w-xs text-primary">
+								Started from an older deployed version. A newer version was deployed after this
+								draft began. Review the latest deploy before deploying.
 							</div>
 						{/snippet}
 					</Popover>

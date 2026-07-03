@@ -73,6 +73,8 @@
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
+	import Alert from '../common/alert/Alert.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -185,6 +187,14 @@
 	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 />
 
+{#if isCloudHosted()}
+	<Alert type="info" title="Instance database not available on cloud" class="mb-4" size="xs">
+		On Windmill Cloud, data tables cannot use the Windmill instance database. Select
+		<span class="font-semibold">PostgreSQL</span> and provide an external PostgreSQL resource (e.g. Supabase
+		or Neon) instead.
+	</Alert>
+{/if}
+
 <DataTable>
 	<Head>
 		<tr>
@@ -227,7 +237,12 @@
 									{
 										value: 'instance',
 										label: 'Instance',
-										subtitle: $isCustomInstanceDbEnabled ? undefined : 'Superadmin only'
+										disabled: isCloudHosted(),
+										subtitle: $isCustomInstanceDbEnabled
+											? undefined
+											: isCloudHosted()
+												? 'Not available on cloud'
+												: 'Superadmin only'
 									}
 								]}
 								bind:value={

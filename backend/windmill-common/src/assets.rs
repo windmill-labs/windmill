@@ -4,8 +4,46 @@ use sqlx::{PgExecutor, Postgres, Transaction};
 
 use crate::{error, scripts::ScriptHash};
 
-pub use windmill_parser::asset_parser::{parse_pipeline_annotations, TriggerSpec, PARTITION_TOKEN};
+pub use windmill_parser::asset_parser::{
+    merge_column_lineage, parse_pipeline_annotations, ColumnLineage, ColumnRef, DataTest,
+    PartitionKind, PipelineAnnotations, RetrySpec, TriggerSpec, PARTITION_TOKEN,
+};
 pub use windmill_types::assets::*;
+
+// --- Workspace DuckDB macro registry cache (worker hot path) ---
+// Every DuckDB job reads the `macro_definition` registry; cascades can run
+// many jobs per second. Primary invalidation is the
+// `notify_macro_registry_change` event, emitted transactionally with every
+// registry mutation and dispatched to this cache in main.rs — the TTL is a
+// backstop for mutation paths that don't emit (manual SQL edits).
+
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct MacroRegistryEntry {
+    pub name: String,
+    pub params: String,
+    pub body: String,
+    pub is_table_macro: bool,
+    pub provider_path: String,
+}
+
+#[derive(Clone)]
+pub struct ExpiringMacroRegistry {
+    pub rows: std::sync::Arc<Vec<MacroRegistryEntry>>,
+    pub expires_at: std::time::Instant,
+}
+
+pub const MACRO_REGISTRY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+// Tests sharing one process across several databases must disable the cache:
+// it is keyed by workspace id alone, and a notify from one DB can't evict
+// entries populated from another (same hazard as DEPLOYED_SCRIPT_CACHE_DISABLED).
+pub static MACRO_REGISTRY_CACHE_DISABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+lazy_static::lazy_static! {
+    pub static ref MACRO_REGISTRY_CACHE: quick_cache::sync::Cache<String, ExpiringMacroRegistry> =
+        quick_cache::sync::Cache::new(1000);
+}
 
 #[derive(sqlx::Type, Debug, Clone, Copy, PartialEq)]
 #[sqlx(type_name = "SCRIPT_TRIGGER_KIND", rename_all = "lowercase")]

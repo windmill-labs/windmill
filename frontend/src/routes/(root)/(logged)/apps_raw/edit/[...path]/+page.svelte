@@ -57,6 +57,7 @@
 	// let lastVersion = 0
 	let policy: any = $state({})
 	let summary = $state('')
+	let labels = $state<string[] | undefined>(undefined)
 	/** User-typed path from `RawAppEditorHeader` when it differs from
 	 *  `savedApp.path`; mirrored into the draft below as its own `path` for the
 	 *  home list's friendly name. */
@@ -72,6 +73,7 @@
 				summary: string
 				policy: any
 				custom_path?: string
+				labels?: string[]
 				no_deployed?: boolean
 		  }
 		| undefined = $state(undefined)
@@ -140,6 +142,7 @@
 		if (extractedData) data = extractedData
 		files = app.value.files
 		summary = app.summary
+		labels = app.labels
 		// lastVersion = app.version
 		policy = app.policy
 		// Deployed/URL path; the loader overrides this with the draft's own typed
@@ -179,6 +182,10 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// `labels` is route-level state; reset it too so a fresh draft doesn't
+			// inherit (and then deploy) the previously-opened app's labels. The
+			// import branch re-seeds it via extractRawApp below.
+			labels = undefined
 			// Brand-new raw app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
@@ -350,6 +357,7 @@
 			path: backendApp_.path,
 			policy: backendApp_.policy,
 			custom_path: backendApp_.custom_path,
+			labels: backendApp_.labels,
 			no_deployed: backendApp_.no_deployed
 		}
 		// Extract the effective raw app into the editor's local pieces. The bundle
@@ -448,16 +456,17 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 
-	function onRestore(ev: any) {
+	function onRestore(restoredApp: any) {
 		sendUserToast('App restored from previous deployment')
-		let prev = ev.detail
+		let prev = restoredApp
 		extractRawApp(prev)
 		savedApp = {
 			summary: prev.summary,
 			value: structuredClone(stateSnapshot(prev.value)),
 			path: prev.path,
 			policy: structuredClone(stateSnapshot(policy)),
-			custom_path: prev.custom_path
+			custom_path: prev.custom_path,
+			labels: prev.labels
 		}
 		redraw++
 	}
@@ -535,18 +544,19 @@
 	{#key redraw}
 		<div class="h-screen">
 			<RawAppEditor
-				on:savedNewAppPath={(event) => {
+				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
-					goto(`/apps_raw/edit/${event.detail}`)
-					newPath = event.detail
+					goto(`/apps_raw/edit/${savedPath}`)
+					newPath = savedPath
 				}}
-				on:restore={onRestore}
+				{onRestore}
 				bind:files
 				bind:runnables
 				bind:data
 				bind:summary
 				bind:pendingDraftPath
 				{newPath}
+				{labels}
 				path={page.params.path ?? ''}
 				liveEditorDraftStoragePath={path}
 				{policy}

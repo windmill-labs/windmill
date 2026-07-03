@@ -1,5 +1,39 @@
 import { describe, it, expect } from 'vitest'
-import { cleanValueProperties, getQueryStmtCountHeuristic } from './utils'
+import {
+	cleanValueProperties,
+	getQueryStmtCountHeuristic,
+	parseDbInputFromAssetSyntax
+} from './utils'
+
+describe('parseDbInputFromAssetSyntax', () => {
+	it('parses a table path', () => {
+		expect(parseDbInputFromAssetSyntax('ducklake://main/orders')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: 'orders',
+			specificSchema: undefined
+		})
+	})
+
+	it('parses a schema-qualified table path', () => {
+		expect(parseDbInputFromAssetSyntax('ducklake://main/analytics.orders')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: 'orders',
+			specificSchema: 'analytics'
+		})
+	})
+
+	it('handles a catalog-only path without throwing (no table segment)', () => {
+		// e.g. `// materialize ducklake` → `ducklake://main` — must not throw.
+		expect(parseDbInputFromAssetSyntax('ducklake://main')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: undefined,
+			specificSchema: undefined
+		})
+	})
+})
 
 describe('getQueryStmtCountHeuristic', () => {
 	describe('basic statements', () => {

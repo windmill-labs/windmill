@@ -343,8 +343,8 @@ lazy_static::lazy_static! {
     ).unwrap_or(false);
 }
 
-pub async fn check_tag_available_for_workspace_internal(
-    db: &DB,
+pub async fn check_tag_available_for_workspace_internal<'c>(
+    db: impl sqlx::PgExecutor<'c>,
     w_id: &str,
     tag: &str,
     email: &str,
@@ -457,6 +457,47 @@ pub struct WorkerInternalServerInlineUtils {
 // The server cannot call the worker functions directly because they are independent crates
 pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
     OnceCell::new();
+
+/// Deletes the given jobs from `v2_job` together with the side tables that reference it
+/// without an `ON DELETE CASCADE` foreign key.
+///
+/// **Authorization contract:** this helper does NO authorization and NO workspace scoping —
+/// it deletes exactly the `ids` passed, regardless of which workspace they belong to. Callers
+/// MUST ensure `ids` only contains jobs the caller is allowed to delete (either a trusted
+/// internal id set, e.g. a retention batch, or ids already filtered by `workspace_id`).
+/// Passing user-supplied, unvalidated ids would reintroduce the cross-workspace side-row
+/// deletion this centralizes. It is deliberately not workspace-scoped at the signature level
+/// because its primary caller — retention — deletes expired jobs across every workspace at
+/// once; a `workspace_id` parameter cannot express that. (This is the same trust model as the
+/// `ON DELETE CASCADE` FK it replaces: given a job id, the row and its side rows go.)
+///
+/// Those FKs were removed (migration `drop_v2_job_side_table_cascades`) because they turned
+/// every bulk retention delete into a per-row RI trigger; for the unindexed
+/// `flow_conversation_message.job_id` that was a sequential scan per deleted row. The
+/// set-based deletes below cost one scan per table per call instead. Because the cascade no
+/// longer fires, every code path that deletes from `v2_job` by id must go through this helper
+/// (or delete these tables itself) or it will leave orphan rows behind.
+pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> error::Result<()> {
+    sqlx::query!(
+        "DELETE FROM dispatch_event WHERE producer_job_id = ANY($1)",
+        ids
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1)",
+        ids
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {

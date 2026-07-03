@@ -19,10 +19,11 @@ export async function updateRawAppPolicy(
 		)
 	).filter((entry): entry is [string, TriggerableV2] => entry != null)
 	const triggerables_v2 = Object.fromEntries(entries)
-	return {
+	const next: Policy = {
 		...currentPolicy,
 		triggerables_v2
 	}
+	return next
 }
 
 type RunnableWithInlineScript = RunnableWithFields & {

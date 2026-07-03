@@ -26,6 +26,7 @@
 		enterpriseLicense,
 		usedTriggerKinds,
 		userStore,
+		userWorkspaces,
 		workerTags,
 		workspaceStore
 	} from '$lib/stores'
@@ -55,6 +56,7 @@
 		Code,
 		DiffIcon,
 		EllipsisVertical,
+		Network,
 		Plus,
 		Rocket,
 		Settings,
@@ -62,6 +64,9 @@
 		Tag,
 		X
 	} from 'lucide-svelte'
+	import { base } from '$lib/base'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -97,8 +102,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -313,6 +317,21 @@
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
+
+	// Languages the pipeline editor treats as warehouse/dataset transforms —
+	// the ones where a `-- pipeline` annotation is a natural next step.
+	const pipelineHintLangs = ['duckdb', 'postgresql', 'bigquery', 'snowflake', 'mysql', 'mssql']
+	const pipelineHintDismissed = useLocalStorageValue(
+		'pipelineScriptHintDismissed',
+		false,
+		'boolean'
+	)
+	let showPipelineHint = $derived(
+		!pipelineHintDismissed.val &&
+			(script.kind === 'script' || script.kind === undefined) &&
+			pipelineHintLangs.includes(script.language ?? '') &&
+			!parsePipelineAnnotations(script.content ?? '').inPipeline
+	)
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -761,10 +780,10 @@
 											window.open(`/scripts/add?template=${initialPath}`)
 										}
 									},
-									...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+									...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
 										? [
 												{
-													label: 'Edit in workspace fork',
+													label: editInForkLabel($workspaceStore, $userWorkspaces),
 													onClick: () => {
 														window.open(buildForkEditUrl('script', initialPath))
 													}
@@ -952,9 +971,7 @@
 			}
 		})
 	})
-	$effect(() => {
-		readFieldsRecursively(script)
-	})
+
 	// Mirror the draft triggers (held in a separate `triggersState` $state)
 	// back into `script.draft_triggers` so the UserDraft autosave — which
 	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own
@@ -1995,6 +2012,42 @@
 			</div>
 		</div>
 
+		{#if showPipelineHint}
+			<div
+				class="flex items-center gap-2 px-4 py-1 border-y bg-surface-secondary text-xs text-secondary"
+			>
+				<Network size={14} class="shrink-0 text-tertiary" />
+				<span class="truncate">
+					This script can become a data pipeline step: annotate it with
+					<code class="font-mono text-2xs bg-surface px-1 py-0.5 rounded border">-- pipeline</code>
+					and
+					<code class="font-mono text-2xs bg-surface px-1 py-0.5 rounded border">
+						-- materialize
+					</code>
+					to materialize its result, or build it in the
+					<a href="{base}/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
+					<a
+						href="https://www.windmill.dev/docs/pipelines"
+						target="_blank"
+						rel="noreferrer"
+						class="text-blue-500 hover:underline"
+					>
+						Learn more
+					</a>
+				</span>
+				<div class="ml-auto shrink-0">
+					<Button
+						iconOnly
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: X }}
+						title="Dismiss pipelines hint"
+						onclick={() => (pipelineHintDismissed.val = true)}
+					/>
+				</div>
+			</div>
+		{/if}
+
 		<ScriptEditor
 			{disableAi}
 			bind:selectedTab={selectedInputTab}
@@ -2018,6 +2071,7 @@
 			stablePathForCaptures={initialPath || fakeInitialPath}
 			bind:code={script.content}
 			lang={script.language}
+			timeout={script.timeout}
 			kind={script.kind}
 			autoKind={script.auto_kind}
 			{template}

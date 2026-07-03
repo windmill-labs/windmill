@@ -8,11 +8,16 @@ edition.workspace = true
 name = "windmill_api_assets"
 path = "src/lib.rs"
 
+[features]
+private = ["windmill-common/private"]
+
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-parser-sql-asset.workspace = true
 axum.workspace = true
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
+tracing.workspace = true

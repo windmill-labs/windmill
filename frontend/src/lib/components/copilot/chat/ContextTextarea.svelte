@@ -2,6 +2,8 @@
 	import autosize from '$lib/autosize'
 	import { tick } from 'svelte'
 	import type { ContextElement } from './context'
+	import { AIMode } from './AIChatManager.svelte'
+	import ChatCommandPicker from './ChatCommandPicker.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
@@ -68,11 +70,22 @@
 
 	let showContextTooltip = $state(false)
 	let contextTooltipWord = $state('')
+	let showCommandTooltip = $state(false)
+	let commandTooltipWord = $state('')
 	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
 	let tooltipElement = $state<HTMLDivElement | undefined>(undefined)
 	let chatContextPicker: ChatContextPicker | undefined = $state()
+	let chatCommandPicker: ChatCommandPicker | undefined = $state()
+	let commandSkillsRefreshInFlight = false
 
-	// Virtual reference anchored at the `@` that opened the mention (not the
+	const commandSkills = $derived(
+		aiChatManager.mode === AIMode.GLOBAL && aiChatManager.isSessionChat
+			? aiChatManager.sessionCommands
+			: []
+	)
+	const activeTooltipWord = $derived(showContextTooltip ? contextTooltipWord : commandTooltipWord)
+
+	// Virtual reference anchored at the trigger that opened the picker (not the
 	// caret), so the picker stays put while the user types the query.
 	// svelte-floating-ui's `createVirtualElement` takes a raw ClientRect and
 	// wraps it in a function internally — re-`update()` on each anchor move.
@@ -526,19 +539,33 @@
 		showContextTooltip = false
 	}
 
+	function refreshCommandSkills() {
+		if (commandSkillsRefreshInFlight) return
+		commandSkillsRefreshInFlight = true
+		void aiChatManager.refreshGlobalSkills().finally(() => {
+			commandSkillsRefreshInFlight = false
+		})
+	}
+
+	function getCommandFilter(text: string): string | undefined {
+		if (aiChatManager.mode !== AIMode.GLOBAL || !aiChatManager.isSessionChat) return undefined
+		const match = /^\/([a-z0-9-]*)$/.exec(text)
+		return match?.[1]
+	}
+
 	function updateAnchorRect() {
 		if (!textarea) return
+		const triggerWord = activeTooltipWord
+		if (!triggerWord) return
 		try {
-			// Index of the `@` that started the current mention. handleInput
-			// only opens the picker when `contextTooltipWord` (= `@xxx`) is the
-			// LAST whitespace-separated word in `value`, so the `@` always sits
-			// at `value.length - contextTooltipWord.length`.
-			const atIndex = value.length - contextTooltipWord.length
-			const coords = getCaretCoordinates(textarea, atIndex)
+			// Inline `@` anchors to the last word; slash commands only open when
+			// `/...` is the whole input, so the trigger sits at index 0.
+			const triggerIndex = triggerWord.startsWith('/') ? 0 : value.length - triggerWord.length
+			const coords = getCaretCoordinates(textarea, triggerIndex)
 			const rect = textarea.getBoundingClientRect()
 			// getCaretCoordinates returns content-relative coords; subtract the
-			// textarea's own scroll so the anchor tracks the `@` once the input is
-			// capped (max-height) and scrolls internally.
+			// textarea's own scroll so the anchor tracks the trigger once the input
+			// is capped (max-height) and scrolls internally.
 			anchorRect = new DOMRect(
 				rect.left + coords.left - textarea.scrollLeft,
 				rect.top + coords.top - textarea.scrollTop,
@@ -558,6 +585,19 @@
 	function handleInput(e: Event) {
 		textarea = e.target as HTMLTextAreaElement
 
+		const commandFilter = getCommandFilter(value)
+		if (commandFilter !== undefined) {
+			const wasShowing = showCommandTooltip
+			showCommandTooltip = true
+			commandTooltipWord = `/${commandFilter}`
+			showContextTooltip = false
+			contextTooltipWord = ''
+			if (!wasShowing) refreshCommandSkills()
+			return
+		}
+		showCommandTooltip = false
+		commandTooltipWord = ''
+
 		const words = value.split(/\s+/)
 		const lastWord = words[words.length - 1]
 
@@ -574,6 +614,12 @@
 		}
 	}
 
+	function handleCommandSelection(skill: { name: string }) {
+		value = `/${skill.name} `
+		showCommandTooltip = false
+		setTimeout(() => textarea?.focus(), 0)
+	}
+
 	function handleKeyDown(e: KeyboardEvent) {
 		// Pass to parent first if provided
 		if (onKeyDown) {
@@ -582,6 +628,22 @@
 
 		// Atomic chip deletion takes precedence over the default char delete.
 		if (handlePasteDeletion(e)) {
+			return
+		}
+
+		if (showCommandTooltip) {
+			if (
+				e.key === 'ArrowDown' ||
+				e.key === 'ArrowUp' ||
+				e.key === 'Enter' ||
+				e.key === 'Tab' ||
+				e.key === 'Escape'
+			) {
+				chatCommandPicker?.handleKeydown(e)
+			}
+			if (e.key === 'Enter') {
+				e.preventDefault()
+			}
 			return
 		}
 
@@ -622,11 +684,11 @@
 	}
 
 	$effect(() => {
-		// Re-track on every value change. The `@` position can shift when the
-		// user adds/deletes text BEFORE it (line wrap, etc.); the picker should
-		// follow. floating-ui's autoUpdate only fires on scroll/resize.
+		// Re-track on every value change. The trigger position can shift when
+		// the user adds/deletes text before it (line wrap, etc.); the picker
+		// should follow. floating-ui's autoUpdate only fires on scroll/resize.
 		void value
-		if (showContextTooltip) updateAnchorRect()
+		if (showContextTooltip || showCommandTooltip) updateAnchorRect()
 	})
 
 	$effect(() => {
@@ -700,9 +762,9 @@
 		ondragstart={handlePasteDragStart}
 		onscroll={(e) => {
 			scrollTop = e.currentTarget.scrollTop
-			// Keep the `@` picker pinned to its anchor while the input scrolls
+			// Keep the picker pinned to its anchor while the input scrolls
 			// internally (autoUpdate can't observe a virtual ref's scroll).
-			if (showContextTooltip) updateAnchorRect()
+			if (showContextTooltip || showCommandTooltip) updateAnchorRect()
 		}}
 		onblur={() => {
 			setTimeout(() => {
@@ -711,6 +773,7 @@
 					return
 				}
 				showContextTooltip = false
+				showCommandTooltip = false
 			}, 200)
 		}}
 		{placeholder}
@@ -724,7 +787,7 @@
 	></textarea>
 </div>
 
-{#if showContextTooltip}
+{#if showContextTooltip || showCommandTooltip}
 	<Portal target="body">
 		<div
 			bind:this={tooltipElement}
@@ -732,33 +795,46 @@
 			class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden"
 			style="z-index: {zIndexes.tooltip};"
 		>
-			<ChatContextPicker
-				bind:this={chatContextPicker}
-				{availableContext}
-				{selectedContext}
-				onSelect={(element) => {
-					handleContextSelection(element)
-				}}
-				onSelectWorkspaceItem={(element) => {
-					onAddContext(element)
-					updateInstructionsWithContext(element)
-					showContextTooltip = false
-					setTimeout(() => textarea?.focus(), 0)
-				}}
-				externalFilter={contextTooltipWord.slice(1)}
-				autoFocus={false}
-				setShowing={(showing) => {
-					showContextTooltip = showing
-				}}
-				onSelectFile={(name) => {
-					// Replace the in-progress `@word` with the chosen mention (bracketed if the
-					// filename has spaces, so the highlighter captures it whole).
-					const index = value.lastIndexOf('@')
-					value = (index !== -1 ? value.substring(0, index) : value) + `${formatMention(name)} `
-					showContextTooltip = false
-					setTimeout(() => textarea?.focus(), 0)
-				}}
-			/>
+			{#if showCommandTooltip}
+				<ChatCommandPicker
+					bind:this={chatCommandPicker}
+					skills={commandSkills}
+					onSelect={handleCommandSelection}
+					externalFilter={commandTooltipWord.slice(1)}
+					autoFocus={false}
+					setShowing={(showing) => {
+						showCommandTooltip = showing
+					}}
+				/>
+			{:else}
+				<ChatContextPicker
+					bind:this={chatContextPicker}
+					{availableContext}
+					{selectedContext}
+					onSelect={(element) => {
+						handleContextSelection(element)
+					}}
+					onSelectWorkspaceItem={(element) => {
+						onAddContext(element)
+						updateInstructionsWithContext(element)
+						showContextTooltip = false
+						setTimeout(() => textarea?.focus(), 0)
+					}}
+					externalFilter={contextTooltipWord.slice(1)}
+					autoFocus={false}
+					setShowing={(showing) => {
+						showContextTooltip = showing
+					}}
+					onSelectFile={(name) => {
+						// Replace the in-progress `@word` with the chosen mention (bracketed if the
+						// filename has spaces, so the highlighter captures it whole).
+						const index = value.lastIndexOf('@')
+						value = (index !== -1 ? value.substring(0, index) : value) + `${formatMention(name)} `
+						showContextTooltip = false
+						setTimeout(() => textarea?.focus(), 0)
+					}}
+				/>
+			{/if}
 		</div>
 	</Portal>
 {/if}

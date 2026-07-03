@@ -635,7 +635,9 @@ fn duckdb_value_to_json_value(
                 .ok_or_else(|| "Could not convert to f64".to_string())?,
         ),
         duckdb::types::Value::Decimal(d) => serde_json::Value::String(d.to_string()),
-        duckdb::types::Value::Timestamp(_, ts) => serde_json::Value::String(ts.to_string()),
+        duckdb::types::Value::Timestamp(unit, ts) => {
+            serde_json::Value::String(duckdb_timestamp_to_iso(unit, ts))
+        }
         duckdb::types::Value::Text(s) if type_alias.as_deref().unwrap_or_default() == "JSON" => {
             serde_json::from_str(&s)
                 .map_err(|e| format!("Error parsing JSON text: {}", e.to_string()))?
@@ -646,8 +648,15 @@ fn duckdb_value_to_json_value(
                 .map(|byte| serde_json::Value::Number(byte.into()))
                 .collect(),
         ),
-        duckdb::types::Value::Date32(d) => serde_json::Value::Number(d.into()),
-        duckdb::types::Value::Time64(_, t) => serde_json::Value::String(t.to_string()),
+        duckdb::types::Value::Date32(d) => {
+            match chrono::DateTime::from_timestamp(i64::from(d) * 86_400, 0) {
+                Some(dt) => serde_json::Value::String(dt.date_naive().to_string()),
+                None => serde_json::Value::Number(d.into()),
+            }
+        }
+        duckdb::types::Value::Time64(unit, t) => {
+            serde_json::Value::String(duckdb_time_to_iso(unit, t).unwrap_or_else(|| t.to_string()))
+        }
         duckdb::types::Value::Interval { months, days, nanos } => serde_json::json!({
             "months": months,
             "days": days,
@@ -686,6 +695,105 @@ fn duckdb_value_to_json_value(
         duckdb::types::Value::Union(value) => serde_json::Value::String(format!("{:?}", *value)),
     };
     Ok(json_value)
+}
+
+// DuckDB surfaces TIMESTAMP[_S/_MS/_NS] values as a raw count since the epoch;
+// stringifying that count leaks values like "1782974022218435" into job
+// results. Render ISO-8601 instead (the Postgres executor's
+// "2024-01-15T10:30:00" shape); a count outside chrono's representable range
+// falls back to the raw number.
+fn duckdb_timestamp_to_iso(unit: duckdb::types::TimeUnit, ts: i64) -> String {
+    let dt = match unit {
+        duckdb::types::TimeUnit::Second => chrono::DateTime::from_timestamp(ts, 0),
+        duckdb::types::TimeUnit::Millisecond => chrono::DateTime::from_timestamp_millis(ts),
+        duckdb::types::TimeUnit::Microsecond => chrono::DateTime::from_timestamp_micros(ts),
+        duckdb::types::TimeUnit::Nanosecond => Some(chrono::DateTime::from_timestamp_nanos(ts)),
+    };
+    dt.map(|dt| dt.naive_utc().format("%Y-%m-%dT%H:%M:%S%.f").to_string())
+        .unwrap_or_else(|| ts.to_string())
+}
+
+// Same story for TIME: a raw count since midnight. None when out of range
+// (caller falls back to the raw number).
+fn duckdb_time_to_iso(unit: duckdb::types::TimeUnit, t: i64) -> Option<String> {
+    let (secs, nanos) = match unit {
+        duckdb::types::TimeUnit::Second => (t, 0),
+        duckdb::types::TimeUnit::Millisecond => (t / 1_000, (t % 1_000) * 1_000_000),
+        duckdb::types::TimeUnit::Microsecond => (t / 1_000_000, (t % 1_000_000) * 1_000),
+        duckdb::types::TimeUnit::Nanosecond => (t / 1_000_000_000, t % 1_000_000_000),
+    };
+    chrono::NaiveTime::from_num_seconds_from_midnight_opt(
+        u32::try_from(secs).ok()?,
+        u32::try_from(nanos).ok()?,
+    )
+    .map(|t| t.format("%H:%M:%S%.f").to_string())
+}
+
+#[cfg(test)]
+mod temporal_json_tests {
+    use super::*;
+    use duckdb::types::TimeUnit;
+
+    #[test]
+    fn timestamp_micros_renders_iso() {
+        // 2026-07-01 23:13:42.218435 UTC
+        assert_eq!(
+            duckdb_timestamp_to_iso(TimeUnit::Microsecond, 1_782_947_622_218_435),
+            "2026-07-01T23:13:42.218435"
+        );
+    }
+
+    #[test]
+    fn timestamp_seconds_renders_iso_without_subseconds() {
+        assert_eq!(
+            duckdb_timestamp_to_iso(TimeUnit::Second, 1_735_689_600),
+            "2025-01-01T00:00:00"
+        );
+    }
+
+    #[test]
+    fn out_of_range_timestamp_falls_back_to_raw() {
+        assert_eq!(
+            duckdb_timestamp_to_iso(TimeUnit::Second, i64::MAX),
+            i64::MAX.to_string()
+        );
+    }
+
+    #[test]
+    fn time_micros_renders_iso() {
+        assert_eq!(
+            duckdb_time_to_iso(TimeUnit::Microsecond, 37_800_500_000).as_deref(),
+            Some("10:30:00.500")
+        );
+    }
+
+    #[test]
+    fn temporal_values_render_iso_through_real_query() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT TIMESTAMP '2026-07-01 23:13:42.218435' AS ts,
+                        TIMESTAMPTZ '2026-07-01 23:13:42+00' AS tstz,
+                        TIMESTAMP_NS '2026-07-01 23:13:42.218435678' AS ts_ns,
+                        DATE '2026-07-01' AS d,
+                        TIME '10:30:00' AS t",
+            )
+            .unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let row = rows.next().unwrap().unwrap();
+        let json_of = |i: usize| {
+            let v: duckdb::types::Value = row.get(i).unwrap();
+            duckdb_value_to_json_value(v, &None).unwrap()
+        };
+        assert_eq!(json_of(0), serde_json::json!("2026-07-01T23:13:42.218435"));
+        assert_eq!(json_of(1), serde_json::json!("2026-07-01T23:13:42"));
+        assert_eq!(
+            json_of(2),
+            serde_json::json!("2026-07-01T23:13:42.218435678")
+        );
+        assert_eq!(json_of(3), serde_json::json!("2026-07-01"));
+        assert_eq!(json_of(4), serde_json::json!("10:30:00"));
+    }
 }
 
 fn json_value_to_duckdb_value(

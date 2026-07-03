@@ -105,8 +105,6 @@ async fn add_granular_acl(
         return Err(Error::BadRequest("Invalid kind".to_string()));
     }
 
-    let mut tx = user_db.begin(&authed).await?;
-
     let identifier = if kind == "group_" || kind == "folder" || kind == "volume" {
         "name"
     } else {
@@ -139,6 +137,8 @@ async fn add_granular_acl(
             require_owner_of_path(&authed, path)?;
         }
     }
+
+    let mut tx = user_db.begin(&authed).await?;
 
     if kind == "folder" {
         if let Some(obj) = sqlx::query_scalar!(

@@ -33,6 +33,7 @@
 				summary: string
 				policy: any
 				custom_path?: string
+				labels?: string[]
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
@@ -49,6 +50,10 @@
 	let othersModalOpen = $state(false)
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
+	// The app_version the draft was forked from (pinned), + the deployed head, for
+	// the precise staleness check in DraftEditorModals (vs the drifting timestamp).
+	let draftBaseVersion = $state<number | undefined>(undefined)
+	let deployedHeadVersion = $state<number | undefined>(undefined)
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
@@ -78,6 +83,11 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// New-draft returns before the version assignment below, so clear the
+			// previous app's version-staleness inputs, else they bleed across the
+			// reused route and falsely trip the stale-draft modal.
+			draftBaseVersion = undefined
+			deployedHeadVersion = undefined
 			// Brand-new app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			const templatePath = page.url.searchParams.get('template')
@@ -275,13 +285,21 @@
 		// `no_deployed` — no baseline to be older than.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		// `parent_version` rides on the persisted draft (pinned at fork); undefined
+		// for a pre-feature draft. Head = the last entry of the deployed `versions`.
+		draftBaseVersion = savedDraftApp?.parent_version
+		deployedHeadVersion =
+			backendApp.no_deployed || !backendApp.versions
+				? undefined
+				: backendApp.versions[backendApp.versions.length - 1]
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
 			summary: backendApp_.summary,
 			value: backendApp_.value as App,
 			path: backendApp_.path,
 			policy: backendApp_.policy,
-			custom_path: backendApp_.custom_path
+			custom_path: backendApp_.custom_path,
+			labels: backendApp_.labels
 		}
 		// "Load another user's draft" handoff: render their value. Overlay mode (we
 		// have our own draft) hard-locks saves until the user confirms overwriting
@@ -317,6 +335,16 @@
 					}
 				})
 			}
+		}
+		// Pin the fork base for the stale-draft check: when seeding a draft from the
+		// deployed app (no own draft yet), stamp the deployed head version onto the
+		// draft value. An existing own draft already carries it (preserved by the
+		// value swap above). `parent_version` is in DRAFT_COMPARE_IGNORED_FIELDS, so it
+		// never trips the autosave no-op / "unsaved changes" comparison.
+		if (!hasOwnDraft && !backendApp.no_deployed && backendApp.value) {
+			const versions = (backendApp as { versions?: number[] }).versions
+			const head = Array.isArray(versions) ? versions[versions.length - 1] : undefined
+			if (head != null) (backendApp.value as App).parent_version = head
 		}
 		// Assign the fresh response onto `app`. The path-change $effect sets
 		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft
@@ -362,16 +390,29 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	function onRestore(ev: any) {
+	function onRestore(restoredApp: any) {
 		sendUserToast('App restored from previous deployment')
-		app = ev.detail
+		// Drop the stale pre-restore autosave. The remounted AppEditor seeds its
+		// state from `appDraftHandle.draft ?? app`, so without this it keeps showing
+		// the old draft instead of the restored version. Same reason `reloadDeployed`
+		// removes the draft before remounting.
+		UserDraft.remove('app', path)
+		app = restoredApp
+		// Re-pin the stale-draft fork base to the current head. A restored value
+		// carries the `parent_version` baked in when that older version was deployed,
+		// which would make the deploy guard (`compareVersions`) falsely report "not on
+		// latest". Restore targets the live app, so `versions` holds the current head.
+		const versions = (app as { versions?: number[] } | undefined)?.versions
+		const head = Array.isArray(versions) ? versions[versions.length - 1] : undefined
+		if (head != null && app?.value) (app.value as App).parent_version = head
 		const app_ = structuredClone(stateSnapshot(app!))
 		savedApp = {
 			summary: app_.summary,
 			value: app_.value as App,
 			path: app_.path,
 			policy: app_.policy,
-			custom_path: app_.custom_path
+			custom_path: app_.custom_path,
+			labels: app_.labels
 		}
 		redraw++
 	}
@@ -412,6 +453,8 @@
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
+	{draftBaseVersion}
+	{deployedHeadVersion}
 	onLoadLatestDeploy={async () => {
 		if (!$workspaceStore) return
 		await runResetToDeployed({
@@ -435,9 +478,10 @@
 						app.path = url
 					}
 				}}
-				on:restore={onRestore}
+				{onRestore}
 				summary={app.summary}
 				app={app.value}
+				labels={app.labels}
 				{deployedBaseline}
 				newPath={app.value?.path ?? app.path}
 				path={page.params.path ?? ''}

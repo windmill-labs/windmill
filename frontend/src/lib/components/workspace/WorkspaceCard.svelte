@@ -6,6 +6,7 @@
 	import type { UserWorkspace } from '$lib/stores'
 	import { superadmin } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
+	import { reconcileAfterWorkspaceChange } from '$lib/components/sessions/sessionState.svelte'
 	import { pluralize } from '$lib/utils'
 	import WorkspaceIcon from './WorkspaceIcon.svelte'
 	import WorkspaceCard from './WorkspaceCard.svelte'
@@ -51,6 +52,14 @@
 	const paddingLeft = untrack(() => depth) * 24
 	const isSelected = $derived(selectedWorkspaceId === workspace.id)
 
+	// The canonical dev workspace sorts before throwaway forks.
+	const sortedChildren = $derived(
+		[...children].sort((a, b) => {
+			if (!!a.is_dev_workspace !== !!b.is_dev_workspace) return a.is_dev_workspace ? -1 : 1
+			return a.name.localeCompare(b.name)
+		})
+	)
+
 	// Helper functions
 	function isWorkspaceArchived(workspace: UserWorkspace): boolean {
 		return workspace['deleted'] === true
@@ -64,6 +73,8 @@
 		if (onUnarchive) {
 			await WorkspaceService.unarchiveWorkspace({ workspace: workspace.id })
 			await onUnarchive(workspace.id)
+			// Restore sessions auto-archived when this workspace was archived.
+			await reconcileAfterWorkspaceChange()
 		}
 	}
 </script>
@@ -108,6 +119,7 @@
 							<WorkspaceIcon
 								workspaceColor={workspace.color}
 								{isForked}
+								isDevWorkspace={workspace.is_dev_workspace}
 								parentName={workspace.parent_workspace_id ?? undefined}
 								size={12}
 							/>
@@ -122,6 +134,9 @@
 										{workspace.name}
 									{/if}
 								</span>
+								{#if workspace.is_dev_workspace}
+									<Badge color="indigo">dev</Badge>
+								{/if}
 								<span class="text-secondary text-xs">-</span>
 								{#if workspace.id === 'admins'}
 									<Badge color="blue">{workspace.id}</Badge>
@@ -205,7 +220,7 @@
 	<!-- Expanded forks -->
 	{#if children.length > 0 && isExpanded}
 		<div class="mt-2 ml-6" transition:slide={{ duration: 150 }}>
-			{#each children as child (child.id)}
+			{#each sortedChildren as child (child.id)}
 				<WorkspaceCard
 					workspace={child}
 					isForked={true}

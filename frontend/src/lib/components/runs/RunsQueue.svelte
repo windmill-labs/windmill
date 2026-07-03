@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Tweened } from 'svelte/motion'
 	import { Button } from '../common'
-	import { Bot, Hourglass, ListFilterPlus, X } from 'lucide-svelte'
+	import { ServerCog, Hourglass, ListFilterPlus, X } from 'lucide-svelte'
 	import RunOption from './RunOption.svelte'
 	import { Popover } from '../meltComponents'
 
@@ -29,7 +29,7 @@
 		<Popover contentClasses="p-4" openOnHover debounceDelay={100}>
 			{#snippet trigger()}
 				<div class="relative">
-					<Bot size={16} />
+					<ServerCog size={16} />
 					{#if queue_count && ($queue_count ?? 0) > 0}
 						<div
 							class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-yellow-500 rounded-full text-white text-2xs h-4 min-w-4 px-1"

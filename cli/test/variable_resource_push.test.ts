@@ -219,6 +219,103 @@ describe("variable", () => {
     });
   });
 
+  test("push encrypts a plaintext secret value (no --plain-secrets) and round-trips", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const varPath = `f/test/sec_push_${uniqueId}`;
+
+      // Existing secret variable (server-encrypted).
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: varPath,
+            value: "original-secret",
+            is_secret: true,
+            description: "",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      // A hand-authored spec file: plaintext value, is_secret: true. Pushing it
+      // without --plain-secrets must encrypt the value server-side, not store the
+      // plaintext verbatim as ciphertext (which would make every read fail).
+      const specPath = join(tempDir, "v.yaml");
+      await writeFile(
+        specPath,
+        `value: |\n  some: plaintext\nis_secret: true\ndescription: ""\n`,
+        "utf-8"
+      );
+
+      const pushResult = await backend.runCLICommand(
+        ["variable", "push", specPath, varPath],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // The value must decrypt cleanly to the pushed plaintext.
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}?decrypt_secret=true`
+      );
+      expect(apiResp.status).toEqual(200);
+      const varData = await apiResp.json();
+      expect(varData.is_secret).toBe(true);
+      expect(varData.value).toBe("some: plaintext\n");
+    });
+  });
+
+  test("push flips is_secret from true to false", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const varPath = `f/test/sec_down_${uniqueId}`;
+
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: varPath,
+            value: "original-secret",
+            is_secret: true,
+            description: "",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      const specPath = join(tempDir, "v_down.yaml");
+      await writeFile(
+        specPath,
+        `value: "now-public"\nis_secret: false\ndescription: ""\n`,
+        "utf-8"
+      );
+
+      const pushResult = await backend.runCLICommand(
+        ["variable", "push", specPath, varPath],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}?decrypt_secret=true`
+      );
+      expect(apiResp.status).toEqual(200);
+      const varData = await apiResp.json();
+      expect(varData.is_secret).toBe(false);
+      expect(varData.value).toBe("now-public");
+    });
+  });
+
   test("pull retrieves variables into local files", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);

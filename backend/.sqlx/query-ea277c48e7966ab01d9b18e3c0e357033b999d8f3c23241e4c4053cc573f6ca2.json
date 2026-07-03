@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_debounce_batch (id, debounce_batch, consumed_at) VALUES\n                ($1, nextval('debounce_batch_seq'), now() - interval '20 minutes'),\n                ($2, nextval('debounce_batch_seq'), now() - interval '1 minute'),\n                ($3, nextval('debounce_batch_seq'), NULL),\n                ($4, nextval('debounce_batch_seq'), now() - interval '20 minutes')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ea277c48e7966ab01d9b18e3c0e357033b999d8f3c23241e4c4053cc573f6ca2"
+}

@@ -382,12 +382,18 @@ pub fn build_query_string(
                 .map(|value| {
                     // Use the original name for the query parameter key
                     let original_name = get_original_name(param_name, query_field_renames);
-                    let value_str = value.to_string();
-                    let str_val = value_str.trim_matches('"');
+                    // For string values, use the raw content: to_string() would JSON-encode
+                    // it, and stripping the outer quotes leaves inner quotes backslash-escaped
+                    // (e.g. `{\"k\":\"v\"}`), which breaks downstream JSON parsing of params
+                    // like `args`/`result`. Non-string values keep their JSON serialization.
+                    let str_val = value
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| value.to_string());
                     format!(
                         "{}={}",
                         urlencoding::encode(&original_name),
-                        urlencoding::encode(str_val)
+                        urlencoding::encode(&str_val)
                     )
                 })
         })
@@ -455,9 +461,35 @@ pub async fn create_http_request(
         }
     };
 
+    // Bound the minted JWT to exactly this proxied route so a scope-restricted
+    // MCP token can't be widened into a full-privilege blank check. The
+    // endpoint-name gate (in the MCP runner) already authorized *which* endpoint
+    // may be called; this constrains what the resulting request can do. Unscoped
+    // callers (cookie / full-privilege tokens) keep an unscoped JWT to preserve
+    // existing behavior. A scope-restricted caller whose route can't be resolved
+    // fails closed.
+    let caller_restricted = api_authed
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    let scopes = if caller_restricted {
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
+        let scope =
+            windmill_api_auth::scopes::scope_for_route(method, parsed.path()).ok_or_else(|| {
+                ErrorData::internal_error(
+                    "Could not derive route scope for proxied MCP endpoint".to_string(),
+                    None,
+                )
+            })?;
+        Some(vec![scope])
+    } else {
+        None
+    };
+
     // Add authorization header
     let authed = Authed::from(api_authed.clone());
-    let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, None)
+    let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, scopes)
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
@@ -597,5 +629,56 @@ mod tests {
         )
         .expect("legitimate path should substitute");
         assert_eq!(result, "/w/dev/scripts/get/p/u/alice/my_script");
+    }
+
+    fn single_query_schema(param: &str) -> Option<Value> {
+        Some(json!({
+            "type": "object",
+            "properties": { param: { "type": "string" } }
+        }))
+    }
+
+    #[test]
+    fn build_query_string_preserves_json_string_content() {
+        // A string param carrying JSON (e.g. the `args` filter on listJobs) must be
+        // emitted as its raw content so the backend can `serde_json::from_str` it.
+        let mut args = serde_json::Map::new();
+        args.insert("args".to_string(), json!("{\"key\":\"val\"}"));
+
+        let qs = build_query_string(&args, &single_query_schema("args"), &None);
+
+        // No backslash escaping: %5C must not appear; the encoded braces/quotes are exact.
+        assert_eq!(qs, "?args=%7B%22key%22%3A%22val%22%7D");
+        assert!(
+            !qs.contains("%5C"),
+            "must not contain backslash escapes: {qs}"
+        );
+    }
+
+    #[test]
+    fn build_query_string_keeps_non_string_serialization() {
+        let mut args = serde_json::Map::new();
+        args.insert("per_page".to_string(), json!(42));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("per_page"), &None),
+            "?per_page=42"
+        );
+
+        let mut args = serde_json::Map::new();
+        args.insert("running".to_string(), json!(true));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("running"), &None),
+            "?running=true"
+        );
+    }
+
+    #[test]
+    fn build_query_string_encodes_plain_string() {
+        let mut args = serde_json::Map::new();
+        args.insert("path".to_string(), json!("u/alice/my script"));
+        assert_eq!(
+            build_query_string(&args, &single_query_schema("path"), &None),
+            "?path=u%2Falice%2Fmy%20script"
+        );
     }
 }

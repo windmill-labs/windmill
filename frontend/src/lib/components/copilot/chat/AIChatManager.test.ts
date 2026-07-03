@@ -15,7 +15,9 @@ const mocks = vi.hoisted(() => ({
 	getOpenaiClient: vi.fn(),
 	getAnthropicClient: vi.fn(),
 	getNonStreamingCompletion: vi.fn(),
-	runChatLoop: vi.fn()
+	runChatLoop: vi.fn(),
+	listAiSkills: vi.fn(),
+	workspace: 'test_workspace' as string | undefined
 }))
 
 vi.mock('monaco-editor', () => ({
@@ -24,7 +26,8 @@ vi.mock('monaco-editor', () => ({
 
 vi.mock('$lib/gen', () => ({
 	WorkspaceService: {
-		logAiChat: mocks.logAiChat
+		logAiChat: mocks.logAiChat,
+		listAiSkills: mocks.listAiSkills
 	},
 	ScriptService: {},
 	FlowService: {},
@@ -36,7 +39,12 @@ vi.mock('$lib/gen', () => ({
 const TEST_EMAIL = 'admin@test'
 
 vi.mock('$lib/stores', () => ({
-	workspaceStore: { subscribe: () => () => undefined },
+	workspaceStore: {
+		subscribe: (run: (value: string | undefined) => void) => {
+			run(mocks.workspace)
+			return () => undefined
+		}
+	},
 	userStore: {
 		subscribe: (run: (value: { username: string; email: string }) => void) => {
 			run({ username: 'admin', email: 'admin@test' })
@@ -53,6 +61,9 @@ vi.mock('$lib/aiStore', () => ({
 	getCurrentModel: mocks.getCurrentModel,
 	tryGetCurrentModel: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
+	getCustomPromptParts: () => ({}),
+	getUserCustomPrompts: () => ({}),
+	setUserCustomPrompts: () => {},
 	isWebSearchEnabledForProvider: mocks.isWebSearchEnabledForProvider
 }))
 
@@ -95,6 +106,8 @@ beforeEach(() => {
 	mocks.logAiChat.mockResolvedValue(undefined)
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
+	mocks.listAiSkills.mockResolvedValue([])
+	mocks.workspace = 'test_workspace'
 	mocks.runChatLoop.mockResolvedValue({
 		addedMessages: [],
 		tokenUsage: { prompt: 0, completion: 0, total: 0 },
@@ -182,6 +195,82 @@ describe('AIChatManager request errors', () => {
 			'Failed to send request: provider quota exceeded',
 			true
 		)
+	})
+})
+
+describe('AIChatManager global skills', () => {
+	const model = { provider: 'openai', model: 'gpt-4o' }
+
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
+	it('loads skills after beforeSend commits the session workspace', async () => {
+		let resolveParentSkills: ((skills: { name: string; description: string }[]) => void) | undefined
+		const parentSkills = new Promise<{ name: string; description: string }[]>((resolve) => {
+			resolveParentSkills = resolve
+		})
+		mocks.workspace = 'parent'
+		mocks.listAiSkills.mockImplementation(({ workspace }: { workspace: string }) => {
+			if (workspace === 'parent') {
+				return parentSkills
+			}
+			return Promise.resolve([{ name: 'child-skill', description: 'child workspace skill' }])
+		})
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			expect(config.workspace).toBe('child')
+			expect(config.systemMessage.content).toContain('child-skill')
+			expect(config.systemMessage.content).not.toContain('parent-skill')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.beforeSend = () => {
+			mocks.workspace = 'child'
+		}
+
+		await manager.sendRequest({ instructions: 'first', mode: AIMode.GLOBAL })
+		resolveParentSkills?.([{ name: 'parent-skill', description: 'parent workspace skill' }])
+		await Promise.resolve()
+
+		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'parent' })
+		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'child' })
+		expect(manager.systemMessage.content).toContain('child-skill')
+		expect(manager.systemMessage.content).not.toContain('parent-skill')
+	})
+
+	it('expands a leading slash skill command for the model while preserving the displayed text', async () => {
+		mocks.listAiSkills.mockResolvedValue([
+			{ name: 'review-code', description: 'review code for bugs' }
+		])
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const userMessage = config.messages[config.messages.length - 1]
+			expect(userMessage.content).toContain('Use the "review-code" skill. find bugs')
+			expect(userMessage.content).not.toContain('/review-code find bugs')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+
+		await manager.sendRequest({ instructions: '/review-code find bugs', mode: AIMode.GLOBAL })
+
+		expect(manager.displayMessages[0]?.content).toBe('/review-code find bugs')
 	})
 })
 
@@ -854,7 +943,7 @@ describe('AIChatManager context compaction', () => {
 
 		// The request that went out begins with the summary user message, then the
 		// recent tail verbatim, then the new question.
-		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		const sent = mocks.runChatLoop.mock.calls[mocks.runChatLoop.mock.calls.length - 1][0].messages
 		expect(sent).toHaveLength(4)
 		expect(sent[0].role).toBe('user')
 		expect(sent[0].content).toContain('SUMMARY TEXT')
@@ -916,12 +1005,10 @@ describe('AIChatManager context compaction', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
 		// The user hits Stop while the summary request is in flight: it aborts the
 		// turn's controller and rejects.
-		mocks.getNonStreamingCompletion.mockImplementation(
-			async (_msgs: any, ac: AbortController) => {
-				ac.abort('user_cancelled')
-				throw new Error('aborted')
-			}
-		)
+		mocks.getNonStreamingCompletion.mockImplementation(async (_msgs: any, ac: AbortController) => {
+			ac.abort('user_cancelled')
+			throw new Error('aborted')
+		})
 		// With the controller already aborted, the real request returns nothing;
 		// mirror that so the turn takes the cancel/rollback path.
 		mocks.runChatLoop.mockImplementation(async () => ({
@@ -942,6 +1029,244 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.messages).toHaveLength(6)
 		expect(manager.messages[0].content).toContain('OLD1')
 		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
+	})
+})
+
+describe('AIChatManager manual compaction', () => {
+	const model = { provider: 'openai', model: 'gpt-4o' }
+
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+		// changeMode(GLOBAL) refreshes workspace skills; keep it a no-op here.
+		mocks.listAiSkills.mockResolvedValue([])
+	})
+
+	function seedExchange(manager: AIChatManager) {
+		manager.messages = [
+			{ role: 'user', content: 'q1' },
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: 'q2' },
+			{ role: 'assistant', content: 'a2' }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'q1', index: 0 },
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: 'q2', index: 2 },
+			{ role: 'assistant', content: 'a2' }
+		]
+	}
+
+	it('folds the whole history into a single summary boundary, keeping nothing verbatim', async () => {
+		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>MANUAL SUMMARY</summary>')
+		const manager = new AIChatManager()
+		seedExchange(manager)
+		manager.contextUsage = 123
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat')
+
+		await manager.compactManually()
+
+		// The summarizer saw the entire history, then the summary instruction.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		const summaryReq = mocks.getNonStreamingCompletion.mock.calls[0][0]
+		expect(summaryReq).toHaveLength(5)
+		expect(summaryReq[0].content).toBe('q1')
+		expect(summaryReq[3].content).toBe('a2')
+		expect(summaryReq[4].content).toContain('detailed summary')
+
+		// Nothing kept verbatim: messages collapse to just the summary user message.
+		expect(manager.messages).toHaveLength(1)
+		expect(manager.messages[0].role).toBe('user')
+		expect(manager.messages[0].content).toContain('MANUAL SUMMARY')
+		expect(manager.messages[0].content).toContain('continued from a previous conversation')
+		expect(manager.messages[0].content).not.toContain('<summary>')
+
+		// The transcript shows one summary boundary in place of the old bubbles.
+		expect(manager.displayMessages).toHaveLength(1)
+		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', content: 'MANUAL SUMMARY' })
+
+		expect(manager.contextUsage).toBeUndefined()
+		expect(saveChat).toHaveBeenCalled()
+		expect(mocks.sendUserToast).toHaveBeenCalledWith('Conversation compacted.')
+		expect(manager.loading).toBe(false)
+		expect(manager.compacting).toBe(false)
+	})
+
+	it('no-ops with a toast when there is nothing worth compacting', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [{ role: 'user', content: 'only one' }]
+
+		await manager.compactManually()
+
+		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		expect(mocks.sendUserToast).toHaveBeenCalledWith('Nothing to compact yet.')
+		expect(manager.messages).toHaveLength(1)
+	})
+
+	it('leaves history untouched when the user stops mid-summary', async () => {
+		mocks.getNonStreamingCompletion.mockImplementation(async (_msgs: any, ac: AbortController) => {
+			ac.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+		const manager = new AIChatManager()
+		seedExchange(manager)
+
+		await manager.compactManually()
+
+		expect(manager.messages).toHaveLength(4)
+		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
+		// An abort is a user cancel, not a failure — no toast, no destructive change.
+		expect(mocks.sendUserToast).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('routes the /compact session command to manual compaction instead of the model', async () => {
+		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>VIA COMMAND</summary>')
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		seedExchange(manager)
+
+		const sent = await manager.sendRequest({ instructions: '/compact', mode: AIMode.GLOBAL })
+
+		// Consumed as a local command (true so the queue flush won't re-fire it),
+		// without ever reaching the model loop...
+		expect(sent).toBe(true)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		// ...it ran the summarizer and compacted in place, clearing the composer.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', content: 'VIA COMMAND' })
+		expect(manager.instructions).toBe('')
+	})
+
+	it('auto-sends a message queued while compaction was running', async () => {
+		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>S</summary>')
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.changeMode(AIMode.GLOBAL)
+		seedExchange(manager)
+		// A message typed while loading was true gets queued, not sent.
+		manager.queuedMessage = 'follow-up question'
+
+		await manager.compactManually()
+
+		// Compaction ran once, then the queued message went out as a real turn.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent[sent.length - 1].content).toContain('follow-up question')
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	it('routes the /clear session command to a fresh chat instead of the model', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		seedExchange(manager)
+
+		const sent = await manager.sendRequest({ instructions: '/clear', mode: AIMode.GLOBAL })
+
+		// Consumed as a local command (true so the queue flush won't re-fire it),
+		// without ever reaching the model...
+		expect(sent).toBe(true)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		// ...it reset the conversation and cleared the composer.
+		expect(manager.displayMessages).toEqual([])
+		expect(manager.messages).toEqual([])
+		expect(manager.instructions).toBe('')
+	})
+
+	it('consumes a /clear flushed from the queue without re-queuing it', async () => {
+		// A normal turn that commits cleanly, so its epilogue flushes the queue.
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.changeMode(AIMode.GLOBAL)
+		seedExchange(manager)
+		// `/clear` typed while the turn was streaming gets queued, not sent.
+		manager.queuedMessage = '/clear'
+
+		await manager.sendRequest({ instructions: 'a normal message', mode: AIMode.GLOBAL })
+
+		// The committed turn's flush ran `/clear` (resetting the conversation) and,
+		// because the command reports itself as consumed, did NOT restore it — so a
+		// stale `/clear` can't re-fire and wipe the next conversation.
+		expect(manager.queuedMessage).toBe('')
+		expect(manager.displayMessages).toEqual([])
+		expect(manager.messages).toEqual([])
+	})
+
+	it('does not intercept /clear outside session chat', async () => {
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.isSessionChat = false
+
+		await manager.sendRequest({ instructions: '/clear', mode: AIMode.GLOBAL })
+
+		// Without the session-chat command surface, /clear is a normal message.
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not intercept /compact outside session chat', async () => {
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.isSessionChat = false
+
+		await manager.sendRequest({ instructions: '/compact', mode: AIMode.GLOBAL })
+
+		// Without the session-chat command surface, /compact is a normal message.
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+	})
+
+	it('shadows a workspace skill that collides with a built-in command', () => {
+		const manager = new AIChatManager()
+		manager.globalSkills = [
+			{ name: 'compact', description: 'a workspace skill that happens to be named compact' },
+			{ name: 'review-code', description: 'review code for bugs' }
+		]
+
+		// Built-ins come first and the colliding skill is dropped, so the picker
+		// never renders two leaves with the same `skill:compact` key.
+		const names = manager.sessionCommands.map((c) => c.name)
+		expect(names).toEqual(['compact', 'clear', 'review-code'])
+		expect(manager.sessionCommands[0].description).toBe(
+			'Summarize the conversation to free up context'
+		)
 	})
 })
 

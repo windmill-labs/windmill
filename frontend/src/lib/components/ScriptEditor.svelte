@@ -52,6 +52,7 @@
 		Play,
 		PlayIcon,
 		Plus,
+		Target,
 		Terminal,
 		Pencil,
 		WandSparkles,
@@ -103,6 +104,7 @@
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { canHavePreprocessor } from '$lib/script_helpers'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
+	import type { ColumnLineage } from './assets/AssetGraph/parsePipelineAnnotations'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 	import GitRepoViewer from './GitRepoViewer.svelte'
@@ -157,6 +159,10 @@
 		// succeeded.
 		requireValidAssets?: boolean
 		args: Record<string, any>
+		// Custom timeout (in seconds) from the script settings. Forwarded to the
+		// preview run so "Test" honors the same timeout a deployed run would,
+		// instead of silently falling back to the instance default.
+		timeout?: number
 		selectedTab?: 'main' | 'preprocessor' | 'diagram'
 		hasPreprocessor?: boolean
 		captureTable?: CaptureTable | undefined
@@ -166,6 +172,11 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
+		// Body-inferred column lineage (DuckDB SQL AST), surfaced alongside
+		// `assets` so the pipeline editor can render inferred column lineage on
+		// the live graph. Empty/undefined for non-DuckDB or when the parser
+		// build predates the inference.
+		inferredColumnLineage?: ColumnLineage[]
 		modules?: { [key: string]: ScriptModule } | null
 		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
@@ -214,6 +225,7 @@
 		customUi = undefined,
 		requireValidAssets = false,
 		args = $bindable(),
+		timeout = undefined,
 		selectedTab = $bindable('main'),
 		hasPreprocessor = $bindable(false),
 		captureTable = $bindable(undefined),
@@ -223,6 +235,7 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
+		inferredColumnLineage = $bindable(),
 		modules = $bindable(undefined),
 		editorBarRight,
 		enablePreprocessorSnippet = false,
@@ -268,6 +281,7 @@
 		if (activeModuleTab === null && code !== lastSyncedCode) {
 			editorCode = code
 			lastSyncedCode = code
+			editor?.setCode(editorCode) // immediate sync, don't wait for the 800ms debounce
 			untrack(() => inferSchema(code))
 		}
 	})
@@ -578,7 +592,13 @@
 	watch(
 		() => inferAssetsRes.current,
 		() => {
-			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') return
+			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') {
+				// Clear stale lineage on parse error / unset, so a script switch
+				// whose new body fails to parse can't leave the previous script's
+				// inferred column lineage bound to the new path.
+				if (inferredColumnLineage !== undefined) inferredColumnLineage = undefined
+				return
+			}
 			let newAssets = inferAssetsRes.current.assets as AssetWithAltAccessType[]
 			for (const asset of newAssets) {
 				const old = assets?.find((a) => assetEq(a, asset))
@@ -586,6 +606,11 @@
 			}
 			const normalizedAssets = newAssets.length > 0 ? newAssets : undefined
 			if (!deepEqual(assets, normalizedAssets)) assets = normalizedAssets
+
+			const newLineage = inferAssetsRes.current.column_lineage
+			const normalizedLineage = newLineage && newLineage.length > 0 ? newLineage : undefined
+			if (!deepEqual(inferredColumnLineage, normalizedLineage))
+				inferredColumnLineage = normalizedLineage
 		}
 	)
 
@@ -789,7 +814,9 @@
 				}
 			},
 			undefined,
-			activeModuleTab !== null ? undefined : modules
+			activeModuleTab !== null ? undefined : modules,
+			undefined,
+			timeout
 		)
 		if (job) {
 			onTestJob?.({ jobId: job })
@@ -1591,18 +1618,29 @@
 	let error = $derived(getError(testJob))
 
 	$effect(() => {
-		const options: ScriptOptions = {
-			code,
-			lang: lang as ScriptLang,
-			error,
-			args: args ?? {},
-			path,
+		;[
+			editor,
 			lastSavedCode,
 			lastDeployedCode,
 			diffMode,
-			workflowAsCode: workflowAsCodeAiContext
-		}
+			workflowAsCodeAiContext,
+			args,
+			error,
+			lang,
+			path
+		]
 		untrack(() => {
+			const options: ScriptOptions = {
+				getCode: () => code,
+				lang: lang as ScriptLang,
+				error,
+				args: args ?? {},
+				path,
+				lastSavedCode,
+				lastDeployedCode,
+				diffMode,
+				workflowAsCode: workflowAsCodeAiContext
+			}
 			aiChatManager.scriptEditorOptions = options
 			aiChatManager.scriptEditorApplyCode = async (code: string, opts?: ReviewChangesOpts) => {
 				hideDiffMode()
@@ -1900,15 +1938,18 @@
 								<div class="absolute top-1 left-2 z-10">
 									{#if testIsLoading}
 										{@render cancelTestButton('sm', 'shadow-md')}
-									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0}
+									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 || customUi?.previewPanel?.onBoundedRun}
 										<!-- Split button: primary "Test" runs just this step
 									     (skips the asset-trigger cascade); the caret
 									     opens a popover with the cascade option labelled
 									     by the downstream count. The active mode is
 									     reflected in both the button label and the
 									     check-mark on the menu item so the user always
-									     knows whether the next run will fan out. -->
-										{@const downstream = customUi!.previewPanel!.downstreamSubscribers!}
+									     knows whether the next run will fan out. A
+									     pure-reader-only root has no subscriber downstream
+									     but still gets `onBoundedRun`, so the split button
+									     also opens for it (with the cascade item hidden). -->
+										{@const downstream = customUi?.previewPanel?.downstreamSubscribers ?? 0}
 										<div class="flex items-stretch shadow-md rounded-md overflow-hidden">
 											<Button
 												on:click={() => runTest()}
@@ -1971,31 +2012,55 @@
 																>
 															</div>
 														</button>
-														<button
-															type="button"
-															class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
-															onclick={() => {
-																cascadeDownstream = true
-																close()
-																void runTest()
-															}}
-														>
-															<Zap
-																size={14}
-																class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
-															/>
-															<div class="flex flex-col min-w-0">
-																<span class="font-medium">
-																	Test + trigger {downstream} downstream {cascadeDownstream
-																		? '(current)'
-																		: ''}
-																</span>
-																<span class="text-2xs text-secondary">
-																	Let the asset-trigger cascade fan out to the {downstream}
-																	subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
-																</span>
-															</div>
-														</button>
+														{#if downstream > 0}
+															<button
+																type="button"
+																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+																onclick={() => {
+																	cascadeDownstream = true
+																	close()
+																	void runTest()
+																}}
+															>
+																<Zap
+																	size={14}
+																	class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+																/>
+																<div class="flex flex-col min-w-0">
+																	<span class="font-medium">
+																		Test + trigger {downstream} downstream {cascadeDownstream
+																			? '(current)'
+																			: ''}
+																	</span>
+																	<span class="text-2xs text-secondary">
+																		Let the asset-trigger cascade fan out to the {downstream}
+																		subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
+																	</span>
+																</div>
+															</button>
+														{/if}
+														{#if customUi?.previewPanel?.onBoundedRun}
+															<button
+																type="button"
+																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
+																onclick={() => {
+																	close()
+																	customUi!.previewPanel!.onBoundedRun!()
+																}}
+															>
+																<Target
+																	size={14}
+																	class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400"
+																/>
+																<div class="flex flex-col min-w-0">
+																	<span class="font-medium">Run downstream up to…</span>
+																	<span class="text-2xs text-secondary">
+																		Pick end node(s) on the graph, then run only the cascade between
+																		this script and them.
+																	</span>
+																</div>
+															</button>
+														{/if}
 													</div>
 												{/snippet}
 											</Popover>

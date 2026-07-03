@@ -60,7 +60,8 @@ export declare function runScript(
   path?: string | null,
   hash_?: string | null,
   args?: Record<string, any> | null,
-  verbose?: boolean
+  verbose?: boolean,
+  tag?: string | null
 ): Promise<any>;
 export declare function waitJob(jobId: string, verbose?: boolean): Promise<any>;
 export declare function getResult(jobId: string): Promise<any>;
@@ -70,7 +71,8 @@ export declare function runScriptAsync(
   path: string | null,
   hash_: string | null,
   args: Record<string, any> | null,
-  scheduledInSeconds?: number | null
+  scheduledInSeconds?: number | null,
+  tag?: string | null
 ): Promise<string>;
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined

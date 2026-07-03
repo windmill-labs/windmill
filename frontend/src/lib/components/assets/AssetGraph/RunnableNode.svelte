@@ -10,7 +10,9 @@
 		Loader2,
 		Play,
 		RotateCw,
+		SquareFunction,
 		Tag,
+		Target,
 		Timer,
 		Trash2,
 		XCircle,
@@ -36,6 +38,9 @@
 			freshness?: string
 			tag?: string
 			retry?: { count: number; delay?: string }
+			// Macros this script provides (deployed/drafted `// macros` library).
+			// Non-empty renders the ƒ chip marking the node as a macro library.
+			macros?: { name: string; params: string; is_table: boolean }[]
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
@@ -67,6 +72,10 @@
 			// "Discard" for drafts, "Delete…" (which the page maps to its
 			// archive/delete confirmation flow) for persisted scripts.
 			onRequestRemove?: () => void
+			// Wired only for valid bounded-run starts (schedule / manual roots
+			// with downstream). Enters the page's end-node pick mode for a
+			// bounded cascade rooted at this script.
+			onStartBoundedRun?: () => void
 		}
 		// SvelteFlow injects this when the user clicks the node. Combined with
 		// hover state to drive the run-button visibility (same pattern as
@@ -113,9 +122,9 @@
 		}
 	}
 
-	// Cascade option is surfaced directly on the Run button (via a caret +
-	// popover) when `downstreamCount > 0`, so the kebab menu stays focused
-	// on lifecycle actions only.
+	// Cascade + bounded-run options live on the Run button's caret popover
+	// (whenever there's a cascade OR a bounded-run start — see `hasCaret`
+	// below), so the kebab menu stays focused on lifecycle actions only.
 	let menuItems: Item[] = $derived(
 		data.onRequestRemove
 			? [
@@ -194,6 +203,17 @@
 				<span class="text-3xs leading-none">×{r.count}</span>
 			</div>
 		{/if}
+		{#if data.macros && data.macros.length > 0}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+				title={`// macros — defines ${data.macros.length} macro${data.macros.length > 1 ? 's' : ''}:\n${data.macros
+					.map((m) => `• ${m.name}(${m.params})${m.is_table ? ' → table' : ''}`)
+					.join('\n')}`}
+			>
+				<SquareFunction size={10} />
+				<span class="text-3xs leading-none">×{data.macros.length}</span>
+			</div>
+		{/if}
 		{#if data.runState}
 			{@const rs = data.runState}
 			<div
@@ -238,6 +258,11 @@
 		     + trigger N downstream". Matches the editor Test split button
 		     so the affordance is identical on both surfaces. -->
 		{@const hasCascade = (data.downstreamCount ?? 0) > 0}
+		<!-- The caret popover opens for either a subscriber cascade OR a
+		     bounded-run start. A pure-reader-only root has no subscriber
+		     downstream (`downstreamCount === 0`) but still gets `onStartBoundedRun`
+		     — without this it would have no visible "Run downstream up to…". -->
+		{@const hasCaret = hasCascade || !!data.onStartBoundedRun}
 		<div class="absolute -left-3 top-1/2 -translate-y-1/2 z-10 flex items-stretch">
 			<button
 				type="button"
@@ -245,7 +270,7 @@
 				disabled={running}
 				class={twMerge(
 					'bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white grid place-items-center shadow border-2 border-surface-secondary leading-none',
-					hasCascade ? 'rounded-l-full w-6 h-6 border-r-0' : 'rounded-full w-6 h-6'
+					hasCaret ? 'rounded-l-full w-6 h-6 border-r-0' : 'rounded-full w-6 h-6'
 				)}
 				title={`Run ${data.path}${data.unsaved ? ' (draft, runs as preview)' : ''}`}
 			>
@@ -255,7 +280,7 @@
 					<Play size={14} strokeWidth={2.5} class="translate-x-px" />
 				{/if}
 			</button>
-			{#if hasCascade}
+			{#if hasCaret}
 				<Popover
 					placement="bottom-start"
 					bind:isOpen={cascadeMenuOpen}
@@ -287,36 +312,58 @@
 									</span>
 								</div>
 							</button>
-							<button
-								type="button"
-								class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
-								onclick={(e) => {
-									close()
-									void runSelf(e, true)
-								}}
-							>
-								<Zap size={14} class="mt-0.5 shrink-0 text-secondary" />
-								<div class="flex flex-col min-w-0">
-									<span class="font-medium">
-										Run + trigger {data.downstreamCount} downstream
-									</span>
-									<span class="text-2xs text-secondary">
-										Let the asset-trigger cascade fan out to the {data.downstreamCount}
-										subscribed script{data.downstreamCount === 1 ? '' : 's'} after this run succeeds.
-									</span>
-									{#if data.unsaved || (data.downstreamUnsavedCount ?? 0) > 0}
-										<span class="text-2xs text-amber-700 dark:text-amber-400">
-											{#if data.unsaved}
-												Unsaved chain — runs as previews in dependency order.
-											{:else}
-												{data.downstreamUnsavedCount} unsaved — chain runs as previews in dependency
-												order.
-											{/if}
-											Deploy to enable automatic triggering.
+							{#if hasCascade}
+								<button
+									type="button"
+									class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+									onclick={(e) => {
+										close()
+										void runSelf(e, true)
+									}}
+								>
+									<Zap size={14} class="mt-0.5 shrink-0 text-secondary" />
+									<div class="flex flex-col min-w-0">
+										<span class="font-medium">
+											Run + trigger {data.downstreamCount} downstream
 										</span>
-									{/if}
-								</div>
-							</button>
+										<span class="text-2xs text-secondary">
+											Let the asset-trigger cascade fan out to the {data.downstreamCount}
+											subscribed script{data.downstreamCount === 1 ? '' : 's'} after this run succeeds.
+										</span>
+										{#if data.unsaved || (data.downstreamUnsavedCount ?? 0) > 0}
+											<span class="text-2xs text-amber-700 dark:text-amber-400">
+												{#if data.unsaved}
+													Unsaved chain — runs as previews in dependency order.
+												{:else}
+													{data.downstreamUnsavedCount} unsaved — chain runs as previews in dependency
+													order.
+												{/if}
+												Deploy to enable automatic triggering.
+											</span>
+										{/if}
+									</div>
+								</button>
+							{/if}
+							{#if data.onStartBoundedRun}
+								<button
+									type="button"
+									class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
+									onclick={(e) => {
+										e.stopPropagation()
+										cascadeMenuOpen = false
+										data.onStartBoundedRun?.()
+									}}
+								>
+									<Target size={14} class="mt-0.5 shrink-0 text-secondary" />
+									<div class="flex flex-col min-w-0">
+										<span class="font-medium">Run downstream up to…</span>
+										<span class="text-2xs text-secondary">
+											Pick end node(s) on the graph, then run only the cascade between this script
+											and them.
+										</span>
+									</div>
+								</button>
+							{/if}
 						</div>
 					{/snippet}
 				</Popover>

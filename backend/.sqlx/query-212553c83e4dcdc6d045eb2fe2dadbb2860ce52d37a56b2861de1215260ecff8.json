@@ -38,7 +38,8 @@
                 "google",
                 "ci_test",
                 "github",
-                "azure"
+                "azure",
+                "asset"
               ]
             }
           }
@@ -75,7 +76,8 @@
                 "google",
                 "ci_test",
                 "github",
-                "azure"
+                "azure",
+                "asset"
               ]
             }
           }

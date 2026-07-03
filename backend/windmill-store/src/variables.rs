@@ -14,8 +14,8 @@ use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::{
-    delete_secret_from_backend, get_secret_value, is_vault_stored_value, rename_vault_secret,
-    store_secret_value,
+    delete_secret_from_backend, get_secret_value, is_external_stored_value, is_vault_stored_value,
+    rename_vault_secret, store_secret_value,
 };
 use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
@@ -25,6 +25,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures::future::try_join_all;
 use hyper::StatusCode;
 use serde_json::Value;
@@ -535,6 +536,35 @@ async fn check_path_conflict(db: &DB, w_id: &str, path: &str) -> Result<()> {
     return Ok(());
 }
 
+/// Reject a secret value flagged as already-encrypted (`already_encrypted=true`)
+/// that is not actually workspace-key ciphertext — e.g. plaintext mistakenly
+/// pushed as encrypted. Storing plaintext in the encrypted `value` column
+/// silently bricks the variable: every later read fails to decrypt it.
+///
+/// The check is purely structural and never decrypts, so it cannot act as a
+/// decryption/padding oracle for a caller who can write but not read secrets.
+/// `encrypt` (AES-256-CBC) always yields standard base64 decoding to a non-zero
+/// multiple of the 16-byte block size; anything else cannot be our ciphertext.
+/// Values stored by an external backend ($vault:/$aws_sm:/$azure_kv: markers)
+/// are not workspace ciphertext and are passed through untouched.
+fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
+    if is_external_stored_value(value) {
+        return Ok(());
+    }
+    let looks_like_ciphertext = STANDARD
+        .decode(value)
+        .map(|bytes| !bytes.is_empty() && bytes.len() % 16 == 0)
+        .unwrap_or(false);
+    if !looks_like_ciphertext {
+        return Err(Error::BadRequest(format!(
+            "Variable {path} was sent as already-encrypted (already_encrypted=true) but its \
+             value is not valid workspace-encrypted ciphertext. To push a plaintext secret, \
+             send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted."
+        )));
+    }
+    Ok(())
+}
+
 async fn create_variable(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -585,6 +615,11 @@ async fn create_variable(
         // Use secret backend for encryption (supports both DB and Vault)
         store_secret_value(&db, &w_id, &variable.path, &plain).await?
     } else {
+        if variable.is_secret {
+            // already_encrypted == true: value is stored verbatim, so it must be
+            // ciphertext and not plaintext mislabeled as encrypted.
+            validate_already_encrypted_secret(&variable.path, &variable.value)?;
+        }
         variable.value
     };
 
@@ -1037,6 +1072,12 @@ async fn update_variable(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:write:{}", path))?;
+    // A rename moves the (possibly secret) variable to ns.path, so the
+    // destination must also be within the token's write scope, not just the
+    // source path.
+    if let Some(npath) = ns.path.as_deref() {
+        check_scopes(&authed, || format!("variables:write:{}", npath))?;
+    }
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
     let mut sqlb = SqlBuilder::update_table("variable");
@@ -1076,6 +1117,11 @@ async fn update_variable(
             // Store at target_path (new path if renaming, otherwise current path)
             store_secret_value(&db, &w_id, target_path, &plain).await?
         } else {
+            if is_secret {
+                // already_encrypted == true: value is stored verbatim, so it must
+                // be ciphertext and not plaintext mislabeled as encrypted.
+                validate_already_encrypted_secret(target_path, &nvalue)?;
+            }
             nvalue
         };
         sqlb.set_str("value", &value);
@@ -1506,4 +1552,62 @@ pub async fn get_value_internal<'a>(
     }
 
     Ok(r)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use magic_crypt::MagicCryptTrait;
+
+    #[test]
+    fn accepts_real_workspace_ciphertext() {
+        // The exact shape produced by `encrypt` (AES-256-CBC, base64).
+        let mc = magic_crypt::new_magic_crypt!("a-test-workspace-key", 256);
+        for plain in [
+            "",
+            "original-secret",
+            "some: plaintext\n",
+            "a".repeat(500).as_str(),
+        ] {
+            let ciphertext = mc.encrypt_str_to_base64(plain);
+            assert!(
+                validate_already_encrypted_secret("f/x/cfg", &ciphertext).is_ok(),
+                "should accept genuine ciphertext for plaintext {plain:?}: {ciphertext}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_plaintext_mislabeled_as_encrypted() {
+        // Plaintext mislabeled as encrypted: storing it verbatim would make the
+        // variable undecryptable on every read, so it must be rejected.
+        for plaintext in [
+            "some: plaintext\n",
+            "original-secret",
+            "hunter2",
+            "{\"a\": 1}",
+            "not base64!!",
+            " leading-space",
+        ] {
+            assert!(
+                validate_already_encrypted_secret("f/x/cfg", plaintext).is_err(),
+                "should reject plaintext mislabeled as encrypted: {plaintext:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_empty_and_non_block_aligned() {
+        // Valid base64 but not a whole number of AES blocks -> cannot be our ciphertext.
+        assert!(validate_already_encrypted_secret("p", "").is_err());
+        assert!(validate_already_encrypted_secret("p", "dGVzdA==").is_err()); // "test" -> 4 bytes
+    }
+
+    #[test]
+    fn passes_through_external_backend_markers() {
+        // External secret backends store $-prefixed markers, not workspace ciphertext.
+        for marker in ["$vault:f/x/cfg", "$aws_sm:f/x/cfg", "$azure_kv:f/x/cfg"] {
+            assert!(validate_already_encrypted_secret("f/x/cfg", marker).is_ok());
+        }
+    }
 }

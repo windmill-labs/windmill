@@ -13,7 +13,19 @@ use windmill_common::{
     utils::escape_ilike_pattern,
 };
 
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{build_scope_path_predicate, ApiAuthed};
+
+// Partition-range backfill preview. The logic (producer resolution, range
+// enumeration, status join) is enterprise: the `private` build compiles the
+// EE module, the public build a stub that errors.
+#[cfg(feature = "private")]
+mod backfill_ee;
+#[cfg(feature = "private")]
+use backfill_ee as backfill;
+#[cfg(not(feature = "private"))]
+mod backfill_oss;
+#[cfg(not(feature = "private"))]
+use backfill_oss as backfill;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -23,7 +35,66 @@ pub fn workspaced_service() -> Router {
         .route("/graph", get(asset_graph))
         .route("/pipelines", get(list_pipeline_folders))
         .route("/partitions", get(list_partitions))
+        .route("/partitions_in_range", get(list_partitions_in_range))
+        .route("/asset_schemas", get(list_asset_schemas))
         .route("/record_materialization", post(record_materialization))
+        .route("/macros", get(list_macros))
+}
+
+// One registry macro, with its full definition — drives the macro-explorer
+// drawer (body preview) and the DuckDB editor autocomplete (signatures).
+#[derive(Serialize)]
+struct MacroListItem {
+    name: String,
+    params: String,
+    body: String,
+    is_table: bool,
+    provider_path: String,
+}
+
+// Every workspace macro (`// macros` libraries), grouped client-side by
+// provider. Small by construction — one row per macro definition. The rows
+// copy script body text, so visibility must match reading the provider
+// script itself: the EXISTS join runs under the user_db transaction (script
+// RLS filters libraries the caller can't read) and the scope predicate
+// covers path-scoped tokens, mirroring `list_scripts`.
+async fn list_macros(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<MacroListItem>> {
+    let scope_allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"SELECT m.name AS "name!", m.params AS "params!", m.body AS "body!",
+                  m.is_table_macro AS "is_table_macro!", m.provider_path AS "provider_path!"
+           FROM macro_definition m
+           WHERE m.workspace_id = $1
+             AND EXISTS (
+                SELECT 1 FROM script s
+                WHERE s.workspace_id = m.workspace_id
+                  AND s.path = m.provider_path
+                  AND s.archived = false
+                  AND s.deleted = false
+             )
+           ORDER BY m.provider_path, m.name"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(
+        rows.into_iter()
+            .filter(|r| scope_allowed(&r.provider_path))
+            .map(|r| MacroListItem {
+                name: r.name,
+                params: r.params,
+                body: r.body,
+                is_table: r.is_table_macro,
+                provider_path: r.provider_path,
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -53,17 +124,89 @@ async fn list_partitions(
     Ok(Json(rows))
 }
 
+// Only the EE `backfill` module reads the fields; the OSS stub errors without
+// touching them.
+#[cfg_attr(not(feature = "private"), allow(dead_code))]
+#[derive(Deserialize)]
+struct PartitionsInRangeQuery {
+    // The materialized ducklake asset path (`<ducklake>/<table>`).
+    path: String,
+    // Inclusive calendar-day range (YYYY-MM-DD), local to the producer's
+    // partition tz.
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+}
+
+#[derive(Serialize)]
+struct PartitionInRange {
+    partition: String,
+    // `missing` | `running` | `materialized` | `failed` — `missing` means no
+    // materialization was ever recorded for the slice.
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+struct PartitionsInRangeResponse {
+    // The pipeline script that materializes the asset (managed `// materialize`
+    // target, or a partitioned writer using the SDK helpers) — the runnable a
+    // backfill launches (with an explicit `partition` arg per slice).
+    producer_path: String,
+    partition_kind: String,
+    partitions: Vec<PartitionInRange>,
+}
+
+// Backfill range preview: every partition the producer's `// partitioned` spec
+// expects in `[from, to]`, joined with what `materialized_partition` records —
+// the missing/failed subset is the backfill worklist. The logic is in the
+// `backfill` module pair: EE resolves and enumerates, the OSS stub errors
+// (single-partition runs stay available everywhere; fanning out over a range
+// is enterprise).
+async fn list_partitions_in_range(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsInRangeQuery>,
+) -> JsonResult<PartitionsInRangeResponse> {
+    let mut tx = user_db.begin(&authed).await?;
+    let res = backfill::partitions_in_range(&mut tx, &w_id, &q).await?;
+    tx.commit().await?;
+    Ok(Json(res))
+}
+
+// Per-asset captured output schema versions for a ducklake asset (gap #2a) —
+// the schema-evolution history persisted after each managed `// materialize`.
+// Newest version first; materialization targets are ducklake-only in v1, so the
+// kind is fixed.
+async fn list_asset_schemas(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsQuery>,
+) -> JsonResult<Vec<windmill_common::materialization::AssetSchemaVersion>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = windmill_common::materialization::list_asset_schemas(
+        &mut *tx,
+        &w_id,
+        AssetKind::Ducklake,
+        &q.path,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
 // Record a materialization outcome from a polyglot (Python/TS) `wmill.ducklake`
 // helper running as a pipeline step. The DuckDB `// materialize` engine records
 // this itself; the SDK helpers post here instead so SDK-materialized slices show
-// up in the grid identically. RLS-scoped to the caller's workspace.
+// up in the grid identically. When the helper also captured the output schema,
+// that schema version is upserted too. RLS-scoped to the caller's workspace.
 async fn record_materialization(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
     Json(req): Json<windmill_common::materialization::RecordMaterializationRequest>,
 ) -> JsonResult<()> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
     windmill_common::materialization::record_materialization(
         &mut *tx,
         &w_id,
@@ -78,6 +221,37 @@ async fn record_materialization(
     )
     .await?;
     tx.commit().await?;
+    // Schema capture is independently best-effort (its own transaction for the
+    // per-asset advisory lock) and must never roll back the partition record
+    // above — mirroring the worker's `record_mat`. A lost schema version
+    // degrades the history, not the run. Only a successful (`Materialized`) write
+    // advances the recorded schema — a failed/running write must not (and a
+    // client shouldn't be able to bump the history by attaching a schema to one).
+    let is_materialized = matches!(
+        req.status,
+        windmill_common::materialization::MaterializationStatus::Materialized
+    );
+    if let (true, Some(columns)) = (is_materialized, req.schema.as_ref()) {
+        let res: windmill_common::error::Result<()> = async {
+            let mut tx = user_db.clone().begin(&authed).await?;
+            windmill_common::materialization::record_asset_schema(
+                &mut tx,
+                &w_id,
+                req.asset_kind,
+                &req.asset_path,
+                columns,
+                req.snapshot_id,
+                req.job_id,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = res {
+            tracing::warn!("failed to record captured asset schema: {e:#}");
+        }
+    }
     Ok(Json(()))
 }
 
@@ -450,6 +624,85 @@ struct GraphRunnableNode {
     // pipeline-member visual state on the frontend.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     in_pipeline: bool,
+    // Annotation badges parsed from the deployed script body, so the canvas
+    // shows partition/freshness/tag/retry/data-test chips on *deployed* nodes
+    // (not only on live-edited drafts, which the frontend parses itself). Kept
+    // in lockstep with the TS `AssetGraphRunnableNode` fields the node renders.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    partition_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    freshness: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    retry: Option<windmill_common::assets::RetrySpec>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    data_tests: Vec<windmill_common::assets::DataTest>,
+    // `// column <out> <- <src>.<col>` declared column-level lineage, surfaced
+    // so the canvas can draw the column-lineage view on deployed nodes (not
+    // only live drafts). Lockstep with TS `AssetGraphRunnableNode.column_lineage`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    column_lineage: Vec<windmill_common::assets::ColumnLineage>,
+    // `// materialize <asset>` target — the asset this script's `column_lineage`
+    // describes. Lets the column-graph anchor lineage to the exact output asset
+    // instead of guessing a ducklake write-edge (a multi-output script writes
+    // several). Absent for scripts with no `// materialize` annotation.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_target: Option<MaterializeTargetNode>,
+    // Managed `// materialize` write strategy (`replace` | `append` | `merge`),
+    // absent for non-materializing or `manual` scripts. Surfaced so the asset
+    // panel can tell whether the captured schema can evolve: only whole-table
+    // `replace` (CREATE OR REPLACE) can change columns run-to-run; `append` /
+    // `merge` / any partitioned write INSERTs into a fixed-schema table.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_strategy: Option<String>,
+    // Macros this script provides to the workspace registry (deployed
+    // `// macros` library). Drives the library node state + details-pane
+    // signature list. Lockstep with TS `AssetGraphRunnableNode.macros`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    macros: Vec<MacroInfo>,
+}
+
+// One macro of a `// macros` library, as surfaced on its graph node.
+#[derive(Serialize, Debug, Clone)]
+struct MacroInfo {
+    name: String,
+    // Verbatim parameter list, for the `name(params)` signature display.
+    params: String,
+    is_table: bool,
+}
+
+// A macro-library → consumer edge: the consumer calls `macro_names` of
+// `lib_path`'s macros (deploy-recorded detection), or pulls in the whole
+// library via `// use` (`via_use`, in which case `macro_names` lists all of
+// the library's macros).
+#[derive(Serialize, Debug)]
+struct MacroEdge {
+    lib_path: String,
+    consumer_path: String,
+    macro_names: Vec<String>,
+    via_use: bool,
+}
+
+// The output asset a producer's column lineage belongs to (the `// materialize`
+// target). Kept minimal — the column graph only needs (kind, path) to anchor.
+#[derive(Serialize, Debug)]
+struct MaterializeTargetNode {
+    kind: windmill_common::assets::AssetKind,
+    path: String,
+}
+
+// The partition's kind word for the node badge (the full PartitionSpec carries
+// tz/format/start, which the badge doesn't need).
+fn partition_kind_word(kind: &windmill_common::assets::PartitionKind) -> &'static str {
+    use windmill_common::assets::PartitionKind::*;
+    match kind {
+        Daily => "daily",
+        Hourly => "hourly",
+        Weekly => "weekly",
+        Monthly => "monthly",
+        Dynamic { .. } => "dynamic",
+    }
 }
 
 // Lineage edge from parsed r/w usages. One per (runnable, asset, access_type)
@@ -529,6 +782,8 @@ struct AssetGraphResponse {
     runnables: Vec<GraphRunnableNode>,
     edges: Vec<GraphEdge>,
     triggers: Vec<TriggerEdge>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    macro_edges: Vec<MacroEdge>,
 }
 
 async fn asset_graph(
@@ -642,15 +897,22 @@ async fn asset_graph(
     .await?;
 
     // Which scripts in scope are pipeline members (have `// pipeline`).
+    // Pipeline members + their latest deployed body, so the graph can surface
+    // annotation badges (partition/freshness/tag/retry/data_test) on deployed
+    // nodes. `DISTINCT ON (path) … ORDER BY created_at DESC` picks the newest
+    // non-archived version per path (a redeploy archives the prior one, but be
+    // defensive against transient overlaps).
     let pipeline_member_paths = sqlx::query!(
         r#"
-        SELECT path AS "path!"
+        SELECT DISTINCT ON (path) path AS "path!", content AS "content!",
+               language AS "language!: windmill_common::scripts::ScriptLang"
         FROM script
         WHERE workspace_id = $1
           AND auto_kind = 'pipeline'
           AND archived = false
           AND deleted = false
           AND ($2::text IS NULL OR path LIKE $2)
+        ORDER BY path, created_at DESC
         "#,
         &w_id,
         folder_filter.as_deref(),
@@ -679,8 +941,75 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
+    // Workspace macro registry + deploy-recorded call edges. Definitions are
+    // fetched unfiltered so an out-of-folder library still appears as the
+    // provider endpoint of in-scope consumers' edges; consumers honor the
+    // folder filter like every other runnable query.
+    let macro_def_rows = sqlx::query!(
+        r#"SELECT name AS "name!", provider_path AS "provider_path!",
+                  params AS "params!", is_table_macro AS "is_table_macro!"
+           FROM macro_definition
+           WHERE workspace_id = $1
+           ORDER BY provider_path, name"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let macro_usage_rows = sqlx::query!(
+        r#"SELECT consumer_path AS "consumer_path!", macro_name AS "macro_name!"
+           FROM macro_usage
+           WHERE workspace_id = $1
+             AND ($2::text IS NULL OR consumer_path LIKE $2)"#,
+        &w_id,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     tx.commit().await?;
 
+    // Parse each pipeline member's body once into its badge annotations, keyed
+    // by path, for the runnable-node construction below.
+    let annotations_by_path: std::collections::HashMap<
+        String,
+        windmill_common::assets::PipelineAnnotations,
+    > = pipeline_member_paths
+        .iter()
+        .map(|r| {
+            (
+                r.path.clone(),
+                windmill_common::assets::parse_pipeline_annotations(&r.content),
+            )
+        })
+        .collect();
+    // Column-level lineage per member. The annotation-only lineage (already
+    // parsed above) is the baseline. For DuckDB scripts we additionally run the
+    // full SQL asset parser to infer output→input column edges from the AST; it
+    // merges them with the `// column` annotations (annotation wins). If the SQL
+    // can't be parsed (DuckDB accepts grammar `sqlparser` rejects), we fall back
+    // to the annotation-only baseline rather than dropping explicit annotations.
+    let column_lineage_by_path: std::collections::HashMap<
+        String,
+        Vec<windmill_common::assets::ColumnLineage>,
+    > = pipeline_member_paths
+        .iter()
+        .map(|r| {
+            let annotated = || {
+                annotations_by_path
+                    .get(&r.path)
+                    .map(|a| a.column_lineage.clone())
+                    .unwrap_or_default()
+            };
+            let lineage = if r.language == windmill_common::scripts::ScriptLang::DuckDb {
+                windmill_parser_sql_asset::parse_assets(&r.content)
+                    .map(|o| o.column_lineage)
+                    .unwrap_or_else(|_| annotated())
+            } else {
+                annotated()
+            };
+            (r.path.clone(), lineage)
+        })
+        .collect();
     let pipeline_member_script_paths: std::collections::HashSet<String> =
         pipeline_member_paths.into_iter().map(|r| r.path).collect();
     let existing_script_paths: std::collections::HashSet<String> =
@@ -793,6 +1122,74 @@ async fn asset_graph(
         triggers.push(edge);
     }
 
+    // Macro libraries + lib→consumer edges. Group per-provider macro lists,
+    // resolve each usage row's name to its provider (names are
+    // workspace-unique), and merge `// use` whole-lib edges from the parsed
+    // member annotations. Both endpoints are forced into the runnable set so
+    // an out-of-folder library still renders as the edge's provider node.
+    let mut macros_by_provider: std::collections::HashMap<String, Vec<MacroInfo>> =
+        Default::default();
+    let mut provider_by_name: std::collections::HashMap<String, String> = Default::default();
+    for r in macro_def_rows {
+        provider_by_name.insert(r.name.clone(), r.provider_path.clone());
+        macros_by_provider
+            .entry(r.provider_path)
+            .or_default()
+            .push(MacroInfo { name: r.name, params: r.params, is_table: r.is_table_macro });
+    }
+    let mut macro_edge_map: std::collections::BTreeMap<
+        (String, String),
+        (std::collections::BTreeSet<String>, bool),
+    > = Default::default();
+    for u in macro_usage_rows {
+        // Same orphan filter as the other edge loops.
+        if !runnable_exists(AssetUsageKind::Script, &u.consumer_path) {
+            continue;
+        }
+        let Some(lib) = provider_by_name.get(&u.macro_name) else {
+            continue;
+        };
+        let e = macro_edge_map
+            .entry((lib.clone(), u.consumer_path))
+            .or_default();
+        e.0.insert(u.macro_name);
+    }
+    for (path, ann) in &annotations_by_path {
+        for lib in &ann.use_libs {
+            // An undeployed `// use` target has no registry rows — the live
+            // draft overlay is the only surface that can render it.
+            let Some(lib_macros) = macros_by_provider.get(lib) else {
+                continue;
+            };
+            let e = macro_edge_map
+                .entry((lib.clone(), path.clone()))
+                .or_default();
+            e.1 = true;
+            e.0.extend(lib_macros.iter().map(|m| m.name.clone()));
+        }
+    }
+    let macro_edges: Vec<MacroEdge> = macro_edge_map
+        .into_iter()
+        // Same orphan filter as the other edge families: a registry row whose
+        // provider script no longer exists must not synthesize a phantom
+        // library node (consumers were filtered above, but the `// use` pass
+        // re-adds them, so re-check both endpoints).
+        .filter(|((lib_path, consumer_path), _)| {
+            runnable_exists(AssetUsageKind::Script, lib_path)
+                && runnable_exists(AssetUsageKind::Script, consumer_path)
+        })
+        .map(|((lib_path, consumer_path), (names, via_use))| MacroEdge {
+            lib_path,
+            consumer_path,
+            macro_names: names.into_iter().collect(),
+            via_use,
+        })
+        .collect();
+    for e in &macro_edges {
+        runnable_set.insert((AssetUsageKind::Script, e.lib_path.clone()));
+        runnable_set.insert((AssetUsageKind::Script, e.consumer_path.clone()));
+    }
+
     let mut assets: Vec<GraphAssetNode> = asset_set
         .into_iter()
         .map(|(kind, path)| GraphAssetNode { kind, path })
@@ -804,7 +1201,55 @@ async fn asset_graph(
         .map(|(usage_kind, path)| {
             let in_pipeline = usage_kind == AssetUsageKind::Script
                 && pipeline_member_script_paths.contains(&path);
-            GraphRunnableNode { path, usage_kind, in_pipeline }
+            // Annotation badges, only for pipeline-member scripts (the only
+            // bodies we parsed). Gate on the runnable kind too: a flow sharing a
+            // path with a pipeline script must not inherit its badges.
+            let ann = (usage_kind == AssetUsageKind::Script)
+                .then(|| annotations_by_path.get(&path))
+                .flatten();
+            GraphRunnableNode {
+                in_pipeline,
+                partition_kind: ann
+                    .and_then(|a| a.partition.as_ref())
+                    .map(|p| partition_kind_word(&p.kind).to_string()),
+                freshness: ann
+                    .and_then(|a| a.freshness.as_ref())
+                    .map(|f| f.duration.clone()),
+                tag: ann.and_then(|a| a.tag.clone()),
+                retry: ann.and_then(|a| a.retry.clone()),
+                data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),
+                // Inferred (DuckDB AST) + annotation column lineage, gated to
+                // scripts like the badges above.
+                column_lineage: (usage_kind == AssetUsageKind::Script)
+                    .then(|| column_lineage_by_path.get(&path))
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default(),
+                materialize_target: ann.and_then(|a| a.materialize.as_ref()).map(|m| {
+                    MaterializeTargetNode {
+                        kind: windmill_common::assets::asset_kind_from_parser(m.target_kind),
+                        path: m.target_path.clone(),
+                    }
+                }),
+                materialize_strategy: ann.and_then(|a| a.materialize.as_ref()).and_then(|m| {
+                    if m.manual {
+                        None
+                    } else if m.append {
+                        Some("append".to_string())
+                    } else if m.unique_key.is_some() {
+                        Some("merge".to_string())
+                    } else {
+                        Some("replace".to_string())
+                    }
+                }),
+                macros: (usage_kind == AssetUsageKind::Script)
+                    .then(|| macros_by_provider.get(&path))
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default(),
+                path,
+                usage_kind,
+            }
         })
         .collect();
     runnables.sort_by(|a, b| a.path.cmp(&b.path));
@@ -814,6 +1259,7 @@ async fn asset_graph(
         runnables,
         edges,
         triggers,
+        macro_edges,
     }))
 }
 

@@ -1446,19 +1446,45 @@ Windmill Community Edition {GIT_VERSION}
                                     } else {
                                         None
                                     };
-                                    monitor_db(
-                                        &conn,
-                                        &base_internal_url,
-                                        server_mode,
-                                        worker_mode,
-                                        false,
-                                        tx.clone(),
-                                        Some(MonitorIteration {
-                                            rd_shift,
-                                            iter: monitor_iteration,
-                                        }),
+                                    // Hard cap on a single monitor pass. monitor_db runs all its
+                                    // periodic tasks under one join!, so a single task stuck on a
+                                    // non-DB await (statement_timeout only bounds DB statements)
+                                    // would otherwise freeze the whole loop indefinitely — silently
+                                    // stopping critical maintenance like audit-partition creation.
+                                    // Larger than statement_timeout (5min) so a slow-but-progressing
+                                    // statement is never killed prematurely.
+                                    const MONITOR_DB_TIMEOUT: Duration = Duration::from_secs(600);
+                                    let monitor_timed_out = tokio::time::timeout(
+                                        MONITOR_DB_TIMEOUT,
+                                        monitor_db(
+                                            &conn,
+                                            &base_internal_url,
+                                            server_mode,
+                                            worker_mode,
+                                            false,
+                                            tx.clone(),
+                                            Some(MonitorIteration {
+                                                rd_shift,
+                                                iter: monitor_iteration,
+                                            }),
+                                        ),
                                     )
-                                    .await;
+                                    .await
+                                    .is_err();
+                                    if monitor_timed_out {
+                                        windmill_common::utils::report_critical_error(
+                                            format!(
+                                                "monitor task did not finish within {}s and was aborted; \
+                                                 a background maintenance task is likely stuck. \
+                                                 Continuing to the next iteration.",
+                                                MONITOR_DB_TIMEOUT.as_secs()
+                                            ),
+                                            db.clone(),
+                                            None,
+                                            None,
+                                        )
+                                        .await;
+                                    }
                                     monitor_iteration += 1;
                                     if let Some(handle) = warn_handle {
                                         handle.abort();
@@ -1653,6 +1679,13 @@ async fn process_notify_event(
             );
             windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(payload);
         }
+        "notify_macro_registry_change" => {
+            tracing::debug!(
+                "Macro registry change for workspace {}, invalidating macro registry cache",
+                payload
+            );
+            windmill_common::assets::MACRO_REGISTRY_CACHE.remove(payload);
+        }
         "notify_workspace_key_change" => {
             tracing::info!(
                 "Workspace key change detected, invalidating workspace key cache: {}",
@@ -1682,6 +1715,10 @@ async fn process_notify_event(
                     match *source_type {
                         "script" => {
                             windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Bundle-cache key resolution for imported scripts; evicted
+                            // together with the content-side caches below so key and
+                            // inlined content flip to the new version in the same window.
+                            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&key);
                             // Evict the relative-import latest-hash cache so a redeployed
                             // imported script flips the content cache to its new version
                             // across all replicas within a poll interval (see #6769). Keyed

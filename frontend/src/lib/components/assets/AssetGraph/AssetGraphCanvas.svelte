@@ -13,10 +13,13 @@
 	import RunnableNode from './RunnableNode.svelte'
 	import TriggerNode, { type TriggerNodeKind } from './TriggerNode.svelte'
 	import AddNode from './AddNode.svelte'
+	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
+	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
 	import { buildDownstreamMap } from './graphTraversal'
+	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
@@ -139,6 +142,31 @@
 		// editor passes it, so the asset-graph page is unaffected. The page
 		// clears it once the pan has had time to settle.
 		panToNodeId?: string | undefined
+		// Script paths eligible to *start* a bounded-cascade run (schedule
+		// roots + manual roots — see boundedCascade.validStarts). When a path is
+		// in this set and `onStartBoundedRun` is wired, its node's cascade menu
+		// gains a "Run downstream up to…" entry.
+		validStartPaths?: ReadonlySet<string>
+		onStartBoundedRun?: (startPath: string) => void
+		// Active bounded-run pick mode. Ids are in *canvas* space (`script:path`
+		// for runnables, `asset:${kind}:${path}` for assets). When set the canvas
+		// dims nodes outside `eligible ∪ {start}`, rings the `bounded` set, marks
+		// `ends`, and routes clicks on eligible nodes to `onPickEnd` instead of
+		// selecting.
+		boundPick?: {
+			start: string
+			eligible: ReadonlySet<string>
+			ends: ReadonlySet<string>
+			bounded: ReadonlySet<string>
+		}
+		onPickEnd?: (canvasNodeId: string) => void
+		/** Hide the minimap when the canvas is too narrow for it to be worth the
+		 * space (e.g. stacked layout in a side panel). Defaults to shown. */
+		showMinimap?: boolean
+		/** Identity of the displayed graph (e.g. the pipeline folder). The
+		 * initial viewport fit re-arms when it changes, so switching folders
+		 * in-place gets a fresh fit. */
+		viewportFitKey?: string
 	}
 	let {
 		graph,
@@ -160,7 +188,13 @@
 		onOpenDataUpload,
 		hoveredPaths,
 		selectedRunPaths,
-		panToNodeId
+		panToNodeId,
+		validStartPaths,
+		onStartBoundedRun,
+		boundPick,
+		onPickEnd,
+		showMinimap = true,
+		viewportFitKey = ''
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -180,12 +214,29 @@
 		// the DAG. They force sugiyama to put + at layer 0 (top) and center
 		// it horizontally over the roots — same mechanism the flow editor
 		// uses for its Trigger node. Filtered out of rendered edges.
-		kind: 'lineage-write' | 'lineage-read' | 'trigger-asset' | 'trigger-native' | 'add-anchor'
+		kind:
+			| 'lineage-write'
+			| 'lineage-read'
+			| 'trigger-asset'
+			| 'trigger-native'
+			| 'add-anchor'
+			| 'data-test'
+			| 'macro'
 		unsaved?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
 		// targets it; create one or remove the annotation".
 		missing?: boolean
+		// Producer's `// data_test` checks, on the write-edge to the
+		// materialized asset — rendered as a flask badge on the link.
+		data_tests?: NonNullable<AssetGraphResponse['runnables'][number]['data_tests']>
+		// Producer's `// column` declared lineage, on the same write-edge —
+		// rendered as a columns badge on the link.
+		column_lineage?: NonNullable<AssetGraphResponse['runnables'][number]['column_lineage']>
+		// Macro-library edge payload: the macros the consumer calls (or the
+		// whole lib when pulled in via `// use`) — rendered as a ƒ badge.
+		macro_names?: string[]
+		via_use?: boolean
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -200,10 +251,14 @@
 	function build(g: AssetGraphResponse) {
 		const nodes: Array<{
 			id: string
-			type: 'asset' | 'runnable' | 'trigger' | 'add'
+			type: 'asset' | 'runnable' | 'trigger' | 'add' | 'data-test'
 			data: any
 		}> = []
 		const edges: BuiltEdge[] = []
+		// Custom (`// data_test <script_path>`) tests are deployed scripts, so we
+		// draw each as its own node hanging off the asset it validates (deduped
+		// by node id across producers).
+		const addedTestNodes = new Set<string>()
 
 		const hasAddNode = onAddPipelineScript != null
 		if (hasAddNode) {
@@ -259,6 +314,13 @@
 			downstreamByScript.set(path, set.size)
 			downstreamUnsavedByScript.set(path, [...set].filter((s) => unsavedRunnables.has(s)).length)
 		}
+		// Read-aware downstream presence for the bounded-run gate. The bounded
+		// engine treats pure-read `asset → script` edges as downstream, but the
+		// subscriber-only `downstreamByScript` above does not — so a start whose
+		// only downstream is a pure reader would otherwise be denied the menu
+		// item even though its bounded set is non-empty. Mirror of the engine's
+		// own adjacency (boundedCascade.buildLineageDownstreamMap).
+		const hasLineageDownstream = new Set<string>(buildLineageDownstreamMap(g).keys())
 
 		for (const a of g.assets) {
 			const assetId = `asset:${a.kind}:${a.path}`
@@ -284,6 +346,40 @@
 		for (const r of g.runnables) {
 			if (r.unsaved) unsavedRunnablePaths.add(r.path)
 		}
+		// Producer → its `// data_test` checks, keyed by runnable id, so the
+		// write-edge to the materialized asset can carry the test badge: the
+		// edge *is* the transformation, and the tests assert on what it produces.
+		const producerTests = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['data_tests']>
+		>()
+		for (const r of g.runnables) {
+			if (r.data_tests && r.data_tests.length > 0) {
+				producerTests.set(`${r.usage_kind}:${r.path}`, r.data_tests)
+			}
+		}
+		// Producer → its `// column` declared lineage, keyed by runnable id, so
+		// the write-edge to the materialized asset can carry the columns badge —
+		// the edge *is* the transformation, and the lineage describes its output.
+		const producerColumnLineage = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['column_lineage']>
+		>()
+		// The `// materialize` target the lineage describes, so the badge lands
+		// only on that write-edge (a multi-output script writes several ducklake
+		// tables) — mirrors the anchor logic in `buildColumnGraph`.
+		const producerMaterializeTarget = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['materialize_target']>
+		>()
+		for (const r of g.runnables) {
+			if (r.column_lineage && r.column_lineage.length > 0) {
+				producerColumnLineage.set(`${r.usage_kind}:${r.path}`, r.column_lineage)
+			}
+			if (r.materialize_target) {
+				producerMaterializeTarget.set(`${r.usage_kind}:${r.path}`, r.materialize_target)
+			}
+		}
 		for (const r of g.runnables) {
 			const rid = `${r.usage_kind}:${r.path}`
 			// Optimistic badge: the moment a run is launched from this view
@@ -307,6 +403,7 @@
 					freshness: r.freshness,
 					tag: r.tag,
 					retry: r.retry,
+					macros: r.macros,
 					unsaved: r.unsaved ?? false,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits
@@ -325,6 +422,16 @@
 					downstreamCount: downstreamByScript.get(r.path) ?? 0,
 					downstreamUnsavedCount: downstreamUnsavedByScript.get(r.path) ?? 0,
 					runState,
+					// Bounded-cascade entrypoint: only valid starts (schedule /
+					// manual roots) with downstream get the "Run downstream up
+					// to…" menu item.
+					onStartBoundedRun:
+						r.usage_kind === 'script' &&
+						onStartBoundedRun &&
+						validStartPaths?.has(r.path) &&
+						hasLineageDownstream.has(r.path)
+							? () => onStartBoundedRun(r.path)
+							: undefined,
 					onRequestRemove: onRunnableMenuRemove
 						? () =>
 								onRunnableMenuRemove({
@@ -342,13 +449,46 @@
 			const assetId = `asset:${e.asset_kind}:${e.asset_path}`
 			const access = e.access_type ?? 'r'
 			if (access === 'w' || access === 'rw') {
+				// Data tests assert on the `// materialize` target, which is always
+				// a ducklake asset (v1 enforces this), so only the ducklake
+				// write-edge carries the badge / custom-test nodes — a producer's
+				// other (e.g. S3/datatable) outputs must not show them.
+				const edgeTests = e.asset_kind === 'ducklake' ? producerTests.get(runnableId) : undefined
+				// Column lineage describes one materialized output, so the badge
+				// lands only on that asset's write-edge: the declared `// materialize`
+				// target when known (a multi-output script writes several ducklake
+				// tables), else the ducklake write-edge as the unambiguous fallback.
+				const matTarget = producerMaterializeTarget.get(runnableId)
+				const isOutputEdge = matTarget
+					? e.asset_kind === matTarget.kind && e.asset_path === matTarget.path
+					: e.asset_kind === 'ducklake'
+				const edgeColumnLineage = isOutputEdge ? producerColumnLineage.get(runnableId) : undefined
 				edges.push({
 					id: `prod:${runnableId}->${assetId}`,
 					source: runnableId,
 					target: assetId,
 					kind: 'lineage-write',
-					unsaved: e.unsaved
+					unsaved: e.unsaved,
+					data_tests: edgeTests,
+					column_lineage: edgeColumnLineage
 				})
+				// Each custom (`// data_test <script_path>`) test → its own node
+				// below the asset it validates, with a dashed "tests" edge.
+				for (const t of edgeTests ?? []) {
+					if (t.type !== 'custom') continue
+					const testNodeId = `datatest:${assetId}:${t.path}`
+					if (!addedTestNodes.has(testNodeId)) {
+						addedTestNodes.add(testNodeId)
+						nodes.push({ id: testNodeId, type: 'data-test', data: { path: t.path } })
+					}
+					edges.push({
+						id: `test:${assetId}->${testNodeId}`,
+						source: assetId,
+						target: testNodeId,
+						kind: 'data-test',
+						unsaved: e.unsaved
+					})
+				}
 			}
 			if (access === 'r' || access === 'rw') {
 				edges.push({
@@ -359,6 +499,26 @@
 					unsaved: e.unsaved
 				})
 			}
+		}
+
+		// Macro-library → consumer edges (runnable→runnable, unlike the
+		// asset-mediated lineage above). Endpoints must exist as nodes — an
+		// undeployed `// use` target without a draft has none, so its edge is
+		// skipped (the annotation still shows in the script body itself).
+		const runnableNodeIds = new Set(g.runnables.map((r) => `${r.usage_kind}:${r.path}`))
+		for (const me of g.macro_edges ?? []) {
+			const libId = `script:${me.lib_path}`
+			const consumerId = `script:${me.consumer_path}`
+			if (!runnableNodeIds.has(libId) || !runnableNodeIds.has(consumerId)) continue
+			edges.push({
+				id: `macro:${libId}->${consumerId}`,
+				source: libId,
+				target: consumerId,
+				kind: 'macro',
+				unsaved: me.unsaved,
+				macro_names: me.macro_names,
+				via_use: me.via_use
+			})
 		}
 
 		// Non-asset triggers (schedule + native) are rendered as source nodes
@@ -375,7 +535,13 @@
 				kind: TriggerNodeKind
 				ref: string
 				missing: boolean
+				// First target script (drives the per-script create/edit flows).
 				runnable_path?: string
+				// Every target script: a single (kind, ref) — e.g. one schedule —
+				// can be shared across scripts and dedupes to one node with N
+				// edges. The bounded-run action must consider all of them, not
+				// just the first.
+				runnable_paths: string[]
 			}
 		>()
 		function recordSourceTrigger(
@@ -388,9 +554,19 @@
 		) {
 			const prev = triggerSourceNodes.get(id)
 			if (!prev) {
-				triggerSourceNodes.set(id, { allUnsaved: unsaved, kind, ref, missing, runnable_path })
+				triggerSourceNodes.set(id, {
+					allUnsaved: unsaved,
+					kind,
+					ref,
+					missing,
+					runnable_path,
+					runnable_paths: runnable_path ? [runnable_path] : []
+				})
 			} else {
 				prev.allUnsaved = prev.allUnsaved && unsaved
+				if (runnable_path && !prev.runnable_paths.includes(runnable_path)) {
+					prev.runnable_paths.push(runnable_path)
+				}
 			}
 		}
 
@@ -449,6 +625,14 @@
 			})
 		}
 		for (const [id, info] of triggerSourceNodes) {
+			// Bounded-run targets among this trigger's scripts: valid starts that
+			// also have read-aware downstream. A shared schedule may have several
+			// targets; only offer the action when exactly one qualifies, so the
+			// run starts from an unambiguous script (rather than the arbitrary
+			// first-seen one). Multi-eligible nodes suppress it rather than guess.
+			const eligibleStarts = onStartBoundedRun
+				? info.runnable_paths.filter((p) => validStartPaths?.has(p) && hasLineageDownstream.has(p))
+				: []
 			nodes.push({
 				id,
 				type: 'trigger',
@@ -465,7 +649,14 @@
 					onEditTrigger,
 					onDeleteTrigger,
 					onOpenWebhook,
-					onOpenDataUpload
+					onOpenDataUpload,
+					// View-mode bounded-run entry: offer it on the trigger node
+					// when exactly one target script is a valid start with
+					// downstream (see eligibleStarts above).
+					onStartBoundedRun:
+						onStartBoundedRun && eligibleStarts.length === 1
+							? () => onStartBoundedRun(eligibleStarts[0])
+							: undefined
 				}
 			})
 		}
@@ -518,11 +709,27 @@
 	// edges + paths → same layout. Renames *do* change the layout for
 	// the renamed entry, since its id moves in the sort, but that's
 	// expected: a rename is a path change, which is part of the input.
+	// A script with rw access to an asset yields both a write (script → asset)
+	// and a read/trigger (asset → script) edge — a 2-cycle. The layout resolves
+	// it producer-above-asset by omitting the backward direction from its
+	// input; the rendered edges are untouched (both arrows still drawn).
+	let writeEdgePairs = $derived(
+		new Set(
+			model.edges.filter((e) => e.kind === 'lineage-write').map((e) => `${e.source}\n${e.target}`)
+		)
+	)
 	let layoutInput = $derived({
 		nodes: model.nodes
 			.map((n) => ({ id: n.id, data: n.data }))
 			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
 		edges: model.edges
+			.filter(
+				(e) =>
+					!(
+						(e.kind === 'lineage-read' || e.kind === 'trigger-asset') &&
+						writeEdgePairs.has(`${e.target}\n${e.source}`)
+					)
+			)
 			.map((e) => ({ source: e.source, target: e.target }))
 			.sort((a, b) =>
 				a.source === b.source
@@ -573,12 +780,22 @@
 					: assetEmph === 'input'
 						? 'wm-asset-input'
 						: undefined
+			// Bounded-run pick overlay takes precedence over the activity rings
+			// (it's a transient, modal selection). start ring > end mark > in-set
+			// ring > eligible (clickable, no style) > dimmed (out of reach).
+			let boundClass: string | undefined
+			if (boundPick && n.type !== 'add' && n.type !== 'trigger') {
+				if (n.id === boundPick.start) boundClass = 'wm-bound-start'
+				else if (boundPick.ends.has(n.id)) boundClass = 'wm-bound-end'
+				else if (boundPick.bounded.has(n.id)) boundClass = 'wm-bound-in'
+				else if (!boundPick.eligible.has(n.id)) boundClass = 'wm-bound-dim'
+			}
 			return {
 				id: n.id,
 				type: n.type,
 				position: { x: p.x + xCenter + xShift, y: p.y + 40 },
 				data: n.data,
-				class: runClass ?? assetClass,
+				class: boundClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -701,6 +918,13 @@
 						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
 						animated = flowAnimated
 						break
+					case 'data-test':
+						// Asset → its custom-test script: dashed, muted, no run
+						// animation (the test isn't a producing step).
+						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
+						strokeDasharray = '4 3'
+						markerColor = 'rgb(156 163 175)'
+						break
 					case 'trigger-asset':
 						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
 						animated = flowAnimated
@@ -714,6 +938,16 @@
 						markerColor = 'rgb(107 114 128)'
 						label = 'triggers'
 						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
+						break
+					case 'macro':
+						// Library → consumer: violet dashed, visually apart from both
+						// lineage (blue/gray solid) and trigger (gray dashed) families —
+						// it's a code dependency, not data flow or execution.
+						style = 'stroke: rgb(139 92 246); stroke-width: 1.25px;'
+						strokeDasharray = '5 3'
+						markerColor = 'rgb(139 92 246)'
+						label = e.via_use ? 'uses lib' : 'macros'
+						labelStyle = 'fill: rgb(139 92 246); font-size: 10px; font-weight: 600;'
 						break
 					default:
 						style = ''
@@ -755,7 +989,21 @@
 					source: e.source,
 					target: e.target,
 					type: 'asset',
-					data: { detourX: detourForEdge(e.source, e.target) },
+					data: {
+						detourX: detourForEdge(e.source, e.target),
+						// Data-test badge on the producer→asset write-edge. The
+						// producer's last-run status (the script fails if any test
+						// fails) tints it green/red; neutral until it has run.
+						data_tests: e.data_tests,
+						testsRunStatus: e.data_tests?.length ? runStates?.get(e.source)?.status : undefined,
+						// Column-lineage badge on the same write-edge (the link is the
+						// transformation whose output columns the lineage describes).
+						column_lineage: e.column_lineage,
+						// Macro-edge badge: which of the library's macros the consumer
+						// calls (all of them when pulled in via `// use`).
+						macro_names: e.macro_names,
+						via_use: e.via_use
+					},
 					animated,
 					label,
 					labelStyle,
@@ -784,7 +1032,8 @@
 		asset: AssetNode as any,
 		runnable: RunnableNode as any,
 		trigger: TriggerNode as any,
-		add: AddNode as any
+		add: AddNode as any,
+		'data-test': DataTestNode as any
 	}
 
 	const edgeTypes = {
@@ -792,12 +1041,26 @@
 	}
 
 	function handleNodeClick({ node }: { node: Node }) {
+		// Bounded-run pick mode intercepts clicks: an eligible (downstream)
+		// node toggles as an end bound; the start, dimmed nodes, and
+		// triggers/+ are inert. Selection (details pane) is suppressed so the
+		// modal pick stays focused.
+		if (boundPick && onPickEnd) {
+			if (node.type !== 'asset' && node.type !== 'runnable') return
+			if (node.id === boundPick.start) return
+			if (!boundPick.eligible.has(node.id)) return
+			onPickEnd(node.id)
+			return
+		}
 		if (!onselect) return
 		const data = node.data as any
 		if (node.type === 'asset') {
 			onselect({ kind: 'asset', asset_kind: data.asset_kind, path: data.path })
 		} else if (node.type === 'runnable') {
 			onselect({ kind: 'runnable', runnable_kind: data.runnable_kind, path: data.path })
+		} else if (node.type === 'data-test') {
+			// A custom test is a deployed script — open it like any runnable.
+			onselect({ kind: 'runnable', runnable_kind: 'script', path: data.path })
 		}
 		// 'schedule' doesn't produce a selection.
 	}
@@ -822,21 +1085,37 @@
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+		<InitialFitView {nodes} fitKey={viewportFitKey} />
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
-		<MiniMap
-			pannable
-			zoomable
-			class="!bg-surface !mb-10"
-			nodeColor={(n) =>
-				n.type === 'asset'
-					? 'rgb(96 165 250 / 0.5)'
-					: n.type === 'trigger'
-						? 'rgb(251 191 36 / 0.5)'
-						: 'rgb(52 211 153 / 0.5)'}
-			nodeStrokeColor="transparent"
-			maskColor="rgb(0 0 0 / 0.2)"
-		/>
+		{#if showMinimap}
+			<!-- Node hues mirror the canvas: blue asset cards, amber triggers,
+			     bordered neutral script cards. Visible strokes + rounded corners +
+			     a bordered container + the outlined viewport mask are what make
+			     this read as a minimap instead of a loading skeleton. -->
+			<MiniMap
+				pannable
+				zoomable
+				class="!bg-surface !mb-10 rounded-md border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden"
+				nodeBorderRadius={12}
+				nodeStrokeWidth={6}
+				nodeColor={(n) =>
+					n.type === 'asset'
+						? 'rgb(59 130 246 / 0.3)'
+						: n.type === 'trigger'
+							? 'rgb(245 158 11 / 0.3)'
+							: 'rgb(148 163 184 / 0.15)'}
+				nodeStrokeColor={(n) =>
+					n.type === 'asset'
+						? 'rgb(59 130 246 / 0.8)'
+						: n.type === 'trigger'
+							? 'rgb(245 158 11 / 0.8)'
+							: 'rgb(100 116 139 / 0.7)'}
+				maskColor="rgb(100 116 139 / 0.12)"
+				maskStrokeColor="rgb(59 130 246 / 0.5)"
+				maskStrokeWidth={4}
+			/>
+		{/if}
 	</SvelteFlow>
 </div>
 
@@ -869,5 +1148,21 @@
 	}
 	:global(.svelte-flow__node.wm-asset-input .drop-shadow-sm) {
 		@apply outline outline-2 outline-gray-400;
+	}
+	/* Bounded-run pick mode. The start is a solid blue ring; chosen end
+	   bounds get a thicker amber ring; nodes inside the path-between set ring
+	   blue; everything out of reach fades back so the matched subset reads at
+	   a glance. */
+	:global(.svelte-flow__node.wm-bound-start .drop-shadow-sm) {
+		@apply outline outline-2 outline-blue-500;
+	}
+	:global(.svelte-flow__node.wm-bound-in .drop-shadow-sm) {
+		@apply outline outline-2 outline-blue-400/70;
+	}
+	:global(.svelte-flow__node.wm-bound-end .drop-shadow-sm) {
+		@apply outline outline-[3px] outline-amber-500;
+	}
+	:global(.svelte-flow__node.wm-bound-dim) {
+		@apply opacity-30;
 	}
 </style>

@@ -66,7 +66,10 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		runnables: { ...(value.runnables ?? {}) },
 		data: value.data ?? { ...DEFAULT_RAW_APP_DATA },
 		policy: value.policy === undefined ? undefined : clone(value.policy),
-		custom_path: value.custom_path
+		custom_path: value.custom_path,
+		// Carry the fork-base version through the whitelist — it is dropped on every
+		// save otherwise, which would defeat the stale-draft check.
+		parent_version: value.parent_version
 	}
 }
 
@@ -135,6 +138,7 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceIt
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
+		parentHash: draft.parent_hash,
 		isDraft: true
 	}
 }
@@ -144,6 +148,10 @@ function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
 		type: 'flow',
 		path,
 		summary: draft.summary,
+		// The persisted flow draft carries `version_id` (the deployed head it was
+		// forked from, pinned at fork by writeDraft/the editor) — the flow analog
+		// of a script's parent_hash.
+		parentVersionId: draft.version_id,
 		value: {
 			value: draft.value,
 			schema: draft.schema ?? null,
@@ -160,6 +168,7 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 		type: 'app',
 		path,
 		summary: value.summary,
+		parentVersionId: value.parent_version,
 		value,
 		isDraft: true
 	}

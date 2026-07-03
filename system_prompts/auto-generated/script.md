@@ -1468,25 +1468,27 @@ async getRootJobId(jobId?: string): Promise<string>
 /**
  * @deprecated Use runScriptByPath or runScriptByHash instead
  */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its path and wait for the result
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
-async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its hash and wait for the result
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
-async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Append a text to the result stream
@@ -1505,9 +1507,10 @@ async streamResult(stream: AsyncIterable<string>): Promise<void>
  * @param path - Flow path in Windmill
  * @param args - Arguments to pass to the flow
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Flow execution result
  */
-async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Wait for a job to complete and return its result
@@ -1534,25 +1537,27 @@ async getResultMaybe(jobId: string): Promise<any>
 /**
  * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
  */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -1560,9 +1565,10 @@ async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = nul
  * @param args - Arguments to pass to the flow
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
  * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
+async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true, tag: string | null = null): Promise<string>
 
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
@@ -2063,27 +2069,27 @@ def create_token(duration = dt.timedelta(days=1)) -> str
 # Create a script job and return its job id.
 # 
 # .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
-def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None) -> str
+def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Create a script job by path and return its job id.
-def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None) -> str
+def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Create a script job by hash and return its job id.
-def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None) -> str
+def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Create a flow job and return its job id.
-def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str
+def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
 
 # Run script synchronously and return its result.
 # 
 # .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
-def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run script by path synchronously and return its result.
-def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run script by hash synchronously and return its result.
-def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
+def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run a script on the current worker without creating a job.
 # 
@@ -2501,10 +2507,11 @@ def get_version() -> str
 #     assert_result_is_not_none: Raise exception if result is None
 #     cleanup: Register cleanup handler to cancel job on exit
 #     timeout: Maximum time to wait
+#     tag: Override the worker tag the job runs on
 # 
 # Returns:
 #     Script result
-def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None, tag: str = None) -> Any
 
 # Run a script synchronously by path and return its result.
 # 
@@ -2515,10 +2522,11 @@ def run_script_sync(hash: str, args: Dict[str, Any] = None, verbose: bool = Fals
 #     assert_result_is_not_none: Raise exception if result is None
 #     cleanup: Register cleanup handler to cancel job on exit
 #     timeout: Maximum time to wait
+#     tag: Override the worker tag the job runs on
 # 
 # Returns:
 #     Script result
-def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None) -> Any
+def run_script_by_path_sync(path: str, args: Dict[str, Any] = None, verbose: bool = False, assert_result_is_not_none: bool = True, cleanup: bool = True, timeout: dt.timedelta = None, tag: str = None) -> Any
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
 # initiate an S3 connection from DuckDB

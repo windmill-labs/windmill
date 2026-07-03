@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.policy::text as policy, a.versions[array_upper(a.versions, 1)] as version, av.raw_app as raw_app\n         FROM app a JOIN app_version av ON av.id = a.versions[array_upper(a.versions, 1)]\n         WHERE a.path = $1 AND a.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "policy",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "raw_app",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "e0a40d2aba02bd6c502d746471c9c14db8fcaaaf8e3c44fb5ea4ed763a1849dd"
+}

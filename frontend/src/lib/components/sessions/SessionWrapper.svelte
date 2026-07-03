@@ -7,7 +7,8 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -27,14 +28,17 @@
 	import FlowEditorView from './FlowEditorView.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
+	import PipelineEditorView from './PipelineEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionForkBar from './SessionForkBar.svelte'
 	import SessionDraftBar from './SessionDraftBar.svelte'
 	import {
 		createSession,
+		deleteSessionsForWorkspace,
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
 		moveSessionToWorkspace,
+		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
 		sessionState,
@@ -89,10 +93,13 @@
 	// the fork lingers as an orphan whose only purpose was this session.
 	const sessionForkId = $derived.by(() => {
 		const wsId = session?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
-		// Don't offer the option if the fork is gone or not user-accessible.
-		if (!ws || !ws.parent_workspace_id) return undefined
+		// Don't offer the option if the fork is gone/not user-accessible or isn't a fork (prefix OR
+		// parent, so an orphaned wm-fork- fork still qualifies).
+		if (!ws || !workspaceIsFork(wsId, $userWorkspaces)) return undefined
+		// A persistent dev workspace is not an ephemeral session fork — never offer to delete it.
+		if (ws.is_dev_workspace) return undefined
 		return wsId
 	})
 
@@ -100,16 +107,6 @@
 	let deleteAlsoFork = $state(false)
 	let archiveConfirmOpen = $state(false)
 	let archiveAlsoFork = $state(false)
-
-	async function refreshWorkspaceList() {
-		// Match the SidebarContent.deleteFork pattern: replace the in-memory
-		// list rather than nulling it. See B1 fix.
-		try {
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		} catch (e) {
-			console.error('Failed to refresh workspaces', e)
-		}
-	}
 
 	async function handleConfirmedDelete() {
 		deleteConfirmOpen = false
@@ -125,8 +122,9 @@
 		if (forkToDelete) {
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+				await deleteSessionsForWorkspace(forkToDelete)
 				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
-				await refreshWorkspaceList()
+				await reconcileAfterWorkspaceChange()
 			} catch (e: any) {
 				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
 			}
@@ -150,7 +148,7 @@
 			try {
 				await WorkspaceService.archiveWorkspace({ workspace: forkToArchive })
 				sendUserToast(`Archived forked workspace ${forkToArchive}`)
-				await refreshWorkspaceList()
+				await reconcileAfterWorkspaceChange()
 			} catch (e: any) {
 				sendUserToast(`Failed to archive fork ${forkToArchive}: ${e?.body ?? e}`, true)
 			}
@@ -268,7 +266,8 @@
 	{@const hasTarget =
 		session.target?.kind === 'flow' ||
 		session.target?.kind === 'script' ||
-		session.target?.kind === 'raw_app'}
+		session.target?.kind === 'raw_app' ||
+		session.target?.kind === 'pipeline'}
 	{@const hasEditor = mountEditor && hasTarget && editorVisible}
 
 	{#snippet inputPreface()}
@@ -280,6 +279,29 @@
 		     is position:fixed, so it doesn't count as a flex item — no stray gap
 		     when only one bar shows. -->
 		<div class="flex flex-col gap-1">
+			{#if session.archived && !isUnavailable}
+				<!-- Unarchive is only meaningful when the workspace is still live:
+				     putSession refuses to resurrect a session whose workspace is gone,
+				     and reconcile would re-archive a workspace-archived one anyway. When
+				     the workspace is unavailable the SessionForkBar below shows the
+				     move/discard banner instead (its actions are the real recovery path). -->
+				<div
+					class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
+				>
+					<div class="flex flex-row items-center gap-2 min-w-0">
+						<Archive class="w-4 h-4 shrink-0 text-tertiary" />
+						<span class="text-primary font-medium">This session is archived</span>
+					</div>
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: ArchiveRestore }}
+						onclick={() => setSessionArchived(session.id, false)}
+					>
+						Unarchive
+					</Button>
+				</div>
+			{/if}
 			<SessionForkBar
 				{session}
 				onMove={(workspaceId) => moveAndActivate(workspaceId)}
@@ -320,17 +342,25 @@
 							icon: Pencil,
 							action: () => summaryInput?.edit()
 						},
-						session.archived
-							? {
-									displayName: 'Unarchive',
-									icon: ArchiveRestore,
-									action: () => setSessionArchived(session.id, false)
-								}
-							: {
-									displayName: 'Archive',
-									icon: Archive,
-									action: () => archiveAndReset()
-								},
+						...(session.archived
+							? // No Unarchive when the workspace is gone — it can't persist
+								// (putSession guard) and reconcile would re-archive it.
+								isUnavailable
+								? []
+								: [
+										{
+											displayName: 'Unarchive',
+											icon: ArchiveRestore,
+											action: () => setSessionArchived(session.id, false)
+										}
+									]
+							: [
+									{
+										displayName: 'Archive',
+										icon: Archive,
+										action: () => archiveAndReset()
+									}
+								]),
 						{
 							displayName: 'Delete',
 							icon: Trash2,
@@ -403,10 +433,12 @@
 					hideHeader
 					hideModeSelector
 					wideLayout
-					forceDisabled={isUnavailable}
+					forceDisabled={isUnavailable || !!session.archived}
 					forceDisabledMessage={isUnavailable
 						? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
-						: ''}
+						: session.archived
+							? 'This session is archived. Unarchive it from the banner above to keep working.'
+							: ''}
 					emptyHint={sessionEmptyHint}
 					{inputPreface}
 				/>
@@ -441,6 +473,13 @@
 							path={session.target.path}
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
+							isActiveSession={sessionState.currentSessionId === sessionId}
+						/>
+					{:else if session.target.kind === 'pipeline'}
+						<PipelineEditorView
+							{runtime}
+							path={session.target.path}
+							workspaceId={effectiveWorkspaceId}
 							isActiveSession={sessionState.currentSessionId === sessionId}
 						/>
 					{/if}

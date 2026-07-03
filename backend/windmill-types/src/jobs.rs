@@ -232,6 +232,14 @@ pub struct QueuedJob {
     pub runnable_settings_handle: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    // True when this job is a native retry attempt (has a native_retry_attempt
+    // marker). Lets the run-page chain distinguish real retries from other
+    // same-script children (e.g. WAC inline children). The list and single-job
+    // GET endpoints select it; `#[sqlx(default)]` lets any other query omit the
+    // column and default to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_retry: Option<bool>,
 }
 
 impl QueuedJob {
@@ -307,6 +315,7 @@ impl Default for QueuedJob {
             preprocessed: None,
             runnable_settings_handle: None,
             labels: None,
+            is_retry: None,
         }
     }
 }
@@ -362,6 +371,14 @@ pub struct CompletedJob {
     pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    // True when this job is a native retry attempt (has a native_retry_attempt
+    // marker). Lets the run-page chain distinguish real retries from other
+    // same-script children (e.g. WAC inline children). The list and single-job
+    // GET endpoints select it; `#[sqlx(default)]` lets any other query omit the
+    // column and default to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_retry: Option<bool>,
 }
 
 impl CompletedJob {
@@ -473,6 +490,10 @@ pub enum JobPayload {
         path: String,
         hash: Option<ScriptHash>,
         flow_version: Option<i64>,
+        // Set when wrapping a script (not a flow). Lets `push` materialize a
+        // bare-script-with-retry as a native retryable `Script` job instead of
+        // spawning a one-step flow.
+        language: Option<ScriptLang>,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Option<Retry>,
         error_handler_path: Option<String>,

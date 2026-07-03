@@ -19,6 +19,7 @@ export type PipelineOutputKind =
 	| 'materialize'
 	| 's3_parquet'
 	| 's3_object'
+	| 'macros'
 
 export type PipelineOutputKindMeta = {
 	id: PipelineOutputKind
@@ -57,6 +58,11 @@ export const PIPELINE_OUTPUT_KINDS: PipelineOutputKindMeta[] = [
 		description: 'Generic file (JSON/CSV/binary)'
 	},
 	{
+		id: 'macros',
+		label: 'Macro library',
+		description: 'Reusable DuckDB macros, callable from every script in the workspace'
+	},
+	{
 		id: 'none',
 		label: 'No output',
 		description: 'Side-effect only / fill in manually'
@@ -77,7 +83,7 @@ const LANG_COMPATIBILITY: Record<ScriptLang, PipelineOutputKind[]> = {
 	// single SELECT. The Python/TS `wmll.ducklake` helper currently takes a SQL
 	// SELECT (not in-memory rows), so a polyglot managed materialize is a
 	// separate follow-up — those langs keep the `ducklake` raw-write kind.
-	duckdb: ['materialize', 'datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
+	duckdb: ['materialize', 'datatable', 'ducklake', 's3_parquet', 's3_object', 'macros', 'none'],
 	postgresql: ['datatable', 'none'],
 	mysql: ['none'],
 	mssql: ['none'],
@@ -176,6 +182,9 @@ export function autoOutputAsset(
 				path: `/pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
 			}
 		}
+		// A macro library produces no asset — its "output" is the registry
+		// entries the deploy records.
+		case 'macros':
 		case 'none':
 			return undefined
 	}
@@ -330,6 +339,16 @@ function header(ctx: TemplateContext): string {
 					`${p} Strategy: add key=<col> to merge (upsert), or append for insert-only; default replaces the partition`
 				]
 			: []
+	// Macro library: the `// macros` marker registers every CREATE MACRO below
+	// into the workspace registry at deploy. The hint must not start with a
+	// parser keyword — `Consumers` is safe.
+	const macrosLine =
+		outputKind === 'macros'
+			? [
+					`${p} macros`,
+					`${p} Consumers just call these by name; add \`${p} use <this-script-path>\` in a consumer to force-inject the whole library`
+				]
+			: []
 	// Discoverability hint — the three annotations users most often miss
 	// when authoring their first pipeline script. Single line, real
 	// example values (not placeholders) so users see the syntax. Docs
@@ -337,7 +356,7 @@ function header(ctx: TemplateContext): string {
 	// line separates it from the parsed annotations above (`// pipeline`,
 	// `// on …`) so the editor reads as "real annotations, then a hint".
 	const more = `${p} More: partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/pipelines/annotations`
-	return [`${p} pipeline`, ...lines, ...matLine, '', more, ''].join('\n')
+	return [`${p} pipeline`, ...lines, ...matLine, ...macrosLine, '', more, ''].join('\n')
 }
 
 // Bun / Deno bodies. These share the wmill SDK surface, so we treat them
@@ -546,6 +565,14 @@ function bodyDuckdb(ctx: TemplateContext): string {
 	}
 	if (ducklakeDb) {
 		lines.push(`ATTACH 'ducklake://${ducklakeDb}' AS lake;`)
+		if (input?.kind === 'ducklake') {
+			// Discoverability hint: every materialize records a DuckLake snapshot,
+			// so a consumer can pin its read to a past version. Snapshot ids live
+			// in the asset's History tab.
+			lines.push(
+				`-- time-travel: read a past snapshot with \`FROM ${`lake.${catalogTableRef(input.path)}`} AT (VERSION => 42)\``
+			)
+		}
 	}
 	if (datatableDb || ducklakeDb) lines.push('')
 
@@ -627,6 +654,18 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 				)
 			}
+			break
+		case 'macros':
+			// Library body: only CREATE [OR REPLACE] MACRO statements (plus plain
+			// setup). One scalar + one table example; bodies may only call macros
+			// defined EARLIER in the file (DuckDB bind-checks at creation).
+			lines.push(
+				`CREATE OR REPLACE MACRO safe_div(a, b, fallback := 0) AS`,
+				`  CASE WHEN b = 0 THEN fallback ELSE a / b END;`,
+				``,
+				`CREATE OR REPLACE MACRO sample_rows(src, n) AS TABLE`,
+				`  SELECT * FROM query_table(src) LIMIT n;`
+			)
 			break
 		case 'none':
 		default:

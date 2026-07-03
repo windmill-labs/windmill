@@ -14,7 +14,7 @@ use windmill_api_jobs::execution::cancel_jobs;
 use windmill_common::{
     db::{UserDB, DB},
     error::{self, Error, Result},
-    jobs::JobTriggerKind,
+    jobs::{delete_jobs, JobTriggerKind},
     triggers::TriggerMetadata,
 };
 
@@ -262,9 +262,7 @@ pub async fn resume_suspended_trigger_jobs(
                 .execute(&mut *tx)
                 .await?;
 
-            sqlx::query!("DELETE FROM v2_job WHERE id = $1", job.id)
-                .execute(&mut *tx)
-                .await?;
+            delete_jobs(&mut *tx, &[job.id]).await?;
         }
     }
 

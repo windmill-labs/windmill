@@ -1,12 +1,11 @@
 <script lang="ts">
 	import type { Script } from '$lib/gen'
-	import { Loader2, Play, Upload } from 'lucide-svelte'
+	import { Loader2, Play, Upload, Zap } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import PipelineRunForm from './PipelineRunForm.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { emptySchema } from '$lib/utils'
 
 	interface Props {
 		script: Script
@@ -20,6 +19,13 @@
 		// Legitimate dispatch (runScriptByPath, real cascade) owned by the
 		// page. Returns the launched job id.
 		onRun?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Run this script AND its downstream closure with the same form args (dev
+		// preview: the client orchestrates the chain). When unset — the deployed
+		// pane — the single `onRun` already cascades via the backend dispatcher, so
+		// no separate "Run + downstream" affordance is shown.
+		onRunCascade?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Downstream subscriber count; the cascade button is offered only when > 0.
+		downstreamCount?: number
 		// Threaded through to AssetRunsPanel — same semantics as the asset
 		// selection branch of the details pane.
 		runsRefreshKey?: any
@@ -32,6 +38,8 @@
 		isDraft = false,
 		canRun = false,
 		onRun,
+		onRunCascade,
+		downstreamCount = 0,
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted
@@ -40,19 +48,24 @@
 	let args = $state<Record<string, any>>({})
 	let isValid = $state(true)
 	let running = $state(false)
+	// Offer "Run + downstream" only when a cascade dispatch is wired (dev preview)
+	// and the script actually has subscribers to fan out to.
+	let hasCascade = $derived(!!onRunCascade && downstreamCount > 0)
 
-	// Local clone for SchemaForm's bindable schema prop — the incoming
-	// script is owned by the parent and must not be mutated from here.
-	// Seeded once: the details pane keys this component on script.path, so
-	// switching scripts remounts with a fresh clone.
-	// svelte-ignore state_referenced_locally
-	let formSchema = $state<any>(structuredClone($state.snapshot(script.schema) ?? emptySchema()))
+	// The details pane keys this component on script.path only, so a same-path
+	// re-resolve (in /pipeline_dev the selected node re-resolves on every WS
+	// bundle) does NOT remount us. `PipelineRunForm` owns the SchemaForm clone and
+	// is keyed on the serialized schema below, so a local edit that adds/removes
+	// args reseeds the run form while an unchanged re-resolve keeps in-progress
+	// input (else the form could run against a stale schema with missing inputs).
+	let schemaKey = $derived(JSON.stringify(script.schema ?? null))
 
-	async function run() {
-		if (!onRun || running) return
+	async function run(cascade = false) {
+		const dispatch = cascade ? onRunCascade : onRun
+		if (!dispatch || running) return
 		running = true
 		try {
-			await onRun(script.path, $state.snapshot(args))
+			await dispatch(script.path, $state.snapshot(args))
 		} finally {
 			running = false
 		}
@@ -77,20 +90,38 @@
 								<Upload size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
 								Run pipeline
 							</span>
-							<Button
-								variant="accent"
-								unifiedSize="sm"
-								startIcon={{ icon: running ? Loader2 : Play }}
-								onclick={run}
-								disabled={isDraft || running || !isValid || !onRun}
-								title={isDraft
-									? 'Deploy this draft to run it for real'
-									: 'Run the deployed script — downstream pipeline scripts cascade for real'}
-							>
-								{running ? 'Starting…' : 'Run'}
-							</Button>
+							<div class="flex items-center gap-1.5">
+								{#if hasCascade}
+									<Button
+										variant="accent-secondary"
+										unifiedSize="sm"
+										startIcon={{ icon: running ? Loader2 : Zap }}
+										onclick={() => run(true)}
+										disabled={isDraft || running || !isValid}
+										title={`Run this script with these inputs, then run its ${downstreamCount} downstream pipeline script${downstreamCount === 1 ? '' : 's'} in order`}
+									>
+										Run + downstream
+									</Button>
+								{/if}
+								<Button
+									variant="accent"
+									unifiedSize="sm"
+									startIcon={{ icon: running ? Loader2 : Play }}
+									onclick={() => run(false)}
+									disabled={isDraft || running || !isValid || !onRun}
+									title={isDraft
+										? 'Deploy this draft to run it for real'
+										: hasCascade
+											? 'Run just this step — downstream scripts are not triggered'
+											: 'Run the deployed script — downstream pipeline scripts cascade for real'}
+								>
+									{running ? 'Starting…' : 'Run'}
+								</Button>
+							</div>
 						</div>
-						<SchemaForm bind:schema={formSchema} bind:args bind:isValid compact />
+						{#key schemaKey}
+							<PipelineRunForm schema={script.schema} bind:args bind:isValid />
+						{/key}
 					</div>
 				{/if}
 				<div class="flex-1 min-h-0 overflow-auto text-xs p-3">

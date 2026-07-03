@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Database, HardDrive, Loader2, Trash2 } from 'lucide-svelte'
+	import { Database, Eye, EyeOff, HardDrive, Loader2, Trash2 } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
 	import Toggle from './Toggle.svelte'
 	import { Button, Tab, Tabs } from './common'
@@ -141,6 +141,7 @@
 		total_jobs: number
 		processed_jobs: number
 		s3_deleted: number
+		s3_not_found?: number
 		orphans_scanned: number
 		orphans_deleted: number
 		errors: number
@@ -226,6 +227,16 @@
 		stopPolling()
 		stopUsagePolling()
 	})
+
+	// The GCS service account key JSON contains the secret `private_key`, so the
+	// editor that reveals it in plain text is hidden behind an explicit opt-in
+	// rather than rendered on page load whenever a key is already configured.
+	let showServiceAccountKey = $state(false)
+	let hasServiceAccountKey = $derived(
+		bucket_config?.type === 'Gcs' &&
+			!!bucket_config.serviceAccountKey &&
+			Object.keys(bucket_config.serviceAccountKey).length > 0
+	)
 
 	let simpleEditor: SimpleEditor | undefined = $state(undefined)
 	let serviceAccountKeyCode = $state(
@@ -418,6 +429,9 @@
 						</span>
 						<span>
 							S3 deleted: {cleanupStatus.s3_deleted.toLocaleString()}
+							{#if (cleanupStatus.s3_not_found ?? 0) > 0}
+								&middot; already absent (404): {(cleanupStatus.s3_not_found ?? 0).toLocaleString()}
+							{/if}
 							{#if cleanupStatus.errors > 0}
 								&middot; errors: {cleanupStatus.errors.toLocaleString()}
 							{/if}
@@ -676,28 +690,61 @@
 					/>
 				</Label>
 				<Label label="Service Account Key">
-					<span class="text-primary text-2xs">JSON content of the service account key file</span>
-					<SimpleEditor
-						bind:this={simpleEditor}
-						lang="json"
-						bind:code={serviceAccountKeyCode}
-						on:change={(e) => {
-							if (bucket_config?.type === 'Gcs') {
-								if (e.detail.code === undefined || e.detail.code === '') {
-									bucket_config = { ...bucket_config, serviceAccountKey: undefined }
-									return
+					<span class="text-primary text-2xs">
+						JSON content of the service account key file. Leave empty to use the instance's ambient
+						credentials (e.g. GKE Workload Identity / the GCP metadata server).
+					</span>
+					{#if hasServiceAccountKey && !showServiceAccountKey}
+						<div class="flex items-center gap-3 mt-1">
+							<span class="text-tertiary text-xs">
+								A service account key is configured and hidden as it contains a private key.
+							</span>
+							<Button
+								spacingSize="sm"
+								size="xs"
+								variant="border"
+								startIcon={{ icon: Eye }}
+								on:click={() => (showServiceAccountKey = true)}
+							>
+								Show sensitive values
+							</Button>
+						</div>
+					{:else}
+						{#if hasServiceAccountKey}
+							<div class="flex justify-end mb-1">
+								<Button
+									spacingSize="sm"
+									size="xs"
+									variant="border"
+									startIcon={{ icon: EyeOff }}
+									on:click={() => (showServiceAccountKey = false)}
+								>
+									Hide
+								</Button>
+							</div>
+						{/if}
+						<SimpleEditor
+							bind:this={simpleEditor}
+							lang="json"
+							bind:code={serviceAccountKeyCode}
+							on:change={(e) => {
+								if (bucket_config?.type === 'Gcs') {
+									if (e.detail.code === undefined || e.detail.code === '') {
+										bucket_config = { ...bucket_config, serviceAccountKey: undefined }
+										return
+									}
+									try {
+										const parsed = JSON.parse(e.detail.code ?? '{}')
+										lastEditorSyncedJson = JSON.stringify(parsed)
+										bucket_config = { ...bucket_config, serviceAccountKey: parsed }
+									} catch (_) {
+										bucket_config = { ...bucket_config, serviceAccountKey: undefined }
+									}
 								}
-								try {
-									const parsed = JSON.parse(e.detail.code ?? '{}')
-									lastEditorSyncedJson = JSON.stringify(parsed)
-									bucket_config = { ...bucket_config, serviceAccountKey: parsed }
-								} catch (_) {
-									bucket_config = { ...bucket_config, serviceAccountKey: undefined }
-								}
-							}
-						}}
-						class="h-80"
-					/>
+							}}
+							class="h-80"
+						/>
+					{/if}
 				</Label>
 			{:else}
 				<div>Unknown bucket type {bucket_config['type']}</div>

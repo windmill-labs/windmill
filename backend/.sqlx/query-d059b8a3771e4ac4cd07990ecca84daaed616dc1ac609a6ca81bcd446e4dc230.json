@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM job_result_stream_v2\n             WHERE ctid IN (\n                 SELECT jrs.ctid FROM job_result_stream_v2 jrs\n                 WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jrs.job_id)\n                   AND NOT EXISTS (\n                       SELECT 1 FROM v2_job_completed c\n                       WHERE c.id = jrs.job_id\n                         AND c.completed_at > NOW() - INTERVAL '60 seconds'\n                   )\n                 LIMIT 100000\n             )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d059b8a3771e4ac4cd07990ecca84daaed616dc1ac609a6ca81bcd446e4dc230"
+}

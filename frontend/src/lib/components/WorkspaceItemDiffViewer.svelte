@@ -4,6 +4,9 @@ Inline diff renderer for a single workspace item. Mirrors the per-kind
 rendering that DiffDrawer does in its body (`DiffDrawer.svelte:181-271`):
 
 - `flow` → `<FlowDiffViewer>` (its own Graph / YAML toggle inside)
+- `raw_app_file` → `<RawAppFileDiff>` (one synthesized raw-app file item: a
+  single diff with a per-file size guard; the metadata item adds a full-app
+  YAML expand). Raw apps are exploded into these items by `rawAppDiffToItems`.
 - has `content` (scripts) → Tabs(Content | Metadata) with two Monaco diffs
 - everything else (apps, resources, variables, schedules, triggers…) →
   a single Monaco YAML diff over the metadata
@@ -18,12 +21,15 @@ doesn't reflow the parent.
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import FlowDiffViewer from './FlowDiffViewer.svelte'
+	import RawAppFileDiff from './raw_apps/RawAppFileDiff.svelte'
+	import type { RawAppFileItem } from './raw_apps/rawAppDiffUtils'
 	import { Loader2 } from 'lucide-svelte'
 	import { cleanValueProperties, orderedYamlStringify, replaceFalseWithUndefined } from '$lib/utils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	interface Props {
-		/** Any WorkspaceItemDiff['kind'] — used only to special-case `flow`. */
+		/** Any WorkspaceItemDiff['kind'], plus the synthetic `raw_app_file`.
+		 * `flow` and `raw_app_file` are special-cased. */
 		kind: string
 		/** Raw value from `getItemValue(kind, path, parentWorkspace)`. Undefined
 		 * for "added" items (don't exist in the parent). */
@@ -33,9 +39,11 @@ doesn't reflow the parent.
 		currentRaw?: unknown
 		/** Force unified diff (Monaco renderSideBySide=false). Default false. */
 		inlineDiff?: boolean
+		/** For `raw_app_file`: the synthesized per-file diff item to render. */
+		rawFile?: RawAppFileItem
 	}
 
-	let { kind, originalRaw, currentRaw, inlineDiff = false }: Props = $props()
+	let { kind, originalRaw, currentRaw, inlineDiff = false, rawFile }: Props = $props()
 
 	type Prepared = { lang?: string; content?: string; metadata: string }
 
@@ -102,6 +110,16 @@ doesn't reflow the parent.
 			{inlineDiff}
 		/>
 	</div>
+{:else if kind === 'raw_app_file' && rawFile}
+	<RawAppFileDiff
+		original={rawFile.original}
+		current={rawFile.current}
+		lang={rawFile.lang}
+		isMetadata={rawFile.isMetadata}
+		fullYamlOriginal={rawFile.fullYamlOriginal}
+		fullYamlCurrent={rawFile.fullYamlCurrent}
+		{inlineDiff}
+	/>
 {:else if hasContent}
 	<div class="flex flex-col">
 		<Tabs bind:selected={contentTab}>

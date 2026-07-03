@@ -11,9 +11,9 @@
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { isPremiumStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { goto } from '$lib/navigation'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { deriveForkStatus, sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
@@ -52,9 +52,12 @@
 	const isFork = $derived(!!parentWorkspaceId)
 
 	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar.
-	// When forking isn't available the diff/review surface is moot.
+	// When forking isn't available the diff/review surface is moot. On cloud, forking is a
+	// premium-only feature (backend caps it per paid seat).
 	const forksAllowed = $derived(
-		!isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'
+		(!isCloudHosted() || $isPremiumStore) &&
+			canCreateFork($userStore) &&
+			$workspaceStore !== 'admins'
 	)
 
 	let diffDrawer: ForkDiffDrawer | undefined = $state(undefined)
@@ -67,6 +70,10 @@
 	const totalDiffs = $derived(comparison?.summary?.total_diffs ?? 0)
 	const forkStatus = $derived(deriveForkStatus(session, $userWorkspaces, comparison))
 	const isUnavailable = $derived(forkStatus === 'unavailable')
+
+	// The committed workspace is gone, so we can't read its parent to know if
+	// it was a fork — fall back to the fork-id convention for the wording.
+	const committedIsFork = $derived(committedId?.startsWith('wm-fork-') ?? false)
 
 	$effect(() => {
 		if (!runtime || !committedId || !parentWorkspaceId) return
@@ -111,15 +118,19 @@
 </script>
 
 {#if committedId && isUnavailable}
-	<!-- Fork workspace is no longer in the user's list (deleted, archived,
+	<!-- Committed workspace is no longer in the user's list (deleted, archived,
 	     or access revoked). Surface an actionable banner: move the session
 	     to a still-valid workspace, or discard it (archive / delete). The
-	     chat input is disabled by SessionWrapper while this is shown. -->
+	     chat input is disabled by SessionWrapper while this is shown. Shown even
+	     for an archived session — unarchiving in place can't help when the
+	     workspace is gone, so move/discard is the only real recovery path. -->
 	<div class="flex flex-col gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary">
 		<div class="flex flex-row items-start gap-2">
 			<GitPullRequestClosed class="w-4 h-4 shrink-0 text-tertiary mt-0.5" />
 			<div class="flex flex-col min-w-0 flex-1">
-				<span class="text-primary font-medium">The fork has been archived or deleted</span>
+				<span class="text-primary font-medium"
+					>The {committedIsFork ? 'fork' : 'workspace'} has been archived or deleted</span
+				>
 				<span class="text-2xs text-tertiary">
 					Move this session to another workspace, or discard it.
 					<span class="font-mono text-tertiary" title={committedId}>{committedId}</span>

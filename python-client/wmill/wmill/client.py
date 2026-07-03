@@ -168,16 +168,17 @@ class Windmill:
         hash_: str = None,
         args: dict = None,
         scheduled_in_secs: int = None,
+        tag: str = None,
     ) -> str:
         """Create a script job and return its job id.
-        
+
         .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
         """
         logging.warning(
             "run_script_async is deprecated. Use run_script_by_path_async or run_script_by_hash_async instead.",
         )
         assert not (path and hash_), "path and hash_ are mutually exclusive"
-        return self._run_script_async_internal(path=path, hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
+        return self._run_script_async_internal(path=path, hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag)
 
     def _run_script_async_internal(
         self,
@@ -185,10 +186,13 @@ class Windmill:
         hash_: str = None,
         args: dict = None,
         scheduled_in_secs: int = None,
+        tag: str = None,
     ) -> str:
         """Internal helper for running scripts asynchronously."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if tag:
+            params["tag"] = tag
         if os.environ.get("WM_JOB_ID"):
             params["parent_job"] = os.environ.get("WM_JOB_ID")
         if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
@@ -208,18 +212,20 @@ class Windmill:
         path: str,
         args: dict = None,
         scheduled_in_secs: int = None,
+        tag: str = None,
     ) -> str:
         """Create a script job by path and return its job id."""
-        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs)
+        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag)
 
     def run_script_by_hash_async(
         self,
         hash_: str,
         args: dict = None,
         scheduled_in_secs: int = None,
+        tag: str = None,
     ) -> str:
         """Create a script job by hash and return its job id."""
-        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
+        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag)
 
     def run_flow_async(
         self,
@@ -230,10 +236,13 @@ class Windmill:
         # as otherwise the child flow and its own child will store their state in the parent job which will
         # lead to incorrectness and failures
         do_not_track_in_parent: bool = True,
+        tag: str = None,
     ) -> str:
         """Create a flow job and return its job id."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if tag:
+            params["tag"] = tag
         if not do_not_track_in_parent:
             if os.environ.get("WM_JOB_ID"):
                 params["parent_job"] = os.environ.get("WM_JOB_ID")
@@ -254,9 +263,10 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
+        tag: str = None,
     ) -> Any:
         """Run script synchronously and return its result.
-        
+
         .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
         """
         logging.warning(
@@ -265,7 +275,7 @@ class Windmill:
         assert not (path and hash_), "path and hash_ are mutually exclusive"
         return self._run_script_internal(
             path=path, hash_=hash_, args=args, timeout=timeout, verbose=verbose,
-            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none, tag=tag
         )
 
     def _run_script_internal(
@@ -277,6 +287,7 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
+        tag: str = None,
     ) -> Any:
         """Internal helper for running scripts synchronously."""
         args = args or {}
@@ -290,7 +301,7 @@ class Windmill:
         if isinstance(timeout, dt.timedelta):
             timeout = timeout.total_seconds()
 
-        job_id = self._run_script_async_internal(path=path, hash_=hash_, args=args)
+        job_id = self._run_script_async_internal(path=path, hash_=hash_, args=args, tag=tag)
         return self.wait_job(
             job_id, timeout, verbose, cleanup, assert_result_is_not_none
         )
@@ -303,11 +314,12 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
+        tag: str = None,
     ) -> Any:
         """Run script by path synchronously and return its result."""
         return self._run_script_internal(
             path=path, args=args, timeout=timeout, verbose=verbose,
-            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none, tag=tag
         )
 
     def run_script_by_hash(
@@ -318,11 +330,12 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
+        tag: str = None,
     ) -> Any:
         """Run script by hash synchronously and return its result."""
         return self._run_script_internal(
             hash_=hash_, args=args, timeout=timeout, verbose=verbose,
-            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none, tag=tag
         )
 
     def run_inline_script_preview(
@@ -1453,6 +1466,7 @@ def run_script_async(
     hash_or_path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
+    tag: str = None,
 ) -> str:
     """Create a script job and return its job ID.
 
@@ -1460,6 +1474,7 @@ def run_script_async(
         hash_or_path: Script hash or path (determined by presence of '/')
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
+        tag: Override the worker tag the job runs on
 
     Returns:
         Job ID string
@@ -1472,6 +1487,7 @@ def run_script_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        tag=tag,
     )
 
 
@@ -1484,6 +1500,7 @@ def run_flow_async(
     # as otherwise the child flow and its own child will store their state in the parent job which will
     # lead to incorrectness and failures
     do_not_track_in_parent: bool = True,
+    tag: str = None,
 ) -> str:
     """Create a flow job and return its job ID.
 
@@ -1492,6 +1509,7 @@ def run_flow_async(
         args: Flow arguments
         scheduled_in_secs: Delay before execution in seconds
         do_not_track_in_parent: Whether to track in parent job (default: True)
+        tag: Override the worker tag the job runs on
 
     Returns:
         Job ID string
@@ -1501,6 +1519,7 @@ def run_flow_async(
         args=args,
         scheduled_in_secs=scheduled_in_secs,
         do_not_track_in_parent=do_not_track_in_parent,
+        tag=tag,
     )
 
 
@@ -1512,6 +1531,7 @@ def run_script_sync(
     assert_result_is_not_none: bool = True,
     cleanup: bool = True,
     timeout: dt.timedelta = None,
+    tag: str = None,
 ) -> Any:
     """Run a script synchronously by hash and return its result.
 
@@ -1522,6 +1542,7 @@ def run_script_sync(
         assert_result_is_not_none: Raise exception if result is None
         cleanup: Register cleanup handler to cancel job on exit
         timeout: Maximum time to wait
+        tag: Override the worker tag the job runs on
 
     Returns:
         Script result
@@ -1533,6 +1554,7 @@ def run_script_sync(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 
@@ -1541,6 +1563,7 @@ def run_script_by_path_async(
     path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
+    tag: str = None,
 ) -> str:
     """Create a script job by path and return its job ID.
 
@@ -1548,6 +1571,7 @@ def run_script_by_path_async(
         path: Script path
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
+        tag: Override the worker tag the job runs on
 
     Returns:
         Job ID string
@@ -1556,6 +1580,7 @@ def run_script_by_path_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        tag=tag,
     )
 
 
@@ -1564,6 +1589,7 @@ def run_script_by_hash_async(
     hash_: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
+    tag: str = None,
 ) -> str:
     """Create a script job by hash and return its job ID.
 
@@ -1571,6 +1597,7 @@ def run_script_by_hash_async(
         hash_: Script hash
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
+        tag: Override the worker tag the job runs on
 
     Returns:
         Job ID string
@@ -1579,6 +1606,7 @@ def run_script_by_hash_async(
         hash_=hash_,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        tag=tag,
     )
 
 
@@ -1590,6 +1618,7 @@ def run_script_by_path_sync(
     assert_result_is_not_none: bool = True,
     cleanup: bool = True,
     timeout: dt.timedelta = None,
+    tag: str = None,
 ) -> Any:
     """Run a script synchronously by path and return its result.
 
@@ -1600,6 +1629,7 @@ def run_script_by_path_sync(
         assert_result_is_not_none: Raise exception if result is None
         cleanup: Register cleanup handler to cancel job on exit
         timeout: Maximum time to wait
+        tag: Override the worker tag the job runs on
 
     Returns:
         Script result
@@ -1611,6 +1641,7 @@ def run_script_by_path_sync(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 
@@ -2062,9 +2093,10 @@ def run_script(
     verbose: bool = False,
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
+    tag: str = None,
 ) -> Any:
     """Run script synchronously and return its result.
-    
+
     .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
     """
     return _client.run_script(
@@ -2075,6 +2107,7 @@ def run_script(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 
@@ -2086,6 +2119,7 @@ def run_script_by_path(
     verbose: bool = False,
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
+    tag: str = None,
 ) -> Any:
     """Run script by path synchronously and return its result."""
     return _client.run_script_by_path(
@@ -2095,6 +2129,7 @@ def run_script_by_path(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 
@@ -2106,6 +2141,7 @@ def run_script_by_hash(
     verbose: bool = False,
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
+    tag: str = None,
 ) -> Any:
     """Run script by hash synchronously and return its result."""
     return _client.run_script_by_hash(
@@ -2115,6 +2151,7 @@ def run_script_by_hash(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 @init_global_client

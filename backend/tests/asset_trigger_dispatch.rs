@@ -54,6 +54,14 @@ async fn seed_script(
     .bind(language)
     .execute(db)
     .await?;
+    // These tests use #[sqlx::test] isolated DBs that share one workspace id and
+    // reuse script paths, while the same path is seeded with different content
+    // (hence different hashes) across tests. The process-global deployed-script
+    // caches are keyed by (workspace, path)/(workspace, hash), so a concurrent
+    // test resolves a path to a hash that lives in another test's DB and the
+    // dispatch 404s. Disable them so every resolution reads the test's own DB.
+    windmill_common::DEPLOYED_SCRIPT_CACHE_DISABLED
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(h)
 }
 
@@ -392,13 +400,43 @@ async fn end_to_end_asset_dispatch(db: Pool<Postgres>) -> anyhow::Result<()> {
         );
     }
 
-    // producer with parent_job (flow step) is ineligible
+    // flow step (carries flow_step_id) is ineligible
     clear_dispatched(&db).await?;
     let id = seed_producer_job(&db, json!({})).await?;
     let mut mini = make_mini(id, PRODUCER);
-    mini.parent_job = Some(Uuid::new_v4());
+    mini.flow_step_id = Some("a".to_string());
     let r = dispatch_asset_triggers(&db, &mini).await;
     assert_eq!(r.dispatched.len(), 0, "flow step producer ineligible");
+
+    // A native retry attempt has a native_retry_attempt marker — it stays eligible,
+    // so a subscriber that recovers on retry still cascades.
+    clear_dispatched(&db).await?;
+    let id = seed_producer_job(&db, json!({})).await?;
+    sqlx::query("INSERT INTO native_retry_attempt (job_id, attempt) VALUES ($1, 1)")
+        .bind(id)
+        .execute(&db)
+        .await?;
+    let mut mini = make_mini(id, PRODUCER);
+    mini.parent_job = Some(Uuid::new_v4());
+    let r = dispatch_asset_triggers(&db, &mini).await;
+    assert_eq!(
+        r.dispatched.len(),
+        2,
+        "native retry attempt (marked) still dispatches"
+    );
+
+    // A parented Script child WITHOUT the marker — a schedule handler or a WAC
+    // inline child (which re-runs the same runnable) — must NOT cascade.
+    clear_dispatched(&db).await?;
+    let id = seed_producer_job(&db, json!({})).await?;
+    let mut mini = make_mini(id, PRODUCER);
+    mini.parent_job = Some(Uuid::new_v4()); // no marker => not a retry
+    let r = dispatch_asset_triggers(&db, &mini).await;
+    assert_eq!(
+        r.dispatched.len(),
+        0,
+        "parented child without the marker (handler/WAC inline) does not cascade"
+    );
 
     // producer with kind=Flow is ineligible
     let id = seed_producer_job(&db, json!({})).await?;
@@ -640,13 +678,13 @@ async fn debounce_setting_applied_to_dispatched_subscriber(
     Ok(())
 }
 
-/// `// retry <n> [<delay>]` opts the subscriber into the flow-runtime retry
-/// path. Implementation-wise, the dispatcher wraps the script in a one-step
-/// flow (`JobPayload::SingleStepFlow`) so the existing flow retry machinery
-/// handles re-runs. Subscribers without retry continue to be pushed as
-/// `JobKind::Script` (no wrapping).
+/// `// retry <n> [<delay>]` opts the subscriber into native retry: the
+/// dispatcher pushes a real `JobKind::Script` (not a one-step flow) carrying
+/// the policy in its `runnable_settings_handle`, so a failed subscriber re-runs
+/// natively and stays eligible to trigger its own downstream. Subscribers
+/// without retry are pushed as a plain `Script` with no settings handle.
 #[sqlx::test(fixtures("base"))]
-async fn retry_setting_wraps_dispatched_subscriber_as_flow(
+async fn retry_setting_dispatches_subscriber_as_native_script(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -654,8 +692,8 @@ async fn retry_setting_wraps_dispatched_subscriber_as_flow(
     seed_script(&db, SUB_S3, "echo retrying", "bash").await?;
     seed_script(&db, SUB_RES, "echo plain", "bash").await?;
     seed_asset_write(&db, PRODUCER, "s3object", "f/blob").await?;
-    // Retry policy on the s3 edge; res edge stays vanilla so we also assert
-    // the "no retry" path keeps the cheaper ScriptHash push.
+    // Retry policy on the s3 edge; res edge stays vanilla so we also assert the
+    // "no retry" path carries no settings handle.
     seed_subscription_with_retry(&db, SUB_S3, "s3://f/blob", 3, 5).await?;
     seed_subscription(&db, SUB_RES, "script", "s3://f/blob").await?;
 
@@ -663,37 +701,46 @@ async fn retry_setting_wraps_dispatched_subscriber_as_flow(
     let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
     assert_eq!(r.dispatched.len(), 2, "both subscribers dispatched");
 
-    let kinds: Vec<(String, String)> = sqlx::query!(
-        r#"SELECT runnable_path AS "runnable_path!", kind::text AS "kind!"
-             FROM v2_job
-             WHERE workspace_id = $1 AND trigger_kind = 'asset'
-             ORDER BY runnable_path"#,
+    let rows: Vec<(String, String, Option<i64>)> = sqlx::query!(
+        r#"SELECT j.runnable_path AS "runnable_path!", j.kind::text AS "kind!",
+                  q.runnable_settings_handle
+             FROM v2_job j JOIN v2_job_queue q ON q.id = j.id
+             WHERE j.workspace_id = $1 AND j.trigger_kind = 'asset'
+             ORDER BY j.runnable_path"#,
         WS,
     )
     .fetch_all(&db)
     .await?
     .into_iter()
-    .map(|r| (r.runnable_path, r.kind))
+    .map(|r| (r.runnable_path, r.kind, r.runnable_settings_handle))
     .collect();
 
-    let s3_kind = kinds
+    let s3 = rows
         .iter()
-        .find(|(p, _)| p == SUB_S3)
-        .map(|(_, k)| k.as_str())
-        .unwrap_or("");
-    let res_kind = kinds
+        .find(|(p, _, _)| p == SUB_S3)
+        .expect("s3 dispatched");
+    let res = rows
         .iter()
-        .find(|(p, _)| p == SUB_RES)
-        .map(|(_, k)| k.as_str())
-        .unwrap_or("");
+        .find(|(p, _, _)| p == SUB_RES)
+        .expect("res dispatched");
 
+    // Native retry: a real Script (not a SingleStepFlow), with the policy in the
+    // runnable_settings_handle.
     assert_eq!(
-        s3_kind, "singlestepflow",
-        "retry-bearing subscriber wraps as SingleStepFlow so flow-runtime retry kicks in"
+        s3.1, "script",
+        "retry subscriber dispatched as a native Script"
+    );
+    assert!(
+        s3.2.is_some(),
+        "retry subscriber carries a runnable_settings_handle (the retry policy)"
     );
     assert_eq!(
-        res_kind, "script",
-        "no-retry subscriber stays as the cheaper ScriptHash push"
+        res.1, "script",
+        "no-retry subscriber stays a plain ScriptHash push"
+    );
+    assert!(
+        res.2.is_none(),
+        "no-retry subscriber carries no settings handle"
     );
 
     Ok(())

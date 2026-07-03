@@ -58,7 +58,7 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
-	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
+	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import { setContext, untrack } from 'svelte'
@@ -147,8 +147,15 @@
 			} catch (e) {
 				console.error('Could not persist username to local storage', e)
 			}
-			if (isCloudHosted() && user?.is_admin) {
-				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
+			// Populate for all members (not just admins) so non-admin developers also get premium-gated
+			// affordances like the fork entry points on cloud. The `is_premium` endpoint is a boolean
+			// and no longer admin-gated. Best-effort: a failure here must not block user-store init.
+			if (isCloudHosted()) {
+				try {
+					isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
+				} catch (e) {
+					console.error('Could not fetch premium status', e)
+				}
 			}
 		} else {
 			userStore.set(undefined)
@@ -164,8 +171,9 @@
 		const toPath = navigation.to?.url.pathname
 		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
 			const currentPath = navigation.from?.url.pathname
-			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
-			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
+			// Reload if we're not on an apps_raw path, or if we're on the raw app viewer
+			// (/apps_raw/get/): the viewer doesn't have cross-origin isolation headers, so
+			// we need a full reload to fetch them for the editor.
 			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
 				navigation.cancel()
 				window.location.href = navigation.to!.url.href
@@ -435,16 +443,17 @@
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
-	// One-shot UserDraft migration chain. `migrateLegacyUserDrafts` folds
-	// the legacy `flow` / `app-…` / `rawapp-…` LS keys into the
-	// `userdraft/w/{ws}/{kind}/{path}` format; `migrateUserDraftsToDb`
-	// then pushes those onto the server-side draft table and clears LS
-	// on success. The order matters — the second step only sees what
-	// the first one normalized.
+	// One-shot UserDraft migration. `purgeLegacyUserDrafts` drops the oldest
+	// workspace-blind `flow` / `app-…` / `rawapp-…` LS autosave keys (they
+	// can't be attributed to a workspace, so promoting them would mis-file
+	// drafts). `migrateUserDraftsToDb` then pushes the workspace-scoped
+	// `userdraft/w/{ws}/{kind}/{path}` keys — written by the editor with the
+	// correct workspace — onto the server-side draft table, clearing LS on
+	// success.
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
-				migrateLegacyUserDrafts($workspaceStore!)
+				purgeLegacyUserDrafts()
 				void migrateUserDraftsToDb()
 			})
 		}

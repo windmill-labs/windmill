@@ -230,7 +230,9 @@
 		// Workspace items are fetched on-demand and not in availableContext,
 		// so skip the availableContext check for them
 		const isWorkspaceItem =
-			contextElement.type === 'workspace_script' || contextElement.type === 'workspace_flow'
+			contextElement.type === 'workspace_script' ||
+			contextElement.type === 'workspace_flow' ||
+			contextElement.type === 'workspace_app'
 		if (
 			!isWorkspaceItem &&
 			!availableContext.find(

@@ -18,7 +18,11 @@ const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
 	freshness: true,
 	tag: true,
 	retry: true,
-	materialize: true
+	materialize: true,
+	dataTests: true,
+	columnLineage: true,
+	macros: true,
+	useLibs: true
 }
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
@@ -65,7 +69,21 @@ type Fixture = {
 			manual?: boolean
 			append?: boolean
 			unique_key?: string | null
+			scd2?: boolean
+			track?: string[]
+			close_deleted?: boolean
 		} | null
+		// Snake_case form matching the Rust `DataTest` serde output, so the one
+		// corpus drives both sides. The TS parser emits this shape verbatim
+		// (snake_case fields), so the comparison is 1:1. Absent === [].
+		data_tests?: Array<Record<string, unknown>>
+		// Snake_case `ColumnLineage` serde shape — TS parser emits it verbatim,
+		// so the comparison is 1:1. Absent === [].
+		column_lineage?: Array<Record<string, unknown>>
+		// `// macros` marker. Absent === false.
+		macros?: boolean
+		// `// use <lib_path>` accumulation, declaration order, deduped. Absent === [].
+		use_libs?: string[]
 	}
 }
 
@@ -153,7 +171,24 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 				expect(got.materialize?.uniqueKey, 'materialize key').toEqual(
 					f.expected.materialize.unique_key ?? undefined
 				)
+				expect(got.materialize?.scd2 ?? false, 'materialize scd2').toBe(
+					f.expected.materialize.scd2 ?? false
+				)
+				expect(got.materialize?.track ?? [], 'materialize track').toEqual(
+					f.expected.materialize.track ?? []
+				)
+				expect(got.materialize?.closeDeleted ?? false, 'materialize close_deleted').toBe(
+					f.expected.materialize.close_deleted ?? false
+				)
 			}
+
+			expect(got.dataTests, 'data tests').toEqual(f.expected.data_tests ?? [])
+
+			expect(got.columnLineage, 'column lineage').toEqual(f.expected.column_lineage ?? [])
+
+			expect(got.macros, 'macros').toBe(f.expected.macros ?? false)
+
+			expect(got.useLibs, 'use_libs').toEqual(f.expected.use_libs ?? [])
 		})
 	}
 })

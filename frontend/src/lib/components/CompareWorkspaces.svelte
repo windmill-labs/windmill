@@ -20,8 +20,10 @@
 		AppService,
 		FlowService,
 		FolderService,
+		ResourceService,
 		ScriptService,
 		UserService,
+		VariableService,
 		WorkspaceService,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
@@ -96,6 +98,243 @@
 		onModeSelected,
 		onChanged
 	}: Props = $props()
+
+	// Workspace-specific ("pinned") resources/variables. They keep their own
+	// value per environment and are suppressed from the diff, so the page fetches
+	// them separately to keep them visible and un-pinnable.
+	// `onCurrent`/`onParent` track which side carries the ws_specific marker — which, because marks
+	// are existence-guarded, also tells us which side the item exists on. An item present on only one
+	// side can be seeded onto the other via "Create in <other>".
+	type PinnedItem = { item_kind: string; path: string; onCurrent: boolean; onParent: boolean }
+	let pinnedItems = $state<PinnedItem[]>([])
+	let pinBusy = $state<Record<string, boolean>>({})
+	let createConfirm = $state<PinnedItem | undefined>(undefined)
+
+	// Whether this item is already workspace-specific (marked on either side); used to avoid offering
+	// to pin it again from a diff row.
+	const isPinned = (kind: string, path: string) =>
+		pinnedItems.some((it) => it.item_kind === kind && it.path === path)
+
+	// Bumped on each load so a response that resolves after the compared pair
+	// changed can't overwrite the newer pair's items.
+	let pinnedReqSeq = 0
+	async function loadPinned() {
+		const seq = ++pinnedReqSeq
+		try {
+			const [cur, par] = await Promise.all([
+				WorkspaceService.listWsSpecific({ workspace: currentWorkspaceId }),
+				WorkspaceService.listWsSpecific({ workspace: parentWorkspaceId })
+			])
+			if (seq !== pinnedReqSeq) return
+			const map = new Map<string, PinnedItem>()
+			const mark = (it: { item_kind: string; path: string }, side: 'cur' | 'par') => {
+				const k = `${it.item_kind}:${it.path}`
+				const e = map.get(k) ?? {
+					item_kind: it.item_kind,
+					path: it.path,
+					onCurrent: false,
+					onParent: false
+				}
+				if (side === 'cur') e.onCurrent = true
+				else e.onParent = true
+				map.set(k, e)
+			}
+			for (const it of cur) mark(it, 'cur')
+			for (const it of par) mark(it, 'par')
+			pinnedItems = [...map.values()].sort((a, b) =>
+				`${a.item_kind}:${a.path}`.localeCompare(`${b.item_kind}:${b.path}`)
+			)
+		} catch (e) {
+			console.error('Failed to load workspace-specific items', e)
+		}
+	}
+
+	$effect(() => {
+		// Re-fetch whenever the compared pair changes.
+		currentWorkspaceId
+		parentWorkspaceId
+		loadPinned()
+	})
+
+	// Flag both environments so each side marks the item workspace-specific, not
+	// only the workspace the compare is viewed from. `value=false` makes it
+	// shared again.
+	async function setPinned(kind: 'resource' | 'variable', path: string, value: boolean) {
+		const k = `${kind}:${path}`
+		pinBusy[k] = true
+		try {
+			const targets = [currentWorkspaceId, parentWorkspaceId]
+			const results = await Promise.allSettled(
+				targets.map((ws) =>
+					WorkspaceService.setWsSpecific({
+						workspace: ws,
+						requestBody: { item_kind: kind, path, value }
+					})
+				)
+			)
+			const verb = value ? 'workspace specific' : 'shared'
+			const failed = results.filter((r) => r.status === 'rejected').length
+			if (failed === targets.length) {
+				sendUserToast(`Failed to update workspace-specific for ${path}`, true)
+			} else if (failed > 0) {
+				sendUserToast(`Made ${path} ${verb} in one environment only (no access to the other)`)
+			} else {
+				sendUserToast(`Made ${path} ${verb}`)
+			}
+			await loadPinned()
+			onChanged?.()
+		} finally {
+			pinBusy[k] = false
+		}
+	}
+
+	// Collect `$var:` variable references from a resource value (mirrors the backend `collect_var_refs`).
+	function collectVarRefs(value: unknown, out: string[]) {
+		if (typeof value === 'string') {
+			if (value.startsWith('$var:')) out.push(value.slice('$var:'.length))
+		} else if (Array.isArray(value)) {
+			for (const v of value) collectVarRefs(v, out)
+		} else if (value && typeof value === 'object') {
+			for (const v of Object.values(value)) collectVarRefs(v, out)
+		}
+	}
+
+	// Create the item on the target from the source value, strictly create-only: the backend create
+	// endpoints reject an existing path (`check_path_conflict`), so unlike `deployItem` — which updates
+	// on conflict — this never overwrites a target created concurrently. Returns 'created', 'conflict'
+	// (already present on the target), or throws for a real error.
+	async function createItemOnly(
+		kind: 'resource' | 'variable',
+		path: string,
+		from: string,
+		to: string
+	): Promise<'created' | 'conflict'> {
+		try {
+			if (kind === 'resource') {
+				const r = await ResourceService.getResource({ workspace: from, path })
+				await ResourceService.createResource({
+					workspace: to,
+					requestBody: {
+						path,
+						value: r.value ?? '',
+						description: r.description ?? '',
+						resource_type: r.resource_type
+					}
+				})
+			} else {
+				const v = await VariableService.getVariable({ workspace: from, path, decryptSecret: true })
+				await VariableService.createVariable({
+					workspace: to,
+					requestBody: {
+						path,
+						value: v.value ?? '',
+						is_secret: v.is_secret ?? false,
+						description: v.description ?? ''
+					}
+				})
+			}
+			return 'created'
+		} catch (e) {
+			// Don't parse the error message: re-check existence. If the target now exists, the create
+			// lost a race (the backend create is create-only and rejected it), so report a conflict and
+			// leave it untouched rather than overwriting.
+			const existsNow =
+				kind === 'resource'
+					? await ResourceService.existsResource({ workspace: to, path })
+					: await VariableService.existsVariable({ workspace: to, path })
+			if (existsNow) return 'conflict'
+			throw e
+		}
+	}
+
+	// Seed a resource's linked `$var:` variables into the target environment, copying each one's value
+	// (incl. secrets) only where the target lacks it (create-only). Mirrors the backend's
+	// `mark_linked_variables_ws_specific` cascade so a seeded resource resolves its references and its
+	// secrets stay per-environment. Returns the paths that failed to seed.
+	async function seedMissingLinkedVars(
+		resourcePath: string,
+		from: string,
+		to: string
+	): Promise<string[]> {
+		const resource = await ResourceService.getResource({ workspace: from, path: resourcePath })
+		const refs: string[] = []
+		collectVarRefs(resource.value, refs)
+		const failed: string[] = []
+		for (const varPath of Array.from(new Set(refs))) {
+			if (await VariableService.existsVariable({ workspace: to, path: varPath })) continue
+			try {
+				// 'created' and 'conflict' (now present, created concurrently) are both the desired end
+				// state; only a real error counts as a failure to seed.
+				await createItemOnly('variable', varPath, from, to)
+			} catch (e) {
+				failed.push(varPath)
+			}
+		}
+		return failed
+	}
+
+	// Seed a workspace-specific item onto a side that lacks it, copying its current value (incl.
+	// secret values). Strictly create-only: markers can be one-sided (a pin can fail on a locked
+	// side), so a missing marker doesn't prove the item is missing — re-check actual existence and,
+	// if the target already has it, mark it workspace-specific there instead of overwriting its value.
+	async function createOnRemote(it: PinnedItem) {
+		const from = it.onCurrent ? currentWorkspaceId : parentWorkspaceId
+		const to = it.onCurrent ? parentWorkspaceId : currentWorkspaceId
+		const k = `${it.item_kind}:${it.path}`
+		const kindCast = it.item_kind as 'resource' | 'variable'
+		pinBusy[k] = true
+		try {
+			const existsOnTarget =
+				kindCast === 'resource'
+					? await ResourceService.existsResource({ workspace: to, path: it.path })
+					: await VariableService.existsVariable({ workspace: to, path: it.path })
+			if (existsOnTarget) {
+				// Don't overwrite — just mark the existing target item workspace-specific.
+				await WorkspaceService.setWsSpecific({
+					workspace: to,
+					requestBody: { item_kind: kindCast, path: it.path, value: true }
+				})
+				sendUserToast(
+					`${it.path} already exists in ${to} — marked it workspace-specific instead of overwriting`
+				)
+				await loadPinned()
+				onChanged?.()
+				return
+			}
+			// A resource owns its `$var:` secrets, so seed any linked variables the target lacks before
+			// creating the resource — otherwise it would reference variables that don't exist there. If
+			// any linked variable fails to seed, abort rather than create a resource with dangling refs.
+			const linkedFailed =
+				kindCast === 'resource' ? await seedMissingLinkedVars(it.path, from, to) : []
+			if (linkedFailed.length > 0) {
+				sendUserToast(
+					`Did not create ${it.path} in ${to}: failed to seed linked variable(s) ${linkedFailed.join(', ')}`,
+					true
+				)
+				return
+			}
+
+			// Create-only: a 'conflict' means the target appeared between the existence check above and
+			// the create, so it was left untouched rather than overwritten.
+			const result = await createItemOnly(kindCast, it.path, from, to)
+			// Marking cascades to mark a resource's now-present linked variables workspace-specific.
+			await WorkspaceService.setWsSpecific({
+				workspace: to,
+				requestBody: { item_kind: kindCast, path: it.path, value: true }
+			})
+			sendUserToast(
+				result === 'conflict'
+					? `${it.path} already exists in ${to}, marked it workspace-specific instead of overwriting`
+					: `Created ${it.path} in ${to}`
+			)
+			await loadPinned()
+			onChanged?.()
+		} catch (e) {
+			sendUserToast(`Failed to create ${it.path}: ${e}`, true)
+		} finally {
+			pinBusy[k] = false
+		}
+	}
 
 	// A fork row has a pending draft when its key is in the page-provided set.
 	function hasDraft(diff: WorkspaceItemDiff): boolean {
@@ -464,21 +703,32 @@
 		deselectAll()
 
 		// If every selected item deployed cleanly and the direction was
-		// merge-into-parent, close any open deployment request for this fork.
+		// merge-into-parent, resolve any open deployment request for this fork.
 		if (!anyFailed && mergeIntoParent) {
 			try {
 				const open = await WorkspaceService.getOpenDeploymentRequest({
 					workspace: currentWorkspaceId
 				})
 				if (open) {
-					await WorkspaceService.closeDeploymentRequestMerged({
-						workspace: currentWorkspaceId,
-						id: open.id
-					})
-					deploymentRequestPanel?.refresh()
+					if (comparison?.all_ahead_items_visible) {
+						await WorkspaceService.closeDeploymentRequestMerged({
+							workspace: currentWorkspaceId,
+							id: open.id
+						})
+						deploymentRequestPanel?.refresh()
+					} else {
+						// Hidden ahead changes remain: those items are excluded from the
+						// list and stay undeployed, so this deploy is only partial. Closing
+						// the request as "merged" (which marks its comments obsolete and
+						// notifies requester/assignees of a merge) would be a lie — leave it
+						// open so someone with full access can finish it.
+						sendUserToast(
+							'Deployed the changes visible to you. The deployment request stays open because some ahead changes are hidden from you and were not deployed.'
+						)
+					}
 				}
 			} catch (e) {
-				console.error('Failed to close open deployment request after merge', e)
+				console.error('Failed to resolve open deployment request after merge', e)
 			}
 		}
 
@@ -658,6 +908,28 @@
 		azure_trigger: 'Azure trigger',
 		email_trigger: 'Email trigger'
 	}
+
+	// Human label for a diff kind, lowercased for inline use in the hidden-items
+	// summary ("2 scripts, 1 http route").
+	function hiddenKindLabel(kind: string): string {
+		const base: Record<string, string> = {
+			script: 'script',
+			flow: 'flow',
+			app: 'app',
+			raw_app: 'app',
+			resource: 'resource',
+			variable: 'variable',
+			resource_type: 'resource type',
+			folder: 'folder'
+		}
+		return base[kind] ?? KIND_DISPLAY_NAMES[kind]?.toLowerCase() ?? kind
+	}
+
+	function formatHiddenByKind(byKind: Record<string, number>): string {
+		return Object.entries(byKind)
+			.map(([kind, n]) => `${n} ${hiddenKindLabel(kind)}${n !== 1 ? 's' : ''}`)
+			.join(', ')
+	}
 </script>
 
 {#if $workspaceStore != currentWorkspaceId}
@@ -756,6 +1028,20 @@
 						</div>
 					</div>
 				{/snippet}
+				{#snippet groupActions(groupItems)}
+					<!-- Conflicts stay visible at the folder level so a group can be
+					     (de)selected without scanning every row for orange badges. -->
+					{@const groupConflicts = groupItems.filter((i) => {
+						const d = i.diff as WorkspaceItemDiff
+						return d.ahead > 0 && d.behind > 0
+					}).length}
+					{#if groupConflicts > 0}
+						<Badge color="orange" size="xs">
+							<AlertTriangle class="w-3 h-3 inline mr-0.5" />
+							{groupConflicts} conflict{groupConflicts !== 1 ? 's' : ''}
+						</Badge>
+					{/if}
+				{/snippet}
 				{#if allCiTests.length > 0}
 					<div class="flex flex-col gap-1.5 mt-3 p-3 border bg-surface-secondary rounded text-xs">
 						<div class="flex items-center gap-1.5 font-semibold text-secondary">
@@ -846,22 +1132,31 @@
 							</span>
 						</Alert>
 					{/if}
-					{#if !comparison.all_ahead_items_visible || !comparison.all_behind_items_visible}
-						<Alert
-							title="This fork has changes not visible to your user"
-							type="warning"
-							class="my-2"
-						>
-							{#if !comparison.all_ahead_items_visible && !comparison.all_behind_items_visible}
-								This fork is ahead and behind its parent
-							{:else if !comparison.all_behind_items_visible}
-								This fork is behind of its parent
-							{:else if !comparison.all_ahead_items_visible}
-								This fork is ahead of its parent
-							{/if}
-							and some of the changes are not visible by you. Only a user with access to the whole context
-							may deploy or update this fork. You can share the link to this page to someone with proper
-							permissions to get it deployed.
+					{@const hiddenDir = mergeIntoParent ? comparison.hidden_ahead : comparison.hidden_behind}
+					{#if hiddenDir.items.length > 0}
+						<!-- Caller is an admin of this side, so the dropped items are provably
+						     stale/phantom diff rows (they can see every real item). List them with
+						     paths — useful for debugging the "why is this fork ahead" question. -->
+						<Alert title="Hidden diff rows (visible to you as admin)" type="info" class="my-2">
+							{hiddenDir.items.length}
+							{mergeIntoParent ? 'ahead' : 'behind'} item{hiddenDir.items.length !== 1 ? 's' : ''}
+							{hiddenDir.items.length !== 1 ? 'are' : 'is'} excluded from the list below — they are not
+							resolvable as live items and are most likely stale/phantom diff rows:
+							<ul class="mt-1 font-mono text-2xs">
+								{#each hiddenDir.items as it}
+									<li>{hiddenKindLabel(it.kind)} · {it.path}</li>
+								{/each}
+							</ul>
+						</Alert>
+					{:else if mergeIntoParent ? !comparison.all_ahead_items_visible : !comparison.all_behind_items_visible}
+						<Alert title="Some changes are hidden from you" type="warning" class="my-2">
+							{hiddenDir.total}
+							{mergeIntoParent ? 'ahead' : 'behind'} item{hiddenDir.total !== 1 ? 's' : ''}
+							({formatHiddenByKind(hiddenDir.by_kind)})
+							{hiddenDir.total !== 1 ? 'are' : 'is'} not visible to your user and
+							{hiddenDir.total !== 1 ? 'are' : 'is'} excluded from the list below. You can still
+							{mergeIntoParent ? 'deploy' : 'update'} the items you can see — share this page with someone
+							who has full access to include the rest.
 						</Alert>
 					{/if}
 				{/snippet}
@@ -1016,6 +1311,27 @@
 								Show diff
 							</Button>
 						</div>
+						{#if diff.kind === 'resource' || diff.kind === 'variable'}
+							{#if isPinned(diff.kind, diff.path)}
+								<Badge
+									color="gray"
+									size="xs"
+									title="Kept per environment, so it's excluded from the diff. Seed a missing copy or revert it in the Workspace-specific items list below."
+								>
+									workspace-specific
+								</Badge>
+							{:else}
+								<Button
+									unifiedSize="xs"
+									variant="subtle"
+									disabled={pinBusy[key]}
+									title="Keep this item's value per environment (excluded from the diff). Seed a missing copy from the Workspace-specific items list."
+									onClick={() => setPinned(diff.kind as 'resource' | 'variable', diff.path, true)}
+								>
+									Make workspace specific
+								</Button>
+							{/if}
+						{/if}
 					{/if}
 				{/snippet}
 
@@ -1025,44 +1341,46 @@
 							<div></div>
 
 							<div class="flex flex-col items-end gap-2">
-								{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-									<div class="flex items-center gap-2">
-										{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
-											<Button
-												variant="default"
-												startIcon={{ icon: UserPlus }}
-												on:click={() => deploymentRequestPanel?.openRequestDialog()}
-											>
-												Request deployment
-											</Button>
-										{/if}
+								<!-- Always show the deploy footer: only the items visible to the user are
+								     listed and selectable, so a partial-visibility user deploys the subset they
+								     can see. The hidden items are surfaced by the non-blocking banner above,
+								     not by removing the action. -->
+								<div class="flex items-center gap-2">
+									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
 										<Button
-											variant="accent"
-											disabled={selectedItems.length === 0 ||
-												deploying ||
-												(hasBehindChanges && !allowBehindChangesOverride) ||
-												(mergeIntoParent && !canDeployToParent) ||
-												hasUnselectedOnBehalfOf}
-											loading={deploying}
-											on:click={requestDeploy}
+											variant="default"
+											startIcon={{ icon: UserPlus }}
+											on:click={() => deploymentRequestPanel?.openRequestDialog()}
 										>
-											{mergeIntoParent ? 'Deploy' : 'Update'}
-											{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-											{#if selectedConflicts != 0}
-												({selectedConflicts} conflicts)
-											{/if}
+											Request deployment
 										</Button>
-									</div>
-									{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
-										<span class="text-xs text-yellow-600">
-											You must set the "on behalf of" user for all items before deploying
-											<Tooltip class="text-yellow-600">
-												The "run on behalf of" field defines which user's permissions will be
-												applied during execution. Make sure this is set to an appropriate user
-												before deploying.
-											</Tooltip>
-										</span>
 									{/if}
+									<Button
+										variant="accent"
+										disabled={selectedItems.length === 0 ||
+											deploying ||
+											(hasBehindChanges && !allowBehindChangesOverride) ||
+											(mergeIntoParent && !canDeployToParent) ||
+											hasUnselectedOnBehalfOf}
+										loading={deploying}
+										on:click={requestDeploy}
+									>
+										{mergeIntoParent ? 'Deploy' : 'Update'}
+										{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+										{#if selectedConflicts != 0}
+											({selectedConflicts} conflicts)
+										{/if}
+									</Button>
+								</div>
+								{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
+									<span class="text-xs text-yellow-600">
+										You must set the "on behalf of" user for all items before deploying
+										<Tooltip class="text-yellow-600">
+											The "run on behalf of" field defines which user's permissions will be applied
+											during execution. Make sure this is set to an appropriate user before
+											deploying.
+										</Tooltip>
+									</span>
 								{/if}
 
 								{#if deploymentErrorMessage != ''}
@@ -1097,6 +1415,53 @@
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
 		</div>
+
+		{#if pinnedItems.length > 0}
+			<div class="bg-surface-tertiary p-4 rounded-md border flex flex-col gap-2">
+				<div class="flex items-center gap-1.5 font-semibold text-secondary text-sm">
+					Workspace-specific items
+				</div>
+				<p class="text-xs text-tertiary">
+					These resources and variables keep their own value in each environment and are excluded
+					from the diff. An item that exists on only one side can be seeded onto the other with
+					"Create in …" (copies the current value, including secrets); it will never overwrite an
+					existing value.
+				</p>
+				<div class="flex flex-col gap-1">
+					{#each pinnedItems as it (`${it.item_kind}:${it.path}`)}
+						{@const missingSide =
+							it.onCurrent && !it.onParent
+								? parentWorkspaceId
+								: !it.onCurrent && it.onParent
+									? currentWorkspaceId
+									: undefined}
+						<div class="flex items-center gap-2 text-sm">
+							<Badge color="transparent" small>{it.item_kind}</Badge>
+							<span class="text-secondary font-mono text-xs flex-1 truncate">{it.path}</span>
+							{#if missingSide}
+								<Button
+									unifiedSize="xs"
+									variant="subtle"
+									disabled={pinBusy[`${it.item_kind}:${it.path}`]}
+									title="Copy this item's current value (including secrets) into {missingSide}"
+									onClick={() => (createConfirm = it)}
+								>
+									Create in {missingSide}
+								</Button>
+							{/if}
+							<Button
+								unifiedSize="xs"
+								variant="subtle"
+								disabled={pinBusy[`${it.item_kind}:${it.path}`]}
+								onClick={() => setPinned(it.item_kind as 'resource' | 'variable', it.path, false)}
+							>
+								Make shared
+							</Button>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
@@ -1128,6 +1493,27 @@
 				{/each}
 			</ul>
 		</div>
+	</ConfirmationModal>
+
+	<ConfirmationModal
+		open={!!createConfirm}
+		title="Create in {createConfirm?.onCurrent ? parentWorkspaceId : currentWorkspaceId}?"
+		confirmationText="Create"
+		onConfirmed={() => {
+			const it = createConfirm
+			createConfirm = undefined
+			if (it) createOnRemote(it)
+		}}
+		onCanceled={() => (createConfirm = undefined)}
+	>
+		<p class="text-sm">
+			This copies the current value of <span class="font-mono">{createConfirm?.path}</span>
+			(including any secret value) from
+			<b>{createConfirm?.onCurrent ? currentWorkspaceId : parentWorkspaceId}</b>
+			into <b>{createConfirm?.onCurrent ? parentWorkspaceId : currentWorkspaceId}</b>. It stays
+			workspace-specific afterward, so later promotes won't overwrite it. If it already exists
+			there, it's left untouched and just marked workspace-specific.
+		</p>
 	</ConfirmationModal>
 {:else}
 	<div class="flex items-center justify-center h-full">

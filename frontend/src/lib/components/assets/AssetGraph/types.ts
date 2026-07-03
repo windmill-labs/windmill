@@ -1,4 +1,5 @@
 import type { AssetKind } from '$lib/gen'
+import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
 
 export type GraphUsageKind = 'script' | 'flow'
 
@@ -28,9 +29,32 @@ export interface AssetGraphRunnableNode {
 	// duration string (`"5s"`, `"30s"`); absent = back-to-back. Surfaced as
 	// a badge so retry-enabled scripts are visible without opening the pane.
 	retry?: { count: number; delay?: string }
+	// `// data_test <kind> …` data-quality checks run against the materialized
+	// asset. Surfaced as a count badge (with a per-test breakdown in the title)
+	// so test coverage is visible on the node without opening the pane.
+	data_tests?: DataTest[]
+	// `// column <out> <- <src>.<col>` declared column-level lineage for this
+	// script's materialized output. Surfaced as a count badge on the write-edge
+	// and as a column-to-column diagram in the asset details pane.
+	column_lineage?: ColumnLineage[]
+	// `// materialize <asset>` target — the asset `column_lineage` describes.
+	// Lets the column graph anchor lineage to the exact output instead of
+	// guessing a ducklake write-edge (a multi-output script writes several).
+	materialize_target?: { kind: AssetKind; path: string }
+	// Managed `// materialize` write strategy. Absent for non-materializing or
+	// `manual` scripts. Used (with `partition_kind`) to decide whether a
+	// produced asset's schema can evolve: only whole-table `replace` can, since
+	// `append`/`merge`/partitioned writes INSERT into a fixed-schema table.
+	materialize_strategy?: 'replace' | 'append' | 'merge'
+	// Macros this script provides to the workspace registry (deployed
+	// `// macros` library). Non-empty marks the node as a macro library;
+	// drives the "defines N macros" badge and the details-pane signature
+	// list. `params` is the verbatim parameter list.
+	macros?: { name: string; params: string; is_table: boolean }[]
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.
+	// AI-built nodes are plain drafts too (no separate pending/approval state).
 	unsaved?: boolean
 }
 
@@ -94,11 +118,24 @@ export type AssetGraphTrigger =
 			missing?: boolean
 	  }
 
+// Macro-library → consumer edge: the consumer calls `macro_names` of
+// `lib_path`'s macros (deploy-recorded detection), or pulls in the whole
+// library via `// use` (`via_use`, macro_names then lists the full library).
+// `unsaved: true` marks a draft's `// use` overlay.
+export interface AssetGraphMacroEdge {
+	lib_path: string
+	consumer_path: string
+	macro_names: string[]
+	via_use: boolean
+	unsaved?: boolean
+}
+
 export interface AssetGraphResponse {
 	assets: AssetGraphAssetNode[]
 	runnables: AssetGraphRunnableNode[]
 	edges: AssetGraphEdge[]
 	triggers: AssetGraphTrigger[]
+	macro_edges?: AssetGraphMacroEdge[]
 }
 
 export type AssetGraphNodeData =

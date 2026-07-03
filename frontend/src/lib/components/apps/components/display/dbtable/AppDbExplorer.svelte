@@ -86,7 +86,10 @@
 	}
 
 	const resolvedConfig = $state(
-		initConfig(components['dbexplorercomponent'].initialData.configuration, untrack(() => configuration))
+		initConfig(
+			components['dbexplorercomponent'].initialData.configuration,
+			untrack(() => configuration)
+		)
 	)
 
 	let timeoutInput: number | undefined = undefined
@@ -180,18 +183,22 @@
 		)
 	}
 
-	let outputs = initOutput($worldStore, untrack(() => id), {
-		selectedRowIndex: 0,
-		selectedRow: {},
-		selectedRows: [] as any[],
-		result: [] as any[],
-		inputs: {},
-		loading: false,
-		page: 0,
-		newChange: { row: 0, column: '', value: undefined },
-		ready: undefined as boolean | undefined,
-		openedModalRow: {}
-	})
+	let outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			selectedRowIndex: 0,
+			selectedRow: {},
+			selectedRows: [] as any[],
+			result: [] as any[],
+			inputs: {},
+			loading: false,
+			page: 0,
+			newChange: { row: 0, column: '', value: undefined },
+			ready: undefined as boolean | undefined,
+			openedModalRow: {}
+		}
+	)
 
 	let lastResource: string | undefined = undefined
 
@@ -260,9 +267,7 @@
 				resolvedConfig.type,
 				{
 					table: {
-						selectOptions: dbSchemas
-							? await getTablesByResource(dbSchemas, dbtype, dbPath, $workspaceStore!)
-							: [],
+						selectOptions: dbSchemas ? await getTablesByResource(dbSchemas, dbtype) : [],
 						loading: false
 					}
 				}

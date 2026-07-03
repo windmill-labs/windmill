@@ -646,6 +646,20 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
             .unwrap();
         assert_eq!(resp.json::<bool>().await?, true);
 
+        // Regression: changing a fork's workspace id must preserve its parent
+        // linkage. Dropping it leaves a wm-fork- workspace with no parent — a
+        // "fork of nothing" that can no longer be compared or merged.
+        let parent: Option<String> =
+            sqlx::query_scalar("SELECT parent_workspace_id FROM workspace WHERE id = $1")
+                .bind("wm-fork-renamed")
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(
+            parent.as_deref(),
+            Some("new-test-ws"),
+            "renamed fork must keep its parent_workspace_id"
+        );
+
         // --- create_fork over an existing (active) workspace id: clear 400, not a raw SQL 500 ---
         let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
             .json(&json!({

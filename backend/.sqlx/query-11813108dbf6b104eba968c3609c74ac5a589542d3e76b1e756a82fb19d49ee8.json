@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT language AS \"language!: _\", COUNT(*)::BIGINT AS \"count!\"\n        FROM script\n        WHERE archived = false AND deleted = false AND kind = 'script'\n          AND (auto_kind IS NULL OR auto_kind <> 'wac')\n        GROUP BY language\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "language!: _",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby",
+                "rlang"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "11813108dbf6b104eba968c3609c74ac5a589542d3e76b1e756a82fb19d49ee8"
+}

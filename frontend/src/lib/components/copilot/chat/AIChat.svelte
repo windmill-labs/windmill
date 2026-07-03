@@ -163,7 +163,8 @@
 	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
 		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
-		aiChatManager.scriptEditorOptions.lastDeployedCode !== aiChatManager.scriptEditorOptions.code}
+		aiChatManager.scriptEditorOptions.lastDeployedCode !==
+			aiChatManager.scriptEditorOptions.getCode()}
 	diffMode={aiChatManager.scriptEditorOptions?.diffMode ?? false}
 	{disabled}
 	{disabledMessage}

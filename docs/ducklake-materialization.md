@@ -45,8 +45,9 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
 
 ```
 // materialize ducklake://analytics/orders_daily              → managed, replace (default)
-// materialize ducklake://analytics/orders_daily key=order_id → managed, merge
+// materialize ducklake://analytics/orders_daily key=order_id → managed, merge (SCD type 1)
 // materialize ducklake://analytics/orders_daily append       → managed, append
+// materialize ducklake://analytics/dim_customer key=id history → managed, SCD type 2 history
 // materialize manual ducklake://analytics/orders_daily       → track-only escape hatch
 ```
 
@@ -56,9 +57,52 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   error pointing to the `wmll.ducklake` helpers).
 - **`manual`** — escape hatch: the script writes its own DDL; Windmill only
   records state (no snapshot capture, no idempotency guarantee). Rare; explicit.
-- **`key=<col>`** → MERGE (dedup within slice); **`append`** → INSERT-only;
-  neither → DELETE-by-partition + INSERT (replace). `append` wins over `key` if
-  both are given (deploy warning).
+- **`key=<col>`** → MERGE (dedup within slice, SCD type 1 — overwrites history);
+  **`append`** → INSERT-only; neither → DELETE-by-partition + INSERT (replace).
+  `append` wins over `key` if both are given (deploy warning).
+- **`key=<col> history [track=<c1,c2,…>] [deletes=close]`** → upgrades the keyed
+  merge to managed SCD **type 2** history (the leading keyword `scd2` is an alias).
+  The SELECT is the *current snapshot* (one row per `key`), and the runtime adds
+  `valid_from`/`valid_to`/`is_current`; a change to any tracked column (`track=`,
+  default all non-key) closes the prior version and opens a new one, keeping full
+  history. Diff → close-old (`UPDATE`) → open-new (`INSERT`) in one transaction;
+  the effective timestamp is the transaction clock (`now()`), so a run is
+  self-consistent. v1 is **non-partitioned only** (`// partitioned` + history is
+  rejected). Unlike `manual`, it is managed, so `// data_test` and schema capture
+  work.
+  - **Deletes.** By default a key that disappears from the snapshot stays current
+    (soft delete — dbt's `hard_deletes=ignore`). `deletes=close` opts into
+    hard-delete-close: the vanished key's current version is closed (`valid_to`
+    set, `is_current=false`) with no new version — dbt's `hard_deletes=close`. If
+    that key later reappears in the snapshot it opens a fresh version, leaving a
+    validity gap between the delete and the reactivation (correct SCD2).
+  - **Reserved names.** `valid_from`/`valid_to`/`is_current` are reserved column
+    names in this mode — a SELECT that already projects one fails at run time —
+    and the `<dim>_current` suffix is reserved for the companion view (below), so
+    don't separately materialize a table by that name in the same lake (the view
+    is created `IF NOT EXISTS` inside the write transaction, so such a collision
+    is skipped silently — the `_current` convenience is simply absent — rather
+    than erroring).
+  - **Key should be non-null.** A `NULL` natural key is ill-formed for a
+    dimension; the codegen matches keys null-safely so a `NULL`-key row is
+    materialized rather than silently dropped, but you should enforce it with
+    `// data_test not_null <key>`.
+  - **`track=` takes no spaces.** Like every `=`-option in the annotation grammar
+    (which is whitespace-tokenized), the `track=` value must be a bare
+    comma-separated list with no spaces: `track=name,tier`, not `track=name, tier`
+    (a space ends the value and the rest is silently ignored).
+  - **Schema is frozen at first run** (persist-and-mutate, like `merge`/`append`):
+    the history table is `CREATE TABLE IF NOT EXISTS`, so adding/removing a
+    projected column later fails the run — an append-only history can't retroactively
+    reshape closed versions. Changing the SELECT's columns needs a manual rebuild
+    (the `replace` strategy is the only one that re-derives schema each run).
+  - **Consumer convenience.** Each run (re)creates a `<dim>_current` view (`WHERE
+    is_current`) in the same catalog, so the common "latest version" read needs no
+    filter and downstream scripts can `// on ducklake://…/<dim>_current`. The
+    effective-dated payoff is a native DuckDB `ASOF JOIN` against the history
+    table: `… ASOF JOIN <dim> d ON fact.key = d.<key> AND fact.ts >= d.valid_from`
+    returns, for each fact, the dimension version that was current at `fact.ts` —
+    something neither `merge` nor DuckLake time-travel can do in one query.
 - **`// partitioned <kind>`** — unit of work + state + backfill (separate;
   cross-cutting). Polyglot / multi-statement writes use the `wmll.ducklake`
   helpers instead of `// materialize`.
@@ -171,28 +215,148 @@ This one table drives four things at once:
 
 ## Reproducibility — the beyond-dbt part
 
-Because every materialization records the snapshot it produced, a downstream
-consumer can read the *exact* upstream snapshot its run saw:
+Because every materialization records the snapshot it produced, you can read any
+table *as of* a past version — a capability dbt has no native answer for (dbt
+models are always "whatever's in the warehouse now"). DuckLake gives us this for
+the cost of recording one integer per run, and it covers the three things people
+actually reach for: **debugging** ("what did this table look like at the failing
+run"), **rollback** (re-materialize a consumer from snapshot N), and ad-hoc
+**experimentation** on a historical state.
+
+### How it's surfaced (shipped): explicit, discoverable time-travel
+
+The version is exposed as a *user-driven* surface, not hidden plumbing. A
+consumer pins a read by writing the DuckLake clause directly:
 
 ```sql
-FROM dl.orders_daily AT (VERSION => $WM_UPSTREAM_SNAPSHOT)
+FROM dl.orders_daily AT (VERSION => 42)
 ```
 
-The cascade already threads a `trigger` blob (producer path, partition) to each
-subscriber; add the producer's captured `snapshot_id` to it, and a consumer's
-read is pinned to the upstream state at dispatch time. That makes the *whole
-pipeline* reproducible and time-travelable — something dbt has no native answer
-for (dbt models are always "whatever's in the warehouse now"). It also gives
-rollback (re-point an asset to snapshot N) and "what did this table look like at
-the failing run" debugging, for free off the same captured ids.
+The asset node's **History** tab is a master-detail view: the snapshot list (id
++ time) on the left selects the version previewed in a read-only grid on the
+right, which surfaces — and copies — the catalog-qualified
+`FROM lake.<table> AT (VERSION => n)` clause. Snapshot ids are captured automatically; the user opts
+into pinning when they want it, and the clause degrades to "latest" if removed,
+so the same script still runs standalone. Mechanically this rides on
+time-travel **reads** (`make_select_query` / `make_count_query` emit the `AT`
+clause when a `version` is threaded through the `WM_INTERNAL_DB_*` markers) plus
+a `DUCKLAKE_SNAPSHOTS` read for the history list — capabilities DuckLake already
+has, no new write path.
 
-This is the differentiator worth leaning on. It is not catch-up to dbt; it is a
-capability dbt structurally cannot offer, and DuckLake gives it to us at the
-cost of recording one integer per run.
+### Deferred: automatic snapshot pinning across the cascade
 
-It also means **we do not build SCD2 snapshots** (gap #4 in `pipelines-vs-dbt.md`):
-DuckLake time-travel is a strictly better answer for most of what dbt's
-`{% snapshot %}` is used for. One fewer engine to write.
+An earlier sketch had the cascade *automatically* thread each producer's
+`snapshot_id` into the `trigger` blob and inject `AT (VERSION => $WM_UPSTREAM_SNAPSHOT)`
+into consumer reads, so a whole run is pinned to upstream state at dispatch time
+without anyone asking. This is deliberately **not** built, for three reasons:
+
+- **Not critical.** The only thing it adds over the explicit surface above is
+  *automatic per-run consistency* — protection against an upstream
+  re-materializing in the window between dispatch and a consumer reading. That
+  race only bites high-frequency event-driven cascades (rare today), and the
+  read is always a whole, ACID snapshot regardless — never corruption, just
+  "newer than the triggering version". Debugging and rollback are already
+  covered by the explicit surface.
+- **Implicit magic.** Auto-injecting an `AT` clause and stripping it on
+  standalone runs is invisible behaviour to debug when it misfires; the explicit
+  clause is inspectable.
+- **Multi-upstream ambiguity + EE coupling.** A consumer reading two ducklake
+  upstreams needs a per-ref snapshot *map* accumulated across the AND-join — and
+  the join-slot logic is EE. A single `$WM_UPSTREAM_SNAPSHOT` would silently pin
+  every read to one (the firing) producer's snapshot.
+
+If a workload ever shows the consistency race in practice, pinning can be layered
+on top — the capture and the snapshot surfacing built here are its foundation.
+
+This is distinct from **SCD2 history** (`// materialize … key=… history`), which *is* built:
+DuckLake time-travel answers "what did the whole table look like at snapshot N?"
+but not "give me each entity's version history as queryable rows"
+(`valid_from`/`valid_to`/`is_current`) — the shape dbt's `{% snapshot %}` produces
+and downstream dimensional queries join against. The scd2 strategy generates and
+manages that history table (see the strategy bullet above).
+
+## Data tests (`// data_test`) — and the extensible-annotation pattern
+
+Data tests are the first dbt-parity gap closed on top of materialization, and
+the **first deliberately extensible annotation**. The design goal was not just
+"add five test types" but to establish the convention a sibling family
+(column-lineage is the next one) follows, so the annotation vocabulary stops
+being a closed hardcoded list (`pipelines-vs-dbt.md` gap #7).
+
+### Grammar
+
+```
+// data_test unique <col>
+// data_test not_null <col>
+// data_test accepted_values <col> = a,b,c
+// data_test relationships <col> -> datatable://other/asset.<col>
+// data_test <script_path>            ← escape hatch (dbt's singular test)
+```
+
+`// data_test` lines **accumulate** (every well-formed line adds one check),
+unlike the single-value annotations (`// materialize`, `// partitioned`, …)
+which are first-write-wins. Malformed lines are dropped fail-safe — a typo
+becomes an *absent* check (visible in the graph), never a mis-parsed one.
+
+The keyword is `data_test`, **not `test`** — there is an unrelated, shipped
+`// test:` CI-test annotation (`windmill_common::schema::parse_ci_test_annotation`,
+tests a script's *logic* on deploy). `data_test` tests the *data* in the
+materialized asset at run time. This mirrors dbt 1.8's own `tests:` →
+`data_tests:` rename, made for exactly this disambiguation.
+
+### The pattern: annotation → verifier
+
+The reusable shape, in three layers, each a clean extension seam:
+
+1. **Parse** (`asset_parser.rs` + `parsePipelineAnnotations.ts`, kept in
+   lockstep by the parity corpus). A `data_test` line is dispatched on a
+   **keyword head** to a typed variant (`DataTest`). A new built-in is one
+   match arm + its sub-parser; the `Custom` arm is the open fallback. A sibling
+   family reuses this head-keyword dispatch rather than adding a parallel list.
+2. **Compile** (`sql_materialize.rs::build_data_test_checks`). Each test becomes
+   a **check**: `(name, violating-row-count query)`. Built-ins differ only in
+   their count query; `Custom` supplies its own (the user's SELECT of violating
+   rows). Referenced assets (relationships) emit an `ATTACH` resolved by the
+   same transform pass as the user's own.
+3. **Execute** (`duckdb_executor.rs`). The materialize summary query embeds
+   every check's count in one `data_tests` list-of-struct column (computed in a
+   CTE, since DuckDB rejects subqueries inside struct literals), so **all tests
+   run in a single pass** against the freshly-materialized slice — no
+   abort-on-first. The worker reads the breakdown from the result and decides
+   pass/fail: any violation **fails the run** (record `Failed`, propagate up the
+   cascade) with an error listing *every* test (✓/✗ + counts); a clean run
+   returns the per-test summary so the UI can render a checklist.
+
+A new annotation family that produces post-materialize checks (or, for
+column-lineage, post-materialize *metadata reads*) plugs into the same three
+seams: add a parsed variant, emit its check/reader SQL into the summary, read
+it back in the worker. Nothing about the closed set of *today's* keywords is
+load-bearing.
+
+### Scoping decisions (v1)
+
+- **Partition scope.** When `// partitioned`, built-in checks are scoped to the
+  slice just written (`WHERE _wm_partition = <value>`), so a rerun/backfill of
+  one partition is independent of other partitions' (possibly pre-existing)
+  data. Whole-table assertions are a follow-up.
+- **SCD2 scope.** On a `key=… history` target, built-in checks assert the
+  *current snapshot* (`WHERE is_current`): the history table legitimately
+  repeats the natural key across closed versions, so an unscoped
+  `unique(<key>)` would fail the run on the second change of any key. Custom
+  tests see the raw history and scope themselves.
+- **Commit-then-test.** Like dbt, the write commits before tests run; a failed
+  test fails the *run* (and records `Failed`, so downstream cascade stops) but
+  does not roll back the committed snapshot. Time-travel still lets you inspect
+  exactly what failed.
+- **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
+  script's content (a single DuckDB `SELECT`/CTE returning the violating rows —
+  it's embedded as a subquery, so a multi-statement body is rejected with a
+  clear error) and inlines it as a check; `{partition}` is substituted and
+  `_wm_target` is in scope. Agent (Http) workers — which have no script cache —
+  get a clear error. Non-DuckDB custom tests (dispatched as sub-jobs, any
+  language) are the natural follow-up and fit the same verifier seam.
+- **Managed only.** `// materialize manual` + `// data_test` is rejected with a
+  clear error (we can't know the manual script's target alias / partition col).
 
 ## Scoping decision: DuckLake vs DataTable
 
@@ -224,8 +388,10 @@ Don't try to give both the full treatment for v1.
    `materialized_partition` rows.
 5. **Surface it** — last-materialized/snapshot/row-count on the asset node;
    missing-partition set feeds the backfill UI.
-6. *v1.x* — snapshot pinning across the cascade (`$WM_UPSTREAM_SNAPSHOT`),
-   rollback, time-travel read helper.
+6. *v1.x* — time-travel UX over the captured snapshots: a per-asset **History**
+   tab — a master-detail snapshot list + query-at-version preview that copies the
+   full `FROM lake.<table> AT (VERSION => n)` clause. Automatic cascade pinning
+   (`$WM_UPSTREAM_SNAPSHOT`) is deferred — see §"Reproducibility" for why.
 
 Steps 1–5 are a thin annotation+template layer plus one metadata table and one
 extra read per run. They deliver managed/incremental/versioned assets,

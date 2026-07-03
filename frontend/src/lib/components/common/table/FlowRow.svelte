@@ -8,7 +8,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -36,8 +36,7 @@
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -199,7 +198,7 @@
 						</Button>
 					</div>
 				{/if}
-				{#if !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !flow.canWrite)}
+				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
 					<div>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
@@ -208,7 +207,7 @@
 							startIcon={{ icon: GitFork }}
 							href={buildForkEditUrl('flow', flow.path)}
 						>
-							Edit in fork
+							{editInForkLabel($workspaceStore, $userWorkspaces)}
 						</Button>
 					</div>
 				{/if}
@@ -260,10 +259,13 @@
 						hide: $userStore?.operator
 					},
 					{
-						displayName: 'Edit in workspace fork',
+						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
 						icon: GitFork,
 						href: buildForkEditUrl('flow', path),
-						hide: $userStore?.operator || isCloudHosted() || isRuleActive('DisableWorkspaceForking')
+						hide:
+							$userStore?.operator ||
+							isCloudHosted() ||
+							!editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
 					{
 						displayName: 'Audit logs',

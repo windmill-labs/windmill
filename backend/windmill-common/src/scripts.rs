@@ -345,10 +345,10 @@ pub async fn clone_script<'c>(
         )));
     };
 
-    let rs =
-        runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, db).await?;
+    let rs = runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, &mut *tx)
+        .await?;
     let (debouncing_settings, concurrency_settings) =
-        runnable_settings::prefetch_cached(&rs, db).await?;
+        runnable_settings::prefetch_cached_tx(&rs, &mut tx).await?;
 
     let ns = NewScript {
         path: s.path.clone(),
