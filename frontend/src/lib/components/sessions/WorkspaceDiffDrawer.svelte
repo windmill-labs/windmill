@@ -2,7 +2,15 @@
 	import { buildDiffTree, folderKeyFor, type AppRootMeta, type TreeNode } from './diffTree'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { ChevronDown, ChevronRight, ExternalLink, Folder, Loader2, User } from 'lucide-svelte'
+	import {
+		Check,
+		ChevronDown,
+		ChevronRight,
+		ExternalLink,
+		Folder,
+		Loader2,
+		User
+	} from 'lucide-svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
@@ -19,45 +27,33 @@
 	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
 	import { tick, untrack } from 'svelte'
 	import type { Snippet } from 'svelte'
-	import MeltTooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExternalEditLink from '../ExternalEditLink.svelte'
-	import OnBehalfOfSelector from '../OnBehalfOfSelector.svelte'
-	import type { ProtectionRuleset } from '$lib/gen'
-	import {
-		fetchProtectionRulesForWorkspace,
-		isRuleActiveInRulesets,
-		getActiveRulesetsForKindInRulesets
-	} from '$lib/workspaceProtectionRules.svelte'
-	import {
-		actionFor,
-		badgeOf,
-		isOnBehalfEligible,
-		pipelineOf,
-		type BadgeKind,
-		type DeployItem,
-		type Pipeline
-	} from './sessionDeployModel'
+	import { actionFor, badgeOf, type DeployItem } from './sessionDeployModel'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 
-	// The session "Edits" surface. Reads a unified item model (drafts + fork
-	// comparison, scoped to what this session edited) and renders a folder tree
+	// The session "Edits" surface. Reads a unified item model (the session's
+	// drafts, scoped to what this session edited) and renders a folder tree
 	// (left) plus a scroll-through diff column with per-block sticky headers
-	// (right). Deploy is granular per-item; batch/PR flows are handed to the
-	// compare page via the drift banner + footer links.
+	// (right). Deploy is granular per-item; batch/PR flows and fork→parent
+	// promotion are handed to the compare page via the footer link.
 	let {
 		model,
 		title,
 		editUrlFor = undefined,
 		titleExtra,
-		compareSessionHref
+		compareSessionHref,
+		workspaceLabel
 	}: {
 		model: SessionDeployModel
 		title: string
 		/** Editor URL for a row (opens in the workspace the item lives in). */
 		editUrlFor?: (item: DeployItem) => string | undefined
 		titleExtra?: Snippet
+		/** Display name of the workspace deploys land in — the deployed tick's
+		 *  hover reads "Deployed in <label>". */
+		workspaceLabel?: string
 		/** Compare page for this session's edits (footer) — preselected via
 		 *  `from_session`. Where "deploy all / request review" happens. */
 		compareSessionHref?: string
@@ -67,33 +63,6 @@
 	let searchQuery = $state('')
 	let diffStyle = $state<'sbs' | 'inline'>('sbs')
 	const inlineDiff = $derived(diffStyle === 'inline')
-	// Parent-workspace protection: a DisableDirectDeployment rule on the parent
-	// blocks per-row parent deploys. Rather than a banner, the reason surfaces on
-	// the disabled "Deploy to parent" button's hover (see parentProtectionReason).
-	let parentRulesets = $state<ProtectionRuleset[]>([])
-	$effect(() => {
-		const pid = model.context.isFork ? model.context.parentWorkspaceId : undefined
-		if (!pid) {
-			parentRulesets = []
-			return
-		}
-		untrack(async () => {
-			parentRulesets = await fetchProtectionRulesForWorkspace(pid)
-		})
-	})
-	const canDeployToParent = $derived(
-		!isRuleActiveInRulesets(parentRulesets, 'DisableDirectDeployment')
-	)
-	const parentProtectionReason = $derived.by(() => {
-		const rs = getActiveRulesetsForKindInRulesets(parentRulesets, 'DisableDirectDeployment')
-		if (rs.length === 0) return undefined
-		const plural = rs.length > 1
-		return `The workspace ${model.context.parentWorkspaceId} has a protection rule${plural ? 's' : ''} ${rs
-			.map((r) => r.name)
-			.join(
-				', '
-			)} that restrict${plural ? '' : 's'} direct deployments. You need to merge changes through the synced git repo with Git Sync, or by asking a user with the rights to bypass this rule.`
-	})
 
 	// The sidebar's inner right padding must ADAPT to the reserved scrollbar
 	// gutter (platform-dependent: 0 for overlay scrollbars, ~15px classic) so
@@ -133,36 +102,9 @@
 	}
 
 	// ── Badge presentation ─────────────────────────────────────────────────────
-	// The single parent-comparison badge, by priority (conflict > draft > ahead).
-	// `draft` renders as a plain indigo pill (New draft / Draft); `none` renders nothing.
-	// Colors: ahead=green, conflict=red, deployed=purple.
-	const BADGE_META: Record<
-		Exclude<BadgeKind, 'draft' | 'none'>,
-		{ label: string; color: 'green' | 'red' | 'violet' }
-	> = {
-		ahead: { label: 'Ahead', color: 'green' },
-		conflict: { label: 'Conflict', color: 'red' },
-		deployed: { label: 'Deployed', color: 'violet' }
-	}
-	// One footprint for every status pill (draft / ahead / conflict / deployed) so
-	// they line up at a compact, uniform size.
+	// One footprint for both status pills (draft / deployed) so they line up at a
+	// compact, uniform size.
 	const STATUS_BADGE_CLASS = 'px-1.5 py-0.5 gap-0.5 text-2xs'
-	// Pipeline colors — one per state, same tokens as the badges. Conflict is the
-	// exception: past legs/dots stay green (they succeeded), only the blocked tip
-	// is red — reads "the blockage is HERE", not "everything failed".
-	const PIPE_DOT: Record<Exclude<BadgeKind, 'none'>, string> = {
-		draft: 'bg-indigo-500 border-indigo-500',
-		ahead: 'bg-green-500 border-green-500',
-		conflict: 'bg-red-500 border-red-500',
-		deployed: 'bg-violet-500 border-violet-500'
-	}
-	const PIPE_LEG: Record<Exclude<BadgeKind, 'none'>, string> = {
-		draft: 'bg-indigo-500',
-		ahead: 'bg-green-500',
-		conflict: 'bg-green-500',
-		deployed: 'bg-violet-500'
-	}
-	const PIPE_GREEN_DOT = 'bg-green-500 border-green-500'
 
 	// ── Rendered list: all session items, then text-searched (no filter tabs) ──
 	const segmentItems = $derived(model.items)
@@ -561,27 +503,10 @@
 	f={(e: DisplayEntry) => searchableText(e)}
 />
 
-{#snippet badgePill(item: DeployItem, badge: Exclude<BadgeKind, 'draft' | 'none'>)}
-	{@const parentTarget = model.context.parentName ?? 'the parent'}
-	{@const hint =
-		badge === 'ahead'
-			? `Deployed in this fork but not yet in ${parentTarget} — deploy it to promote the change`
-			: badge === 'deployed'
-				? `Deployed in ${parentTarget}`
-				: badge === 'conflict'
-					? `Changed in both this fork and ${parentTarget} — resolve manually`
-					: undefined}
-	<Badge color={BADGE_META[badge].color} small class={STATUS_BADGE_CLASS} title={hint}>
-		{BADGE_META[badge].label}
-	</Badge>
-{/snippet}
-
-<!-- The single row badge, derived by priority; clean+sync is bare. Everything
-     here was edited by the AI this session, so the draft badge is a plain pill —
-     no author avatars. -->
+<!-- The single row badge. Everything here was edited by the AI this session,
+     so the draft badge is a plain pill — no author avatars. -->
 {#snippet rowBadge(item: DeployItem)}
-	{@const badge = badgeOf(item)}
-	{#if badge === 'draft'}
+	{#if badgeOf(item) === 'draft'}
 		<Badge
 			color="indigo"
 			small
@@ -590,106 +515,20 @@
 		>
 			{item.draftOnly ? 'Draft only' : 'Draft'}
 		</Badge>
-	{:else if badge !== 'none'}
-		{@render badgePill(item, badge)}
+	{:else}
+		<!-- Deployed is the quiet terminal state — a bare tick, not a pill; the
+		     hover carries the words. -->
+		<span
+			class="inline-flex items-center justify-center shrink-0"
+			title={`Deployed in ${workspaceLabel ?? 'this workspace'}`}
+		>
+			<Check class="w-3.5 h-3.5 text-green-600 dark:text-green-500" aria-label="Deployed" />
+		</span>
 	{/if}
 {/snippet}
 
-<!-- Dot parcours: trail fills left→right up to the current stage — position IS
-     the marker (no ring / size change on the tip). Dots carry their stage name
-     as a hover tooltip; the state is always duplicated in the adjacent badge,
-     so this never carries state alone. -->
-{#snippet pipeline(p: Pipeline | undefined)}
-	{#if p}
-		<!-- One hover tooltip (melt, placement bottom) for the whole trail: the same
-		     pipeline, larger, with the stage name under each dot (current emphasized). -->
-		<MeltTooltip placement="bottom">
-			<div
-				class="flex items-center gap-1 py-1.5"
-				role="img"
-				aria-label={`Stage ${p.cur + 1} of ${p.stages.length}: ${p.stages[p.cur]}, ${p.state}`}
-			>
-				{#each p.stages as _, i}
-					{@const reached = i <= p.cur}
-					{@const dotClass =
-						p.state === 'conflict' && i < p.cur ? PIPE_GREEN_DOT : PIPE_DOT[p.state]}
-					{#if i > 0}
-						<!-- Detached connector dash — gaps on both sides, not a joined rail. -->
-						<div
-							class="w-2 h-[1.5px] rounded-full {i <= p.cur
-								? PIPE_LEG[p.state]
-								: 'bg-gray-300 dark:bg-gray-600'}"
-						></div>
-					{/if}
-					<span
-						class="w-1.5 h-1.5 rounded-full border {reached
-							? dotClass
-							: 'bg-transparent border-gray-300 dark:border-gray-600'}"
-					></span>
-				{/each}
-			</div>
-			{#snippet text()}
-				<!-- Equal-width column per stage (1fr tracks all resolve to the widest
-				     label), dot centered over its label, legs stretching to fill the
-				     space between dots. Legs are two half-segments per cell — adjacent
-				     halves meet at the cell edge, so they read as one adapting pipe. -->
-				<div
-					class="grid whitespace-nowrap"
-					style={`grid-template-columns: repeat(${p.stages.length}, 1fr);`}
-				>
-					{#each p.stages as stage, i}
-						{@const reached = i <= p.cur}
-						{@const dotClass =
-							p.state === 'conflict' && i < p.cur ? PIPE_GREEN_DOT : PIPE_DOT[p.state]}
-						{@const legGray = 'bg-gray-300 dark:bg-gray-600'}
-						<!-- No horizontal padding on the cell: the half-legs must reach the
-						     cell edges to meet their neighbor (padding lives on the label). -->
-						<div class="flex flex-col items-center gap-1 min-w-0">
-							<div class="w-full flex items-center">
-								{#if i > 0}
-									<span
-										class="flex-1 h-[1.5px] rounded-full mr-1 {i <= p.cur
-											? PIPE_LEG[p.state]
-											: legGray}"
-									></span>
-								{:else}
-									<span class="flex-1"></span>
-								{/if}
-								<span
-									class="w-1.5 h-1.5 rounded-full border shrink-0 {reached
-										? dotClass
-										: 'bg-transparent border-gray-300 dark:border-gray-600'}"
-								></span>
-								{#if i < p.stages.length - 1}
-									<span
-										class="flex-1 h-[1.5px] rounded-full ml-1 {i + 1 <= p.cur
-											? PIPE_LEG[p.state]
-											: legGray}"
-									></span>
-								{:else}
-									<span class="flex-1"></span>
-								{/if}
-							</div>
-							<span
-								class="text-2xs max-w-full truncate px-1.5 {i === p.cur
-									? 'text-primary font-medium'
-									: 'text-tertiary'}"
-								title={stage}
-							>
-								{stage}
-							</span>
-						</div>
-					{/each}
-				</div>
-			{/snippet}
-		</MeltTooltip>
-	{/if}
-{/snippet}
-
-<!-- Transient busy states only. A successful deploy's "Deployed" confirmation is
-     rendered by the detail header as a FALLBACK (after the next action) so a
-     non-terminal deploy (draft → fork) advances to its next step instead of
-     freezing on the chip. -->
+<!-- Transient busy states only. A successful deploy has no chip — the row's
+     badge flipping to Deployed is the feedback. -->
 {#snippet deployBusy(item: DeployItem)}
 	{@const s = model.statusOf(item.key)}
 	{#if s?.status === 'loading'}
@@ -1019,12 +858,10 @@
 						{#if model.loading && model.items.length === 0}
 							<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
 								<Loader2 class="w-4 h-4 animate-spin" />
-								Loading comparison...
+								Loading changes...
 							</div>
 						{:else if model.error}
 							<div class="text-sm text-red-600 dark:text-red-400 py-4">{model.error}</div>
-						{:else if model.notice}
-							<div class="text-sm text-secondary py-4">{model.notice}</div>
 						{:else if model.items.length === 0}
 							<div class="text-sm text-secondary py-4">No changes.</div>
 						{:else if orderedItems.length === 0}
@@ -1032,7 +869,7 @@
 						{:else}
 							<div class="flex flex-col">
 								{#each orderedItems as d (d.key)}
-									{@const action = actionFor(d, model.context)}
+									{@const action = actionFor(d)}
 									{@const editUrl = editUrlFor?.(d)}
 									{@const status = model.statusOf(d.key)}
 									<div
@@ -1065,33 +902,10 @@
 												{/if}
 											</div>
 											<div class="shrink-0 flex items-center gap-2">
-												{@render pipeline(pipelineOf(d, model.context))}
 												{@render rowBadge(d)}
-												{#if status?.status === 'loading' || status?.status === 'failed'}
+												{#if status}
 													{@render deployBusy(d)}
 												{:else if action.op !== 'none'}
-													{@const needsOb =
-														action.op === 'deploy_item' && model.needsOnBehalfChoice(d)}
-													{@const parentBlocked =
-														action.targetStage === 'parent' && !canDeployToParent}
-													<!-- Deploy target: draft deploys in place (current ws); everything
-													     else writes into the parent. Preflight the user's permission there. -->
-													{@const deployTarget =
-														action.op === 'deploy_draft'
-															? model.context.currentWorkspaceId
-															: model.context.parentWorkspaceId}
-													{@const perm = model.deployPermission(deployTarget)}
-													{#if action.op === 'deploy_item' && isOnBehalfEligible(d.deployKind) && model.context.parentWorkspaceId}
-														<OnBehalfOfSelector
-															targetWorkspace={model.context.parentWorkspaceId}
-															targetValue={model.targetOnBehalf(d)}
-															selected={model.onBehalfChoiceOf(d.key)}
-															onSelect={(choice, details) =>
-																model.setOnBehalfChoice(d.key, choice, details)}
-															kind={d.deployKind}
-															canPreserve={model.canPreserveOnBehalf}
-														/>
-													{/if}
 													{#if action.secondary?.length}
 														<Button
 															variant="subtle"
@@ -1106,38 +920,14 @@
 													<Button
 														variant="accent"
 														unifiedSize="sm"
-														destructive={action.op === 'delete_in_parent'}
-														disabled={model.deploying || needsOb || parentBlocked || !perm.ok}
-														title={!perm.ok
-															? perm.reason
-															: needsOb
-																? 'Choose "run on behalf of" first'
-																: parentBlocked
-																	? (parentProtectionReason ??
-																		'Direct deploy to the parent is disabled — deploy from the compare page')
-																	: undefined}
+														disabled={model.deploying || !model.deployPermission.ok}
+														title={model.deployPermission.ok
+															? undefined
+															: model.deployPermission.reason}
 														onclick={() => model.deployRow(d)}
 													>
 														{action.label}
 													</Button>
-												{:else if d.parent === 'conflict'}
-													<!-- No safe one-click resolve: both sides changed. Reconcile by
-													     hand in the editor. Checked before the transient Deployed chip:
-													     a deploy that LANDS in a conflicted state must read as the
-													     conflict, not as a success chip. -->
-													<span
-														class="text-2xs text-tertiary italic"
-														title="Both this fork and {model.context.parentName ??
-															'the parent'} changed this item — open it in the editor and reconcile manually"
-													>
-														Resolve manually
-													</span>
-												{:else if status?.status === 'deployed' && badgeOf(d) !== 'deployed'}
-													<!-- Success chip for the window between a deploy and the async fork
-													     comparison catch-up. Once the row itself reads deployed the
-													     violet status badge covers it; if a next step
-													     exists, the action button above replaces this. -->
-													<Badge color="green" small>Deployed</Badge>
 												{/if}
 											</div>
 										</div>

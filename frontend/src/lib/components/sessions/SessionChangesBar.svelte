@@ -6,17 +6,16 @@
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { deriveForkStatus, sessionState, type Session } from './sessionState.svelte'
+	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { badgeCounts, buildDeployItems, type SessionContext } from './sessionDeployModel'
+	import { badgeCounts, buildDeployItems } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 
-	// Unified session bar: replaces the separate draft + fork bars. It surfaces
-	// what the CURRENT chat changed — drafts it wrote and (in a fork) items it
-	// deployed ahead of the parent — as one count badge per status (drafts /
-	// ahead / conflicts / deployed) that all open the session diff drawer.
+	// Unified session bar: surfaces what the CURRENT chat changed — pending
+	// drafts and deployed items — as one count badge per status that opens the
+	// session diff drawer.
 	let {
 		session,
 		onMove,
@@ -62,41 +61,25 @@
 	// scoped to the chat's mask inside the deploy model below.
 	const drafts = useWorkspaceDrafts(() => committedId)
 
-	// Fork comparison lives on the shared SessionRuntime cache. The status icon
-	// reflects the fork's REAL relationship to its parent (ahead/diverged/in-sync).
-	const comparison = $derived(runtime?.forkComparison.val)
-	const forkStatus = $derived(deriveForkStatus(session, $userWorkspaces, comparison))
-	const isUnavailable = $derived(forkStatus === 'unavailable')
+	// The committed workspace vanished from the user's list (deleted, archived,
+	// or access revoked) — the session can't operate in it anymore.
+	const isUnavailable = $derived(!!committedId && !sessionWorkspace)
 
 	// The committed workspace is gone, so we can't read its parent to know if
 	// it was a fork — fall back to the fork-id convention for the wording.
 	const committedIsFork = $derived(committedId?.startsWith('wm-fork-') ?? false)
 
-	$effect(() => {
-		if (!runtime || !committedId || !parentWorkspaceId) return
-		void runtime.ensureForkComparison(parentWorkspaceId, committedId)
-	})
-
-	function refreshComparison() {
-		if (!runtime || !committedId || !parentWorkspaceId) return
-		runtime.invalidateForkComparison()
-		void runtime.ensureForkComparison(parentWorkspaceId, committedId)
-		// A fork *deletion* only lands in the comparison via an async backend tally
-		// (~300ms after the turn), and produces no draft — so the immediate fetch
-		// above races it. Re-poll (700ms/2200ms) so deletions surface reliably.
-		runtime.scheduleForkComparisonRefresh()
-	}
-
-	// Full dock refresh: fresh existence checks + draft list + fork comparison.
+	// Full dock refresh: re-run existence checks + draft list. Both are
+	// stale-while-revalidate — a hard reset would blank dockItems for the
+	// round-trip, hiding the bar (and unmounting the drawer) mid-deploy.
 	function refreshDock() {
-		existing.reset()
+		existing.refresh()
 		drafts.refresh()
-		refreshComparison()
 	}
 
-	// Refresh both the draft list and the fork comparison when the AI finishes a
-	// turn (loading true → false): tool calls may have created/edited/deleted
-	// items. Deploys happen server-side, so the frontend only has this coarse signal.
+	// Refresh the draft list when the AI finishes a turn (loading true → false):
+	// tool calls may have created/edited/deleted items. Deploys happen
+	// server-side, so the frontend only has this coarse signal.
 	let wasLoading = $state(false)
 	$effect(() => {
 		const isLoading = runtime?.manager.loading ?? false
@@ -119,33 +102,19 @@
 
 	let diffDrawer: SessionDiffDrawer | undefined = $state(undefined)
 
-	// The dock counts are computed from the same pure model over this chat's drafts
-	// + fork comparison; the readout mirrors the drawer's item states.
-	const context = $derived<SessionContext>({
-		isFork,
-		currentWorkspaceId: committedId ?? '',
-		parentWorkspaceId,
-		parentName: parentWorkspace?.name ?? parentWorkspaceId
-	})
+	// The dock counts are computed from the same pure model over this chat's
+	// drafts; the readout mirrors the drawer's item states.
 	// Existence check for mask-only (deployed) items — without it they'd be
 	// dropped from the dock counts while the drawer (which runs the same check)
 	// still shows them as Deployed.
 	const existing = useExistingMaskKeys(() => ({
 		draftItems: drafts.items,
-		comparison,
 		mask: committedId ? mask : undefined,
-		context,
 		workspaceId: committedId ?? ''
 	}))
 	const dockItems = $derived(
 		committedId
-			? buildDeployItems({
-					draftItems: drafts.items,
-					comparison,
-					mask,
-					existingKeys: existing.keys,
-					context
-				})
+			? buildDeployItems({ draftItems: drafts.items, mask, existingKeys: existing.keys })
 			: []
 	)
 	const dockCounts = $derived(badgeCounts(dockItems))
@@ -163,25 +132,15 @@
 
 {#snippet dock()}
 	<!-- One count badge per row status, same vocabulary/colors as the drawer's
-	     badges (draft/ahead/conflict/deployed) so the bar reads at a glance. -->
+	     badges (draft/deployed) so the bar reads at a glance. -->
 	<div class="flex items-center gap-1 shrink-0">
 		{#if dockCounts.draft > 0}
 			<Badge small clickable color="indigo" onclick={() => diffDrawer?.open()}>
 				{dockCounts.draft} draft{dockCounts.draft === 1 ? '' : 's'}
 			</Badge>
 		{/if}
-		{#if dockCounts.ahead > 0}
-			<Badge small clickable color="green" onclick={() => diffDrawer?.open()}>
-				{dockCounts.ahead} ahead
-			</Badge>
-		{/if}
-		{#if dockCounts.conflict > 0}
-			<Badge small clickable color="red" onclick={() => diffDrawer?.open()}>
-				{dockCounts.conflict} conflict{dockCounts.conflict === 1 ? '' : 's'}
-			</Badge>
-		{/if}
 		{#if dockCounts.deployed > 0}
-			<Badge small clickable color="violet" onclick={() => diffDrawer?.open()}>
+			<Badge small clickable color="green" onclick={() => diffDrawer?.open()}>
 				{dockCounts.deployed} deployed
 			</Badge>
 		{/if}
@@ -245,7 +204,11 @@
 		</div>
 		{@render dock()}
 	</div>
+{/if}
 
+<!-- Mounted independently of the bar: a transient dip of the dock counts to
+     zero (mid-refresh after a deploy) must not unmount an open drawer. -->
+{#if committedId && !isUnavailable}
 	<SessionDiffDrawer
 		bind:this={diffDrawer}
 		workspaceId={committedId}

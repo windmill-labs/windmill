@@ -25,7 +25,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 	if (workspaceId === get(workspaceStore)) return
 	switchWorkspace(workspaceId)
 }
-import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+import { WorkspaceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { onUserChange } from '$lib/userScopedStorage'
@@ -45,23 +45,9 @@ export const EDITOR_TARGET_KINDS: ReadonlySet<SessionTarget['kind']> = new Set([
 	'pipeline'
 ])
 
-// Lifecycle status for a fork session. Git-parallel:
-//   in_sync     — fork is up to date with parent (or only behind — treated
-//                 the same since the user has no unmerged work either way).
-//   ahead       — fork has unmerged changes vs parent (branch ahead).
-//   diverged    — fork has unmerged changes AND parent has moved (branch
-//                 diverged from upstream — potential conflicts).
-//   unavailable — fork workspace is no longer in the user's list (deleted,
-//                 archived, or access revoked). Read-only fallback.
-//
-// `undefined` is the loading / not-applicable state (root session,
-// comparison not yet fetched).
-export type ForkStatus = 'in_sync' | 'ahead' | 'diverged' | 'unavailable'
-
 // Whether the session points at a workspace that is itself a fork (i.e.
-// has a parent). Independent of comparison-fetch state — used by the
-// sidebar to pick between a root (Building) icon and a fork-status icon
-// before the comparison has loaded.
+// has a parent). Used by the sidebar to pick between a root (Building)
+// icon and a fork icon.
 //
 // Sessions whose committed workspace is no longer in the user's list are
 // still treated as forks (the "unavailable" terminal state) so we don't
@@ -72,29 +58,6 @@ export function isForkSession(session: Session, allWorkspaces: UserWorkspace[]):
 	const ws = allWorkspaces.find((w) => w.id === wsId)
 	if (!ws) return !!session.workspace_id
 	return !!ws.parent_workspace_id
-}
-
-export function deriveForkStatus(
-	session: Session,
-	allWorkspaces: UserWorkspace[],
-	comparison: WorkspaceComparison | undefined
-): ForkStatus | undefined {
-	const wsId = session.workspace_id ?? session.pending_workspace_id
-	if (!wsId) return undefined
-	const ws = allWorkspaces.find((w) => w.id === wsId)
-	// Committed fork workspaces that disappear from the user's list
-	// (deleted, archived, or access lost) are flagged unavailable so
-	// the UI can render a terminal state without trying to switch into
-	// them. Drafts whose pending workspace also vanished get the same
-	// treatment.
-	if (!ws) return session.workspace_id ? 'unavailable' : undefined
-	if (!ws.parent_workspace_id) return undefined
-	if (!comparison) return undefined
-	const ahead = comparison.summary?.total_ahead ?? 0
-	const behind = comparison.summary?.total_behind ?? 0
-	if (ahead > 0 && behind > 0) return 'diverged'
-	if (ahead > 0) return 'ahead'
-	return 'in_sync'
 }
 
 export type PendingFork = {

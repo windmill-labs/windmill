@@ -5,10 +5,11 @@
 	import { useSessionDeployModel } from './sessionDeployModel.svelte'
 	import type { DeployItem } from './sessionDeployModel'
 
-	// Session "Edits" drawer. Builds the unified deploy model (drafts + fork
-	// comparison) and hands it to WorkspaceDiffDrawer, which renders the tree +
-	// scroll-through diff column. A non-fork session has no parent, so the model
-	// runs in main (Draft → Parent) mode.
+	// Session "Edits" drawer. Builds the deploy model over the session
+	// workspace's drafts and hands it to WorkspaceDiffDrawer, which renders the
+	// tree + scroll-through diff column. The parent workspace only informs the
+	// title identity and the compare-page link — deploys land in the session
+	// workspace itself.
 	let {
 		workspaceId,
 		parentWorkspaceId,
@@ -38,22 +39,13 @@
 
 	const model = useSessionDeployModel(() => ({
 		workspaceId,
-		workspaceName: ws?.name ?? workspaceId,
-		parentWorkspaceId,
-		// The deploy target's name: the parent workspace for a fork; the session's
-		// own workspace in main context (where a draft deploys in place).
-		parentName: isFork ? (parentWs?.name ?? parentWorkspaceId) : (ws?.name ?? workspaceId),
-		isFork,
 		mask: keys,
 		onDataChanged
 	}))
 
-	// Editor URL for a row: point at the workspace the item actually lives in
-	// (parent-only rows link into the parent to avoid a 404 in the fork).
+	// Editor URL for a row (every item lives in the session workspace).
 	function editUrlFor(item: DeployItem): string | undefined {
-		const ws = encodeURIComponent(
-			item.existsInFork ? workspaceId : (parentWorkspaceId ?? workspaceId)
-		)
+		const ws = encodeURIComponent(workspaceId)
 		const path = item.path
 		if (item.deployKind === 'flow') return `/flows/edit/${path}?workspace=${ws}`
 		if (item.deployKind === 'script') return `/scripts/edit/${path}?workspace=${ws}`
@@ -76,7 +68,14 @@
 	}
 </script>
 
-<WorkspaceDiffDrawer bind:this={inner} {model} {title} {editUrlFor} {compareSessionHref}>
+<WorkspaceDiffDrawer
+	bind:this={inner}
+	{model}
+	{title}
+	{editUrlFor}
+	{compareSessionHref}
+	workspaceLabel={ws?.name ?? workspaceId}
+>
 	{#snippet titleExtra()}
 		<div class="flex items-center gap-1.5 text-xs text-secondary min-w-0">
 			{#if isFork}
