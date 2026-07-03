@@ -11,6 +11,7 @@ import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import { usesAnthropicMessagesApi } from '../modelConfig'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
+import { sanitizeToolCallArguments } from './toolCallArguments'
 import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 export interface ChatClients {
@@ -267,7 +268,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 		const messageParams = [
 			systemMessage,
-			...messages,
+			...sanitizeToolCallArguments(messages),
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
