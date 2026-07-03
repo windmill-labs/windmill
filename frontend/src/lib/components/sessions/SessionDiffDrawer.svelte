@@ -63,7 +63,7 @@
 		return undefined
 	}
 
-	const title = 'Edits this session.'
+	const title = 'Edited during session'
 
 	// Compare page = the batch/PR surface. The footer hands off THIS session's
 	// edits via `from_session`, so the compare page opens preselected.
