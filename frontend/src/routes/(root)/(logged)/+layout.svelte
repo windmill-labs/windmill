@@ -1101,12 +1101,12 @@
 <Modal2
 	title="Forking {$workspaceStore}"
 	target="#content"
-	fixedHeight="lg"
+	fixedHeight="adaptive"
 	fixedWidth="sm"
 	contentClasses="flex-col"
 	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
 >
 	{#if globalForkModal.val}
-		<CreateWorkspaceInner isFork onFinish={() => (globalForkModal.val = undefined)} />
+		<CreateWorkspaceInner isFork inModal onFinish={() => (globalForkModal.val = undefined)} />
 	{/if}
 </Modal2>

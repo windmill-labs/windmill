@@ -18,8 +18,7 @@
 	import {
 		workspaceIsFork,
 		findWorkspaceRoot,
-		findWorkspaceDescendants,
-		findCanonicalDevWorkspace
+		findWorkspaceDescendants
 	} from '$lib/utils/workspaceHierarchy'
 	import { resource } from 'runed'
 	import { Button } from '$lib/components/common'
@@ -44,13 +43,19 @@
 	import Label from '../Label.svelte'
 	import ForkDatatableSection from './ForkDatatableSection.svelte'
 	import Select from '../select/Select.svelte'
+	import WorkspaceScopeTrigger from '../WorkspaceScopeTrigger.svelte'
+	import DarkModeToggle from '../sidebar/DarkModeToggle.svelte'
 
 	interface Props {
 		isFork?: boolean
+		// Rendered inside the global fork modal rather than the standalone
+		// /user/create_workspace page: content-driven height and no
+		// "Back to workspaces" navigation.
+		inModal?: boolean
 		onFinish?: () => void
 	}
 
-	let { isFork = false, onFinish }: Props = $props()
+	let { isFork = false, inModal = false, onFinish }: Props = $props()
 
 	// Dev-workspace mode: create the fork as a persistent, prefix-less dev workspace and (optionally)
 	// lock the parent ("prod") against direct edits.
@@ -87,13 +92,7 @@
 			subtitle: w.is_dev_workspace ? 'dev workspace' : w.id === familyRoot?.id ? undefined : 'fork'
 		}))
 	)
-	// Default to the family's editable head: the root's canonical dev workspace when it has one (the
-	// root/prod is typically forking-locked and the dev holds the current code), else the root itself.
-	let defaultBaseWorkspaceId = $derived(
-		familyRoot
-			? (findCanonicalDevWorkspace(familyRoot.id, $userWorkspaces)?.id ?? familyRoot.id)
-			: undefined
-	)
+	let defaultBaseWorkspaceId = $derived(familyRoot?.id)
 	// Seed the base once the family is known; keep an explicit user choice as long as it stays valid.
 	$effect(() => {
 		if (!isFork) return
@@ -508,7 +507,12 @@
 	let autoAdd = $state(true)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
 	run(() => {
-		id = name.toLowerCase().replace(/\s/gi, '-')
+		if (isFork) {
+			// Forks have no separate display name — the unique id is the name.
+			name = id
+		} else {
+			id = name.toLowerCase().replace(/\s/gi, '-')
+		}
 	})
 	run(() => {
 		validateName(id)
@@ -522,9 +526,16 @@
 	let domain = $derived($usersWorkspaceStore?.email.split('@')[1])
 </script>
 
-<div class="flex flex-col flex-1">
-	<div class="flex-1 relative min-h-[32rem]">
-		<div class="flex flex-col gap-8 absolute inset-0 overflow-y-auto">
+<div class="flex flex-col flex-1 min-h-0">
+	<!-- Standalone page: fixed 32rem scroll area (absolute inset). In the modal the
+	     form flows naturally so the adaptive modal hugs the content, scrolling only
+	     when capped by the viewport. -->
+	<div class={inModal ? 'flex-1 min-h-0 overflow-y-auto' : 'flex-1 relative min-h-[32rem]'}>
+		<div
+			class={inModal
+				? 'flex flex-col gap-8'
+				: 'flex flex-col gap-8 absolute inset-0 overflow-y-auto'}
+		>
 			{#if errorMsgs.length != 0}
 				<Alert class="p-2" title={forkCreationError} type="error">
 					<ul class="pl-2 pr-4 break-words pb-5">
@@ -580,33 +591,31 @@
 					{/if}
 				</Alert>
 			{/if}
-			<label class="flex flex-col gap-1">
-				{#if isFork}
-					<span class="text-xs font-semibold text-emphasis">Fork name</span>
-					<span class="text-xs text-secondary">Displayable name of the forked workspace</span>
-				{:else}
+			{#if !isFork}
+				<label class="flex flex-col gap-1">
 					<span class="text-xs font-semibold text-emphasis">Workspace name</span>
 					<span class="text-xs text-secondary">Displayable name</span>
-				{/if}
-				<!-- svelte-ignore a11y_autofocus -->
-				<TextInput inputProps={{ autofocus: true }} bind:value={name} />
-			</label>
+					<!-- svelte-ignore a11y_autofocus -->
+					<TextInput inputProps={{ autofocus: true }} bind:value={name} />
+				</label>
+			{/if}
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
 				{#if isFork}
+					<span class="text-xs font-semibold text-emphasis">Fork ID</span>
 					<span class="text-xs text-secondary"
-						>Slug to uniquely identify your fork (this will also set the branch name)</span
+						>Unique name of your fork (this will also set the branch name)</span
 					>
 				{:else}
+					<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
 					<span class="text-xs text-secondary">Slug to uniquely identify your workspace</span>
 				{/if}
 
 				{#if isFork && !createAsDevWorkspace}
 					<PrefixedInput
 						prefix={WM_FORK_PREFIX}
-						type="text"
 						bind:value={id}
-						placeholder="example.com"
+						placeholder="my-fork"
+						autofocus
 						class={errorId != '' ? 'input-error' : ''}
 					/>
 				{:else}
@@ -632,9 +641,70 @@
 					{/if}
 				{/if}
 			</label>
+			<Label label={isFork ? 'Fork color' : 'Workspace color'}>
+				{#snippet header()}
+					<span class="text-2xs text-secondary">(optional)</span>
+				{/snippet}
+				<span class="text-xs text-secondary">
+					Color to identify the current workspace in the list of workspaces
+				</span>
+				<div class="flex items-center gap-4">
+					<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
+					{#if colorEnabled}
+						<div class="flex items-center gap-1 grow">
+							<input
+								class="grow min-w-10"
+								type="color"
+								bind:value={workspaceColor}
+								disabled={!colorEnabled}
+							/>
+
+							<TextInput
+								class="w-24"
+								bind:value={workspaceColor}
+								inputProps={{ disabled: !colorEnabled }}
+							/>
+							<Button
+								on:click={generateRandomColor}
+								size="xs"
+								variant="default"
+								disabled={!colorEnabled}>Random</Button
+							>
+						</div>
+					{/if}
+				</div>
+				{#if isFork && colorEnabled}
+					<div class="flex flex-col gap-1 pt-2">
+						<div class="flex flex-row items-center gap-1">
+							<span class="text-2xs text-secondary">Fork picker preview</span>
+							<!-- Toggles the real app theme: a preview-local .dark scope can't
+							     re-theme the modal (theme vars are bound to html.dark), and the
+							     actual theme is what the chip must be judged against anyway. -->
+							<DarkModeToggle forcedDarkMode={false} />
+						</div>
+						<div class="w-64">
+							<WorkspaceScopeTrigger
+								workspaceId={baseWorkspaceId}
+								pendingFork={{
+									id: effectiveForkId,
+									name: id || 'my-fork',
+									parent_workspace_id: baseWorkspaceId ?? ''
+								}}
+								color={workspaceColor}
+								showChevron={false}
+								wrap
+								class="w-full pointer-events-none"
+							/>
+						</div>
+					</div>
+				{/if}
+			</Label>
 			{#if isFork}
 				<label class="flex flex-col gap-1">
-					<span class="text-xs font-semibold text-emphasis">Base workspace</span>
+					<div class="flex flex-row gap-2 items-baseline">
+						<span class="text-xs font-semibold text-emphasis">Base workspace</span>
+						<span class="text-2xs text-secondary">(optional)</span>
+					</div>
 					<span class="text-xs text-secondary">
 						Workspace to fork from. Defaults to the root; pick an existing fork to create a fork of
 						a fork (the new branch is based on the selected workspace's branch).
@@ -686,36 +756,6 @@
 					</div>
 				</Label>
 			{/if}
-			<Label label="Workspace color">
-				<span class="text-xs text-secondary">
-					Color to identify the current workspace in the list of workspaces
-				</span>
-				<div class="flex items-center gap-4">
-					<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
-					{#if colorEnabled}
-						<div class="flex items-center gap-1 grow">
-							<input
-								class="grow min-w-10"
-								type="color"
-								bind:value={workspaceColor}
-								disabled={!colorEnabled}
-							/>
-
-							<TextInput
-								class="w-24"
-								bind:value={workspaceColor}
-								inputProps={{ disabled: !colorEnabled }}
-							/>
-							<Button
-								on:click={generateRandomColor}
-								size="xs"
-								variant="default"
-								disabled={!colorEnabled}>Random</Button
-							>
-						</div>
-					{/if}
-				</div>
-			</Label>
 			{#if isFork}
 				<ForkDatatableSection
 					bind:this={forkDatatableSection}
@@ -853,10 +893,15 @@
 			{/if}
 		</div>
 	</div>
-	<div class="flex flex-wrap flex-row justify-between gap-4 pt-4">
-		<Button disabled={forkCreationLoading} variant="default" size="sm" href="{base}/user/workspaces"
-			>&leftarrow; Back to workspaces</Button
-		>
+	<div class="flex flex-wrap flex-row {inModal ? 'justify-end' : 'justify-between'} gap-4 pt-4">
+		{#if !inModal}
+			<Button
+				disabled={forkCreationLoading}
+				variant="default"
+				size="sm"
+				href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
+			>
+		{/if}
 		{#if !forkCreationLoading}
 			<Button
 				variant="accent"

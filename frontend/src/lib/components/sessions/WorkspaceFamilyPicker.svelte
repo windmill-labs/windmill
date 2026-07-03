@@ -14,6 +14,7 @@
 		buildWorkspaceHierarchy
 	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
+	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { getUserExt } from '$lib/user'
 	import {
 		fetchProtectionRulesForWorkspace,
@@ -26,7 +27,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { Badge, Button } from '$lib/components/common'
+	import { Badge, Button, CopyButton } from '$lib/components/common'
 	import Select from '../select/Select.svelte'
 	import { Building, Check, GitFork, Plus, Settings } from 'lucide-svelte'
 
@@ -181,7 +182,9 @@
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
-	let newForkName = $state('')
+	// Bare fork id, without the wm-fork- prefix. Forks have no separate display
+	// name — the id is the name (it also becomes the git branch).
+	let newForkId = $state('')
 	let forkInput: TextInput | undefined = $state(undefined)
 	// The base ("target") a new fork will branch from. Defaults to the root; the user can pick any fork
 	// in the family (via the inline target selector) to create a fork of a fork.
@@ -224,12 +227,12 @@
 		}
 	}
 
-	function defaultForkName(): string {
+	function defaultForkId(): string {
 		const taken = new Set($userWorkspaces.map((w) => w.id))
 		if (pendingFork) taken.add(pendingFork.id)
 		for (let i = 0; i < 50; i++) {
-			const name = `${random_adj()}-fork`
-			if (!taken.has(`${WM_FORK_PREFIX}${name}`)) return name
+			const candidate = `${random_adj()}-fork`
+			if (!taken.has(`${WM_FORK_PREFIX}${candidate}`)) return candidate
 		}
 		const base = `${random_adj()}-fork`
 		let n = 1
@@ -243,11 +246,11 @@
 		await onPick(id)
 	}
 
-	async function enterCreateMode(initialName?: string, baseId?: string) {
+	async function enterCreateMode(initialId?: string, baseId?: string) {
 		// Default the target to the root; the user can switch to any fork in the family (fork of a fork).
 		createForkBaseId = baseId ?? root?.id
 		creatingFork = true
-		newForkName = initialName ?? defaultForkName()
+		newForkId = initialId ?? defaultForkId()
 		await tick()
 		forkInput?.focus()
 		forkInput?.select()
@@ -255,46 +258,35 @@
 
 	function cancelCreate() {
 		creatingFork = false
-		newForkName = ''
+		newForkId = ''
 	}
 
-	function slugForkBaseId(name: string): string {
-		return name
-			.toLowerCase()
-			.replace(/[^a-z0-9-]/g, '-')
-			.replace(/-+/g, '-')
-			.replace(/^-|-$/g, '')
-	}
-
-	// Mirror the backend's fork validation so a bad name is caught before the create call rather than
-	// failing mid-creation: a workspace name is capped at 50 chars, and the derived id is prefixed with
-	// `wm-fork-` and must also stay within 50 chars (both are hard DB/git-branch limits).
-	const forkNameError = $derived.by<string | undefined>(() => {
-		const trimmed = newForkName.trim()
+	// Mirror the backend's fork validation so a bad id is caught before the create call rather than
+	// failing mid-creation: with the `wm-fork-` prefix the id must stay within 50 chars (a hard
+	// DB/git-branch limit) and only contain slug characters.
+	const forkIdError = $derived.by<string | undefined>(() => {
+		const trimmed = newForkId.trim()
 		if (!trimmed) return undefined
-		if (trimmed.length > 50) return 'Name is too long (max 50 characters)'
-		const baseId = slugForkBaseId(trimmed)
-		if (!baseId) return 'Name must contain at least one letter or number'
-		const prefixed = `${WM_FORK_PREFIX}${baseId}`
-		if (prefixed.length > 50)
-			return 'Name is too long — the workspace id would exceed 50 characters'
+		if (!/^\w+(-\w+)*$/.test(trimmed))
+			return 'ID can only contain letters, numbers and dashes and must not finish by a dash'
+		const prefixed = `${WM_FORK_PREFIX}${trimmed}`
+		if (prefixed.length > 50) return `ID is too long (max ${50 - WM_FORK_PREFIX.length} characters)`
 		const taken = new Set($userWorkspaces.map((w) => w.id))
 		if (pendingFork) taken.delete(pendingFork.id)
-		if (taken.has(prefixed)) return 'A workspace with this name already exists'
+		if (taken.has(prefixed)) return 'A workspace with this ID already exists'
 		return undefined
 	})
 
 	async function stageNewFork() {
-		const name = newForkName.trim()
-		if (!createForkBaseId || !name || forkNameError || !onCreateFork) return
-		const baseId = slugForkBaseId(name)
-		if (!baseId) return
-		const prefixed = `${WM_FORK_PREFIX}${baseId}`
+		const bareId = newForkId.trim()
+		if (!createForkBaseId || !bareId || forkIdError || !onCreateFork) return
+		const prefixed = `${WM_FORK_PREFIX}${bareId}`
 		// Close optimistically; consumer can re-open + toast on error.
 		creatingFork = false
-		newForkName = ''
+		newForkId = ''
 		dropdownOpen = false
-		await onCreateFork({ parent_workspace_id: createForkBaseId, id: prefixed, name })
+		// The bare id doubles as the display name — forks have no separate name.
+		await onCreateFork({ parent_workspace_id: createForkBaseId, id: prefixed, name: bareId })
 	}
 
 	function isSelected(id: string): boolean {
@@ -303,7 +295,7 @@
 	}
 
 	// Reopening the dropdown while a pending fork is staged drops the user
-	// directly into edit mode so they can refine the name. Avoids re-
+	// directly into edit mode so they can refine the id. Avoids re-
 	// entering edit mode after an explicit cancel.
 	let lastDropdownOpen = $state(false)
 	$effect(() => {
@@ -312,7 +304,12 @@
 		if (dropdownOpen && !wasOpen && pendingFork && !creatingFork && showCreateFork) {
 			// Preserve the base the fork was staged from; without this the re-entry defaults to the root
 			// and silently re-parents a fork that was staged off another fork.
-			void enterCreateMode(pendingFork.name, pendingFork.parent_workspace_id)
+			void enterCreateMode(
+				pendingFork.id.startsWith(WM_FORK_PREFIX)
+					? pendingFork.id.slice(WM_FORK_PREFIX.length)
+					: pendingFork.name,
+				pendingFork.parent_workspace_id
+			)
 		}
 	})
 </script>
@@ -353,51 +350,81 @@
 		{@const rowBase =
 			'px-3 py-1.5 text-xs font-normal text-primary flex flex-row gap-2 items-center text-left rounded-sm w-full'}
 		<div
-			class="bg-surface-tertiary dark:border w-80 origin-top-left rounded-lg shadow-lg focus:outline-none py-1 flex flex-col max-h-80"
+			class="bg-surface-tertiary dark:border w-64 origin-top-left rounded-lg shadow-lg focus:outline-none py-1 flex flex-col max-h-80"
 		>
-			<!-- Scrollable rows; the settings footer below stays pinned. -->
+			<!-- Scrollable rows; the create-fork section and settings footer below stay pinned. -->
 			<div class="flex flex-col overflow-y-auto min-h-0">
 				{#if root}
 					{@const rootIdx = 0}
-					<button
-						type="button"
-						disabled={rootDisabled}
-						title={rootDisabled
-							? devOfRoot
-								? `${root.name} is locked. Run in its dev workspace instead.`
-								: `${root.name} is locked for direct deploys.`
-							: undefined}
-						class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
-						onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
-						onclick={() => !rootDisabled && void pick(root.id)}
-					>
-						<Building size={14} class="shrink-0 text-tertiary" />
-						<span class="truncate">{root.name}</span>
-						<span class="text-2xs text-tertiary shrink-0 ml-auto"
-							>{rootDisabled ? 'locked' : 'root'}</span
+					<!-- Rows are <button>s, so the copy affordance lives in a hover-revealed
+					     absolute sibling (nested buttons are invalid HTML). pr-8 reserves its
+					     spot so nothing shifts or gets covered on hover. -->
+					<div class="relative group shrink-0">
+						<button
+							type="button"
+							disabled={rootDisabled}
+							title={rootDisabled
+								? devOfRoot
+									? `${root.name} is locked. Run in its dev workspace instead.`
+									: `${root.name} is locked for direct deploys.`
+								: undefined}
+							class={`${rowBase} pr-8 ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
+							onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
+							onclick={() => !rootDisabled && void pick(root.id)}
 						>
-					</button>
+							<Building size={14} class="shrink-0 text-tertiary" />
+							<span class="truncate">{root.name}</span>
+							<span class="text-2xs text-tertiary shrink-0 ml-auto"
+								>{rootDisabled ? 'locked' : 'root'}</span
+							>
+							{#if isSelected(root.id) && !pendingFork}
+								<Check size={14} class="shrink-0 text-accent" />
+							{/if}
+						</button>
+						<CopyButton
+							value={root.id}
+							title={`Copy id: ${root.id}`}
+							class="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+						/>
+					</div>
 				{/if}
 				{#each forks as f, fi (f.id)}
 					{@const forkIdx = (root ? 1 : 0) + fi}
-					<button
-						type="button"
-						style={indentStyle(f.id)}
-						class={`${rowBase} ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-						onmouseenter={() => (keyArrowPos = forkIdx)}
-						onclick={() => void pick(f.id)}
-					>
-						<GitFork size={14} class="shrink-0 text-tertiary" />
-						<span class="truncate">{f.name}</span>
-						{#if f.is_dev_workspace}
-							<Badge
-								color="dark-blue"
-								small
-								class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-								>dev</Badge
+					{@const accentStyle = forkAccentStyle(f.color)}
+					<div class="relative group shrink-0">
+						<button
+							type="button"
+							style={`${indentStyle(f.id) ?? ''}${accentStyle ? `; ${accentStyle}` : ''}`}
+							class={`${rowBase} pr-8 ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+							onmouseenter={() => (keyArrowPos = forkIdx)}
+							onclick={() => void pick(f.id)}
+						>
+							<GitFork
+								size={14}
+								class={`shrink-0 ${accentStyle ? 'text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)]' : 'text-tertiary'}`}
+							/>
+							<span
+								class={`truncate ${accentStyle ? 'text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)]' : ''}`}
+								>{f.name}</span
 							>
-						{/if}
-					</button>
+							{#if f.is_dev_workspace}
+								<Badge
+									color="dark-blue"
+									small
+									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+									>dev</Badge
+								>
+							{/if}
+							{#if isSelected(f.id)}
+								<Check size={14} class="shrink-0 ml-auto text-accent" />
+							{/if}
+						</button>
+						<CopyButton
+							value={f.id}
+							title={`Copy id: ${f.id}`}
+							class="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+						/>
+					</div>
 				{/each}
 				{#if pendingFork && !creatingFork}
 					<div
@@ -408,25 +435,30 @@
 						<span class="text-2xs text-tertiary italic shrink-0 ml-auto">New</span>
 					</div>
 				{/if}
-				{#if showCreateFork}
-					<div class="my-1 border-t border-border-light shrink-0"></div>
-					{#if creatingFork}
-						<!-- Small inline form with labels: fork name + base ("target") workspace. The base
+			</div>
+			{#if showCreateFork}
+				<div class="my-1 border-t border-border-light shrink-0"></div>
+				{#if creatingFork}
+					<!-- Small inline form with labels: fork id + base ("target") workspace. The base
 							     defaults to the root; picking a fork there creates a fork of a fork. -->
-						<div class="flex flex-col gap-2 px-2.5 py-2">
-							<div class="flex flex-col gap-0.5">
-								<span class="text-2xs font-normal text-hint">Fork name</span>
+					<div class="flex flex-col gap-2 px-2.5 py-2">
+						<div class="flex flex-col gap-0.5">
+							<span class="text-2xs font-normal text-hint">Fork ID</span>
+							<div class="flex flex-row items-center gap-1 min-w-0">
+								<!-- text-tertiary: lighter than typed text but darker than the hint-colored
+								     placeholder, so the fixed prefix doesn't read as placeholder. -->
+								<span class="font-mono text-2xs text-tertiary shrink-0">{WM_FORK_PREFIX}</span>
 								<!-- svelte-ignore a11y_autofocus -->
 								<TextInput
 									bind:this={forkInput}
-									bind:value={newForkName}
+									bind:value={newForkId}
 									size="sm"
-									error={forkNameError}
-									class="w-full"
+									error={forkIdError}
+									class="grow min-w-0"
 									inputProps={{
 										placeholder: 'my-fork',
 										autofocus: true,
-										'aria-invalid': forkNameError ? 'true' : undefined,
+										'aria-invalid': forkIdError ? 'true' : undefined,
 										onkeydown: (e: KeyboardEvent) => {
 											if (e.key === 'Enter') {
 												e.preventDefault()
@@ -441,73 +473,73 @@
 									}}
 								/>
 							</div>
-							<div class="flex flex-col gap-0.5">
-								<span class="text-2xs font-normal text-hint">Base workspace</span>
-								<Select
-									size="sm"
-									class="w-full"
-									disablePortal
-									placeholder="Base workspace"
-									items={baseItems}
-									bind:value={createForkBaseId}
-								>
-									{#snippet startSnippet({ item })}
-										{@const d = familyDepths.get(item.value) ?? 0}
-										{#if d > 0}
-											<span class="inline-block shrink-0" style="width: {d * 14}px"></span>
-										{/if}
-									{/snippet}
-								</Select>
-							</div>
-							{#if forkNameError || createForkCaption}
-								<div>
-									<InputError error={forkNameError} />
-									{#if !forkNameError && createForkCaption}
-										<span class="text-2xs text-tertiary">{createForkCaption}</span>
-									{/if}
-								</div>
-							{/if}
-							<div class="flex flex-row justify-end items-center gap-1.5 pt-0.5">
-								<Button variant="subtle" unifiedSize="xs" on:click={() => cancelCreate()}>
-									Cancel
-								</Button>
-								<Button
-									variant="accent"
-									unifiedSize="xs"
-									startIcon={{ icon: Check }}
-									disabled={!newForkName.trim() || !!forkNameError}
-									on:click={() => void stageNewFork()}
-								>
-									Set as target
-								</Button>
-							</div>
 						</div>
-					{:else}
-						{@const createIdx = (root ? 1 : 0) + forks.length}
-						<button
-							type="button"
-							class={`${rowBase} ${keyArrowPos === createIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-							onmouseenter={() => (keyArrowPos = createIdx)}
-							onclick={() => requestCreateFork()}
-						>
-							<Plus size={14} class="shrink-0 text-tertiary" />
-							<span>{createForkLabel}</span>
-						</button>
-					{/if}
-				{:else if showForkUpsell}
-					<div class="my-1 border-t border-border-light shrink-0"></div>
-					<div
-						class={`${rowBase} opacity-60 cursor-not-allowed`}
-						aria-disabled="true"
-						title="Community edition is limited to {CE_MAX_NON_ADMIN_WORKSPACES +
-							1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks."
+						<div class="flex flex-col gap-0.5">
+							<span class="text-2xs font-normal text-hint">Base workspace</span>
+							<Select
+								size="sm"
+								class="w-full"
+								disablePortal
+								placeholder="Base workspace"
+								items={baseItems}
+								bind:value={createForkBaseId}
+							>
+								{#snippet startSnippet({ item })}
+									{@const d = familyDepths.get(item.value) ?? 0}
+									{#if d > 0}
+										<span class="inline-block shrink-0" style="width: {d * 14}px"></span>
+									{/if}
+								{/snippet}
+							</Select>
+						</div>
+						{#if forkIdError || createForkCaption}
+							<div>
+								<InputError error={forkIdError} />
+								{#if !forkIdError && createForkCaption}
+									<span class="text-2xs text-tertiary">{createForkCaption}</span>
+								{/if}
+							</div>
+						{/if}
+						<div class="flex flex-row justify-end items-center gap-1.5 pt-0.5">
+							<Button variant="subtle" unifiedSize="xs" on:click={() => cancelCreate()}>
+								Cancel
+							</Button>
+							<Button
+								variant="accent"
+								unifiedSize="xs"
+								startIcon={{ icon: Check }}
+								disabled={!newForkId.trim() || !!forkIdError}
+								on:click={() => void stageNewFork()}
+							>
+								Set as target
+							</Button>
+						</div>
+					</div>
+				{:else}
+					{@const createIdx = (root ? 1 : 0) + forks.length}
+					<button
+						type="button"
+						class={`${rowBase} ${keyArrowPos === createIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+						onmouseenter={() => (keyArrowPos = createIdx)}
+						onclick={() => requestCreateFork()}
 					>
 						<Plus size={14} class="shrink-0 text-tertiary" />
 						<span>{createForkLabel}</span>
-						<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
-					</div>
+					</button>
 				{/if}
-			</div>
+			{:else if showForkUpsell}
+				<div class="my-1 border-t border-border-light shrink-0"></div>
+				<div
+					class={`${rowBase} opacity-60 cursor-not-allowed`}
+					aria-disabled="true"
+					title="Community edition is limited to {CE_MAX_NON_ADMIN_WORKSPACES +
+						1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks."
+				>
+					<Plus size={14} class="shrink-0 text-tertiary" />
+					<span>{createForkLabel}</span>
+					<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
+				</div>
+			{/if}
 			{#if settingsHref}
 				<!-- Pinned footer: stays visible while the fork list above scrolls. -->
 				<div class="my-1 border-t border-border-light shrink-0"></div>

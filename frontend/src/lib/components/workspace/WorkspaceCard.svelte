@@ -8,6 +8,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { reconcileAfterWorkspaceChange } from '$lib/components/sessions/sessionState.svelte'
 	import { pluralize } from '$lib/utils'
+	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import WorkspaceIcon from './WorkspaceIcon.svelte'
 	import WorkspaceCard from './WorkspaceCard.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -51,6 +52,9 @@
 
 	const paddingLeft = untrack(() => depth) * 24
 	const isSelected = $derived(selectedWorkspaceId === workspace.id)
+	// Colored forks render icon + name in the derived fork accent (the fork
+	// picker convention); the icon side is handled inside WorkspaceIcon.
+	const forkAccent = $derived(isForked ? forkAccentStyle(workspace.color) : undefined)
 
 	// The canonical dev workspace sorts before throwaway forks.
 	const sortedChildren = $derived(
@@ -127,7 +131,12 @@
 
 						<div class="min-w-0 flex-1">
 							<div class="flex flex-row items-center gap-2 flex-wrap">
-								<span class="text-xs font-semibold text-primary truncate">
+								<span
+									class="text-xs font-semibold truncate {forkAccent
+										? 'text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)]'
+										: 'text-primary'}"
+									style={forkAccent}
+								>
 									{#if workspace.marked}
 										{@html workspace.marked}
 									{:else}
@@ -135,7 +144,12 @@
 									{/if}
 								</span>
 								{#if workspace.is_dev_workspace}
-									<Badge color="dark-blue" small class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white">dev</Badge>
+									<Badge
+										color="dark-blue"
+										small
+										class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+										>dev</Badge
+									>
 								{/if}
 								<span class="text-secondary text-xs">-</span>
 								{#if workspace.id === 'admins'}

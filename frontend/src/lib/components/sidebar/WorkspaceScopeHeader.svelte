@@ -75,7 +75,13 @@
 		class="min-w-0 w-full"
 	>
 		{#snippet trigger()}
-			<WorkspaceScopeTrigger workspaceId={effectiveId} {isCollapsed} {rootLabel} class="w-full" />
+			<WorkspaceScopeTrigger
+				workspaceId={effectiveId}
+				{isCollapsed}
+				{rootLabel}
+				wrap
+				class="w-full"
+			/>
 		{/snippet}
 	</WorkspaceFamilyPicker>
 </div>

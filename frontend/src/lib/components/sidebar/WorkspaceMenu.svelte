@@ -12,7 +12,8 @@
 		globalForkModal,
 		type UserWorkspace
 	} from '$lib/stores'
-	import { Building, ChevronDown, ChevronRight, Plus } from 'lucide-svelte'
+	import { Building, Check, ChevronDown, ChevronRight, Plus } from 'lucide-svelte'
+	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { Badge, NameIdTooltip } from '$lib/components/common'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -227,33 +228,25 @@
 			<div class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
 				{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
 					{@const isActive = $workspaceStore === workspace.id}
-					<!-- A root also reads as selected while one of its forks is active — the
-					     fork row is usually collapsed away, and its family is the only trace
-					     of the selection in the menu. Still clickable (switches to the root). -->
-					{@const isSelected =
-						isActive ||
-						(!strictWorkspaceSelect && depth === 0 && currentFamily?.id === workspace.id)}
+					{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
 					{@const expandable =
 						!strictWorkspaceSelect && depth === 0 && familiesWithForks.has(workspace.id)}
 					<!-- The expand chevron sits OUTSIDE the melt item: melt activates items
 					     via document-level handlers, so a nested button can't stop the row's
 					     navigate-and-close with stopPropagation. As a sibling it toggles the
 					     family without selecting the row or closing the menu. -->
-					<!-- Selected/hover/keyboard-highlight backgrounds live on the wrapper (the
+					<!-- Hover/keyboard-highlight backgrounds live on the wrapper (the
 					     highlight via :has(), since melt puts data-highlighted on the item) so
 					     they span the full row, chevron included; the chevron keeps only its
-					     own hover tint. -->
+					     own hover tint. The active workspace is marked by its row's check
+					     icon, not a background or text accent. -->
 					<div
 						data-workspace-id={workspace.id}
 						class={twMerge(
 							'flex items-center min-w-0 w-full',
-							isSelected
-								? // Selected rows still darken on hover/keyboard highlight — brightness
-									// instead of a bg swap so it tracks the accent token in any theme.
-									'bg-surface-accent-selected hover:brightness-[0.96] dark:hover:brightness-110 [&:has([data-highlighted])]:brightness-[0.96] dark:[&:has([data-highlighted])]:brightness-110'
-								: workspace.disabled
-									? ''
-									: 'hover:bg-surface-hover [&:has([data-highlighted])]:bg-surface-hover'
+							workspace.disabled
+								? ''
+								: 'hover:bg-surface-hover [&:has([data-highlighted])]:bg-surface-hover'
 						)}
 					>
 						<MenuItem
@@ -277,10 +270,10 @@
 									<div class="min-w-0 flex-1">
 										<div class="flex items-center gap-1 min-w-0">
 											<div
-												class={twMerge(
-													'truncate text-left text-xs font-normal',
-													isSelected ? 'text-accent' : 'text-primary'
-												)}
+												class="truncate text-left text-xs font-normal {forkAccent
+													? 'text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)]'
+													: 'text-primary'}"
+												style={forkAccent}
 												title={workspace.name}
 											>
 												{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
@@ -296,6 +289,9 @@
 										</div>
 									</div>
 								</div>
+								{#if isActive}
+									<Check size={14} class="shrink-0 ml-2 text-accent" />
+								{/if}
 							</div>
 						</MenuItem>
 						{#if expandable}
