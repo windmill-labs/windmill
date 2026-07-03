@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.742.0
+  version: 1.746.0
   title: Windmill API
 
   contact:
@@ -1183,6 +1183,89 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/attach_dev_workspace:
+    post:
+      summary: attach an existing workspace as the dev workspace of this (prod) workspace
+      operationId: attachDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_id:
+                  type: string
+                lock_prod_deploy:
+                  type: boolean
+                lock_prod_forking:
+                  type: boolean
+              required:
+                - dev_workspace_id
+      responses:
+        "200":
+          description: dev workspace attached
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/detach_dev_workspace:
+    post:
+      summary: detach the dev workspace from this (prod) workspace
+      operationId: detachDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_id:
+                  type: string
+              required:
+                - dev_workspace_id
+      responses:
+        "200":
+          description: dev workspace detached
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_dev_workspace:
+    get:
+      summary: this workspace's active canonical dev workspace, if any
+      operationId: getDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the dev workspace, or null if none
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                required:
+                  - id
+                  - name
 
   /workspaces/exists:
     post:
@@ -6483,12 +6566,15 @@ paths:
                     $ref: "#/components/schemas/QuotaInfo"
                   resources:
                     $ref: "#/components/schemas/QuotaInfo"
+                  forks:
+                    $ref: "#/components/schemas/QuotaInfo"
                 required:
                   - scripts
                   - flows
                   - apps
                   - variables
                   - resources
+                  - forks
 
   /w/{workspace}/workspaces/prune_versions:
     post:
@@ -6582,6 +6668,42 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/workspaces/set_ws_specific:
+    post:
+      summary: mark or unmark an item as workspace-specific
+      operationId: setWsSpecific
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_kind:
+                  type: string
+                  enum:
+                    - resource
+                    - variable
+                path:
+                  type: string
+                value:
+                  type: boolean
+              required:
+                - item_kind
+                - path
+                - value
+      responses:
+        "200":
+          description: workspace-specific flag updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
@@ -20124,6 +20246,55 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/job_helpers/storage_usage:
+    get:
+      summary: Get the storage usage of the workspace object storage, per configured storage. On Community Edition, also returns the workspace storage quota.
+      operationId: getStorageUsage
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: refresh
+          in: query
+          description: recount usage by listing the storage instead of returning cached values
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Storage usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_bytes:
+                    type: integer
+                    format: int64
+                  quota_bytes:
+                    type: integer
+                    format: int64
+                    description: only present on Community Edition, where workspace storage is capped
+                  storages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        storage:
+                          type: string
+                        bytes:
+                          type: integer
+                          format: int64
+                        computed_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - storage
+                        - bytes
+                        - computed_at
+                required:
+                  - total_bytes
+                  - storages
+
   /w/{workspace}/job_helpers/list_stored_files:
     get:
       summary: List the file keys available in a workspace object storage
@@ -21607,6 +21778,20 @@ paths:
                         in_pipeline:
                           type: boolean
                           description: True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false.
+                        macros:
+                          type: array
+                          description: Macros this script provides to the workspace registry (deployed `// macros` library). Omitted when empty.
+                          items:
+                            type: object
+                            required: [name, params, is_table]
+                            properties:
+                              name:
+                                type: string
+                              params:
+                                type: string
+                                description: verbatim parameter list
+                              is_table:
+                                type: boolean
                   edges:
                     type: array
                     items:
@@ -21672,6 +21857,56 @@ paths:
                               $ref: "#/components/schemas/AssetUsageKind"
                             runnable_path:
                               type: string
+                  macro_edges:
+                    type: array
+                    description: Macro-library → consumer edges (deploy-recorded call detection plus `// use`). Omitted when empty.
+                    items:
+                      type: object
+                      required: [lib_path, consumer_path, macro_names, via_use]
+                      properties:
+                        lib_path:
+                          type: string
+                        consumer_path:
+                          type: string
+                        macro_names:
+                          type: array
+                          items:
+                            type: string
+                        via_use:
+                          type: boolean
+
+  /w/{workspace}/assets/macros:
+    get:
+      summary: List every workspace DuckDB macro (deployed `// macros` libraries)
+      operationId: listWorkspaceMacros
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: all registry macros, ordered by provider then name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [name, params, body, is_table, provider_path]
+                  properties:
+                    name:
+                      type: string
+                    params:
+                      type: string
+                      description: verbatim parameter list
+                    body:
+                      type: string
+                      description: verbatim body after AS [TABLE]
+                    is_table:
+                      type: boolean
+                    provider_path:
+                      type: string
+                      description: path of the `// macros` library script
 
   /w/{workspace}/assets/pipelines:
     get:
@@ -21699,6 +21934,90 @@ paths:
                       type: integer
                       format: int64
                       description: Number of pipeline-member scripts in the folder
+
+  /w/{workspace}/assets/partitions:
+    get:
+      summary: List materialized partitions for a ducklake asset
+      operationId: listAssetPartitions
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-partition materialization status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MaterializedPartition"
+
+  /w/{workspace}/assets/partitions_in_range:
+    get:
+      summary: List expected partitions of a ducklake asset in a date range with their materialization status (enterprise)
+      operationId: listAssetPartitionsInRange
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          description: Inclusive range start (YYYY-MM-DD), local to the producer's partition tz
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: Inclusive range end (YYYY-MM-DD), local to the producer's partition tz
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: expected partitions in range with per-slice status — the missing/failed subset is the backfill worklist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartitionsInRange"
+
+  /w/{workspace}/assets/asset_schemas:
+    get:
+      summary: List captured output-schema versions for a ducklake asset
+      operationId: listAssetSchemas
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: captured schema versions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetSchemaVersion"
 
   /w/{workspace}/volumes/list:
     get:
@@ -23022,6 +23341,7 @@ components:
         [
           openai,
           azure_openai,
+          azure_foundry,
           anthropic,
           mistral,
           deepseek,
@@ -24152,6 +24472,9 @@ components:
             - $ref: "#/components/schemas/UserSource"
         is_service_account:
           type: boolean
+        non_member:
+          type: boolean
+          description: "True when this is a superadmin viewing a workspace they are not a member of (is_admin/role reflect the superadmin fallback, not an actual membership)."
       required:
         - email
         - username
@@ -28101,6 +28424,8 @@ components:
               parent_workspace_id:
                 type: string
                 nullable: true
+              is_dev_workspace:
+                type: boolean
               created_by:
                 type: string
                 nullable: true
@@ -28111,6 +28436,7 @@ components:
               - name
               - username
               - color
+              - is_dev_workspace
               - disabled
       required:
         - email
@@ -28152,6 +28478,18 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+        is_dev_workspace:
+          type: boolean
+          description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
+        lock_prod_deploy:
+          type: boolean
+          description: "When creating a dev workspace, lock the parent (prod) against direct deployment"
+        lock_prod_forking:
+          type: boolean
+          description: "When creating a dev workspace, prevent forking the parent (prod)"
+        copy_members:
+          type: boolean
+          description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
       required:
         - id
         - name
@@ -29527,6 +29865,8 @@ components:
         - skipped_comparison
         - diffs
         - summary
+        - hidden_ahead
+        - hidden_behind
       properties:
         all_ahead_items_visible:
           type: boolean
@@ -29545,6 +29885,46 @@ components:
         summary:
           $ref: "#/components/schemas/CompareSummary"
           description: Summary statistics of the comparison
+        hidden_ahead:
+          $ref: "#/components/schemas/HiddenItemsSummary"
+          description: Ahead items excluded from `diffs` because they are not visible to the caller
+        hidden_behind:
+          $ref: "#/components/schemas/HiddenItemsSummary"
+          description: Behind items excluded from `diffs` because they are not visible to the caller
+
+    HiddenItemsSummary:
+      type: object
+      required:
+        - total
+        - by_kind
+        - items
+      properties:
+        total:
+          type: integer
+          description: Total number of hidden items on this side
+        by_kind:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of hidden items keyed by item kind (always populated)
+        items:
+          type: array
+          description: Kind and path of each hidden item; only populated when the caller is an admin of the relevant side (empty otherwise)
+          items:
+            $ref: "#/components/schemas/HiddenItem"
+
+    HiddenItem:
+      type: object
+      required:
+        - kind
+        - path
+      properties:
+        kind:
+          type: string
+          description: Type of the hidden item
+        path:
+          type: string
+          description: Path of the hidden item
 
     WorkspaceItemDiff:
       type: object
@@ -29820,6 +30200,86 @@ components:
         - ducklake
         - datatable
         - volume
+    MaterializedPartition:
+      type: object
+      required: [asset_kind, asset_path, partition, status, materialized_at]
+      properties:
+        asset_kind:
+          $ref: "#/components/schemas/AssetKind"
+        asset_path:
+          type: string
+        partition:
+          type: string
+        status:
+          type: string
+          enum: [running, materialized, failed]
+        snapshot_id:
+          type: integer
+          format: int64
+          nullable: true
+        row_count:
+          type: integer
+          format: int64
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        materialized_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+    PartitionsInRange:
+      type: object
+      required: [producer_path, partition_kind, partitions]
+      properties:
+        producer_path:
+          type: string
+          description: the pipeline script that materializes the asset (managed `// materialize` target, or a partitioned writer using the SDK helpers) — the runnable a backfill launches
+        partition_kind:
+          type: string
+          enum: [daily, hourly, weekly, monthly, dynamic]
+        partitions:
+          type: array
+          items:
+            type: object
+            required: [partition, status]
+            properties:
+              partition:
+                type: string
+              status:
+                type: string
+                enum: [missing, running, materialized, failed]
+    AssetSchemaVersion:
+      type: object
+      required: [version, columns, captured_at]
+      properties:
+        version:
+          type: integer
+          format: int64
+        columns:
+          type: array
+          items:
+            type: object
+            required: [name, type]
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+        snapshot_id:
+          type: integer
+          format: int64
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        captured_at:
+          type: string
+          format: date-time
     Asset:
       type: object
       properties:

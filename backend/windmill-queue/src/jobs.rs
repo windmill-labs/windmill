@@ -1914,22 +1914,31 @@ fn apply_completed_job_cloud_usage(
         tokio::task::spawn(async move {
             let additional_usage = _duration / 1000;
             let result = tokio::time::timeout(std::time::Duration::from_secs(10), async move {
+                // Fork/dev execution-seconds meter against the root (billing) workspace; resolves to
+                // `w_id` itself off-fork.
+                let billing_w_id =
+                    windmill_common::workspaces::get_billing_workspace_id(&db, &w_id)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::error!("Failed to resolve billing workspace for {w_id}: {e:#}");
+                            w_id.clone()
+                        });
                 // Update workspace usage
                 let workspace_result = sqlx::query!(
                     "INSERT INTO usage (id, is_workspace, month_, usage)
                     VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
                     ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
-                    &w_id,
+                    &billing_w_id,
                     additional_usage as i32
                 )
                 .execute(&db)
                 .await;
 
                 if let Err(e) = workspace_result {
-                    tracing::error!("Failed to update workspace usage for {}: {:#}", w_id, e);
+                    tracing::error!("Failed to update workspace usage for {}: {:#}", billing_w_id, e);
                 }
 
-                match windmill_common::workspaces::get_team_plan_status(&db, &w_id).await {
+                match windmill_common::workspaces::get_team_plan_status(&db, &billing_w_id).await {
                     Ok(team_plan_status) => {
                         // Update user usage for non-premium workspaces
                         if !team_plan_status.premium {
@@ -5124,8 +5133,13 @@ async fn push_inner<'c, 'd>(
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
+        // A fork/dev workspace draws its plan and usage from the root (billing) workspace, so its
+        // executions are metered against the parent's quota/bill. Resolves to `workspace_id` itself
+        // for a standalone workspace (no behavior change off-fork).
+        let billing_w_id =
+            windmill_common::workspaces::get_billing_workspace_id(db, workspace_id).await?;
         let team_plan_status =
-            windmill_common::workspaces::get_team_plan_status(db, workspace_id).await?;
+            windmill_common::workspaces::get_team_plan_status(db, &billing_w_id).await?;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
@@ -5134,12 +5148,12 @@ async fn push_inner<'c, 'd>(
             // Check current usage with SELECT (fast, no row locks)
             // Only check user usage for non-premium workspaces
             let (current_workspace_usage, current_user_usage) =
-                check_usage_limits(db, workspace_id, email, !team_plan_status.premium).await?;
+                check_usage_limits(db, &billing_w_id, email, !team_plan_status.premium).await?;
 
             // Spawn async task to update usage counters in the background
             increment_usage_async(
                 db.clone(),
-                workspace_id.to_string(),
+                billing_w_id.clone(),
                 if !team_plan_status.premium {
                     Some(email.to_string())
                 } else {
@@ -5242,7 +5256,7 @@ async fn push_inner<'c, 'd>(
                             WHERE is_workspace IS TRUE AND
                             month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
                             AND id = $1",
-                            workspace_id
+                            billing_w_id
                         )
                         .fetch_optional(db)
                         .await?
@@ -5269,6 +5283,13 @@ async fn push_inner<'c, 'd>(
                             )));
                         }
 
+                        // These two burst guards intentionally stay keyed to `workspace_id`, not the
+                        // billing root: the shared caps are the monthly usage above (metered to the
+                        // root) and the per-user in-queue/concurrent guards further up (keyed by email,
+                        // global across the whole family). Keying these to the root would count the
+                        // root's own queue rather than this workspace's load or the family's; a true
+                        // family-shared burst cap would need a family-wide subquery, not worth the
+                        // hot-path cost for this downgrade-only soft guard.
                         let in_queue_workspace = sqlx::query_scalar!(
                             "SELECT COUNT(id) FROM v2_job_queue WHERE workspace_id = $1",
                             workspace_id

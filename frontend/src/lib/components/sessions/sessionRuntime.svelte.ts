@@ -1,6 +1,7 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { get } from 'svelte/store'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
@@ -79,6 +80,9 @@ export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 export interface SessionRuntime {
 	readonly sessionId: string
 	readonly manager: AIChatManager
+	// Pipeline target state — persists across editor hide/show (the pane unmounts
+	// on hide, so this can't be component-local) and across session switches.
+	readonly pipelineEditorState: PipelineEditorState
 	// Kind-agnostic accessor over the per-kind load slots, for consumers (the
 	// editor-target gate) that only need load state and not the typed store.
 	slot(kind: SessionTargetKind): LoadSlot
@@ -307,6 +311,12 @@ function createRuntime(session: Session): SessionRuntime {
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
 	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+
+	// Pipeline target state lives on the runtime (not the PipelineEditorView
+	// component) so the in-session drafts survive hide/show of the editor pane —
+	// the pane unmounts on hide, and a component-local store would be discarded.
+	const pipelineEditorState = new PipelineEditorState()
+
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
 
@@ -344,6 +354,7 @@ function createRuntime(session: Session): SessionRuntime {
 		slot(kind: SessionTargetKind): LoadSlot {
 			return kind === 'flow' ? flowSlot : kind === 'script' ? scriptSlot : rawAppSlot
 		},
+		pipelineEditorState,
 		flowStore,
 		flowStateStore,
 		savedFlow,

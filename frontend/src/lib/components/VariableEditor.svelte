@@ -292,11 +292,13 @@
 <Drawer bind:this={drawer} size="50rem">
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
+		bannerReserved={edit}
 		on:close={drawer?.closeDrawer}
 	>
 		{#snippet banner()}
 			<LocalDraftBanner
 				show={edit && selectedDirty}
+				reserveSpace={edit}
 				getDeployed={() => (selected ? initialStates[selected] : undefined)}
 				getCurrent={() => current}
 				onDiscard={() => {
@@ -308,7 +310,7 @@
 				disabled={!can_write}
 			/>
 		{/snippet}
-		<div class="flex flex-col gap-8">
+		<div class="flex flex-col gap-8 pb-2">
 			{#if !can_write}
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it

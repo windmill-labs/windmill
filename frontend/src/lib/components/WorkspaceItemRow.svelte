@@ -110,11 +110,13 @@ doesn't steal focus from a sibling search input (matches the picker).
 	<RowIcon {kind} {triggerKind} path={iconPath} size={12} />
 	<div class={contentClass}>
 		{#if singleLine}
+			<!-- `||` not `??`: an empty-string summary (some draft rows carry `''`)
+			     must fall back to the path, otherwise the row renders blank. -->
 			<div
 				class="text-xs font-normal text-primary truncate {summary ? '' : 'font-mono'}"
-				title={summary ?? title ?? secondary}
+				title={summary || title || secondary}
 			>
-				{summary ?? secondary}
+				{summary || secondary}
 			</div>
 		{:else if summary}
 			<div class="text-xs text-primary truncate" title={summary}>{summary}</div>

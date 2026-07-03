@@ -1223,6 +1223,66 @@
     - places it in team_a (writable by this non-admin user) and not team_b (read-only)
     - leaves the result as a draft only
 
+- id: global-test-pipeline-create-node
+  prompt: |-
+    Set up the first step of a data pipeline at `f/evals/global/orders_ingest`.
+    On a schedule, it should pull raw orders and land them in a managed DuckLake
+    table so later steps can build on it. Keep it as an AI draft only — don't
+    deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/orders_ingest
+        valueIncludes:
+          - pipeline
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - builds a data pipeline node as a script (not a flow)
+    - marks the script as a pipeline member with the pipeline annotation in the script's comment syntax (`-- pipeline` for a DuckDB/SQL node, not `// pipeline`)
+    - declares a schedule trigger and writes its output to a managed DuckLake table
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test-pipeline-two-node-chain
+  prompt: |-
+    Build a small data pipeline in the `f/evals/global` folder: one step that
+    ingests orders into a DuckLake table, and a second step that reads that table
+    and writes a daily order-count rollup table. Wire the second step to run off
+    the first step's output. Keep everything as drafts — don't deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 14
+  validate:
+    draftCountAtLeast: 2
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates two data pipeline nodes as scripts (not a flow) in f/evals/global
+    - both scripts carry the pipeline annotation in their comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
+    - the first ingests orders into a DuckLake table
+    - the second reads that same table and writes a daily rollup, wired to the first step's output asset
+    - leaves both as AI drafts without deploying
+
 - id: global-path5-create-folder-then-draft
   prompt: |-
     Create a new shared folder called "analytics" for our data work, then draft a

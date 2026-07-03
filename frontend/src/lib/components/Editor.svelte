@@ -88,6 +88,10 @@
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import {
+		listWorkspaceMacrosCached,
+		macroDefinitionSql
+	} from '$lib/components/assets/workspaceMacros'
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
 
@@ -642,6 +646,53 @@
 				return {
 					suggestions
 				}
+			}
+		})
+	}
+
+	let workspaceMacroCompletor: IDisposable | undefined = undefined
+
+	// Workspace DuckDB macros (deployed `// macros` libraries): suggest each
+	// macro while typing an identifier, with its signature + body as docs and
+	// a snippet insert that parks the cursor inside the call parens. Fetched
+	// via a short-TTL cache — macros are late-bound, so mild staleness is fine.
+	async function addWorkspaceMacroCompletions() {
+		workspaceMacroCompletor?.dispose()
+		const workspace = $workspaceStore
+		if (!workspace) return
+		let macros: Awaited<ReturnType<typeof listWorkspaceMacrosCached>> = []
+		try {
+			macros = await listWorkspaceMacrosCached(workspace)
+		} catch (e) {
+			console.error('error listing workspace macros', e)
+			return
+		}
+		if (macros.length === 0) return
+		workspaceMacroCompletor = languages.registerCompletionItemProvider('sql', {
+			provideCompletionItems: function (model, position) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+				const suggestions = macros.map((m) => ({
+					label: `${m.name}(${m.params})`,
+					kind: m.is_table
+						? languages.CompletionItemKind.Interface
+						: languages.CompletionItemKind.Function,
+					detail: `${m.is_table ? 'table macro' : 'macro'} · ${m.provider_path}`,
+					documentation: {
+						value: '```sql\n' + macroDefinitionSql(m) + '\n```'
+					},
+					insertText: `${m.name}($0)`,
+					insertTextRules: languages.CompletionItemInsertTextRule.InsertAsSnippet,
+					filterText: m.name,
+					range,
+					sortText: 'b' + m.name
+				}))
+				return { suggestions }
 			}
 		})
 	}
@@ -1855,6 +1906,7 @@
 		autocompletor && autocompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		resultCollectionCompletor && resultCollectionCompletor.dispose()
+		workspaceMacroCompletor && workspaceMacroCompletor.dispose()
 		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 		changeChainStart = undefined
@@ -1928,6 +1980,14 @@
 		initialized && lang === 'sql' && scriptLang
 			? untrack(() => addSqlTypeCompletions())
 			: (sqlTypeCompletor?.dispose(), resultCollectionCompletor?.dispose())
+	})
+
+	$effect(() => {
+		initialized && lang === 'sql' && scriptLang === 'duckdb'
+			? untrack(() => {
+					addWorkspaceMacroCompletions()
+				})
+			: workspaceMacroCompletor?.dispose()
 	})
 
 	$effect(() => {

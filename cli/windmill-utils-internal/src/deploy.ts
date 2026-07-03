@@ -30,8 +30,7 @@ export type DeployKind =
   | "sqs_trigger"
   | "gcp_trigger"
   | "azure_trigger"
-  | "email_trigger"
-  | "datatable_migration";
+  | "email_trigger";
 
 export const TRIGGER_KINDS = [
   "http_trigger",
@@ -214,20 +213,6 @@ export interface DeployProvider {
     requestBody: any;
   }): Promise<any>;
   deleteSchedule(p: { workspace: string; path: string }): Promise<any>;
-  // Datatable migrations — there is no per-migration GET endpoint, so the
-  // value/existence lookups list the workspace's migrations and filter by
-  // (datatable, timestamp).
-  listDatatableMigrations(p: { workspace: string }): Promise<any[]>;
-  upsertDatatableMigration(p: {
-    workspace: string;
-    datatableName: string;
-    requestBody: any;
-  }): Promise<any>;
-  deleteDatatableMigration(p: {
-    workspace: string;
-    datatableName: string;
-    timestamp: number;
-  }): Promise<any>;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,37 +222,6 @@ export interface DeployProvider {
 /** Folder diff paths carry the `f/` prefix; folder API endpoints expect just the name. */
 export function folderName(path: string): string {
   return path.replace(/^f\//, "");
-}
-
-/**
- * Parse a datatable-migration diff path `<datatable>/<timestamp>_<name>` into its
- * parts. Mirrors the backend's `parse_datatable_migration_diff_path`: the
- * datatable name is a validated path segment (no `/`), and the timestamp is the
- * leading digits of the file part. Returns null when the path doesn't match.
- */
-export function parseDatatableMigrationPath(
-  path: string
-): { datatable: string; timestamp: number; name: string } | null {
-  const slash = path.indexOf("/");
-  if (slash <= 0) return null;
-  const datatable = path.slice(0, slash);
-  const file = path.slice(slash + 1);
-  const m = file.match(/^(\d+)_(.*)$/);
-  if (!m) return null;
-  return { datatable, timestamp: Number(m[1]), name: m[2] };
-}
-
-/** Fetch one migration row from a workspace, or undefined if it no longer exists. */
-async function findDatatableMigration(
-  provider: DeployProvider,
-  workspace: string,
-  datatable: string,
-  timestamp: number
-): Promise<any | undefined> {
-  const migrations = await provider.listDatatableMigrations({ workspace });
-  return migrations.find(
-    (m) => m.datatable === datatable && Number(m.timestamp) === timestamp
-  );
 }
 
 /**
@@ -373,16 +327,6 @@ export async function checkItemExists(
     return provider.existsSchedule({ workspace, path });
   } else if (isTriggerKind(kind)) {
     return provider.existsTriggerByKind(kind, { workspace, path });
-  } else if (kind === "datatable_migration") {
-    const parsed = parseDatatableMigrationPath(path);
-    if (!parsed) return false;
-    const found = await findDatatableMigration(
-      provider,
-      workspace,
-      parsed.datatable,
-      parsed.timestamp
-    );
-    return found !== undefined;
   }
   throw new Error(`Unknown kind: ${kind}`);
 }
@@ -695,34 +639,6 @@ export async function deployItem(
           requestBody,
         });
       }
-    } else if (kind === "datatable_migration") {
-      const parsed = parseDatatableMigrationPath(path);
-      if (!parsed) {
-        return { success: false, error: `Invalid migration path: ${path}` };
-      }
-      const migration = await findDatatableMigration(
-        provider,
-        workspaceFrom,
-        parsed.datatable,
-        parsed.timestamp
-      );
-      if (!migration) {
-        return {
-          success: false,
-          error: `Migration ${path} not found in ${workspaceFrom}`,
-        };
-      }
-      // upsert is idempotent on (datatable, timestamp), covering create + update.
-      await provider.upsertDatatableMigration({
-        workspace: workspaceTo,
-        datatableName: parsed.datatable,
-        requestBody: {
-          timestamp: Number(migration.timestamp),
-          name: migration.name,
-          code_up: migration.code_up,
-          code_down: migration.code_down ?? undefined,
-        },
-      });
     } else {
       throw new Error(`Unknown kind: ${kind}`);
     }
@@ -770,14 +686,6 @@ export async function deleteItemInWorkspace(
       await provider.deleteSchedule({ workspace, path });
     } else if (isTriggerKind(kind)) {
       await provider.deleteTriggerByKind(kind, { workspace, path });
-    } else if (kind === "datatable_migration") {
-      const parsed = parseDatatableMigrationPath(path);
-      if (!parsed) throw new Error(`Invalid migration path: ${path}`);
-      await provider.deleteDatatableMigration({
-        workspace,
-        datatableName: parsed.datatable,
-        timestamp: parsed.timestamp,
-      });
     } else {
       throw new Error(`Deletion not supported for kind: ${kind}`);
     }
@@ -859,23 +767,6 @@ export async function getItemValue(
     } else if (isTriggerKind(kind)) {
       const trigger = await provider.getTriggerValue(kind, { workspace, path });
       return stripTriggerOrScheduleRuntimeFields(trigger);
-    } else if (kind === "datatable_migration") {
-      const parsed = parseDatatableMigrationPath(path);
-      if (parsed) {
-        const migration = await findDatatableMigration(
-          provider,
-          workspace,
-          parsed.datatable,
-          parsed.timestamp
-        );
-        if (migration) {
-          return {
-            name: migration.name,
-            code_up: migration.code_up,
-            code_down: migration.code_down ?? null,
-          };
-        }
-      }
     }
   } catch {
     // Item may not exist

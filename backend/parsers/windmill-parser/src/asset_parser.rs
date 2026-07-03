@@ -122,6 +122,17 @@ pub struct ParseAssetsOutput {
     // column-lineage graph view, executes nothing.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub column_lineage: Vec<ColumnLineage>,
+    // Bare `// macros` (must be alone on the line, like `// pipeline`) —
+    // marks this DuckDB script as a workspace *macro library*: its body is
+    // CREATE [OR REPLACE] MACRO statements (plus plain setup) registered at
+    // deploy and injected as TEMP macros into consumer jobs at run time.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub macros: bool,
+    // `// use <lib_script_path>` — force-inject the whole named macro
+    // library (definitions + its setup statements) into this script's jobs,
+    // for dynamic SQL that call-detection can't see. Accumulating.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub use_libs: Vec<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -224,15 +235,21 @@ pub struct RetrySpec {
     pub delay: Option<String>,
 }
 
-// `// materialize [manual] <asset> [append] [key=<col>]` — declares that this
-// script produces a *managed* materialization of `<asset>` (a `ducklake://`
-// table). By default the runtime generates the write DDL around the script's
-// single trailing `SELECT` and owns idempotency, partition-state and snapshot
-// capture. `manual` is the escape hatch: the script writes its own DDL and the
-// runtime only records state (track-only). The reconciliation strategy options
-// (`append`, `key=<col>`) apply to managed mode: none → DELETE-by-partition +
-// INSERT (replace); `key=<col>` → MERGE (dedup within slice); `append` →
+// `// materialize [manual] <asset> [append] [key=<col>] [history] [track=<c1,c2>]`
+// — declares that this script produces a *managed* materialization of `<asset>`
+// (a `ducklake://` table). By default the runtime generates the write DDL around
+// the script's single trailing `SELECT` and owns idempotency, partition-state
+// and snapshot capture. `manual` is the escape hatch: the script writes its own
+// DDL and the runtime only records state (track-only). The reconciliation
+// strategy options apply to managed mode: none → DELETE-by-partition + INSERT
+// (replace); `key=<col>` → MERGE (dedup within slice, SCD type 1); `append` →
 // INSERT-only. `append` wins if both are given (deploy-time warning).
+// `key=<col> history` upgrades the merge to SCD type 2: the SELECT is the current
+// snapshot (one row per key), and a change to any tracked column (`track=`,
+// default all non-key) closes the prior version and opens a new one, keeping full
+// history (`valid_from`/`valid_to`/`is_current`). The leading keyword `scd2` is a
+// recognized alias for `history`. `deletes=close` (scd2 only) also closes a key
+// that disappears from the snapshot; default leaves absent keys current.
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct MaterializeSpec {
     pub target_kind: AssetKind,
@@ -243,6 +260,20 @@ pub struct MaterializeSpec {
     pub append: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub unique_key: Option<String>,
+    // `scd2` managed history mode: the SELECT is the current snapshot (one row
+    // per `unique_key`), and the runtime maintains a Slowly-Changing-Dimension
+    // type-2 history (`valid_from`/`valid_to`/`is_current`). `unique_key` (the
+    // `key=` opt) is the natural key; `track` lists the columns whose change
+    // opens a new version (empty ⇒ all non-key columns). Managed mode only.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub scd2: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub track: Vec<String>,
+    // scd2 only: `deletes=close` opts into hard-delete-close — a key that
+    // disappears from the snapshot has its current version closed (dbt's
+    // `hard_deletes=close`). Default (false) leaves absent keys current.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub close_deleted: bool,
 }
 
 // `// data_test <kind> …` — a data-quality assertion run against the
@@ -346,6 +377,8 @@ pub struct PipelineAnnotations {
     pub materialize: Option<MaterializeSpec>,
     pub data_tests: Vec<DataTest>,
     pub column_lineage: Vec<ColumnLineage>,
+    pub macros: bool,
+    pub use_libs: Vec<String>,
 }
 
 impl ParseAssetsOutput {
@@ -372,6 +405,8 @@ impl ParseAssetsOutput {
             materialize: pipeline.materialize,
             data_tests: pipeline.data_tests,
             column_lineage: pipeline.column_lineage,
+            macros: pipeline.macros,
+            use_libs: pipeline.use_libs,
         }
     }
 }
@@ -662,6 +697,30 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        if let Some(after_kw) = consume_keyword(rest, "macros") {
+            // Strict like `pipeline`: keyword alone on the line, so prose
+            // such as `// macros are defined below` never false-positives.
+            if after_kw.trim().is_empty() {
+                out.macros = true;
+            }
+            continue;
+        }
+
+        // `// use <lib_script_path>` — accumulating. The argument must be a
+        // single whitespace-free token containing `/` (all script paths do),
+        // so prose like `// use this script to …` is dropped fail-safe.
+        if let Some(after_kw) = consume_keyword(rest, "use") {
+            let path = after_kw.trim();
+            if !path.is_empty()
+                && !path.contains(char::is_whitespace)
+                && path.contains('/')
+                && !out.use_libs.iter().any(|p| p == path)
+            {
+                out.use_libs.push(path.to_string());
+            }
+            continue;
+        }
+
         if let Some(after_kw) = consume_keyword(rest, "partitioned") {
             if out.partition.is_none() {
                 if let Some(spec) = parse_partitioned_spec(after_kw.trim()) {
@@ -800,19 +859,31 @@ fn parse_retry_spec(s: &str) -> Option<RetrySpec> {
     Some(RetrySpec { count, delay })
 }
 
-// Parse a `// materialize [manual] <asset> [append] [key=<col>]` right-hand
-// side. An optional leading `manual` token (whitespace-delimited) opts out of
-// managed mode (track-only). The next whitespace token is the target asset URI
+// Parse a `// materialize [manual] <asset> [append] [key=<col>] [history]
+// [track=<c1,c2>]` right-hand side. An optional leading `manual` token opts out
+// of managed mode (track-only); a leading `scd2` token is an alias for the
+// `history` flag. The next whitespace token is the target asset URI
 // (default-syntax shorthands enabled, so `ducklake` → `ducklake://main`); the
-// remainder are strategy options — bare `append` and `key=<col>` (merge key),
-// which apply to managed mode only. A missing/empty target yields `None` (the
-// annotation is dropped, fail-safe).
+// remainder are strategy options — bare `append`, bare `history` (SCD type-2 on
+// a keyed merge), `key=<col>` (merge/scd2 key), `track=<c1,c2,…>` (scd2 tracked
+// columns), and `deletes=close` (scd2 hard-delete-close) — which apply to managed
+// mode only. A missing/empty target yields `None` (the annotation is dropped,
+// fail-safe).
 fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
-    let (manual, rest) = match s.strip_prefix("manual") {
-        Some(after) if after.is_empty() || after.starts_with(char::is_whitespace) => {
-            (true, after.trim_start())
-        }
-        _ => (false, s),
+    // One optional leading mode keyword: `manual` (escape hatch, track-only) or
+    // `scd2` (alias for the `history` flag below). A missing keyword is the
+    // default managed mode.
+    fn strip_mode<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
+        s.strip_prefix(kw)
+            .filter(|after| after.is_empty() || after.starts_with(char::is_whitespace))
+            .map(|after| after.trim_start())
+    }
+    let (manual, scd2_kw, rest) = if let Some(after) = strip_mode(s, "manual") {
+        (true, false, after)
+    } else if let Some(after) = strip_mode(s, "scd2") {
+        (false, true, after)
+    } else {
+        (false, false, s)
     };
     let mut it = rest.trim().splitn(2, char::is_whitespace);
     let asset_tok = it.next()?;
@@ -822,11 +893,38 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
         return None;
     }
     let append = opts_str.split_whitespace().any(|t| t == "append");
-    let unique_key = parse_kv_opts(opts_str)
-        .get("key")
-        .filter(|k| !k.is_empty())
-        .cloned();
-    Some(MaterializeSpec { target_kind, target_path: path.to_string(), manual, append, unique_key })
+    // SCD type-2 history mode. The primary spelling is the bare `history` flag on
+    // a keyed merge (`key=<col> history`) — it reads as "a keyed upsert that keeps
+    // history"; the leading `scd2` keyword is a recognized alias for the same.
+    let scd2 = scd2_kw || opts_str.split_whitespace().any(|t| t == "history");
+    let opts = parse_kv_opts(opts_str);
+    let unique_key = opts.get("key").filter(|k| !k.is_empty()).cloned();
+    // `track=<c1,c2,…>` (scd2 only): comma-separated columns whose change opens a
+    // new version. Empty entries dropped; an empty list ⇒ track all non-key cols.
+    // Like every `=`-option here the value is whitespace-terminated, so the list
+    // must contain no spaces (`track=a,b`, not `track=a, b` — the rest is dropped).
+    let track = opts
+        .get("track")
+        .map(|v| {
+            v.split(',')
+                .map(|c| c.trim().to_string())
+                .filter(|c| !c.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    // `deletes=close` (scd2 only) opts into hard-delete-close; any other value
+    // (or absence) keeps the soft-delete default.
+    let close_deleted = opts.get("deletes").map(|v| v == "close").unwrap_or(false);
+    Some(MaterializeSpec {
+        target_kind,
+        target_path: path.to_string(),
+        manual,
+        append,
+        unique_key,
+        scd2,
+        track,
+        close_deleted,
+    })
 }
 
 // Parse a `// data_test <kind> …` right-hand side into one `DataTest`. The
@@ -1049,6 +1147,33 @@ mod pipeline_annotation_tests {
     fn rejects_pipeline_keyword_variants() {
         let out = parse_pipeline_annotations("// pipelines\n# pipelined\n-- pipeline-foo");
         assert!(!out.in_pipeline);
+    }
+
+    #[test]
+    fn macros_marker_strict_like_pipeline() {
+        assert!(parse_pipeline_annotations("// macros\nCREATE MACRO m(a) AS a;").macros);
+        assert!(parse_pipeline_annotations("-- macros   \nSELECT 1;").macros);
+        // Trailing prose / keyword variants disqualify the line.
+        assert!(!parse_pipeline_annotations("// macros are defined below\n").macros);
+        assert!(!parse_pipeline_annotations("// macros_v2\n").macros);
+    }
+
+    #[test]
+    fn use_accumulates_dedups_and_rejects_prose() {
+        let out = parse_pipeline_annotations(
+            "// use f/lib/stats\n// use f/lib/dates\n// use f/lib/stats\nSELECT 1;",
+        );
+        assert_eq!(out.use_libs, vec!["f/lib/stats", "f/lib/dates"]);
+
+        // Prose, slashless tokens, and multi-token lines are dropped fail-safe.
+        let out = parse_pipeline_annotations(
+            "// use this script to compute\n// use standalone\n// use f/lib/ok extra\n",
+        );
+        assert!(out.use_libs.is_empty());
+
+        // Only the leading comment header is scanned.
+        let out = parse_pipeline_annotations("SELECT 1;\n-- use f/lib/late\n");
+        assert!(out.use_libs.is_empty());
     }
 
     #[test]
@@ -1455,6 +1580,53 @@ mod pipeline_annotation_tests {
         let m = out.materialize.expect("materialize");
         assert!(m.append);
         assert_eq!(m.unique_key, None);
+    }
+
+    #[test]
+    fn materialize_scd2_history_flag_with_key_and_track() {
+        // Primary spelling: `key=<col> history` on a merge.
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/dim key=id history track=name,tier",
+        );
+        let m = out.materialize.expect("materialize");
+        assert!(m.scd2);
+        assert!(!m.manual);
+        assert_eq!(m.unique_key.as_deref(), Some("id"));
+        assert_eq!(m.track, vec!["name".to_string(), "tier".to_string()]);
+    }
+
+    #[test]
+    fn materialize_scd2_keyword_is_alias_for_history() {
+        let out = parse_pipeline_annotations("// materialize scd2 ducklake://a/dim key=id");
+        let m = out.materialize.expect("materialize");
+        assert!(m.scd2);
+        assert_eq!(m.unique_key.as_deref(), Some("id"));
+        assert!(m.track.is_empty());
+        // soft-delete default
+        assert!(!m.close_deleted);
+    }
+
+    #[test]
+    fn materialize_scd2_deletes_close_opt() {
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/dim key=id history deletes=close",
+        );
+        let m = out.materialize.expect("materialize");
+        assert!(m.scd2);
+        assert!(m.close_deleted);
+        // any other value keeps the soft-delete default
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/dim key=id history deletes=ignore",
+        );
+        assert!(!out.materialize.expect("materialize").close_deleted);
+    }
+
+    #[test]
+    fn materialize_key_without_history_is_plain_merge() {
+        let out = parse_pipeline_annotations("// materialize ducklake://a/dim key=id");
+        let m = out.materialize.expect("materialize");
+        assert!(!m.scd2, "no history flag ⇒ SCD1 merge, not scd2");
+        assert_eq!(m.unique_key.as_deref(), Some("id"));
     }
 
     #[test]

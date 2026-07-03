@@ -1,4 +1,4 @@
-import type { AssetGraphResponse, NativeTriggerKind } from './types'
+import type { AssetGraphMacroEdge, AssetGraphResponse, NativeTriggerKind } from './types'
 import {
 	mergeColumnLineage,
 	parsePipelineAnnotations,
@@ -15,7 +15,6 @@ import {
 /** Minimal structural shape of a pipeline draft `resolveGraph` needs. */
 export type GraphDraft = {
 	script: { content: string }
-	outputAsset?: { kind: AssetKind; path: string }
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
 }
 
@@ -147,13 +146,92 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 			return false
 		return true
 	})
+	// Mirror the backend's skip-if-empty: no `macro_edges` key at all when
+	// there is nothing to show (also keeps the no-macros response shape
+	// byte-identical to before the feature).
+	const macroEdges = resolveMacroEdges(input)
 	return {
 		...base,
 		assets: acc.assets,
 		runnables: acc.runnables,
 		edges: acc.edges,
-		triggers: [...baseTriggers, ...acc.extraTriggers]
+		triggers: [...baseTriggers, ...acc.extraTriggers],
+		...(macroEdges.length > 0 || base.macro_edges ? { macro_edges: macroEdges } : {})
 	}
+}
+
+/**
+ * Macro-library → consumer edges: the deployed base edges, with `// use`
+ * declarations of overlaid scripts (drafts + the open buffer) taking over
+ * their consumer's `via_use` edges so adding/removing a `// use` line updates
+ * the canvas live. Detection-based edges (macro calls in the deployed body)
+ * are backend-owned and only refresh on redeploy.
+ */
+function resolveMacroEdges(input: ResolveGraphInput): AssetGraphMacroEdge[] {
+	const { base, drafts, liveAnnotations } = input
+	const libMacroNames = new Map<string, string[]>()
+	for (const r of base.runnables) {
+		if (r.usage_kind === 'script' && r.macros?.length) {
+			libMacroNames.set(
+				r.path,
+				r.macros.map((m) => m.name)
+			)
+		}
+	}
+	const useByPath = new Map<string, string[]>()
+	for (const [path, d] of drafts) {
+		useByPath.set(path, parsePipelineAnnotations(d.script.content).useLibs)
+	}
+	if (liveAnnotations.scriptPath) {
+		// `?? []` — callers may hand a minimal annotations object (tests, older
+		// call sites) that predates the field.
+		useByPath.set(liveAnnotations.scriptPath, liveAnnotations.annotations.useLibs ?? [])
+	}
+	const out: AssetGraphMacroEdge[] = []
+	for (const e of base.macro_edges ?? []) {
+		if (e.via_use && useByPath.has(e.consumer_path)) continue
+		out.push({ ...e })
+	}
+	for (const [path, libs] of useByPath) {
+		for (const lib of libs) {
+			const existing = out.find((e) => e.lib_path === lib && e.consumer_path === path)
+			if (existing) {
+				// Upgrade the detection edge in place: `// use` pulls in the whole
+				// library, so the edge covers every macro the lib defines.
+				existing.via_use = true
+				existing.unsaved = true
+				existing.macro_names = [
+					...new Set([...existing.macro_names, ...(libMacroNames.get(lib) ?? [])])
+				]
+			} else {
+				out.push({
+					lib_path: lib,
+					consumer_path: path,
+					macro_names: libMacroNames.get(lib) ?? [],
+					via_use: true,
+					unsaved: true
+				})
+			}
+		}
+	}
+	return out
+}
+
+// Light regex extraction of a draft macro library's definitions for the live
+// node badge. The strict grammar lives in the Rust `parse_macro_library` at
+// deploy; this only needs name/params/table-ness for display (nested parens
+// in a default value may truncate the shown signature, never the deploy).
+const MACRO_DEF_RE =
+	/create\s+(?:or\s+replace\s+)?(?:temp(?:orary)?\s+)?(?:macro|function)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*as\s+(table\b)?/gi
+
+export function extractDraftMacros(
+	content: string
+): { name: string; params: string; is_table: boolean }[] {
+	const out: { name: string; params: string; is_table: boolean }[] = []
+	for (const m of content.matchAll(MACRO_DEF_RE)) {
+		out.push({ name: m[1].toLowerCase(), params: m[2].trim(), is_table: m[3] !== undefined })
+	}
+	return out
 }
 
 type ResolveContext = {
@@ -252,6 +330,9 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		// duplicate (which would crash svelte-flow's keyed each), so the
 		// canvas + trigger-node labels reflect that there's pending body
 		// editing for this path.
+		// `// macros` library draft: extract the definitions for the live node
+		// badge (regex-light; the strict parse happens at deploy).
+		const draftMacros = parsed.macros ? extractDraftMacros(d.script.content) : []
 		const baseIdx = runnables.findIndex((r) => r.usage_kind === 'script' && r.path === path)
 		if (baseIdx === -1) {
 			runnables.push({
@@ -265,6 +346,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
 				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
 				materialize_target: materializeTarget,
+				macros: draftMacros.length > 0 ? draftMacros : undefined,
 				unsaved: true
 			})
 		} else {
@@ -277,32 +359,25 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
 				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
 				materialize_target: materializeTarget,
+				macros: draftMacros.length > 0 ? draftMacros : undefined,
 				unsaved: true
 			}
 		}
-		// Output asset(s): three-tier resolution.
+		// Output asset(s): two-tier resolution.
 		//   1. Active draft (the body the user is editing right now):
 		//      live body inference is authoritative — renaming a
 		//      CREATE TABLE target or writeS3File path retires the
 		//      old output node and surfaces the new one as the user
 		//      types.
-		//   2. Inactive draft with a captured `outputAssets` snapshot
-		//      (taken on the last pane transition): use those, so a
-		//      draft the user already edited keeps its renamed outputs
-		//      after they've clicked elsewhere.
-		//   3. Fallback to the static `outputAsset` seeded at draft
-		//      creation — covers fresh drafts and parser misses (e.g.
-		//      WIN-1943: wmill.writeS3File({s3, storage}) object form
-		//      not yet detected by the TS parser).
+		//   2. Inactive draft: its captured `outputAssets` (inferred at
+		//      creation/last edit, or the seeded output for a fresh draft
+		//      whose body doesn't yet write anything inferable).
 		const liveForThisDraft = liveBodyAssets.scriptPath === path
 		const writeOuts: Array<{ kind: AssetKind; path: string }> = []
 		if (liveForThisDraft) {
 			writeOuts.push(...extractWrites(liveBodyAssets.assets))
 		} else if (d.outputAssets) {
 			writeOuts.push(...d.outputAssets)
-		}
-		if (writeOuts.length === 0 && d.outputAsset) {
-			writeOuts.push(d.outputAsset)
 		}
 		// `// materialize <asset>` declares a write output via annotation, not
 		// the SQL body, so the body-inference tiers above miss it. Add it from

@@ -14,6 +14,7 @@
 		Loader2,
 		PanelRightClose,
 		Save,
+		SquareFunction,
 		Trash2,
 		X,
 		Pencil
@@ -31,6 +32,7 @@
 		type PipelineAnnotations
 	} from './parsePipelineAnnotations'
 	import ColumnLineageTrace from './ColumnLineageTrace.svelte'
+	import { extractDraftMacros } from './resolveGraph'
 	import { assetColumnNodes, type ColumnLineageGraph } from './columnLineageGraph'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
@@ -48,6 +50,18 @@
 		// `selection` when present. Used by the pipeline + menu so a new
 		// pipeline script opens inline instead of navigating to /scripts/add.
 		draftScript?: Script | undefined
+		// Local-dev preview (`/pipeline_dev`): resolve a selected node to its
+		// working-tree content instead of fetching the deployed script (there is
+		// none — the pipeline is local-only). Returns a read-only `Script` so the
+		// pane renders the source + an ENABLED Run button (unlike `draftScript`,
+		// which is intentionally not-runnable until deployed). May be async so the
+		// caller can infer the args schema for the run form.
+		resolveLocalScript?: (path: string) => Script | undefined | Promise<Script | undefined>
+		// Bump this whenever `resolveLocalScript`'s backing content changes (a
+		// `pipeline dev` live-reload pushes a new bundle). It's in the `scriptRes`
+		// key so the open pane re-resolves the selected node's source even though
+		// `selection` is unchanged — otherwise the pane sticks on stale content.
+		localScriptsVersion?: unknown
 		workspace: string
 		onclose: () => void
 		// Optional: dismiss the pane while preserving the current selection /
@@ -215,10 +229,16 @@
 		// NO _wmill_skip_asset_dispatch, so the backend asset-trigger
 		// dispatcher cascades downstream for real.
 		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Run the open script AND its downstream closure with the form args (dev
+		// preview only — the client orchestrates the chain). Unset on the deployed
+		// pane, whose single run already cascades via the backend dispatcher.
+		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
 	}
 	let {
 		selection,
 		draftScript,
+		resolveLocalScript,
+		localScriptsVersion,
 		workspace,
 		onclose,
 		onHide,
@@ -250,7 +270,8 @@
 		mode = 'edit',
 		onRequestEdit,
 		canRunByPath = false,
-		onRunByPath
+		onRunByPath,
+		onRunCascadeByPath
 	}: Props = $props()
 
 	let readOnly = $derived(mode !== 'edit')
@@ -390,10 +411,13 @@
 	// When `draftScript` is provided we bypass the fetch entirely and edit
 	// it locally; saving calls ScriptService.createScript to deploy it.
 	let scriptRes = resource(
-		[() => workspace, () => selection, () => draftScript],
+		[() => workspace, () => selection, () => draftScript, () => localScriptsVersion],
 		async ([ws, sel, draft]) => {
 			if (draft) return undefined
 			if (!sel || sel.kind !== 'runnable' || sel.runnable_kind !== 'script') return undefined
+			// Local-dev: serve the working-tree script (no deployed row exists).
+			const local = await resolveLocalScript?.(sel.path)
+			if (local) return local
 			return await ScriptService.getScriptByPath({ workspace: ws, path: sel.path })
 		}
 	)
@@ -561,8 +585,16 @@
 					triggerAssets: [],
 					nativeTriggers: [],
 					dataTests: [],
-					columnLineage: []
+					columnLineage: [],
+					macros: false,
+					useLibs: []
 				}
+	)
+	// `// macros` library: the defined signatures for the strip above the
+	// source. Regex-light extraction (display only; deploy runs the strict
+	// Rust parser).
+	let macroDefs = $derived(
+		script && liveAnnotations.macros ? extractDraftMacros(script.content ?? '') : []
 	)
 	$effect(() => {
 		// Live-overlay emits are an edit-mode concern: in read-only modes
@@ -946,14 +978,18 @@
 				/>
 			{/if}
 			{#if !readOnly && isScriptView && script && !atLatestSavePoint}
+				{@const isCreate = isDraft && !script?.hash}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: Save }}
 					onclick={save}
 					disabled={saving}
+					title={isCreate
+						? 'Deploy this new script to the workspace'
+						: 'Deploy your changes to this script'}
 				>
-					{saving ? 'Saving…' : isDraft && !script?.hash ? 'Create' : 'Save'}
+					{saving ? 'Deploying…' : 'Deploy'}
 				</Button>
 			{/if}
 			{#if onHide}
@@ -1082,18 +1118,25 @@
 			     the legitimate data-upload run form when applicable, and the
 			     same runs panel as the asset branch. -->
 			{#key script.path}
-				<PipelineScriptView
-					{script}
-					{isDraft}
-					canRun={canRunByPath}
-					onRun={onRunByPath}
-					{runsRefreshKey}
-					{runsPendingJobId}
-					onRunCompleted={() => {
-						previewRefreshKey += 1
-						onRunCompleted?.()
-					}}
-				/>
+				<div class="flex flex-col h-full">
+					{@render macroLibStrip()}
+					<div class="flex-1 min-h-0">
+						<PipelineScriptView
+							{script}
+							{isDraft}
+							canRun={canRunByPath}
+							onRun={onRunByPath}
+							onRunCascade={onRunCascadeByPath}
+							downstreamCount={downstreamSubscribers}
+							{runsRefreshKey}
+							{runsPendingJobId}
+							onRunCompleted={() => {
+								previewRefreshKey += 1
+								onRunCompleted?.()
+							}}
+						/>
+					</div>
+				</div>
 			{/key}
 		{:else if script}
 			<!-- Key on path alone, NOT hash: deploying a draft or re-saving turns
@@ -1104,53 +1147,77 @@
 			     remounts while a same-script save doesn't. History is disabled
 			     here, so there's no revert-to-old-hash case needing a reset. -->
 			{#key script.path}
-				<ScriptEditor
-					bind:this={scriptEditorRef}
-					showCaptures={false}
-					noSyncFromGithub
-					requireValidAssets
-					lang={script.language}
-					path={script.path}
-					tag={script.tag}
-					fixedOverflowWidgets={false}
-					previewLayout="bottom"
-					customUi={{
-						previewPanel: {
-							disableHistory: true,
-							disableTracing: true,
-							disableTriggerCaptures: true,
-							disableJsonView: true,
-							// Drop the full args column (most pipeline scripts take
-							// no inputs), render the LogPanel full-width with
-							// logs|result side by side, and float the Test/Cancel
-							// button onto the editor band above. But when the
-							// script *does* declare inputs (e.g. a partitioned
-							// script that needs a `partition` arg to run), show a
-							// compact SchemaForm between the Test button and the
-							// logs so the run can actually be parameterised.
-							hideArgs: true,
-							argsAboveLogs: true,
-							logsResultSideBySide: true,
-							downstreamSubscribers,
-							onBoundedRun: onStartBoundedRun,
-							// Selecting a script node should immediately show
-							// "what happened last time it ran" — pulling the
-							// latest top-level completed job into the preview
-							// pane is far more useful than an empty placeholder.
-							loadLastRunOnMount: true
-						}
-					}}
-					bind:code={script.content}
-					bind:schema={script.schema}
-					bind:assets={liveBodyAssets}
-					bind:inferredColumnLineage={liveColumnLineage}
-					{onTestStateChange}
-					{args}
-				/>
+				<div class="flex flex-col h-full">
+					{@render macroLibStrip()}
+					<div class="flex-1 min-h-0 relative">
+						<ScriptEditor
+							bind:this={scriptEditorRef}
+							showCaptures={false}
+							noSyncFromGithub
+							requireValidAssets
+							lang={script.language}
+							path={script.path}
+							tag={script.tag}
+							fixedOverflowWidgets={false}
+							previewLayout="bottom"
+							customUi={{
+								previewPanel: {
+									disableHistory: true,
+									disableTracing: true,
+									disableTriggerCaptures: true,
+									disableJsonView: true,
+									// Drop the full args column (most pipeline scripts take
+									// no inputs), render the LogPanel full-width with
+									// logs|result side by side, and float the Test/Cancel
+									// button onto the editor band above. But when the
+									// script *does* declare inputs (e.g. a partitioned
+									// script that needs a `partition` arg to run), show a
+									// compact SchemaForm between the Test button and the
+									// logs so the run can actually be parameterised.
+									hideArgs: true,
+									argsAboveLogs: true,
+									logsResultSideBySide: true,
+									downstreamSubscribers,
+									onBoundedRun: onStartBoundedRun,
+									// Selecting a script node should immediately show
+									// "what happened last time it ran" — pulling the
+									// latest top-level completed job into the preview
+									// pane is far more useful than an empty placeholder.
+									loadLastRunOnMount: true
+								}
+							}}
+							bind:code={script.content}
+							bind:schema={script.schema}
+							bind:assets={liveBodyAssets}
+							bind:inferredColumnLineage={liveColumnLineage}
+							{onTestStateChange}
+							{args}
+						/>
+					</div>
+				</div>
 			{/key}
 		{/if}
 	</div>
 </div>
+
+{#snippet macroLibStrip()}
+	{#if macroDefs.length > 0}
+		<!-- `// macros` library: the defined signatures, always visible above the
+		     source so consumers can see what the lib provides at a glance. -->
+		<div class="shrink-0 px-3 py-1.5 border-b bg-surface-secondary flex items-start gap-2">
+			<SquareFunction size={12} class="shrink-0 mt-0.5 text-violet-600 dark:text-violet-400" />
+			<div class="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs font-mono text-secondary min-w-0">
+				<!-- Index-keyed: a live buffer can transiently hold two defs with
+				     the same name mid-edit, which would crash a name-keyed each. -->
+				{#each macroDefs as m, i (i)}
+					<span class="truncate" title={m.is_table ? 'table macro' : 'scalar macro'}>
+						{m.name}({m.params}){m.is_table ? ' → table' : ''}
+					</span>
+				{/each}
+			</div>
+		</div>
+	{/if}
+{/snippet}
 
 {#if removeOpen}
 	<!-- Single combined modal. Archive is the always-available default;

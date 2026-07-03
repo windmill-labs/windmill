@@ -2,20 +2,33 @@
 	import { tick, type Snippet } from 'svelte'
 	import {
 		enterpriseLicense,
+		isPremiumStore,
+		userStore,
 		userWorkspaces,
 		workspaceStore,
 		type UserWorkspace
 	} from '$lib/stores'
-	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import {
+		findWorkspaceDescendants,
+		findCanonicalDevWorkspace
+	} from '$lib/utils/workspaceHierarchy'
+	import { canCreateFork } from '$lib/utils/editInFork'
+	import { getUserExt } from '$lib/user'
+	import {
+		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets,
+		canUserBypassRuleKindInRulesets
+	} from '$lib/workspaceProtectionRules.svelte'
+	import { resource } from 'runed'
 	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { Badge } from '$lib/components/common'
 	import { Building, Check, GitFork, Plus } from 'lucide-svelte'
 
-	type PendingFork = { id: string; name: string }
+	type PendingFork = { parent_workspace_id: string; id: string; name: string }
 	type ForkRequest = { parent_workspace_id: string; id: string; name: string }
 
 	let {
@@ -61,11 +74,55 @@
 	const root = $derived(findRoot(effectiveId, $userWorkspaces))
 	const forks = $derived(root ? findWorkspaceDescendants(root.id, $userWorkspaces) : [])
 
-	// Structural gate, same as the sidebar WorkspaceMenu / SessionWorkspaceBar:
-	// when closed (cloud / DisableWorkspaceForking rule / admins workspace) the
-	// fork affordance is hidden entirely.
+	// New forks derive from the editable dev workspace when the family has one:
+	// the root (prod) is typically forking-locked, so a non-admin can't fork it,
+	// and dev holds the current code anyway. Falls back to the root otherwise.
+	const devOfRoot = $derived(root ? findCanonicalDevWorkspace(root.id, $userWorkspaces) : undefined)
+	const forkSource = $derived(devOfRoot ?? root)
+	const createForkLabel = $derived(devOfRoot ? `Fork from ${devOfRoot.name}` : 'Create new fork…')
+
+	// Judge the prod root off its OWN protection rules (fetched), not the active
+	// workspace's — so it reads correctly from a dev/fork too, the same way
+	// ParentWorkspaceProtectionAlert checks the parent. It's selectable when you
+	// can deploy to it, and "Fork from prod" shows when you can fork it.
+	const rootRulesetsResource = resource(
+		() => root?.id,
+		async (id) => (id ? await fetchProtectionRulesForWorkspace(id) : [])
+	)
+	const rootRulesets = $derived(rootRulesetsResource.current ?? [])
+	// Bypass must be judged with the user's identity IN THE ROOT (is_admin/groups are per-workspace),
+	// not the active workspace's `$userStore` — otherwise an admin of the dev/active workspace who is a
+	// non-admin of the root would get a false bypass. `getUserExt` returns undefined for a non-member,
+	// which `canUserBypassRuleKindInRulesets` treats as no bypass.
+	const rootUserInfoResource = resource(
+		() => root?.id,
+		async (id) => (id ? await getUserExt(id) : undefined)
+	)
+	const rootUserInfo = $derived(rootUserInfoResource.current)
+	const canDeployRoot = $derived(
+		!isRuleActiveInRulesets(rootRulesets, 'DisableDirectDeployment') ||
+			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableDirectDeployment', rootUserInfo)
+	)
+	const canForkRoot = $derived(
+		!isRuleActiveInRulesets(rootRulesets, 'DisableWorkspaceForking') ||
+			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', rootUserInfo)
+	)
+	// A genuinely deploy-locked root (you can't deploy and can't bypass) is disabled regardless of
+	// whether a dev workspace exists to steer to — being deploy-locked is the gate, not dev presence.
+	// Roots with no rules resolve `canDeployRoot` to true, so ordinary families aren't affected. Kept
+	// disabled while either fetch is in flight (both default to the conservative locked state).
+	const rootDisabled = $derived(
+		rootRulesetsResource.loading || rootUserInfoResource.loading || !canDeployRoot
+	)
+
+	// Structural gate: hidden in the admins workspace, or when the user can't fork; on cloud, forking
+	// is premium-only (backend caps it per paid seat). DisableWorkspaceForking on the active workspace
+	// (a locked prod) doesn't apply when there's a dev to fork from instead — the dev isn't locked, and
+	// devOfRoot only resolves when the user is a member of it.
 	const forksGateOpen = $derived(
-		!isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'
+		(!isCloudHosted() || $isPremiumStore) &&
+			$workspaceStore !== 'admins' &&
+			(canCreateFork($userStore) || !!devOfRoot)
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,
@@ -84,18 +141,39 @@
 	const forkAffordanceOpen = $derived(allowCreateFork && forksGateOpen && !!onCreateFork && !!root)
 	const showCreateFork = $derived(forkAffordanceOpen && !ceWorkspaceCapReached)
 	const showForkUpsell = $derived(forkAffordanceOpen && ceWorkspaceCapReached)
+	// Whether the second "Fork from <root>" create entry is shown (admins can fork the prod root
+	// directly even when the default entry forks the dev). Mirrors its render condition so keyboard
+	// nav and the row index math stay in sync. Suppressed while the root's rules are still loading,
+	// otherwise `canForkRoot` defaults true and a non-bypass user could stage a fork from a
+	// forking-locked root before the rules resolve.
+	const hasCreateFromRoot = $derived(
+		showCreateFork &&
+			!rootRulesetsResource.loading &&
+			!rootUserInfoResource.loading &&
+			canForkRoot &&
+			!!devOfRoot
+	)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
 	let newForkName = $state('')
 	let forkInput: TextInput | undefined = $state(undefined)
+	// Admins get a second entry to fork the prod root directly (the default forks
+	// the dev). `forkFromRoot` tracks which source the create input is for.
+	let forkFromRoot = $state(false)
+	const effectiveForkSource = $derived(forkFromRoot ? root : forkSource)
 
 	// Manual keyboard navigation, modelled after SelectDropdown. melt's
 	// menu API couples Enter/Space to closing the menu, which we explicitly
 	// don't want for the "Create new fork" row — it swaps to inline input.
-	type NavRow = { kind: 'create' } | { kind: 'root'; id: string } | { kind: 'fork'; id: string }
+	type NavRow =
+		| { kind: 'create' }
+		| { kind: 'create-from-root' }
+		| { kind: 'root'; id: string }
+		| { kind: 'fork'; id: string }
 	const navRows = $derived<NavRow[]>([
 		...(showCreateFork ? [{ kind: 'create' as const }] : []),
+		...(hasCreateFromRoot ? [{ kind: 'create-from-root' as const }] : []),
 		...(root ? [{ kind: 'root' as const, id: root.id }] : []),
 		...forks.map((f) => ({ kind: 'fork' as const, id: f.id }))
 	])
@@ -107,7 +185,11 @@
 	function activateRow(row: NavRow) {
 		if (row.kind === 'create') {
 			void enterCreateMode()
-		} else if (row.kind === 'root' || row.kind === 'fork') {
+		} else if (row.kind === 'create-from-root') {
+			void enterCreateMode(undefined, true)
+		} else if (row.kind === 'root') {
+			if (!rootDisabled) void pick(row.id)
+		} else if (row.kind === 'fork') {
 			void pick(row.id)
 		}
 	}
@@ -131,7 +213,8 @@
 		await onPick(id)
 	}
 
-	async function enterCreateMode(initialName?: string) {
+	async function enterCreateMode(initialName?: string, fromRoot = false) {
+		forkFromRoot = fromRoot
 		creatingFork = true
 		newForkName = initialName ?? defaultForkName()
 		await tick()
@@ -142,6 +225,7 @@
 	function cancelCreate() {
 		creatingFork = false
 		newForkName = ''
+		forkFromRoot = false
 	}
 
 	function slugForkBaseId(name: string): string {
@@ -166,15 +250,16 @@
 
 	async function stageNewFork() {
 		const name = newForkName.trim()
-		if (!root || !name || forkNameError || !onCreateFork) return
+		if (!effectiveForkSource || !name || forkNameError || !onCreateFork) return
 		const baseId = slugForkBaseId(name)
 		if (!baseId) return
 		const prefixed = `${WM_FORK_PREFIX}${baseId}`
 		// Close optimistically; consumer can re-open + toast on error.
 		creatingFork = false
 		newForkName = ''
+		forkFromRoot = false
 		dropdownOpen = false
-		await onCreateFork({ parent_workspace_id: root.id, id: prefixed, name })
+		await onCreateFork({ parent_workspace_id: effectiveForkSource.id, id: prefixed, name })
 	}
 
 	function isSelected(id: string): boolean {
@@ -190,7 +275,9 @@
 		const wasOpen = lastDropdownOpen
 		lastDropdownOpen = dropdownOpen
 		if (dropdownOpen && !wasOpen && pendingFork && !creatingFork && showCreateFork) {
-			void enterCreateMode(pendingFork.name)
+			// Preserve which source the fork was staged from (root vs dev); without this the re-entry
+			// defaults to the dev and silently re-parents a "Fork from <root>" request.
+			void enterCreateMode(pendingFork.name, pendingFork.parent_workspace_id === root?.id)
 		}
 	})
 </script>
@@ -290,8 +377,20 @@
 						onclick={() => enterCreateMode()}
 					>
 						<Plus size={14} class="shrink-0 text-tertiary" />
-						<span>Create new fork…</span>
+						<span>{createForkLabel}</span>
 					</button>
+					{#if hasCreateFromRoot}
+						{@const createFromRootIdx = 1}
+						<button
+							type="button"
+							class={`${rowBase} ${keyArrowPos === createFromRootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+							onmouseenter={() => (keyArrowPos = createFromRootIdx)}
+							onclick={() => enterCreateMode(undefined, true)}
+						>
+							<Plus size={14} class="shrink-0 text-tertiary" />
+							<span>Fork from {root?.name}</span>
+						</button>
+					{/if}
 				{/if}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 			{:else if showForkUpsell}
@@ -302,27 +401,36 @@
 						1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks."
 				>
 					<Plus size={14} class="shrink-0 text-tertiary" />
-					<span>Create new fork…</span>
+					<span>{createForkLabel}</span>
 					<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
 				</div>
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 			{/if}
 
 			{#if root}
-				{@const rootIdx = showCreateFork ? 1 : 0}
+				{@const rootIdx = (showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0)}
 				<button
 					type="button"
-					class={`${rowBase} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${keyArrowPos === rootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
-					onmouseenter={() => (keyArrowPos = rootIdx)}
-					onclick={() => void pick(root.id)}
+					disabled={rootDisabled}
+					title={rootDisabled
+						? devOfRoot
+							? `${root.name} is locked. Run in its dev workspace instead.`
+							: `${root.name} is locked for direct deploys.`
+						: undefined}
+					class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
+					onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
+					onclick={() => !rootDisabled && void pick(root.id)}
 				>
 					<Building size={14} class="shrink-0 text-tertiary" />
 					<span class="truncate">{root.name}</span>
-					<span class="text-2xs text-tertiary shrink-0 ml-auto">root</span>
+					<span class="text-2xs text-tertiary shrink-0 ml-auto"
+						>{rootDisabled ? 'locked' : 'root'}</span
+					>
 				</button>
 			{/if}
 			{#each forks as f, fi (f.id)}
-				{@const forkIdx = (showCreateFork ? 1 : 0) + (root ? 1 : 0) + fi}
+				{@const forkIdx =
+					(showCreateFork ? 1 : 0) + (hasCreateFromRoot ? 1 : 0) + (root ? 1 : 0) + fi}
 				<button
 					type="button"
 					class={`${rowBase} ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
@@ -331,6 +439,9 @@
 				>
 					<GitFork size={14} class="shrink-0 text-tertiary" />
 					<span class="truncate">{f.name}</span>
+					{#if f.is_dev_workspace}
+						<Badge color="indigo" small>dev</Badge>
+					{/if}
 				</button>
 			{/each}
 			{#if pendingFork && !creatingFork}
