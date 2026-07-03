@@ -274,6 +274,17 @@ async fn run_datatable_migrations(
         }
     });
 
+    // Serialize concurrent migration runs/rollbacks against this data table's
+    // database. Without it two "Run all" requests (or a run racing a rollback)
+    // read the same `_wm_migrations` state and launch the same DDL twice, which
+    // errors or corrupts a non-idempotent migration. This session-level lock is
+    // held for the whole operation and released when the connection drops at
+    // return; `_wm_migrations` is per-database, so a single key is sufficient.
+    client
+        .batch_execute("SELECT pg_advisory_lock(hashtext('windmill_datatable_migrations')::int8)")
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
+
     client
         .batch_execute(
             "CREATE TABLE IF NOT EXISTS _wm_migrations (\
@@ -381,6 +392,17 @@ async fn rollback_datatable_migrations(
             tracing::error!("Datatable connection error: {}", e);
         }
     });
+
+    // Serialize concurrent migration runs/rollbacks against this data table's
+    // database. Without it two "Run all" requests (or a run racing a rollback)
+    // read the same `_wm_migrations` state and launch the same DDL twice, which
+    // errors or corrupts a non-idempotent migration. This session-level lock is
+    // held for the whole operation and released when the connection drops at
+    // return; `_wm_migrations` is per-database, so a single key is sufficient.
+    client
+        .batch_execute("SELECT pg_advisory_lock(hashtext('windmill_datatable_migrations')::int8)")
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
 
     client
         .batch_execute(
