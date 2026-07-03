@@ -369,30 +369,26 @@ export class FlowChatManager {
 				// Reasoning isn't persisted server-side, so carry each temp assistant
 				// turn's streamed "thinking" summary onto its persisted counterpart
 				// before dropping temps — otherwise it vanishes when the run completes.
-				// Only the messages just fetched for this response are eligible targets
-				// (older turns keep their own reasoning), and pending summaries are
-				// consumed in streaming order verifying content, so multi-turn responses
-				// with identical or empty text still attribute each turn correctly.
-				const newlyPersistedIds = new Set(filteredResponse.map((m) => m.id))
+				// Walk newest-first and match the newest pending summary with equal
+				// content: this response's turns (always at the end) claim their own
+				// reasoning — even with identical or empty text — before older history
+				// is reached, and once summaries run out older turns keep what they had.
 				const pending = this.messages
 					.filter((m) => m.id.startsWith('temp-') && m.message_type === 'assistant' && m.reasoning)
 					.map((m) => ({ content: m.content ?? '', reasoning: m.reasoning as string }))
-				this.messages = this.messages
-					.filter((msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user')
-					.map((msg) => {
-						if (
-							newlyPersistedIds.has(msg.id) &&
-							msg.message_type === 'assistant' &&
-							!msg.reasoning
-						) {
-							const idx = pending.findIndex((p) => p.content === (msg.content ?? ''))
-							if (idx !== -1) {
-								const [match] = pending.splice(idx, 1)
-								return { ...msg, reasoning: match.reasoning }
-							}
-						}
-						return msg
-					})
+				const persisted = this.messages.filter(
+					(msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user'
+				)
+				for (let i = persisted.length - 1; i >= 0 && pending.length > 0; i--) {
+					const msg = persisted[i]
+					if (msg.message_type !== 'assistant' || msg.reasoning) continue
+					const idx = pending.findLastIndex((p) => p.content === (msg.content ?? ''))
+					if (idx !== -1) {
+						persisted[i] = { ...msg, reasoning: pending[idx].reasoning }
+						pending.splice(idx, 1)
+					}
+				}
+				this.messages = persisted
 			}
 		} catch (error) {
 			console.error('Polling error:', error)
