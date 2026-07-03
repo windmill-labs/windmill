@@ -274,10 +274,10 @@ export function parseFromPath(p: string, content: string): any {
   return isWorkspaceDependencies(p)
     ? content
     : p.endsWith(".yaml")
-    ? yamlParseContent(p, content)
-    : p.endsWith(".json")
-    ? JSON.parse(content)
-    : content;
+      ? yamlParseContent(p, content)
+      : p.endsWith(".json")
+        ? JSON.parse(content)
+        : content;
 }
 export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
@@ -295,7 +295,7 @@ export function parseFromFile(p: string): any {
 export function parseDatatableMigrationPath(p: string):
   | { datatable: string; timestamp: number; name: string; kind: "up" | "down" }
   | undefined {
-  const parts = p.split(SEP);
+  const parts = p.split("/");
   if (
     parts[0] !== "migrations" ||
     parts[1] !== "datatable" ||
