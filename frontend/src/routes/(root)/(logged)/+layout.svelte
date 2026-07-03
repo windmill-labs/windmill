@@ -24,6 +24,7 @@
 		workspaceUsageStore,
 		userStore,
 		workspaceStore,
+		userWorkspaces,
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
@@ -73,6 +74,7 @@
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
+	import { recordForkParent } from '$lib/forkParentMemory'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -432,6 +434,14 @@
 	$effect(() => {
 		$workspaceStore
 		untrack(() => updateUserStore($workspaceStore))
+	})
+	// While a fork is reachable, mirror its parent linkage to localStorage so a
+	// later reload landing on a now-deleted fork can return to the parent (see
+	// forkParentMemory + the deleted-fork recovery in the root layout).
+	$effect(() => {
+		const ws = $workspaceStore
+		const list = $userWorkspaces
+		untrack(() => recordForkParent(ws, list))
 	})
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())

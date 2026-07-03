@@ -3,9 +3,16 @@
 	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logoutKit'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		clearWorkspaceFromStorage,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
+	import { switchWorkspace } from '$lib/storeUtils'
+	import { forgetForkParent, getRememberedForkParent } from '$lib/forkParentMemory'
 	import { onDestroy, onMount } from 'svelte'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
@@ -33,14 +40,82 @@
 	]
 
 	async function setUserWorkspaceStore() {
-		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+		const list = await WorkspaceService.listUserWorkspaces()
+		$usersWorkspaceStore = list
+		return list
 	}
 
-	async function loadUser() {
+	// A fork that was deleted remotely while the tab was open disappears from the
+	// user's workspace list on the next load (the list is membership-gated and the
+	// row is hard-deleted). Landing on it otherwise breaks the page: a member gets
+	// logged out (whoami fails), a superadmin silently renders a dead workspace
+	// whose every request 404s. Detect the vanished fork and bounce the user to its
+	// parent (remembered in localStorage while the fork was reachable), or to the
+	// workspace picker if the parent is unknown / also gone. Returns true when it
+	// handled the situation so the caller skips normal loading.
+	async function tryRecoverFromDeletedFork(
+		workspaceId: string,
+		workspacesPromise: Promise<{ workspaces: { id: string }[] }>
+	): Promise<boolean> {
+		if (!workspaceId.startsWith('wm-fork-')) return false
+
+		// Reuse the list already being fetched in onMount rather than issuing a
+		// second identical request.
+		let workspaces: { id: string }[]
+		try {
+			workspaces = (await workspacesPromise).workspaces
+		} catch {
+			return false
+		}
+
+		// Fork still reachable → nothing to recover from.
+		if (workspaces.some((w) => w.id === workspaceId)) return false
+
+		// The fork is gone, but only redirect if the session itself is still valid;
+		// otherwise let the normal flow handle the (genuine) auth failure.
+		try {
+			await UserService.globalWhoami()
+		} catch {
+			return false
+		}
+
+		const parentId = getRememberedForkParent(workspaceId)
+		const parentReachable = parentId != undefined && workspaces.some((w) => w.id === parentId)
+		forgetForkParent(workspaceId)
+
+		if (parentId != undefined && parentReachable) {
+			switchWorkspace(parentId)
+			const parentUser = await getUserExt(parentId)
+			if (parentUser) {
+				$userStore = parentUser
+				sendUserToast(
+					`Fork ${workspaceId} was deleted remotely, returning you to its parent workspace ${parentId}.`,
+					'warning'
+				)
+				await goto('/')
+				return true
+			}
+			// Parent unexpectedly didn't resolve a user — fall through to the picker
+			// rather than risk the forced-logout path this recovery exists to avoid.
+		}
+
+		clearWorkspaceFromStorage()
+		workspaceStore.set(undefined)
+		sendUserToast(`Fork ${workspaceId} is no longer available, please pick a workspace.`, 'warning')
+		await goto('/user/workspaces')
+		return true
+	}
+
+	async function loadUser(workspacesPromise: Promise<{ workspaces: { id: string }[] }>) {
 		try {
 			await refreshSuperadmin()
 
 			if ($workspaceStore) {
+				// Check up-front (independent of whoami, which succeeds for superadmins
+				// even on a dead workspace) whether the active fork was deleted remotely.
+				if (await tryRecoverFromDeletedFork($workspaceStore, workspacesPromise)) {
+					return
+				}
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
 				} else {
@@ -131,8 +206,7 @@
 		computeDrift()
 
 		if (page.url.pathname != '/user/login') {
-			setUserWorkspaceStore()
-			loadUser()
+			loadUser(setUserWorkspaceStore())
 			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 		}
 
