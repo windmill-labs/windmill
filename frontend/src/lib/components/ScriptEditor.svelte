@@ -743,7 +743,17 @@
 		args = nargs
 	}
 
-	export async function runTest(opts?: { cascade?: boolean }) {
+	export async function runTest(opts?: { cascade?: boolean; skipDdlGuard?: boolean }) {
+		// Intercept DDL statements (offer to turn them into data table migrations)
+		// on every run path, not just the editor's Cmd+Enter. `skipDdlGuard` is set
+		// by the Cmd+Enter action, which already guarded before calling us.
+		if (!opts?.skipDdlGuard) {
+			if ((await editor?.guardDdlBeforeRun()) === false) return
+			// The guard may have rewritten the code (migrated statements stripped);
+			// `editorCode` is kept in sync by the editor binding, so mirror the
+			// on:change handler and pull it into `code` before we run.
+			if (activeModuleTab === null) code = editorCode
+		}
 		// When the caller forces a cascade choice (e.g. the canvas runnable
 		// menu's "Run + trigger N downstream"), also flip the persistent
 		// `cascadeDownstream` state so the split button's label/icon reflect
@@ -2626,7 +2636,8 @@
 				} else {
 					await inferModuleSchema()
 				}
-				runTest()
+				// The Editor already ran the DDL guard before invoking this action.
+				runTest({ skipDdlGuard: true })
 			}}
 			formatAction={async () => {
 				if (activeModuleTab === null) {

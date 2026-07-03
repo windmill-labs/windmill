@@ -223,12 +223,21 @@
 	)
 	let ddlGuard = $state<DdlMigrationGuard | undefined>(undefined)
 
-	async function runCmdEnterWithDdlGuard() {
+	// Run the DDL migration guard against the current code. Returns false when the
+	// user cancels (the run must be aborted); may rewrite the code (migrated
+	// statements stripped). Exported so run paths that bypass the Monaco
+	// Cmd+Enter binding (e.g. the Test button) can guard too.
+	export async function guardDdlBeforeRun(): Promise<boolean> {
 		if (datatableForMigrations && ddlGuard) {
 			const res = await ddlGuard.guard(getCode())
-			if (!res.proceed) return
+			if (!res.proceed) return false
 			if (res.code !== getCode()) setCode(res.code)
 		}
+		return true
+	}
+
+	async function runCmdEnterWithDdlGuard() {
+		if (!(await guardDdlBeforeRun())) return
 		cmdEnterAction?.()
 	}
 
