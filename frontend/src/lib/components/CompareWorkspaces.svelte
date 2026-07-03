@@ -394,7 +394,7 @@
 			deploymentStatus[statusKey] = { status: 'deployed' }
 		} else {
 			deploymentStatus[statusKey] = { status: 'failed', error: result.error }
-			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`)
+			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`, 'error')
 		}
 	}
 
