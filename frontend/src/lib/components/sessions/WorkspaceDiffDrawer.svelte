@@ -287,17 +287,18 @@
 		return `ws-diff-${d.key}`
 	}
 
-	// Smooth-scroll the row's header flush to the top. Native scrollIntoView lands
-	// short here because lazily-mounted diffs grow the list mid-scroll; instead we
-	// ease toward the target and re-measure it every frame, so the animation stays
-	// smooth while still landing flush once the layout settles. Bails on user scroll.
+	// Keep the column's pt-3 breathing room when a click scrolls a card to the top.
+	const SCROLL_TOP_INSET = 12
+
+	// Smooth-scroll the row's card near the top (leaving the column's top inset).
+	// Native scrollIntoView lands short here because lazily-mounted diffs grow the
+	// list mid-scroll; instead we ease toward the target and re-measure it every
+	// frame, so the animation stays smooth while still landing flush once the
+	// layout settles. Bails on user scroll.
 	function scrollToDiff(d: DeployItem) {
 		const el = document.getElementById(rowId(d))
 		const container = mainScrollEl
 		if (!el || !container) return
-		// Each row carries a 1px divide-y top border; land it just above the fold so
-		// it tucks under the drawer's header divider instead of doubling up with it.
-		const border = parseFloat(getComputedStyle(el).borderTopWidth) || 0
 		let frames = 0
 		let settled = 0
 		let cancelled = false
@@ -310,7 +311,8 @@
 		}
 		const step = () => {
 			if (cancelled) return teardown()
-			const off = el.getBoundingClientRect().top - container.getBoundingClientRect().top + border
+			const off =
+				el.getBoundingClientRect().top - container.getBoundingClientRect().top - SCROLL_TOP_INSET
 			if (Math.abs(off) < 1) {
 				if (++settled >= 2) return teardown()
 			} else {
@@ -324,8 +326,19 @@
 		step()
 	}
 
+	// Transient ring pulse on the card a tree click just revealed, so the eye
+	// lands on the right block after the scroll.
+	let flashKey = $state<string | undefined>(undefined)
+	let flashTimer: ReturnType<typeof setTimeout> | undefined
+	function flashRow(key: string) {
+		flashKey = key
+		clearTimeout(flashTimer)
+		flashTimer = setTimeout(() => (flashKey = undefined), 800)
+	}
+
 	function revealDiff(d: DeployItem, key?: string) {
 		if (key) highlightedKey = key
+		flashRow(d.key)
 		scrollToDiff(d)
 	}
 
@@ -337,6 +350,7 @@
 		if (key) highlightedKey = key
 		const app = appByPath.get(s.appPath)
 		if (!app) return
+		flashRow(app.key)
 		if (!mountedRows[app.key]) {
 			mountedRows[app.key] = true
 			await tick()
@@ -960,7 +974,7 @@
 					<aside
 						bind:this={sidebarRoot}
 						onmousemove={() => (mouseActive = true)}
-						class="flex-none w-96 border-r border-light flex flex-col min-h-0 pt-2.5 px-1"
+						class="flex-none w-96 flex flex-col min-h-0 pt-3 px-1"
 					>
 						<!-- Both containers reserve the same stable scrollbar gutter (the input
 						     wrapper never actually scrolls), so input and tree rows share one
@@ -968,7 +982,7 @@
 						     padding target so the visual right margin equals the left one no
 						     matter the platform's scrollbar width (0 for overlay scrollbars). -->
 						<div
-							class="pl-1.5 pb-1 shrink-0 overflow-y-auto"
+							class="pl-2 pb-1 shrink-0 overflow-y-auto"
 							style="scrollbar-gutter: stable;"
 							use:padRightForGutter
 						>
@@ -982,7 +996,7 @@
 							/>
 						</div>
 						<div
-							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-1.5 pt-1.5 pb-2 flex flex-col gap-1"
+							class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-2 pt-1.5 pb-2 flex flex-col gap-1"
 							style="scrollbar-gutter: stable;"
 							use:padRightForGutter
 						>
@@ -999,9 +1013,9 @@
 				<main
 					bind:this={mainScrollEl}
 					bind:clientHeight={mainHeight}
-					class="flex-1 min-w-0 overflow-y-auto"
+					class="flex-1 min-w-0 overflow-y-auto bg-surface"
 				>
-					<div class="px-3 pt-0 pb-4 flex flex-col gap-3">
+					<div class="pl-1 pr-3 pt-3 pb-4 flex flex-col gap-3">
 						{#if model.loading && model.items.length === 0}
 							<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
 								<Loader2 class="w-4 h-4 animate-spin" />
@@ -1016,16 +1030,20 @@
 						{:else if orderedItems.length === 0}
 							<div class="text-sm text-secondary py-4">No files match.</div>
 						{:else}
-							<div
-								class="-mx-3 -mt-[1px] flex flex-col divide-y divide-light border-y border-light"
-							>
+							<div class="flex flex-col">
 								{#each orderedItems as d (d.key)}
 									{@const action = actionFor(d, model.context)}
 									{@const editUrl = editUrlFor?.(d)}
 									{@const status = model.statusOf(d.key)}
-									<div id={rowId(d)} class="bg-surface">
+									<div
+										id={rowId(d)}
+										class="mb-6 scroll-mt-3 rounded-md border border-light transition-shadow duration-500 {flashKey ===
+										d.key
+											? 'ring-1 ring-border-accent'
+											: 'ring-0 ring-transparent'}"
+									>
 										<div
-											class="sticky top-0 z-30 bg-surface flex items-center gap-2 px-3 py-2 border-b border-transparent"
+											class="sticky top-0 z-30 bg-surface-tertiary rounded-t-md flex items-center gap-2 px-3 py-2 border-b border-transparent"
 										>
 											<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
 											<div class="min-w-0 flex-1">
@@ -1122,7 +1140,7 @@
 												{/if}
 											</div>
 										</div>
-										<div class="bg-surface-tertiary overflow-hidden">
+										<div class="bg-surface-tertiary rounded-b-md overflow-hidden">
 											{@render diffBlock(d)}
 										</div>
 									</div>
