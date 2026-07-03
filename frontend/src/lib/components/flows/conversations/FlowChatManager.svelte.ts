@@ -369,16 +369,22 @@ export class FlowChatManager {
 				// Reasoning isn't persisted server-side, so carry each temp assistant
 				// turn's streamed "thinking" summary onto its persisted counterpart
 				// before dropping temps — otherwise it vanishes when the run completes.
-				// Consume in streaming order, verifying content, so multi-turn responses
-				// (including turns with identical or empty text) attribute each turn's
-				// thinking to the right message instead of lumping it onto the last one.
+				// Only the messages just fetched for this response are eligible targets
+				// (older turns keep their own reasoning), and pending summaries are
+				// consumed in streaming order verifying content, so multi-turn responses
+				// with identical or empty text still attribute each turn correctly.
+				const newlyPersistedIds = new Set(filteredResponse.map((m) => m.id))
 				const pending = this.messages
 					.filter((m) => m.id.startsWith('temp-') && m.message_type === 'assistant' && m.reasoning)
 					.map((m) => ({ content: m.content ?? '', reasoning: m.reasoning as string }))
 				this.messages = this.messages
 					.filter((msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user')
 					.map((msg) => {
-						if (msg.message_type === 'assistant' && !msg.reasoning) {
+						if (
+							newlyPersistedIds.has(msg.id) &&
+							msg.message_type === 'assistant' &&
+							!msg.reasoning
+						) {
 							const idx = pending.findIndex((p) => p.content === (msg.content ?? ''))
 							if (idx !== -1) {
 								const [match] = pending.splice(idx, 1)
