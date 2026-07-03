@@ -32,7 +32,6 @@ use windmill_common::jobs::{JobPayload, RawCode};
 use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::utils::require_admin;
 use windmill_common::worker::to_raw_value;
 use windmill_common::workspaces::{
     get_datatable_resource_from_db_unchecked, DataTable, DataTableCatalogResourceType,
@@ -241,8 +240,6 @@ async fn run_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     audit_log(
         &db,
         &authed,
@@ -362,8 +359,6 @@ async fn rollback_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     audit_log(
         &db,
         &authed,
@@ -509,8 +504,6 @@ async fn update_datatable_migrations(
     Path(w_id): Path<String>,
     Json(payload): Json<UpdateDatatableMigrations>,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     for m in &payload.migrations {
         validate_datatable_path_segment(&m.datatable)?;
         validate_migration_name(&m.name)?;
@@ -1000,7 +993,6 @@ async fn create_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(payload): Json<CreateDatatableMigration>,
 ) -> JsonResult<DatatableMigration> {
-    require_admin(authed.is_admin, &authed.username)?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
@@ -1053,8 +1045,6 @@ async fn delete_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     let deleted_name = sqlx::query_scalar!(
         "DELETE FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3 \
@@ -1114,7 +1104,6 @@ async fn upsert_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(payload): Json<UpsertDatatableMigration>,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
@@ -1170,7 +1159,6 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
-    require_admin(authed.is_admin, &authed.username)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
