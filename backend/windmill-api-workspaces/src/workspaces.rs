@@ -2394,8 +2394,12 @@ async fn edit_datatable_config(
     )
     .unwrap_or_default();
 
-    // Validate rename segments before touching anything, since they become
-    // part of migration storage keys.
+    // Validate every persisted data table name and rename segment before
+    // touching anything, since they become directory segments in migration
+    // storage/export keys (`migrations/datatable/<name>/...`).
+    for name in new_config.settings.datatables.keys() {
+        crate::datatable_migrations::validate_datatable_path_segment(name)?;
+    }
     for r in &new_config.renames {
         crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
         crate::datatable_migrations::validate_datatable_path_segment(&r.to)?;

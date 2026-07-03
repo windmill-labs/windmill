@@ -1092,6 +1092,7 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
+    validate_datatable_path_segment(&datatable_name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
     // The initial snapshot only makes sense on a data table with no migrations
