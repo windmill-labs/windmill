@@ -317,18 +317,14 @@ export function dbSchemaOpsWithPreviewScripts({
 	// otherwise it runs ad-hoc via the internal-db job as before. `downContent`,
 	// when provided, is expanded into the migration's down SQL (Postgres only).
 	async function applyDdl(migName: string, content: string, downContent?: string): Promise<void> {
-		let migrationsEnabled = false
-		if (datatableName) {
-			try {
-				const status = await WorkspaceService.getDatatableMigrationsStatus({
-					workspace,
-					datatableName
-				})
-				migrationsEnabled = status.enabled
-			} catch {
-				migrationsEnabled = false
-			}
-		}
+		// A DDL edit on a migrations-enabled data table must be captured as a
+		// migration. Don't swallow a status-check failure by defaulting to ad-hoc:
+		// that would run the change untracked (schema drift) — exactly what this
+		// feature prevents. Let the error propagate (fail closed); only fall back to
+		// ad-hoc when there's no data table, or `enabled === false` is returned.
+		const migrationsEnabled = datatableName
+			? (await WorkspaceService.getDatatableMigrationsStatus({ workspace, datatableName })).enabled
+			: false
 		if (!datatableName || !migrationsEnabled) {
 			await runScriptAndPollResult({ workspace, requestBody: { args: dbArg, content, language } })
 			return
