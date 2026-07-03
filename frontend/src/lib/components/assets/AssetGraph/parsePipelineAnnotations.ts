@@ -173,6 +173,12 @@ export type PipelineAnnotations = {
 	dataTests: DataTest[]
 	// `// column <out> <- <src>.<col>[, …]` — accumulating column lineage.
 	columnLineage: ColumnLineage[]
+	// Bare `// macros` (alone on the line, like `// pipeline`) — marks this
+	// DuckDB script as a workspace macro library.
+	macros: boolean
+	// `// use <lib_script_path>` — force-inject the named macro library into
+	// this script's jobs. Accumulating, declaration order, deduped.
+	useLibs: string[]
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -510,7 +516,9 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		triggerAssets: [],
 		nativeTriggers: [],
 		dataTests: [],
-		columnLineage: []
+		columnLineage: [],
+		macros: false,
+		useLibs: []
 	}
 
 	for (const rawLine of code.split('\n')) {
@@ -527,6 +535,26 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		if (afterPipeline !== undefined) {
 			// Strict — keyword must be alone on the line.
 			if (afterPipeline.trim() === '') out.inPipeline = true
+			continue
+		}
+
+		const afterMacros = consumeKeyword(inner, 'macros')
+		if (afterMacros !== undefined) {
+			// Strict like `pipeline`: keyword alone on the line, so prose such
+			// as `// macros are defined below` never false-positives.
+			if (afterMacros.trim() === '') out.macros = true
+			continue
+		}
+
+		// `// use <lib_script_path>` — accumulating. The argument must be a
+		// single whitespace-free token containing `/` (all script paths do),
+		// so prose like `// use this script to …` is dropped fail-safe.
+		const afterUse = consumeKeyword(inner, 'use')
+		if (afterUse !== undefined) {
+			const path = afterUse.trim()
+			if (path && !/\s/.test(path) && path.includes('/') && !out.useLibs.includes(path)) {
+				out.useLibs.push(path)
+			}
 			continue
 		}
 

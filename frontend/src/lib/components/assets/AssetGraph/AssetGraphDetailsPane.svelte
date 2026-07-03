@@ -14,6 +14,7 @@
 		Loader2,
 		PanelRightClose,
 		Save,
+		SquareFunction,
 		Trash2,
 		X,
 		Pencil
@@ -31,6 +32,7 @@
 		type PipelineAnnotations
 	} from './parsePipelineAnnotations'
 	import ColumnLineageTrace from './ColumnLineageTrace.svelte'
+	import { extractDraftMacros } from './resolveGraph'
 	import { assetColumnNodes, type ColumnLineageGraph } from './columnLineageGraph'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
@@ -583,8 +585,16 @@
 					triggerAssets: [],
 					nativeTriggers: [],
 					dataTests: [],
-					columnLineage: []
+					columnLineage: [],
+					macros: false,
+					useLibs: []
 				}
+	)
+	// `// macros` library: the defined signatures for the strip above the
+	// source. Regex-light extraction (display only; deploy runs the strict
+	// Rust parser).
+	let macroDefs = $derived(
+		script && liveAnnotations.macros ? extractDraftMacros(script.content ?? '') : []
 	)
 	$effect(() => {
 		// Live-overlay emits are an edit-mode concern: in read-only modes
@@ -1108,20 +1118,25 @@
 			     the legitimate data-upload run form when applicable, and the
 			     same runs panel as the asset branch. -->
 			{#key script.path}
-				<PipelineScriptView
-					{script}
-					{isDraft}
-					canRun={canRunByPath}
-					onRun={onRunByPath}
-					onRunCascade={onRunCascadeByPath}
-					downstreamCount={downstreamSubscribers}
-					{runsRefreshKey}
-					{runsPendingJobId}
-					onRunCompleted={() => {
-						previewRefreshKey += 1
-						onRunCompleted?.()
-					}}
-				/>
+				<div class="flex flex-col h-full">
+					{@render macroLibStrip()}
+					<div class="flex-1 min-h-0">
+						<PipelineScriptView
+							{script}
+							{isDraft}
+							canRun={canRunByPath}
+							onRun={onRunByPath}
+							onRunCascade={onRunCascadeByPath}
+							downstreamCount={downstreamSubscribers}
+							{runsRefreshKey}
+							{runsPendingJobId}
+							onRunCompleted={() => {
+								previewRefreshKey += 1
+								onRunCompleted?.()
+							}}
+						/>
+					</div>
+				</div>
 			{/key}
 		{:else if script}
 			<!-- Key on path alone, NOT hash: deploying a draft or re-saving turns
@@ -1132,53 +1147,77 @@
 			     remounts while a same-script save doesn't. History is disabled
 			     here, so there's no revert-to-old-hash case needing a reset. -->
 			{#key script.path}
-				<ScriptEditor
-					bind:this={scriptEditorRef}
-					showCaptures={false}
-					noSyncFromGithub
-					requireValidAssets
-					lang={script.language}
-					path={script.path}
-					tag={script.tag}
-					fixedOverflowWidgets={false}
-					previewLayout="bottom"
-					customUi={{
-						previewPanel: {
-							disableHistory: true,
-							disableTracing: true,
-							disableTriggerCaptures: true,
-							disableJsonView: true,
-							// Drop the full args column (most pipeline scripts take
-							// no inputs), render the LogPanel full-width with
-							// logs|result side by side, and float the Test/Cancel
-							// button onto the editor band above. But when the
-							// script *does* declare inputs (e.g. a partitioned
-							// script that needs a `partition` arg to run), show a
-							// compact SchemaForm between the Test button and the
-							// logs so the run can actually be parameterised.
-							hideArgs: true,
-							argsAboveLogs: true,
-							logsResultSideBySide: true,
-							downstreamSubscribers,
-							onBoundedRun: onStartBoundedRun,
-							// Selecting a script node should immediately show
-							// "what happened last time it ran" — pulling the
-							// latest top-level completed job into the preview
-							// pane is far more useful than an empty placeholder.
-							loadLastRunOnMount: true
-						}
-					}}
-					bind:code={script.content}
-					bind:schema={script.schema}
-					bind:assets={liveBodyAssets}
-					bind:inferredColumnLineage={liveColumnLineage}
-					{onTestStateChange}
-					{args}
-				/>
+				<div class="flex flex-col h-full">
+					{@render macroLibStrip()}
+					<div class="flex-1 min-h-0 relative">
+						<ScriptEditor
+							bind:this={scriptEditorRef}
+							showCaptures={false}
+							noSyncFromGithub
+							requireValidAssets
+							lang={script.language}
+							path={script.path}
+							tag={script.tag}
+							fixedOverflowWidgets={false}
+							previewLayout="bottom"
+							customUi={{
+								previewPanel: {
+									disableHistory: true,
+									disableTracing: true,
+									disableTriggerCaptures: true,
+									disableJsonView: true,
+									// Drop the full args column (most pipeline scripts take
+									// no inputs), render the LogPanel full-width with
+									// logs|result side by side, and float the Test/Cancel
+									// button onto the editor band above. But when the
+									// script *does* declare inputs (e.g. a partitioned
+									// script that needs a `partition` arg to run), show a
+									// compact SchemaForm between the Test button and the
+									// logs so the run can actually be parameterised.
+									hideArgs: true,
+									argsAboveLogs: true,
+									logsResultSideBySide: true,
+									downstreamSubscribers,
+									onBoundedRun: onStartBoundedRun,
+									// Selecting a script node should immediately show
+									// "what happened last time it ran" — pulling the
+									// latest top-level completed job into the preview
+									// pane is far more useful than an empty placeholder.
+									loadLastRunOnMount: true
+								}
+							}}
+							bind:code={script.content}
+							bind:schema={script.schema}
+							bind:assets={liveBodyAssets}
+							bind:inferredColumnLineage={liveColumnLineage}
+							{onTestStateChange}
+							{args}
+						/>
+					</div>
+				</div>
 			{/key}
 		{/if}
 	</div>
 </div>
+
+{#snippet macroLibStrip()}
+	{#if macroDefs.length > 0}
+		<!-- `// macros` library: the defined signatures, always visible above the
+		     source so consumers can see what the lib provides at a glance. -->
+		<div class="shrink-0 px-3 py-1.5 border-b bg-surface-secondary flex items-start gap-2">
+			<SquareFunction size={12} class="shrink-0 mt-0.5 text-violet-600 dark:text-violet-400" />
+			<div class="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs font-mono text-secondary min-w-0">
+				<!-- Index-keyed: a live buffer can transiently hold two defs with
+				     the same name mid-edit, which would crash a name-keyed each. -->
+				{#each macroDefs as m, i (i)}
+					<span class="truncate" title={m.is_table ? 'table macro' : 'scalar macro'}>
+						{m.name}({m.params}){m.is_table ? ' → table' : ''}
+					</span>
+				{/each}
+			</div>
+		</div>
+	{/if}
+{/snippet}
 
 {#if removeOpen}
 	<!-- Single combined modal. Archive is the always-available default;

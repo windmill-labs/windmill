@@ -122,6 +122,17 @@ pub struct ParseAssetsOutput {
     // column-lineage graph view, executes nothing.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub column_lineage: Vec<ColumnLineage>,
+    // Bare `// macros` (must be alone on the line, like `// pipeline`) —
+    // marks this DuckDB script as a workspace *macro library*: its body is
+    // CREATE [OR REPLACE] MACRO statements (plus plain setup) registered at
+    // deploy and injected as TEMP macros into consumer jobs at run time.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub macros: bool,
+    // `// use <lib_script_path>` — force-inject the whole named macro
+    // library (definitions + its setup statements) into this script's jobs,
+    // for dynamic SQL that call-detection can't see. Accumulating.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub use_libs: Vec<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -366,6 +377,8 @@ pub struct PipelineAnnotations {
     pub materialize: Option<MaterializeSpec>,
     pub data_tests: Vec<DataTest>,
     pub column_lineage: Vec<ColumnLineage>,
+    pub macros: bool,
+    pub use_libs: Vec<String>,
 }
 
 impl ParseAssetsOutput {
@@ -392,6 +405,8 @@ impl ParseAssetsOutput {
             materialize: pipeline.materialize,
             data_tests: pipeline.data_tests,
             column_lineage: pipeline.column_lineage,
+            macros: pipeline.macros,
+            use_libs: pipeline.use_libs,
         }
     }
 }
@@ -678,6 +693,30 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             // `pipeline broken`, `pipelines`, `pipeline-related`, etc.
             if after_kw.trim().is_empty() {
                 out.in_pipeline = true;
+            }
+            continue;
+        }
+
+        if let Some(after_kw) = consume_keyword(rest, "macros") {
+            // Strict like `pipeline`: keyword alone on the line, so prose
+            // such as `// macros are defined below` never false-positives.
+            if after_kw.trim().is_empty() {
+                out.macros = true;
+            }
+            continue;
+        }
+
+        // `// use <lib_script_path>` — accumulating. The argument must be a
+        // single whitespace-free token containing `/` (all script paths do),
+        // so prose like `// use this script to …` is dropped fail-safe.
+        if let Some(after_kw) = consume_keyword(rest, "use") {
+            let path = after_kw.trim();
+            if !path.is_empty()
+                && !path.contains(char::is_whitespace)
+                && path.contains('/')
+                && !out.use_libs.iter().any(|p| p == path)
+            {
+                out.use_libs.push(path.to_string());
             }
             continue;
         }
@@ -1108,6 +1147,33 @@ mod pipeline_annotation_tests {
     fn rejects_pipeline_keyword_variants() {
         let out = parse_pipeline_annotations("// pipelines\n# pipelined\n-- pipeline-foo");
         assert!(!out.in_pipeline);
+    }
+
+    #[test]
+    fn macros_marker_strict_like_pipeline() {
+        assert!(parse_pipeline_annotations("// macros\nCREATE MACRO m(a) AS a;").macros);
+        assert!(parse_pipeline_annotations("-- macros   \nSELECT 1;").macros);
+        // Trailing prose / keyword variants disqualify the line.
+        assert!(!parse_pipeline_annotations("// macros are defined below\n").macros);
+        assert!(!parse_pipeline_annotations("// macros_v2\n").macros);
+    }
+
+    #[test]
+    fn use_accumulates_dedups_and_rejects_prose() {
+        let out = parse_pipeline_annotations(
+            "// use f/lib/stats\n// use f/lib/dates\n// use f/lib/stats\nSELECT 1;",
+        );
+        assert_eq!(out.use_libs, vec!["f/lib/stats", "f/lib/dates"]);
+
+        // Prose, slashless tokens, and multi-token lines are dropped fail-safe.
+        let out = parse_pipeline_annotations(
+            "// use this script to compute\n// use standalone\n// use f/lib/ok extra\n",
+        );
+        assert!(out.use_libs.is_empty());
+
+        // Only the leading comment header is scanned.
+        let out = parse_pipeline_annotations("SELECT 1;\n-- use f/lib/late\n");
+        assert!(out.use_libs.is_empty());
     }
 
     #[test]

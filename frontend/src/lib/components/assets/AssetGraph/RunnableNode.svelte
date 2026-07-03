@@ -10,6 +10,7 @@
 		Loader2,
 		Play,
 		RotateCw,
+		SquareFunction,
 		Tag,
 		Target,
 		Timer,
@@ -37,6 +38,9 @@
 			freshness?: string
 			tag?: string
 			retry?: { count: number; delay?: string }
+			// Macros this script provides (deployed/drafted `// macros` library).
+			// Non-empty renders the ƒ chip marking the node as a macro library.
+			macros?: { name: string; params: string; is_table: boolean }[]
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
@@ -197,6 +201,17 @@
 			>
 				<RotateCw size={10} />
 				<span class="text-3xs leading-none">×{r.count}</span>
+			</div>
+		{/if}
+		{#if data.macros && data.macros.length > 0}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+				title={`// macros — defines ${data.macros.length} macro${data.macros.length > 1 ? 's' : ''}:\n${data.macros
+					.map((m) => `• ${m.name}(${m.params})${m.is_table ? ' → table' : ''}`)
+					.join('\n')}`}
+			>
+				<SquareFunction size={10} />
+				<span class="text-3xs leading-none">×{data.macros.length}</span>
 			</div>
 		{/if}
 		{#if data.runState}

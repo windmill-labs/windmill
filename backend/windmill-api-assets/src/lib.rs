@@ -13,7 +13,19 @@ use windmill_common::{
     utils::escape_ilike_pattern,
 };
 
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{build_scope_path_predicate, ApiAuthed};
+
+// Partition-range backfill preview. The logic (producer resolution, range
+// enumeration, status join) is enterprise: the `private` build compiles the
+// EE module, the public build a stub that errors.
+#[cfg(feature = "private")]
+mod backfill_ee;
+#[cfg(feature = "private")]
+use backfill_ee as backfill;
+#[cfg(not(feature = "private"))]
+mod backfill_oss;
+#[cfg(not(feature = "private"))]
+use backfill_oss as backfill;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -23,8 +35,66 @@ pub fn workspaced_service() -> Router {
         .route("/graph", get(asset_graph))
         .route("/pipelines", get(list_pipeline_folders))
         .route("/partitions", get(list_partitions))
+        .route("/partitions_in_range", get(list_partitions_in_range))
         .route("/asset_schemas", get(list_asset_schemas))
         .route("/record_materialization", post(record_materialization))
+        .route("/macros", get(list_macros))
+}
+
+// One registry macro, with its full definition — drives the macro-explorer
+// drawer (body preview) and the DuckDB editor autocomplete (signatures).
+#[derive(Serialize)]
+struct MacroListItem {
+    name: String,
+    params: String,
+    body: String,
+    is_table: bool,
+    provider_path: String,
+}
+
+// Every workspace macro (`// macros` libraries), grouped client-side by
+// provider. Small by construction — one row per macro definition. The rows
+// copy script body text, so visibility must match reading the provider
+// script itself: the EXISTS join runs under the user_db transaction (script
+// RLS filters libraries the caller can't read) and the scope predicate
+// covers path-scoped tokens, mirroring `list_scripts`.
+async fn list_macros(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<MacroListItem>> {
+    let scope_allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"SELECT m.name AS "name!", m.params AS "params!", m.body AS "body!",
+                  m.is_table_macro AS "is_table_macro!", m.provider_path AS "provider_path!"
+           FROM macro_definition m
+           WHERE m.workspace_id = $1
+             AND EXISTS (
+                SELECT 1 FROM script s
+                WHERE s.workspace_id = m.workspace_id
+                  AND s.path = m.provider_path
+                  AND s.archived = false
+                  AND s.deleted = false
+             )
+           ORDER BY m.provider_path, m.name"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(
+        rows.into_iter()
+            .filter(|r| scope_allowed(&r.provider_path))
+            .map(|r| MacroListItem {
+                name: r.name,
+                params: r.params,
+                body: r.body,
+                is_table: r.is_table_macro,
+                provider_path: r.provider_path,
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -52,6 +122,55 @@ async fn list_partitions(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+// Only the EE `backfill` module reads the fields; the OSS stub errors without
+// touching them.
+#[cfg_attr(not(feature = "private"), allow(dead_code))]
+#[derive(Deserialize)]
+struct PartitionsInRangeQuery {
+    // The materialized ducklake asset path (`<ducklake>/<table>`).
+    path: String,
+    // Inclusive calendar-day range (YYYY-MM-DD), local to the producer's
+    // partition tz.
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+}
+
+#[derive(Serialize)]
+struct PartitionInRange {
+    partition: String,
+    // `missing` | `running` | `materialized` | `failed` — `missing` means no
+    // materialization was ever recorded for the slice.
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+struct PartitionsInRangeResponse {
+    // The pipeline script that materializes the asset (managed `// materialize`
+    // target, or a partitioned writer using the SDK helpers) — the runnable a
+    // backfill launches (with an explicit `partition` arg per slice).
+    producer_path: String,
+    partition_kind: String,
+    partitions: Vec<PartitionInRange>,
+}
+
+// Backfill range preview: every partition the producer's `// partitioned` spec
+// expects in `[from, to]`, joined with what `materialized_partition` records —
+// the missing/failed subset is the backfill worklist. The logic is in the
+// `backfill` module pair: EE resolves and enumerates, the OSS stub errors
+// (single-partition runs stay available everywhere; fanning out over a range
+// is enterprise).
+async fn list_partitions_in_range(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsInRangeQuery>,
+) -> JsonResult<PartitionsInRangeResponse> {
+    let mut tx = user_db.begin(&authed).await?;
+    let res = backfill::partitions_in_range(&mut tx, &w_id, &q).await?;
+    tx.commit().await?;
+    Ok(Json(res))
 }
 
 // Per-asset captured output schema versions for a ducklake asset (gap #2a) —
@@ -537,6 +656,32 @@ struct GraphRunnableNode {
     // `merge` / any partitioned write INSERTs into a fixed-schema table.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     materialize_strategy: Option<String>,
+    // Macros this script provides to the workspace registry (deployed
+    // `// macros` library). Drives the library node state + details-pane
+    // signature list. Lockstep with TS `AssetGraphRunnableNode.macros`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    macros: Vec<MacroInfo>,
+}
+
+// One macro of a `// macros` library, as surfaced on its graph node.
+#[derive(Serialize, Debug, Clone)]
+struct MacroInfo {
+    name: String,
+    // Verbatim parameter list, for the `name(params)` signature display.
+    params: String,
+    is_table: bool,
+}
+
+// A macro-library → consumer edge: the consumer calls `macro_names` of
+// `lib_path`'s macros (deploy-recorded detection), or pulls in the whole
+// library via `// use` (`via_use`, in which case `macro_names` lists all of
+// the library's macros).
+#[derive(Serialize, Debug)]
+struct MacroEdge {
+    lib_path: String,
+    consumer_path: String,
+    macro_names: Vec<String>,
+    via_use: bool,
 }
 
 // The output asset a producer's column lineage belongs to (the `// materialize`
@@ -637,6 +782,8 @@ struct AssetGraphResponse {
     runnables: Vec<GraphRunnableNode>,
     edges: Vec<GraphEdge>,
     triggers: Vec<TriggerEdge>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    macro_edges: Vec<MacroEdge>,
 }
 
 async fn asset_graph(
@@ -790,6 +937,31 @@ async fn asset_graph(
     let existing_flow_paths = sqlx::query_scalar!(
         r#"SELECT path AS "path!" FROM flow WHERE workspace_id = $1 AND archived = false"#,
         &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Workspace macro registry + deploy-recorded call edges. Definitions are
+    // fetched unfiltered so an out-of-folder library still appears as the
+    // provider endpoint of in-scope consumers' edges; consumers honor the
+    // folder filter like every other runnable query.
+    let macro_def_rows = sqlx::query!(
+        r#"SELECT name AS "name!", provider_path AS "provider_path!",
+                  params AS "params!", is_table_macro AS "is_table_macro!"
+           FROM macro_definition
+           WHERE workspace_id = $1
+           ORDER BY provider_path, name"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let macro_usage_rows = sqlx::query!(
+        r#"SELECT consumer_path AS "consumer_path!", macro_name AS "macro_name!"
+           FROM macro_usage
+           WHERE workspace_id = $1
+             AND ($2::text IS NULL OR consumer_path LIKE $2)"#,
+        &w_id,
+        folder_filter.as_deref(),
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -950,6 +1122,74 @@ async fn asset_graph(
         triggers.push(edge);
     }
 
+    // Macro libraries + lib→consumer edges. Group per-provider macro lists,
+    // resolve each usage row's name to its provider (names are
+    // workspace-unique), and merge `// use` whole-lib edges from the parsed
+    // member annotations. Both endpoints are forced into the runnable set so
+    // an out-of-folder library still renders as the edge's provider node.
+    let mut macros_by_provider: std::collections::HashMap<String, Vec<MacroInfo>> =
+        Default::default();
+    let mut provider_by_name: std::collections::HashMap<String, String> = Default::default();
+    for r in macro_def_rows {
+        provider_by_name.insert(r.name.clone(), r.provider_path.clone());
+        macros_by_provider
+            .entry(r.provider_path)
+            .or_default()
+            .push(MacroInfo { name: r.name, params: r.params, is_table: r.is_table_macro });
+    }
+    let mut macro_edge_map: std::collections::BTreeMap<
+        (String, String),
+        (std::collections::BTreeSet<String>, bool),
+    > = Default::default();
+    for u in macro_usage_rows {
+        // Same orphan filter as the other edge loops.
+        if !runnable_exists(AssetUsageKind::Script, &u.consumer_path) {
+            continue;
+        }
+        let Some(lib) = provider_by_name.get(&u.macro_name) else {
+            continue;
+        };
+        let e = macro_edge_map
+            .entry((lib.clone(), u.consumer_path))
+            .or_default();
+        e.0.insert(u.macro_name);
+    }
+    for (path, ann) in &annotations_by_path {
+        for lib in &ann.use_libs {
+            // An undeployed `// use` target has no registry rows — the live
+            // draft overlay is the only surface that can render it.
+            let Some(lib_macros) = macros_by_provider.get(lib) else {
+                continue;
+            };
+            let e = macro_edge_map
+                .entry((lib.clone(), path.clone()))
+                .or_default();
+            e.1 = true;
+            e.0.extend(lib_macros.iter().map(|m| m.name.clone()));
+        }
+    }
+    let macro_edges: Vec<MacroEdge> = macro_edge_map
+        .into_iter()
+        // Same orphan filter as the other edge families: a registry row whose
+        // provider script no longer exists must not synthesize a phantom
+        // library node (consumers were filtered above, but the `// use` pass
+        // re-adds them, so re-check both endpoints).
+        .filter(|((lib_path, consumer_path), _)| {
+            runnable_exists(AssetUsageKind::Script, lib_path)
+                && runnable_exists(AssetUsageKind::Script, consumer_path)
+        })
+        .map(|((lib_path, consumer_path), (names, via_use))| MacroEdge {
+            lib_path,
+            consumer_path,
+            macro_names: names.into_iter().collect(),
+            via_use,
+        })
+        .collect();
+    for e in &macro_edges {
+        runnable_set.insert((AssetUsageKind::Script, e.lib_path.clone()));
+        runnable_set.insert((AssetUsageKind::Script, e.consumer_path.clone()));
+    }
+
     let mut assets: Vec<GraphAssetNode> = asset_set
         .into_iter()
         .map(|(kind, path)| GraphAssetNode { kind, path })
@@ -1002,6 +1242,11 @@ async fn asset_graph(
                         Some("replace".to_string())
                     }
                 }),
+                macros: (usage_kind == AssetUsageKind::Script)
+                    .then(|| macros_by_provider.get(&path))
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default(),
                 path,
                 usage_kind,
             }
@@ -1014,6 +1259,7 @@ async fn asset_graph(
         runnables,
         edges,
         triggers,
+        macro_edges,
     }))
 }
 

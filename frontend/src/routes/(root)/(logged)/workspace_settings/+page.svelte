@@ -1377,7 +1377,16 @@
 							/>
 							<WorkspaceRulesets />
 						{:else if tab == 'premium'}
-							<PremiumInfo {customer_id} {plan} />
+							{#if currentWsForDevTab?.parent_workspace_id}
+								<Alert type="info" title="Billing is managed on the parent workspace">
+									This workspace is a fork of <b>{currentWsForDevTab.parent_workspace_id}</b>. It
+									runs on the parent's plan and its executions count toward the parent's usage and
+									bill, so there is no separate subscription here. Manage billing, seats, and quotas
+									from the parent workspace's settings.
+								</Alert>
+							{:else}
+								<PremiumInfo {customer_id} {plan} />
+							{/if}
 						{:else if tab == 'slack'}
 							<SettingsPageHeader
 								title="Workspace connections to Slack and Teams"
