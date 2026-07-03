@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { Archive, GitPullRequestClosed, MoveRight, Pencil, Trash2 } from 'lucide-svelte'
+	import {
+		Archive,
+		ExternalLink,
+		GitPullRequestClosed,
+		MoveRight,
+		Pencil,
+		Trash2
+	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
@@ -122,13 +129,30 @@
 	)
 	const dockCounts = $derived(badgeCounts(dockItems))
 
+	// Deletion-only fork chat: the mask has entries but every one failed the
+	// (resolved) existence check — the chat's edits were deletions, which have no
+	// dock row by design. The pending fork→parent removal is still reviewable on
+	// the compare page, so the bar must keep that doorway instead of vanishing.
+	// Gated on a resolved check (undefined = still loading) so the bar doesn't
+	// flash this state while deployed rows are being confirmed, and on isFork —
+	// a non-fork deletion is immediate and final, with nothing left to review.
+	const deletionOnly = $derived(
+		isFork && (mask?.size ?? 0) > 0 && existing.keys !== undefined && dockItems.length === 0
+	)
+	const compareHref = $derived(
+		committedId
+			? `/forks/compare?workspace_id=${encodeURIComponent(committedId)}&mode=fork` +
+					(session.chatId ? `&from_session=${encodeURIComponent(session.chatId)}` : '')
+			: undefined
+	)
+
 	// One "Edits" bar for both fork and non-fork sessions, shown when this chat
 	// edited anything. The fork's identity lives in the modal (SessionDiffDrawer's
 	// title), not on the bar. Fork sessions still need the forking gate + a
 	// resolvable fork/parent pair.
 	const showBar = $derived(
 		!!committedId &&
-			dockItems.length > 0 &&
+			(dockItems.length > 0 || deletionOnly) &&
 			(!isFork || (forksAllowed && !!sessionWorkspace && !!parentWorkspace && !!parentWorkspaceId))
 	)
 </script>
@@ -146,6 +170,20 @@
 			<Badge small clickable color="green" onclick={() => diffDrawer?.open()}>
 				{dockCounts.deployed} deployed
 			</Badge>
+		{/if}
+		{#if deletionOnly && compareHref}
+			<!-- Deleted items have no dock row; the pending fork→parent removal is
+			     reviewed on the compare page, so keep that doorway on the bar. -->
+			<a
+				href={compareHref}
+				target="_blank"
+				rel="noopener noreferrer"
+				title="This chat's edits were deletions — review and promote them on the compare page"
+				class="inline-flex items-center gap-1 text-2xs font-medium text-accent hover:underline shrink-0"
+			>
+				Review deletions on compare page
+				<ExternalLink class="w-3 h-3" />
+			</a>
 		{/if}
 	</div>
 {/snippet}
