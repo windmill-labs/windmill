@@ -151,7 +151,7 @@
 		"tailwind-merge": "^1.13.2",
 		"unist-util-visit": "^5.0.0",
 		"vscode": "npm:@codingame/monaco-vscode-extension-api@=25.0.0",
-		"vscode-languageclient": "~9.0.1",
+		"vscode-languageclient": "~10.0.0",
 		"vscode-uri": "~3.1.0",
 		"vscode-ws-jsonrpc": "~3.5.0",
 		"windmill-parser-wasm-asset": "1.740.0",
