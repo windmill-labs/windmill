@@ -22,6 +22,11 @@
 		// from this prompt via AI (using language + outputKind + the
 		// upstream input as context) instead of using the seeded template.
 		aiPrompt?: string
+		// Set when the user picked an ingestion template instead of the
+		// trigger/language/output columns (which the template implies).
+		// `kindId` is 'ingestion_template' in that case and `language` /
+		// `outputKind` are unset.
+		templateId?: string
 	}
 </script>
 
@@ -44,6 +49,10 @@
 
 	interface Props {
 		kinds: PipelineInsertKind[]
+		// Ingestion-template entries rendered below the trigger kinds. A
+		// template pick short-circuits the language/output columns (the
+		// template carries both) straight to the path panel.
+		templates?: PipelineInsertKind[]
 		languages?: Array<{ label: string; lang: SupportedLanguage }>
 		pathPrefix?: string
 		defaultPathSuffix?: string
@@ -54,6 +63,7 @@
 
 	let {
 		kinds,
+		templates = [],
 		languages = [],
 		pathPrefix = '',
 		trigger: triggerSnippet,
@@ -68,6 +78,7 @@
 
 	const buildEmptySelected = () => ({
 		triggerId: singleKind?.id,
+		templateId: undefined as undefined | string,
 		language: undefined as undefined | ScriptLang,
 		outputId: undefined as undefined | PipelineOutputKind,
 		scriptPath: `${defaultPathSuffix ?? 'pipeline_script'}_${shortSlug()}`,
@@ -92,7 +103,9 @@
 		PIPELINE_OUTPUT_KINDS.filter((k) => compatibleKinds.includes(k.id))
 	)
 
-	let showBottomPanel = $derived(selected.triggerId && selected.language && selected.outputId)
+	let showBottomPanel = $derived(
+		!!selected.templateId || (selected.triggerId && selected.language && selected.outputId)
+	)
 
 	function shortSlug(len = 4): string {
 		const a = 'abcdefghijklmnopqrstuvwxyz0123456789'
@@ -103,7 +116,17 @@
 
 	function confirm(close: () => void) {
 		const suffix = selected.scriptPath.trim()
-		if (!suffix || !selected.triggerId || !selected.language || !selected.outputId) return
+		if (!suffix) return
+		if (selected.templateId) {
+			onPick({
+				kindId: 'ingestion_template',
+				templateId: selected.templateId,
+				path: pathPrefix + suffix
+			})
+			close()
+			return
+		}
+		if (!selected.triggerId || !selected.language || !selected.outputId) return
 		const trimmedPrompt = selected.aiPrompt?.trim()
 		onPick({
 			kindId: selected.triggerId,
@@ -163,11 +186,14 @@
 		>
 			<div class="text-2xs font-normal text-secondary ml-2 mb-1">Trigger</div>
 			{#each kinds as k}
-				{@const isSelected = selected.triggerId == k.id}
+				{@const isSelected = selected.triggerId == k.id && !selected.templateId}
 				<Button
 					variant="subtle"
 					btnClasses={'text-left'}
-					onClick={() => (selected.triggerId = k.id)}
+					onClick={() => {
+						selected.triggerId = k.id
+						selected.templateId = undefined
+					}}
 					selected={isSelected}
 				>
 					{#if k.icon}
@@ -195,6 +221,50 @@
 					</span>
 				</Button>
 			{/each}
+			{#if templates.length > 0}
+				<div class="text-2xs font-normal text-secondary ml-2 mb-1 mt-3 pt-2 border-t"
+					>Ingestion templates</div
+				>
+				{#each templates as t}
+					{@const isSelected = selected.templateId === t.id}
+					<Button
+						variant="subtle"
+						btnClasses={'text-left'}
+						onClick={() => {
+							// A template implies trigger + language + output — selecting
+							// one short-circuits the other columns straight to the path
+							// panel (see `showBottomPanel`).
+							selected.templateId = t.id
+							selected.triggerId = undefined
+						}}
+						selected={isSelected}
+					>
+						{#if t.icon}
+							{@const Icon = t.icon}
+							<Icon
+								size={14}
+								class={twMerge(
+									'shrink-0 my-auto mr-1.5',
+									isSelected ? 'text-accent' : 'text-secondary'
+								)}
+							/>
+						{/if}
+						<span class="flex flex-col items-start flex-1 min-w-0">
+							<span class="text-xs font-normal leading-tight">{t.label}</span>
+							{#if t.description}
+								<span
+									class={twMerge(
+										'text-2xs font-normal leading-snug mt-0.5',
+										isSelected ? 'text-accent/80' : 'text-hint'
+									)}
+								>
+									{t.description}
+								</span>
+							{/if}
+						</span>
+					</Button>
+				{/each}
+			{/if}
 		</div>
 	{/if}
 
@@ -202,7 +272,7 @@
 		bind:this={languageEl}
 		class={twMerge(
 			'flex flex-col gap-1 p-2 overflow-auto transition-opacity w-48',
-			selected.triggerId ? '' : 'opacity-20'
+			selected.triggerId && !selected.templateId ? '' : 'opacity-20'
 		)}
 		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => outputEl) })}
 	>
@@ -232,7 +302,7 @@
 		bind:this={outputEl}
 		class={twMerge(
 			'flex flex-col gap-1 p-2 grow w-80 overflow-auto transition-opacity',
-			selected.triggerId && selected.language ? '' : 'opacity-20'
+			selected.triggerId && selected.language && !selected.templateId ? '' : 'opacity-20'
 		)}
 		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => pathEl, { timeout: 50 }) })}
 	>
@@ -270,24 +340,26 @@
 			<TextInput bind:value={selected.scriptPath} class="rounded-l-none" />
 		</div>
 	</Label>
-	<Label label="AI Prompt (optional)">
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			bind:this={aiPromptEl}
-			onkeydown={(e) =>
-				(e.metaKey || e.ctrlKey) && e.key === 'Enter' && (confirm(close), e.stopPropagation())}
-		>
-			<TextInput
-				class="resize-none h-12 !max-h-12"
-				underlyingInputEl="textarea"
-				inputProps={{
-					placeholder: 'Describe what the script should do — leave empty to use a template'
-				}}
-				bind:value={selected.aiPrompt}
-			/>
-		</div>
-	</Label>
-	{@const hasAiPrompt = !!selected.aiPrompt?.trim()}
+	{#if !selected.templateId}
+		<Label label="AI Prompt (optional)">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				bind:this={aiPromptEl}
+				onkeydown={(e) =>
+					(e.metaKey || e.ctrlKey) && e.key === 'Enter' && (confirm(close), e.stopPropagation())}
+			>
+				<TextInput
+					class="resize-none h-12 !max-h-12"
+					underlyingInputEl="textarea"
+					inputProps={{
+						placeholder: 'Describe what the script should do — leave empty to use a template'
+					}}
+					bind:value={selected.aiPrompt}
+				/>
+			</div>
+		</Label>
+	{/if}
+	{@const hasAiPrompt = !selected.templateId && !!selected.aiPrompt?.trim()}
 	<div class="ml-auto">
 		<Button
 			variant="accent"

@@ -61,6 +61,9 @@
 			outputKind: import('./pipelineTemplates').PipelineOutputKind,
 			aiPrompt?: string
 		) => void
+		// Ingestion-template pick from the same + menu: seeds every script of
+		// the template (entry + loader) as drafts at once.
+		onAddPipelineTemplate?: (templateId: string, path: string) => void
 		// Folder-scoped prefix shown as a read-only chip in the insert menu
 		// path input (e.g. `f/{folder}/`). Shared across top + and per-asset +.
 		pathPrefix?: string
@@ -174,6 +177,7 @@
 		onselect,
 		onAddScriptForAsset,
 		onAddPipelineScript,
+		onAddPipelineTemplate,
 		pathPrefix = '',
 		defaultPathSuffix = '',
 		onRunProducer,
@@ -267,6 +271,7 @@
 				type: 'add',
 				data: {
 					onAddPipelineScript: onAddPipelineScript!,
+					onAddPipelineTemplate,
 					pathPrefix,
 					defaultPathSuffix
 				}

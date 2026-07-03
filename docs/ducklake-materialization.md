@@ -2,7 +2,9 @@
 
 Design sketch for "managed, versioned, incremental" assets built on the
 DuckLake substrate. This is a companion to [`pipelines-vs-dbt.md`](./pipelines-vs-dbt.md)
-and extends its **Path C (hybrid, partition-first)** recommendation. The new
+and extends its **Path C (hybrid, partition-first)** recommendation. For the
+extract-load side that feeds these materializations, see
+[`pipeline-ingestion.md`](./pipeline-ingestion.md). The new
 contribution here is leveraging DuckLake's snapshot/time-travel layer, which
 the earlier doc's incremental deep-dive did not use. The annotation grammar is
 reconciled with that doc — `// partitioned` + `// unique_key` + `// append`
