@@ -399,3 +399,42 @@ describe('truncateToToolPairedPrefix', () => {
 		expect(truncateToToolPairedPrefix(msgs)).toEqual(msgs)
 	})
 })
+
+describe('runChatLoop history sanitization', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage
+		})
+	})
+
+	it('replaces unparseable historical tool_call arguments before sending, without mutating the stored history', async () => {
+		const config = createConfig({ workspace: `workspace-${randomUUID()}` })
+		const poisoned: ChatCompletionMessageParam = {
+			role: 'assistant',
+			tool_calls: [
+				{
+					id: 'call_1',
+					type: 'function',
+					function: { name: 'patch_app_file', arguments: '{"path": "u/x", "old_string": "trunc' }
+				}
+			]
+		}
+		config.messages.push(poisoned, {
+			role: 'tool',
+			tool_call_id: 'call_1',
+			content: 'Error while calling tool'
+		})
+
+		await runChatLoop(config)
+
+		const sent = mocks.getOpenAIResponsesCompletion.mock.calls[0][0] as any[]
+		const sentAssistant = sent.find((m) => m.role === 'assistant' && m.tool_calls)
+		expect(sentAssistant.tool_calls[0].function.arguments).toBe('{}')
+		expect((poisoned as any).tool_calls[0].function.arguments).toContain('trunc')
+	})
+})

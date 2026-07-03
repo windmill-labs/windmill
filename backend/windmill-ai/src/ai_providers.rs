@@ -145,16 +145,73 @@ impl AIProvider {
             || matches!(self, AIProvider::AzureOpenAI | AIProvider::AzureFoundry)
     }
 
-    /// Build an Azure-style URL (Azure OpenAI / Azure AI Foundry) for the given path
+    /// Build an Azure-style OpenAI-compatible URL (Azure OpenAI / Azure AI Foundry)
+    /// for the given path. The resource base URL may be stored as the bare resource
+    /// root (e.g. `https://<res>.services.ai.azure.com`) or with a legacy `/openai`
+    /// or `/openai/v1` suffix (older Foundry resources shipped that way); those forms
+    /// resolve to the canonical `<root>/openai/v1/<path>`. Any other explicit path
+    /// (e.g. an Azure OpenAI `.../openai/deployments/<id>` base) is preserved as-is
+    /// with only `/<path>` appended.
     pub fn build_azure_openai_url(base_url: &str, path: &str) -> String {
         let base_url = base_url.trim_end_matches('/');
-        if base_url.ends_with("/openai") {
+        if base_url.ends_with("/openai/v1") {
+            format!("{}/{}", base_url, path)
+        } else if base_url.ends_with("/openai") {
             format!("{}/v1/{}", base_url, path)
         } else if base_url.ends_with("/deployments") {
             format!("{}/v1/{}", base_url.trim_end_matches("/deployments"), path)
+        } else if Self::is_bare_host(base_url) {
+            // A resource root with no path (Foundry convention, or an Azure OpenAI
+            // resource root) targets the OpenAI-compatible v1 surface.
+            format!("{}/openai/v1/{}", base_url, path)
         } else {
+            // Any other explicit base path (e.g. an Azure OpenAI deployment URL
+            // `.../openai/deployments/<id>`) is kept intact.
             format!("{}/{}", base_url, path)
         }
+    }
+
+    /// Whether the URL is a bare scheme+host with no path component, e.g.
+    /// `https://x.services.ai.azure.com` (vs `https://x.openai.azure.com/openai/deployments/y`).
+    fn is_bare_host(url: &str) -> bool {
+        let after_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+        !after_scheme.contains('/')
+    }
+
+    /// Strip any known Foundry API sub-path from the resource base URL to recover the
+    /// resource root, so the correct per-model-family path can be appended. Handles
+    /// both the current root-URL convention and legacy `/openai/v1`-style values.
+    fn azure_foundry_root(base_url: &str) -> &str {
+        let base_url = base_url.trim_end_matches('/');
+        for suffix in [
+            "/openai/v1",
+            "/anthropic/v1",
+            "/openai",
+            "/anthropic",
+            "/models",
+        ] {
+            if let Some(root) = base_url.strip_suffix(suffix) {
+                return root.trim_end_matches('/');
+            }
+        }
+        base_url
+    }
+
+    /// Build an Azure AI Foundry Anthropic Messages API URL. Claude deployments on
+    /// Foundry are served only through `<root>/anthropic/v1/...`, not the
+    /// OpenAI-compatible `/openai/v1` surface.
+    pub fn build_azure_foundry_anthropic_url(base_url: &str, path: &str) -> String {
+        format!(
+            "{}/anthropic/v1/{}",
+            Self::azure_foundry_root(base_url),
+            path
+        )
+    }
+
+    /// Whether a Foundry deployment name refers to an Anthropic (Claude) model,
+    /// which requires the Anthropic Messages API rather than OpenAI chat completions.
+    pub fn is_anthropic_model(model: &str) -> bool {
+        model.to_lowercase().starts_with("claude")
     }
 
     /// Extract model from request body (needed for Azure deployments)
@@ -193,4 +250,82 @@ pub struct ProviderConfig {
 pub struct ProviderModel {
     pub model: String,
     pub provider: AIProvider,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn azure_openai_url_handles_root_and_legacy_suffixes() {
+        // Current convention: resource stores the bare root.
+        assert_eq!(
+            AIProvider::build_azure_openai_url(
+                "https://wm-test-ai.services.ai.azure.com",
+                "chat/completions"
+            ),
+            "https://wm-test-ai.services.ai.azure.com/openai/v1/chat/completions"
+        );
+        // Legacy resources that already baked in /openai/v1 must still resolve.
+        assert_eq!(
+            AIProvider::build_azure_openai_url(
+                "https://wm-test-ai.services.ai.azure.com/openai/v1/",
+                "chat/completions"
+            ),
+            "https://wm-test-ai.services.ai.azure.com/openai/v1/chat/completions"
+        );
+        // Azure OpenAI resources typically end in /openai.
+        assert_eq!(
+            AIProvider::build_azure_openai_url(
+                "https://example.openai.azure.com/openai",
+                "chat/completions"
+            ),
+            "https://example.openai.azure.com/openai/v1/chat/completions"
+        );
+        assert_eq!(
+            AIProvider::build_azure_openai_url(
+                "https://example.openai.azure.com/openai/deployments",
+                "chat/completions"
+            ),
+            "https://example.openai.azure.com/openai/v1/chat/completions"
+        );
+        // An Azure OpenAI base that pins a specific deployment must be preserved
+        // as-is (not have /openai/v1 appended after the deployment id).
+        assert_eq!(
+            AIProvider::build_azure_openai_url(
+                "https://example.openai.azure.com/openai/deployments/my-deployment",
+                "chat/completions"
+            ),
+            "https://example.openai.azure.com/openai/deployments/my-deployment/chat/completions"
+        );
+    }
+
+    #[test]
+    fn azure_foundry_anthropic_url_from_root_and_legacy() {
+        // Root URL.
+        assert_eq!(
+            AIProvider::build_azure_foundry_anthropic_url(
+                "https://wm-test-ai.services.ai.azure.com",
+                "messages"
+            ),
+            "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
+        );
+        // Legacy /openai/v1 base is normalized back to the root, then routed to
+        // the Anthropic Messages API.
+        assert_eq!(
+            AIProvider::build_azure_foundry_anthropic_url(
+                "https://wm-test-ai.services.ai.azure.com/openai/v1",
+                "messages"
+            ),
+            "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
+        );
+    }
+
+    #[test]
+    fn detects_anthropic_models() {
+        assert!(AIProvider::is_anthropic_model("claude-sonnet-5"));
+        assert!(AIProvider::is_anthropic_model("Claude-Opus-4-8"));
+        assert!(!AIProvider::is_anthropic_model("gpt-4o"));
+        assert!(!AIProvider::is_anthropic_model("DeepSeek-R1"));
+    }
 }
