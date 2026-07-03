@@ -53,22 +53,29 @@
 	// only the items that chat modified. The mask is the chat's stored
 	// `${UserDraftItemKind}:${storagePath}` set; undefined for a legacy chat (no
 	// stored mask) → the children fall back to selecting all deployable items.
-	const fromChatId = page.url.searchParams.get('from_session')
+	// Derived from the live URL: an in-app navigation to this route with a
+	// different from_session must reload the mask, not keep the first one.
+	const fromChatId = $derived(page.url.searchParams.get('from_session'))
 	let chatMask = $state<Set<string> | undefined>(undefined)
 	// The mask loads asynchronously, while the resolved value can legitimately be
 	// undefined (legacy chat). The children must not run their select-all default
 	// until the mask is known, else they'd race it and select everything. Ready
 	// immediately when there's no session to read from.
-	let chatMaskReady = $state(!fromChatId)
+	let chatMaskReady = $state(!page.url.searchParams.get('from_session'))
 	$effect(() => {
-		if (!fromChatId) return
+		const id = fromChatId
+		chatMask = undefined
+		chatMaskReady = !id
+		if (!id) return
 		untrack(() => {
-			void readChatModifiedItems(fromChatId)
+			void readChatModifiedItems(id)
 				.then((arr) => {
+					// A slower read for a superseded chat id must not win.
+					if (id !== untrack(() => fromChatId)) return
 					chatMask = arr ? new Set(arr) : undefined
 				})
 				.finally(() => {
-					chatMaskReady = true
+					if (id === untrack(() => fromChatId)) chatMaskReady = true
 				})
 		})
 	})

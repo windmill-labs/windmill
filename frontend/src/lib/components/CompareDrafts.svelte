@@ -271,8 +271,12 @@
 	let deployPerm = $state<DeployPermission>({ ok: true })
 	$effect(() => {
 		const ws = currentWorkspaceId
-		untrack(() => {
-			void checkDeployPermission(ws).then((p) => (deployPerm = p))
+		// Reset to fail-open on workspace change, and drop a stale resolution —
+		// otherwise the previous workspace's verdict lingers (or lands last) and
+		// gates the wrong workspace.
+		deployPerm = { ok: true }
+		void checkDeployPermission(ws).then((p) => {
+			if (ws === currentWorkspaceId) deployPerm = p
 		})
 	})
 	// Select all on the first non-empty load (deploy-all is the common intent);

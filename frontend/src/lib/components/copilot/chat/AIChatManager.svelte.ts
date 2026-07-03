@@ -2099,6 +2099,10 @@ export class AIChatManager {
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
+		// The mask belongs to the conversation just saved — the fresh chat starts
+		// its own (empty) tracking; carrying entries over would claim the previous
+		// conversation's edits for the new one. Untracked chats stay untracked.
+		if (this.modifiedItems) this.modifiedItems = new SvelteSet()
 		// In an AI session, linked files are session-scoped: they persist across conversations
 		// (cleared only when the session is deleted). The ephemeral global side-panel chat has no
 		// session, so "New chat" must clear them — otherwise the next, unrelated conversation

@@ -76,10 +76,15 @@ export function useExistingMaskKeys(
 		void recheck
 		const { workspaceId, ...buildInput } = getInput()
 		const cands = maskOnlyCandidates(buildInput)
-		const sig = cands
-			.map((c) => c.key)
-			.sort()
-			.join(',')
+		// The workspace is part of the identity: the same candidate keys in a
+		// different workspace must re-check, not reuse the previous verdict.
+		const sig =
+			workspaceId +
+			'|' +
+			cands
+				.map((c) => c.key)
+				.sort()
+				.join(',')
 		untrack(() => {
 			if (sig === lastCandidateSig) return
 			lastCandidateSig = sig
@@ -167,6 +172,10 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	function load() {
 		// Re-check existence fresh (an item may have been deleted since last open).
 		existing.reset()
+		// Drop the optimistic bridge with it: it only covers the gap until the
+		// fresh check resolves, and a stale entry would keep a since-deleted item
+		// reading as deployed forever.
+		deployedKeys = new Set()
 		// Staleness can change between opens (a deploy elsewhere moves the head).
 		staleFetched.clear()
 		staleKeys = new Set()
@@ -207,7 +216,12 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		untrack(() => {
 			if (!ws || deployPermFetchedFor === ws) return
 			deployPermFetchedFor = ws
-			void checkDeployPermission(ws).then((perm) => (deployPerm = perm))
+			// Reset to fail-open for the new workspace and drop a stale resolution
+			// (a slower fetch for the previous workspace must not gate this one).
+			deployPerm = { ok: true }
+			void checkDeployPermission(ws).then((perm) => {
+				if (deployPermFetchedFor === ws) deployPerm = perm
+			})
 		})
 	})
 

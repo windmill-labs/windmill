@@ -4250,6 +4250,9 @@ async function deployDraft(
 	})
 
 	let actions: ToolDisplayAction[] | undefined
+	// Where the deploy actually lands — the app branch can resolve a different
+	// target from the draft's own path fields; the mask rename below must track it.
+	let deployedPath = path
 
 	if (type === 'script' || type === 'flow') {
 		// Promote the full persisted draft via the shared deploy module — the same
@@ -4442,6 +4445,7 @@ async function deployDraft(
 						throw e
 					}
 				}
+				deployedPath = targetPath
 				if (await AppService.existsApp({ workspace, path: targetPath })) {
 					// Omit custom_path on update for now. The backend preserves it when absent, while
 					// sending it requires admin privileges; this chat deploy path does not yet mirror
@@ -4499,7 +4503,7 @@ async function deployDraft(
 		toolCallbacks.onItemDeployed?.(
 			deployedKind,
 			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
-			path
+			deployedPath
 		)
 	}
 
