@@ -16,6 +16,7 @@
 		Upload
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
+	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
@@ -201,6 +202,12 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
+			{#if uriState.isDatatableInput && uriState.selectedDatatable && $workspaceStore}
+				<DataTableMigrationsButton
+					workspace={$workspaceStore}
+					datatable={uriState.selectedDatatable}
+				/>
+			{/if}
 			{#if enableImportExport}
 				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>
 				<Button startIcon={{ icon: Upload }} onClick={() => (importDrawerOpen = true)}>
@@ -214,11 +221,11 @@
 					dbManagerContent?.dbManager()?.dbTable()?.refresh()
 				}}
 				startIcon={{ icon: RefreshCcw }}
+				iconOnly
+				title="Refresh"
 				size="xs"
 				color="light"
-			>
-				Refresh
-			</Button>
+			/>
 
 			<Button
 				on:click={() => (expand = !expand)}
@@ -234,7 +241,9 @@
 	<DrawerContent title="Export Schemas" on:close={() => (exportDrawerOpen = false)}>
 		{#if exportResult}
 			<div class="flex flex-col gap-2 h-full relative">
-				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1">{exportResult}</pre>
+				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1"
+					>{exportResult}</pre
+				>
 				<Button
 					size="xs"
 					color="light"
