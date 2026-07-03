@@ -10,7 +10,6 @@ import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { assert } from '$lib/utils'
 import { WorkspaceService } from '$lib/gen'
-import { randomUUID } from '$lib/utils/uuid'
 import {
 	buildTableEditorValues,
 	type TableEditorValues
@@ -268,12 +267,11 @@ export function dbSchemaOpsWithPreviewScripts({
 		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
 	}
 
-	// Auto-generated migration name, e.g. `create_customers_2da8`. The slug keeps
-	// successive changes to the same object from colliding on the same timestamp.
+	// Auto-generated migration name, e.g. `create_customers`. The server allocates
+	// a unique timestamp (bumping on collision), so the name itself need not be unique.
 	function migrationName(op: string, target: string): string {
-		const slug = randomUUID().slice(0, 4)
 		const safe = target.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '')
-		return safe ? `${op}_${safe}_${slug}` : `${op}_${slug}`
+		return safe ? `${op}_${safe}` : op
 	}
 
 	// A dropped SERIAL column reports its default as `nextval()` of an owned
