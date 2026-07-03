@@ -3,9 +3,11 @@ import { JobService } from '$lib/gen'
 export type RunStatus = 'running' | 'success' | 'failure'
 /**
  * Per-runnable badge state: latest run status + runs observed this session.
- * `lastSuccessAt` is the start time of the newest successful run seen by the
- * poll — lets the freshness chip go green right after an in-session run,
- * ahead of the next graph refetch (whose `last_success_at` would carry it).
+ * `lastSuccessAt` is the completion time (start + duration when the listing
+ * carries it, else start as a conservative lower bound) of the newest
+ * successful run seen by the poll — lets the freshness chip go green right
+ * after an in-session run, ahead of the next graph refetch (whose
+ * `last_success_at` would carry it).
  */
 export type RunnableRunState = { status: RunStatus; runs: number; lastSuccessAt?: string }
 
@@ -19,6 +21,12 @@ export type PipelineEvent = {
 	/** What started it, as far as the job listing reveals. */
 	source: 'schedule' | 'run'
 	at: string
+	/**
+	 * Completion time (start + duration) for completed rows. The freshness
+	 * chip compares against completion — `at` is the start time and would
+	 * read a long run as older than its output actually is.
+	 */
+	completedAt?: string
 	/**
 	 * Queued jobs: when the job is due to start. A future value means a
 	 * scheduled run waiting for its cron tick, not pipeline activity.
@@ -247,13 +255,24 @@ export function useActiveRunnableIds(
 						const prev = completedHistory.get(id)
 						const status: RunStatus = (j as any).success === true ? 'success' : 'failure'
 						const ts = startedTs ?? new Date(pollStartedMs).toISOString()
+						// Freshness compares against COMPLETION time (that's
+						// when the output materialized — the server-side
+						// last_success_at is completed_at too). The listing
+						// only carries started_at, so add duration_ms; when
+						// absent, the start is a conservative lower bound
+						// (errs stale, never false-fresh).
+						const durationMs = (j as any).duration_ms
+						const doneTs =
+							typeof durationMs === 'number' && startedTs
+								? new Date(new Date(startedTs).getTime() + durationMs).toISOString()
+								: ts
 						completedHistory.set(id, {
 							runs: (prev?.runs ?? 0) + 1,
 							lastStatus: !prev || ts >= prev.lastTs ? status : prev.lastStatus,
 							lastTs: !prev || ts >= prev.lastTs ? ts : prev.lastTs,
 							lastSuccessTs:
-								status === 'success' && (!prev?.lastSuccessTs || ts >= prev.lastSuccessTs)
-									? ts
+								status === 'success' && (!prev?.lastSuccessTs || doneTs >= prev.lastSuccessTs)
+									? doneTs
 									: prev?.lastSuccessTs
 						})
 					}
@@ -277,6 +296,10 @@ export function useActiveRunnableIds(
 								: 'failure',
 						source: (j as any).schedule_path ? 'schedule' : 'run',
 						at: startedTs ?? new Date(pollStartedMs).toISOString(),
+						completedAt:
+							!isQueued && typeof (j as any).duration_ms === 'number' && startedTs
+								? new Date(new Date(startedTs).getTime() + (j as any).duration_ms).toISOString()
+								: undefined,
 						scheduledFor: isQueued ? ((j as any).scheduled_for as string | undefined) : undefined
 					})
 				}

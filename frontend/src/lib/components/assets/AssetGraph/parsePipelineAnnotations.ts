@@ -79,8 +79,11 @@ export function parseDurationSecs(s: string): number | undefined {
 	const mult =
 		last === 's' ? 1 : last === 'm' ? 60 : last === 'h' ? 3600 : last === 'd' ? 86400 : undefined
 	const num = (mult !== undefined ? t.slice(0, -1) : t).trim()
-	if (mult === undefined && !/^\d+$/.test(t)) return undefined
-	if (!/^\d+$/.test(num)) return undefined
+	// `+?`: Rust's i64 parsing accepts an explicit plus sign (`+5m`), so the
+	// mirror must too — divergence here would leave the chip neutral for a
+	// window the deploy path and watchdog honor.
+	if (mult === undefined && !/^\+?\d+$/.test(t)) return undefined
+	if (!/^\+?\d+$/.test(num)) return undefined
 	const secs = Number(num) * (mult ?? 1)
 	if (!Number.isSafeInteger(secs) || secs <= 0 || secs > 2147483647) return undefined
 	return secs

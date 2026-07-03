@@ -208,6 +208,11 @@ describe('parseDurationSecs', () => {
 		expect(parseDurationSecs(' 5 m ')).toBe(300)
 	})
 
+	it('accepts an explicit plus sign (Rust i64 parsing does)', () => {
+		expect(parseDurationSecs('+5m')).toBe(300)
+		expect(parseDurationSecs('+45')).toBe(45)
+	})
+
 	it('rejects malformed / non-positive input', () => {
 		expect(parseDurationSecs('')).toBeUndefined()
 		expect(parseDurationSecs('h')).toBeUndefined()

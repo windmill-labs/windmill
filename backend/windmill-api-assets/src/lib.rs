@@ -950,7 +950,13 @@ async fn asset_graph(
                  WHERE j.workspace_id = $1
                    AND j.runnable_path = p.path
                    AND j.parent_job IS NULL
-                   AND j.kind IN ('script', 'preview', 'singlestepflow')
+                   -- No 'singlestepflow': flows may share a script's path, and
+                   -- a same-path flow run must not read as the script being
+                   -- fresh (false-fresh). Script retries land as native
+                   -- 'script' jobs; only the rare flow-wrapper fallback is
+                   -- missed, which errs stale. Kept in lockstep with the
+                   -- freshness watchdog's queries (freshness_watchdog_ee).
+                   AND j.kind IN ('script', 'preview')
                    AND c.status = 'success'
                  ORDER BY j.created_at DESC
                  LIMIT 1) AS last_success_at
