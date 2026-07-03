@@ -9,6 +9,7 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { tick } from 'svelte'
 
 	let {
 		workspace,
@@ -40,6 +41,7 @@
 	})
 	let tab = $state('up')
 	let name = $state('')
+	let nameInput = $state<TextInput>()
 	let codeUp = $state('')
 	let enableDown = $state(false)
 	let codeDown = $state('')
@@ -69,6 +71,8 @@
 		enableDown = (prefill?.codeDown ?? '') !== ''
 		tab = 'up'
 		isOpen = true
+		// Focus the name field once the modal content has rendered.
+		tick().then(() => nameInput?.focus())
 	}
 
 	async function create(run: boolean) {
@@ -137,7 +141,9 @@
 >
 	<div class="flex flex-col gap-3 w-full grow min-h-0">
 		<TextInput
+			bind:this={nameInput}
 			bind:value={name}
+			error={name.trim() === ''}
 			inputProps={{ placeholder: 'Migration name (e.g. add_index_to_customers)' }}
 		/>
 		<Tabs bind:selected={tab} class="grow min-h-0">
