@@ -148,8 +148,10 @@ impl AIProvider {
     /// Build an Azure-style OpenAI-compatible URL (Azure OpenAI / Azure AI Foundry)
     /// for the given path. The resource base URL may be stored as the bare resource
     /// root (e.g. `https://<res>.services.ai.azure.com`) or with a legacy `/openai`
-    /// or `/openai/v1` suffix (older Foundry resources shipped that way); all forms
-    /// resolve to the canonical `<root>/openai/v1/<path>`.
+    /// or `/openai/v1` suffix (older Foundry resources shipped that way); those forms
+    /// resolve to the canonical `<root>/openai/v1/<path>`. Any other explicit path
+    /// (e.g. an Azure OpenAI `.../openai/deployments/<id>` base) is preserved as-is
+    /// with only `/<path>` appended.
     pub fn build_azure_openai_url(base_url: &str, path: &str) -> String {
         let base_url = base_url.trim_end_matches('/');
         if base_url.ends_with("/openai/v1") {
@@ -158,9 +160,22 @@ impl AIProvider {
             format!("{}/v1/{}", base_url, path)
         } else if base_url.ends_with("/deployments") {
             format!("{}/v1/{}", base_url.trim_end_matches("/deployments"), path)
-        } else {
+        } else if Self::is_bare_host(base_url) {
+            // A resource root with no path (Foundry convention, or an Azure OpenAI
+            // resource root) targets the OpenAI-compatible v1 surface.
             format!("{}/openai/v1/{}", base_url, path)
+        } else {
+            // Any other explicit base path (e.g. an Azure OpenAI deployment URL
+            // `.../openai/deployments/<id>`) is kept intact.
+            format!("{}/{}", base_url, path)
         }
+    }
+
+    /// Whether the URL is a bare scheme+host with no path component, e.g.
+    /// `https://x.services.ai.azure.com` (vs `https://x.openai.azure.com/openai/deployments/y`).
+    fn is_bare_host(url: &str) -> bool {
+        let after_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+        !after_scheme.contains('/')
     }
 
     /// Strip any known Foundry API sub-path from the resource base URL to recover the
@@ -273,6 +288,15 @@ mod tests {
                 "chat/completions"
             ),
             "https://example.openai.azure.com/openai/v1/chat/completions"
+        );
+        // An Azure OpenAI base that pins a specific deployment must be preserved
+        // as-is (not have /openai/v1 appended after the deployment id).
+        assert_eq!(
+            AIProvider::build_azure_openai_url(
+                "https://example.openai.azure.com/openai/deployments/my-deployment",
+                "chat/completions"
+            ),
+            "https://example.openai.azure.com/openai/deployments/my-deployment/chat/completions"
         );
     }
 
