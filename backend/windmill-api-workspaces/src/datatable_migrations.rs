@@ -216,44 +216,24 @@ async fn run_datatable_migration_job(
     Ok(())
 }
 
-/// Ensure the `_wm_migrations` bookkeeping table exists and is keyed by
-/// `(datatable, version)`. Migration versions are only unique per data table,
-/// but several data-table configs can point at one physical database, so a
-/// version-only key would let one data table's migration mark another's
-/// same-version migration as already applied (and rollback could touch the
-/// wrong row). Legacy version-only-keyed tables are upgraded in place, their
-/// rows backfilled to `datatable` (correct under the previous, implicit
-/// one-config-per-database assumption).
-async fn ensure_wm_migrations_schema(
-    client: &tokio_postgres::Client,
-    datatable: &str,
-) -> Result<()> {
+/// Ensure the `_wm_migrations` bookkeeping table exists. Migration versions are
+/// only unique per data table, but several data-table configs can point at one
+/// physical database, so it is keyed by `(datatable, version)` — a version-only
+/// key would let one data table's migration mark another's same-version
+/// migration as already applied (and rollback could touch the wrong row).
+async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<()> {
     client
         .batch_execute(
             "CREATE TABLE IF NOT EXISTS _wm_migrations (\
-                version BIGINT, \
-                installed_at TIMESTAMPTZ NOT NULL DEFAULT now()); \
-             ALTER TABLE _wm_migrations ADD COLUMN IF NOT EXISTS datatable TEXT; \
-             ALTER TABLE _wm_migrations DROP CONSTRAINT IF EXISTS _wm_migrations_pkey;",
+                datatable TEXT NOT NULL, \
+                version BIGINT NOT NULL, \
+                installed_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
+                PRIMARY KEY (datatable, version))",
         )
         .await
         .map_err(|e| {
             Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
         })?;
-    client
-        .execute(
-            "UPDATE _wm_migrations SET datatable = $1 WHERE datatable IS NULL",
-            &[&datatable],
-        )
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to backfill _wm_migrations: {}", e)))?;
-    client
-        .batch_execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS _wm_migrations_datatable_version_key \
-             ON _wm_migrations (datatable, version)",
-        )
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to index _wm_migrations: {}", e)))?;
     Ok(())
 }
 
@@ -314,7 +294,7 @@ async fn run_datatable_migrations(
         .await
         .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
 
-    ensure_wm_migrations_schema(&client, &datatable_name).await?;
+    ensure_wm_migrations_schema(&client).await?;
 
     let applied_versions: HashSet<i64> = client
         .query(
@@ -428,7 +408,7 @@ async fn rollback_datatable_migrations(
         .await
         .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
 
-    ensure_wm_migrations_schema(&client, &datatable_name).await?;
+    ensure_wm_migrations_schema(&client).await?;
 
     // Resolve which applied version to roll back: a specific one when `only` is
     // given (and actually applied), otherwise the most recently applied. Scoped
@@ -625,10 +605,7 @@ async fn read_applied_datatable_versions(
         }
     });
 
-    // Read-only status path: don't upgrade the schema here. Scope by data table
-    // when the `datatable` column exists; fall back to the unscoped read for a
-    // legacy table that predates scoping and hasn't been run since.
-    let sql_code = |e: &tokio_postgres::Error| e.as_db_error().map(|d| d.code().code().to_string());
+    // Read-only status path: don't create the table here. Scope by data table.
     match client
         .query(
             "SELECT version FROM _wm_migrations WHERE datatable = $1",
@@ -638,19 +615,7 @@ async fn read_applied_datatable_versions(
     {
         Ok(rows) => Ok(rows.iter().map(|row| row.get::<_, i64>(0)).collect()),
         // 42P01 = undefined_table: the data table has never been migrated yet.
-        Err(e) if sql_code(&e).as_deref() == Some("42P01") => Ok(HashSet::new()),
-        // 42703 = undefined_column: legacy version-only table, read unscoped.
-        Err(e) if sql_code(&e).as_deref() == Some("42703") => match client
-            .query("SELECT version FROM _wm_migrations", &[])
-            .await
-        {
-            Ok(rows) => Ok(rows.iter().map(|row| row.get::<_, i64>(0)).collect()),
-            Err(e) if sql_code(&e).as_deref() == Some("42P01") => Ok(HashSet::new()),
-            Err(e) => Err(Error::internal_err(format!(
-                "Failed to read _wm_migrations: {}",
-                e
-            ))),
-        },
+        Err(e) if e.as_db_error().map(|d| d.code().code()) == Some("42P01") => Ok(HashSet::new()),
         Err(e) => Err(Error::internal_err(format!(
             "Failed to read _wm_migrations: {}",
             e
@@ -951,7 +916,7 @@ async fn mark_datatable_version_installed(
             tracing::error!("Datatable connection error: {}", e);
         }
     });
-    ensure_wm_migrations_schema(&client, datatable).await?;
+    ensure_wm_migrations_schema(&client).await?;
     client
         .execute(
             "INSERT INTO _wm_migrations (datatable, version) VALUES ($1, $2) \
@@ -1304,11 +1269,11 @@ async fn resolve_datatable_pg(db: &DB, w_id: &str, datatable: &str) -> Result<Pg
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
-/// Tolerate a data table whose database has no scoped `_wm_migrations` yet:
-/// 42P01 = no table, 42703 = legacy version-only table (nothing keyed by name).
+/// Tolerate a data table whose database has no `_wm_migrations` yet (42P01 =
+/// undefined_table): it has never run a migration, so nothing to rename or forget.
 fn ignore_missing_wm_migrations(e: tokio_postgres::Error) -> Result<()> {
     match e.as_db_error().map(|d| d.code().code()) {
-        Some("42P01") | Some("42703") => Ok(()),
+        Some("42P01") => Ok(()),
         _ => Err(Error::internal_err(format!(
             "Failed to update _wm_migrations: {}",
             e
