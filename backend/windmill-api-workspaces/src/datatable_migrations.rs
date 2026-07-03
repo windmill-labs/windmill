@@ -1173,9 +1173,10 @@ async fn upsert_datatable_migration(
 }
 
 /// Generate the first migration for a data table by snapshotting its current
-/// schema with `pg_dump`. The migration is recorded as already installed (its
-/// version is written to `_wm_migrations` *before* the definition row, so it is
-/// always considered applied and never re-run) and has no down migration.
+/// schema with `pg_dump`. The migration is recorded as already installed (the
+/// definition is written first, then its version is marked in the data table's
+/// `_wm_migrations`, so it ends up considered applied and is never re-run) and
+/// has no down migration.
 async fn generate_initial_datatable_migration(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
