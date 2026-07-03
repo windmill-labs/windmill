@@ -4728,34 +4728,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/DatatableMigration"
 
-  /w/{workspace}/workspaces/update_datatable_migrations:
-    post:
-      summary: replace the workspace's datatable migrations
-      operationId: updateDatatableMigrations
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [migrations]
-              properties:
-                migrations:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/DatatableMigration"
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/workspaces/datatable_migrations_status/{datatable_name}:
     get:
       summary: list a datatable's migrations with their applied status

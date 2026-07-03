@@ -52,10 +52,6 @@ pub(crate) fn routes() -> Router {
         )
         .route("/list_datatable_migrations", get(list_datatable_migrations))
         .route(
-            "/update_datatable_migrations",
-            post(update_datatable_migrations),
-        )
-        .route(
             "/datatable_migrations_status/{datatable_name}",
             get(datatable_migrations_status),
         )
@@ -511,84 +507,6 @@ async fn list_datatable_migrations(
     .await?;
 
     Ok(Json(migrations))
-}
-
-#[derive(Deserialize)]
-pub struct UpdateDatatableMigrations {
-    pub migrations: Vec<DatatableMigration>,
-}
-
-/// Replace the workspace's whole set of data table migrations with the provided
-/// list. Used by `wmill sync` to push the `migrations/datatable/` folder.
-async fn update_datatable_migrations(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(payload): Json<UpdateDatatableMigrations>,
-) -> Result<String> {
-    for m in &payload.migrations {
-        validate_datatable_path_segment(&m.datatable)?;
-        validate_migration_name(&m.name)?;
-    }
-
-    let datatables: Vec<String> = payload
-        .migrations
-        .iter()
-        .map(|m| m.datatable.clone())
-        .collect();
-    let timestamps: Vec<i64> = payload.migrations.iter().map(|m| m.timestamp).collect();
-    let names: Vec<String> = payload.migrations.iter().map(|m| m.name.clone()).collect();
-    let code_ups: Vec<String> = payload
-        .migrations
-        .iter()
-        .map(|m| m.code_up.clone())
-        .collect();
-    let code_downs: Vec<Option<String>> = payload
-        .migrations
-        .iter()
-        .map(|m| m.code_down.clone())
-        .collect();
-
-    let mut tx = db.begin().await?;
-
-    sqlx::query!(
-        "DELETE FROM datatable_migrations WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
-         SELECT $1, * FROM UNNEST($2::varchar[], $3::bigint[], $4::varchar[], $5::text[], $6::text[])",
-        &w_id,
-        &datatables,
-        &timestamps,
-        &names,
-        &code_ups,
-        &code_downs as &[Option<String>],
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.update_datatable_migrations",
-        ActionKind::Update,
-        &w_id,
-        Some(&authed.email),
-        Some([("count", payload.migrations.len().to_string().as_str())].into()),
-    )
-    .await?;
-
-    tx.commit().await?;
-
-    Ok(format!(
-        "Updated {} datatable migration(s) for workspace {}",
-        payload.migrations.len(),
-        &w_id
-    ))
 }
 
 #[derive(Serialize)]
