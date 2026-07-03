@@ -268,6 +268,14 @@ without anyone asking. This is deliberately **not** built, for three reasons:
 If a workload ever shows the consistency race in practice, pinning can be layered
 on top — the capture and the snapshot surfacing built here are its foundation.
 
+What **is** built is the forensic slice of that sketch: when the cascade
+dispatches a consumer, it records the latest captured snapshot of each of the
+consumer's direct upstream assets into the job's `trigger` arg
+(`upstream_snapshots`, rendered read-only on the run detail page with a
+copyable `AT (VERSION => n)` clause). "What did the failing run actually see"
+stays answerable after the fact, with zero read-path changes — reads are
+*not* pinned to the recorded versions.
+
 This is distinct from **SCD2 history** (`// materialize … key=… history`), which *is* built:
 DuckLake time-travel answers "what did the whole table look like at snapshot N?"
 but not "give me each entity's version history as queryable rows"
