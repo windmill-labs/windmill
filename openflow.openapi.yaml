@@ -1031,7 +1031,7 @@ components:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Boolean. If true, stream the AI response incrementally.
-                Streaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
+                Streaming events include: token_delta, reasoning_token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
             memory:
               $ref: '#/components/schemas/MemoryTransform'
             output_schema:
