@@ -255,6 +255,73 @@ pub async fn record_asset_schema(
     Ok(true)
 }
 
+/// One table a fork workspace should read from its parent through a defer view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForkDeferTable {
+    /// Lake-internal table name: the `asset_path` minus its `<lake>/` prefix (may itself be
+    /// `schema.table`).
+    pub table: String,
+    /// The parent asset's latest captured schema carries the SCD2 marker column
+    /// (`is_current`), so the parent lake also holds a managed `<table>_current` companion
+    /// view that consumers read — defer it alongside the table.
+    #[serde(default)]
+    pub with_current_view: bool,
+}
+
+/// Tables of lake `lake_name` materialized in the parent workspace but not (yet) in the fork —
+/// the fork's read-defer set. Only `Materialized` rows count on either side: a deferred parent
+/// table must physically exist (defer views bind at CREATE and would otherwise fail the whole
+/// job), and any successful fork materialization makes the fork's own table authoritative.
+///
+/// **Authorization:** performs no access control; trusted server-side callers only. It reads
+/// the *parent* workspace's rows on behalf of a fork — acceptable because defer itself exposes
+/// the parent's table contents to fork members.
+pub async fn list_fork_defer_tables<'e>(
+    executor: impl PgExecutor<'e>,
+    parent_workspace_id: &str,
+    fork_workspace_id: &str,
+    lake_name: &str,
+) -> Result<Vec<ForkDeferTable>> {
+    let rows = sqlx::query!(
+        r#"
+        WITH parent_mat AS (
+            SELECT DISTINCT asset_path FROM materialized_partition
+            WHERE workspace_id = $1 AND asset_kind = 'ducklake' AND status = 'materialized'
+              AND split_part(asset_path, '/', 1) = $3 AND asset_path LIKE '%/%'
+        ), fork_mat AS (
+            SELECT DISTINCT asset_path FROM materialized_partition
+            WHERE workspace_id = $2 AND asset_kind = 'ducklake' AND status = 'materialized'
+        ), latest_schema AS (
+            SELECT DISTINCT ON (asset_path) asset_path, columns
+            FROM materialized_asset_schema
+            WHERE workspace_id = $1 AND asset_kind = 'ducklake'
+            ORDER BY asset_path, version DESC
+        )
+        SELECT p.asset_path AS "asset_path!",
+               COALESCE(EXISTS (
+                   SELECT 1 FROM jsonb_array_elements(ls.columns) e
+                   WHERE e->>'name' = 'is_current'
+               ), false) AS "has_current!"
+        FROM parent_mat p
+        LEFT JOIN latest_schema ls ON ls.asset_path = p.asset_path
+        WHERE p.asset_path NOT IN (SELECT asset_path FROM fork_mat)
+        ORDER BY p.asset_path
+        "#,
+        parent_workspace_id,
+        fork_workspace_id,
+        lake_name,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ForkDeferTable {
+            table: r.asset_path[lake_name.len() + 1..].to_string(),
+            with_current_view: r.has_current,
+        })
+        .collect())
+}
+
 /// All captured schema versions for one asset, newest version first.
 ///
 /// **Authorization:** performs no access control (mirrors

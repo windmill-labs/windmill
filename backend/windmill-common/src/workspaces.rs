@@ -875,6 +875,154 @@ pub struct DucklakeWithConnData {
     pub storage: DucklakeStorage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_args: Option<String>,
+    /// Present when the resolved workspace is a fork/dev workspace. Carries the read-defer
+    /// context (ancestor namespaces + tables to expose as views over the direct parent). The
+    /// fork *write* redirect is folded into `storage.path`/`extra_args` above, so an agent
+    /// worker that predates this field still writes the fork namespace (it only misses the
+    /// defer views).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_defer: Option<DucklakeForkDefer>,
+}
+
+/// Read-defer context for a fork workspace's ducklake: which ancestor namespaces to attach
+/// read-only, and which tables to expose as views over the direct parent because the fork has
+/// not materialized them yet. `ancestors` is empty when defer is unavailable (an ancestor no
+/// longer defines the lake) — the fork namespace still isolates writes in that case.
+#[derive(Deserialize, Serialize)]
+pub struct DucklakeForkDefer {
+    /// Nearest-first (direct parent … root), each resolved from that workspace's own settings.
+    pub ancestors: Vec<DucklakeAncestorAttach>,
+    pub defer_tables: Vec<crate::materialization::ForkDeferTable>,
+}
+
+/// Connection data for one ancestor namespace of a fork's ducklake.
+#[derive(Deserialize, Serialize)]
+pub struct DucklakeAncestorAttach {
+    pub workspace_id: String,
+    /// DuckDB catalog alias this namespace must be attached under. Persisted defer-view SQL
+    /// references it, so it is a pure function of (lake name, ancestor workspace id) and every
+    /// session reading those views attaches the ancestor under this exact alias.
+    pub alias: String,
+    pub catalog: DucklakeCatalog,
+    pub catalog_resource: serde_json::Value,
+    pub storage: DucklakeStorage,
+    /// None = the lake's default metadata schema (the ancestor is a root/non-fork workspace).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_schema: Option<String>,
+}
+
+/// Prefix of fork-scoped ducklake metadata schemas. Cleanup refuses to drop any pg schema not
+/// carrying it, mirroring the `wm_fork_` guard on forked datatable databases.
+pub const FORK_DUCKLAKE_SCHEMA_PREFIX: &str = "wm_fork_";
+
+/// Sub-path (under the lake's configured data path) holding all fork namespaces' data files;
+/// each fork writes under `<lake path>/{FORK_DUCKLAKE_DATA_DIR}/<fork workspace id>`.
+pub const FORK_DUCKLAKE_DATA_DIR: &str = "__wm_forks";
+
+fn mangle_identifier(s: &str, max: usize) -> String {
+    s.chars()
+        .take(max)
+        .map(|c| {
+            let c = c.to_ascii_lowercase();
+            if c.is_ascii_alphanumeric() {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Deterministic, injective pg-schema name for a fork workspace's ducklake metadata:
+/// `wm_fork_<mangled id (≤40)>_<8-hex sha256>`, ≤57 chars (pg limit 63). The hash keeps
+/// distinct workspace ids distinct after mangling. The registry row records the computed name
+/// for cleanup, but ATTACH recomputes it — so this function must stay stable across releases
+/// or existing forks would silently lose their namespace.
+pub fn fork_ducklake_metadata_schema(w_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = hex::encode(&Sha256::digest(w_id.as_bytes())[..4]);
+    format!(
+        "{FORK_DUCKLAKE_SCHEMA_PREFIX}{}_{hash}",
+        mangle_identifier(w_id, 40)
+    )
+}
+
+/// Deterministic DuckDB attach alias for an ancestor namespace of a fork's lake. Persisted
+/// defer-view SQL references it (same stability requirement as
+/// [`fork_ducklake_metadata_schema`]).
+pub fn fork_ducklake_ancestor_alias(lake_name: &str, ancestor_w_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash =
+        hex::encode(&Sha256::digest(format!("{lake_name}\0{ancestor_w_id}").as_bytes())[..4]);
+    format!(
+        "__wm_dl_{}_{}_{hash}",
+        mangle_identifier(lake_name, 20),
+        mangle_identifier(ancestor_w_id, 20)
+    )
+}
+
+/// Strip `METADATA_SCHEMA` / `DATA_PATH` / `OVERRIDE_DATA_PATH` tokens from ducklake ATTACH
+/// extra args. In a fork these options are injected by the fork resolution; a user- or
+/// settings-supplied duplicate silently wins (DuckDB keeps the last occurrence) and would
+/// escape the fork namespace back to the parent's, so they are removed rather than overridden.
+pub fn strip_fork_reserved_attach_args(extra_args: &str) -> String {
+    lazy_static::lazy_static! {
+        static ref RESERVED: regex::Regex = regex::Regex::new(
+            r"(?i)\b(METADATA_SCHEMA|DATA_PATH|OVERRIDE_DATA_PATH)\s*('[^']*'|[A-Za-z0-9_]+)"
+        )
+        .unwrap();
+    }
+    RESERVED
+        .replace_all(extra_args, "")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+lazy_static::lazy_static! {
+    /// fork workspace id -> (ancestor chain nearest-first, expiry ts). Empty chain = not a fork.
+    /// `parent_workspace_id` only changes on dev-workspace attach/detach, so a short TTL is safe.
+    static ref FORK_ANCESTOR_CHAIN_CACHE: Cache<String, (Vec<String>, i64)> = Cache::new(5000);
+    /// (fork workspace id, lake name) pairs already upserted into `fork_ducklake_namespace`,
+    /// so the registry write doesn't run on every job of a fork.
+    static ref FORK_DUCKLAKE_REGISTERED: Cache<(String, String), ()> = Cache::new(5000);
+}
+
+/// Ancestors of `w_id`, nearest-first (direct parent … root). Empty for a non-fork workspace or
+/// an unknown id. The depth bound is a cycle-safety backstop, same convention as
+/// [`fork_chain_depth`].
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn fork_ancestor_chain(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some((chain, expiry)) = FORK_ANCESTOR_CHAIN_CACHE.get(w_id) {
+        if expiry > now {
+            return Ok(chain);
+        }
+    }
+    let chain = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT id AS "id!" FROM chain WHERE depth > 0 ORDER BY depth
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving fork ancestors of {w_id}: {e:#}")))?;
+    FORK_ANCESTOR_CHAIN_CACHE.insert(w_id.to_string(), (chain.clone(), now + 60));
+    Ok(chain)
 }
 
 pub async fn get_ducklake_from_db_unchecked(
@@ -882,6 +1030,16 @@ pub async fn get_ducklake_from_db_unchecked(
     w_id: &str,
     db: &DB,
 ) -> Result<DucklakeWithConnData> {
+    let base = ducklake_conn_data(name, w_id, db).await?;
+    let chain = fork_ancestor_chain(db, w_id).await?;
+    if chain.is_empty() {
+        return Ok(base);
+    }
+    fork_scoped_ducklake(name, w_id, base, chain, db).await
+}
+
+/// Resolve one workspace's own config for lake `name` — no fork awareness.
+async fn ducklake_conn_data(name: &str, w_id: &str, db: &DB) -> Result<DucklakeWithConnData> {
     let ducklake = sqlx::query_scalar!(
         r#"
             SELECT ws.ducklake->'ducklakes'->$2 AS config
@@ -919,8 +1077,123 @@ pub async fn get_ducklake_from_db_unchecked(
         catalog: ducklake.catalog,
         storage: ducklake.storage,
         extra_args: ducklake.extra_args,
+        fork_defer: None,
     };
     Ok(ducklake)
+}
+
+fn fork_data_path(base_path: &str, fork_w_id: &str) -> String {
+    let base = base_path.trim_end_matches('/');
+    if base.is_empty() {
+        format!("{FORK_DUCKLAKE_DATA_DIR}/{fork_w_id}")
+    } else {
+        format!("{base}/{FORK_DUCKLAKE_DATA_DIR}/{fork_w_id}")
+    }
+}
+
+/// Redirect a fork workspace's lake to its fork-scoped namespace (same catalog DB, fork
+/// metadata schema + data sub-path) and assemble the read-defer context over its ancestors.
+async fn fork_scoped_ducklake(
+    name: &str,
+    w_id: &str,
+    mut base: DucklakeWithConnData,
+    chain: Vec<String>,
+    db: &DB,
+) -> Result<DucklakeWithConnData> {
+    if base.catalog.resource_type == DucklakeCatalogResourceType::Mysql {
+        return Err(Error::BadRequest(format!(
+            "ducklake {name}: mysql-catalog lakes are not supported in fork workspaces — \
+             running against the shared catalog would write the parent workspace's data"
+        )));
+    }
+    let metadata_schema = fork_ducklake_metadata_schema(w_id);
+    let data_subpath = format!("{FORK_DUCKLAKE_DATA_DIR}/{w_id}");
+    register_fork_ducklake_namespace(db, w_id, name, &metadata_schema, &data_subpath).await?;
+
+    // Ancestor namespaces, nearest-first, each from its own settings so a fork-side settings
+    // edit can't silently repoint what "parent" means. All-or-nothing: a broken link anywhere
+    // in the chain disables defer entirely (a defer view over a missing ancestor attach fails
+    // at bind time and would kill unrelated jobs), but write isolation still applies.
+    let mut ancestors = Vec::with_capacity(chain.len());
+    for (i, ancestor_id) in chain.iter().enumerate() {
+        match ducklake_conn_data(name, ancestor_id, db).await {
+            Ok(mut a) => {
+                let is_fork = i + 1 < chain.len();
+                let metadata_schema = if is_fork {
+                    a.storage.path = fork_data_path(&a.storage.path, ancestor_id);
+                    Some(fork_ducklake_metadata_schema(ancestor_id))
+                } else {
+                    None
+                };
+                ancestors.push(DucklakeAncestorAttach {
+                    workspace_id: ancestor_id.clone(),
+                    alias: fork_ducklake_ancestor_alias(name, ancestor_id),
+                    catalog: a.catalog,
+                    catalog_resource: a.catalog_resource,
+                    storage: a.storage,
+                    metadata_schema,
+                });
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "fork {w_id}: ducklake {name} not resolvable in ancestor {ancestor_id} \
+                     ({e:#}); read-defer disabled, fork namespace still isolated"
+                );
+                ancestors.clear();
+                break;
+            }
+        }
+    }
+    let defer_tables = if let Some(parent) = ancestors.first() {
+        crate::materialization::list_fork_defer_tables(db, &parent.workspace_id, w_id, name).await?
+    } else {
+        vec![]
+    };
+
+    base.storage.path = fork_data_path(&base.storage.path, w_id);
+    base.extra_args = Some(match base.extra_args.take() {
+        Some(e) => {
+            let sanitized = strip_fork_reserved_attach_args(&e);
+            if sanitized.is_empty() {
+                format!("METADATA_SCHEMA '{metadata_schema}'")
+            } else {
+                format!("{sanitized}, METADATA_SCHEMA '{metadata_schema}'")
+            }
+        }
+        None => format!("METADATA_SCHEMA '{metadata_schema}'"),
+    });
+    base.fork_defer = Some(DucklakeForkDefer { ancestors, defer_tables });
+    Ok(base)
+}
+
+/// Record (once) that a fork attached this lake, so fork deletion knows exactly which pg
+/// metadata schema and S3 sub-path to clean up even if settings drift later.
+async fn register_fork_ducklake_namespace(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    metadata_schema: &str,
+    data_subpath: &str,
+) -> Result<()> {
+    let key = (w_id.to_string(), name.to_string());
+    if FORK_DUCKLAKE_REGISTERED.get(&key).is_some() {
+        return Ok(());
+    }
+    sqlx::query!(
+        "INSERT INTO fork_ducklake_namespace
+           (workspace_id, ducklake_name, metadata_schema, data_subpath)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (workspace_id, ducklake_name) DO NOTHING",
+        w_id,
+        name,
+        metadata_schema,
+        data_subpath,
+    )
+    .execute(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
+    FORK_DUCKLAKE_REGISTERED.insert(key, ());
+    Ok(())
 }
 
 // This does not check for any permission. Should never be displayed to a user.
@@ -1065,5 +1338,72 @@ mod tests {
     fn test_validate_fork_workspace_id_rejects_too_long() {
         let long_id = format!("wm-fork-{}", "a".repeat(43));
         assert!(validate_fork_workspace_id(&long_id).is_err());
+    }
+
+    #[test]
+    fn test_fork_ducklake_metadata_schema_shape() {
+        let s = fork_ducklake_metadata_schema("wm-fork-my-feature-42");
+        assert!(s.starts_with(FORK_DUCKLAKE_SCHEMA_PREFIX), "{s}");
+        assert!(s.len() <= 63, "pg schema name limit: {s}");
+        assert!(
+            s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+            "{s}"
+        );
+        // Deterministic (persisted view SQL / registry rows depend on it).
+        assert_eq!(s, fork_ducklake_metadata_schema("wm-fork-my-feature-42"));
+    }
+
+    #[test]
+    fn test_fork_ducklake_metadata_schema_injective_after_mangling() {
+        // `-` and `_` mangle to the same char; the hash suffix must keep them distinct.
+        let a = fork_ducklake_metadata_schema("wm-fork-a-b");
+        let b = fork_ducklake_metadata_schema("wm-fork-a_b");
+        assert_ne!(a, b);
+        // Long ids truncate to the same mangled prefix; hash must still differ.
+        let long_a = fork_ducklake_metadata_schema(&format!("wm-fork-{}x", "a".repeat(40)));
+        let long_b = fork_ducklake_metadata_schema(&format!("wm-fork-{}y", "a".repeat(40)));
+        assert_ne!(long_a, long_b);
+        assert!(long_a.len() <= 63 && long_b.len() <= 63);
+    }
+
+    #[test]
+    fn test_fork_ducklake_ancestor_alias_valid_identifier() {
+        let a = fork_ducklake_ancestor_alias("analytics", "wm-fork-dev-1");
+        assert!(a.starts_with("__wm_dl_"), "{a}");
+        assert!(
+            a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+            "{a}"
+        );
+        // Distinct per lake for the same ancestor (a script can attach several lakes).
+        assert_ne!(a, fork_ducklake_ancestor_alias("staging", "wm-fork-dev-1"));
+        assert_ne!(
+            a,
+            fork_ducklake_ancestor_alias("analytics", "wm-fork-dev-2")
+        );
+    }
+
+    #[test]
+    fn test_strip_fork_reserved_attach_args() {
+        // Reserved options removed wherever they appear, others preserved.
+        assert_eq!(
+            strip_fork_reserved_attach_args("METADATA_SCHEMA 'main', ENCRYPTED true"),
+            "ENCRYPTED true"
+        );
+        assert_eq!(
+            strip_fork_reserved_attach_args(
+                "ENCRYPTED true, DATA_PATH 's3://b/prod', OVERRIDE_DATA_PATH FALSE"
+            ),
+            "ENCRYPTED true"
+        );
+        // Case-insensitive, and quoted values may contain commas/spaces.
+        assert_eq!(
+            strip_fork_reserved_attach_args("data_path 's3://b/x, y', SNAPSHOT_VERSION 3"),
+            "SNAPSHOT_VERSION 3"
+        );
+        assert_eq!(strip_fork_reserved_attach_args(""), "");
+        assert_eq!(
+            strip_fork_reserved_attach_args("METADATA_SCHEMA 'wm_fork_evil'"),
+            ""
+        );
     }
 }

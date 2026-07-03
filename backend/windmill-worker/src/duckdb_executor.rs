@@ -14,7 +14,7 @@ use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
-    DucklakeCatalogResourceType,
+    strip_fork_reserved_attach_args, DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
@@ -1132,6 +1132,7 @@ pub async fn do_duckdb(
                     conn,
                     &mut hidden_passwords,
                     &job.workspace_id,
+                    materialize.as_ref().map(|(_, m)| m.asset_path.as_str()),
                 )
                 .await?
                 {
@@ -1763,6 +1764,7 @@ async fn transform_attach_ducklake(
     conn: &Connection,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     w_id: &str,
+    materialize_target: Option<&str>,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
@@ -1772,14 +1774,27 @@ async fn transform_attach_ducklake(
     };
     let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
     let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-    let extra_args = cap
+    let user_extra_args = cap
         .get(3)
-        .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
-        .unwrap_or("".to_string());
+        .map(|m| m.as_str()[1..m.as_str().len() - 1].to_string())
+        .unwrap_or_default();
 
     let ducklake = match conn {
         Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
+    };
+    // In a fork, METADATA_SCHEMA / DATA_PATH / OVERRIDE_DATA_PATH are owned by the fork
+    // resolution (DuckDB silently keeps the last occurrence of a duplicated option, so a
+    // user-supplied one would escape the fork namespace back to the parent's).
+    let user_extra_args = if ducklake.fork_defer.is_some() {
+        strip_fork_reserved_attach_args(&user_extra_args)
+    } else {
+        user_extra_args
+    };
+    let extra_args = if user_extra_args.is_empty() {
+        String::new()
+    } else {
+        format!(", {}", user_extra_args)
     };
     let db_type = match ducklake.catalog.resource_type {
         DucklakeCatalogResourceType::Instance => "postgres",
@@ -1832,11 +1847,135 @@ async fn transform_attach_ducklake(
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
-    Ok(Some(vec![
+    let mut statements = vec![
         "INSTALL ducklake;".to_string(),
         install_db_ext_str.to_string(),
         attach_str,
-    ]))
+    ];
+    if let Some(defer) = ducklake.fork_defer.as_ref() {
+        statements.extend(fork_defer_statements(
+            name,
+            alias_name,
+            defer,
+            materialize_target,
+            hidden_passwords,
+        )?);
+    }
+    Ok(Some(statements))
+}
+
+// Double-quote a possibly schema-qualified table reference, each dotted segment
+// independently (local copy of sql_materialize's private helper).
+fn quote_qualified_table(name: &str) -> String {
+    name.split('.')
+        .map(|id| format!("\"{}\"", id.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+// `schema.table` → `schema.table_current`: the SCD2 companion view lives next to its table.
+fn current_companion(table: &str) -> String {
+    match table.rsplit_once('.') {
+        Some((s, t)) => format!("{s}.{t}_current"),
+        None => format!("{table}_current"),
+    }
+}
+
+/// Statements appended after a fork workspace's lake ATTACH: read-only attaches of the
+/// ancestor namespaces plus `CREATE VIEW IF NOT EXISTS` defer views over the direct parent for
+/// every table the fork has not materialized. When this job's managed materialize targets one
+/// of the deferred tables, its defer view is dropped instead of created — the write must hit a
+/// real fork table (`CREATE [OR REPLACE] TABLE` refuses to replace a view).
+fn fork_defer_statements(
+    lake_name: &str,
+    alias_name: &str,
+    defer: &windmill_common::workspaces::DucklakeForkDefer,
+    materialize_target: Option<&str>,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+) -> Result<Vec<String>> {
+    let mut stmts = vec![];
+    if defer.ancestors.is_empty() {
+        // Defer unavailable (an ancestor no longer defines this lake); the fork namespace
+        // still isolates writes.
+        return Ok(stmts);
+    }
+    for a in &defer.ancestors {
+        if let Some(pwd) = a.catalog_resource.get("password").and_then(|p| p.as_str()) {
+            hidden_passwords.lock().unwrap().push(pwd.to_string());
+        }
+        let db_type = match a.catalog.resource_type {
+            DucklakeCatalogResourceType::Instance => "postgres",
+            _ => a.catalog.resource_type.as_ref(),
+        };
+        stmts.push(get_attach_db_install_str(db_type)?.to_string());
+        let conn_str =
+            format_attach_db_conn_str(a.catalog_resource.clone(), db_type)?.replace('\'', "''");
+        let storage = a
+            .storage
+            .storage
+            .as_deref()
+            .unwrap_or(DEFAULT_STORAGE)
+            .replace('\'', "''");
+        let data_path = a.storage.path.replace('\'', "''");
+        let metadata_schema = a
+            .metadata_schema
+            .as_ref()
+            .map(|s| format!(", METADATA_SCHEMA '{}'", s.replace('\'', "''")))
+            .unwrap_or_default();
+        // READ_ONLY: a fork job must never write an ancestor namespace. No AUTOMATIC_MIGRATION
+        // / CREATE_IF_NOT_EXISTS: an ancestor lake that would need creating or migrating fails
+        // loudly rather than being mutated from a fork. IF NOT EXISTS: several ATTACH blocks in
+        // one script (e.g. the user's + the materialize synthetic one) emit the same ancestors.
+        stmts.push(format!(
+            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} (DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema});",
+            a.alias
+        ));
+    }
+    let parent_alias = &defer.ancestors[0].alias;
+    let target_table = materialize_target.and_then(|ap| {
+        let (l, t) = ap.split_once('/')?;
+        (l == lake_name).then_some(t)
+    });
+    let mut created_schemas = std::collections::HashSet::new();
+    for dt in &defer.defer_tables {
+        if Some(dt.table.as_str()) == target_table {
+            continue;
+        }
+        if let Some((schema, _)) = dt.table.rsplit_once('.') {
+            if created_schemas.insert(schema) {
+                stmts.push(format!(
+                    "CREATE SCHEMA IF NOT EXISTS {alias_name}.{};",
+                    quote_qualified_table(schema)
+                ));
+            }
+        }
+        let q = quote_qualified_table(&dt.table);
+        stmts.push(format!(
+            "CREATE VIEW IF NOT EXISTS {alias_name}.{q} AS SELECT * FROM {parent_alias}.{q};"
+        ));
+        if dt.with_current_view {
+            let qc = quote_qualified_table(&current_companion(&dt.table));
+            stmts.push(format!(
+                "CREATE VIEW IF NOT EXISTS {alias_name}.{qc} AS SELECT * FROM {parent_alias}.{qc};"
+            ));
+        }
+    }
+    if let Some(t) = target_table {
+        if defer.defer_tables.iter().any(|d| d.table == t) {
+            // First fork materialize of a deferred table: replace its defer view(s) with the
+            // real table this job writes. `_current` is dropped too — SCD2 codegen recreates it
+            // with `IF NOT EXISTS`, which would otherwise silently keep a view over the parent.
+            stmts.push(format!(
+                "DROP VIEW IF EXISTS {alias_name}.{};",
+                quote_qualified_table(t)
+            ));
+            stmts.push(format!(
+                "DROP VIEW IF EXISTS {alias_name}.{};",
+                quote_qualified_table(&current_companion(t))
+            ));
+        }
+    }
+    Ok(stmts)
 }
 
 async fn transform_attach_datatable(
