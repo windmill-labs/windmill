@@ -67,6 +67,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { sanitizeToolCallArguments } from './toolCallArguments'
 import { normalizeContextUsage } from './tokenUsage'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import {
@@ -485,7 +486,10 @@ export class AIChatManager {
 		this.compacting = true
 		try {
 			const raw = await getNonStreamingCompletion(
-				[...prefix, { role: 'user', content: getCompactionSummaryPrompt() }],
+				[
+					...sanitizeToolCallArguments(prefix),
+					{ role: 'user', content: getCompactionSummaryPrompt() }
+				],
 				abortController
 			)
 			const formatted = formatCompactSummary(raw ?? '')
@@ -649,18 +653,11 @@ export class AIChatManager {
 			)
 			switch (result) {
 				case 'ok':
-					await this.historyManager.saveChat(
-						this.displayMessages,
-						this.messages,
-						this.contextUsage
-					)
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 					sendUserToast('Conversation compacted.')
 					break
 				case 'empty':
-					sendUserToast(
-						'Compaction produced an empty summary — conversation left unchanged.',
-						true
-					)
+					sendUserToast('Compaction produced an empty summary — conversation left unchanged.', true)
 					break
 				case 'error':
 					sendUserToast('Failed to compact the conversation.', true)
@@ -2132,7 +2129,7 @@ export class AIChatManager {
 						moduleState && !moduleState.previewSuccess
 							? getStringError(moduleState.previewResult)
 							: undefined,
-					getCode: () => module.value.type === 'rawscript' ? module.value.content : '',
+					getCode: () => (module.value.type === 'rawscript' ? module.value.content : ''),
 					lang: module.value.language,
 					path: module.id,
 					...editorRelated

@@ -18,6 +18,7 @@ import { requiresMaxCompletionTokens } from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import { hasValidToolCallArguments } from './chat/toolCallArguments'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
 	getOpenAIResponsesCompletionStream
@@ -286,7 +287,6 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	}
 	return 8192
 }
-
 
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
@@ -1094,11 +1094,14 @@ export async function parseOpenAICompletion(
 	}
 
 	if (toolCalls.length > 0) {
+		const invalidToolCallIds = new Set(
+			toolCalls.filter((t) => !hasValidToolCallArguments(t.function.arguments)).map((t) => t.id)
+		)
 		const normalizedToolCalls = toolCalls.map((t) => ({
 			...t,
 			function: {
 				...t.function,
-				arguments: t.function.arguments || '{}'
+				arguments: invalidToolCallIds.has(t.id) ? '{}' : t.function.arguments || '{}'
 			}
 		}))
 		const toAdd = buildAssistantToolCallMessage({
@@ -1113,6 +1116,22 @@ export async function parseOpenAICompletion(
 		messages.push(toAdd)
 		addedMessages.push(toAdd)
 		for (const toolCall of toolCalls) {
+			if (invalidToolCallIds.has(toolCall.id)) {
+				callbacks.setToolStatus(toolCall.id, {
+					isLoading: false,
+					isStreamingArguments: false,
+					error: 'Tool call arguments were invalid or truncated'
+				})
+				const messageToAdd = {
+					role: 'tool' as const,
+					tool_call_id: toolCall.id,
+					content:
+						'The tool call arguments were invalid or truncated JSON, so the tool was NOT executed. Retry the call; if the arguments were long, split the work into several smaller calls.'
+				}
+				messages.push(messageToAdd)
+				addedMessages.push(messageToAdd)
+				continue
+			}
 			const messageToAdd = await processToolCall({
 				tools,
 				toolCall,
