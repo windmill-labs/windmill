@@ -51,6 +51,13 @@ describe('buildDeployItems', () => {
 		expect(items[0].draftKind).toBe('trigger_schedule')
 	})
 
+	it('maps both email draft kinds to the email_trigger deploy kind', () => {
+		const items = buildDeployItems({
+			draftItems: [draft('trigger_email', 'u/a/em'), draft('trigger_default_email', 'u/a/dem')]
+		})
+		expect(items.map((i) => i.deployKind)).toEqual(['email_trigger', 'email_trigger'])
+	})
+
 	it('mask scopes drafts to touched items', () => {
 		const mask = new Set([maskKey('script', 'u/a/keep')])
 		const items = buildDeployItems({

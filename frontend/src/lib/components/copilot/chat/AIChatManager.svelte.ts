@@ -385,13 +385,21 @@ export class AIChatManager {
 		await this.#persistModifiedItems()
 	}
 
-	async #persistModifiedItems() {
-		await this.historyManager.saveChat(
-			this.displayMessages,
-			this.messages,
-			this.contextUsage,
-			this.modifiedItems ? [...this.modifiedItems] : undefined
+	// Serialized, snapshot-at-write-time persistence: two rapid dock actions
+	// would otherwise race their saveChat writes, and the earlier (staler)
+	// snapshot could land last — dropping the later mutation until the next
+	// turn-end save.
+	#maskPersistQueue: Promise<void> = Promise.resolve()
+	#persistModifiedItems(): Promise<void> {
+		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
+			this.historyManager.saveChat(
+				this.displayMessages,
+				this.messages,
+				this.contextUsage,
+				this.modifiedItems ? [...this.modifiedItems] : undefined
+			)
 		)
+		return this.#maskPersistQueue
 	}
 
 	// Workspace AI skills (name + description) advertised in the GLOBAL system

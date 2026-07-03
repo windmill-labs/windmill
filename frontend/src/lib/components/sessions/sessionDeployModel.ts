@@ -29,7 +29,11 @@ const DEPLOY_KIND_BY_DRAFT_KIND: Partial<Record<UserDraftItemKind, Kind>> = {
 	trigger_sqs: 'sqs_trigger',
 	trigger_gcp: 'gcp_trigger',
 	trigger_azure: 'azure_trigger',
+	// Both email draft kinds deploy as the one email trigger kind: the editor
+	// saves per-path email-trigger drafts as `trigger_email`, the fork diff
+	// speaks `trigger_default_email`.
 	trigger_default_email: 'email_trigger',
+	trigger_email: 'email_trigger',
 	raw_app: 'raw_app'
 }
 
