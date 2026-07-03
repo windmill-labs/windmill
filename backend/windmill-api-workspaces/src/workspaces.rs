@@ -2470,6 +2470,7 @@ async fn edit_datatable_config(
     .await?;
 
     crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
+        &db,
         &mut tx,
         &w_id,
         &new_config.renames,

@@ -216,6 +216,47 @@ async fn run_datatable_migration_job(
     Ok(())
 }
 
+/// Ensure the `_wm_migrations` bookkeeping table exists and is keyed by
+/// `(datatable, version)`. Migration versions are only unique per data table,
+/// but several data-table configs can point at one physical database, so a
+/// version-only key would let one data table's migration mark another's
+/// same-version migration as already applied (and rollback could touch the
+/// wrong row). Legacy version-only-keyed tables are upgraded in place, their
+/// rows backfilled to `datatable` (correct under the previous, implicit
+/// one-config-per-database assumption).
+async fn ensure_wm_migrations_schema(
+    client: &tokio_postgres::Client,
+    datatable: &str,
+) -> Result<()> {
+    client
+        .batch_execute(
+            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
+                version BIGINT, \
+                installed_at TIMESTAMPTZ NOT NULL DEFAULT now()); \
+             ALTER TABLE _wm_migrations ADD COLUMN IF NOT EXISTS datatable TEXT; \
+             ALTER TABLE _wm_migrations DROP CONSTRAINT IF EXISTS _wm_migrations_pkey;",
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
+        })?;
+    client
+        .execute(
+            "UPDATE _wm_migrations SET datatable = $1 WHERE datatable IS NULL",
+            &[&datatable],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to backfill _wm_migrations: {}", e)))?;
+    client
+        .batch_execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS _wm_migrations_datatable_version_key \
+             ON _wm_migrations (datatable, version)",
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to index _wm_migrations: {}", e)))?;
+    Ok(())
+}
+
 /// Apply the workspace's pending data table migrations to a given data table.
 /// Each migration runs as a normal Windmill `postgresql` job (permissioned as
 /// the requester, labelled `datatable_migration`); applied versions are then
@@ -273,19 +314,13 @@ async fn run_datatable_migrations(
         .await
         .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
 
-    client
-        .batch_execute(
-            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
-                version BIGINT PRIMARY KEY, \
-                installed_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-        )
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
-        })?;
+    ensure_wm_migrations_schema(&client, &datatable_name).await?;
 
     let applied_versions: HashSet<i64> = client
-        .query("SELECT version FROM _wm_migrations", &[])
+        .query(
+            "SELECT version FROM _wm_migrations WHERE datatable = $1",
+            &[&datatable_name],
+        )
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?
         .iter()
@@ -317,8 +352,9 @@ async fn run_datatable_migrations(
         // Record the migration as installed once its job has succeeded.
         client
             .execute(
-                "INSERT INTO _wm_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING",
-                &[&m.timestamp],
+                "INSERT INTO _wm_migrations (datatable, version) VALUES ($1, $2) \
+                 ON CONFLICT (datatable, version) DO NOTHING",
+                &[&datatable_name, &m.timestamp],
             )
             .await
             .map_err(|e| Error::internal_err(format!("Failed to record migration: {}", e)))?;
@@ -392,31 +428,25 @@ async fn rollback_datatable_migrations(
         .await
         .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
 
-    client
-        .batch_execute(
-            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
-                version BIGINT PRIMARY KEY, \
-                installed_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-        )
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
-        })?;
+    ensure_wm_migrations_schema(&client, &datatable_name).await?;
 
     // Resolve which applied version to roll back: a specific one when `only` is
-    // given (and actually applied), otherwise the most recently applied.
+    // given (and actually applied), otherwise the most recently applied. Scoped
+    // to this data table so a shared physical database can't surface another
+    // data table's version.
     let target = match query.only {
         Some(only) => client
             .query_opt(
-                "SELECT version FROM _wm_migrations WHERE version = $1",
-                &[&only],
+                "SELECT version FROM _wm_migrations WHERE datatable = $1 AND version = $2",
+                &[&datatable_name, &only],
             )
             .await
             .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?,
         None => client
             .query_opt(
-                "SELECT version FROM _wm_migrations ORDER BY version DESC LIMIT 1",
-                &[],
+                "SELECT version FROM _wm_migrations WHERE datatable = $1 \
+                 ORDER BY version DESC LIMIT 1",
+                &[&datatable_name],
             )
             .await
             .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?,
@@ -465,7 +495,10 @@ async fn rollback_datatable_migrations(
 
     // Forget the version once its down job has succeeded.
     client
-        .execute("DELETE FROM _wm_migrations WHERE version = $1", &[&version])
+        .execute(
+            "DELETE FROM _wm_migrations WHERE datatable = $1 AND version = $2",
+            &[&datatable_name, &version],
+        )
         .await
         .map_err(|e| Error::internal_err(format!("Failed to drop migration record: {}", e)))?;
 
@@ -592,13 +625,32 @@ async fn read_applied_datatable_versions(
         }
     });
 
+    // Read-only status path: don't upgrade the schema here. Scope by data table
+    // when the `datatable` column exists; fall back to the unscoped read for a
+    // legacy table that predates scoping and hasn't been run since.
+    let sql_code = |e: &tokio_postgres::Error| e.as_db_error().map(|d| d.code().code().to_string());
     match client
-        .query("SELECT version FROM _wm_migrations", &[])
+        .query(
+            "SELECT version FROM _wm_migrations WHERE datatable = $1",
+            &[&datatable_name],
+        )
         .await
     {
         Ok(rows) => Ok(rows.iter().map(|row| row.get::<_, i64>(0)).collect()),
         // 42P01 = undefined_table: the data table has never been migrated yet.
-        Err(e) if e.as_db_error().map(|d| d.code().code()) == Some("42P01") => Ok(HashSet::new()),
+        Err(e) if sql_code(&e).as_deref() == Some("42P01") => Ok(HashSet::new()),
+        // 42703 = undefined_column: legacy version-only table, read unscoped.
+        Err(e) if sql_code(&e).as_deref() == Some("42703") => match client
+            .query("SELECT version FROM _wm_migrations", &[])
+            .await
+        {
+            Ok(rows) => Ok(rows.iter().map(|row| row.get::<_, i64>(0)).collect()),
+            Err(e) if sql_code(&e).as_deref() == Some("42P01") => Ok(HashSet::new()),
+            Err(e) => Err(Error::internal_err(format!(
+                "Failed to read _wm_migrations: {}",
+                e
+            ))),
+        },
         Err(e) => Err(Error::internal_err(format!(
             "Failed to read _wm_migrations: {}",
             e
@@ -887,27 +939,24 @@ async fn insert_datatable_migration_def(
 
 /// Mark a version as already installed in a data table's `_wm_migrations` table
 /// (ensuring the table exists first).
-async fn mark_datatable_version_installed(db: &DB, pg_db: &PgDatabase, version: i64) -> Result<()> {
+async fn mark_datatable_version_installed(
+    db: &DB,
+    pg_db: &PgDatabase,
+    datatable: &str,
+    version: i64,
+) -> Result<()> {
     let (client, connection) = pg_db.connect(Some(db)).await?;
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             tracing::error!("Datatable connection error: {}", e);
         }
     });
-    client
-        .batch_execute(
-            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
-                version BIGINT PRIMARY KEY, \
-                installed_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-        )
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
-        })?;
+    ensure_wm_migrations_schema(&client, datatable).await?;
     client
         .execute(
-            "INSERT INTO _wm_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING",
-            &[&version],
+            "INSERT INTO _wm_migrations (datatable, version) VALUES ($1, $2) \
+             ON CONFLICT (datatable, version) DO NOTHING",
+            &[&datatable, &version],
         )
         .await
         .map_err(|e| {
@@ -1140,7 +1189,8 @@ async fn generate_initial_datatable_migration(
             .await?;
     tx.commit().await?;
 
-    if let Err(e) = mark_datatable_version_installed(&db, &pg_db, timestamp).await {
+    if let Err(e) = mark_datatable_version_installed(&db, &pg_db, &datatable_name, timestamp).await
+    {
         let _ = sqlx::query!(
             "DELETE FROM datatable_migrations \
              WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
@@ -1248,13 +1298,82 @@ pub(crate) struct DatatableRename {
     pub(crate) to: String,
 }
 
-/// Keep `datatable_migrations` in sync when data tables are renamed or deleted
-/// in the workspace config.
+async fn resolve_datatable_pg(db: &DB, w_id: &str, datatable: &str) -> Result<PgDatabase> {
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable).await?;
+    serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
+}
+
+/// Tolerate a data table whose database has no scoped `_wm_migrations` yet:
+/// 42P01 = no table, 42703 = legacy version-only table (nothing keyed by name).
+fn ignore_missing_wm_migrations(e: tokio_postgres::Error) -> Result<()> {
+    match e.as_db_error().map(|d| d.code().code()) {
+        Some("42P01") | Some("42703") => Ok(()),
+        _ => Err(Error::internal_err(format!(
+            "Failed to update _wm_migrations: {}",
+            e
+        ))),
+    }
+}
+
+/// Drop a data table's rows from its own database's `_wm_migrations`.
+async fn remote_forget_datatable_migrations(db: &DB, w_id: &str, datatable: &str) -> Result<()> {
+    let pg_db = resolve_datatable_pg(db, w_id, datatable).await?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .execute(
+            "DELETE FROM _wm_migrations WHERE datatable = $1",
+            &[&datatable],
+        )
+        .await
+        .map(|_| ())
+        .or_else(ignore_missing_wm_migrations)
+}
+
+/// Relabel a data table's rows in its own database's `_wm_migrations`. `resolve_by`
+/// names the config entry used to find the database (the old name, still present
+/// pre-commit); `from`/`to` are the `datatable` column values to move between.
+async fn remote_rename_datatable_migrations(
+    db: &DB,
+    w_id: &str,
+    resolve_by: &str,
+    from: &str,
+    to: &str,
+) -> Result<()> {
+    let pg_db = resolve_datatable_pg(db, w_id, resolve_by).await?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .execute(
+            "UPDATE _wm_migrations SET datatable = $2 WHERE datatable = $1",
+            &[&from, &to],
+        )
+        .await
+        .map(|_| ())
+        .or_else(ignore_missing_wm_migrations)
+}
+
+/// Keep migration bookkeeping in sync when data tables are renamed or deleted in
+/// the workspace config: the control table `datatable_migrations` (this database,
+/// in `tx`) and each data table's own `_wm_migrations` (its own database, keyed
+/// by data table name — see [`ensure_wm_migrations_schema`]).
 ///
 /// Renames are applied in two phases through a temporary key so that a rename
 /// chain or a swap (A->B, B->A) can't transiently collide on the
-/// (workspace_id, datatable, timestamp) primary key mid-update.
+/// (datatable, ...) uniqueness mid-update.
+///
+/// The `_wm_migrations` updates are best-effort: they run just before `tx`
+/// commits (resolved via the pool, which still exposes the old names), and a
+/// temporarily unreachable data-table database is logged rather than failing the
+/// whole config edit. If one is missed, the next run re-applies its migrations
+/// against the existing schema.
 pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
+    db: &DB,
     tx: &mut Transaction<'_, Postgres>,
     w_id: &str,
     renames: &[DatatableRename],
@@ -1291,6 +1410,32 @@ pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
         )
         .execute(&mut **tx)
         .await?;
+    }
+
+    for name in deleted_datatables {
+        if let Err(e) = remote_forget_datatable_migrations(db, w_id, name).await {
+            tracing::warn!("Failed to clear _wm_migrations for deleted data table {name}: {e}");
+        }
+    }
+    for (i, r) in renames.iter().enumerate() {
+        let tmp = format!("__wm_rename_tmp/{i}");
+        if let Err(e) = remote_rename_datatable_migrations(db, w_id, &r.from, &r.from, &tmp).await {
+            tracing::warn!(
+                "Failed to stage _wm_migrations rename {} -> {}: {e}",
+                r.from,
+                r.to
+            );
+        }
+    }
+    for (i, r) in renames.iter().enumerate() {
+        let tmp = format!("__wm_rename_tmp/{i}");
+        if let Err(e) = remote_rename_datatable_migrations(db, w_id, &r.from, &tmp, &r.to).await {
+            tracing::warn!(
+                "Failed to finish _wm_migrations rename {} -> {}: {e}",
+                r.from,
+                r.to
+            );
+        }
     }
 
     Ok(())
@@ -1440,6 +1585,7 @@ mod tests {
 
         let mut tx = pool.begin().await.unwrap();
         cascade_datatable_migration_renames_and_deletes(
+            &pool,
             &mut tx,
             &w_id,
             &[
