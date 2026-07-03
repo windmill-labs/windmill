@@ -61,7 +61,15 @@
 			fitViewport: true,
 			strategy: 'fixed'
 		},
-		loop: true
+		loop: true,
+		// Hover tooltips (e.g. NameIdTooltip on menu rows) portal to body, so a
+		// click inside one — like its copy button — registers as an outside click.
+		// Veto the close so interacting with a tooltip doesn't tear the menu down.
+		onOutsideClick: (e) => {
+			if ((e.target as HTMLElement)?.closest?.('[data-melt-tooltip-content]')) {
+				e.preventDefault()
+			}
+		}
 	})
 
 	//Melt
@@ -82,7 +90,11 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
-		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
+		// Tooltip content counts as menu territory for the same reason as the
+		// onOutsideClick veto above.
+		return Array.from(
+			document.querySelectorAll('[data-menu], [data-melt-tooltip-content]')
+		) as HTMLElement[]
 	}
 </script>
 

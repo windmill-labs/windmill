@@ -14,7 +14,7 @@
 	} from '$lib/stores'
 	import { Building, ChevronDown, ChevronRight, Plus } from 'lucide-svelte'
 	import { SvelteSet } from 'svelte/reactivity'
-	import { Badge } from '$lib/components/common'
+	import { Badge, NameIdTooltip } from '$lib/components/common'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
@@ -198,16 +198,26 @@
 		     workspace's — switching into a fork must not recolor it. -->
 		{@const familyColor = currentFamily?.color ?? $workspaceColor}
 		{@const iconColor = getContrastTextColor(familyColor)}
-		<MenuButton
-			icon={Building}
-			iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
-			label={currentFamily?.name ?? $workspaceStore ?? ''}
-			{isCollapsed}
-			color={familyColor}
-			showChevron
-			emphasizeLabel
-			{trigger}
-		/>
+		<!-- Collapsed mode already shows MenuButton's own right-side popover, so the
+		     rich tooltip only takes over when expanded. -->
+		<NameIdTooltip
+			name={currentFamily?.name ?? $workspaceStore ?? ''}
+			id={currentFamily?.id ?? $workspaceStore ?? ''}
+			disablePopup={isCollapsed}
+			class="block w-full"
+		>
+			<MenuButton
+				icon={Building}
+				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
+				label={currentFamily?.name ?? $workspaceStore ?? ''}
+				{isCollapsed}
+				color={familyColor}
+				showChevron
+				emphasizeLabel
+				disableTitle
+				{trigger}
+			/>
+		</NameIdTooltip>
 	{/snippet}
 
 	{#snippet children({ item })}
@@ -283,15 +293,6 @@
 													>dev</Badge
 												>
 											{/if}
-										</div>
-										<div
-											class={twMerge(
-												'font-mono text-2xs whitespace-nowrap truncate text-left font-normal',
-												isSelected ? 'text-accent/80' : 'text-secondary'
-											)}
-											title={workspace.id}
-										>
-											{workspace.id}
 										</div>
 									</div>
 								</div>

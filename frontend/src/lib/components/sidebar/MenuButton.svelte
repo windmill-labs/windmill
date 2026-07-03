@@ -41,6 +41,9 @@
 		showChevron?: boolean
 		// Render the label with stronger weight/size (e.g. the workspace name).
 		emphasizeLabel?: boolean
+		// Drop the native `title` attributes — for callers that wrap the button
+		// in their own hover tooltip.
+		disableTitle?: boolean
 	}
 
 	let {
@@ -62,7 +65,8 @@
 		href = undefined,
 		class: classNames = undefined,
 		showChevron = false,
-		emphasizeLabel = false
+		emphasizeLabel = false,
+		disableTitle = false
 	}: Props = $props()
 
 	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
@@ -110,7 +114,7 @@
 			)}
 			use:conditionalMelt={trigger}
 			aria-label={label}
-			title={isCollapsed ? undefined : label}
+			title={isCollapsed || disableTitle ? undefined : label}
 			{...$trigger}
 		>
 			{#if icon}
@@ -149,7 +153,7 @@
 							'transition-all',
 							classNames
 						)}
-						title={label}
+						title={disableTitle ? undefined : label}
 					>
 						{label}
 						<span class="pl-2 text-xs text-secondary font-semibold">
