@@ -632,10 +632,11 @@ struct GraphRunnableNode {
     partition_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     freshness: Option<String>,
-    // Completion time of the newest successful run of this pipeline member.
-    // The canvas checks it against the `// freshness` window to color the
-    // badge fresh/stale (passive monitoring — nothing re-runs automatically).
-    // Absent when no successful run is visible to the caller (job RLS applies).
+    // Completion time of the most recently started successful run of this
+    // pipeline member. The canvas checks it against the `// freshness` window
+    // to color the badge fresh/stale (passive monitoring — nothing re-runs
+    // automatically). Absent when no successful run is visible to the caller
+    // (job RLS applies).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     last_success_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -929,9 +930,12 @@ async fn asset_graph(
     // Newest successful completed run per pipeline member, for the passive
     // freshness status on the canvas. Correlated per-path lookup walks
     // ix_job_root_job_index_by_path_2 newest-first until the first success,
-    // so cost is bounded by the member count, not run history. Inside the
-    // user tx so job-visibility RLS applies — a caller who can't see the
-    // runs gets no timestamp rather than leaked completion times.
+    // so cost is bounded by the member count, not run history. "Newest" is
+    // by created_at (the index order), not completed_at: with overlapping
+    // runs of one path this can pick an earlier completion, erring toward
+    // stale — never toward false-fresh. Inside the user tx so job-visibility
+    // RLS applies — a caller who can't see the runs gets no timestamp rather
+    // than leaked completion times.
     let member_paths: Vec<String> = pipeline_member_paths.iter().map(|r| r.path.clone()).collect();
     let last_success_rows = sqlx::query!(
         r#"
