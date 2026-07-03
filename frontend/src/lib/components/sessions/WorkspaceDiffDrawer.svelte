@@ -37,6 +37,7 @@
 	import ExternalEditLink from '../ExternalEditLink.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { actionFor, badgeOf, type DeployItem } from './sessionDeployModel'
+	import { maskKey } from './modifiedItemsMask'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 
 	// The session "Edits" surface. Reads a unified item model (the session's
@@ -112,12 +113,19 @@
 	})
 	async function deployStaged(item: DeployItem) {
 		if (!(await model.deployRow(item))) return
-		staged = { ...staged, [item.key]: item }
+		// The deploy can re-key the row before this renders: a draft-only (or
+		// renamed) item deploys to its displayPath and the mask entry moves with
+		// it. Stage the snapshot under both keys so the re-keyed card still
+		// renders the held check beat instead of skipping straight to done.
+		const keys = [item.key, maskKey(item.draftKind, item.displayPath)]
+		const next = { ...staged }
+		for (const k of keys) next[k] = item
+		staged = next
 		stagedTimers.push(
 			setTimeout(() => {
-				const next = { ...staged }
-				delete next[item.key]
-				staged = next
+				const after = { ...staged }
+				for (const k of keys) delete after[k]
+				staged = after
 			}, successHoldMs)
 		)
 	}
