@@ -182,6 +182,19 @@ fn to_json_raw_opt(
     value.map(|v| sqlx::types::Json(to_raw_value(&v)))
 }
 
+/// Managed ducklake-maintenance schedules live under a reserved path prefix;
+/// their lifecycle is owned by the workspace ducklake settings, so the
+/// schedule API refuses to create/edit/delete/toggle them.
+fn reject_reserved_schedule_path(path: &str) -> Result<()> {
+    if path.starts_with(windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "Schedules under {} are managed by the workspace ducklake settings",
+            windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
+        )));
+    }
+    Ok(())
+}
+
 /// Validate that a dynamic skip handler (script or flow) exists
 async fn validate_dynamic_skip<'c>(
     tx: &mut Transaction<'c, Postgres>,
@@ -219,6 +232,7 @@ async fn create_schedule(
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
+    reject_reserved_schedule_path(&ns.path)?;
 
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
@@ -468,6 +482,7 @@ async fn edit_schedule(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    reject_reserved_schedule_path(path)?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
     let mut tx = user_db.begin(&authed).await?;
@@ -750,6 +765,12 @@ async fn list_schedule(
         )
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
+        // managed ducklake-maintenance schedules are edited from the
+        // workspace ducklake settings, not the schedules UI/CLI
+        .and_where("path NOT LIKE ?".bind(&format!(
+            "{}%",
+            windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
+        )))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -923,12 +944,16 @@ async fn list_schedule_with_jobs(
                 ORDER BY completed_at DESC
                 LIMIT 20
             ) AS jobs) t
-        WHERE workspace_id = $1
+        WHERE workspace_id = $1 AND schedule.path NOT LIKE $4
         ORDER BY edited_at DESC
         LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
-        offset as i64
+        offset as i64,
+        format!(
+            "{}%",
+            windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
+        )
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1014,6 +1039,7 @@ pub async fn set_enabled(
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    reject_reserved_schedule_path(path)?;
 
     // Block enabling a schedule in a fork when the parent has the same path
     // (regardless of parent's enabled flag), unless force=true. Two enabled
@@ -1190,6 +1216,7 @@ async fn delete_schedule(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    reject_reserved_schedule_path(path)?;
     let mut tx = user_db.begin(&authed).await?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
@@ -1399,6 +1426,14 @@ async fn set_default_error_handler(
             }
         }
         for updated_schedule_path in updated_schedules {
+            // managed ducklake-maintenance rows get the handler update (their
+            // failures should reach workspace handlers) but must not be
+            // pushed into git-sync as deployed schedules
+            if updated_schedule_path
+                .starts_with(windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX)
+            {
+                continue;
+            }
             handle_deployment_metadata(
                 &authed.email,
                 &authed.username,

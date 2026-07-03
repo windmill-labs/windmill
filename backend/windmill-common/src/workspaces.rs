@@ -842,6 +842,111 @@ pub struct Ducklake {
     pub storage: DucklakeStorage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_args: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maintenance: Option<DucklakeMaintenance>,
+}
+
+/// Scheduled maintenance for a ducklake (enterprise): snapshot expiry,
+/// adjacent-file compaction and orphaned-file cleanup, run as a managed
+/// per-lake schedule. Not mirrored in `instance_config::Ducklake`:
+/// instance-level lakes have no workspace to schedule into.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DucklakeMaintenance {
+    pub enabled: bool,
+    /// Cron (v2/croner, seconds optional). None → daily at 03:00 UTC with a
+    /// deterministic per-(workspace, lake) minute offset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
+    /// Snapshot retention window in days (default 7). Snapshots older than
+    /// this are expired: time-travel reads (`AT (VERSION => n)`) older than
+    /// the window stop working. 0 keeps only the current snapshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<u32>,
+    /// Merge adjacent small parquet files (default true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction: Option<bool>,
+    /// Delete orphaned files older than max(retention, 1 day) (default true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orphan_cleanup: Option<bool>,
+}
+
+impl DucklakeMaintenance {
+    pub const DEFAULT_RETENTION_DAYS: u32 = 7;
+
+    pub fn retention_days(&self) -> u32 {
+        self.retention_days.unwrap_or(Self::DEFAULT_RETENTION_DAYS)
+    }
+    pub fn compaction(&self) -> bool {
+        self.compaction.unwrap_or(true)
+    }
+    pub fn orphan_cleanup(&self) -> bool {
+        self.orphan_cleanup.unwrap_or(true)
+    }
+}
+
+/// Reserved schedule path namespace for managed ducklake maintenance
+/// schedules. Must satisfy the `schedule.path` CHECK constraint
+/// (`^[ufg](\/[\w-]+){2,}$`), hence the `f/` prefix; the folder itself never
+/// exists. The schedule API rejects user mutations under this prefix and the
+/// list/export endpoints filter it out — the lifecycle is owned by the
+/// workspace ducklake settings.
+pub const DUCKLAKE_MAINTENANCE_PATH_PREFIX: &str = "f/ducklake_maintenance/";
+
+pub fn ducklake_maintenance_schedule_path(lake: &str) -> String {
+    format!("{DUCKLAKE_MAINTENANCE_PATH_PREFIX}{lake}")
+}
+
+pub fn lake_from_ducklake_maintenance_path(path: &str) -> Option<&str> {
+    path.strip_prefix(DUCKLAKE_MAINTENANCE_PATH_PREFIX)
+}
+
+/// Default maintenance cadence: daily at 03:00-03:59 UTC, minute picked
+/// deterministically per (workspace, lake) so all lakes of an instance don't
+/// fire in the same second.
+pub fn default_ducklake_maintenance_cron(w_id: &str, lake: &str) -> String {
+    let mut hash: u32 = 5381;
+    for b in w_id.bytes().chain("/".bytes()).chain(lake.bytes()) {
+        hash = hash.wrapping_mul(33).wrapping_add(b as u32);
+    }
+    format!("0 {} 3 * * *", hash % 60)
+}
+
+/// Lake names are interpolated into `ATTACH 'ducklake://<name>'`, generated
+/// maintenance SQL and the reserved schedule path (CHECK-constrained to
+/// `[\w-]+` segments), so they must stay to this charset.
+pub fn is_valid_ducklake_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Raw per-lake config (no credential interpolation). Generic over the
+/// executor so callers inside a transaction (e.g. `push_scheduled_job` during
+/// `change_workspace_id`) see uncommitted settings.
+pub async fn get_ducklake_raw<'c, E: sqlx::PgExecutor<'c>>(
+    executor: E,
+    w_id: &str,
+    name: &str,
+) -> Result<Option<Ducklake>> {
+    let config = sqlx::query_scalar!(
+        r#"
+            SELECT ws.ducklake->'ducklakes'->$2 AS config
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id,
+        name
+    )
+    .fetch_optional(executor)
+    .await
+    .map_err(|err| Error::internal_err(format!("getting ducklake {name}: {err}")))?
+    .flatten();
+
+    match config {
+        Some(c) => Ok(Some(serde_json::from_value::<Ducklake>(c)?)),
+        None => Ok(None),
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]

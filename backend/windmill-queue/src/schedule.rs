@@ -229,9 +229,58 @@ pub async fn push_scheduled_job<'c>(
 
     // If schedule handler is defined, wrap the scheduled job in a synthetic flow
     // with the handler as the first step (with stop_after_if to skip if handler returns false)
-    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(handler_path) =
-        &schedule.dynamic_skip
+    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(lake) =
+        windmill_common::workspaces::lake_from_ducklake_maintenance_path(&schedule.path)
     {
+        // Managed ducklake maintenance schedule (enterprise): the runnable is
+        // a generated DuckDB script, not a deployed one. Keyed on
+        // schedule.path — a user schedule pointing at a real script under a
+        // user-created folder of that name must not land here. Config is read
+        // through the tx so change_workspace_id's re-push sees its
+        // uncommitted workspace_settings copy.
+        let maintenance =
+            windmill_common::workspaces::get_ducklake_raw(&mut *tx, &schedule.workspace_id, lake)
+                .await?
+                .and_then(|dl| dl.maintenance)
+                .filter(|m| m.enabled)
+                // NotFound so a stale row (lake removed, or config left over from an
+                // enterprise period) is auto-disabled with schedule.error recorded by
+                // the post-completion scheduler, not endlessly retried.
+                .ok_or_else(|| {
+                    error::Error::NotFound(format!(
+                        "no enabled maintenance config for ducklake '{lake}'"
+                    ))
+                })?;
+        let content =
+            crate::ducklake_maintenance::build_ducklake_maintenance_sql(lake, &maintenance)?;
+        (
+            JobPayload::Code(windmill_common::jobs::RawCode {
+                content,
+                path: Some(schedule.path.clone()),
+                hash: None,
+                language: windmill_common::scripts::ScriptLang::DuckDb,
+                lock: None,
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: None,
+                tag: None,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettingsWithCustom::default(),
+                debouncing_settings: DebouncingSettings::default(),
+                modules: None,
+            }),
+            // explicit tag: an untagged preview-kind job would be rerouted to
+            // preview workers when the preview_tags_override setting is on
+            schedule
+                .tag
+                .clone()
+                .filter(|x| x != "")
+                .or_else(|| Some("duckdb".to_string())),
+            None,
+            None,
+            schedule.edited_by.clone(),
+        )
+    } else if let Some(handler_path) = &schedule.dynamic_skip {
         // Build skip handler args
         let mut skip_handler_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
         skip_handler_args.insert(
