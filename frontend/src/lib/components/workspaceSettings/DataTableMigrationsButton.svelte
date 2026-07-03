@@ -59,6 +59,9 @@
 	let viewTab = $state('up')
 	let settingsDropdownOpen = $state(false)
 
+	let deleteOpen = $state(false)
+	let deleteTarget = $state<DatatableMigrationWithStatus | undefined>(undefined)
+
 	function openView(m: DatatableMigrationWithStatus) {
 		viewMigration = m
 		viewTab = 'up'
@@ -251,19 +254,9 @@
 		}
 	}
 
-	async function deleteMigration(m: DatatableMigrationWithStatus) {
-		const body =
-			m.status === 'ran'
-				? `"${m.name}" is installed on the data table. Deleting its definition (including its down migration) means it can no longer be reverted and may leave the data table in a broken state. Delete anyway?`
-				: m.status === 'unknown'
-					? `The applied status of "${m.name}" is unknown. If it is installed on the data table, deleting it may leave the data table in a broken state. Delete anyway?`
-					: `Delete the definition of "${m.name}"? It has not been run, so this only removes the migration definition.`
-		const confirmed = await confirmationModal.ask({
-			title: 'Delete migration',
-			confirmationText: 'Delete',
-			children: body
-		})
-		if (!confirmed) return
+	// Delete a migration's definition. Does not touch the data table's schema or
+	// its `_wm_migrations` bookkeeping.
+	async function performDelete(m: DatatableMigrationWithStatus) {
 		busy = true
 		try {
 			await WorkspaceService.deleteDatatableMigration({
@@ -277,6 +270,54 @@
 		} finally {
 			busy = false
 		}
+	}
+
+	// Revert an installed migration (run its down) then delete its definition.
+	// The delete is skipped if the revert fails, so we never drop the definition
+	// of a migration that is still installed on the data table.
+	async function revertAndDelete(m: DatatableMigrationWithStatus) {
+		busy = true
+		try {
+			await WorkspaceService.rollbackDatatableMigrations({
+				workspace,
+				datatableName: datatable,
+				only: m.timestamp
+			})
+			await WorkspaceService.deleteDatatableMigration({
+				workspace,
+				datatableName: datatable,
+				timestamp: m.timestamp
+			})
+			await loadMigrations()
+			onSchemaChanged?.()
+			sendUserToast(`Reverted and deleted "${m.name}"`)
+		} catch (e: any) {
+			sendUserToast(`Failed to revert and delete migration: ${e?.body ?? e?.message ?? e}`, true)
+			await loadMigrations()
+		} finally {
+			busy = false
+		}
+	}
+
+	async function deleteMigration(m: DatatableMigrationWithStatus) {
+		// An installed migration can be reverted first, so offer that as a third
+		// choice instead of a plain confirm.
+		if (m.status === 'ran') {
+			deleteTarget = m
+			deleteOpen = true
+			return
+		}
+		const body =
+			m.status === 'unknown'
+				? `The applied status of "${m.name}" is unknown. If it is installed on the data table, deleting it may leave the data table in a broken state. Delete anyway?`
+				: `Delete the definition of "${m.name}"? It has not been run, so this only removes the migration definition.`
+		const confirmed = await confirmationModal.ask({
+			title: 'Delete migration',
+			confirmationText: 'Delete',
+			children: body
+		})
+		if (!confirmed) return
+		await performDelete(m)
 	}
 
 	const statusColor = {
@@ -302,6 +343,7 @@
 	fixedHeight="lg"
 	closeOnOutsideClick={!newMigrationOpen &&
 		!viewOpen &&
+		!deleteOpen &&
 		!confirmationModal.props.open &&
 		!settingsDropdownOpen}
 >
@@ -485,6 +527,46 @@
 			</Tabs>
 		</div>
 	{/if}
+</Modal2>
+
+<Modal2 bind:isOpen={deleteOpen} title="Delete migration" fixedWidth="sm" fixedHeight="adaptive">
+	<div class="flex flex-col gap-3 w-full">
+		<p class="text-sm text-secondary">
+			"{deleteTarget?.name}" is installed on the data table. Revert it first to undo its schema
+			change, or delete only the definition and leave the schema as-is — deleting without reverting
+			means it can no longer be reverted.
+		</p>
+		<div class="flex justify-end gap-2 pt-2">
+			<Button variant="default" size="sm" disabled={busy} on:click={() => (deleteOpen = false)}>
+				Cancel
+			</Button>
+			<Button
+				variant="default"
+				color="red"
+				size="sm"
+				disabled={busy}
+				on:click={() => {
+					const m = deleteTarget
+					deleteOpen = false
+					if (m) performDelete(m)
+				}}
+			>
+				Delete
+			</Button>
+			<Button
+				variant="accent"
+				size="sm"
+				disabled={busy}
+				on:click={() => {
+					const m = deleteTarget
+					deleteOpen = false
+					if (m) revertAndDelete(m)
+				}}
+			>
+				Revert and delete
+			</Button>
+		</div>
+	</div>
 </Modal2>
 
 <Portal>
