@@ -13,12 +13,23 @@
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
+	import { findWorkspaceRoot, findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
 
 	let { isCollapsed = false }: { isCollapsed?: boolean } = $props()
 
 	const effectiveId = $derived($workspaceStore ?? undefined)
 	const currentWs = $derived(
 		effectiveId ? $userWorkspaces.find((w) => w.id === effectiveId) : undefined
+	)
+
+	// Fork count surfaces the family's size right on the trigger, hinting that
+	// the muted "root" chip is also the entry point to its forks.
+	const forkCount = $derived.by(() => {
+		const root = findWorkspaceRoot(effectiveId, $userWorkspaces)
+		return root ? findWorkspaceDescendants(root.id, $userWorkspaces).length : 0
+	})
+	const rootLabel = $derived(
+		forkCount > 0 ? `in root (${forkCount} fork${forkCount === 1 ? '' : 's'})` : 'in root'
 	)
 
 	// Settings link at the bottom of the picker — admin/superadmin only, scoped
@@ -64,12 +75,7 @@
 		class="min-w-0 w-full"
 	>
 		{#snippet trigger()}
-			<WorkspaceScopeTrigger
-				workspaceId={effectiveId}
-				{isCollapsed}
-				rootLabel="workspace root"
-				class="w-full"
-			/>
+			<WorkspaceScopeTrigger workspaceId={effectiveId} {isCollapsed} {rootLabel} class="w-full" />
 		{/snippet}
 	</WorkspaceFamilyPicker>
 </div>

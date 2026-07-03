@@ -22,7 +22,7 @@
 		// The dropdown-affordance chevron. Off for read-only displays (e.g. the started-session header).
 		showChevron?: boolean
 		// Replaces the root workspace's name with a muted, icon-less label (e.g.
-		// "workspace root" in the sidebar, where the workspace menu right above
+		// "in root (2 forks)" in the sidebar, where the workspace menu right above
 		// already shows the family name). Fork display is unaffected; the title
 		// keeps the real name.
 		rootLabel?: string

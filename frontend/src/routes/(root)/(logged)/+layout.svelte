@@ -633,6 +633,17 @@
 	/>
 {/snippet}
 
+<!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
+     by the workspace picker). -->
+{#snippet brandMark(collapsed: boolean)}
+	<div class="flex items-center gap-x-1.5 text-xs font-semibold text-emphasis">
+		<WindmillIcon white={darkMode} height="16px" width="16px" />
+		{#if !collapsed}
+			{$whitelabelNameStore ? capitalize($whitelabelNameStore) : 'Windmill'}
+		{/if}
+	</div>
+{/snippet}
+
 <UserSettings bind:this={userSettings} showMcpMode={true} />
 <DraftMigrationErrorModal />
 {#if page.status == 404}
@@ -794,6 +805,10 @@
 									<div class="px-2 pb-2">
 										<SettingsMenu isCollapsed={false} hideWorkspaceSettings={sessionMode} />
 									</div>
+
+									<div class="px-4 pb-3.5 w-52">
+										{@render brandMark(false)}
+									</div>
 								</div>
 							</div>
 						</div>
@@ -900,8 +915,16 @@
 								<SettingsMenu {isCollapsed} hideWorkspaceSettings={sessionMode} />
 							</div>
 
-							<div class="flex-shrink-0 flex px-4 pb-3.5">
+							<div
+								class="flex-shrink-0 flex pb-3.5 {isCollapsed
+									? 'flex-col items-center gap-3'
+									: 'items-center justify-between px-4'}"
+							>
+								{@render brandMark(isCollapsed)}
+								<!-- p-2/-m-2 widens the hit area to ~32px without moving the icon. -->
 								<button
+									class="p-2 -m-2 rounded hover:bg-surface-hover"
+									title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
 									onclick={() => {
 										isCollapsed = !isCollapsed
 										// Manual toggle is the persisted preference (auto-collapse isn't).

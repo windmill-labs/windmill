@@ -17,6 +17,7 @@
 	import { logout } from '$lib/logoutKit'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import MenuLink from './MenuLink.svelte'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
 	import { userWorkspaces, workspaceStore, userStore, superadmin, devopsRole } from '$lib/stores'
 
@@ -66,10 +67,6 @@
 					}
 				]
 			: []),
-		{ displayName: 'Workers', icon: ServerCog, href: `${base}/workers` },
-		...($devopsRole || $userStore?.is_admin
-			? [{ displayName: 'Logs', icon: Logs, href: `${base}/audit_logs` }]
-			: []),
 		{
 			displayName: 'Help',
 			icon: HelpCircle,
@@ -85,6 +82,31 @@
 		{ displayName: 'Logout', icon: LogOut, action: () => logout() }
 	])
 </script>
+
+<!-- Workers and Logs are full pages (not account/instance actions), so they sit
+     as plain links above the Settings dropdown rather than inside it. -->
+<div class="flex flex-col gap-1 pb-1">
+	<MenuLink
+		class="!text-xs"
+		label="Workers"
+		href="{base}/workers"
+		icon={ServerCog}
+		{isCollapsed}
+		aiId="sidebar-menu-link-workers"
+		aiDescription="Button to navigate to workers"
+	/>
+	{#if $devopsRole || $userStore?.is_admin}
+		<MenuLink
+			class="!text-xs"
+			label="Logs"
+			href="{base}/audit_logs"
+			icon={Logs}
+			{isCollapsed}
+			aiId="sidebar-menu-link-logs"
+			aiDescription="Button to navigate to audit logs"
+		/>
+	{/if}
+</div>
 
 <DropdownV2 {items} placement="top-start" class="w-full">
 	{#snippet buttonReplacement()}
