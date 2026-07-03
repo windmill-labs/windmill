@@ -988,13 +988,16 @@
 															unifiedSize="sm"
 															disabled={model.deploying ||
 																!!staged[d.key] ||
+																!view.canWrite ||
 																!model.deployPermission.ok}
 															startIcon={status?.status === 'loading'
 																? { icon: Loader2, classes: 'animate-spin' }
 																: { icon: Save }}
-															title={model.deployPermission.ok
-																? undefined
-																: model.deployPermission.reason}
+															title={!view.canWrite
+																? "You don't have write permission on this path"
+																: model.deployPermission.ok
+																	? undefined
+																	: model.deployPermission.reason}
 															onclick={() => deployStaged(d)}
 														>
 															{action.label}

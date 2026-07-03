@@ -693,7 +693,9 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.messages[0]).toMatchObject({ role: 'user', content: 'c'.repeat(400) })
 		// Mid-turn, the report is debited by the freed estimate (visible in the
 		// compaction-time save) so a rolled-back turn keeps a consistent value
-		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000)
+		// 4th arg: the modified-items mask rides on every save (undefined here —
+		// this bare manager never initialised tracking).
+		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000, undefined)
 		// At commit, the no-report turn clears the stored value; the readable
 		// number falls back to estimating the now-tiny compacted history
 		expect(manager.contextUsage).toBeUndefined()

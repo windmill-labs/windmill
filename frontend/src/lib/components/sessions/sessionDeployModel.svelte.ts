@@ -261,9 +261,10 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	async function deployOne(item: DeployItem, discard = false): Promise<boolean> {
 		const plan = discard ? discardPlanFor(item) : deployPlanFor(item)
 		if (!plan) return false
-		// Don't attempt a deploy we know the user can't make (operator / deployer
-		// rule) — the UI disables it too; this is the guard behind that.
-		if (!discard && !deployPerm.ok) return false
+		// Don't attempt a deploy we know the user can't make (no write permission
+		// on the path, or blocked by the operator / deployer rule) — the UI
+		// disables it too; this is the guard behind that.
+		if (!discard && (!item.canWrite || !deployPerm.ok)) return false
 		setStatus(item.key, { status: 'loading' })
 		deploying = true
 		try {

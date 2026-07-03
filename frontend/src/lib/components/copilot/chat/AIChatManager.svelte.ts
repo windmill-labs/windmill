@@ -345,6 +345,13 @@ export class AIChatManager {
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
 
+	// Fired whenever the active chat id changes away from the one the consumer
+	// knows (a "/clear" rotation or a history switch). Session runtimes wire this
+	// to keep the session record's chatId aligned — the compare-page handoff
+	// (`from_session`) reads it, and a stale id would preselect the previous
+	// chat's items. Set here (not imported) to avoid a copilot→sessions cycle.
+	onChatRotated: ((chatId: string) => void) | undefined = undefined
+
 	// Workspace items the CURRENT chat modified via AI tool calls, as
 	// `${UserDraftItemKind}:${storagePath}` keys (see modifiedItemsMask.ts).
 	// undefined = untracked: the global side-panel chat (never initialised) and
@@ -2113,6 +2120,7 @@ export class AIChatManager {
 		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
 		// would still get the previous file roster and could read/search it.
 		if (!this.isSessionChat) this.attachedFiles.clear()
+		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
 	loadPastChat = async (id: string) => {
@@ -2136,6 +2144,7 @@ export class AIChatManager {
 				this.modifiedItems = stored !== undefined ? new SvelteSet(stored) : undefined
 			}
 			this.#automaticScroll = true
+			this.onChatRotated?.(id)
 		}
 	}
 

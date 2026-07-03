@@ -629,6 +629,12 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	await manager.attachedFiles.restore(session.id, !session.transient)
 	await ensureChatIdsSeeded(manager.historyManager)
 
+	// Keep the session record's chatId following the manager's active chat: a
+	// "/clear" rotation or a history switch would otherwise leave it pointing at
+	// the previous chat, and the compare-page handoff (`from_session`) would
+	// preselect the wrong chat's items.
+	manager.onChatRotated = (chatId) => setSessionChatId(session.id, chatId)
+
 	if (session.chatId) {
 		manager.historyManager.setCurrentChatId(session.chatId)
 		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
