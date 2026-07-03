@@ -1,8 +1,13 @@
 import { JobService } from '$lib/gen'
 
 export type RunStatus = 'running' | 'success' | 'failure'
-/** Per-runnable badge state: latest run status + runs observed this session. */
-export type RunnableRunState = { status: RunStatus; runs: number }
+/**
+ * Per-runnable badge state: latest run status + runs observed this session.
+ * `lastSuccessAt` is the start time of the newest successful run seen by the
+ * poll — lets the freshness chip go green right after an in-session run,
+ * ahead of the next graph refetch (whose `last_success_at` would carry it).
+ */
+export type RunnableRunState = { status: RunStatus; runs: number; lastSuccessAt?: string }
 
 export type EventStatus = 'queued' | 'running' | 'success' | 'failure'
 /** One folder activity-log row (a job observed by the poll). */
@@ -45,7 +50,8 @@ function statesEq(a: Map<string, RunnableRunState>, b: Map<string, RunnableRunSt
 	if (a.size !== b.size) return false
 	for (const [k, v] of a) {
 		const w = b.get(k)
-		if (!w || w.status !== v.status || w.runs !== v.runs) return false
+		if (!w || w.status !== v.status || w.runs !== v.runs || w.lastSuccessAt !== v.lastSuccessAt)
+			return false
 	}
 	return true
 }
@@ -128,7 +134,7 @@ export function useActiveRunnableIds(
 	// keeps showing the last status while idle; only `dispose()` clears them.
 	const completedHistory = new Map<
 		string,
-		{ runs: number; lastStatus: RunStatus; lastTs: string }
+		{ runs: number; lastStatus: RunStatus; lastTs: string; lastSuccessTs?: string }
 	>()
 	const countedJobIds = new Set<string>()
 	// Job ids we've observed in-flight at least once. The catch-up pulse is
@@ -244,7 +250,11 @@ export function useActiveRunnableIds(
 						completedHistory.set(id, {
 							runs: (prev?.runs ?? 0) + 1,
 							lastStatus: !prev || ts >= prev.lastTs ? status : prev.lastStatus,
-							lastTs: !prev || ts >= prev.lastTs ? ts : prev.lastTs
+							lastTs: !prev || ts >= prev.lastTs ? ts : prev.lastTs,
+							lastSuccessTs:
+								status === 'success' && (!prev?.lastSuccessTs || ts >= prev.lastSuccessTs)
+									? ts
+									: prev?.lastSuccessTs
 						})
 					}
 				}
@@ -289,7 +299,11 @@ export function useActiveRunnableIds(
 		// previous badge state until a worker picks the job up.
 		const snap = new Map<string, RunnableRunState>()
 		for (const [id, h] of completedHistory) {
-			snap.set(id, { status: runningThisTick.has(id) ? 'running' : h.lastStatus, runs: h.runs })
+			snap.set(id, {
+				status: runningThisTick.has(id) ? 'running' : h.lastStatus,
+				runs: h.runs,
+				lastSuccessAt: h.lastSuccessTs
+			})
 		}
 		for (const id of runningThisTick) {
 			if (!snap.has(id)) snap.set(id, { status: 'running', runs: 0 })

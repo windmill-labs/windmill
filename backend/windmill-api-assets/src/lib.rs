@@ -632,6 +632,12 @@ struct GraphRunnableNode {
     partition_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     freshness: Option<String>,
+    // Completion time of the newest successful run of this pipeline member.
+    // The canvas checks it against the `// freshness` window to color the
+    // badge fresh/stale (passive monitoring — nothing re-runs automatically).
+    // Absent when no successful run is visible to the caller (job RLS applies).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    last_success_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -920,6 +926,34 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
+    // Newest successful completed run per pipeline member, for the passive
+    // freshness status on the canvas. Correlated per-path lookup walks
+    // ix_job_root_job_index_by_path_2 newest-first until the first success,
+    // so cost is bounded by the member count, not run history. Inside the
+    // user tx so job-visibility RLS applies — a caller who can't see the
+    // runs gets no timestamp rather than leaked completion times.
+    let member_paths: Vec<String> = pipeline_member_paths.iter().map(|r| r.path.clone()).collect();
+    let last_success_rows = sqlx::query!(
+        r#"
+        SELECT p.path AS "path!",
+               (SELECT c.completed_at
+                  FROM v2_job j
+                  JOIN v2_job_completed c ON c.id = j.id
+                 WHERE j.workspace_id = $1
+                   AND j.runnable_path = p.path
+                   AND j.parent_job IS NULL
+                   AND j.kind IN ('script', 'preview')
+                   AND c.status = 'success'
+                 ORDER BY j.created_at DESC
+                 LIMIT 1) AS last_success_at
+          FROM unnest($2::text[]) AS p(path)
+        "#,
+        &w_id,
+        &member_paths,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     // Existing scripts / flows in the workspace. Used to filter out
     // orphan trigger rows whose `script_path` no longer resolves — those
     // would otherwise be added to `runnable_set` below and surface as
@@ -1010,6 +1044,11 @@ async fn asset_graph(
             (r.path.clone(), lineage)
         })
         .collect();
+    let last_success_by_path: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
+        last_success_rows
+            .into_iter()
+            .filter_map(|r| r.last_success_at.map(|t| (r.path, t)))
+            .collect();
     let pipeline_member_script_paths: std::collections::HashSet<String> =
         pipeline_member_paths.into_iter().map(|r| r.path).collect();
     let existing_script_paths: std::collections::HashSet<String> =
@@ -1215,6 +1254,10 @@ async fn asset_graph(
                 freshness: ann
                     .and_then(|a| a.freshness.as_ref())
                     .map(|f| f.duration.clone()),
+                last_success_at: (usage_kind == AssetUsageKind::Script)
+                    .then(|| last_success_by_path.get(&path))
+                    .flatten()
+                    .copied(),
                 tag: ann.and_then(|a| a.tag.clone()),
                 retry: ann.and_then(|a| a.retry.clone()),
                 data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),

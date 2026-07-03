@@ -1337,8 +1337,18 @@
 						? 'failure'
 						: 'success'
 			const cur = m.get(id)
-			if (cur) cur.runs += 1
-			else m.set(id, { status, runs: 1 })
+			if (cur) {
+				cur.runs += 1
+				// Newest-first, so the first success per id is the latest one —
+				// it feeds the freshness chip between graph refetches.
+				if (e.status === 'success' && !cur.lastSuccessAt) cur.lastSuccessAt = e.at
+			} else {
+				m.set(id, {
+					status,
+					runs: 1,
+					lastSuccessAt: e.status === 'success' ? e.at : undefined
+				})
+			}
 		}
 		return m
 	})

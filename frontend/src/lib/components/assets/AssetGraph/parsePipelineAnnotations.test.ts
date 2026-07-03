@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	mergeColumnLineage,
+	parseDurationSecs,
 	parsePipelineAnnotations,
 	type ColumnLineage
 } from './parsePipelineAnnotations'
@@ -186,5 +187,37 @@ describe('mergeColumnLineage', () => {
 	it('returns annotations unchanged when there is no inferred lineage', () => {
 		const annotated: ColumnLineage[] = [{ column: 'a', inputs: [ref('w/o', 'a')] }]
 		expect(mergeColumnLineage([], annotated)).toEqual(annotated)
+	})
+})
+
+// Mirror of the Rust `parse_duration_secs` tests (windmill-common assets.rs)
+// — the freshness chip's staleness verdict depends on identical parsing.
+describe('parseDurationSecs', () => {
+	it('parses suffixed durations', () => {
+		expect(parseDurationSecs('30s')).toBe(30)
+		expect(parseDurationSecs('5m')).toBe(300)
+		expect(parseDurationSecs('2h')).toBe(7200)
+		expect(parseDurationSecs('1d')).toBe(86400)
+	})
+
+	it('bare integer means seconds', () => {
+		expect(parseDurationSecs('45')).toBe(45)
+	})
+
+	it('tolerates surrounding whitespace', () => {
+		expect(parseDurationSecs(' 5 m ')).toBe(300)
+	})
+
+	it('rejects malformed / non-positive input', () => {
+		expect(parseDurationSecs('')).toBeUndefined()
+		expect(parseDurationSecs('h')).toBeUndefined()
+		expect(parseDurationSecs('1.5h')).toBeUndefined()
+		expect(parseDurationSecs('-5m')).toBeUndefined()
+		expect(parseDurationSecs('0')).toBeUndefined()
+		expect(parseDurationSecs('fast')).toBeUndefined()
+	})
+
+	it('rejects values beyond i32 seconds (mirrors backend cap)', () => {
+		expect(parseDurationSecs('999999999d')).toBeUndefined()
 	})
 })
