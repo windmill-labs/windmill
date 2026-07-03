@@ -1094,6 +1094,23 @@ async fn generate_initial_datatable_migration(
 ) -> JsonResult<DatatableMigration> {
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
+    // The initial snapshot only makes sense on a data table with no migrations
+    // yet; reject otherwise so repeated calls don't pile up duplicate "initial"
+    // definitions (each at a distinct timestamp, each marked installed).
+    let has_migrations: bool = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2)",
+        &w_id,
+        &datatable_name,
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if has_migrations {
+        return Err(Error::BadRequest(format!(
+            "Data table '{datatable_name}' already has migrations; the initial migration can only be generated when there are none."
+        )));
+    }
+
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
