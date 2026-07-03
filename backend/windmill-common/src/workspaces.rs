@@ -923,8 +923,9 @@ pub struct DucklakeAncestorAttach {
 /// carrying it, mirroring the `wm_fork_` guard on forked datatable databases.
 pub const FORK_DUCKLAKE_SCHEMA_PREFIX: &str = "wm_fork_";
 
-/// Sub-path (under the lake's configured data path) holding all fork namespaces' data files;
-/// each fork writes under `<lake path>/{FORK_DUCKLAKE_DATA_DIR}/<fork workspace id>`.
+/// Bucket-root directory holding all fork namespaces' data files: each fork writes under
+/// `{FORK_DUCKLAKE_DATA_DIR}/<fork workspace id>/<lake path>` (see [`fork_data_path`] for why
+/// it wraps the lake's path instead of nesting under it).
 pub const FORK_DUCKLAKE_DATA_DIR: &str = "__wm_forks";
 
 fn mangle_identifier(s: &str, max: usize) -> String {
@@ -993,9 +994,12 @@ lazy_static::lazy_static! {
     /// fork workspace id -> (ancestor chain nearest-first, expiry ts). Empty chain = not a fork.
     /// `parent_workspace_id` only changes on dev-workspace attach/detach, so a short TTL is safe.
     static ref FORK_ANCESTOR_CHAIN_CACHE: Cache<String, (Vec<String>, i64)> = Cache::new(5000);
-    /// (fork workspace id, lake name) pairs already upserted into `fork_ducklake_namespace`,
-    /// so the registry write doesn't run on every job of a fork.
-    static ref FORK_DUCKLAKE_REGISTERED: Cache<(String, String), ()> = Cache::new(5000);
+    /// (fork workspace id, lake name) pairs recently upserted into `fork_ducklake_namespace`,
+    /// so the registry write doesn't run on every job of a fork. TTL'd (value = expiry ts)
+    /// rather than permanent: `drop_forked_ducklake_namespaces` deletes rows, and a fork that
+    /// keeps attaching afterwards must re-register within a bounded window or the final
+    /// workspace deletion would leak its recreated namespace.
+    static ref FORK_DUCKLAKE_REGISTERED: Cache<(String, String), i64> = Cache::new(5000);
 }
 
 /// Ancestors of `w_id`, nearest-first (direct parent … root). Empty for a non-fork workspace or
@@ -1242,7 +1246,11 @@ async fn register_fork_ducklake_namespace(
     data_path: &str,
 ) -> Result<()> {
     let key = (w_id.to_string(), name.to_string());
-    if FORK_DUCKLAKE_REGISTERED.get(&key).is_some() {
+    let now = chrono::Utc::now().timestamp();
+    if FORK_DUCKLAKE_REGISTERED
+        .get(&key)
+        .is_some_and(|exp| exp > now)
+    {
         return Ok(());
     }
     sqlx::query!(
@@ -1259,7 +1267,7 @@ async fn register_fork_ducklake_namespace(
     .execute(db)
     .await
     .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
-    FORK_DUCKLAKE_REGISTERED.insert(key, ());
+    FORK_DUCKLAKE_REGISTERED.insert(key, now + 60);
     Ok(())
 }
 

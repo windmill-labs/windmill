@@ -1841,6 +1841,15 @@ async fn transform_attach_ducklake(
     } else {
         format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
     };
+    // In a fork, re-emit the fork-owned DATA_PATH as the LAST option: DuckDB keeps the last
+    // occurrence of a duplicated option, so this wins over anything the arg stripping might
+    // not recognize (e.g. a dollar-quoted literal), regardless of literal syntax. The
+    // METADATA_SCHEMA injected by the fork resolution is already last within `extra_args`.
+    let extra_args = if ducklake.fork_defer.is_some() {
+        format!("{extra_args}, DATA_PATH 's3://{storage}/{data_path}'")
+    } else {
+        extra_args
+    };
 
     let attach_str = format!(
         "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
@@ -2081,6 +2090,122 @@ pub struct Arg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_fork_defer(
+        defer_tables: Vec<(&str, bool)>,
+        fork_views: Vec<&str>,
+    ) -> windmill_common::workspaces::DucklakeForkDefer {
+        use windmill_common::workspaces::{DucklakeAncestorAttach, DucklakeForkDefer};
+        DucklakeForkDefer {
+            ancestors: vec![DucklakeAncestorAttach {
+                workspace_id: "parent-ws".to_string(),
+                alias: "__wm_dl_lake_parent_ws_abcd1234".to_string(),
+                catalog: windmill_common::workspaces::DucklakeCatalog {
+                    resource_type:
+                        windmill_common::workspaces::DucklakeCatalogResourceType::Instance,
+                    resource_path: "cat_db".to_string(),
+                },
+                catalog_resource: serde_json::json!({
+                    "host": "h", "dbname": "cat_db", "user": "u", "password": "pw"
+                }),
+                storage: windmill_common::workspaces::DucklakeStorage {
+                    storage: None,
+                    path: "lake".to_string(),
+                },
+                metadata_schema: None,
+            }],
+            defer_tables: defer_tables
+                .into_iter()
+                .map(
+                    |(t, cur)| windmill_common::materialization::ForkDeferTable {
+                        table: t.to_string(),
+                        with_current_view: cur,
+                    },
+                )
+                .collect(),
+            fork_views: fork_views.into_iter().map(str::to_string).collect(),
+        }
+    }
+
+    #[test]
+    fn test_fork_defer_statements_shape() {
+        let defer = test_fork_defer(vec![("orders", false), ("dim", true)], vec![]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        // Ancestor attach: read-only, idempotent, never auto-migrating or auto-creating.
+        assert!(joined.contains("ATTACH IF NOT EXISTS"), "{joined}");
+        assert!(joined.contains("READ_ONLY"), "{joined}");
+        assert!(!joined.contains("AUTOMATIC_MIGRATION"), "{joined}");
+        assert!(!joined.contains("CREATE_IF_NOT_EXISTS"), "{joined}");
+        // Ancestor catalog password is hidden from logs.
+        assert_eq!(hp.lock().unwrap().as_slice(), ["pw"]);
+        // Defer views over the parent alias, plus the SCD2 `_current` companion.
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"orders\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"orders\""
+            ),
+            "{joined}"
+        );
+        assert!(joined.contains("dl.\"dim_current\""), "{joined}");
+        // No target → no transition drops.
+        assert!(!joined.contains("DROP VIEW"), "{joined}");
+    }
+
+    #[test]
+    fn test_fork_defer_statements_target_transition() {
+        // Target currently a defer view → skip its CREATE, drop the view (+ companion).
+        let defer = test_fork_defer(vec![("orders", false)], vec!["orders", "orders_current"]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts =
+            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
+                .unwrap();
+        let joined = stmts.join("\n");
+        assert!(!joined.contains("CREATE VIEW"), "{joined}");
+        assert!(
+            joined.contains("DROP VIEW IF EXISTS _wm_target.\"orders\";"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("DROP VIEW IF EXISTS _wm_target.\"orders_current\";"),
+            "{joined}"
+        );
+
+        // Target already a real table (NOT in fork_views, e.g. after a failed re-run whose
+        // status can't be trusted) → no DROP VIEW, or the job would wedge on a type mismatch.
+        let defer = test_fork_defer(vec![("orders", false)], vec![]);
+        let stmts =
+            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
+                .unwrap();
+        assert!(!stmts.join("\n").contains("DROP VIEW"), "{stmts:?}");
+
+        // Target in a different lake → this lake's defer views are untouched.
+        let defer = test_fork_defer(vec![("orders", false)], vec!["orders"]);
+        let stmts =
+            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains("CREATE VIEW IF NOT EXISTS dl.\"orders\""),
+            "{joined}"
+        );
+        assert!(!joined.contains("DROP VIEW"), "{joined}");
+    }
+
+    #[test]
+    fn test_fork_defer_statements_schema_qualified() {
+        let defer = test_fork_defer(vec![("staging.raw", false)], vec![]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains("CREATE SCHEMA IF NOT EXISTS dl.\"staging\";"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("CREATE VIEW IF NOT EXISTS dl.\"staging\".\"raw\""),
+            "{joined}"
+        );
+    }
 
     fn mrow(name: &str, params: &str, body: &str, is_table: bool, provider: &str) -> MacroRow {
         MacroRow {
