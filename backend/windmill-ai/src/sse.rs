@@ -711,10 +711,6 @@ pub enum OpenAIResponsesSSEEvent {
     #[serde(rename = "response.output_text.delta")]
     OutputTextDelta { delta: String },
 
-    /// Reasoning summary delta (streamed when the request asks for a summary)
-    #[serde(rename = "response.reasoning_summary_text.delta")]
-    ReasoningSummaryTextDelta { delta: String },
-
     /// New output item added (e.g., function_call start)
     #[serde(rename = "response.output_item.added")]
     OutputItemAdded { item: ResponsesOutputItem },
@@ -816,15 +812,6 @@ impl SSEParser for OpenAIResponsesSSEParser {
                     if !delta.is_empty() {
                         self.accumulated_content.push_str(&delta);
                         let event = StreamingEvent::TokenDelta { content: delta };
-                        self.stream_event_processor
-                            .send(event, &mut self.events_str)
-                            .await?;
-                    }
-                }
-
-                OpenAIResponsesSSEEvent::ReasoningSummaryTextDelta { delta } => {
-                    if !delta.is_empty() {
-                        let event = StreamingEvent::ReasoningTokenDelta { content: delta };
                         self.stream_event_processor
                             .send(event, &mut self.events_str)
                             .await?;
@@ -946,18 +933,6 @@ mod tests {
         let delta: OpenAIChoiceDelta =
             serde_json::from_str(r#"{"reasoning_content":"let me think"}"#).unwrap();
         assert_eq!(delta.reasoning_content.as_deref(), Some("let me think"));
-    }
-
-    #[test]
-    fn openai_responses_parses_reasoning_summary_delta() {
-        let event: OpenAIResponsesSSEEvent = serde_json::from_str(
-            r#"{"type":"response.reasoning_summary_text.delta","delta":"summarizing"}"#,
-        )
-        .unwrap();
-        assert!(matches!(
-            event,
-            OpenAIResponsesSSEEvent::ReasoningSummaryTextDelta { delta } if delta == "summarizing"
-        ));
     }
 
     #[test]
