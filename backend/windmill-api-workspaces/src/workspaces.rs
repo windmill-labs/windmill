@@ -4853,9 +4853,10 @@ async fn clone_apps(
                         if cloned_from_db.contains(&(old_version_id, file_type.to_string())) {
                             continue;
                         }
-                        // Server-side copy (no bytes through the backend) rather than get+put. A missing source
-                        // — e.g. a raw app with a js bundle but no css — surfaces as NotFound and is skipped,
-                        // exactly as the previous get did.
+                        // Prefer a server-side copy (no bytes through the backend). A missing source —
+                        // e.g. a raw app with a js bundle but no css — surfaces as NotFound and is
+                        // skipped. Not every object-store provider supports server-side copy, so fall
+                        // back to download+upload on any other error.
                         let src_path =
                             windmill_object_store::object_store_reexports::Path::from(format!(
                                 "/app_bundles/{}/{}.{}",
@@ -4879,10 +4880,37 @@ async fn clone_apps(
                             Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
                                 // No bundle in the object store for this version/type, skip
                             }
-                            Err(e) => {
-                                return Err(
-                                    windmill_object_store::object_store_error_to_error(e),
+                            Err(copy_err) => {
+                                // Provider may not support server-side copy — fall back to get+put.
+                                tracing::warn!(
+                                    "object store copy failed ({copy_err:#}), falling back to get+put for app bundle {}.{}",
+                                    old_version_id, file_type
                                 );
+                                match os.get(&src_path).await {
+                                    Ok(result) => {
+                                        let data = result.bytes().await.map_err(
+                                            windmill_object_store::object_store_error_to_error,
+                                        )?;
+                                        os.put(&dst_path, data.into()).await.map_err(
+                                            windmill_object_store::object_store_error_to_error,
+                                        )?;
+                                        tracing::info!(
+                                            "Cloned app bundle via get+put fallback: {}.{} -> {}.{}",
+                                            old_version_id,
+                                            file_type,
+                                            new_version_id,
+                                            file_type
+                                        );
+                                    }
+                                    Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
+                                        // No bundle for this version/type, skip
+                                    }
+                                    Err(e) => {
+                                        return Err(
+                                            windmill_object_store::object_store_error_to_error(e),
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
