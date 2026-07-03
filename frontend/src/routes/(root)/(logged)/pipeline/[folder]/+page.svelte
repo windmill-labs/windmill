@@ -61,7 +61,6 @@
 	import {
 		generatePipelineDraft,
 		autoOutputAsset,
-		INGESTION_TEMPLATES,
 		type PipelineOutputKind,
 		type DraftTriggerSource
 	} from '$lib/components/assets/AssetGraph/pipelineTemplates'
@@ -330,30 +329,6 @@
 		return out
 	})
 
-	// Wrap generated content into a local draft Script. Cast through unknown:
-	// the Script generated type has many readonly deployment fields (hash,
-	// created_*) that we don't care about for a local draft. The details pane
-	// only reads path/language/content/schema.
-	function makeDraftScript(scriptPath: string, language: ScriptLang, content: string): Script {
-		return {
-			hash: '',
-			path: scriptPath,
-			summary: '',
-			description: '',
-			content,
-			schema: emptySchema(),
-			is_template: false,
-			extra_perms: {},
-			language,
-			kind: 'script',
-			created_by: '',
-			created_at: new Date().toISOString(),
-			archived: false,
-			deleted: false,
-			starred: false
-		} as unknown as Script
-	}
-
 	// Build a runnable Script from picked language / triggers / output.
 	// Delegates to the shared template generator (pipelineTemplates.ts) so
 	// the same logic is reachable from anywhere a draft is needed.
@@ -372,7 +347,26 @@
 			input,
 			triggers
 		})
-		return makeDraftScript(scriptPath, language, content)
+		// Cast through unknown: the Script generated type has many readonly
+		// deployment fields (hash, created_*) that we don't care about for a
+		// local draft. The details pane only reads path/language/content/schema.
+		return {
+			hash: '',
+			path: scriptPath,
+			summary: '',
+			description: '',
+			content,
+			schema: emptySchema(),
+			is_template: false,
+			extra_perms: {},
+			language,
+			kind: 'script',
+			created_by: '',
+			created_at: new Date().toISOString(),
+			archived: false,
+			deleted: false,
+			starred: false
+		} as unknown as Script
 	}
 
 	// Graph-id of the node the canvas should smoothly pan to. Set when a new
@@ -1032,36 +1026,6 @@
 		aiPrompt?: string
 	) {
 		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, aiPrompt)
-	}
-	// Ingestion templates span several scripts (entry + managed loader); seed
-	// them all as drafts in one go and focus the entry node. `scriptPath` is
-	// the user-picked base — companion scripts append their suffix to it.
-	function handleAddPipelineTemplate(templateId: string, scriptPath: string) {
-		const tpl = INGESTION_TEMPLATES.find((t) => t.id === templateId)
-		if (!tpl) return
-		const base = scriptPath.split('/').pop() ?? scriptPath
-		const scripts = tpl.generate({ folder, base })
-		// Companion paths (`<base>_load`) are derived, not shown in the picker —
-		// guard every target so an existing draft's unsaved work is never
-		// silently replaced (same rule as renameDraft's collision check).
-		const clash = scripts.map((s) => scriptPath + s.suffix).find((p) => pe.drafts.has(p))
-		if (clash) {
-			sendUserToast(`A draft already exists at ${clash} — rename or discard it first`, true)
-			return
-		}
-		const next = new Map(pe.drafts)
-		for (const s of scripts) {
-			const path = scriptPath + s.suffix
-			next.set(path, {
-				localId: pe.newDraftLocalId(),
-				script: makeDraftScript(path, s.language, s.content),
-				outputAssets: s.output ? [s.output] : undefined
-			})
-		}
-		pe.drafts = next
-		pe.activeDraftPath = scriptPath
-		pe.selection = undefined
-		focusPipelineNode(`script:${scriptPath}`)
 	}
 	function handleRunnableMenuRemove(info: {
 		runnable_kind: 'script' | 'flow'
@@ -2229,7 +2193,6 @@
 				onSelect={handleCanvasSelect}
 				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
 				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
-				onAddPipelineTemplate={mode === 'edit' ? handleAddPipelineTemplate : undefined}
 				onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
 				onRequestEdit={isOperator ? undefined : () => setMode('edit')}

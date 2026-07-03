@@ -61,7 +61,6 @@
 		onSelect,
 		onAddScriptForAsset,
 		onAddPipelineScript,
-		onAddPipelineTemplate,
 		onRunnableMenuRemove,
 		onRunProducer,
 		idlePane,
@@ -151,9 +150,6 @@
 			outputKind: PipelineOutputKind,
 			aiPrompt?: string
 		) => void
-		// Ingestion-template pick from the + menu — seeds all of the
-		// template's scripts (entry + loader) as drafts.
-		onAddPipelineTemplate?: (templateId: string, path: string) => void
 		onRunnableMenuRemove?: (...args: any[]) => void
 		onRunProducer?: (producer: RunProducer) => Promise<string | undefined>
 		idlePane?: Snippet
@@ -437,7 +433,6 @@
 					onselect={onSelect}
 					{onAddScriptForAsset}
 					{onAddPipelineScript}
-					{onAddPipelineTemplate}
 					{onRunnableMenuRemove}
 					{onRunProducer}
 					{validStartPaths}

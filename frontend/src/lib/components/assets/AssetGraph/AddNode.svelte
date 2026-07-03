@@ -11,15 +11,12 @@
 		Database,
 		Send,
 		CloudCog,
-		Upload,
-		Globe,
-		Package
+		Upload
 	} from 'lucide-svelte'
-	import type { ComponentType } from 'svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import type { NativeTriggerKind } from './types'
 	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
-	import { INGESTION_TEMPLATES, type PipelineOutputKind } from './pipelineTemplates'
+	import type { PipelineOutputKind } from './pipelineTemplates'
 
 	// Each left-column kind is just "pipeline script triggered by <trigger
 	// source>". id === the SCRIPT_TRIGGER_KIND value, so the handler can
@@ -36,28 +33,14 @@
 				outputKind: PipelineOutputKind,
 				aiPrompt?: string
 			) => void
-			// Seeds every script of the picked ingestion template as drafts
-			// (a template can span several scripts, e.g. entry + loader).
-			onAddPipelineTemplate?: (templateId: string, path: string) => void
 			pathPrefix: string
 			defaultPathSuffix: string
 		}
 	}
 	let { data }: Props = $props()
 
-	const TEMPLATE_ICONS: Record<string, ComponentType> = {
-		postgres_incremental: Database,
-		rest_api_cursor: Globe,
-		dlt_rest_api: Package
-	}
-
 	function handlePick(pick: PipelineInsertPick) {
-		if (!pick.path) return
-		if (pick.templateId) {
-			data.onAddPipelineTemplate?.(pick.templateId, pick.path)
-			return
-		}
-		if (!pick.language) return
+		if (!pick.language || !pick.path) return
 		const kindId = pick.kindId as KindId
 		const outputKind = (pick.outputKind ?? 'none') as PipelineOutputKind
 		// Native trigger annotation is marker-only — the binding lives on
@@ -136,14 +119,6 @@
 			icon: CloudCog
 		}
 	]}
-	templates={data.onAddPipelineTemplate
-		? INGESTION_TEMPLATES.map((t) => ({
-				id: t.id,
-				label: t.label,
-				description: t.description,
-				icon: TEMPLATE_ICONS[t.id]
-			}))
-		: []}
 	languages={PIPELINE_LANGUAGES as any}
 	pathPrefix={data.pathPrefix}
 	defaultPathSuffix={data.defaultPathSuffix}
