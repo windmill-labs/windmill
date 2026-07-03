@@ -251,6 +251,30 @@ async fn partitioned_malformed_and_plain_members_are_skipped(
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn archived_workspace_is_not_resurrected(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // Workspace archival stops all execution but keeps script rows for
+    // unarchival — the watchdog must not keep pushing runs there.
+    seed_pipeline_script(&db, PATH, "# pipeline\n# freshness 30s\necho hi\n").await?;
+    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", WS)
+        .execute(&db)
+        .await?;
+
+    tick(&db).await;
+
+    assert!(
+        fetch_pushed(&db).await?.is_empty(),
+        "no pushes into an archived workspace"
+    );
+    assert_eq!(
+        state_row(&db, PATH).await?,
+        None,
+        "no state bookkeeping either"
+    );
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn state_of_unwatched_member_is_cleaned_up(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     // A stale-bookkeeping row whose script no longer declares freshness

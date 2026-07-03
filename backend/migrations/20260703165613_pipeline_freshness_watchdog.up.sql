@@ -23,3 +23,13 @@ CREATE TABLE pipeline_freshness_state (
 -- doesn't hit the recurring missing-GRANT class of bug.
 GRANT ALL ON pipeline_freshness_state TO windmill_user;
 GRANT ALL ON pipeline_freshness_state TO windmill_admin;
+
+-- The watchdog's ~60s candidate scan (latest deployed pipeline members)
+-- filters on this exact predicate and orders by (workspace_id, path,
+-- created_at DESC); without a matching partial index it seq-scans the whole
+-- script-version heap on every tick, on instances that mostly have zero
+-- pipeline scripts. (idx_script_pipeline_path is text_pattern_ops for
+-- prefix LIKE — it can't serve this ordering.)
+CREATE INDEX idx_script_pipeline_freshness_scan
+    ON script (workspace_id, path, created_at DESC)
+    WHERE auto_kind = 'pipeline' AND archived = false AND deleted = false;

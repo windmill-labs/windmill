@@ -950,7 +950,7 @@ async fn asset_graph(
                  WHERE j.workspace_id = $1
                    AND j.runnable_path = p.path
                    AND j.parent_job IS NULL
-                   AND j.kind IN ('script', 'preview')
+                   AND j.kind IN ('script', 'preview', 'singlestepflow')
                    AND c.status = 'success'
                  ORDER BY j.created_at DESC
                  LIMIT 1) AS last_success_at
