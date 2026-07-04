@@ -52,7 +52,10 @@ workspace), the returned `DucklakeWithConnData` is namespaced **in its existing 
   injective, ≤63 chars, stable across releases (persisted state depends on it), and
   **lake-scoped**: two lakes of one workspace may share a catalog database, and a
   per-workspace schema would merge their namespaces in the fork;
-- `storage.path` = `__wm_forks/<fork wid>/<original path>` — a **bucket-root prefix**, not a
+- `storage.path` = `__wm_forks/<fork segment>/<original path>` — the segment is the
+  mangled+hashed workspace id collapsed to ONE path component (fork ids are only
+  git-branch-safe and may contain `/`; used raw, `wm-fork-a/b` would nest inside sibling
+  `wm-fork-a`'s cleanup prefix) — a **bucket-root prefix**, not a
   sub-path of the parent's DATA_PATH, because lake maintenance
   (`ducklake_delete_orphaned_files`, snapshot expiry) scans everything under the parent's path
   and would delete live fork files nested there.
@@ -124,7 +127,7 @@ fork's settings point at by deletion time. Explicit
 `POST /w/{fork}/workspaces/drop_forked_ducklake_namespaces` (same permission as
 `delete_workspace`: fork owner or superadmin) drops each registered pg metadata schema
 (`DROP SCHEMA … CASCADE` on the catalog connection, hard-guarded on the `wm_fork_` prefix) and
-deletes the `__wm_forks/<wid>/…` objects in the workspace storage (hard-guarded on that
+deletes the `__wm_forks/<fork segment>/…` objects in the workspace storage (hard-guarded on that
 prefix; `parquet` feature). The fork-deletion UI calls it next to
 `drop_forked_datatable_databases`, for the fork and for deleted child forks. Registry rows are
 deleted per-lake only after both cleanups succeed, so a partial failure is retryable; the rows

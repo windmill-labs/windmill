@@ -1318,10 +1318,13 @@ pub async fn drop_forked_ducklake_namespaces(
             ));
             continue;
         }
+        // The fork's directory segment, NOT the raw workspace id: ids are only
+        // git-branch-safe and may contain `/`, which raw would let one fork's prefix nest
+        // inside a sibling's (`wm-fork-a/b` under `wm-fork-a`) and be swept by its cleanup.
         let expected_prefix = format!(
             "{}/{}/",
             windmill_common::workspaces::FORK_DUCKLAKE_DATA_DIR,
-            w_id
+            windmill_common::workspaces::fork_data_dir_segment(&w_id)
         );
         if !format!("{}/", ns.data_path.trim_end_matches('/')).starts_with(&expected_prefix) {
             errors.push(format!(

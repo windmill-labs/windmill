@@ -1015,8 +1015,9 @@ pub struct DucklakeAncestorAttach {
 pub const FORK_DUCKLAKE_SCHEMA_PREFIX: &str = "wm_fork_";
 
 /// Bucket-root directory holding all fork namespaces' data files: each fork writes under
-/// `{FORK_DUCKLAKE_DATA_DIR}/<fork workspace id>/<lake path>` (see [`fork_data_path`] for why
-/// it wraps the lake's path instead of nesting under it).
+/// `{FORK_DUCKLAKE_DATA_DIR}/<fork segment>/<lake path>` where the segment is
+/// [`fork_data_dir_segment`] (see [`fork_data_path`] for why it wraps the lake's path instead
+/// of nesting under it).
 pub const FORK_DUCKLAKE_DATA_DIR: &str = "__wm_forks";
 
 fn mangle_identifier(s: &str, max: usize) -> String {
@@ -1213,17 +1214,29 @@ async fn ducklake_conn_data(
     Ok((ducklake, fork_behavior))
 }
 
+/// The fork's directory segment under `__wm_forks/`: mangled + hashed into ONE path component
+/// (same recipe and stability requirement as [`fork_ducklake_metadata_schema`]). Fork/dev
+/// workspace ids are only git-branch-safe and may contain `/` (e.g. `wm-fork-a/b`) — used
+/// raw, such an id would nest inside the sibling `wm-fork-a`'s prefix and be swept by ITS
+/// cleanup. The hash keeps distinct ids distinct after mangling.
+pub fn fork_data_dir_segment(fork_w_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = hex::encode(&Sha256::digest(fork_w_id.as_bytes())[..4]);
+    format!("{}_{hash}", mangle_identifier(fork_w_id, 40))
+}
+
 /// The fork namespace's data path within the same bucket: a bucket-root
-/// `__wm_forks/<fork wid>/` prefix wrapping the lake's own path, NOT a sub-path under it — the
-/// parent lake's maintenance (snapshot expiry / `ducklake_delete_orphaned_files`) scans
+/// `__wm_forks/<fork segment>/` prefix wrapping the lake's own path, NOT a sub-path under it —
+/// the parent lake's maintenance (snapshot expiry / `ducklake_delete_orphaned_files`) scans
 /// everything under the parent's DATA_PATH and would treat live fork files nested there as
 /// orphans and delete them.
 pub fn fork_data_path(base_path: &str, fork_w_id: &str) -> String {
+    let segment = fork_data_dir_segment(fork_w_id);
     let base = base_path.trim_matches('/');
     if base.is_empty() {
-        format!("{FORK_DUCKLAKE_DATA_DIR}/{fork_w_id}")
+        format!("{FORK_DUCKLAKE_DATA_DIR}/{segment}")
     } else {
-        format!("{FORK_DUCKLAKE_DATA_DIR}/{fork_w_id}/{base}")
+        format!("{FORK_DUCKLAKE_DATA_DIR}/{segment}/{base}")
     }
 }
 
@@ -1737,6 +1750,37 @@ mod tests {
             Some("b".to_string())
         );
         assert_eq!(extract_metadata_schema_arg("ENCRYPTED true"), None);
+    }
+
+    #[test]
+    fn test_fork_data_path_prefix_isolation() {
+        // Fork/dev ids are git-branch-safe and may contain `/`: `wm-fork-a/b` is a valid id.
+        // Its data prefix must NOT nest inside `wm-fork-a`'s, or deleting `wm-fork-a` would
+        // sweep the sibling's files via the object-store prefix listing.
+        assert!(validate_fork_workspace_id("wm-fork-a/b").is_ok());
+        let a = fork_data_path("lake", "wm-fork-a");
+        let ab = fork_data_path("lake", "wm-fork-a/b");
+        assert!(
+            !format!("{ab}/").starts_with(&format!(
+                "{FORK_DUCKLAKE_DATA_DIR}/{}/",
+                fork_data_dir_segment("wm-fork-a")
+            )),
+            "{ab} nests under {a}'s cleanup prefix"
+        );
+        // Single path component: the segment itself contains no separator.
+        assert!(!fork_data_dir_segment("wm-fork-a/b").contains('/'));
+        // Injective after mangling (`/` and `_` both mangle to `_`).
+        assert_ne!(
+            fork_data_dir_segment("wm-fork-a/b"),
+            fork_data_dir_segment("wm-fork-a_b")
+        );
+        // Deterministic (registry rows + cleanup guard recompute it).
+        assert_eq!(a, fork_data_path("lake", "wm-fork-a"));
+        // Empty base path still yields a well-formed prefix.
+        assert_eq!(
+            fork_data_path("", "wm-fork-a"),
+            format!("{FORK_DUCKLAKE_DATA_DIR}/{}", fork_data_dir_segment("wm-fork-a"))
+        );
     }
 
     #[test]
