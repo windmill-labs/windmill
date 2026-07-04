@@ -11,11 +11,15 @@ pub fn backfill_todo() -> Error {
     Error::internal_err("Pipeline partition backfill requires the enterprise edition".to_string())
 }
 
-/// Whether `// data_test` probes run inside the materialization write
-/// transaction (write-audit-publish: a violation aborts the transaction, so a
-/// failing slice is never published). Enterprise-only; the public build keeps
-/// the dbt-like commit-then-test behavior — a failed test still fails the run
-/// and stops the cascade, but the written slice stays live.
-pub fn transactional_data_tests() -> bool {
-    false
+/// Write-audit-publish guard for `// data_test` (enterprise): the statement
+/// placed inside the materialization write transaction that aborts it on any
+/// test violation, so a failing slice is never published. The implementation
+/// lives in `pipeline_advanced_ee`; the public build generates no guard, which
+/// keeps the dbt-like commit-then-test behavior — a failed test still fails
+/// the run and stops the cascade, but the written slice stays live.
+pub fn data_test_guard_sql(
+    _asset_path: &str,
+    _checks: &[windmill_parser::sql_materialize::DataTestCheck],
+) -> Option<String> {
+    None
 }

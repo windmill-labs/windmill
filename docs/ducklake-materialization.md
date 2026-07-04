@@ -358,10 +358,13 @@ load-bearing.
   not roll back the committed snapshot — time-travel still lets you inspect
   exactly what failed. Enterprise upgrades this to write-audit-publish: the
   same checks also run *inside* the write transaction as a guard statement
-  (`sql_materialize::data_test_guard_sql`, gated by
-  `pipeline_advanced::transactional_data_tests()`) that raises on any
-  violation, aborting the run before `COMMIT` — a failing slice is never
-  published, readers keep the previous version, and no snapshot is created.
+  that raises on any violation, aborting the run before `COMMIT` — a failing
+  slice is never published, readers keep the previous version, and no snapshot
+  is created. The guard SQL is built in the enterprise repo
+  (`pipeline_advanced::data_test_guard_sql`, `None` in the public build) and
+  handed to `sql_materialize::build_wrap_blocks` as a callback, which owns
+  only the placement contract — so the public codegen is inert scaffolding
+  without the enterprise builder.
   When guarded, the bootstrap DDL (`CREATE TABLE IF NOT EXISTS`,
   `SET PARTITIONED BY`, the SCD2 history bootstrap) also moves inside the
   transaction, so even the *first* run of a new asset rolls back to "no table"

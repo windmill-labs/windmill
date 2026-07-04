@@ -390,12 +390,13 @@ pub struct MaterializeCodegen<'a> {
     /// and the partition column / `SET PARTITIONED BY` are omitted.
     pub partitioned: bool,
     pub strategy: MaterializeStrategy,
-    /// Write-audit-publish gate (enterprise): a statement (see
-    /// [`data_test_guard_sql`]) placed inside the write transaction, after the
-    /// mutation and before `COMMIT`, that raises when any data test is
-    /// violated — aborting the run so the transaction rolls back and the bad
-    /// slice is never published. `None` (public build, or no tests) keeps the
-    /// dbt-like commit-then-test behavior.
+    /// Write-audit-publish gate (enterprise): a statement placed inside the
+    /// write transaction, after the mutation and before `COMMIT`, that raises
+    /// when any data test is violated — aborting the run so the transaction
+    /// rolls back and the bad slice is never published. The statement itself
+    /// is built by the enterprise edition (see `build_wrap_blocks`'s
+    /// `test_guard` callback); `None` (public build, or no tests) keeps the
+    /// dbt-like commit-then-test behavior with codegen identical to before.
     pub test_guard: Option<&'a str>,
 }
 
@@ -676,54 +677,6 @@ impl<'a> MaterializeCodegen<'a> {
     }
 }
 
-/// The write-audit-publish gate (enterprise): one SELECT, run inside the write
-/// transaction after the mutation and before `COMMIT`, that raises via
-/// `error(...)` when any data-test check counts a violation — aborting the run
-/// so the transaction rolls back and a failing slice is never published. The
-/// raised message carries the same per-test ✓/✗ breakdown the worker formats on
-/// the post-commit path, built in SQL (`chr(10)` newlines) since the worker
-/// only sees the run's error string.
-///
-/// A pure read on purpose: the counts could be captured into a temp table for
-/// the post-commit summary to reuse, but that would couple the summary's shape
-/// to whether a guard ran. Instead the summary recomputes the same checks on
-/// the passing path (they pass by construction; probe counts are cheap next to
-/// the write itself).
-pub fn data_test_guard_sql(asset_path: &str, checks: &[DataTestCheck]) -> String {
-    let cte_cols = checks
-        .iter()
-        .enumerate()
-        .map(|(i, c)| format!("{} AS c{i}", c.violating))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let total = (0..checks.len())
-        .map(|i| format!("c{i}"))
-        .collect::<Vec<_>>()
-        .join(" + ");
-    let n_failed = (0..checks.len())
-        .map(|i| format!("CASE WHEN c{i} > 0 THEN 1 ELSE 0 END"))
-        .collect::<Vec<_>>()
-        .join(" + ");
-    let mut msg = format!(
-        "'data tests failed on {} (' || ({n_failed}) || '/{} failed) — write rolled back, previous version left live:'",
-        asset_path.replace('\'', "''"),
-        checks.len()
-    );
-    for (i, c) in checks.iter().enumerate() {
-        let name = c.name.replace('\'', "''");
-        msg.push_str(&format!(
-            " || chr(10) || CASE WHEN c{i} > 0 THEN '  ✗ {name} — ' || c{i} || ' violating row(s)' ELSE '  ✓ {name}' END"
-        ));
-    }
-    // `ELSE 'passed'` keeps both CASE branches VARCHAR (`error()` is declared
-    // VARCHAR); the message expression is row-dependent, so the planner cannot
-    // constant-fold the `error()` call into an unconditional raise.
-    format!(
-        "WITH _wm_tr AS (SELECT {cte_cols}) SELECT CASE WHEN {total} > 0 THEN \
-         error({msg}) ELSE 'passed' END AS _wm_data_test_gate FROM _wm_tr;"
-    )
-}
-
 /// The read that captures the DuckLake snapshot id produced by the write, for
 /// the given attach alias (e.g. `_wm_target`). The worker runs this last and
 /// records the result into `materialized_partition`.
@@ -751,10 +704,14 @@ pub const TARGET_ALIAS: &str = "_wm_target";
 /// a one-row summary read (asset / rows / snapshot_id) that is both the job's
 /// result (a useful preview) and what the worker records.
 ///
-/// `transactional_tests` (enterprise write-audit-publish) additionally places a
-/// [`data_test_guard_sql`] gate inside the write transaction, so a data-test
-/// violation rolls the write back instead of leaving the failing slice
-/// published; `false` keeps commit-then-test.
+/// `test_guard` is the write-audit-publish seam: called with the compiled
+/// checks (when any exist), it returns the guard statement to place inside the
+/// write transaction — a data-test violation then rolls the write back instead
+/// of leaving the failing slice published. The guard SQL itself is built by
+/// the enterprise edition (`windmill_common::pipeline_advanced`, which this
+/// crate cannot depend on — hence the callback); the public build returns
+/// `None`, keeping commit-then-test with codegen identical to the unguarded
+/// shape.
 pub fn build_wrap_blocks(
     plan: &WrapPlan,
     target_attach: &str,
@@ -765,7 +722,7 @@ pub fn build_wrap_blocks(
     partitioned: bool,
     strategy: MaterializeStrategy,
     tests: &[DataTestResolved],
-    transactional_tests: bool,
+    test_guard: &dyn Fn(&[DataTestCheck]) -> Option<String>,
 ) -> Result<Vec<String>, String> {
     let target_qualified = format!("{TARGET_ALIAS}.{target_table}");
     let scd2 = matches!(strategy, MaterializeStrategy::Scd2 { .. });
@@ -778,10 +735,10 @@ pub fn build_wrap_blocks(
         scd2,
     };
     let test_sql = build_data_test_checks(tests, &ctx)?;
-    let guard = if transactional_tests && !test_sql.checks.is_empty() {
-        Some(data_test_guard_sql(asset_path, &test_sql.checks))
-    } else {
+    let guard = if test_sql.checks.is_empty() {
         None
+    } else {
+        test_guard(&test_sql.checks)
     };
     let cg = MaterializeCodegen {
         target_qualified: &target_qualified,
@@ -1574,7 +1531,7 @@ mod tests {
             true,
             MaterializeStrategy::Replace,
             &[],
-            false,
+            &|_| None,
         )
         .unwrap();
         // setup block first, then the target ATTACH, then codegen, then result.
@@ -1601,6 +1558,26 @@ mod tests {
 
     // -- write-audit-publish (transactional data tests) ----------------------
 
+    // Stand-in for the enterprise guard builder (which lives in
+    // windmill-ee-private): joins every check's count into one raising probe,
+    // enough to pin the *placement* contract this crate owns. The real guard's
+    // SQL shape is tested next to its implementation.
+    fn fake_guard(checks: &[DataTestCheck]) -> Option<String> {
+        let counts = checks
+            .iter()
+            .map(|c| c.violating.as_str())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        let names = checks
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        Some(format!(
+            "SELECT CASE WHEN {counts} > 0 THEN error('guard: {names}') ELSE 'passed' END;"
+        ))
+    }
+
     fn wap_blocks(strategy: MaterializeStrategy, partitioned: bool, wap: bool) -> Vec<String> {
         let plan = ok("SELECT a, b FROM src");
         build_wrap_blocks(
@@ -1616,7 +1593,7 @@ mod tests {
                 DataTestResolved::BuiltIn(DataTest::NotNull { column: "a".into() }),
                 DataTestResolved::BuiltIn(DataTest::Unique { column: "b".into() }),
             ],
-            wap,
+            if wap { &fake_guard } else { &|_| None },
         )
         .unwrap()
     }
@@ -1638,21 +1615,20 @@ mod tests {
         // roll back to "no table", not leave an empty bootstrapped shell.
         assert!(begin < bootstrap && bootstrap < alter && alter < insert);
         assert!(insert < guard && guard < commit);
-        // probes keep the partition scoping and the guard reports every test
+        // probes keep the partition scoping and every check reaches the guard
         let g = &blocks[guard];
         assert!(g.contains("\"_wm_partition\" = '2026-06-19'"));
         assert!(g.contains("not_null(a)") && g.contains("unique(b)"));
-        assert!(g.contains("chr(10)"));
         // the post-commit summary (with its own data_tests breakdown) is intact
         assert!(blocks.last().unwrap().contains("AS data_tests"));
     }
 
     #[test]
-    fn wap_guard_absent_without_flag_and_without_tests() {
-        // flag off ⇒ commit-then-test exactly as before
+    fn wap_guard_absent_without_builder_and_without_tests() {
+        // no guard from the builder (public build) ⇒ commit-then-test as before
         let blocks = wap_blocks(MaterializeStrategy::Replace, true, false);
         assert!(!blocks.iter().any(|b| b.contains("error(")));
-        // flag on but no tests ⇒ nothing to gate, no guard
+        // builder present but no tests ⇒ it is never called, no guard
         let plan = ok("SELECT a FROM src");
         let blocks = build_wrap_blocks(
             &plan,
@@ -1664,7 +1640,7 @@ mod tests {
             false,
             MaterializeStrategy::Append,
             &[],
-            true,
+            &|_| panic!("guard builder must not be called with no tests"),
         )
         .unwrap();
         assert!(!blocks.iter().any(|b| b.contains("error(")));
@@ -1716,26 +1692,8 @@ mod tests {
         assert!(p_capture < p_begin);
     }
 
-    #[test]
-    fn data_test_guard_sql_shape_and_escaping() {
-        let checks = vec![
-            DataTestCheck {
-                name: "not_null(o'brien)".into(),
-                violating: "(SELECT count(*) AS v FROM t WHERE x IS NULL)".into(),
-            },
-            DataTestCheck { name: "unique(b)".into(), violating: "(SELECT 0)".into() },
-        ];
-        let g = data_test_guard_sql("lake/o'tbl", &checks);
-        // single-quote-escaped asset path and test names inside the message
-        assert!(g.contains("lake/o''tbl"));
-        assert!(g.contains("not_null(o''brien)"));
-        // raises only when a count is nonzero; both CASE branches are VARCHAR
-        assert!(g.contains("CASE WHEN c0 + c1 > 0 THEN error("));
-        assert!(g.contains("ELSE 'passed' END"));
-        // one ✓/✗ line per test, newline-joined in SQL
-        assert_eq!(g.matches("chr(10)").count(), 2);
-        assert!(g.ends_with(";"));
-    }
+    // (The real guard's SQL shape/escaping is tested next to its enterprise
+    // implementation in windmill-common's pipeline_advanced_ee.)
 
     // -- data tests ---------------------------------------------------------
 
