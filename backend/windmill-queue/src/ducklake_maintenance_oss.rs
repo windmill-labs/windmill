@@ -27,8 +27,8 @@ use windmill_common::{
 // ducklake settings save fail, and the admin must be able to save it off.
 pub async fn sync_ducklake_maintenance_schedules<'c>(
     _db: &DB,
-    tx: Transaction<'c, Postgres>,
-    _w_id: &str,
+    mut tx: Transaction<'c, Postgres>,
+    w_id: &str,
     ducklakes: &HashMap<String, Ducklake>,
     previous: &HashMap<String, Ducklake>,
     _edited_by: &str,
@@ -44,6 +44,29 @@ pub async fn sync_ducklake_maintenance_schedules<'c>(
                 .to_string(),
         ));
     }
+
+    // Saving maintenance off (e.g. after an enterprise license lapsed) must
+    // remove the managed row AND its already-queued occurrence here too —
+    // otherwise a maintenance job pushed under the enterprise edition still
+    // runs once after the admin disabled it. Like the enterprise
+    // implementation, the removed set is derived from config, never from the
+    // path prefix.
+    let removed = previous
+        .iter()
+        .filter(|(name, dl)| enabled(dl) && !ducklakes.get(*name).is_some_and(|cur| enabled(cur)))
+        .map(|(name, _)| windmill_common::workspaces::ducklake_maintenance_schedule_path(name))
+        .collect::<Vec<_>>();
+    for path in removed.iter() {
+        crate::schedule::clear_schedule(&mut tx, path, w_id).await?;
+    }
+    sqlx::query!(
+        "DELETE FROM schedule WHERE workspace_id = $1 AND path = ANY($2)",
+        w_id,
+        &removed
+    )
+    .execute(&mut *tx)
+    .await?;
+
     Ok(tx)
 }
 
