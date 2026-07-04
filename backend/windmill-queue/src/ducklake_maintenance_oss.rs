@@ -50,20 +50,24 @@ pub async fn sync_ducklake_maintenance_schedules<'c>(
 /// Build the job payload for one occurrence of a managed maintenance schedule
 /// (`push_scheduled_job` calls this for reserved-prefix schedule paths).
 /// Returns `(payload, tag, timeout, on_behalf_of_email, created_by)`.
-// NotFound (not a generic error) so a schedule row left over from an
-// enterprise period is auto-disabled with `schedule.error` recorded by the
-// post-completion scheduler, instead of grinding through completion retries.
+///
+/// Always `Ok(None)` in the public build: the caller falls through to normal
+/// script resolution, so a pre-existing user schedule under a real
+/// `ducklake_maintenance` folder keeps running, while a managed row left over
+/// from an enterprise period fails script resolution with NotFound and is
+/// auto-disabled with `schedule.error` recorded by the post-completion
+/// scheduler.
 pub async fn build_maintenance_schedule_payload<'c>(
     _tx: &mut Transaction<'c, Postgres>,
     _schedule: &Schedule,
-) -> Result<(
-    JobPayload,
-    Option<String>,
-    Option<i32>,
-    Option<String>,
-    String,
-)> {
-    Err(Error::NotFound(
-        "Ducklake scheduled maintenance is only available in the enterprise edition".to_string(),
-    ))
+) -> Result<
+    Option<(
+        JobPayload,
+        Option<String>,
+        Option<i32>,
+        Option<String>,
+        String,
+    )>,
+> {
+    Ok(None)
 }
