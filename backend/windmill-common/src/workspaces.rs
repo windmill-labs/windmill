@@ -1531,7 +1531,10 @@ pub fn ducklake_catalog_identity(catalog: &DucklakeCatalog) -> String {
 /// exactly which pg metadata schema and which storage prefixes to clean up. One row per
 /// (lake, storage, data path) EVER attached — if the fork's lake settings drift, later
 /// attaches add rows rather than replace them, so cleanup covers every prefix the fork wrote.
-/// The once-cache is keyed on the full location for the same reason.
+/// The once-cache is keyed on the full location for the same reason. Re-registering an
+/// existing row resets its `schema_dropped` cleanup phase: attaching recreates the metadata
+/// schema, so a stale "already dropped" marker would make the eventual cleanup skip a live
+/// schema.
 async fn register_fork_ducklake_namespace(
     db: &DB,
     w_id: &str,
@@ -1563,7 +1566,7 @@ async fn register_fork_ducklake_namespace(
            (workspace_id, ducklake_name, metadata_schema, catalog, storage, storage_ref, data_path)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (workspace_id, ducklake_name, catalog, storage, storage_ref, data_path)
-         DO NOTHING",
+         DO UPDATE SET schema_dropped = false",
         w_id,
         name,
         metadata_schema,

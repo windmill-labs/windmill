@@ -5431,8 +5431,14 @@ async fn create_workspace_fork(
     // leftovers alone don't block — once the schema is gone they are inert (a deleted fork's
     // `$res:` storage resource is gone forever, so they may never resolve again), and the
     // surviving registry row has the next successful same-prefix cleanup sweep them.
-    let leftover_issues =
-        crate::workspaces_extra::drop_forked_ducklake_namespaces_impl(&db, &nw.id).await?;
+    // `$res:` fallback = the workspace being forked: the deleted fork's resource clones came
+    // from a parent, so the new parent is the natural donor for the retry's credentials.
+    let leftover_issues = crate::workspaces_extra::drop_forked_ducklake_namespaces_impl(
+        &db,
+        &nw.id,
+        Some(&parent_workspace_id),
+    )
+    .await?;
     let blocking: Vec<&str> = leftover_issues
         .iter()
         .filter(|i| i.blocking)

@@ -33,6 +33,12 @@ CREATE TABLE fork_ducklake_namespace (
     -- `__wm_forks/<fork wid>/…` prefix).
     data_path TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Cleanup phase state: true once the metadata schema has been dropped but data files (or
+    -- the row delete) still failed. Later retries then skip the schema phase entirely — they
+    -- need NO catalog credentials, which may be gone for good with the deleted fork's
+    -- resources. Reset to false whenever a live fork re-registers the row (re-attaching
+    -- recreates the schema).
+    schema_dropped BOOLEAN NOT NULL DEFAULT false,
     -- One row per physical location EVER attached: if the fork's lake settings drift
     -- (catalog/storage/path change), later attaches add rows rather than replace them, so
     -- cleanup covers every location the fork wrote, not just the first.

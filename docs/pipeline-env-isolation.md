@@ -145,6 +145,12 @@ resource is gone forever, but once the schema is dropped the files are inert —
 row keeps them tracked and the next successful cleanup of the same prefix (typically the
 recreated fork's own deletion, with live credentials) sweeps them.
 
+Retries after the fork is gone get two aids: the row's `schema_dropped` phase flag (set when
+the schema dropped but data cleanup failed; retries then skip the schema phase and need no
+catalog credentials — registration resets it on re-attach, which recreates the schema), and
+`$res:` fallback resolution against the workspace being forked (the deleted fork's resources
+were clones of a parent's, so the new parent is the natural credential donor).
+
 `POST /w/{fork}/workspaces/drop_forked_ducklake_namespaces` (same permissions as
 `delete_workspace` via a shared gate: fork owner or superadmin, plus parent-prod-admin when the
 fork is an attached dev workspace) drops each registered pg metadata schema
