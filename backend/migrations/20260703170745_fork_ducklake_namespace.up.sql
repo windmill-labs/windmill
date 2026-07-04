@@ -16,6 +16,12 @@ CREATE TABLE fork_ducklake_namespace (
     -- Named workspace storage holding the fork's data files; '' = the default storage
     -- (part of the PK, which cannot hold NULL).
     storage TEXT NOT NULL DEFAULT '',
+    -- The storage's RESOLVED identity at registration time (`<lfs type>:<resource path or
+    -- root path>`, e.g. `s3:u/admin/minio` or `filesystem:/data/lfs`; '' = unknown). Cleanup
+    -- deletes the fork prefix from THIS storage, not whatever the logical name points at by
+    -- then — repointing a storage after attach must not orphan the original fork data (or
+    -- delete a colliding prefix from the new one).
+    storage_ref TEXT NOT NULL DEFAULT '',
     -- The fork namespace's data path within that storage (a bucket-root
     -- `__wm_forks/<fork wid>/…` prefix).
     data_path TEXT NOT NULL,
@@ -23,7 +29,7 @@ CREATE TABLE fork_ducklake_namespace (
     -- One row per physical location EVER attached: if the fork's lake settings drift
     -- (catalog/storage/path change), later attaches add rows rather than replace them, so
     -- cleanup covers every location the fork wrote, not just the first.
-    PRIMARY KEY (workspace_id, ducklake_name, catalog, storage, data_path)
+    PRIMARY KEY (workspace_id, ducklake_name, catalog, storage, storage_ref, data_path)
 );
 
 -- Resolution runs under user_db transactions (SET LOCAL ROLE) in API contexts, so the

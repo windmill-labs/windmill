@@ -1293,7 +1293,8 @@ pub async fn drop_forked_ducklake_namespaces(
     // every prefix the fork wrote gets cleaned, not just the first.
     let namespaces = sqlx::query!(
         r#"SELECT ducklake_name AS "ducklake_name!", metadata_schema AS "metadata_schema!",
-                  catalog AS "catalog!", storage AS "storage!", data_path AS "data_path!"
+                  catalog AS "catalog!", storage AS "storage!",
+                  storage_ref AS "storage_ref!", data_path AS "data_path!"
              FROM fork_ducklake_namespace WHERE workspace_id = $1"#,
         &w_id
     )
@@ -1347,7 +1348,9 @@ pub async fn drop_forked_ducklake_namespaces(
         }
         // '' = default storage in the registry (PK column, cannot hold NULL).
         let storage = Some(ns.storage.as_str()).filter(|s| !s.is_empty());
-        if let Err(e) = delete_fork_ducklake_data(&db, &w_id, storage, &ns.data_path).await {
+        if let Err(e) =
+            delete_fork_ducklake_data(&db, &w_id, storage, &ns.storage_ref, &ns.data_path).await
+        {
             errors.push(format!(
                 "Dropped metadata schema but could not delete data files under '{}' for ducklake://{}: {e}",
                 ns.data_path, ns.ducklake_name
@@ -1357,11 +1360,12 @@ pub async fn drop_forked_ducklake_namespaces(
         sqlx::query!(
             "DELETE FROM fork_ducklake_namespace
              WHERE workspace_id = $1 AND ducklake_name = $2 AND catalog = $3
-               AND storage = $4 AND data_path = $5",
+               AND storage = $4 AND storage_ref = $5 AND data_path = $6",
             &w_id,
             &ns.ducklake_name,
             &ns.catalog,
             &ns.storage,
+            &ns.storage_ref,
             &ns.data_path,
         )
         .execute(&db)
@@ -1430,42 +1434,88 @@ async fn drop_fork_ducklake_metadata_schema(
     Ok(())
 }
 
-/// Delete every object under the fork's `__wm_forks/<wid>/…` prefix in the workspace storage.
-/// Requires the `parquet` (object store) feature; without it the metadata schema is still
-/// dropped and the unreachable data files are left for manual cleanup.
+/// Delete every object under the fork's `__wm_forks/<wid>/…` prefix in the storage identified
+/// by the registry's `storage_ref` — the storage that was active when the fork's data was
+/// WRITTEN, not whatever the logical storage name points at by deletion time (a repointed
+/// storage must not orphan the original fork data, nor get a colliding prefix deleted).
+/// `storage_ref` = '' falls back to resolving the logical name against current settings
+/// (registration couldn't identify the storage — best effort). Requires the `parquet`
+/// (object store) feature; without it the metadata schema is still dropped and the
+/// unreachable data files are left for manual cleanup.
 #[cfg(feature = "parquet")]
 async fn delete_fork_ducklake_data(
     db: &DB,
     w_id: &str,
     storage: Option<&str>,
+    storage_ref: &str,
     data_path: &str,
 ) -> Result<()> {
     use futures::{StreamExt, TryStreamExt};
-    use windmill_types::s3::LargeFileStorage;
+    use windmill_types::s3::{
+        AzureBlobStorage, FilesystemStorage, GoogleCloudStorage, LargeFileStorage, S3Storage,
+    };
 
-    let lfs_json = sqlx::query_scalar!(
-        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .ok_or_else(|| Error::BadRequest("workspace has no storage configured".to_string()))?;
-
-    // Named storages live under `secondary_storage`; `None`/`_default_` is the primary.
-    let lfs: LargeFileStorage = match storage.filter(|s| *s != "_default_") {
-        None => serde_json::from_value(lfs_json.clone())
-            .map_err(|e| Error::internal_err(format!("parsing large_file_storage: {e}")))?,
-        Some(name) => serde_json::from_value(
-            lfs_json
-                .get("secondary_storage")
-                .and_then(|s| s.get(name))
-                .cloned()
-                .ok_or_else(|| {
-                    Error::BadRequest(format!("workspace has no storage named {name}"))
-                })?,
+    let lfs: LargeFileStorage = if let Some((typ, path)) = storage_ref.split_once(':') {
+        // Rebuild the LFS entry from the registered identity; only the variant (which
+        // resource parser applies) and the path matter to `lfs_to_object_store_resource`.
+        let s3 = |p: &str| S3Storage {
+            s3_resource_path: p.to_string(),
+            public_resource: None,
+            advanced_permissions: None,
+        };
+        match typ {
+            "S3Storage" => LargeFileStorage::S3Storage(s3(path)),
+            "S3AwsOidc" => LargeFileStorage::S3AwsOidc(s3(path)),
+            "AzureBlobStorage" => LargeFileStorage::AzureBlobStorage(AzureBlobStorage {
+                azure_blob_resource_path: path.to_string(),
+                public_resource: None,
+                advanced_permissions: None,
+            }),
+            "AzureWorkloadIdentity" => LargeFileStorage::AzureWorkloadIdentity(AzureBlobStorage {
+                azure_blob_resource_path: path.to_string(),
+                public_resource: None,
+                advanced_permissions: None,
+            }),
+            "GoogleCloudStorage" => LargeFileStorage::GoogleCloudStorage(GoogleCloudStorage {
+                gcs_resource_path: path.to_string(),
+                public_resource: None,
+                advanced_permissions: None,
+            }),
+            "FilesystemStorage" => LargeFileStorage::FilesystemStorage(FilesystemStorage {
+                root_path: path.to_string(),
+                public_resource: None,
+                advanced_permissions: None,
+            }),
+            other => {
+                return Err(Error::internal_err(format!(
+                    "unknown registered storage type `{other}`"
+                )))
+            }
+        }
+    } else {
+        let lfs_json = sqlx::query_scalar!(
+            "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+            w_id
         )
-        .map_err(|e| Error::internal_err(format!("parsing storage {name}: {e}")))?,
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .ok_or_else(|| Error::BadRequest("workspace has no storage configured".to_string()))?;
+        // Named storages live under `secondary_storage`; `None`/`_default_` is the primary.
+        match storage.filter(|s| *s != "_default_") {
+            None => serde_json::from_value(lfs_json.clone())
+                .map_err(|e| Error::internal_err(format!("parsing large_file_storage: {e}")))?,
+            Some(name) => serde_json::from_value(
+                lfs_json
+                    .get("secondary_storage")
+                    .and_then(|s| s.get(name))
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::BadRequest(format!("workspace has no storage named {name}"))
+                    })?,
+            )
+            .map_err(|e| Error::internal_err(format!("parsing storage {name}: {e}")))?,
+        }
     };
     // Filesystem storage stores a direct path (`lfs_to_object_store_resource` ignores the
     // resource value); everything else references a resource whose stored path may or may not
@@ -1512,6 +1562,7 @@ async fn delete_fork_ducklake_data(
     _db: &DB,
     _w_id: &str,
     _storage: Option<&str>,
+    _storage_ref: &str,
     _data_path: &str,
 ) -> Result<()> {
     Err(Error::internal_err(

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT ducklake_name AS \"ducklake_name!\", metadata_schema AS \"metadata_schema!\",\n                  catalog AS \"catalog!\", storage AS \"storage!\", data_path AS \"data_path!\"\n             FROM fork_ducklake_namespace WHERE workspace_id = $1",
+  "query": "SELECT ducklake_name AS \"ducklake_name!\", metadata_schema AS \"metadata_schema!\",\n                  catalog AS \"catalog!\", storage AS \"storage!\",\n                  storage_ref AS \"storage_ref!\", data_path AS \"data_path!\"\n             FROM fork_ducklake_namespace WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -25,6 +25,11 @@
       },
       {
         "ordinal": 4,
+        "name": "storage_ref!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
         "name": "data_path!",
         "type_info": "Text"
       }
@@ -39,8 +44,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "1b1651b2a3664db4d3aa34069278e3211c6a3f7665d978a65753e0bb435a81df"
+  "hash": "e7d5280a97307428b321615bb64080ce9325be8b2a8f9f9fc0a21129eced7250"
 }

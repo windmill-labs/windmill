@@ -1361,9 +1361,16 @@ async fn register_fork_ducklake_namespace(
 ) -> Result<()> {
     // '' = default storage (the column is part of the PK, which cannot hold NULL).
     let storage = storage.unwrap_or("");
+    // Resolve the logical storage name to its identity NOW: cleanup must delete from the
+    // storage that was active when the data was written, not whatever the name points at by
+    // deletion time. '' = unresolvable (no LFS configured — the write itself will fail at the
+    // proxy, so nothing lands anywhere).
+    let storage_ref = fork_storage_ref(db, w_id, storage)
+        .await
+        .unwrap_or_default();
     let key = (
         w_id.to_string(),
-        format!("{name}\0{catalog}\0{storage}\0{data_path}"),
+        format!("{name}\0{catalog}\0{storage}\0{storage_ref}\0{data_path}"),
     );
     let now = chrono::Utc::now().timestamp();
     if FORK_DUCKLAKE_REGISTERED
@@ -1374,14 +1381,16 @@ async fn register_fork_ducklake_namespace(
     }
     sqlx::query!(
         "INSERT INTO fork_ducklake_namespace
-           (workspace_id, ducklake_name, metadata_schema, catalog, storage, data_path)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (workspace_id, ducklake_name, catalog, storage, data_path) DO NOTHING",
+           (workspace_id, ducklake_name, metadata_schema, catalog, storage, storage_ref, data_path)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (workspace_id, ducklake_name, catalog, storage, storage_ref, data_path)
+         DO NOTHING",
         w_id,
         name,
         metadata_schema,
         catalog,
         storage,
+        &storage_ref,
         data_path,
     )
     .execute(db)
@@ -1389,6 +1398,45 @@ async fn register_fork_ducklake_namespace(
     .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
     FORK_DUCKLAKE_REGISTERED.insert(key, now + 60);
     Ok(())
+}
+
+/// Canonical identity of a workspace storage (`<lfs type>:<resource path or root path>`) as
+/// configured RIGHT NOW — recorded in the fork namespace registry so cleanup targets the
+/// storage the data was actually written to. `storage` = '' for the primary storage, else a
+/// `secondary_storage` name. Returns None when no matching storage is configured.
+async fn fork_storage_ref(db: &DB, w_id: &str, storage: &str) -> Option<String> {
+    let lfs_json = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten()?;
+    let entry = if storage.is_empty() || storage == "_default_" {
+        lfs_json.clone()
+    } else {
+        lfs_json.get("secondary_storage")?.get(storage)?.clone()
+    };
+    lfs_entry_storage_ref(&entry)
+}
+
+/// The pure part of [`fork_storage_ref`]: one `LargeFileStorage` JSON entry → its canonical
+/// `<type>:<path>` descriptor. The `$res:` prefix on resource paths is normalized away (stored
+/// configs are inconsistent about it); cleanup re-adds it when resolving.
+pub fn lfs_entry_storage_ref(entry: &serde_json::Value) -> Option<String> {
+    let typ = entry.get("type")?.as_str()?;
+    let path_field = match typ {
+        "S3Storage" | "S3AwsOidc" => "s3_resource_path",
+        "AzureBlobStorage" | "AzureWorkloadIdentity" => "azure_blob_resource_path",
+        "GoogleCloudStorage" => "gcs_resource_path",
+        "FilesystemStorage" => "root_path",
+        _ => return None,
+    };
+    let path = entry.get(path_field)?.as_str()?;
+    let path = path.strip_prefix("$res:").unwrap_or(path);
+    Some(format!("{typ}:{path}"))
 }
 
 /// Resolve a `$res:`/`$var:` reference tree to its concrete value (recursively, secrets
@@ -1575,10 +1623,8 @@ mod tests {
             fork_ducklake_metadata_schema("wm-fork-a-b", "lake_b")
         );
         // Long ids truncate to the same mangled prefix; hash must still differ.
-        let long_a =
-            fork_ducklake_metadata_schema(&format!("wm-fork-{}x", "a".repeat(40)), "main");
-        let long_b =
-            fork_ducklake_metadata_schema(&format!("wm-fork-{}y", "a".repeat(40)), "main");
+        let long_a = fork_ducklake_metadata_schema(&format!("wm-fork-{}x", "a".repeat(40)), "main");
+        let long_b = fork_ducklake_metadata_schema(&format!("wm-fork-{}y", "a".repeat(40)), "main");
         assert_ne!(long_a, long_b);
         let long_lake =
             fork_ducklake_metadata_schema(&format!("wm-fork-{}", "a".repeat(42)), &"l".repeat(40));
@@ -1617,6 +1663,34 @@ mod tests {
             Some("b".to_string())
         );
         assert_eq!(extract_metadata_schema_arg("ENCRYPTED true"), None);
+    }
+
+    #[test]
+    fn test_lfs_entry_storage_ref() {
+        assert_eq!(
+            lfs_entry_storage_ref(&serde_json::json!({
+                "type": "S3Storage", "s3_resource_path": "$res:u/admin/minio"
+            })),
+            Some("S3Storage:u/admin/minio".to_string())
+        );
+        // The `$res:` prefix is optional in stored configs; normalized either way.
+        assert_eq!(
+            lfs_entry_storage_ref(&serde_json::json!({
+                "type": "AzureBlobStorage", "azure_blob_resource_path": "u/admin/az"
+            })),
+            Some("AzureBlobStorage:u/admin/az".to_string())
+        );
+        assert_eq!(
+            lfs_entry_storage_ref(&serde_json::json!({
+                "type": "FilesystemStorage", "root_path": "/data/lfs"
+            })),
+            Some("FilesystemStorage:/data/lfs".to_string())
+        );
+        assert_eq!(
+            lfs_entry_storage_ref(&serde_json::json!({"type": "SomethingNew"})),
+            None
+        );
+        assert_eq!(lfs_entry_storage_ref(&serde_json::json!({})), None);
     }
 
     #[test]

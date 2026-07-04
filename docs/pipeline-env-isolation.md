@@ -112,11 +112,13 @@ the equivalent banner.
 ### Lifecycle & cleanup
 
 A sidecar registry `fork_ducklake_namespace(workspace_id FK ON DELETE CASCADE, ducklake_name,
-metadata_schema, catalog, storage, data_path)` is upserted (behind a TTL'd in-process cache) on fork
+metadata_schema, catalog, storage, storage_ref, data_path)` is upserted (behind a TTL'd in-process cache) on fork
 resolution, **one row per physical location ever attached** — its PK includes
-`(catalog, storage, data_path)`, so if the fork's lake settings drift, later attaches add rows rather
+`(catalog, storage, storage_ref, data_path)`, so if the fork's lake settings drift, later attaches add rows rather
 than replace them and cleanup covers every location the fork wrote, not just the first — connecting to the
-REGISTERED catalog identity, not whatever the fork's settings point at by deletion time. Explicit
+REGISTERED catalog identity and deleting files from the REGISTERED storage identity
+(`storage_ref`, resolved from the logical storage name at attach time), never whatever the
+fork's settings point at by deletion time. Explicit
 `GRANT`s ship in the same migration; the registry is not cloned into sub-forks.
 
 `POST /w/{fork}/workspaces/drop_forked_ducklake_namespaces` (same permission as
