@@ -128,9 +128,8 @@ class TestParseS3Object(unittest.TestCase):
     """Pure-unit tests for parse_s3_object — no network/env needed."""
 
     def test_bare_string_raises_with_uri_hint(self):
-        # A bare key is not accepted: older clients silently degraded it to an
-        # empty key (auto-generated key on write), hiding typos. The error
-        # points at the s3:/// spelling.
+        # A bare key is rejected rather than silently uploading under an
+        # auto-generated name; the error points at the s3:/// spelling.
         with self.assertRaisesRegex(ValueError, "s3:///dir/file.json"):
             wmill.parse_s3_object("dir/file.json")
 
@@ -151,6 +150,14 @@ class TestParseS3Object(unittest.TestCase):
         # misplacing the object.
         with self.assertRaises(ValueError):
             wmill.parse_s3_object("s3://broken")
+
+    def test_empty_key_uri_raises(self):
+        # An empty key is never a valid target: it would fall back to an
+        # auto-generated key, which is requested by omitting the object.
+        with self.assertRaises(ValueError):
+            wmill.parse_s3_object("s3:///")
+        with self.assertRaises(ValueError):
+            wmill.parse_s3_object("s3://bucket/")
 
     def test_empty_string_raises(self):
         # Auto-generated keys are requested by omitting the object (None),

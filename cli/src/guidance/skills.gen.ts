@@ -1072,9 +1072,10 @@ async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, 
 /**
  * Parse an S3 object from URI string or record format
  * @param s3Object - S3 object as URI string (\`s3://storage/key\`, \`s3:///key\`
- *   for the default storage) or record. Any other string throws — older
- *   clients silently degraded it to an empty key (the object landed under an
- *   auto-generated key), which hid typos.
+ *   for the default storage) or record. Any other string throws rather than
+ *   falling back to an auto-generated key: an auto key is requested by
+ *   omitting the object, and a fallback would silently misplace the upload
+ *   on any typo.
  * @returns S3 object record with storage and s3 key
  */
 parseS3Object(s3Object: S3Object): S3ObjectRecord
@@ -1835,9 +1836,10 @@ async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, 
 /**
  * Parse an S3 object from URI string or record format
  * @param s3Object - S3 object as URI string (\`s3://storage/key\`, \`s3:///key\`
- *   for the default storage) or record. Any other string throws — older
- *   clients silently degraded it to an empty key (the object landed under an
- *   auto-generated key), which hid typos.
+ *   for the default storage) or record. Any other string throws rather than
+ *   falling back to an auto-generated key: an auto key is requested by
+ *   omitting the object, and a fallback would silently misplace the upload
+ *   on any typo.
  * @returns S3 object record with storage and s3 key
  */
 parseS3Object(s3Object: S3Object): S3ObjectRecord
@@ -2690,9 +2692,10 @@ async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, 
 /**
  * Parse an S3 object from URI string or record format
  * @param s3Object - S3 object as URI string (\`s3://storage/key\`, \`s3:///key\`
- *   for the default storage) or record. Any other string throws — older
- *   clients silently degraded it to an empty key (the object landed under an
- *   auto-generated key), which hid typos.
+ *   for the default storage) or record. Any other string throws rather than
+ *   falling back to an auto-generated key: an auto key is requested by
+ *   omitting the object, and a fallback would silently misplace the upload
+ *   on any typo.
  * @returns S3 object record with storage and s3 key
  */
 parseS3Object(s3Object: S3Object): S3ObjectRecord
@@ -4377,9 +4380,10 @@ def get_state_path() -> str
 def parse_resource_syntax(s: str) -> Optional[str]
 
 # Parse S3 object from a \`s3://<storage>/<key>\` URI string (\`s3:///<key>\`
-# for the default storage) or S3Object format. Any other string raises —
-# older clients silently degraded it to an empty key (the object landed
-# under an auto-generated key), which hid typos.
+# for the default storage) or S3Object format. Any other string raises
+# rather than falling back to an auto-generated key: an auto key is
+# requested by omitting the object, and a fallback would silently misplace
+# the upload on any typo.
 def parse_s3_object(s3_object: S3Object | str) -> S3Object
 
 # Parse variable syntax from string.

@@ -319,19 +319,23 @@ fn dict_str_value(dict: &rustpython_ast::ExprDict, name: &str) -> Option<String>
 /// `write_s3_file` to a canonical asset path, mirroring `windmill-parser-ts-asset`:
 /// `S3Object(s3="<key>", storage="<bucket>"?)` — or the equivalent dict literal —
 /// maps to the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
-/// `s3:///<key>`), and a `"s3://bucket/key"` URI string is passed through. A
-/// plain (non-`s3://`) string yields no asset: the runtime `parse_s3_object`
-/// rejects it, so recording an edge would be a phantom node for a call that
-/// can only error.
+/// `s3:///<key>`), and a `"s3://bucket/key"` URI string is passed through.
+/// String args mirror the runtime `parse_s3_object` contract exactly: only a
+/// `s3://<storage>/<key>` URI with a non-empty key is valid — any other
+/// string (bare key, `s3://x`, empty key) raises at run time, so recording an
+/// edge for it would be a phantom node for a call that can only error.
 /// The resulting URI is fed through `parse_asset_syntax` so the stored path
 /// matches the TS object form and the `# on s3:///…` trigger form exactly.
 fn s3_object_arg_path(expr: &Expr) -> Option<String> {
     let uri = match expr {
         Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => {
-            if !s.starts_with("s3://") {
-                return None;
+            match s
+                .strip_prefix("s3://")
+                .and_then(|rest| rest.split_once('/'))
+            {
+                Some((_, key)) if !key.is_empty() => s.clone(),
+                _ => return None,
             }
-            s.clone()
         }
         Expr::Call(call) => {
             // `S3Object(...)` imported directly or as `wmill.S3Object(...)`
@@ -398,6 +402,26 @@ def main():
 "#;
         let s = parse_assets(input).map(|o| o.assets);
         assert_eq!(s.map_err(|e| e.to_string()), Ok(vec![]));
+    }
+
+    #[test]
+    fn test_py_asset_parser_invalid_uri_no_write_edge() {
+        // `s3://x` (no key part) and `s3://bucket/` (empty key) are rejected
+        // by the runtime `parse_s3_object` — same rule for the SDK-arg path:
+        // no R/W edge. The generic URI-literal scan may still record them as
+        // ambiguous (`access_type: None`) assets, like any `s3://…` string
+        // constant anywhere in a script.
+        let input = r#"
+import wmill
+def main():
+    wmill.write_s3_file("s3://broken", b"")
+    wmill.write_s3_file("s3://bucket/", b"")
+"#;
+        let assets = parse_assets(input).expect("parse").assets;
+        assert!(
+            assets.iter().all(|a| a.access_type.is_none()),
+            "invalid URIs must not produce R/W edges: {assets:?}"
+        );
     }
 
     #[test]

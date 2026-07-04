@@ -478,9 +478,9 @@ function bodyPython(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
-				// `s3:///<key>` URI — the SDK rejects bare key strings (they
-				// used to silently degrade to an empty key), and the URI form
-				// matches the `# on s3:///…` annotation spelling.
+				// `s3:///<key>` URI — SDK string params must be s3:// URIs
+				// (bare keys are rejected), and this form matches the
+				// `# on s3:///…` annotation spelling.
 				return [
 					`    buf = wmill.load_s3_file(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
 					`    import json; rows = json.loads(buf.decode("utf-8"))`

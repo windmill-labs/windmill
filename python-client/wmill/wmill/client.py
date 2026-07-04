@@ -2213,17 +2213,24 @@ def parse_resource_syntax(s: str) -> Optional[str]:
 
 def parse_s3_object(s3_object: S3Object | str) -> S3Object:
     """Parse S3 object from a `s3://<storage>/<key>` URI string (`s3:///<key>`
-    for the default storage) or S3Object format. Any other string raises —
-    older clients silently degraded it to an empty key (the object landed
-    under an auto-generated key), which hid typos.
+    for the default storage) or S3Object format. Any other string raises
+    rather than falling back to an auto-generated key: an auto key is
+    requested by omitting the object, and a fallback would silently misplace
+    the upload on any typo.
     """
     if isinstance(s3_object, str):
-        match = re.match(r'^s3://([^/]*)/(.*)$', s3_object)
+        match = re.match(r'^s3://([^/]*)/(.+)$', s3_object)
         if match:
-            return S3Object(s3=match.group(2) or "", storage=match.group(1) or None)
+            return S3Object(s3=match.group(2), storage=match.group(1) or None)
+        if s3_object.startswith("s3://"):
+            raise ValueError(
+                f"Invalid s3 object URI {s3_object!r}: expected "
+                "s3://<storage>/<key> with a non-empty key "
+                "(s3:///<key> for the default storage)"
+            )
         raise ValueError(
-            f"Invalid s3 object {s3_object!r}: expected s3://<storage>/<key> "
-            f"(e.g. 's3:///{s3_object}' for key {s3_object!r} in the default "
+            f"Invalid s3 object {s3_object!r}: expected an s3://<storage>/<key> "
+            f"URI (e.g. 's3:///{s3_object}' for key {s3_object!r} in the default "
             "storage) or S3Object(s3=<key>)"
         )
     else:

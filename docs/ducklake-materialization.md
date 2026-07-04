@@ -439,8 +439,10 @@ examples) lives in windmilldocs `core_concepts/63_pipelines` → "Ingestion
   gives the load the full engine treatment (strategies, snapshots, partition
   grid, `// data_test`).
 - **One string spelling: `s3:///<key>`.** SDK string params are strictly
-  `s3://…` URIs (bare strings raise — clients > 1.746.0; they used to silently
-  upload to an auto-generated `windmill_uploads/…` name). The same URI is what
+  `s3://…` URIs with a non-empty key; anything else raises (clients >
+  1.746.0 — older clients silently upload such strings to an auto-generated
+  `windmill_uploads/…` name, so keep URIs in code that must run on them).
+  The same URI is what
   `// on` annotations and DuckDB SQL take, and all forms (URI, `{s3}` object,
   `S3Object(s3=…)`) canonicalize to path `/<key>`. The asset parsers record
   **no asset** for a bare-string SDK argument (the call can only error at
