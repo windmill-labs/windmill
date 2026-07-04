@@ -231,7 +231,7 @@ export async function main() {
   if (rows.length === 0) return { ingested: 0, cursor: lastId }
 
   await wmill.writeS3File(
-    { s3: "pipelines/etl/landing/comments_api.jsonl" },
+    "pipelines/etl/landing/comments_api.jsonl",
     rows.map((r) => JSON.stringify(r)).join("\n")
   )
   const cursor = Math.max(...rows.map((r) => r.id))
@@ -283,7 +283,7 @@ def main():
         return {"ingested": 0, "cursor": last_id}
 
     wmill.write_s3_file(
-        wmill.S3Object(s3="pipelines/etl/landing/orders_dlt.jsonl"),
+        "pipelines/etl/landing/orders_dlt.jsonl",
         "\n".join(json.dumps(r) for r in rows).encode(),
     )
     cursor = max(r["id"] for r in rows)
@@ -304,16 +304,18 @@ SELECT * FROM read_json_auto('s3:///pipelines/etl/landing/orders_dlt.jsonl');
 
 ## Gotchas worth knowing
 
-- **S3 paths have two spellings.** SDK object forms (`{s3: "k"}`,
-  `S3Object(s3="k")`) take a bare key and canonicalize to `/k`; annotation and
-  DuckDB URI forms use `s3:///k` (triple slash = default storage) which
+- **S3 paths have two spellings.** In SDK calls, a bare key is the canonical
+  form — `write_s3_file("k", …)` / `writeS3File("k", …)` ≡ `S3Object(s3="k")`
+  ≡ `{s3: "k"}` — and canonicalizes to asset path `/k`. Annotation and DuckDB
+  URI forms use `s3:///k` (triple slash = default storage), which
   canonicalizes the same. A double-slash `s3://k` URI canonicalizes to `k` —
   a *different* asset — so lineage between an SDK write and a DuckDB read
-  silently breaks. Stick to bare-key SDK forms + triple-slash URIs.
-- **Python: never pass a bare string key to `write_s3_file`/`load_s3_file`.**
-  The SDK only parses `s3://…`-prefixed strings; a bare key becomes
-  `S3Object(s3="")` and the upload lands under an auto-generated key. Use
-  `wmill.S3Object(s3="…")`.
+  silently breaks. Stick to bare keys in SDK calls + triple-slash URIs in
+  annotations/SQL.
+- **Bare string keys need wmill clients > 1.746.0.** Older SDK versions only
+  parse `s3://…`-prefixed strings — a bare key silently degrades to
+  `S3Object(s3="")` and the upload lands under an auto-generated key. On a
+  pinned older client, use the object/constructor form instead.
 - **Don't write an empty landing batch.** A zero-row extraction should
   return early (the examples do) — overwriting the landing file with an
   empty array re-triggers the loader for nothing, and `read_json_auto` on an

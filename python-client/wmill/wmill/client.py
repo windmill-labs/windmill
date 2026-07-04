@@ -2212,12 +2212,18 @@ def parse_resource_syntax(s: str) -> Optional[str]:
     return None
 
 def parse_s3_object(s3_object: S3Object | str) -> S3Object:
-    """Parse S3 object from string or S3Object format."""
+    """Parse S3 object from string (bare key or `s3://storage/key` URI) or S3Object format."""
     if isinstance(s3_object, str):
         match = re.match(r'^s3://([^/]*)/(.*)$', s3_object)
         if match:
             return S3Object(s3=match.group(2) or "", storage=match.group(1) or None)
-        return S3Object(s3="")
+        if s3_object.startswith("s3://"):
+            # Malformed URI (`s3://x` has no key part) — keep the legacy
+            # empty-key fallback rather than storing a literal "s3://…" key.
+            return S3Object(s3="")
+        # A plain string is a bare object key in the default storage:
+        # "dir/file.json" ≡ S3Object(s3="dir/file.json").
+        return S3Object(s3=s3_object)
     else:
         return s3_object
 

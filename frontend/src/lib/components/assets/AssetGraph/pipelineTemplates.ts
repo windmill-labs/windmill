@@ -474,12 +474,8 @@ function bodyPython(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
-				// S3Object(s3=...) — a bare string key is NOT equivalent: the SDK
-				// only recognizes `s3://…`-prefixed strings, so a bare key reads
-				// back as S3Object(s3="") at run time (and the asset parser
-				// canonicalizes the two forms differently).
 				return [
-					`    buf = wmill.load_s3_file(wmill.S3Object(s3=${JSON.stringify(s3Key(input.path))}))`,
+					`    buf = wmill.load_s3_file(${JSON.stringify(s3Key(input.path))})`,
 					`    import json; rows = json.loads(buf.decode("utf-8"))`
 				].join('\n')
 			case 'datatable':
@@ -502,10 +498,9 @@ function bodyPython(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
-				// S3Object(s3=...) required — see the load_s3_file note above.
 				return [
 					`    import json`,
-					`    wmill.write_s3_file(wmill.S3Object(s3=${JSON.stringify(s3Key(output.path))}), json.dumps(rows).encode("utf-8"))`
+					`    wmill.write_s3_file(${JSON.stringify(s3Key(output.path))}, json.dumps(rows).encode("utf-8"))`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'

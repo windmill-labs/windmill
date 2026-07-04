@@ -124,5 +124,34 @@ SET s3_secret_access_key='80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4';
             wmill.load_s3_file(s3_obj)
 
 
+class TestParseS3Object(unittest.TestCase):
+    """Pure-unit tests for parse_s3_object — no network/env needed."""
+
+    def test_bare_string_is_default_storage_key(self):
+        self.assertEqual(wmill.parse_s3_object("dir/file.json"), S3Object(s3="dir/file.json"))
+
+    def test_triple_slash_uri_is_default_storage(self):
+        self.assertEqual(
+            wmill.parse_s3_object("s3:///dir/file.json"),
+            S3Object(s3="dir/file.json", storage=None),
+        )
+
+    def test_full_uri_splits_storage_and_key(self):
+        self.assertEqual(
+            wmill.parse_s3_object("s3://bucket/dir/f"),
+            S3Object(s3="dir/f", storage="bucket"),
+        )
+
+    def test_malformed_uri_keeps_legacy_empty_key(self):
+        # Never store a literal "s3://…" key — an auto-generated key on write
+        # is the historical behavior for unparseable URIs.
+        self.assertEqual(wmill.parse_s3_object("s3://broken"), S3Object(s3=""))
+
+    def test_empty_string_stays_empty_key(self):
+        self.assertEqual(wmill.parse_s3_object(""), S3Object(s3=""))
+
+    def test_s3object_passes_through(self):
+        self.assertEqual(wmill.parse_s3_object(S3Object(s3="x")), S3Object(s3="x"))
+
 if __name__ == "__main__":
     unittest.main()

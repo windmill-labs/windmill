@@ -319,12 +319,20 @@ fn dict_str_value(dict: &rustpython_ast::ExprDict, name: &str) -> Option<String>
 /// `write_s3_file` to a canonical asset path, mirroring `windmill-parser-ts-asset`:
 /// `S3Object(s3="<key>", storage="<bucket>"?)` — or the equivalent dict literal —
 /// maps to the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
-/// `s3:///<key>`), and a bare `"s3://bucket/key"` string is passed through.
+/// `s3:///<key>`); a `"s3://bucket/key"` string is passed through, and a plain
+/// string is a bare key in the default storage (the runtime `parse_s3_object`
+/// contract), so it canonicalizes identically to `S3Object(s3=<key>)`.
 /// The resulting URI is fed through `parse_asset_syntax` so the stored path
 /// matches the TS object form and the `# on s3:///…` trigger form exactly.
 fn s3_object_arg_path(expr: &Expr) -> Option<String> {
     let uri = match expr {
-        Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => s.clone(),
+        Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => {
+            if s.starts_with("s3://") {
+                s.clone()
+            } else {
+                format!("s3:///{s}")
+            }
+        }
         Expr::Call(call) => {
             // `S3Object(...)` imported directly or as `wmill.S3Object(...)`
             let func_name = call
@@ -373,6 +381,28 @@ def main():
                 kind: AssetKind::S3Object,
                 path: "/test.csv".to_string(),
                 access_type: Some(R),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_bare_string_key() {
+        // A plain string is a bare key in the default storage (runtime
+        // `parse_s3_object` contract) — it must canonicalize to the same
+        // leading-slash path as `S3Object(s3="<key>")` and `s3:///<key>`.
+        let input = r#"
+import wmill
+def main():
+    wmill.write_s3_file("pipelines/etl/out.jsonl", b"")
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/pipelines/etl/out.jsonl".to_string(),
+                access_type: Some(W),
                 columns: None,
             },])
         );
