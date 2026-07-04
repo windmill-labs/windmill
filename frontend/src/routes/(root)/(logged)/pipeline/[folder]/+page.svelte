@@ -1667,6 +1667,12 @@
 			: EMPTY_COLUMN_GRAPH
 	)
 
+	// Producer-side facts for the editor's live schema-contract diagnostics:
+	// which assets are muted (`on_schema_change=ignore`) and which `_current`
+	// views map to an scd2 base table. Derived from the same resolved graph the
+	// canvas renders so the mirror suppresses exactly what the server check does.
+	let schemaContractContext = $derived(buildSchemaContractContext(graphWithDraft.runnables))
+
 	// Whether the selected ducklake asset's captured schema can *evolve* (drives
 	// the asset panel's Schema tab: version history vs. a single fixed schema).
 	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
@@ -1678,12 +1684,6 @@
 	// metadata (e.g. a draft-overlay runnable, which the graph synthesizes
 	// without it) is treated as unknown → evolvable, so captured history is never
 	// hidden behind a stale "fixed" verdict.
-	// Producer-side facts for the editor's live schema-contract diagnostics:
-	// which assets are muted (`on_schema_change=ignore`) and which `_current`
-	// views map to an scd2 base table. Derived from the same resolved graph the
-	// canvas renders so the mirror suppresses exactly what the server check does.
-	let schemaContractContext = $derived(buildSchemaContractContext(graphWithDraft.runnables))
-
 	let schemaCanEvolve = $derived.by(() => {
 		const sel = pe.selection
 		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return true
