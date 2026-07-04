@@ -355,14 +355,16 @@ never flip pass/fail. Where they surface:
   (`Error::ExecutionRawError`), so the failed job's result carries
   `error.data_tests: [{test, violating, sample?}]` with samples on failed
   tests only. The error *message* stays counts-only, plus a pointer at the
-  payload — so run descriptions, error-handler/alert payloads, and
-  `materialized_partition.error` carry no row data. The full payload is the
-  job *result*, and like every failed job's result it also appears in the
-  worker's failed-job log line (`add_completed_job_error`) — the same
-  pre-existing path that logs e.g. a failed process's own `result.json`.
-  The duckdb executor's password-sanitize catch-all must special-case
-  `ExecutionRawError` — flattening it to a string would silently strip the
-  payload.
+  payload — so run descriptions and `materialized_partition.error` carry no
+  row data. The full payload is the job *result*, and follows every failed
+  job's result wherever that already goes: the worker's failed-job log line
+  (`add_completed_job_error`) and, on EE, the args of configured
+  global/workspace error handlers — the same pre-existing paths that carry
+  e.g. a failed process's own `result.json`. A handler that formats only
+  `error.message` (the common alert shape) stays counts-only; one that wants
+  the offending rows can read `error.data_tests`. The duckdb executor's
+  password-sanitize catch-all must special-case `ExecutionRawError` —
+  flattening it to a string would silently strip the payload.
 - **UI**: `DataTestsResult.svelte` renders a per-failed-test expandable
   `AutoDataTable`; `DisplayResult.svelte` prefers the structured payload and
   falls back to text-parsing the breakdown for results predating it.
