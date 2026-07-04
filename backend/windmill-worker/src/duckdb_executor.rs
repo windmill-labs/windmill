@@ -1941,12 +1941,21 @@ fn fork_defer_statements(
             .as_ref()
             .map(|s| format!(", METADATA_SCHEMA '{}'", s.replace('\'', "''")))
             .unwrap_or_default();
+        // The ancestor config's own non-reserved args (e.g. `ENCRYPTED true`) — an
+        // option-dependent lake wouldn't attach without them. Emitted FIRST: DuckDB keeps the
+        // last occurrence of a duplicated option, so the fork-owned DATA_PATH / READ_ONLY /
+        // METADATA_SCHEMA after them always win.
+        let extra_args = a
+            .extra_args
+            .as_ref()
+            .map(|e| format!("{e}, "))
+            .unwrap_or_default();
         // READ_ONLY: a fork job must never write an ancestor namespace. No AUTOMATIC_MIGRATION
         // / CREATE_IF_NOT_EXISTS: an ancestor lake that would need creating or migrating fails
         // loudly rather than being mutated from a fork. IF NOT EXISTS: several ATTACH blocks in
         // one script (e.g. the user's + the materialize synthetic one) emit the same ancestors.
         stmts.push(format!(
-            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} (DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema});",
+            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema});",
             a.alias
         ));
     }
@@ -2126,6 +2135,7 @@ mod tests {
                 path: "lake".to_string(),
             },
             metadata_schema: None,
+            extra_args: None,
         }
     }
 
@@ -2159,6 +2169,26 @@ mod tests {
             defer_tables.into_iter().map(|(t, c)| (t, c, 0)).collect(),
             fork_views,
         )
+    }
+
+    #[test]
+    fn test_fork_defer_statements_ancestor_extra_args() {
+        // The ancestor config's own args (e.g. ENCRYPTED) must ride on its read-only attach —
+        // BEFORE the fork-owned options, so DuckDB's last-occurrence-wins keeps DATA_PATH /
+        // READ_ONLY / METADATA_SCHEMA authoritative even if the args tried to override them.
+        let mut defer = test_fork_defer(vec![("orders", false)], vec![]);
+        defer.ancestors[0].extra_args = Some("ENCRYPTED true".to_string());
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let attach = stmts
+            .iter()
+            .find(|s| s.starts_with("ATTACH IF NOT EXISTS"))
+            .unwrap();
+        assert!(attach.contains("(ENCRYPTED true, DATA_PATH "), "{attach}");
+        assert!(
+            attach.find("ENCRYPTED true").unwrap() < attach.find("READ_ONLY").unwrap(),
+            "{attach}"
+        );
     }
 
     #[test]

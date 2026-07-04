@@ -78,12 +78,18 @@ writing the shared catalog.
 
 In a fork, `transform_attach_ducklake` additionally emits:
 
-1. `ATTACH IF NOT EXISTS … AS __wm_dl_<lake>_<ancestor>_<hash> (READ_ONLY, DATA_PATH
-   <ancestor's>, OVERRIDE_DATA_PATH TRUE[, METADATA_SCHEMA <ancestor's>])` per fork-chain
-   ancestor, resolved from the **ancestor's own settings** (fork-side settings drift can't
-   repoint what "parent" means). No `AUTOMATIC_MIGRATION`/`CREATE_IF_NOT_EXISTS` — a fork job
-   must never mutate an ancestor lake. `READ_ONLY` makes prod writes *physically impossible*
-   through ducklake, including in `materialize manual` and raw SQL.
+1. `ATTACH IF NOT EXISTS … AS __wm_dl_<lake>_<ancestor>_<hash> ([<ancestor's own args>, ]
+   DATA_PATH <ancestor's>, OVERRIDE_DATA_PATH TRUE, READ_ONLY[, METADATA_SCHEMA
+   <ancestor's>])` per fork-chain ancestor, resolved from the **ancestor's own settings**
+   (fork-side settings drift can't repoint what "parent" means). The ancestor config's
+   non-reserved `extra_args` (e.g. `ENCRYPTED true`) ride along — FIRST, so the fork-owned
+   options win under DuckDB's last-occurrence-wins. No
+   `AUTOMATIC_MIGRATION`/`CREATE_IF_NOT_EXISTS` — a fork job must never mutate an ancestor
+   lake. `READ_ONLY` makes prod writes *physically impossible* through ducklake, including in
+   `materialize manual` and raw SQL. Fork ancestors whose namespace was never bootstrapped are
+   skipped, with existence checked in each ancestor's OWN catalog database (a fork whose
+   catalog drifted away from an ancestor's must not misread that ancestor's namespace as
+   missing); an unreachable ancestor catalog only disables that ancestor's defer.
 2. `CREATE VIEW IF NOT EXISTS <alias>.<table> AS SELECT * FROM <owning ancestor
    alias>.<table>` for every **deferred table**: (`materialized_partition` rows with
    `status = 'materialized'` anywhere in the ancestor chain) MINUS (the fork's own rows). Each

@@ -1008,6 +1008,12 @@ pub struct DucklakeAncestorAttach {
     /// None = the lake's default metadata schema (the ancestor is a root/non-fork workspace).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_schema: Option<String>,
+    /// The ancestor config's own non-reserved ATTACH args (e.g. `ENCRYPTED true`), already
+    /// stripped of the fork-owned `METADATA_SCHEMA`/`DATA_PATH`/`OVERRIDE_DATA_PATH` — an
+    /// option-dependent lake would otherwise fail its read-only ancestor attach even though
+    /// the same lake attaches fine everywhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<String>,
 }
 
 /// Prefix of fork-scoped ducklake metadata schemas. Cleanup refuses to drop any pg schema not
@@ -1257,11 +1263,7 @@ async fn fork_scoped_ducklake(
     }
     let metadata_schema = fork_ducklake_metadata_schema(w_id, name);
     let fork_path = fork_data_path(&base.storage.path, w_id);
-    let catalog_identity = format!(
-        "{}:{}",
-        base.catalog.resource_type.as_ref(),
-        base.catalog.resource_path
-    );
+    let catalog_identity = ducklake_catalog_identity(&base.catalog);
     register_fork_ducklake_namespace(
         db,
         w_id,
@@ -1298,6 +1300,11 @@ async fn fork_scoped_ducklake(
                         .as_deref()
                         .and_then(extract_metadata_schema_arg)
                 };
+                let extra_args = a
+                    .extra_args
+                    .as_deref()
+                    .map(strip_fork_reserved_attach_args)
+                    .filter(|s| !s.is_empty());
                 ancestors.push(DucklakeAncestorAttach {
                     workspace_id: ancestor_id.clone(),
                     alias: fork_ducklake_ancestor_alias(name, ancestor_id),
@@ -1305,6 +1312,7 @@ async fn fork_scoped_ducklake(
                     catalog_resource: a.catalog_resource,
                     storage: a.storage,
                     metadata_schema,
+                    extra_args,
                 });
             }
             Err(e) => {
@@ -1359,43 +1367,59 @@ async fn fork_scoped_ducklake(
 /// ancestors' metadata schemas actually exist (a fresh intermediate fork may never have
 /// bootstrapped its namespace), and the views currently live in THIS fork's namespace
 /// (straight from DuckLake's `ducklake_view` metadata — missing metadata tables read as "no
-/// views", correct since nothing can exist there). Ancestors whose settings drifted to a
-/// different catalog DB read as missing here — the safe direction (their defer is skipped
-/// loudly rather than mis-bound).
+/// views", correct since nothing can exist there). Each ancestor's schema is checked in the
+/// ancestor's OWN catalog database — a fork whose catalog drifted away from an ancestor's
+/// must not misread that ancestor's (existing, elsewhere) namespace as missing. Ancestors
+/// whose catalog is unreachable read as missing — the safe direction: their defer is skipped
+/// (loud absent-table reads) rather than emitting a READ_ONLY attach that would fail every
+/// job in this fork.
 async fn inspect_fork_catalog(
     base: &DucklakeWithConnData,
     metadata_schema: &str,
     ancestors: &[DucklakeAncestorAttach],
     db: &DB,
 ) -> Result<(std::collections::HashSet<String>, Vec<String>)> {
+    // Ancestor fork-schemas grouped by which catalog database they live in.
+    let mut groups: std::collections::HashMap<String, (serde_json::Value, Vec<String>)> =
+        std::collections::HashMap::new();
+    for a in ancestors {
+        if let Some(ms) = &a.metadata_schema {
+            groups
+                .entry(ducklake_catalog_identity(&a.catalog))
+                .or_insert_with(|| (a.catalog_resource.clone(), vec![]))
+                .1
+                .push(ms.clone());
+        }
+    }
+
+    async fn query_schemas(
+        client: &tokio_postgres::Client,
+        schemas: Vec<String>,
+    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+        client
+            .query(
+                "SELECT schema_name::text FROM information_schema.schemata
+                 WHERE schema_name = ANY($1)",
+                &[&schemas],
+            )
+            .await
+            .map(|rows| rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
+    let mut existing_schemas: std::collections::HashSet<String> = Default::default();
+
+    // The fork's own catalog: same-catalog ancestor schemas + this fork's live views.
     let pg: crate::PgDatabase =
         serde_json::from_value(base.catalog_resource.clone()).map_err(|e| {
             Error::internal_err(format!("ducklake catalog resource is not postgres: {e}"))
         })?;
     let (client, connection) = pg.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
-
-    let fork_schemas: Vec<String> = ancestors
-        .iter()
-        .filter_map(|a| a.metadata_schema.clone())
-        .collect();
-    let existing_schemas = if fork_schemas.is_empty() {
-        Ok(Default::default())
-    } else {
-        client
-            .query(
-                "SELECT schema_name::text FROM information_schema.schemata
-                 WHERE schema_name = ANY($1)",
-                &[&fork_schemas],
-            )
-            .await
-            .map(|rows| {
-                rows.iter()
-                    .map(|r| r.get::<_, String>(0))
-                    .collect::<std::collections::HashSet<_>>()
-            })
+    let same_catalog = groups.remove(&ducklake_catalog_identity(&base.catalog));
+    let same_catalog_res = match same_catalog {
+        Some((_, schemas)) => query_schemas(&client, schemas).await.map(Some),
+        None => Ok(None),
     };
-
     // Identifier-quoted schema: the name is server-derived (mangled + hashed) but quote anyway.
     let q = format!(
         r#"SELECT CASE WHEN s.schema_name = 'main' THEN v.view_name
@@ -1409,9 +1433,13 @@ async fn inspect_fork_catalog(
     drop(client);
     let _ = join_handle.await;
 
-    let existing_schemas = existing_schemas.map_err(|e| {
-        Error::internal_err(format!("checking fork ducklake ancestor schemas: {e}"))
-    })?;
+    existing_schemas.extend(
+        same_catalog_res
+            .map_err(|e| {
+                Error::internal_err(format!("checking fork ducklake ancestor schemas: {e}"))
+            })?
+            .unwrap_or_default(),
+    );
     let fork_views = match view_rows {
         Ok(rows) => rows.iter().map(|r| r.get::<_, String>(0)).collect(),
         // 42P01 undefined_table / 3F000 invalid_schema_name: namespace not bootstrapped yet.
@@ -1429,7 +1457,44 @@ async fn inspect_fork_catalog(
             )))
         }
     };
+
+    // Ancestors living in OTHER catalog databases (this fork's catalog drifted after forking):
+    // one connection per distinct catalog, best-effort — an unreachable ancestor catalog only
+    // disables that ancestor's defer.
+    for (identity, (resource, schemas)) in groups {
+        let checked = async {
+            let pg: crate::PgDatabase = serde_json::from_value(resource)
+                .map_err(|e| Error::internal_err(format!("not a postgres resource: {e}")))?;
+            let (client, connection) = pg.connect(Some(db)).await?;
+            let join_handle = tokio::spawn(async move { connection.await });
+            let res = query_schemas(&client, schemas).await;
+            drop(client);
+            let _ = join_handle.await;
+            res.map_err(|e| Error::internal_err(format!("{e}")))
+        }
+        .await;
+        match checked {
+            Ok(found) => existing_schemas.extend(found),
+            Err(e) => {
+                tracing::warn!(
+                    "fork ancestor catalog `{identity}` unreachable while checking ducklake \
+                     namespaces ({e:#}); its ancestors' defer is disabled for this resolution"
+                );
+            }
+        }
+    }
     Ok((existing_schemas, fork_views))
+}
+
+/// Canonical identity of a lake's catalog database (`<resource_type>:<resource_path>`) — used
+/// for the cleanup registry and for grouping ancestors by which catalog their namespace lives
+/// in. Identifies the database *pointer*, not its (live-resolved) credentials.
+pub fn ducklake_catalog_identity(catalog: &DucklakeCatalog) -> String {
+    format!(
+        "{}:{}",
+        catalog.resource_type.as_ref(),
+        catalog.resource_path
+    )
 }
 
 /// Record that a fork attached this lake at this physical location, so fork deletion knows
@@ -1779,7 +1844,10 @@ mod tests {
         // Empty base path still yields a well-formed prefix.
         assert_eq!(
             fork_data_path("", "wm-fork-a"),
-            format!("{FORK_DUCKLAKE_DATA_DIR}/{}", fork_data_dir_segment("wm-fork-a"))
+            format!(
+                "{FORK_DUCKLAKE_DATA_DIR}/{}",
+                fork_data_dir_segment("wm-fork-a")
+            )
         );
     }
 

@@ -28944,6 +28944,12 @@ components:
                   - path
               extra_args:
                 type: string
+              fork_behavior:
+                type: string
+                enum: [isolated, shared]
+                description:
+                  Fork workspaces only - how this lake behaves in the fork, stamped at fork
+                  creation. Absent = isolated (fork-scoped namespace + read-defer to parent).
               maintenance:
                 type: object
                 description:
