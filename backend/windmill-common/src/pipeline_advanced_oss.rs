@@ -1,9 +1,10 @@
-//! OSS fallback: pipeline partition backfills are an enterprise feature;
-//! their implementations live in windmill-ee-private (see
-//! `pipeline_advanced_ee`). In the public build the entry points report that
-//! the enterprise edition is required. (Freshness lives elsewhere: the
-//! fresh/stale badge is CE in the assets API, the active watchdog is
-//! windmill-queue's `freshness_watchdog`.)
+//! OSS fallback for enterprise pipeline features (implementations in
+//! windmill-ee-private, see `pipeline_advanced_ee`): partition backfill
+//! reports that the enterprise edition is required, and materialization-plan
+//! assembly runs the plan verbatim — dbt-like commit-then-test instead of the
+//! enterprise write-audit-publish. (Freshness lives elsewhere: the fresh/stale
+//! badge is CE in the assets API, the active watchdog is windmill-queue's
+//! `freshness_watchdog`.)
 
 use crate::error::Error;
 

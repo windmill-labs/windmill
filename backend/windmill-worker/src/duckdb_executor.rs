@@ -2509,11 +2509,12 @@ mod tests {
     }
 
     // The rewritten SQL is the plan assembled by
-    // `pipeline_advanced::finalize_materialize_query`. This crate's tests build
-    // without `private`, so the assembly is the public one: statements
-    // verbatim, tests only in the post-commit summary breakdown (the
-    // enterprise write-audit-publish restructure is tested next to its
-    // implementation in windmill-common's `pipeline_advanced_ee`).
+    // `pipeline_advanced::finalize_materialize_query`, so what it contains is
+    // build-dependent: the public assembly runs the plan verbatim (tests only
+    // in the post-commit summary breakdown), the enterprise assembly adds the
+    // in-transaction write-audit-publish guard (whose shape/placement is
+    // tested next to its implementation in windmill-common's
+    // `pipeline_advanced_ee`).
     #[test]
     fn materialize_rewrite_carries_data_test_summary() {
         let script = "-- materialize ducklake://main/orders\n\
@@ -2525,8 +2526,17 @@ mod tests {
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
         assert!(rewritten.contains("AS data_tests"));
-        assert!(!rewritten.contains("error("));
         assert_eq!(meta.n_data_tests, 1);
+        #[cfg(not(feature = "private"))]
+        assert!(
+            !rewritten.contains("error("),
+            "public assembly is commit-then-test (no guard)"
+        );
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        assert!(
+            rewritten.contains("error("),
+            "enterprise assembly places the WAP guard"
+        );
     }
 
     // Tests for parse_attach_db_resource function
