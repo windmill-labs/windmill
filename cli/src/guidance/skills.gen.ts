@@ -1000,13 +1000,6 @@ async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, a
  */
 async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
 
-/**
- * Parse an S3 object from URI string or record format
- * @param s3Object - S3 object as URI string (s3://storage/key) or record
- * @returns S3 object record with storage and s3 key
- */
-parseS3Object(s3Object: S3Object): S3ObjectRecord
-
 setWorkflowCtx(ctx: WorkflowCtx | null): void
 
 async sleep(seconds: number): Promise<void>
@@ -1075,6 +1068,16 @@ async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: 
  * @param offset - Message offset to commit (from event.offset)
  */
 async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (\`s3://storage/key\`, \`s3:///key\`
+ *   for the default storage) or record. Any other string throws — older
+ *   clients silently degraded it to an empty key (the object landed under an
+ *   auto-generated key), which hid typos.
+ * @returns S3 object record with storage and s3 key
+ */
+parseS3Object(s3Object: S3Object): S3ObjectRecord
 
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
@@ -1760,13 +1763,6 @@ async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, a
  */
 async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
 
-/**
- * Parse an S3 object from URI string or record format
- * @param s3Object - S3 object as URI string (s3://storage/key) or record
- * @returns S3 object record with storage and s3 key
- */
-parseS3Object(s3Object: S3Object): S3ObjectRecord
-
 setWorkflowCtx(ctx: WorkflowCtx | null): void
 
 async sleep(seconds: number): Promise<void>
@@ -1835,6 +1831,16 @@ async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: 
  * @param offset - Message offset to commit (from event.offset)
  */
 async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (\`s3://storage/key\`, \`s3:///key\`
+ *   for the default storage) or record. Any other string throws — older
+ *   clients silently degraded it to an empty key (the object landed under an
+ *   auto-generated key), which hid typos.
+ * @returns S3 object record with storage and s3 key
+ */
+parseS3Object(s3Object: S3Object): S3ObjectRecord
 
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
@@ -2612,13 +2618,6 @@ async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, a
  */
 async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
 
-/**
- * Parse an S3 object from URI string or record format
- * @param s3Object - S3 object as URI string (s3://storage/key) or record
- * @returns S3 object record with storage and s3 key
- */
-parseS3Object(s3Object: S3Object): S3ObjectRecord
-
 setWorkflowCtx(ctx: WorkflowCtx | null): void
 
 async sleep(seconds: number): Promise<void>
@@ -2687,6 +2686,16 @@ async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: 
  * @param offset - Message offset to commit (from event.offset)
  */
 async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (\`s3://storage/key\`, \`s3:///key\`
+ *   for the default storage) or record. Any other string throws — older
+ *   clients silently degraded it to an empty key (the object landed under an
+ *   auto-generated key), which hid typos.
+ * @returns S3 object record with storage and s3 key
+ */
+parseS3Object(s3Object: S3Object): S3ObjectRecord
 
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
@@ -4367,7 +4376,10 @@ def get_state_path() -> str
 # Parse resource syntax from string.
 def parse_resource_syntax(s: str) -> Optional[str]
 
-# Parse S3 object from string or S3Object format.
+# Parse S3 object from a \`s3://<storage>/<key>\` URI string (\`s3:///<key>\`
+# for the default storage) or S3Object format. Any other string raises —
+# older clients silently degraded it to an empty key (the object landed
+# under an auto-generated key), which hid typos.
 def parse_s3_object(s3_object: S3Object | str) -> S3Object
 
 # Parse variable syntax from string.
