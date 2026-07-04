@@ -5423,6 +5423,36 @@ async fn create_workspace_fork(
     // conflict instead of a misleading "maximum number of workspaces" error.
     check_fork_w_id_conflict(&db, &nw.id).await?;
     purge_stale_fork_diff_state(&db, &nw.id).await?;
+    // A previously deleted fork with this id may have left ducklake namespaces behind if its
+    // physical cleanup failed after the delete committed (registry rows are the durable
+    // ledger — no FK, they outlive the workspace). Retry that cleanup now, and refuse to
+    // proceed while any metadata schema still can't be dropped: creating the fork anyway
+    // would silently reattach the deterministic namespace and its stale tables. Data-file
+    // leftovers alone don't block — once the schema is gone they are inert (a deleted fork's
+    // `$res:` storage resource is gone forever, so they may never resolve again), and the
+    // surviving registry row has the next successful same-prefix cleanup sweep them.
+    let leftover_issues =
+        crate::workspaces_extra::drop_forked_ducklake_namespaces_impl(&db, &nw.id).await?;
+    let blocking: Vec<&str> = leftover_issues
+        .iter()
+        .filter(|i| i.blocking)
+        .map(|i| i.msg.as_str())
+        .collect();
+    if !blocking.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "a previously deleted workspace with id '{}' left ducklake namespaces that could \
+             not be cleaned up: {}; retry once the catalog is reachable again",
+            nw.id,
+            blocking.join("; ")
+        )));
+    }
+    for i in &leftover_issues {
+        tracing::warn!(
+            "creating fork {}: leftover ducklake cleanup: {}",
+            nw.id,
+            i.msg
+        );
+    }
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -5519,6 +5549,21 @@ async fn create_workspace_fork(
     for fdt in &nw.forked_datatables {
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
+
+    // The settings clone copies the source's ducklake config verbatim — including a parent
+    // fork's own `fork_behavior` stamps. Sharing is a per-fork-creation choice, never
+    // inherited: reset any cloned stamps first, then apply this fork's requested list.
+    sqlx::query!(
+        r#"UPDATE workspace_settings
+           SET ducklake = jsonb_set(ducklake, '{ducklakes}', (
+               SELECT COALESCE(jsonb_object_agg(key, value - 'fork_behavior'), '{}'::jsonb)
+               FROM jsonb_each(ducklake->'ducklakes')
+           ))
+           WHERE workspace_id = $1 AND jsonb_typeof(ducklake->'ducklakes') = 'object'"#,
+        &forked_id,
+    )
+    .execute(&mut *tx)
+    .await?;
 
     // Stamp the per-lake ducklake fork choice into the fork's own settings. Only the `shared`
     // opt-out needs stamping — absent `fork_behavior` already means isolated (the default),

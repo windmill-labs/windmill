@@ -36,7 +36,10 @@ when the parent workspace has lakes configured, mirroring the datatable section)
   the resolver, the graph indicator, and (trivially — nothing registers) cleanup all key off
   it. Shared also lifts the mysql-catalog restriction, since nothing needs namespacing.
 
-Absent-field-means-isolated keeps every pre-existing fork and API caller on the safe path. A
+Absent-field-means-isolated keeps every pre-existing fork and API caller on the safe path.
+Sharing is a per-fork-creation choice, never inherited: the settings clone copies the source's
+config verbatim, so fork creation strips any cloned `fork_behavior` stamps before applying its
+own `shared_ducklakes` list — a fork of a shared fork defaults back to isolated. A
 shared fork ancestor in a fork chain resolves like a root (its data lives at its config's
 default location). Flipping a fork's lake to `shared` later (settings edit) orphans any
 namespace it already materialized until fork deletion cleans it — the registry row survives
@@ -131,6 +134,16 @@ REGISTERED catalog identity and deleting files from the REGISTERED storage ident
 (`storage_ref`, resolved from the logical storage name at attach time), never whatever the
 fork's settings point at by deletion time. Explicit
 `GRANT`s ship in the same migration; the registry is not cloned into sub-forks.
+
+The registry has deliberately **no FK to `workspace`**: rows are the durable cleanup ledger and
+outlive the workspace row when physical cleanup fails after the delete commits (unreachable
+catalog, storage outage) — each row is deleted only after its schema + data cleanup succeed.
+Fork **creation** retries any leftover rows for the reused id and refuses to proceed while a
+metadata schema still cannot be dropped, so a recreated same-id fork can never silently
+reattach stale tables. Data-file leftovers alone don't block: a deleted fork's `$res:` storage
+resource is gone forever, but once the schema is dropped the files are inert — the surviving
+row keeps them tracked and the next successful cleanup of the same prefix (typically the
+recreated fork's own deletion, with live credentials) sweeps them.
 
 `POST /w/{fork}/workspaces/drop_forked_ducklake_namespaces` (same permissions as
 `delete_workspace` via a shared gate: fork owner or superadmin, plus parent-prod-admin when the

@@ -1095,7 +1095,7 @@ pub(crate) async fn delete_workspace(
     // effort: failures are logged — the workspace row is already gone, and broken storage
     // credentials must not have made it undeletable.
     for e in cleanup_fork_ducklake_namespaces(&db, &w_id, fork_ducklake_cleanups).await {
-        tracing::warn!("deleted workspace {w_id}: ducklake namespace cleanup: {e}");
+        tracing::warn!("deleted workspace {w_id}: ducklake namespace cleanup: {}", e.msg);
     }
 
     if let Some(parent) = dev_lock_parent {
@@ -1319,7 +1319,13 @@ pub async fn drop_forked_ducklake_namespaces(
     }
     tx.commit().await?;
     require_prod_admin_for_dev_workspace(&db, &authed, &w_id).await?;
-    Ok(Json(drop_forked_ducklake_namespaces_impl(&db, &w_id).await?))
+    Ok(Json(
+        drop_forked_ducklake_namespaces_impl(&db, &w_id)
+            .await?
+            .into_iter()
+            .map(|i| i.msg)
+            .collect(),
+    ))
 }
 
 /// The cleanup itself, shared by the endpoint and the post-commit `delete_workspace` run. No
@@ -1327,7 +1333,7 @@ pub async fn drop_forked_ducklake_namespaces(
 pub(crate) async fn drop_forked_ducklake_namespaces_impl(
     db: &DB,
     w_id: &str,
-) -> Result<Vec<String>> {
+) -> Result<Vec<ForkDucklakeCleanupIssue>> {
     let prepared = prepare_fork_ducklake_cleanups(db, w_id).await?;
     Ok(cleanup_fork_ducklake_namespaces(db, w_id, prepared).await)
 }
@@ -1388,17 +1394,27 @@ pub(crate) async fn prepare_fork_ducklake_cleanups(
 /// Drop the prepared namespaces' metadata schemas + data files, deleting each registry row
 /// only after both succeed (a no-op when the row already cascaded away with the workspace).
 /// Returns per-namespace error strings; never fails as a whole.
+/// One failed step of a fork ducklake cleanup. `blocking` = the metadata schema (or its
+/// guards) failed, so the namespace is still attachable and a same-id fork must NOT be
+/// created. Non-blocking = the schema is gone and only data files (or the registry-row
+/// delete) failed — inert storage leftovers, tracked by the surviving row and swept by the
+/// next successful cleanup of the same prefix.
+pub(crate) struct ForkDucklakeCleanupIssue {
+    pub(crate) blocking: bool,
+    pub(crate) msg: String,
+}
+
 pub(crate) async fn cleanup_fork_ducklake_namespaces(
     db: &DB,
     w_id: &str,
     prepared: Vec<PreparedForkDucklakeCleanup>,
-) -> Vec<String> {
+) -> Vec<ForkDucklakeCleanupIssue> {
     // The registration once-cache must not outlive the rows it mirrors: a same-id fork
     // recreated within the TTL would otherwise skip re-registration, and ITS eventual
     // deletion would find no rows — orphaning the deterministic namespace for the next
     // same-id fork to silently reattach.
     windmill_common::workspaces::invalidate_fork_ducklake_registration_cache(w_id);
-    let mut errors: Vec<String> = Vec::new();
+    let mut errors: Vec<ForkDucklakeCleanupIssue> = Vec::new();
     for PreparedForkDucklakeCleanup { ns, catalog_pg, store } in prepared {
         // Hard guards mirroring the forked-datatable drop: never touch a schema outside the
         // fork prefix, never delete outside the fork data dir — even if a registry row was
@@ -1407,12 +1423,15 @@ pub(crate) async fn cleanup_fork_ducklake_namespaces(
             .metadata_schema
             .starts_with(windmill_common::workspaces::FORK_DUCKLAKE_SCHEMA_PREFIX)
         {
-            errors.push(format!(
-                "Refusing to drop schema '{}' for ducklake://{}: name does not start with '{}'",
-                ns.metadata_schema,
-                ns.ducklake_name,
-                windmill_common::workspaces::FORK_DUCKLAKE_SCHEMA_PREFIX
-            ));
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: true,
+                msg: format!(
+                    "Refusing to drop schema '{}' for ducklake://{}: name does not start with '{}'",
+                    ns.metadata_schema,
+                    ns.ducklake_name,
+                    windmill_common::workspaces::FORK_DUCKLAKE_SCHEMA_PREFIX
+                ),
+            });
             continue;
         }
         // The fork's directory segment, NOT the raw workspace id: ids are only
@@ -1424,10 +1443,13 @@ pub(crate) async fn cleanup_fork_ducklake_namespaces(
             windmill_common::workspaces::fork_data_dir_segment(w_id)
         );
         if !format!("{}/", ns.data_path.trim_end_matches('/')).starts_with(&expected_prefix) {
-            errors.push(format!(
-                "Refusing to delete data path '{}' for ducklake://{}: not under '{}'",
-                ns.data_path, ns.ducklake_name, expected_prefix
-            ));
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: true,
+                msg: format!(
+                    "Refusing to delete data path '{}' for ducklake://{}: not under '{}'",
+                    ns.data_path, ns.ducklake_name, expected_prefix
+                ),
+            });
             continue;
         }
 
@@ -1436,10 +1458,13 @@ pub(crate) async fn cleanup_fork_ducklake_namespaces(
             Err(e) => Err(Error::internal_err(e)),
         };
         if let Err(e) = drop_res {
-            errors.push(format!(
-                "Could not drop metadata schema '{}' for ducklake://{}: {e}",
-                ns.metadata_schema, ns.ducklake_name
-            ));
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: true,
+                msg: format!(
+                    "Could not drop metadata schema '{}' for ducklake://{}: {e}",
+                    ns.metadata_schema, ns.ducklake_name
+                ),
+            });
             continue;
         }
         let delete_res = match store {
@@ -1449,10 +1474,13 @@ pub(crate) async fn cleanup_fork_ducklake_namespaces(
             Err(e) => Err(Error::internal_err(e)),
         };
         if let Err(e) = delete_res {
-            errors.push(format!(
-                "Dropped metadata schema but could not delete data files under '{}' for ducklake://{}: {e}",
-                ns.data_path, ns.ducklake_name
-            ));
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: false,
+                msg: format!(
+                    "Dropped metadata schema but could not delete data files under '{}' for ducklake://{}: {e}",
+                    ns.data_path, ns.ducklake_name
+                ),
+            });
             continue;
         }
         sqlx::query!(
@@ -1469,10 +1497,13 @@ pub(crate) async fn cleanup_fork_ducklake_namespaces(
         .execute(db)
         .await
         .map_err(|e| {
-            errors.push(format!(
-                "Cleaned ducklake://{} but could not delete its registry row: {e}",
-                ns.ducklake_name
-            ))
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: false,
+                msg: format!(
+                    "Cleaned ducklake://{} but could not delete its registry row: {e}",
+                    ns.ducklake_name
+                ),
+            })
         })
         .ok();
     }

@@ -3,8 +3,15 @@
 -- sub-path the fork's jobs attach to, so fork deletion can drop the pg schema and
 -- delete the S3 prefix deterministically (the row is written on first resolution,
 -- before any physical state exists).
+--
+-- Deliberately NO foreign key to workspace(id): rows are the durable cleanup ledger and
+-- must OUTLIVE the workspace row when physical cleanup fails after the delete commits
+-- (unreachable catalog, storage outage) — a CASCADE would erase the only record of the
+-- orphaned namespace, letting a recreated same-id fork silently reattach stale tables.
+-- Rows are deleted explicitly after each successful cleanup; leftover rows for a reused
+-- id are retried at fork creation, which refuses to proceed while they cannot be cleaned.
 CREATE TABLE fork_ducklake_namespace (
-    workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    workspace_id VARCHAR(50) NOT NULL,
     ducklake_name VARCHAR(255) NOT NULL,
     metadata_schema VARCHAR(63) NOT NULL,
     -- Canonical identity of the catalog database the metadata schema lives in
