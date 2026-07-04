@@ -341,20 +341,20 @@ fn object_str_prop(obj: &ObjectLit, name: &str) -> Option<String> {
 /// `writeS3File` to a canonical asset path, mirroring the runtime
 /// `parseS3Object`: an object `{ s3: "<key>", storage?: "<bucket>" }` maps to
 /// the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
-/// `s3:///<key>`); a `"s3://bucket/key"` string is passed through, and a plain
-/// string is a bare key in the default storage (the runtime `parseS3Object`
-/// contract), so it canonicalizes identically to `{ s3: "<key>" }`.
+/// `s3:///<key>`), and a `"s3://bucket/key"` URI string is passed through. A
+/// plain (non-`s3://`) string yields no asset: the runtime `parseS3Object`
+/// rejects it, so recording an edge would be a phantom node for a call that
+/// can only error.
 /// The resulting URI is fed through `parse_asset_syntax` so the stored path
 /// matches the `// on s3:///…` trigger form exactly.
 fn s3_object_arg_path(arg: &Expr) -> Option<String> {
     let uri = match arg {
         Expr::Lit(Lit::Str(s)) => {
             let v = s.value.to_string();
-            if v.starts_with("s3://") {
-                v
-            } else {
-                format!("s3:///{v}")
+            if !v.starts_with("s3://") {
+                return None;
             }
+            v
         }
         Expr::Object(obj) => {
             let key = object_str_prop(obj, "s3")?;
@@ -487,10 +487,10 @@ mod tests {
     }
 
     #[test]
-    fn test_ts_asset_parser_bare_string_key() {
-        // A plain string is a bare key in the default storage (runtime
-        // `parseS3Object` contract) — it must canonicalize to the same
-        // leading-slash path as `{ s3: "<key>" }` and `s3:///<key>`.
+    fn test_ts_asset_parser_bare_string_no_asset() {
+        // A plain (non-`s3://`) string is rejected by the runtime
+        // `parseS3Object`, so the parser must not record a phantom asset for
+        // a call that can only error.
         let input = r#"
             import * as wmill from "windmill-client"
             export async function main() {
@@ -498,15 +498,7 @@ mod tests {
             }
         "#;
         let s = parse_assets(input);
-        assert_eq!(
-            s.map(|r| r.assets).map_err(|e| e.to_string()),
-            Ok(vec![ParseAssetsResult {
-                kind: AssetKind::S3Object,
-                path: "/pipelines/etl/out.jsonl".to_string(),
-                access_type: Some(W),
-                columns: None,
-            },])
-        );
+        assert_eq!(s.map(|r| r.assets).map_err(|e| e.to_string()), Ok(vec![]));
     }
 
     #[test]

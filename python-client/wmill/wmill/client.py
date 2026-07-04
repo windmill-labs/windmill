@@ -2212,18 +2212,20 @@ def parse_resource_syntax(s: str) -> Optional[str]:
     return None
 
 def parse_s3_object(s3_object: S3Object | str) -> S3Object:
-    """Parse S3 object from string (bare key or `s3://storage/key` URI) or S3Object format."""
+    """Parse S3 object from a `s3://<storage>/<key>` URI string (`s3:///<key>`
+    for the default storage) or S3Object format. Any other string raises —
+    older clients silently degraded it to an empty key (the object landed
+    under an auto-generated key), which hid typos.
+    """
     if isinstance(s3_object, str):
         match = re.match(r'^s3://([^/]*)/(.*)$', s3_object)
         if match:
             return S3Object(s3=match.group(2) or "", storage=match.group(1) or None)
-        if s3_object.startswith("s3://"):
-            # Malformed URI (`s3://x` has no key part) — keep the legacy
-            # empty-key fallback rather than storing a literal "s3://…" key.
-            return S3Object(s3="")
-        # A plain string is a bare object key in the default storage:
-        # "dir/file.json" ≡ S3Object(s3="dir/file.json").
-        return S3Object(s3=s3_object)
+        raise ValueError(
+            f"Invalid s3 object {s3_object!r}: expected s3://<storage>/<key> "
+            f"(e.g. 's3:///{s3_object}' for key {s3_object!r} in the default "
+            "storage) or S3Object(s3=<key>)"
+        )
     else:
         return s3_object
 

@@ -1,17 +1,11 @@
 /**
- * S3 object representation: a bare object key (default storage), a
- * `s3://storage/key` URI string, or a record object
+ * S3 object representation, either as a URI string or a record object
  */
-export type S3Object = S3ObjectKey | S3ObjectURI | S3ObjectRecord;
+export type S3Object = S3ObjectURI | S3ObjectRecord;
 
 /**
- * Bare object key in the workspace default storage, e.g. `"dir/file.json"`.
- * Equivalent to `{ s3: "dir/file.json" }`.
- */
-export type S3ObjectKey = string;
-
-/**
- * S3 object URI in the format `s3://storage/key`
+ * S3 object URI in the format `s3://storage/key` (`s3:///key` targets the
+ * workspace default storage)
  */
 export type S3ObjectURI = `s3://${string}/${string}`;
 
@@ -48,17 +42,18 @@ export type DenoS3LightClientSettings = {
 };
 
 /**
- * Parse an S3 object from a bare key, URI string or record format
- * @param s3Object - S3 object as bare key ("dir/file.json", default storage),
- *   URI string (s3://storage/key) or record
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (`s3://storage/key`, `s3:///key`
+ *   for the default storage) or record. Any other string throws — older
+ *   clients silently degraded it to an empty key (the object landed under an
+ *   auto-generated key), which hid typos.
  * @returns S3 object record with storage and s3 key
  */
 export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
   if (typeof s3Object === "object") return s3Object;
   const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/);
   if (match) return { storage: match[1] || undefined, s3: match[2] ?? "" };
-  // A plain string is a bare object key in the default storage. Only a
-  // malformed `s3://…` string (no key part) keeps the legacy empty-key
-  // fallback — never store a literal "s3://…" key.
-  return { s3: s3Object.startsWith("s3://") ? "" : s3Object };
+  throw new Error(
+    `Invalid s3 object ${JSON.stringify(s3Object)}: expected s3://<storage>/<key> (e.g. "s3:///${s3Object}" for key "${s3Object}" in the default storage) or { s3: <key> }`
+  );
 }

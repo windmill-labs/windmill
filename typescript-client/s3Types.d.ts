@@ -1,6 +1,5 @@
-export type S3Object = S3ObjectKey | S3ObjectURI | S3ObjectRecord;
+export type S3Object = S3ObjectURI | S3ObjectRecord;
 
-export type S3ObjectKey = string;
 export type S3ObjectURI = `s3://${string}/${string}`;
 export type S3ObjectRecord = {
     s3: string;

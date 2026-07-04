@@ -319,19 +319,19 @@ fn dict_str_value(dict: &rustpython_ast::ExprDict, name: &str) -> Option<String>
 /// `write_s3_file` to a canonical asset path, mirroring `windmill-parser-ts-asset`:
 /// `S3Object(s3="<key>", storage="<bucket>"?)` — or the equivalent dict literal —
 /// maps to the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
-/// `s3:///<key>`); a `"s3://bucket/key"` string is passed through, and a plain
-/// string is a bare key in the default storage (the runtime `parse_s3_object`
-/// contract), so it canonicalizes identically to `S3Object(s3=<key>)`.
+/// `s3:///<key>`), and a `"s3://bucket/key"` URI string is passed through. A
+/// plain (non-`s3://`) string yields no asset: the runtime `parse_s3_object`
+/// rejects it, so recording an edge would be a phantom node for a call that
+/// can only error.
 /// The resulting URI is fed through `parse_asset_syntax` so the stored path
 /// matches the TS object form and the `# on s3:///…` trigger form exactly.
 fn s3_object_arg_path(expr: &Expr) -> Option<String> {
     let uri = match expr {
         Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => {
-            if s.starts_with("s3://") {
-                s.clone()
-            } else {
-                format!("s3:///{s}")
+            if !s.starts_with("s3://") {
+                return None;
             }
+            s.clone()
         }
         Expr::Call(call) => {
             // `S3Object(...)` imported directly or as `wmill.S3Object(...)`
@@ -387,25 +387,17 @@ def main():
     }
 
     #[test]
-    fn test_py_asset_parser_bare_string_key() {
-        // A plain string is a bare key in the default storage (runtime
-        // `parse_s3_object` contract) — it must canonicalize to the same
-        // leading-slash path as `S3Object(s3="<key>")` and `s3:///<key>`.
+    fn test_py_asset_parser_bare_string_no_asset() {
+        // A plain (non-`s3://`) string is rejected by the runtime
+        // `parse_s3_object`, so the parser must not record a phantom asset
+        // for a call that can only error.
         let input = r#"
 import wmill
 def main():
     wmill.write_s3_file("pipelines/etl/out.jsonl", b"")
 "#;
         let s = parse_assets(input).map(|o| o.assets);
-        assert_eq!(
-            s.map_err(|e| e.to_string()),
-            Ok(vec![ParseAssetsResult {
-                kind: AssetKind::S3Object,
-                path: "/pipelines/etl/out.jsonl".to_string(),
-                access_type: Some(W),
-                columns: None,
-            },])
-        );
+        assert_eq!(s.map_err(|e| e.to_string()), Ok(vec![]));
     }
 
     #[test]

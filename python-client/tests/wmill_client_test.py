@@ -127,8 +127,12 @@ SET s3_secret_access_key='80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4';
 class TestParseS3Object(unittest.TestCase):
     """Pure-unit tests for parse_s3_object — no network/env needed."""
 
-    def test_bare_string_is_default_storage_key(self):
-        self.assertEqual(wmill.parse_s3_object("dir/file.json"), S3Object(s3="dir/file.json"))
+    def test_bare_string_raises_with_uri_hint(self):
+        # A bare key is not accepted: older clients silently degraded it to an
+        # empty key (auto-generated key on write), hiding typos. The error
+        # points at the s3:/// spelling.
+        with self.assertRaisesRegex(ValueError, "s3:///dir/file.json"):
+            wmill.parse_s3_object("dir/file.json")
 
     def test_triple_slash_uri_is_default_storage(self):
         self.assertEqual(
@@ -142,13 +146,17 @@ class TestParseS3Object(unittest.TestCase):
             S3Object(s3="dir/f", storage="bucket"),
         )
 
-    def test_malformed_uri_keeps_legacy_empty_key(self):
-        # Never store a literal "s3://…" key — an auto-generated key on write
-        # is the historical behavior for unparseable URIs.
-        self.assertEqual(wmill.parse_s3_object("s3://broken"), S3Object(s3=""))
+    def test_malformed_uri_raises(self):
+        # `s3://x` has no key part — fail loudly instead of silently
+        # misplacing the object.
+        with self.assertRaises(ValueError):
+            wmill.parse_s3_object("s3://broken")
 
-    def test_empty_string_stays_empty_key(self):
-        self.assertEqual(wmill.parse_s3_object(""), S3Object(s3=""))
+    def test_empty_string_raises(self):
+        # Auto-generated keys are requested by omitting the object (None),
+        # not by an empty string.
+        with self.assertRaises(ValueError):
+            wmill.parse_s3_object("")
 
     def test_s3object_passes_through(self):
         self.assertEqual(wmill.parse_s3_object(S3Object(s3="x")), S3Object(s3="x"))
