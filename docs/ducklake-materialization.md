@@ -360,17 +360,14 @@ load-bearing.
   same checks also run *inside* the write transaction as a guard statement
   that raises on any violation, aborting the run before `COMMIT` — a failing
   slice is never published, readers keep the previous version, and no snapshot
-  is created. The guard SQL is built in the enterprise repo
-  (`pipeline_advanced::data_test_guard_sql`, `None` in the public build) and
-  handed to `sql_materialize::build_wrap_blocks` as a callback, which owns
-  only the placement contract — so the public codegen is inert scaffolding
-  without the enterprise builder.
-  When guarded, the bootstrap DDL (`CREATE TABLE IF NOT EXISTS`,
-  `SET PARTITIONED BY`, the SCD2 history bootstrap) also moves inside the
-  transaction, so even the *first* run of a new asset rolls back to "no table"
-  rather than leaving an empty shell. The guard is a pure read; on the passing
-  path the post-commit summary recomputes the counts for the recorded per-test
-  breakdown (probe counts are cheap next to the write).
+  is created (even a *first* run of a new asset rolls back to "no table").
+  The whole mechanism lives in the enterprise repo:
+  `sql_materialize::build_wrap_blocks` produces a typed statement plan
+  (`MaterializePlan` — statements plus structural kinds and the compiled
+  checks), and `pipeline_advanced::finalize_materialize_query` assembles it —
+  verbatim on the public build, restructured into the guarded transaction on
+  EE. The public build thus carries only plan metadata, not the
+  write-audit-publish transform itself.
 - **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
   script's content (a single DuckDB `SELECT`/CTE returning the violating rows —
   it's embedded as a subquery, so a multi-statement body is rejected with a

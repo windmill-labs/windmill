@@ -390,14 +390,6 @@ pub struct MaterializeCodegen<'a> {
     /// and the partition column / `SET PARTITIONED BY` are omitted.
     pub partitioned: bool,
     pub strategy: MaterializeStrategy,
-    /// Write-audit-publish gate (enterprise): a statement placed inside the
-    /// write transaction, after the mutation and before `COMMIT`, that raises
-    /// when any data test is violated — aborting the run so the transaction
-    /// rolls back and the bad slice is never published. The statement itself
-    /// is built by the enterprise edition (see `build_wrap_blocks`'s
-    /// `test_guard` callback); `None` (public build, or no tests) keeps the
-    /// dbt-like commit-then-test behavior with codegen identical to before.
-    pub test_guard: Option<&'a str>,
 }
 
 impl<'a> MaterializeCodegen<'a> {
@@ -425,32 +417,18 @@ impl<'a> MaterializeCodegen<'a> {
         // schema each run with one atomic `CREATE OR REPLACE` (which DuckLake
         // still snapshots). This is the only path that survives a changed SELECT
         // or a pre-existing table with a different schema — the persist-and-
-        // mutate paths below fix the schema at first create. With a test guard
-        // the single statement gains an explicit transaction so a violation can
-        // roll the replace back (DuckLake DDL is transactional).
+        // mutate paths below fix the schema at first create.
         if !self.partitioned && matches!(self.strategy, MaterializeStrategy::Replace) {
-            let replace = format!("CREATE OR REPLACE TABLE {t} AS SELECT * FROM ({sel});");
-            if let Some(guard) = self.test_guard {
-                out.push("BEGIN TRANSACTION;".to_string());
-                out.push(replace);
-                out.push(guard.to_string());
-                out.push("COMMIT;".to_string());
-            } else {
-                out.push(replace);
-            }
+            out.push(format!(
+                "CREATE OR REPLACE TABLE {t} AS SELECT * FROM ({sel});"
+            ));
             return out;
         }
 
         // Persist-and-mutate (partitioned, or merge/append): bootstrap the table
         // if absent, then write into it. The schema is fixed at first create —
         // a later SELECT-schema change needs a manual rebuild (schema evolution
-        // is a follow-up). With a test guard the bootstrap goes INSIDE the
-        // transaction: otherwise the first run of a new asset whose tests fail
-        // would roll back the rows but leave an empty bootstrapped table (and
-        // its snapshot) visible to readers.
-        if self.test_guard.is_some() {
-            out.push("BEGIN TRANSACTION;".to_string());
-        }
+        // is a follow-up).
         if self.partitioned {
             out.push(format!(
                 "CREATE TABLE IF NOT EXISTS {t} AS \
@@ -462,9 +440,7 @@ impl<'a> MaterializeCodegen<'a> {
                 "CREATE TABLE IF NOT EXISTS {t} AS SELECT * FROM ({sel}) WHERE false;"
             ));
         }
-        if self.test_guard.is_none() {
-            out.push("BEGIN TRANSACTION;".to_string());
-        }
+        out.push("BEGIN TRANSACTION;".to_string());
         // The rows to write, with the partition column appended when partitioned.
         let source = if self.partitioned {
             format!("SELECT *, {pval} AS {pcol} FROM ({sel})")
@@ -502,9 +478,6 @@ impl<'a> MaterializeCodegen<'a> {
             }
             // Handled by the early return above (scd2 has no partitioned form).
             MaterializeStrategy::Scd2 { .. } => unreachable!("scd2 handled before this match"),
-        }
-        if let Some(guard) = self.test_guard {
-            out.push(guard.to_string());
         }
         out.push("COMMIT;".to_string());
         out
@@ -590,27 +563,18 @@ impl<'a> MaterializeCodegen<'a> {
             )
         };
 
-        let mut out = Vec::new();
-        // With a test guard the transaction opens BEFORE the bootstrap:
-        // otherwise the first run of a new dimension whose tests fail would roll
-        // back the close/open but leave an empty bootstrapped history table (and
-        // its snapshot) visible. The temp-table captures work inside the write
-        // transaction (verified: DuckDB allows a `temp` write alongside the
-        // lake write); what matters is they run before the close flips
-        // `is_current`, which this ordering preserves.
-        if self.test_guard.is_some() {
-            out.push("BEGIN TRANSACTION;".to_string());
-        }
-        out.push(format!(
-            "CREATE TABLE IF NOT EXISTS {t} AS SELECT *, \
-             CAST(NULL AS TIMESTAMP) AS {vf}, \
-             CAST(NULL AS TIMESTAMP) AS {vt}, \
-             CAST(NULL AS BOOLEAN) AS {ic} FROM ({sel}) WHERE false;"
-        ));
-        out.push(format!(
-            "CREATE OR REPLACE TEMP TABLE {changed} AS \
-             SELECT {k} FROM ({src_proj} EXCEPT {tgt_proj});"
-        ));
+        let mut out = vec![
+            format!(
+                "CREATE TABLE IF NOT EXISTS {t} AS SELECT *, \
+                 CAST(NULL AS TIMESTAMP) AS {vf}, \
+                 CAST(NULL AS TIMESTAMP) AS {vt}, \
+                 CAST(NULL AS BOOLEAN) AS {ic} FROM ({sel}) WHERE false;"
+            ),
+            format!(
+                "CREATE OR REPLACE TEMP TABLE {changed} AS \
+                 SELECT {k} FROM ({src_proj} EXCEPT {tgt_proj});"
+            ),
+        ];
         // Hard-delete-close (`deletes=close`): the keys that vanished from the
         // snapshot — present-and-current in the table, absent from the SELECT.
         // Captured before the close (like `changed`) and disjoint from it (a
@@ -621,9 +585,7 @@ impl<'a> MaterializeCodegen<'a> {
                  SELECT {k} FROM (SELECT {k} FROM {t} WHERE {ic} EXCEPT SELECT {k} FROM ({sel}));"
             ));
         }
-        if self.test_guard.is_none() {
-            out.push("BEGIN TRANSACTION;".to_string());
-        }
+        out.push("BEGIN TRANSACTION;".to_string());
         out.push(format!(
             "UPDATE {t} SET {vt} = {ts}, {ic} = false \
              WHERE {ic} AND EXISTS (SELECT 1 FROM {changed} \
@@ -665,13 +627,6 @@ impl<'a> MaterializeCodegen<'a> {
             // no error) — documented as a reserved suffix.
             format!("CREATE VIEW IF NOT EXISTS {t}_current AS SELECT * FROM {t} WHERE {ic};"),
         );
-        // Write-audit-publish: the guard's probes carry the SCD2 `is_current`
-        // scoping (built with `DataTestCtx.scd2`), so in-transaction they assert
-        // the *new* current snapshot — the uncommitted close/open is visible to
-        // reads in the same transaction.
-        if let Some(guard) = self.test_guard {
-            out.push(guard.to_string());
-        }
         out.push("COMMIT;".to_string());
         out
     }
@@ -690,6 +645,44 @@ pub fn snapshot_capture_sql(alias: &str) -> String {
 /// from the target ducklake's config and passes it in as `target_attach`.
 pub const TARGET_ALIAS: &str = "_wm_target";
 
+/// Structural role of one statement in a [`MaterializePlan`]. The public build
+/// executes the plan verbatim, so the kinds are pure metadata there; they exist
+/// so a downstream assembler (`pipeline_advanced::finalize_materialize_query`)
+/// can reason about the plan without parsing SQL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterializeStmtKind {
+    /// Pre-write statement: user setup, the target ATTACH, referenced-asset
+    /// ATTACHes.
+    Setup,
+    /// Write work against the target: bootstrap DDL, SCD2 temp-table captures,
+    /// the mutation itself, the `_current` view.
+    Write,
+    /// The `BEGIN TRANSACTION;` marker emitted by the strategy codegen.
+    TxnBegin,
+    /// The `COMMIT;` marker emitted by the strategy codegen.
+    TxnCommit,
+    /// The trailing one-row summary read (asset / rows / snapshot_id /
+    /// data_tests breakdown).
+    Summary,
+}
+
+/// One planned statement: its structural role and the SQL text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterializeStmt {
+    pub kind: MaterializeStmtKind,
+    pub sql: String,
+}
+
+/// The full ordered materialization plan [`build_wrap_blocks`] produces:
+/// statements in execution order plus the compiled data-test checks (also
+/// embedded in the summary statement's breakdown). Assembled into the final
+/// statement list by `pipeline_advanced::finalize_materialize_query`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterializePlan {
+    pub stmts: Vec<MaterializeStmt>,
+    pub checks: Vec<DataTestCheck>,
+}
+
 /// Assemble the full ordered statement list the DuckDB executor runs for a
 /// managed `// materialize` script. This is the single entry point the worker
 /// calls; it composes the already-tested pieces (classifier split → target
@@ -704,14 +697,13 @@ pub const TARGET_ALIAS: &str = "_wm_target";
 /// a one-row summary read (asset / rows / snapshot_id) that is both the job's
 /// result (a useful preview) and what the worker records.
 ///
-/// `test_guard` is the write-audit-publish seam: called with the compiled
-/// checks (when any exist), it returns the guard statement to place inside the
-/// write transaction — a data-test violation then rolls the write back instead
-/// of leaving the failing slice published. The guard SQL itself is built by
-/// the enterprise edition (`windmill_common::pipeline_advanced`, which this
-/// crate cannot depend on — hence the callback); the public build returns
-/// `None`, keeping commit-then-test with codegen identical to the unguarded
-/// shape.
+/// Returns a [`MaterializePlan`] — the statements plus their structural role
+/// and the compiled data-test checks — rather than raw SQL: the executor hands
+/// the plan to `windmill_common::pipeline_advanced::finalize_materialize_query`
+/// (which this crate cannot depend on), whose public-build implementation
+/// assembles the statements verbatim. Everything this function produces runs
+/// as-is on the public build; the plan's structure is metadata about it, not a
+/// second mode.
 pub fn build_wrap_blocks(
     plan: &WrapPlan,
     target_attach: &str,
@@ -722,8 +714,7 @@ pub fn build_wrap_blocks(
     partitioned: bool,
     strategy: MaterializeStrategy,
     tests: &[DataTestResolved],
-    test_guard: &dyn Fn(&[DataTestCheck]) -> Option<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<MaterializePlan, String> {
     let target_qualified = format!("{TARGET_ALIAS}.{target_table}");
     let scd2 = matches!(strategy, MaterializeStrategy::Scd2 { .. });
     let ctx = DataTestCtx {
@@ -735,11 +726,6 @@ pub fn build_wrap_blocks(
         scd2,
     };
     let test_sql = build_data_test_checks(tests, &ctx)?;
-    let guard = if test_sql.checks.is_empty() {
-        None
-    } else {
-        test_guard(&test_sql.checks)
-    };
     let cg = MaterializeCodegen {
         target_qualified: &target_qualified,
         select_sql: &plan.output,
@@ -747,29 +733,42 @@ pub fn build_wrap_blocks(
         partition_value_sql,
         partitioned,
         strategy,
-        test_guard: guard.as_deref(),
     };
-    let mut blocks: Vec<String> = Vec::new();
+    let mut stmts: Vec<MaterializeStmt> = Vec::new();
+    let setup = |sql: String| MaterializeStmt { kind: MaterializeStmtKind::Setup, sql };
     // Setup blocks come from the splitter with their `;` stripped — re-terminate
     // each so that when the executor re-joins and re-splits the assembled query,
     // adjacent statements (e.g. the user ATTACH and the synthetic target ATTACH)
     // don't merge into one malformed statement.
-    blocks.extend(plan.setup.iter().map(|s| terminate(s)));
-    blocks.push(target_attach.to_string());
+    stmts.extend(plan.setup.iter().map(|s| setup(terminate(s))));
+    stmts.push(setup(target_attach.to_string()));
     // Referenced-asset ATTACHes (relationships tests) — read-only, before the
     // write and the summary that probes them.
-    blocks.extend(test_sql.attaches);
-    blocks.extend(cg.statements());
+    stmts.extend(test_sql.attaches.into_iter().map(setup));
+    // Classify the codegen statements by matching the exact transaction-marker
+    // literals this module emits (`BEGIN TRANSACTION;` / `COMMIT;`); everything
+    // else the codegen produces is write work.
+    stmts.extend(cg.statements().into_iter().map(|sql| {
+        let kind = match sql.as_str() {
+            "BEGIN TRANSACTION;" => MaterializeStmtKind::TxnBegin,
+            "COMMIT;" => MaterializeStmtKind::TxnCommit,
+            _ => MaterializeStmtKind::Write,
+        };
+        MaterializeStmt { kind, sql }
+    }));
     // The summary read carries the per-test breakdown (when any tests apply).
-    blocks.push(materialize_result_sql(
-        &target_qualified,
-        asset_path,
-        partition_col,
-        partition_value_sql,
-        partitioned,
-        &test_sql.checks,
-    ));
-    Ok(blocks)
+    stmts.push(MaterializeStmt {
+        kind: MaterializeStmtKind::Summary,
+        sql: materialize_result_sql(
+            &target_qualified,
+            asset_path,
+            partition_col,
+            partition_value_sql,
+            partitioned,
+            &test_sql.checks,
+        ),
+    });
+    Ok(MaterializePlan { stmts, checks: test_sql.checks })
 }
 
 /// The trailing one-row summary the materialize run returns: the asset it
@@ -1295,7 +1294,6 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Replace,
-            test_guard: None,
         };
         let st = cg.statements();
         assert!(st[0].contains("CREATE TABLE IF NOT EXISTS _wm_target.orders_daily"));
@@ -1321,7 +1319,6 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Merge { unique_key: "order_id".to_string() },
-            test_guard: None,
         };
         let st = cg.statements();
         // upsert = delete-by-key (partition-scoped) + insert — NO `MERGE INTO`
@@ -1348,7 +1345,6 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Append,
-            test_guard: None,
         };
         let st = cg.statements();
         assert!(st
@@ -1370,7 +1366,6 @@ mod tests {
             partition_value_sql: "''",
             partitioned: false,
             strategy: MaterializeStrategy::Replace,
-            test_guard: None,
         };
         let st = cg.statements();
         assert_eq!(
@@ -1396,7 +1391,6 @@ mod tests {
                 track: vec![],
                 close_deleted: false,
             },
-            test_guard: None,
         };
         let st = cg.statements();
         // bootstrap adds the three SCD metadata columns
@@ -1453,7 +1447,6 @@ mod tests {
                 track: vec!["name".to_string()],
                 close_deleted: false,
             },
-            test_guard: None,
         };
         let st = cg.statements();
         // only key + tracked cols are compared (addr changes don't rotate a version)
@@ -1473,7 +1466,6 @@ mod tests {
                 track: vec![],
                 close_deleted: true,
             },
-            test_guard: None,
         };
         let st = cg.statements();
         // the deleted-key set: current keys absent from the snapshot, captured
@@ -1521,7 +1513,7 @@ mod tests {
     #[test]
     fn build_wrap_blocks_orders_setup_attach_codegen_snapshot() {
         let plan = ok("ATTACH 'ducklake://main' AS dl;\n SELECT a FROM dl.orders WHERE d = '{p}'");
-        let blocks = build_wrap_blocks(
+        let blocks: Vec<String> = build_wrap_blocks(
             &plan,
             "ATTACH 'ducklake:postgres:…' AS _wm_target (DATA_PATH 's3://b/p');",
             "orders_daily",
@@ -1531,9 +1523,12 @@ mod tests {
             true,
             MaterializeStrategy::Replace,
             &[],
-            &|_| None,
         )
-        .unwrap();
+        .unwrap()
+        .stmts
+        .into_iter()
+        .map(|s| s.sql)
+        .collect();
         // setup block first, then the target ATTACH, then codegen, then result.
         assert!(blocks[0].starts_with("ATTACH 'ducklake://main' AS dl"));
         // every setup block must be `;`-terminated so re-splitting can't merge it
@@ -1556,29 +1551,9 @@ mod tests {
         assert!(last.contains("ducklake_snapshots('_wm_target')"));
     }
 
-    // -- write-audit-publish (transactional data tests) ----------------------
+    // -- materialize plan structure ------------------------------------------
 
-    // Stand-in for the enterprise guard builder (which lives in
-    // windmill-ee-private): joins every check's count into one raising probe,
-    // enough to pin the *placement* contract this crate owns. The real guard's
-    // SQL shape is tested next to its implementation.
-    fn fake_guard(checks: &[DataTestCheck]) -> Option<String> {
-        let counts = checks
-            .iter()
-            .map(|c| c.violating.as_str())
-            .collect::<Vec<_>>()
-            .join(" + ");
-        let names = checks
-            .iter()
-            .map(|c| c.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        Some(format!(
-            "SELECT CASE WHEN {counts} > 0 THEN error('guard: {names}') ELSE 'passed' END;"
-        ))
-    }
-
-    fn wap_blocks(strategy: MaterializeStrategy, partitioned: bool, wap: bool) -> Vec<String> {
+    fn plan_for(strategy: MaterializeStrategy, partitioned: bool) -> MaterializePlan {
         let plan = ok("SELECT a, b FROM src");
         build_wrap_blocks(
             &plan,
@@ -1593,45 +1568,72 @@ mod tests {
                 DataTestResolved::BuiltIn(DataTest::NotNull { column: "a".into() }),
                 DataTestResolved::BuiltIn(DataTest::Unique { column: "b".into() }),
             ],
-            if wap { &fake_guard } else { &|_| None },
         )
         .unwrap()
     }
 
-    fn idx(blocks: &[String], pred: impl Fn(&str) -> bool) -> usize {
-        blocks.iter().position(|b| pred(b)).expect("block present")
+    fn kidx(plan: &MaterializePlan, pred: impl Fn(&MaterializeStmt) -> bool) -> usize {
+        plan.stmts
+            .iter()
+            .position(|s| pred(s))
+            .expect("stmt present")
     }
 
     #[test]
-    fn wap_guard_runs_inside_txn_before_commit() {
-        let blocks = wap_blocks(MaterializeStrategy::Replace, true, true);
-        let begin = idx(&blocks, |b| b == "BEGIN TRANSACTION;");
-        let bootstrap = idx(&blocks, |b| b.starts_with("CREATE TABLE IF NOT EXISTS"));
-        let alter = idx(&blocks, |b| b.contains("SET PARTITIONED BY"));
-        let insert = idx(&blocks, |b| b.starts_with("INSERT INTO"));
-        let guard = idx(&blocks, |b| b.contains("error("));
-        let commit = idx(&blocks, |b| b == "COMMIT;");
-        // Bootstrap INSIDE the guarded txn: a first run whose tests fail must
-        // roll back to "no table", not leave an empty bootstrapped shell.
-        assert!(begin < bootstrap && bootstrap < alter && alter < insert);
-        assert!(insert < guard && guard < commit);
-        // probes keep the partition scoping and every check reaches the guard
-        let g = &blocks[guard];
-        assert!(g.contains("\"_wm_partition\" = '2026-06-19'"));
-        assert!(g.contains("not_null(a)") && g.contains("unique(b)"));
-        // the post-commit summary (with its own data_tests breakdown) is intact
-        assert!(blocks.last().unwrap().contains("AS data_tests"));
+    fn plan_tags_structure_and_carries_checks() {
+        use MaterializeStmtKind::*;
+        let plan = plan_for(MaterializeStrategy::Replace, true);
+        // leading statements are Setup, ending with the target ATTACH
+        assert!(plan.stmts[0].kind == Setup);
+        assert!(plan
+            .stmts
+            .iter()
+            .take_while(|s| s.kind == Setup)
+            .any(|s| s.sql.contains("_wm_target")));
+        // txn markers are tagged, everything between them is Write
+        let begin = kidx(&plan, |s| s.kind == TxnBegin);
+        let commit = kidx(&plan, |s| s.kind == TxnCommit);
+        assert!(begin < commit);
+        assert!(plan.stmts[begin + 1..commit]
+            .iter()
+            .all(|s| s.kind == Write));
+        // bootstrap DDL is Write work (it targets the table, not the session)
+        let bootstrap = kidx(&plan, |s| s.sql.starts_with("CREATE TABLE IF NOT EXISTS"));
+        assert_eq!(plan.stmts[bootstrap].kind, Write);
+        // summary is last and carries the breakdown; checks ride along
+        let last = plan.stmts.last().unwrap();
+        assert_eq!(last.kind, Summary);
+        assert!(last.sql.contains("AS data_tests"));
+        assert_eq!(plan.checks.len(), 2);
+        assert!(plan.checks[0].name.contains("not_null(a)"));
     }
 
     #[test]
-    fn wap_guard_absent_without_builder_and_without_tests() {
-        // no guard from the builder (public build) ⇒ commit-then-test as before
-        let blocks = wap_blocks(MaterializeStrategy::Replace, true, false);
-        assert!(!blocks.iter().any(|b| b.contains("error(")));
-        // builder present but no tests ⇒ it is never called, no guard
-        let plan = ok("SELECT a FROM src");
-        let blocks = build_wrap_blocks(
-            &plan,
+    fn plan_whole_table_replace_has_no_txn_markers() {
+        use MaterializeStmtKind::*;
+        let plan = plan_for(MaterializeStrategy::Replace, false);
+        assert!(!plan.stmts.iter().any(|s| s.kind == TxnBegin));
+        assert!(!plan.stmts.iter().any(|s| s.kind == TxnCommit));
+        assert_eq!(
+            plan.stmts.iter().filter(|s| s.kind == Write).count(),
+            1,
+            "single atomic CREATE OR REPLACE"
+        );
+    }
+
+    #[test]
+    fn plan_scd2_captures_are_write_kind() {
+        use MaterializeStmtKind::*;
+        let plan = plan_for(
+            MaterializeStrategy::Scd2 { key: "a".into(), track: vec![], close_deleted: false },
+            false,
+        );
+        let capture = kidx(&plan, |s| s.sql.contains("TEMP TABLE _wm_scd2_changed"));
+        assert_eq!(plan.stmts[capture].kind, Write);
+        // no test declared ⇒ empty checks
+        let plain = ok("SELECT a FROM src");
+        let no_tests = build_wrap_blocks(
+            &plain,
             "ATTACH 'ducklake:…' AS _wm_target;",
             "orders",
             "main/orders",
@@ -1640,61 +1642,10 @@ mod tests {
             false,
             MaterializeStrategy::Append,
             &[],
-            &|_| panic!("guard builder must not be called with no tests"),
         )
         .unwrap();
-        assert!(!blocks.iter().any(|b| b.contains("error(")));
+        assert!(no_tests.checks.is_empty());
     }
-
-    #[test]
-    fn wap_guard_wraps_whole_table_replace_in_explicit_txn() {
-        // Unpartitioned replace is a single CREATE OR REPLACE without a guard;
-        // with one it needs an explicit transaction for the rollback to exist.
-        let blocks = wap_blocks(MaterializeStrategy::Replace, false, true);
-        let begin = idx(&blocks, |b| b == "BEGIN TRANSACTION;");
-        let replace = idx(&blocks, |b| b.starts_with("CREATE OR REPLACE TABLE"));
-        let guard = idx(&blocks, |b| b.contains("error("));
-        let commit = idx(&blocks, |b| b == "COMMIT;");
-        assert!(begin < replace && replace < guard && guard < commit);
-        let no_wap = wap_blocks(MaterializeStrategy::Replace, false, false);
-        assert!(!no_wap.iter().any(|b| b == "BEGIN TRANSACTION;"));
-    }
-
-    #[test]
-    fn wap_guard_scd2_is_current_scoped_inside_txn() {
-        let blocks = wap_blocks(
-            MaterializeStrategy::Scd2 { key: "a".into(), track: vec![], close_deleted: false },
-            false,
-            true,
-        );
-        let begin = idx(&blocks, |b| b == "BEGIN TRANSACTION;");
-        let bootstrap = idx(&blocks, |b| b.starts_with("CREATE TABLE IF NOT EXISTS"));
-        let capture = idx(&blocks, |b| b.contains("TEMP TABLE _wm_scd2_changed"));
-        let close = idx(&blocks, |b| b.starts_with("UPDATE"));
-        let view = idx(&blocks, |b| b.starts_with("CREATE VIEW IF NOT EXISTS"));
-        let guard = idx(&blocks, |b| b.contains("error("));
-        let commit = idx(&blocks, |b| b == "COMMIT;");
-        // Guarded SCD2 wraps the bootstrap too (first-run rollback leaves no
-        // shell) while the capture still precedes the close that flips
-        // `is_current`.
-        assert!(begin < bootstrap && bootstrap < capture && capture < close);
-        assert!(close < view && view < guard && guard < commit);
-        // probes assert the new current snapshot, not the closed history
-        assert!(blocks[guard].contains("is_current"));
-        // without a guard there is nothing to roll the bootstrap back for, so
-        // SCD2 captures its diff temp tables before the transaction opens
-        let plain = wap_blocks(
-            MaterializeStrategy::Scd2 { key: "a".into(), track: vec![], close_deleted: false },
-            false,
-            false,
-        );
-        let p_begin = idx(&plain, |b| b == "BEGIN TRANSACTION;");
-        let p_capture = idx(&plain, |b| b.contains("TEMP TABLE _wm_scd2_changed"));
-        assert!(p_capture < p_begin);
-    }
-
-    // (The real guard's SQL shape/escaping is tested next to its enterprise
-    // implementation in windmill-common's pipeline_advanced_ee.)
 
     // -- data tests ---------------------------------------------------------
 

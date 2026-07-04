@@ -98,13 +98,6 @@ fn build_materialized_query(
     // (`fetch_custom_test_bodies`) so this stays pure/sync and unit-testable —
     // the DB read is the only thing that needs a connection. Keyed by script path.
     custom_test_bodies: &std::collections::HashMap<String, String>,
-    // Write-audit-publish guard builder (enterprise seam,
-    // `pipeline_advanced::data_test_guard_sql`): given the asset path and the
-    // compiled checks, returns the statement placed inside the write
-    // transaction that rolls it back on violation, so a failing slice is never
-    // published. `None` from the builder = commit-then-test. A parameter (not
-    // called directly) so tests can inject a fake.
-    test_guard: &dyn Fn(&str, &[windmill_parser::sql_materialize::DataTestCheck]) -> Option<String>,
 ) -> Result<Option<(Option<String>, MaterializeExec)>> {
     use windmill_parser::asset_parser::{
         parse_pipeline_annotations, AssetKind as PAssetKind, DataTest,
@@ -249,7 +242,7 @@ fn build_materialized_query(
         }
     }
 
-    let blocks = build_wrap_blocks(
+    let mat_plan = build_wrap_blocks(
         &plan,
         &synthetic_attach,
         table,
@@ -259,9 +252,13 @@ fn build_materialized_query(
         partitioned,
         strategy,
         &resolved,
-        &|checks| test_guard(&m.target_path, checks),
     )
     .map_err(Error::ExecutionErr)?;
+    // Enterprise seam: assembles the plan into the final statement list —
+    // verbatim on the public build (commit-then-test), restructured into
+    // write-audit-publish (guarded transaction, rollback on violation) on EE.
+    let blocks =
+        windmill_common::pipeline_advanced::finalize_materialize_query(mat_plan, &m.target_path);
 
     Ok(Some((Some(blocks.join("\n")), meta)))
 }
@@ -1032,12 +1029,7 @@ pub async fn do_duckdb(
             // itself stays pure/sync.
             let custom_test_bodies =
                 fetch_custom_test_bodies(query, conn, &job.workspace_id).await?;
-            build_materialized_query(
-                query,
-                partition_value.as_deref(),
-                &custom_test_bodies,
-                &windmill_common::pipeline_advanced::data_test_guard_sql,
-            )?
+            build_materialized_query(query, partition_value.as_deref(), &custom_test_bodies)?
         } else {
             None
         };
@@ -1254,7 +1246,7 @@ pub async fn do_duckdb(
             // cascade stops. The error lists *every* test so the user sees the
             // whole picture, not just the first failure.
             // Under enterprise write-audit-publish an in-transaction guard
-            // (`data_test_guard_sql`) already aborted a failing run before
+            // (the enterprise `finalize_materialize_query` restructure) already aborted a failing run before
             // COMMIT — that surfaces on the Err path above with the same
             // breakdown in the error string, and nothing was published; this
             // post-commit path then only ever sees passing counts.
@@ -2388,11 +2380,9 @@ mod tests {
         // The wrapped query still references `$file`, so the parsed sig binds it.
         // No custom data tests here, so no fetched bodies are needed.
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new(), &|_, _| {
-                None
-            })
-            .expect("materialize builds")
-            .expect("materialize present");
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
         assert!(
             rewritten.contains("$file"),
@@ -2426,7 +2416,6 @@ mod tests {
             script,
             Some("2026-07-02"),
             &std::collections::HashMap::new(),
-            &|_, _| None,
         )
         .expect("materialize builds")
         .expect("materialize present");
@@ -2447,11 +2436,9 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history track=name\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new(), &|_, _| {
-                None
-            })
-            .expect("materialize builds")
-            .expect("materialize present");
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
         assert!(
             rewritten.contains("valid_from"),
@@ -2480,11 +2467,9 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history deletes=close\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new(), &|_, _| {
-                None
-            })
-            .expect("materialize builds")
-            .expect("materialize present");
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
         assert!(
             rewritten.contains("_wm_scd2_deleted"),
@@ -2495,12 +2480,7 @@ mod tests {
     #[test]
     fn materialize_scd2_requires_key() {
         let script = "-- materialize scd2 ducklake://main/dim\nSELECT id, name FROM dl.src";
-        let err = match build_materialized_query(
-            script,
-            None,
-            &std::collections::HashMap::new(),
-            &|_, _| None,
-        ) {
+        let err = match build_materialized_query(script, None, &std::collections::HashMap::new()) {
             Err(e) => e,
             Ok(_) => panic!("scd2 without key must error"),
         };
@@ -2518,7 +2498,6 @@ mod tests {
             script,
             Some("2026-07-01"),
             &std::collections::HashMap::new(),
-            &|_, _| None,
         ) {
             Err(e) => e,
             Ok(_) => panic!("partitioned + scd2 must error"),
@@ -2529,39 +2508,25 @@ mod tests {
         );
     }
 
-    // Write-audit-publish threading: the guard builder receives the asset path
-    // and the compiled checks, and whatever it returns lands in the rewritten
-    // SQL inside the transaction; a `None` builder (public build) leaves the
-    // tests to the post-commit summary only.
+    // The rewritten SQL is the plan assembled by
+    // `pipeline_advanced::finalize_materialize_query`. This crate's tests build
+    // without `private`, so the assembly is the public one: statements
+    // verbatim, tests only in the post-commit summary breakdown (the
+    // enterprise write-audit-publish restructure is tested next to its
+    // implementation in windmill-common's `pipeline_advanced_ee`).
     #[test]
-    fn materialize_wap_builder_places_guard_in_rewrite() {
+    fn materialize_rewrite_carries_data_test_summary() {
         let script = "-- materialize ducklake://main/orders\n\
                       -- data_test not_null id\n\
                       SELECT id FROM dl.src";
-        let build = |guard: &dyn Fn(
-            &str,
-            &[windmill_parser::sql_materialize::DataTestCheck],
-        ) -> Option<String>| {
-            let (rewritten, _) =
-                build_materialized_query(script, None, &std::collections::HashMap::new(), guard)
-                    .expect("materialize builds")
-                    .expect("materialize present");
-            rewritten.expect("managed mode rewrites the query")
-        };
-        let wap = build(&|asset_path, checks| {
-            assert_eq!(asset_path, "main/orders");
-            assert_eq!(checks.len(), 1);
-            assert!(checks[0].name.contains("not_null(id)"));
-            Some("SELECT CASE WHEN 1 THEN error('fake guard') END;".to_string())
-        });
-        assert!(wap.contains("error('fake guard')"), "guard present:\n{wap}");
-        let plain = build(&|_, _| None);
-        assert!(
-            !plain.contains("error("),
-            "no guard when the builder yields none"
-        );
-        // both keep the summary breakdown the worker reads back
-        assert!(wap.contains("AS data_tests") && plain.contains("AS data_tests"));
+        let (rewritten, meta) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(rewritten.contains("AS data_tests"));
+        assert!(!rewritten.contains("error("));
+        assert_eq!(meta.n_data_tests, 1);
     }
 
     // Tests for parse_attach_db_resource function
