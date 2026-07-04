@@ -28917,6 +28917,27 @@ components:
                   - path
               extra_args:
                 type: string
+              maintenance:
+                type: object
+                description:
+                  Scheduled maintenance (enterprise) - snapshot expiry, adjacent-file
+                  compaction and orphaned-file cleanup, run as a managed per-lake schedule
+                required: [enabled]
+                properties:
+                  enabled:
+                    type: boolean
+                  schedule:
+                    type: string
+                    description: cron cadence (v2, UTC); defaults to daily at 03h with a per-lake minute offset
+                  retention_days:
+                    type: integer
+                    description: snapshot retention window in days (default 7); time-travel older than this stops working
+                  compaction:
+                    type: boolean
+                    description: merge adjacent small parquet files (default true)
+                  orphan_cleanup:
+                    type: boolean
+                    description: delete orphaned files older than max(retention, 1 day) (default true)
 
     DataTableSettings:
       type: object
