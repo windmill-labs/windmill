@@ -1681,7 +1681,8 @@ mod tests {
         assert!(close < view && view < guard && guard < commit);
         // probes assert the new current snapshot, not the closed history
         assert!(blocks[guard].contains("is_current"));
-        // unguarded SCD2 keeps captures outside the txn (unchanged behavior)
+        // without a guard there is nothing to roll the bootstrap back for, so
+        // SCD2 captures its diff temp tables before the transaction opens
         let plain = wap_blocks(
             MaterializeStrategy::Scd2 { key: "a".into(), track: vec![], close_deleted: false },
             false,
