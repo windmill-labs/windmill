@@ -252,6 +252,8 @@ pub struct RetrySpec {
 // history (`valid_from`/`valid_to`/`is_current`). The leading keyword `scd2` is a
 // recognized alias for `history`. `deletes=close` (scd2 only) also closes a key
 // that disappears from the snapshot; default leaves absent keys current.
+// `on_schema_change=ignore` suppresses downstream schema-contract warnings for
+// the produced asset (save-time metadata only; default `warn`).
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct MaterializeSpec {
     pub target_kind: AssetKind,
@@ -276,6 +278,32 @@ pub struct MaterializeSpec {
     // `hard_deletes=close`). Default (false) leaves absent keys current.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub close_deleted: bool,
+    // `on_schema_change=ignore` opts this producer's asset out of downstream
+    // schema-contract warnings (gap #2b): consumers referencing columns the
+    // captured schema no longer has warn by default (`warn`); `ignore` declares
+    // the schema deliberately unstable and suppresses those warnings. Save-time
+    // metadata only — the materialize write strategy is unaffected.
+    #[serde(skip_serializing_if = "OnSchemaChange::is_warn", default)]
+    pub on_schema_change: OnSchemaChange,
+}
+
+// dbt's `on_schema_change` narrowed to the save-time contract check: `warn`
+// (default) surfaces consumer warnings, `ignore` suppresses them. dbt's `fail`
+// is deliberately not offered — saves are never hard-blocked (a deliberate
+// upstream reshape must not fail every consumer save); a CI/CLI gate can layer
+// it on later without touching the grammar.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OnSchemaChange {
+    #[default]
+    Warn,
+    Ignore,
+}
+
+impl OnSchemaChange {
+    pub fn is_warn(&self) -> bool {
+        matches!(self, OnSchemaChange::Warn)
+    }
 }
 
 // `// data_test <kind> …` — a data-quality assertion run against the
@@ -917,6 +945,14 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
     // `deletes=close` (scd2 only) opts into hard-delete-close; any other value
     // (or absence) keeps the soft-delete default.
     let close_deleted = opts.get("deletes").map(|v| v == "close").unwrap_or(false);
+    // `on_schema_change=ignore` suppresses downstream contract warnings; any
+    // other value (or absence) keeps the `warn` default, fail-safe like
+    // `deletes=` above.
+    let on_schema_change = if opts.get("on_schema_change").map(String::as_str) == Some("ignore") {
+        OnSchemaChange::Ignore
+    } else {
+        OnSchemaChange::Warn
+    };
     Some(MaterializeSpec {
         target_kind,
         target_path: path.to_string(),
@@ -926,6 +962,7 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
         scd2,
         track,
         close_deleted,
+        on_schema_change,
     })
 }
 
@@ -1621,6 +1658,36 @@ mod pipeline_annotation_tests {
             "// materialize ducklake://a/dim key=id history deletes=ignore",
         );
         assert!(!out.materialize.expect("materialize").close_deleted);
+    }
+
+    #[test]
+    fn materialize_on_schema_change_opt() {
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/orders on_schema_change=ignore",
+        );
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.on_schema_change, OnSchemaChange::Ignore);
+        // default is warn
+        let out = parse_pipeline_annotations("// materialize ducklake://a/orders");
+        assert_eq!(
+            out.materialize.expect("materialize").on_schema_change,
+            OnSchemaChange::Warn
+        );
+        // unknown value keeps the warn default (fail-safe, like `deletes=`);
+        // `fail` is deliberately unrecognized in v1
+        let out =
+            parse_pipeline_annotations("// materialize ducklake://a/orders on_schema_change=fail");
+        assert_eq!(
+            out.materialize.expect("materialize").on_schema_change,
+            OnSchemaChange::Warn
+        );
+        // composes with other opts
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/dim key=id history on_schema_change=ignore",
+        );
+        let m = out.materialize.expect("materialize");
+        assert!(m.scd2);
+        assert_eq!(m.on_schema_change, OnSchemaChange::Ignore);
     }
 
     #[test]

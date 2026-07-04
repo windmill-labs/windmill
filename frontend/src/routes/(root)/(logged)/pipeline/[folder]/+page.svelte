@@ -36,6 +36,7 @@
 		type ColumnLineageGraph
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
 	import {
 		computeDownstreamClosure,
 		computeInducedSchedule,
@@ -1675,6 +1676,12 @@
 			: EMPTY_COLUMN_GRAPH
 	)
 
+	// Producer-side facts for the editor's live schema-contract diagnostics:
+	// which assets are muted (`on_schema_change=ignore`) and which `_current`
+	// views map to an scd2 base table. Derived from the same resolved graph the
+	// canvas renders so the mirror suppresses exactly what the server check does.
+	let schemaContractContext = $derived(buildSchemaContractContext(graphWithDraft.runnables))
+
 	// Whether the selected ducklake asset's captured schema can *evolve* (drives
 	// the asset panel's Schema tab: version history vs. a single fixed schema).
 	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
@@ -2210,6 +2217,7 @@
 				{selectionProducers}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				{schemaCanEvolve}
+				{schemaContractContext}
 				downstreamSubscribers={editedScriptDownstreamCount}
 				onStartBoundedRunForOpen={startBoundedRun}
 				canBoundedRunOpenScript={!!openScriptPath &&

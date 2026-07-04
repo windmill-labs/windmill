@@ -664,6 +664,13 @@ struct GraphRunnableNode {
     // `merge` / any partitioned write INSERTs into a fixed-schema table.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     materialize_strategy: Option<String>,
+    // `on_schema_change=ignore` on the managed materialize — the producer's
+    // opt-out from downstream schema-contract warnings. Threaded to the editor
+    // so its client-side contract mirror suppresses the same warnings the
+    // server check does. Only serialized when set to `ignore` (default `warn`
+    // is absent). Lockstep with TS `AssetGraphRunnableNode.materialize_on_schema_change`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_on_schema_change: Option<String>,
     // Macros this script provides to the workspace registry (deployed
     // `// macros` library). Drives the library node state + details-pane
     // signature list. Lockstep with TS `AssetGraphRunnableNode.macros`.
@@ -1289,8 +1296,12 @@ async fn asset_graph(
                     }
                 }),
                 materialize_strategy: ann.and_then(|a| a.materialize.as_ref()).and_then(|m| {
+                    // Precedence mirrors the runtime strategy derivation:
+                    // scd2 (`history`) > append > merge (`key=`) > replace.
                     if m.manual {
                         None
+                    } else if m.scd2 {
+                        Some("scd2".to_string())
                     } else if m.append {
                         Some("append".to_string())
                     } else if m.unique_key.is_some() {
@@ -1299,6 +1310,12 @@ async fn asset_graph(
                         Some("replace".to_string())
                     }
                 }),
+                materialize_on_schema_change: ann
+                    .and_then(|a| a.materialize.as_ref())
+                    .filter(|m| {
+                        m.on_schema_change == windmill_common::assets::OnSchemaChange::Ignore
+                    })
+                    .map(|_| "ignore".to_string()),
                 macros: (usage_kind == AssetUsageKind::Script)
                     .then(|| macros_by_provider.get(&path))
                     .flatten()

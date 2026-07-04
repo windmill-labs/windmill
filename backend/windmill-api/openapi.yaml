@@ -9187,6 +9187,50 @@ paths:
                   items:
                     $ref: "#/components/schemas/CiTestResult"
 
+  /w/{workspace}/scripts/check_schema_contracts:
+    post:
+      summary: check a script's asset references against captured producer schemas
+      description: |
+        Save-time schema-contract check for data pipelines: validates the given
+        script content's asset references (body column reads, `// column` lineage,
+        `// data_test relationships`) against the latest captured producer schemas
+        and returns warnings. Warnings never block a save/deploy; an asset whose
+        producer declares `on_schema_change=ignore` is suppressed to a single
+        informational entry.
+      operationId: checkSchemaContracts
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - language
+                - content
+              properties:
+                language:
+                  $ref: "#/components/schemas/ScriptLang"
+                content:
+                  type: string
+      responses:
+        "200":
+          description: contract warnings (empty when all references match)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - warnings
+                properties:
+                  warnings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ContractWarning"
+
   /w/{workspace}/scripts/raw_temp/store:
     post:
       summary: store raw script content temporarily for CLI lock generation
@@ -29903,6 +29947,39 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    ContractWarning:
+      description: |
+        One save-time schema-contract warning: a consumer reference that does
+        not match the referenced asset's latest captured schema.
+        `schema_version`/`captured_at` identify the capture the check ran
+        against (as-of the producer's last run, not its latest save).
+      type: object
+      required: [kind, asset_path, message]
+      properties:
+        kind:
+          type: string
+          enum:
+            - missing_column
+            - missing_lineage_source
+            - missing_relationship_column
+            - relationship_type_mismatch
+            - suppressed
+        asset_path:
+          type: string
+        column:
+          type: string
+        expected_type:
+          type: string
+        found_type:
+          type: string
+        schema_version:
+          type: integer
+          format: int64
+        captured_at:
+          type: string
+          format: date-time
+        message:
+          type: string
     Volume:
       type: object
       required:
