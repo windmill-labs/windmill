@@ -750,6 +750,15 @@ pub(crate) async fn change_workspace_id(
     for child in &reparented_children {
         windmill_queue::tags::invalidate_fork_parent_cache(child);
         windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(child);
+        // Grandchildren's cached chains contain the old (renamed-away) ancestor id; a stale
+        // chain drops all defer ancestors in the ducklake resolver, so sweep the subtree
+        // rather than letting it wait out the TTL.
+        for id in windmill_common::workspaces::list_fork_descendants(&db, child)
+            .await
+            .unwrap_or_default()
+        {
+            windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+        }
         #[cfg(feature = "cloud")]
         windmill_common::workspaces::invalidate_billing_workspace_cache(child);
     }
@@ -1105,6 +1114,19 @@ pub(crate) async fn delete_workspace(
         {
             windmill_common::workspaces::invalidate_billing_workspace_cache(id);
             windmill_common::workspaces::invalidate_team_plan_cache(id);
+        }
+    }
+    // Deeper descendants' cached ancestor CHAINS still contain the deleted workspace; unlike
+    // the sibling caches (which self-heal harmlessly via TTL), a stale chain makes the
+    // ducklake resolver drop all defer ancestors (all-or-nothing on broken links) — a visible
+    // defer/chips outage for up to the TTL. Anchor at the orphaned children: the deleted row
+    // is gone, but their subtrees are intact.
+    for child in orphaned_children.iter() {
+        for id in windmill_common::workspaces::list_fork_descendants(&db, child)
+            .await
+            .unwrap_or_default()
+        {
+            windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
         }
     }
 
