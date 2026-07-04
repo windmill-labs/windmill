@@ -2,7 +2,10 @@
 
 Design sketch for "managed, versioned, incremental" assets built on the
 DuckLake substrate. This is a companion to [`pipelines-vs-dbt.md`](./pipelines-vs-dbt.md)
-and extends its **Path C (hybrid, partition-first)** recommendation. The new
+and extends its **Path C (hybrid, partition-first)** recommendation. For the
+extract-load side that feeds these materializations, see §"Ingestion (EL)"
+at the end of this doc (user-facing guide: windmilldocs
+`core_concepts/63_pipelines` → "Ingestion (EL)"). The new
 contribution here is leveraging DuckLake's snapshot/time-travel layer, which
 the earlier doc's incremental deep-dive did not use. The annotation grammar is
 reconciled with that doc — `// partitioned` + `// unique_key` + `// append`
@@ -465,3 +468,38 @@ forces"; DuckLake-specific:
    rejects anything else at deploy with a clear error pointing to
    `// materialize manual`. The classifier (`sql_materialize.rs`) is the single
    source of truth.
+
+## Ingestion (EL): the sanctioned entry-node shape
+
+Design constraints for how external data enters the lake — the user-facing
+how-to (extract-engine choice, cursor recipes, schema-drift handling, worked
+examples) lives in windmilldocs `core_concepts/63_pipelines` → "Ingestion
+(EL)"; this section records only what future feature work must not break.
+
+- **`// materialize` is DuckDB-only** (deploy-rejected elsewhere, managed and
+  `manual` alike — `windmill-api-scripts/src/scripts.rs`), and the SDK
+  materialize helpers (`upsert_partition` / `upsertPartition`) build their SQL
+  inside the SDK, so the asset parsers cannot see the write. A polyglot node
+  that "writes the lake directly" therefore deploys with **no output edge** —
+  breaking lineage, cascade scheduling, and the backfill UI's producer lookup.
+- **The sanctioned polyglot shape is two scripts**: an entry node that lands
+  the raw batch as an object in workspace storage (`write_s3_file` — a
+  parser-visible write), and a DuckDB loader (`-- on s3:///<key>` +
+  `-- materialize`) that the asset dispatcher re-runs per batch. The landing
+  object is the seam; splitting E from L also keeps row work vectorized and
+  gives the load the full engine treatment (strategies, snapshots, partition
+  grid, `// data_test`).
+- **One string spelling: `s3:///<key>`.** SDK string params are strictly
+  `s3://…` URIs with a non-empty key; anything else raises (clients >
+  1.746.0 — older clients silently upload such strings to an auto-generated
+  `windmill_uploads/…` name, so keep URIs in code that must run on them).
+  The same URI is what
+  `// on` annotations and DuckDB SQL take, and all forms (URI, `{s3}` object,
+  `S3Object(s3=…)`) canonicalize to path `/<key>`. The asset parsers record
+  **no asset** for a bare-string SDK argument (the call can only error at
+  run time) — keep `parse_s3_object` (py client), `parseS3Object`
+  (ts client, `s3Types.ts`) and both `s3_object_arg_path` parsers in lockstep
+  when touching any of them.
+- DuckDB workers load no ICU extension: bare `TIMESTAMPTZ - INTERVAL`
+  arithmetic binder-errors. Incremental-pull SQL casts both sides
+  (`updated_at::TIMESTAMP > now()::TIMESTAMP - INTERVAL 7 DAY`).

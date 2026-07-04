@@ -341,12 +341,25 @@ fn object_str_prop(obj: &ObjectLit, name: &str) -> Option<String> {
 /// `writeS3File` to a canonical asset path, mirroring the runtime
 /// `parseS3Object`: an object `{ s3: "<key>", storage?: "<bucket>" }` maps to
 /// the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
-/// `s3:///<key>`), and a bare `"s3://bucket/key"` string is passed through.
+/// `s3:///<key>`), and a `"s3://bucket/key"` URI string is passed through.
+/// String args mirror the runtime `parseS3Object` contract exactly: only a
+/// `s3://<storage>/<key>` URI with a non-empty key is valid — any other
+/// string (bare key, `s3://x`, empty key) throws at run time, so recording an
+/// edge for it would be a phantom node for a call that can only error.
 /// The resulting URI is fed through `parse_asset_syntax` so the stored path
 /// matches the `// on s3:///…` trigger form exactly.
 fn s3_object_arg_path(arg: &Expr) -> Option<String> {
     let uri = match arg {
-        Expr::Lit(Lit::Str(s)) => s.value.to_string(),
+        Expr::Lit(Lit::Str(s)) => {
+            let v = s.value.to_string();
+            match v
+                .strip_prefix("s3://")
+                .and_then(|rest| rest.split_once('/'))
+            {
+                Some((_, key)) if !key.is_empty() => v,
+                _ => return None,
+            }
+        }
         Expr::Object(obj) => {
             let key = object_str_prop(obj, "s3")?;
             let storage = object_str_prop(obj, "storage").unwrap_or_default();
@@ -474,6 +487,42 @@ mod tests {
                 access_type: Some(R),
                 columns: None,
             },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_bare_string_no_asset() {
+        // A plain (non-`s3://`) string is rejected by the runtime
+        // `parseS3Object`, so the parser must not record a phantom asset for
+        // a call that can only error.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File("pipelines/etl/out.jsonl", "[]")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(s.map(|r| r.assets).map_err(|e| e.to_string()), Ok(vec![]));
+    }
+
+    #[test]
+    fn test_ts_asset_parser_invalid_uri_no_write_edge() {
+        // `s3://x` (no key part) and `s3://bucket/` (empty key) are rejected
+        // by the runtime `parseS3Object` — same rule for the SDK-arg path:
+        // no R/W edge. The generic URI-literal scan may still record them as
+        // ambiguous (`access_type: None`) assets, like any `s3://…` string
+        // constant anywhere in a script.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File("s3://broken", "[]")
+                await wmill.writeS3File("s3://bucket/", "[]")
+            }
+        "#;
+        let assets = parse_assets(input).expect("parse").assets;
+        assert!(
+            assets.iter().all(|a| a.access_type.is_none()),
+            "invalid URIs must not produce R/W edges: {assets:?}"
         );
     }
 
