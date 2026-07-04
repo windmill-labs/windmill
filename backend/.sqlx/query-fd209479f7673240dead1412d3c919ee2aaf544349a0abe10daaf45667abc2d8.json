@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO fork_ducklake_namespace\n           (workspace_id, ducklake_name, metadata_schema, storage, data_path)\n         VALUES ($1, $2, $3, $4, $5)\n         ON CONFLICT (workspace_id, ducklake_name, storage, data_path) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fd209479f7673240dead1412d3c919ee2aaf544349a0abe10daaf45667abc2d8"
+}

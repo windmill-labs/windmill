@@ -1289,9 +1289,11 @@ pub async fn drop_forked_ducklake_namespaces(
     }
     tx.commit().await?;
 
+    // One row per (lake, storage, data path) ever attached — settings drift adds rows, so
+    // every prefix the fork wrote gets cleaned, not just the first.
     let namespaces = sqlx::query!(
         r#"SELECT ducklake_name AS "ducklake_name!", metadata_schema AS "metadata_schema!",
-                  storage, data_path AS "data_path!"
+                  storage AS "storage!", data_path AS "data_path!"
              FROM fork_ducklake_namespace WHERE workspace_id = $1"#,
         &w_id
     )
@@ -1338,9 +1340,9 @@ pub async fn drop_forked_ducklake_namespaces(
             ));
             continue;
         }
-        if let Err(e) =
-            delete_fork_ducklake_data(&db, &w_id, ns.storage.as_deref(), &ns.data_path).await
-        {
+        // '' = default storage in the registry (PK column, cannot hold NULL).
+        let storage = Some(ns.storage.as_str()).filter(|s| !s.is_empty());
+        if let Err(e) = delete_fork_ducklake_data(&db, &w_id, storage, &ns.data_path).await {
             errors.push(format!(
                 "Dropped metadata schema but could not delete data files under '{}' for ducklake://{}: {e}",
                 ns.data_path, ns.ducklake_name
@@ -1348,9 +1350,12 @@ pub async fn drop_forked_ducklake_namespaces(
             continue;
         }
         sqlx::query!(
-            "DELETE FROM fork_ducklake_namespace WHERE workspace_id = $1 AND ducklake_name = $2",
+            "DELETE FROM fork_ducklake_namespace
+             WHERE workspace_id = $1 AND ducklake_name = $2 AND storage = $3 AND data_path = $4",
             &w_id,
-            &ns.ducklake_name
+            &ns.ducklake_name,
+            &ns.storage,
+            &ns.data_path,
         )
         .execute(&db)
         .await?;

@@ -1197,12 +1197,27 @@ async fn fork_scoped_ducklake(
             }
         }
     }
-    let defer_tables = if let Some(parent) = ancestors.first() {
-        crate::materialization::list_fork_defer_tables(db, &parent.workspace_id, w_id, name).await?
-    } else {
+    // Drop fork ancestors whose namespace was never bootstrapped (e.g. a fresh intermediate
+    // fork that never attached this lake): their READ_ONLY attach would fail the whole job
+    // ("DuckLake does not exist" + creation disabled), and a nonexistent namespace can't own
+    // tables or be referenced by any persisted view. Checked against the fork's catalog DB —
+    // must happen BEFORE defer discovery so `ancestor_idx` values index the filtered list.
+    let (existing_schemas, fork_views) =
+        inspect_fork_catalog(&base, &metadata_schema, &ancestors, db).await?;
+    ancestors.retain(|a| {
+        a.metadata_schema
+            .as_ref()
+            .map_or(true, |s| existing_schemas.contains(s))
+    });
+    let defer_tables = if ancestors.is_empty() {
         vec![]
+    } else {
+        // Discovery walks the WHOLE chain: a table only a grandparent materialized has no
+        // physical copy in the direct parent (it defers too), so its view must target the
+        // nearest ancestor that owns one.
+        let ancestor_ids: Vec<String> = ancestors.iter().map(|a| a.workspace_id.clone()).collect();
+        crate::materialization::list_fork_defer_tables(db, &ancestor_ids, w_id, name).await?
     };
-    let fork_views = list_fork_catalog_views(&base, &metadata_schema, db).await?;
 
     base.storage.path = fork_path;
     base.extra_args = Some(match base.extra_args.take() {
@@ -1220,20 +1235,47 @@ async fn fork_scoped_ducklake(
     Ok(base)
 }
 
-/// Lake-internal names of the views currently live in the fork's catalog namespace, straight
-/// from DuckLake's `ducklake_view` metadata. Missing metadata tables (namespace never attached
-/// yet) read as "no views" — correct, since nothing can exist there.
-async fn list_fork_catalog_views(
+/// One round trip to the fork's catalog DB for both namespace introspections: which fork
+/// ancestors' metadata schemas actually exist (a fresh intermediate fork may never have
+/// bootstrapped its namespace), and the views currently live in THIS fork's namespace
+/// (straight from DuckLake's `ducklake_view` metadata — missing metadata tables read as "no
+/// views", correct since nothing can exist there). Ancestors whose settings drifted to a
+/// different catalog DB read as missing here — the safe direction (their defer is skipped
+/// loudly rather than mis-bound).
+async fn inspect_fork_catalog(
     base: &DucklakeWithConnData,
     metadata_schema: &str,
+    ancestors: &[DucklakeAncestorAttach],
     db: &DB,
-) -> Result<Vec<String>> {
+) -> Result<(std::collections::HashSet<String>, Vec<String>)> {
     let pg: crate::PgDatabase =
         serde_json::from_value(base.catalog_resource.clone()).map_err(|e| {
             Error::internal_err(format!("ducklake catalog resource is not postgres: {e}"))
         })?;
     let (client, connection) = pg.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
+
+    let fork_schemas: Vec<String> = ancestors
+        .iter()
+        .filter_map(|a| a.metadata_schema.clone())
+        .collect();
+    let existing_schemas = if fork_schemas.is_empty() {
+        Ok(Default::default())
+    } else {
+        client
+            .query(
+                "SELECT schema_name::text FROM information_schema.schemata
+                 WHERE schema_name = ANY($1)",
+                &[&fork_schemas],
+            )
+            .await
+            .map(|rows| {
+                rows.iter()
+                    .map(|r| r.get::<_, String>(0))
+                    .collect::<std::collections::HashSet<_>>()
+            })
+    };
+
     // Identifier-quoted schema: the name is server-derived (mangled + hashed) but quote anyway.
     let q = format!(
         r#"SELECT CASE WHEN s.schema_name = 'main' THEN v.view_name
@@ -1243,11 +1285,15 @@ async fn list_fork_catalog_views(
            WHERE v.end_snapshot IS NULL"#,
         ms = metadata_schema.replace('"', "\"\"")
     );
-    let rows = client.query(&q, &[]).await;
+    let view_rows = client.query(&q, &[]).await;
     drop(client);
     let _ = join_handle.await;
-    match rows {
-        Ok(rows) => Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect()),
+
+    let existing_schemas = existing_schemas.map_err(|e| {
+        Error::internal_err(format!("checking fork ducklake ancestor schemas: {e}"))
+    })?;
+    let fork_views = match view_rows {
+        Ok(rows) => rows.iter().map(|r| r.get::<_, String>(0)).collect(),
         // 42P01 undefined_table / 3F000 invalid_schema_name: namespace not bootstrapped yet.
         Err(e)
             if e.code().map_or(false, |c| {
@@ -1255,16 +1301,22 @@ async fn list_fork_catalog_views(
                     || c == &tokio_postgres::error::SqlState::INVALID_SCHEMA_NAME
             }) =>
         {
-            Ok(vec![])
+            vec![]
         }
-        Err(e) => Err(Error::internal_err(format!(
-            "listing fork ducklake views in {metadata_schema}: {e}"
-        ))),
-    }
+        Err(e) => {
+            return Err(Error::internal_err(format!(
+                "listing fork ducklake views in {metadata_schema}: {e}"
+            )))
+        }
+    };
+    Ok((existing_schemas, fork_views))
 }
 
-/// Record (once) that a fork attached this lake, so fork deletion knows exactly which pg
-/// metadata schema and which storage prefix to clean up even if settings drift later.
+/// Record that a fork attached this lake at this physical location, so fork deletion knows
+/// exactly which pg metadata schema and which storage prefixes to clean up. One row per
+/// (lake, storage, data path) EVER attached — if the fork's lake settings drift, later
+/// attaches add rows rather than replace them, so cleanup covers every prefix the fork wrote.
+/// The once-cache is keyed on the full location for the same reason.
 async fn register_fork_ducklake_namespace(
     db: &DB,
     w_id: &str,
@@ -1273,7 +1325,9 @@ async fn register_fork_ducklake_namespace(
     storage: Option<&str>,
     data_path: &str,
 ) -> Result<()> {
-    let key = (w_id.to_string(), name.to_string());
+    // '' = default storage (the column is part of the PK, which cannot hold NULL).
+    let storage = storage.unwrap_or("");
+    let key = (w_id.to_string(), format!("{name}\0{storage}\0{data_path}"));
     let now = chrono::Utc::now().timestamp();
     if FORK_DUCKLAKE_REGISTERED
         .get(&key)
@@ -1285,7 +1339,7 @@ async fn register_fork_ducklake_namespace(
         "INSERT INTO fork_ducklake_namespace
            (workspace_id, ducklake_name, metadata_schema, storage, data_path)
          VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (workspace_id, ducklake_name) DO NOTHING",
+         ON CONFLICT (workspace_id, ducklake_name, storage, data_path) DO NOTHING",
         w_id,
         name,
         metadata_schema,

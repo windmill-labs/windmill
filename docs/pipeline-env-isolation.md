@@ -79,12 +79,16 @@ In a fork, `transform_attach_ducklake` additionally emits:
    repoint what "parent" means). No `AUTOMATIC_MIGRATION`/`CREATE_IF_NOT_EXISTS` — a fork job
    must never mutate an ancestor lake. `READ_ONLY` makes prod writes *physically impossible*
    through ducklake, including in `materialize manual` and raw SQL.
-2. `CREATE VIEW IF NOT EXISTS <alias>.<table> AS SELECT * FROM <parent alias>.<table>` for
-   every **deferred table**: (parent's `materialized_partition` rows for this lake with
-   `status = 'materialized'`) MINUS (the fork's own rows). SCD2 parents (detected by the
-   `is_current` column in their latest captured `materialized_asset_schema`) also get the
-   `<table>_current` companion view. So a consumer reading `dl.orders` transparently reads the
-   parent's current data until the fork materializes `orders` itself.
+2. `CREATE VIEW IF NOT EXISTS <alias>.<table> AS SELECT * FROM <owning ancestor
+   alias>.<table>` for every **deferred table**: (`materialized_partition` rows with
+   `status = 'materialized'` anywhere in the ancestor chain) MINUS (the fork's own rows). Each
+   view targets the NEAREST ancestor that physically owns the table
+   (`ForkDeferTable.ancestor_idx`): in a `fork → parent → root` chain where only the root
+   materialized a table, the parent has no copy (it defers too), so a view over the parent
+   would not bind. SCD2 owners (detected by the `is_current` column in the owning ancestor's
+   latest captured `materialized_asset_schema`) also get the `<table>_current` companion view.
+   So a consumer reading `dl.orders` transparently reads the nearest owning ancestor's current
+   data until the fork materializes `orders` itself.
 3. When the running job's managed materialize targets a table that currently exists **as a
    view** in the fork namespace, the view (and its `_current` companion) is dropped after the
    target attach — the first fork materialize replaces the defer view with a real fork table
@@ -105,8 +109,10 @@ the equivalent banner.
 ### Lifecycle & cleanup
 
 A sidecar registry `fork_ducklake_namespace(workspace_id FK ON DELETE CASCADE, ducklake_name,
-metadata_schema, storage, data_path)` is upserted (behind an in-process cache) on first fork
-resolution per lake — it records exactly what to clean even if settings drift later. Explicit
+metadata_schema, storage, data_path)` is upserted (behind a TTL'd in-process cache) on fork
+resolution, **one row per physical location ever attached** — its PK includes
+`(storage, data_path)`, so if the fork's lake settings drift, later attaches add rows rather
+than replace them and cleanup covers every prefix the fork wrote, not just the first. Explicit
 `GRANT`s ship in the same migration; the registry is not cloned into sub-forks.
 
 `POST /w/{fork}/workspaces/drop_forked_ducklake_namespaces` (same permission as

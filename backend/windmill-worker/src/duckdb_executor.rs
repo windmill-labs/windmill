@@ -1950,6 +1950,15 @@ fn fork_defer_statements(
         if Some(dt.table.as_str()) == target_table {
             continue;
         }
+        // Each view targets the NEAREST ancestor that physically owns the table (a direct
+        // parent that itself defers has no copy to bind against). Out-of-range index (never
+        // produced by the resolver, but the field crosses the agent wire) falls back to the
+        // direct parent rather than panicking.
+        let owner_alias = defer
+            .ancestors
+            .get(dt.ancestor_idx as usize)
+            .map(|a| a.alias.as_str())
+            .unwrap_or(parent_alias);
         if let Some((schema, _)) = dt.table.rsplit_once('.') {
             if created_schemas.insert(schema) {
                 stmts.push(format!(
@@ -1960,12 +1969,12 @@ fn fork_defer_statements(
         }
         let q = quote_qualified_table(&dt.table);
         stmts.push(format!(
-            "CREATE VIEW IF NOT EXISTS {alias_name}.{q} AS SELECT * FROM {parent_alias}.{q};"
+            "CREATE VIEW IF NOT EXISTS {alias_name}.{q} AS SELECT * FROM {owner_alias}.{q};"
         ));
         if dt.with_current_view {
             let qc = quote_qualified_table(&current_companion(&dt.table));
             stmts.push(format!(
-                "CREATE VIEW IF NOT EXISTS {alias_name}.{qc} AS SELECT * FROM {parent_alias}.{qc};"
+                "CREATE VIEW IF NOT EXISTS {alias_name}.{qc} AS SELECT * FROM {owner_alias}.{qc};"
             ));
         }
     }
@@ -2091,40 +2100,95 @@ pub struct Arg {
 mod tests {
     use super::*;
 
-    fn test_fork_defer(
-        defer_tables: Vec<(&str, bool)>,
+    fn test_ancestor(wid: &str) -> windmill_common::workspaces::DucklakeAncestorAttach {
+        windmill_common::workspaces::DucklakeAncestorAttach {
+            workspace_id: wid.to_string(),
+            alias: format!("__wm_dl_lake_{}_abcd1234", wid.replace('-', "_")),
+            catalog: windmill_common::workspaces::DucklakeCatalog {
+                resource_type: windmill_common::workspaces::DucklakeCatalogResourceType::Instance,
+                resource_path: "cat_db".to_string(),
+            },
+            catalog_resource: serde_json::json!({
+                "host": "h", "dbname": "cat_db", "user": "u", "password": "pw"
+            }),
+            storage: windmill_common::workspaces::DucklakeStorage {
+                storage: None,
+                path: "lake".to_string(),
+            },
+            metadata_schema: None,
+        }
+    }
+
+    fn test_fork_defer_chain(
+        ancestor_wids: Vec<&str>,
+        defer_tables: Vec<(&str, bool, u32)>,
         fork_views: Vec<&str>,
     ) -> windmill_common::workspaces::DucklakeForkDefer {
-        use windmill_common::workspaces::{DucklakeAncestorAttach, DucklakeForkDefer};
-        DucklakeForkDefer {
-            ancestors: vec![DucklakeAncestorAttach {
-                workspace_id: "parent-ws".to_string(),
-                alias: "__wm_dl_lake_parent_ws_abcd1234".to_string(),
-                catalog: windmill_common::workspaces::DucklakeCatalog {
-                    resource_type:
-                        windmill_common::workspaces::DucklakeCatalogResourceType::Instance,
-                    resource_path: "cat_db".to_string(),
-                },
-                catalog_resource: serde_json::json!({
-                    "host": "h", "dbname": "cat_db", "user": "u", "password": "pw"
-                }),
-                storage: windmill_common::workspaces::DucklakeStorage {
-                    storage: None,
-                    path: "lake".to_string(),
-                },
-                metadata_schema: None,
-            }],
+        windmill_common::workspaces::DucklakeForkDefer {
+            ancestors: ancestor_wids.into_iter().map(test_ancestor).collect(),
             defer_tables: defer_tables
                 .into_iter()
                 .map(
-                    |(t, cur)| windmill_common::materialization::ForkDeferTable {
+                    |(t, cur, idx)| windmill_common::materialization::ForkDeferTable {
                         table: t.to_string(),
                         with_current_view: cur,
+                        ancestor_idx: idx,
                     },
                 )
                 .collect(),
             fork_views: fork_views.into_iter().map(str::to_string).collect(),
         }
+    }
+
+    fn test_fork_defer(
+        defer_tables: Vec<(&str, bool)>,
+        fork_views: Vec<&str>,
+    ) -> windmill_common::workspaces::DucklakeForkDefer {
+        test_fork_defer_chain(
+            vec!["parent-ws"],
+            defer_tables.into_iter().map(|(t, c)| (t, c, 0)).collect(),
+            fork_views,
+        )
+    }
+
+    #[test]
+    fn test_fork_defer_statements_chained_ancestors() {
+        // fork → parent → root: `orders` was only materialized in the root (idx 1) — its view
+        // must target the ROOT alias (the parent has no physical copy); `daily` owned by the
+        // direct parent (idx 0) targets the parent alias. Out-of-range idx falls back to the
+        // direct parent instead of panicking.
+        let defer = test_fork_defer_chain(
+            vec!["parent-ws", "root-ws"],
+            vec![("orders", false, 1), ("daily", false, 0), ("oob", false, 9)],
+            vec![],
+        );
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"orders\" AS SELECT * FROM __wm_dl_lake_root_ws_abcd1234.\"orders\""
+            ),
+            "{joined}"
+        );
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"daily\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"daily\""
+            ),
+            "{joined}"
+        );
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"oob\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"oob\""
+            ),
+            "{joined}"
+        );
+        // Both ancestors attached read-only.
+        assert_eq!(
+            joined.matches("ATTACH IF NOT EXISTS").count(),
+            2,
+            "{joined}"
+        );
     }
 
     #[test]

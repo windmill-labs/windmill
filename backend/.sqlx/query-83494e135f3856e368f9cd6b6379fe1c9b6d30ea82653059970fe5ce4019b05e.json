@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM fork_ducklake_namespace\n             WHERE workspace_id = $1 AND ducklake_name = $2 AND storage = $3 AND data_path = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "83494e135f3856e368f9cd6b6379fe1c9b6d30ea82653059970fe5ce4019b05e"
+}

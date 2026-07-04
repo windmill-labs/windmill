@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH ancestor AS (\n            SELECT wid, ord FROM unnest($1::text[]) WITH ORDINALITY AS a(wid, ord)\n        ), anc_mat AS (\n            -- Per table, the nearest ancestor (lowest ord) that materialized it.\n            SELECT DISTINCT ON (mp.asset_path) mp.asset_path, a.wid, a.ord\n            FROM materialized_partition mp\n            JOIN ancestor a ON a.wid = mp.workspace_id\n            WHERE mp.asset_kind = 'ducklake' AND mp.status = 'materialized'\n              AND split_part(mp.asset_path, '/', 1) = $3 AND mp.asset_path LIKE '%/%'\n            ORDER BY mp.asset_path, a.ord\n        ), fork_mat AS (\n            SELECT DISTINCT asset_path FROM materialized_partition\n            WHERE workspace_id = $2 AND asset_kind = 'ducklake' AND status = 'materialized'\n        ), latest_schema AS (\n            SELECT DISTINCT ON (workspace_id, asset_path) workspace_id, asset_path, columns\n            FROM materialized_asset_schema\n            WHERE workspace_id = ANY($1) AND asset_kind = 'ducklake'\n            ORDER BY workspace_id, asset_path, version DESC\n        )\n        SELECT am.asset_path AS \"asset_path!\",\n               am.ord AS \"ord!\",\n               COALESCE(EXISTS (\n                   SELECT 1 FROM jsonb_array_elements(ls.columns) e\n                   WHERE e->>'name' = 'is_current'\n               ), false) AS \"has_current!\"\n        FROM anc_mat am\n        LEFT JOIN latest_schema ls\n               ON ls.asset_path = am.asset_path AND ls.workspace_id = am.wid\n        WHERE am.asset_path NOT IN (SELECT asset_path FROM fork_mat)\n        ORDER BY am.asset_path\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "ord!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "has_current!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "5c225bcfdd5fa10e1a39f939dbb1669b1a6b41be67d8313e32b441065c5e5548"
+}
