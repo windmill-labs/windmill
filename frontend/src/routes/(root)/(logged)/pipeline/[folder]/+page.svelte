@@ -36,6 +36,7 @@
 		type ColumnLineageGraph
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
 	import {
 		computeDownstreamClosure,
 		computeInducedSchedule,
@@ -1337,8 +1338,17 @@
 						? 'failure'
 						: 'success'
 			const cur = m.get(id)
-			if (cur) cur.runs += 1
-			else m.set(id, { status, runs: 1 })
+			// Freshness compares against completion; `at` (start) is the
+			// fallback lower bound for rows without a duration.
+			const successAt = e.status === 'success' ? (e.completedAt ?? e.at) : undefined
+			if (cur) {
+				cur.runs += 1
+				// Newest-first, so the first success per id is the latest one —
+				// it feeds the freshness chip between graph refetches.
+				if (successAt && !cur.lastSuccessAt) cur.lastSuccessAt = successAt
+			} else {
+				m.set(id, { status, runs: 1, lastSuccessAt: successAt })
+			}
 		}
 		return m
 	})
@@ -1665,6 +1675,12 @@
 			? buildColumnGraph(displayGraph)
 			: EMPTY_COLUMN_GRAPH
 	)
+
+	// Producer-side facts for the editor's live schema-contract diagnostics:
+	// which assets are muted (`on_schema_change=ignore`) and which `_current`
+	// views map to an scd2 base table. Derived from the same resolved graph the
+	// canvas renders so the mirror suppresses exactly what the server check does.
+	let schemaContractContext = $derived(buildSchemaContractContext(graphWithDraft.runnables))
 
 	// Whether the selected ducklake asset's captured schema can *evolve* (drives
 	// the asset panel's Schema tab: version history vs. a single fixed schema).
@@ -2201,6 +2217,7 @@
 				{selectionProducers}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				{schemaCanEvolve}
+				{schemaContractContext}
 				downstreamSubscribers={editedScriptDownstreamCount}
 				onStartBoundedRunForOpen={startBoundedRun}
 				canBoundedRunOpenScript={!!openScriptPath &&

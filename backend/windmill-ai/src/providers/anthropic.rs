@@ -450,6 +450,13 @@ impl AnthropicQueryBuilder {
         self.platform == AIPlatform::GoogleVertexAi
     }
 
+    /// Claude models hosted on Azure AI Foundry: the Anthropic Messages API is
+    /// served under the resource's `/anthropic/v1` path rather than at the
+    /// Anthropic public base URL.
+    fn is_azure_foundry(&self) -> bool {
+        matches!(self.provider_kind, AIProvider::AzureFoundry)
+    }
+
     fn transform_proxy_body_for_vertex(body: &[u8]) -> Result<(String, Vec<u8>), Error> {
         let mut json_body: std::collections::HashMap<String, serde_json::Value> =
             serde_json::from_slice(body).map_err(|e| {
@@ -495,6 +502,15 @@ impl AnthropicQueryBuilder {
             (
                 format!("{}/{}:streamRawPredict", base_url, model),
                 transformed_body,
+            )
+        } else if self.is_azure_foundry() {
+            // Claude on Foundry is served under the resource's /anthropic/v1 path,
+            // not the resource's /openai/v1 base. The Anthropic SDK sends the path
+            // as "v1/messages", so drop its leading "v1/" before re-appending.
+            let path = args.path.trim_start_matches("v1/");
+            (
+                AIProvider::build_azure_foundry_anthropic_url(base_url, path),
+                body,
             )
         } else if is_anthropic_sdk {
             let truncated_base_url = base_url.trim_end_matches("/v1");
@@ -773,6 +789,8 @@ impl QueryBuilder for AnthropicQueryBuilder {
                 base_url.trim_end_matches('/'),
                 model
             )
+        } else if self.is_azure_foundry() {
+            AIProvider::build_azure_foundry_anthropic_url(base_url, "messages")
         } else {
             format!("{}/messages", base_url)
         }
@@ -1045,5 +1063,36 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, Error::BadRequest(message) if message.contains("Missing 'model'")));
+    }
+
+    #[test]
+    fn builds_azure_foundry_anthropic_proxy_request() {
+        // Foundry resource stored with a legacy /openai/v1 suffix; the Anthropic SDK
+        // sends the path as "v1/messages". Both must resolve to the resource's
+        // /anthropic/v1/messages surface.
+        let mut credentials = credentials(AIPlatform::Standard);
+        credentials.provider = AIProvider::AzureFoundry;
+        credentials.base_url = "https://wm-test-ai.services.ai.azure.com/openai/v1".to_string();
+        let builder = AnthropicQueryBuilder::new(AIProvider::AzureFoundry, AIPlatform::Standard);
+        let method = Method::POST;
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        headers.insert("X-Anthropic-SDK", HeaderValue::from_static("true"));
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "v1/messages",
+                headers: &headers,
+                body: br#"{"model":"claude-sonnet-5","messages":[]}"#,
+                credentials: &credentials,
+            })
+            .unwrap();
+
+        assert_eq!(
+            request.url,
+            "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
+        );
+        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
     }
 }

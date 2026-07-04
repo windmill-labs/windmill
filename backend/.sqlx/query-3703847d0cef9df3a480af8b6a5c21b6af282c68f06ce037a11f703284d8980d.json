@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT trigger_ref AS \"trigger_ref!\"\n           FROM script_trigger\n           WHERE workspace_id = $1\n             AND runnable_path = $2\n             AND trigger_kind = 'asset'\n             AND runnable_kind = 'script'\n           ORDER BY trigger_ref",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "trigger_ref!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3703847d0cef9df3a480af8b6a5c21b6af282c68f06ce037a11f703284d8980d"
+}

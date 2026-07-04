@@ -39,7 +39,8 @@
                 "ci_test",
                 "github",
                 "azure",
-                "asset"
+                "asset",
+                "freshness"
               ]
             }
           }
@@ -77,7 +78,8 @@
                 "ci_test",
                 "github",
                 "azure",
-                "asset"
+                "asset",
+                "freshness"
               ]
             }
           }

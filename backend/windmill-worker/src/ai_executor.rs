@@ -591,7 +591,7 @@ pub async fn run_agent(
     let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&credentials);
+    let query_builder = create_query_builder(&credentials, args.provider.get_model());
 
     // Initialize messages
     let mut messages =

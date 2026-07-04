@@ -41,6 +41,7 @@
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
+	import { notifyContractWarnings } from './assets/AssetGraph/schemaContracts'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
@@ -653,6 +654,11 @@
 			// New/updated path now exists server-side — drop the autocomplete
 			// cache so it shows up immediately instead of after the 60s TTL.
 			invalidateWorkspacePaths($workspaceStore!)
+
+			// Authoritative save-time schema-contract check (pipelines gap #2b):
+			// warn-only, post-commit so a self-produced target resolves to the
+			// content just deployed. Fire-and-forget — must never gate the deploy.
+			notifyContractWarnings($workspaceStore!, script.language, script.content)
 
 			if (!initialPath) {
 				await CaptureService.moveCapturesAndConfigs({

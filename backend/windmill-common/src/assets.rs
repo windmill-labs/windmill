@@ -6,7 +6,7 @@ use crate::{error, scripts::ScriptHash};
 
 pub use windmill_parser::asset_parser::{
     merge_column_lineage, parse_pipeline_annotations, ColumnLineage, ColumnRef, DataTest,
-    PartitionKind, PipelineAnnotations, RetrySpec, TriggerSpec, PARTITION_TOKEN,
+    OnSchemaChange, PartitionKind, PipelineAnnotations, RetrySpec, TriggerSpec, PARTITION_TOKEN,
 };
 pub use windmill_types::assets::*;
 
@@ -352,6 +352,10 @@ mod debounce_duration_tests {
         assert_eq!(parse_duration_secs("5m"), Some(300));
         assert_eq!(parse_duration_secs("2h"), Some(7200));
         assert_eq!(parse_duration_secs(" 1d "), Some(86400));
+        // Explicit plus sign comes free with i64 parsing; the TS mirror
+        // (parseDurationSecs) matches it — keep the two in lockstep.
+        assert_eq!(parse_duration_secs("+5m"), Some(300));
+        assert_eq!(parse_duration_secs("+45"), Some(45));
     }
 
     #[test]
