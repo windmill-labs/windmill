@@ -49,6 +49,8 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
 // materialize ducklake://analytics/orders_daily append       → managed, append
 // materialize ducklake://analytics/dim_customer key=id history → managed, SCD type 2 history
 // materialize manual ducklake://analytics/orders_daily       → track-only escape hatch
+// materialize ducklake://analytics/raw_events on_schema_change=ignore
+//                                  → managed, downstream contract warnings muted
 ```
 
 - **managed (default)** — the script is *setup + one trailing `SELECT`*; Windmill
@@ -352,10 +354,22 @@ load-bearing.
   repeats the natural key across closed versions, so an unscoped
   `unique(<key>)` would fail the run on the second change of any key. Custom
   tests see the raw history and scope themselves.
-- **Commit-then-test.** Like dbt, the write commits before tests run; a failed
-  test fails the *run* (and records `Failed`, so downstream cascade stops) but
-  does not roll back the committed snapshot. Time-travel still lets you inspect
-  exactly what failed.
+- **Commit-then-test (public) / write-audit-publish (enterprise).** In the
+  public build, like dbt, the write commits before tests run; a failed test
+  fails the *run* (and records `Failed`, so downstream cascade stops) but does
+  not roll back the committed snapshot — time-travel still lets you inspect
+  exactly what failed. Enterprise upgrades this to write-audit-publish: the
+  same checks also run *inside* the write transaction as a guard statement
+  that raises on any violation, aborting the run before `COMMIT` — a failing
+  slice is never published, readers keep the previous version, and no snapshot
+  is created (even a *first* run of a new asset rolls back to "no table").
+  The whole mechanism lives in the enterprise repo:
+  `sql_materialize::build_wrap_blocks` produces a typed statement plan
+  (`MaterializePlan` — statements plus structural kinds and the compiled
+  checks), and `pipeline_advanced::finalize_materialize_query` assembles it —
+  verbatim on the public build, restructured into the guarded transaction on
+  EE. The public build thus carries only plan metadata, not the
+  write-audit-publish transform itself.
 - **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
   script's content (a single DuckDB `SELECT`/CTE returning the violating rows —
   it's embedded as a subquery, so a multi-statement body is rejected with a
@@ -365,6 +379,35 @@ load-bearing.
   language) are the natural follow-up and fit the same verifier seam.
 - **Managed only.** `// materialize manual` + `// data_test` is rejected with a
   clear error (we can't know the manual script's target alias / partition col).
+
+## Schema contracts (save-time, gap #2b)
+
+The captured schema (#2a) is read back as a *contract*: at save/deploy time,
+every consumer's asset references — body-read/written columns, `// column`
+lineage sources, `// data_test relationships` refs — are diffed against the
+latest `materialized_asset_schema` version of each referenced ducklake asset,
+and mismatches surface as **warnings** (deploy never blocks; dbt's
+`on_schema_change=fail` is deliberately absent in v1). The diff lives in
+`windmill_common::schema_contracts` (endpoint:
+`POST /w/{ws}/scripts/check_schema_contracts`, called by the UI right after a
+save) and is mirrored 1:1 by the editor (`schemaContracts.ts`): live Monaco
+warning squiggles from the WASM buffer parse, plus column-name completion for
+annotation refs fed by the same captured schemas.
+
+Comparison rules worth knowing: column names are case-insensitive (DuckDB
+unquoted-identifier semantics); `_wm_partition` is whitelisted (it's excluded
+from capture); `{partition}` tokens are stripped before lookup; a
+`<dim>_current` reference falls back to the scd2 base table's capture; a
+relationships join across two captured assets also flags a captured-type
+*difference* (the runtime probe coerces, so it's "differs", not "will fail").
+An asset with no capture (never materialized, `manual` mode, any
+`datatable://`) produces no warnings.
+
+The producer opts a deliberately unstable schema out with
+`// materialize … on_schema_change=ignore` — consumers then get a single
+informational "suppressed" note instead of per-column warnings. On `manual`
+materialize the option is inert (nothing is captured) and deploy logs a
+warning saying so.
 
 ## Scoping decision: DuckLake vs DataTable
 

@@ -117,6 +117,10 @@ export type MaterializeSpec = {
 	track?: string[]
 	// SCD2 hard-delete-close (`deletes=close`): close absent keys; absent === false
 	closeDeleted?: boolean
+	// `on_schema_change=ignore` opts the produced asset out of downstream
+	// schema-contract warnings (save-time metadata only). Default `warn`;
+	// `fail` is deliberately unrecognized in v1 (saves never hard-block).
+	onSchemaChange?: 'warn' | 'ignore'
 }
 
 // `// data_test <kind> …` — a data-quality assertion run against the
@@ -264,7 +268,8 @@ function parseAssetSyntaxDefault(s: string): PipelineTriggerAsset | undefined {
 // managed mode; a leading `scd2` word is an alias for the `history` flag; the
 // next token is the target asset URI (default-syntax shorthands enabled); the
 // remainder are strategy options (`append` flag, `key=<col>`, `history` flag,
-// `track=<c1,c2,…>`, `deletes=close`). Missing/empty target → undefined (dropped).
+// `track=<c1,c2,…>`, `deletes=close`, `on_schema_change=ignore`). Missing/empty
+// target → undefined (dropped).
 function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 	// One optional leading mode keyword: `manual` (track-only) or `scd2` (an alias
 	// for the `history` flag below).
@@ -304,6 +309,9 @@ function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 	// `deletes=close` (scd2 only) opts into hard-delete-close; any other value
 	// (or absence) keeps the soft-delete default.
 	const closeDeleted = opts.get('deletes') === 'close'
+	// `on_schema_change=ignore` suppresses downstream contract warnings; any
+	// other value (or absence) keeps the `warn` default, fail-safe like `deletes=`.
+	const onSchemaChange = opts.get('on_schema_change') === 'ignore' ? 'ignore' : 'warn'
 	return {
 		targetKind: asset.kind,
 		targetPath: asset.path,
@@ -312,7 +320,8 @@ function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 		uniqueKey,
 		scd2,
 		track,
-		closeDeleted
+		closeDeleted,
+		onSchemaChange
 	}
 }
 

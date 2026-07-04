@@ -475,6 +475,9 @@ components:
         model:
           type: string
           description: Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')
+        reasoning_effort:
+          type: string
+          description: Provider-native reasoning effort token (e.g. 'low', 'high', 'none') for models that support extended thinking. Optional; unset leaves the provider default.
       required:
         - kind
         - resource
@@ -1028,7 +1031,7 @@ components:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Boolean. If true, stream the AI response incrementally.
-                Streaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
+                Streaming events include: token_delta, reasoning_token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
             memory:
               $ref: '#/components/schemas/MemoryTransform'
             output_schema:

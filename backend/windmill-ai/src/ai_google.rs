@@ -312,7 +312,7 @@ impl GeminiToolCallEvent {
     pub fn to_extra_content(&self) -> Option<ExtraContent> {
         self.thought_signature.as_ref().map(|sig| ExtraContent {
             google: Some(GoogleExtraContent { thought_signature: Some(sig.clone()) }),
-            bedrock: None,
+            ..Default::default()
         })
     }
 }
@@ -1001,10 +1001,8 @@ mod tests {
 
     #[test]
     fn gemini_streaming_without_usage_emits_no_usage_chunk() {
-        let parsed = GeminiParsedEvent {
-            text: Some("the answer".to_string()),
-            ..Default::default()
-        };
+        let parsed =
+            GeminiParsedEvent { text: Some("the answer".to_string()), ..Default::default() };
 
         let mut tool_call_index = 0;
         let chunks = gemini_event_to_openai_sse_chunks(

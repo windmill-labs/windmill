@@ -44,9 +44,14 @@ export type GraphRunnable = {
   column_lineage?: unknown[];
   // `// materialize <asset>` target + strategy — the script's declared output,
   // so the UI anchors column lineage / the materialize badge to it (the producer
-  // write-edge is emitted separately).
+  // write-edge is emitted separately). `scd2` also identifies the producer of a
+  // `<dim>_current` view for the editor's schema-contract fallback.
   materialize_target?: { kind: string; path: string };
-  materialize_strategy?: "replace" | "append" | "merge";
+  materialize_strategy?: "replace" | "append" | "merge" | "scd2";
+  // `on_schema_change=ignore` — producer's opt-out from downstream
+  // schema-contract warnings; only present when set (default `warn` is absent),
+  // mirroring the deployed graph node.
+  materialize_on_schema_change?: string;
 };
 export type GraphEdge = {
   runnable_kind: string;
@@ -110,6 +115,9 @@ type ParseAssetsRaw = {
     manual?: boolean;
     append?: boolean;
     unique_key?: string;
+    scd2?: boolean;
+    // "ignore" when set; the default `warn` is skipped in serialization.
+    on_schema_change?: string;
   };
   // `// tag <worker-tag>` — the worker tag the deployed pipeline routes to.
   tag?: string;
@@ -428,16 +436,18 @@ export async function buildLocalPipelineGraph(args: {
     // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
     pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
     const mat = out.materialize;
-    // Managed-materialize write strategy, derived like the deployed graph
-    // (append → append; key=<col> → merge; else replace). Manual mode has no
-    // managed strategy.
+    // Managed-materialize write strategy, derived like the deployed graph —
+    // precedence mirrors the runtime: scd2 (`history`) > append > merge
+    // (key=<col>) > replace. Manual mode has no managed strategy.
     const materialize_strategy =
       mat && !mat.manual
-        ? mat.append
-          ? "append"
-          : mat.unique_key
-            ? "merge"
-            : "replace"
+        ? mat.scd2
+          ? "scd2"
+          : mat.append
+            ? "append"
+            : mat.unique_key
+              ? "merge"
+              : "replace"
         : undefined;
     runnables.push({
       path: s.path,
@@ -453,6 +463,9 @@ export async function buildLocalPipelineGraph(args: {
         : {}),
       ...(mat ? { materialize_target: { kind: mat.target_kind, path: mat.target_path } } : {}),
       ...(materialize_strategy ? { materialize_strategy } : {}),
+      ...(mat?.on_schema_change === "ignore"
+        ? { materialize_on_schema_change: "ignore" }
+        : {}),
     });
 
     for (const a of out.assets ?? []) {

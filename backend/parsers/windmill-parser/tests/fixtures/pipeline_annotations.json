@@ -311,6 +311,43 @@
 		}
 	},
 	{
+		"name": "materialize on_schema_change=ignore opt",
+		"code": "// pipeline\n// materialize ducklake://analytics/orders on_schema_change=ignore\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders",
+				"on_schema_change": "ignore"
+			}
+		}
+	},
+	{
+		"name": "materialize on_schema_change unknown value keeps warn default (fail unrecognized in v1)",
+		"code": "// materialize ducklake://analytics/orders key=id on_schema_change=fail\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders",
+				"unique_key": "id",
+				"on_schema_change": "warn"
+			}
+		}
+	},
+	{
 		"name": "materialize key without history is plain merge (SCD1, not scd2)",
 		"code": "// materialize ducklake://analytics/dim key=id\nSELECT 1;",
 		"expected": {

@@ -141,6 +141,8 @@ pub fn workspaced_service() -> Router {
         // CI test results
         .route("/ci_test_results/{kind}/{*path}", get(get_ci_test_results))
         .route("/ci_test_results_batch", post(get_ci_test_results_batch))
+        // Save-time schema-contract check (pipelines gap #2b)
+        .route("/check_schema_contracts", post(check_schema_contracts))
 }
 
 #[derive(Serialize, FromRow)]
@@ -1302,6 +1304,14 @@ async fn create_script_internal<'c>(
         } else if m.unique_key.is_some() && m.append {
             tracing::warn!(
                 "script {}: both `key=` and `append` set on // materialize; append wins (INSERT-only, no dedup)",
+                ns.path
+            );
+        }
+        // `manual` materialize never captures a schema (no wrap codegen), so
+        // there is no contract for `on_schema_change` to mute downstream.
+        if m.manual && m.on_schema_change == windmill_parser::asset_parser::OnSchemaChange::Ignore {
+            tracing::warn!(
+                "script {}: `on_schema_change=ignore` on a `manual` materialize is inert — manual mode captures no schema, so consumers have no contract to check",
                 ns.path
             );
         }
@@ -3965,4 +3975,47 @@ async fn get_ci_test_results_batch(
     }
 
     Ok(Json(result_map))
+}
+
+#[derive(Deserialize)]
+struct CheckSchemaContractsRequest {
+    language: ScriptLang,
+    content: String,
+}
+
+#[derive(Serialize)]
+struct CheckSchemaContractsResponse {
+    warnings: Vec<windmill_common::schema_contracts::ContractWarning>,
+}
+
+// Save-time schema-contract check (pipelines gap #2b): validate the given
+// script content's asset references (body column reads, `// column` lineage,
+// `// data_test relationships`) against the latest captured producer schemas
+// and return WARNINGS — never errors, and deploy never blocks on this. The
+// frontend calls it right after a successful deploy (post-commit, so a
+// self-produced target resolves to the fresh content) and the editor mirrors
+// the same diff client-side; this endpoint is the authoritative check. Parsing
+// uses the same server path as deploy (`effective_script_assets` +
+// `parse_pipeline_annotations`) so the verdict matches what deployed.
+async fn check_schema_contracts(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<CheckSchemaContractsRequest>,
+) -> JsonResult<CheckSchemaContractsResponse> {
+    let assets = crate::asset_inference::effective_script_assets(&req.language, &req.content, None)
+        .unwrap_or_default();
+    let ann = parse_pipeline_annotations(&req.content);
+    let mut tx = user_db.begin(&authed).await?;
+    let warnings = windmill_common::schema_contracts::check_schema_contracts(
+        &mut tx,
+        &w_id,
+        &assets,
+        &ann.column_lineage,
+        &ann.data_tests,
+        ann.materialize.as_ref(),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(CheckSchemaContractsResponse { warnings }))
 }
