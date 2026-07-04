@@ -13,8 +13,13 @@ use windmill_common::{
     DB,
 };
 
-/// Reconcile the managed `f/ducklake_maintenance/<lake>` schedule rows with the
-/// (already validated) ducklake settings, inside the caller's transaction.
+/// Reconcile the managed `f/ducklake_maintenance/<lake>` schedule rows with
+/// the ducklake settings, inside the caller's transaction.
+///
+/// Not an authorization boundary: it mutates schedule rows for `w_id` on
+/// behalf of `edited_by`/`email`, so the caller MUST already have enforced
+/// workspace-admin on `w_id` and that the identity is the authenticated
+/// caller's (as `edit_ducklake_config` does via `require_admin`).
 // Only newly-enabled maintenance is rejected: a config that already had it
 // enabled (e.g. an enterprise license lapsed) must not make every unrelated
 // ducklake settings save fail, and the admin must be able to save it off.

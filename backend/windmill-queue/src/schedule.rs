@@ -239,7 +239,7 @@ pub async fn push_scheduled_job<'c>(
         // through the tx so change_workspace_id's re-push sees its
         // uncommitted workspace_settings copy.
         let maintenance =
-            windmill_common::workspaces::get_ducklake_raw(&mut *tx, &schedule.workspace_id, lake)
+            windmill_common::workspaces::get_ducklake_raw_unchecked(&mut *tx, &schedule.workspace_id, lake)
                 .await?
                 .and_then(|dl| dl.maintenance)
                 .filter(|m| m.enabled)

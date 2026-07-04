@@ -921,10 +921,13 @@ pub fn is_valid_ducklake_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-/// Raw per-lake config (no credential interpolation). Generic over the
-/// executor so callers inside a transaction (e.g. `push_scheduled_job` during
-/// `change_workspace_id`) see uncommitted settings.
-pub async fn get_ducklake_raw<'c, E: sqlx::PgExecutor<'c>>(
+/// Raw per-lake config (no credential interpolation). This does not check for
+/// any permission (like [`get_ducklake_from_db_unchecked`]): callers are
+/// internal (schedule-tick payload construction) and must not expose the
+/// config to a user. Generic over the executor so callers inside a
+/// transaction (e.g. `push_scheduled_job` during `change_workspace_id`) see
+/// uncommitted settings.
+pub async fn get_ducklake_raw_unchecked<'c, E: sqlx::PgExecutor<'c>>(
     executor: E,
     w_id: &str,
     name: &str,
