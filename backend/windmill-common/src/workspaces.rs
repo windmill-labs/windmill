@@ -1184,7 +1184,14 @@ pub async fn get_ducklake_from_db_unchecked(
     let chain = fork_ancestor_chain(db, w_id).await?;
     // `Shared` is the explicit fork-creation opt-out of isolation: the fork reads and writes
     // the parent's lake through its own (cloned) config, exactly like a non-fork workspace.
-    if chain.is_empty() || fork_behavior == Some(DucklakeForkBehavior::Shared) {
+    // An empty chain alone does NOT mean "not a fork": `parent_workspace_id` is ON DELETE SET
+    // NULL, so a `wm-fork-*` workspace can outlive its parent — its cloned config still points
+    // at the shared lake, so the prefix keeps it isolated (mirrors `workspace_is_fork`). No
+    // ancestors ⇒ no defer, write redirect only. Prefix-less dev workspaces can't be orphaned
+    // (deletion of their prod is blocked while attached).
+    if (chain.is_empty() && !w_id.starts_with(WM_FORK_PREFIX))
+        || fork_behavior == Some(DucklakeForkBehavior::Shared)
+    {
         return Ok(base);
     }
     fork_scoped_ducklake(name, w_id, base, chain, db).await

@@ -1266,7 +1266,11 @@ async fn asset_graph(
         // as deferred, not unmarked.
         let ancestors = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id).await?;
         match ancestors {
-            a if a.is_empty() => std::collections::HashMap::new(),
+            // An orphaned `wm-fork-*` (parent deleted, chain empty) is still isolated — its
+            // own materializations must keep their 'fork' chips (nothing can be 'deferred').
+            a if a.is_empty() && !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) => {
+                std::collections::HashMap::new()
+            }
             ancestors => {
                 // Lakes the fork chose to SHARE at creation have no fork namespace — their
                 // assets live in the parent's tables for real, so no chip applies.

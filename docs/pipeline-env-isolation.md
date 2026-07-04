@@ -144,6 +144,13 @@ otherwise die with the workspace via FK cascade.
 
 ## Semantics & caveats (by design)
 
+- **Orphaned forks stay isolated.** `parent_workspace_id` is `ON DELETE SET NULL`, so a
+  `wm-fork-*` workspace can outlive its parent. Its ancestor chain is then empty, but its cloned
+  config still points at the shared lake — so fork resolution keys on the `wm-fork-` prefix as
+  well as the chain (mirroring `workspace_is_fork`). An orphaned fork gets the write redirect,
+  registration and cleanup but no defer views; pre-orphaning defer views fail loudly at bind and
+  flip to real tables on first materialize. Prefix-less dev workspaces cannot be orphaned
+  (deleting their prod is blocked while attached).
 - **Defer is live, not snapshot-pinned.** A deferred read sees the parent's *current* table —
   the same trade dbt `--defer` makes. Snapshot-pinned defer could later ride on the recorded
   `snapshot_id`s.
