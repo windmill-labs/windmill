@@ -7,6 +7,12 @@ CREATE TABLE fork_ducklake_namespace (
     workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
     ducklake_name VARCHAR(255) NOT NULL,
     metadata_schema VARCHAR(63) NOT NULL,
+    -- Canonical identity of the catalog database the metadata schema lives in
+    -- (`<resource_type>:<resource_path>`, e.g. `instance:wm_ducklake` or
+    -- `postgres:u/admin/pg`). Cleanup connects to THIS catalog, not whatever the fork's
+    -- settings point at by then — a drifted catalog resource must not make cleanup drop a
+    -- schema in the wrong database and orphan the real one.
+    catalog TEXT NOT NULL,
     -- Named workspace storage holding the fork's data files; '' = the default storage
     -- (part of the PK, which cannot hold NULL).
     storage TEXT NOT NULL DEFAULT '',
@@ -15,9 +21,9 @@ CREATE TABLE fork_ducklake_namespace (
     data_path TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- One row per physical location EVER attached: if the fork's lake settings drift
-    -- (storage/path change), later attaches add rows rather than replace them, so cleanup
-    -- deletes every prefix the fork wrote, not just the first.
-    PRIMARY KEY (workspace_id, ducklake_name, storage, data_path)
+    -- (catalog/storage/path change), later attaches add rows rather than replace them, so
+    -- cleanup covers every location the fork wrote, not just the first.
+    PRIMARY KEY (workspace_id, ducklake_name, catalog, storage, data_path)
 );
 
 -- Resolution runs under user_db transactions (SET LOCAL ROLE) in API contexts, so the

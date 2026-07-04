@@ -1293,7 +1293,7 @@ pub async fn drop_forked_ducklake_namespaces(
     // every prefix the fork wrote gets cleaned, not just the first.
     let namespaces = sqlx::query!(
         r#"SELECT ducklake_name AS "ducklake_name!", metadata_schema AS "metadata_schema!",
-                  storage AS "storage!", data_path AS "data_path!"
+                  catalog AS "catalog!", storage AS "storage!", data_path AS "data_path!"
              FROM fork_ducklake_namespace WHERE workspace_id = $1"#,
         &w_id
     )
@@ -1330,9 +1330,14 @@ pub async fn drop_forked_ducklake_namespaces(
             continue;
         }
 
-        if let Err(e) =
-            drop_fork_ducklake_metadata_schema(&db, &w_id, &ns.ducklake_name, &ns.metadata_schema)
-                .await
+        if let Err(e) = drop_fork_ducklake_metadata_schema(
+            &db,
+            &w_id,
+            &ns.ducklake_name,
+            &ns.catalog,
+            &ns.metadata_schema,
+        )
+        .await
         {
             errors.push(format!(
                 "Could not drop metadata schema '{}' for ducklake://{}: {e}",
@@ -1351,9 +1356,11 @@ pub async fn drop_forked_ducklake_namespaces(
         }
         sqlx::query!(
             "DELETE FROM fork_ducklake_namespace
-             WHERE workspace_id = $1 AND ducklake_name = $2 AND storage = $3 AND data_path = $4",
+             WHERE workspace_id = $1 AND ducklake_name = $2 AND catalog = $3
+               AND storage = $4 AND data_path = $5",
             &w_id,
             &ns.ducklake_name,
+            &ns.catalog,
             &ns.storage,
             &ns.data_path,
         )
@@ -1363,22 +1370,45 @@ pub async fn drop_forked_ducklake_namespaces(
     Ok(Json(errors))
 }
 
-/// Drop the fork's metadata schema in the lake's catalog database. The pg schema holds only
-/// DuckLake metadata tables (auto-created at first fork attach), so a plain
+/// Drop the fork's metadata schema in the catalog database recorded by the registry row —
+/// NOT whatever the fork's settings point at by now: a drifted catalog resource must not make
+/// cleanup drop a schema in the wrong database while orphaning the real one. The pg schema
+/// holds only DuckLake metadata tables (auto-created at first fork attach), so a plain
 /// `DROP SCHEMA … CASCADE` on the catalog connection removes the whole fork namespace.
 async fn drop_fork_ducklake_metadata_schema(
     db: &DB,
     w_id: &str,
     ducklake_name: &str,
+    catalog: &str,
     metadata_schema: &str,
 ) -> Result<()> {
-    // Resolved for the fork itself: the catalog host/database fields are namespace-independent
-    // (the fork redirect only changes METADATA_SCHEMA/DATA_PATH).
-    let ducklake =
-        windmill_common::workspaces::get_ducklake_from_db_unchecked(ducklake_name, w_id, db)
-            .await?;
-    let pg: windmill_common::PgDatabase = serde_json::from_value(ducklake.catalog_resource)
-        .map_err(|e| {
+    let (resource_type, resource_path) = catalog.split_once(':').ok_or_else(|| {
+        Error::internal_err(format!(
+            "ducklake://{ducklake_name}: malformed registry catalog identity `{catalog}`"
+        ))
+    })?;
+    let catalog_resource = if resource_type == "instance" {
+        let mut pg_creds = windmill_common::PgDatabase::parse_uri(
+            &windmill_common::get_database_url().await?.as_str().await,
+        )?;
+        pg_creds.dbname = resource_path.to_string();
+        pg_creds.user = Some("custom_instance_user".to_string());
+        pg_creds.password =
+            Some(windmill_common::utils::get_custom_pg_instance_password(db).await?);
+        serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("serializing pg creds: {e}")))?
+    } else {
+        // The resource is resolved in the fork's own workspace (it was cloned at fork
+        // creation); mysql never registers (rejected at resolution).
+        windmill_common::workspaces::transform_json_value_unchecked(
+            &serde_json::Value::String(format!("$res:{resource_path}")),
+            w_id,
+            db,
+        )
+        .await?
+    };
+    let pg: windmill_common::PgDatabase =
+        serde_json::from_value(catalog_resource).map_err(|e| {
             Error::internal_err(format!(
                 "ducklake://{ducklake_name}: catalog resource is not a postgres database: {e}"
             ))

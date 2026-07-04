@@ -959,18 +959,39 @@ fn mangle_identifier(s: &str, max: usize) -> String {
         .collect()
 }
 
-/// Deterministic, injective pg-schema name for a fork workspace's ducklake metadata:
-/// `wm_fork_<mangled id (≤40)>_<8-hex sha256>`, ≤57 chars (pg limit 63). The hash keeps
-/// distinct workspace ids distinct after mangling. The registry row records the computed name
+/// Deterministic, injective pg-schema name for a fork workspace's namespace of ONE lake:
+/// `wm_fork_<mangled wid (≤24)>_<mangled lake (≤16)>_<8-hex sha256>`, ≤58 chars (pg limit 63).
+/// Lake-scoped, not just workspace-scoped: two lakes of one workspace may share a catalog
+/// database, and a per-workspace schema would merge their namespaces in the fork (tables and
+/// snapshots colliding across `ducklake://a/…` and `ducklake://b/…`). The hash keeps distinct
+/// (workspace, lake) pairs distinct after mangling. The registry row records the computed name
 /// for cleanup, but ATTACH recomputes it — so this function must stay stable across releases
 /// or existing forks would silently lose their namespace.
-pub fn fork_ducklake_metadata_schema(w_id: &str) -> String {
+pub fn fork_ducklake_metadata_schema(w_id: &str, lake_name: &str) -> String {
     use sha2::{Digest, Sha256};
-    let hash = hex::encode(&Sha256::digest(w_id.as_bytes())[..4]);
+    let hash = hex::encode(&Sha256::digest(format!("{w_id}\0{lake_name}").as_bytes())[..4]);
     format!(
-        "{FORK_DUCKLAKE_SCHEMA_PREFIX}{}_{hash}",
-        mangle_identifier(w_id, 40)
+        "{FORK_DUCKLAKE_SCHEMA_PREFIX}{}_{}_{hash}",
+        mangle_identifier(w_id, 24),
+        mangle_identifier(lake_name, 16)
     )
+}
+
+/// The `METADATA_SCHEMA '<x>'` value carried in a lake config's `extra_args`, if any — the
+/// schema the lake's OWN catalog namespace lives in (how one catalog database hosts several
+/// lakes). Ancestor read-only attaches must preserve it or they'd bind the wrong namespace.
+pub fn extract_metadata_schema_arg(extra_args: &str) -> Option<String> {
+    lazy_static::lazy_static! {
+        static ref MS: regex::Regex = regex::Regex::new(
+            r"(?i)\bMETADATA_SCHEMA\s*(?:'([^']*)'|([A-Za-z0-9_]+))"
+        )
+        .unwrap();
+    }
+    // Last occurrence wins, matching DuckDB's duplicate-option semantics.
+    MS.captures_iter(extra_args)
+        .last()
+        .and_then(|c| c.get(1).or_else(|| c.get(2)))
+        .map(|m| m.as_str().to_string())
 }
 
 /// Deterministic DuckDB attach alias for an ancestor namespace of a fork's lake. Persisted
@@ -1147,13 +1168,19 @@ async fn fork_scoped_ducklake(
              running against the shared catalog would write the parent workspace's data"
         )));
     }
-    let metadata_schema = fork_ducklake_metadata_schema(w_id);
+    let metadata_schema = fork_ducklake_metadata_schema(w_id, name);
     let fork_path = fork_data_path(&base.storage.path, w_id);
+    let catalog_identity = format!(
+        "{}:{}",
+        base.catalog.resource_type.as_ref(),
+        base.catalog.resource_path
+    );
     register_fork_ducklake_namespace(
         db,
         w_id,
         name,
         &metadata_schema,
+        &catalog_identity,
         base.storage.storage.as_deref(),
         &fork_path,
     )
@@ -1174,9 +1201,15 @@ async fn fork_scoped_ducklake(
                     i + 1 < chain.len() && ancestor_behavior != Some(DucklakeForkBehavior::Shared);
                 let metadata_schema = if is_isolated_fork {
                     a.storage.path = fork_data_path(&a.storage.path, ancestor_id);
-                    Some(fork_ducklake_metadata_schema(ancestor_id))
+                    Some(fork_ducklake_metadata_schema(ancestor_id, name))
                 } else {
-                    None
+                    // Root / shared ancestors live in their config's OWN catalog namespace —
+                    // which may be a non-default schema when one catalog database hosts
+                    // several lakes (`extra_args METADATA_SCHEMA '…'`). Preserve it, or the
+                    // read-only attach would bind the wrong (or a nonexistent) lake.
+                    a.extra_args
+                        .as_deref()
+                        .and_then(extract_metadata_schema_arg)
                 };
                 ancestors.push(DucklakeAncestorAttach {
                     workspace_id: ancestor_id.clone(),
@@ -1322,12 +1355,16 @@ async fn register_fork_ducklake_namespace(
     w_id: &str,
     name: &str,
     metadata_schema: &str,
+    catalog: &str,
     storage: Option<&str>,
     data_path: &str,
 ) -> Result<()> {
     // '' = default storage (the column is part of the PK, which cannot hold NULL).
     let storage = storage.unwrap_or("");
-    let key = (w_id.to_string(), format!("{name}\0{storage}\0{data_path}"));
+    let key = (
+        w_id.to_string(),
+        format!("{name}\0{catalog}\0{storage}\0{data_path}"),
+    );
     let now = chrono::Utc::now().timestamp();
     if FORK_DUCKLAKE_REGISTERED
         .get(&key)
@@ -1337,12 +1374,13 @@ async fn register_fork_ducklake_namespace(
     }
     sqlx::query!(
         "INSERT INTO fork_ducklake_namespace
-           (workspace_id, ducklake_name, metadata_schema, storage, data_path)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (workspace_id, ducklake_name, storage, data_path) DO NOTHING",
+           (workspace_id, ducklake_name, metadata_schema, catalog, storage, data_path)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (workspace_id, ducklake_name, catalog, storage, data_path) DO NOTHING",
         w_id,
         name,
         metadata_schema,
+        catalog,
         storage,
         data_path,
     )
@@ -1510,7 +1548,7 @@ mod tests {
 
     #[test]
     fn test_fork_ducklake_metadata_schema_shape() {
-        let s = fork_ducklake_metadata_schema("wm-fork-my-feature-42");
+        let s = fork_ducklake_metadata_schema("wm-fork-my-feature-42", "main");
         assert!(s.starts_with(FORK_DUCKLAKE_SCHEMA_PREFIX), "{s}");
         assert!(s.len() <= 63, "pg schema name limit: {s}");
         assert!(
@@ -1518,20 +1556,33 @@ mod tests {
             "{s}"
         );
         // Deterministic (persisted view SQL / registry rows depend on it).
-        assert_eq!(s, fork_ducklake_metadata_schema("wm-fork-my-feature-42"));
+        assert_eq!(
+            s,
+            fork_ducklake_metadata_schema("wm-fork-my-feature-42", "main")
+        );
     }
 
     #[test]
     fn test_fork_ducklake_metadata_schema_injective_after_mangling() {
         // `-` and `_` mangle to the same char; the hash suffix must keep them distinct.
-        let a = fork_ducklake_metadata_schema("wm-fork-a-b");
-        let b = fork_ducklake_metadata_schema("wm-fork-a_b");
+        let a = fork_ducklake_metadata_schema("wm-fork-a-b", "main");
+        let b = fork_ducklake_metadata_schema("wm-fork-a_b", "main");
         assert_ne!(a, b);
+        // Lake-scoped: two lakes of one workspace may share a catalog database, so their fork
+        // namespaces must be distinct schemas.
+        assert_ne!(
+            fork_ducklake_metadata_schema("wm-fork-a-b", "lake_a"),
+            fork_ducklake_metadata_schema("wm-fork-a-b", "lake_b")
+        );
         // Long ids truncate to the same mangled prefix; hash must still differ.
-        let long_a = fork_ducklake_metadata_schema(&format!("wm-fork-{}x", "a".repeat(40)));
-        let long_b = fork_ducklake_metadata_schema(&format!("wm-fork-{}y", "a".repeat(40)));
+        let long_a =
+            fork_ducklake_metadata_schema(&format!("wm-fork-{}x", "a".repeat(40)), "main");
+        let long_b =
+            fork_ducklake_metadata_schema(&format!("wm-fork-{}y", "a".repeat(40)), "main");
         assert_ne!(long_a, long_b);
-        assert!(long_a.len() <= 63 && long_b.len() <= 63);
+        let long_lake =
+            fork_ducklake_metadata_schema(&format!("wm-fork-{}", "a".repeat(42)), &"l".repeat(40));
+        assert!(long_a.len() <= 63 && long_b.len() <= 63 && long_lake.len() <= 63);
     }
 
     #[test]
@@ -1548,6 +1599,24 @@ mod tests {
             a,
             fork_ducklake_ancestor_alias("analytics", "wm-fork-dev-2")
         );
+    }
+
+    #[test]
+    fn test_extract_metadata_schema_arg() {
+        assert_eq!(
+            extract_metadata_schema_arg("METADATA_SCHEMA 'lake_b_ns', ENCRYPTED true"),
+            Some("lake_b_ns".to_string())
+        );
+        assert_eq!(
+            extract_metadata_schema_arg("metadata_schema bare_ident"),
+            Some("bare_ident".to_string())
+        );
+        // Last occurrence wins (DuckDB duplicate-option semantics).
+        assert_eq!(
+            extract_metadata_schema_arg("METADATA_SCHEMA 'a', METADATA_SCHEMA 'b'"),
+            Some("b".to_string())
+        );
+        assert_eq!(extract_metadata_schema_arg("ENCRYPTED true"), None);
     }
 
     #[test]

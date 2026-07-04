@@ -48,8 +48,10 @@ the flip.
 resolved workspace has a `parent_workspace_id` (throwaway `wm-fork-*` fork or standing dev
 workspace), the returned `DucklakeWithConnData` is namespaced **in its existing fields**:
 
-- `extra_args` += `METADATA_SCHEMA 'wm_fork_<mangled wid>_<hash8>'` — injective, ≤63 chars,
-  stable across releases (persisted state depends on it);
+- `extra_args` += `METADATA_SCHEMA 'wm_fork_<mangled wid>_<mangled lake>_<hash8>'` —
+  injective, ≤63 chars, stable across releases (persisted state depends on it), and
+  **lake-scoped**: two lakes of one workspace may share a catalog database, and a
+  per-workspace schema would merge their namespaces in the fork;
 - `storage.path` = `__wm_forks/<fork wid>/<original path>` — a **bucket-root prefix**, not a
   sub-path of the parent's DATA_PATH, because lake maintenance
   (`ducklake_delete_orphaned_files`, snapshot expiry) scans everything under the parent's path
@@ -100,7 +102,8 @@ In a fork, `transform_attach_ducklake` additionally emits:
    mismatched `DROP VIEW` (or skipped drop) would wedge the asset on every retry — found live
    in e2e when a storage failure flipped a fork asset's status to `Failed`.
 
-The graph shows the state per ducklake asset in a fork: an amber ↗ chip = *deferred to parent*,
+The graph shows the state per ducklake asset in a fork: an amber ↗ chip = *deferred* (some ancestor in the chain
+owns the table),
 an emerald fork chip = *fork-materialized* (`fork_materialization` on the `/assets/graph`
 response, computed from fork + parent `materialized_partition`; the parent's rows are read on
 the plain pool since fork membership doesn't imply parent membership). The details pane shows
@@ -109,10 +112,11 @@ the equivalent banner.
 ### Lifecycle & cleanup
 
 A sidecar registry `fork_ducklake_namespace(workspace_id FK ON DELETE CASCADE, ducklake_name,
-metadata_schema, storage, data_path)` is upserted (behind a TTL'd in-process cache) on fork
+metadata_schema, catalog, storage, data_path)` is upserted (behind a TTL'd in-process cache) on fork
 resolution, **one row per physical location ever attached** — its PK includes
-`(storage, data_path)`, so if the fork's lake settings drift, later attaches add rows rather
-than replace them and cleanup covers every prefix the fork wrote, not just the first. Explicit
+`(catalog, storage, data_path)`, so if the fork's lake settings drift, later attaches add rows rather
+than replace them and cleanup covers every location the fork wrote, not just the first — connecting to the
+REGISTERED catalog identity, not whatever the fork's settings point at by deletion time. Explicit
 `GRANT`s ship in the same migration; the registry is not cloned into sub-forks.
 
 `POST /w/{fork}/workspaces/drop_forked_ducklake_namespaces` (same permission as

@@ -1201,13 +1201,13 @@ async fn asset_graph(
     // pool: fork membership does not imply parent membership, and defer already exposes the
     // parent's data to fork jobs — surfacing its materialization status is strictly less.
     let fork_materialization_by_path: std::collections::HashMap<String, &'static str> = {
-        let parent = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id)
-            .await?
-            .into_iter()
-            .next();
-        match parent {
-            None => std::collections::HashMap::new(),
-            Some(parent_id) => {
+        // The WHOLE ancestor chain, matching defer discovery: a grandchild fork whose direct
+        // parent only defers a table still reads it (from the grandparent), so it must show
+        // as deferred, not unmarked.
+        let ancestors = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id).await?;
+        match ancestors {
+            a if a.is_empty() => std::collections::HashMap::new(),
+            ancestors => {
                 // Lakes the fork chose to SHARE at creation have no fork namespace — their
                 // assets live in the parent's tables for real, so no chip applies.
                 let shared_lakes: std::collections::HashSet<String> = sqlx::query_scalar!(
@@ -1232,11 +1232,11 @@ async fn asset_graph(
                     r#"
                     SELECT DISTINCT asset_path AS "asset_path!", workspace_id AS "workspace_id!"
                     FROM materialized_partition
-                    WHERE workspace_id IN ($1, $2)
+                    WHERE (workspace_id = $1 OR workspace_id = ANY($2))
                       AND asset_kind = 'ducklake' AND status = 'materialized'
                     "#,
                     &w_id,
-                    &parent_id,
+                    &ancestors,
                 )
                 .fetch_all(&db)
                 .await?
@@ -1245,7 +1245,7 @@ async fn asset_graph(
                     !shared_lakes.contains(r.asset_path.split('/').next().unwrap_or_default())
                 })
                 .fold(std::collections::HashMap::new(), |mut m, r| {
-                    // A fork row wins over an inherited 'deferred' from the parent row.
+                    // A fork row wins over an inherited 'deferred' from any ancestor's row.
                     if r.workspace_id == w_id {
                         m.insert(r.asset_path, "fork");
                     } else {
