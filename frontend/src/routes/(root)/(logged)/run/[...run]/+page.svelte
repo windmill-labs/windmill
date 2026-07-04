@@ -42,6 +42,7 @@
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
+	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
 	import {
 		enterpriseLicense,
 		initialArgsStore,
@@ -918,6 +919,7 @@
 						</div>
 					</div>
 					{#if job.id && job.workspace_id}
+						<UpstreamSnapshotsPanel args={job.args} />
 						<DispatchEventsPanel workspace={job.workspace_id} jobId={job.id} />
 					{/if}
 				{/if}

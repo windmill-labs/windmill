@@ -1337,8 +1337,17 @@
 						? 'failure'
 						: 'success'
 			const cur = m.get(id)
-			if (cur) cur.runs += 1
-			else m.set(id, { status, runs: 1 })
+			// Freshness compares against completion; `at` (start) is the
+			// fallback lower bound for rows without a duration.
+			const successAt = e.status === 'success' ? (e.completedAt ?? e.at) : undefined
+			if (cur) {
+				cur.runs += 1
+				// Newest-first, so the first success per id is the latest one —
+				// it feeds the freshness chip between graph refetches.
+				if (successAt && !cur.lastSuccessAt) cur.lastSuccessAt = successAt
+			} else {
+				m.set(id, { status, runs: 1, lastSuccessAt: successAt })
+			}
 		}
 		return m
 	})

@@ -46,6 +46,9 @@ pub enum JobTriggerKind {
     // A run dispatched because an upstream pipeline script wrote an asset
     // this runnable subscribes to via `// on s3://...` annotations.
     Asset,
+    // A run pushed by the pipeline freshness watchdog (EE) because the
+    // script's `// freshness` window elapsed without a successful run.
+    Freshness,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -68,6 +71,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Github => "github",
             JobTriggerKind::CiTest => "ci_test",
             JobTriggerKind::Asset => "asset",
+            JobTriggerKind::Freshness => "freshness",
         };
         write!(f, "{}", kind)
     }
