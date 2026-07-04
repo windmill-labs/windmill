@@ -862,24 +862,17 @@ pub(crate) async fn delete_workspace(
         }
     }
 
-    // Physical ducklake-namespace cleanup BEFORE the row deletes: the registry rows CASCADE
-    // with the workspace row below, and fork namespaces are deterministic from (id, lake) — an
-    // orphaned namespace would silently REATTACH to a recreated identical fork id. Runs inline
-    // so every delete path is covered (CLI, force-delete dialog, direct API — not just the
-    // sidebar flow, which still calls the endpoint first for per-lake error toasts; the rerun
-    // is an idempotent no-op). Best effort: failures are logged and deletion proceeds — broken
-    // storage credentials must not make a workspace undeletable. Uses the pool, not `tx`
-    // (which has only performed reads so far).
-    match drop_forked_ducklake_namespaces_impl(&db, &w_id).await {
-        Ok(errs) => {
-            for e in errs {
-                tracing::warn!("deleting workspace {w_id}: ducklake namespace cleanup: {e}");
-            }
-        }
-        Err(e) => {
-            tracing::warn!("deleting workspace {w_id}: ducklake namespace cleanup failed: {e:#}");
-        }
-    }
+    // Snapshot the fork's ducklake namespaces + RESOLVE their connection material NOW — the
+    // registry rows and the fork's `$res:` resources both CASCADE with the workspace row —
+    // but the destructive cleanup itself runs only after the commit below: a delete that
+    // fails mid-way must never leave a live workspace with its fork data destroyed and no
+    // registry row to retry from. Read-only: nothing is dropped here.
+    let fork_ducklake_cleanups = prepare_fork_ducklake_cleanups(&db, &w_id)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("deleting workspace {w_id}: preparing ducklake cleanup: {e:#}");
+            vec![]
+        });
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1115,6 +1108,17 @@ pub(crate) async fn delete_workspace(
     .await?;
     tx.commit().await?;
 
+    // Physical ducklake-namespace cleanup, post-commit, from the pre-read snapshot: fork
+    // namespaces are deterministic from (id, lake), so an orphan would silently REATTACH to a
+    // recreated identical fork id. Runs inline so every delete path is covered (CLI,
+    // force-delete dialog, direct API — not just the sidebar flow, which still calls the
+    // endpoint first for per-lake error toasts; the rerun is an idempotent no-op). Best
+    // effort: failures are logged — the workspace row is already gone, and broken storage
+    // credentials must not have made it undeletable.
+    for e in cleanup_fork_ducklake_namespaces(&db, &w_id, fork_ducklake_cleanups).await {
+        tracing::warn!("deleted workspace {w_id}: ducklake namespace cleanup: {e}");
+    }
+
     if let Some(parent) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent);
     }
@@ -1338,15 +1342,47 @@ pub async fn drop_forked_ducklake_namespaces(
     Ok(Json(drop_forked_ducklake_namespaces_impl(&db, &w_id).await?))
 }
 
-/// The cleanup itself, shared by the endpoint and the inline `delete_workspace` run. No
+/// The cleanup itself, shared by the endpoint and the post-commit `delete_workspace` run. No
 /// authorization of its own — callers gate.
 pub(crate) async fn drop_forked_ducklake_namespaces_impl(
     db: &DB,
     w_id: &str,
 ) -> Result<Vec<String>> {
-    // One row per (lake, storage, data path) ever attached — settings drift adds rows, so
-    // every prefix the fork wrote gets cleaned, not just the first.
-    let namespaces = sqlx::query!(
+    let prepared = prepare_fork_ducklake_cleanups(db, w_id).await?;
+    Ok(cleanup_fork_ducklake_namespaces(db, w_id, prepared).await)
+}
+
+struct ForkDucklakeNamespaceRow {
+    ducklake_name: String,
+    metadata_schema: String,
+    catalog: String,
+    storage: String,
+    storage_ref: String,
+    data_path: String,
+}
+
+/// A namespace row plus its RESOLVED connection material. `delete_workspace` prepares these
+/// BEFORE its transaction commits — the registry rows AND the fork's `$res:` resources both
+/// disappear with the workspace row — and runs the destructive cleanup only AFTER the commit:
+/// a delete that fails mid-way must never leave a live workspace with its fork data
+/// destroyed, and a committed delete must still be able to reach catalogs/storages whose
+/// credentials lived in the (now gone) fork resources. Per-row resolution failures are
+/// carried as strings so they surface with the other cleanup errors.
+pub(crate) struct PreparedForkDucklakeCleanup {
+    ns: ForkDucklakeNamespaceRow,
+    catalog_pg: std::result::Result<windmill_common::PgDatabase, String>,
+    store: std::result::Result<(windmill_types::s3::LargeFileStorage, serde_json::Value), String>,
+}
+
+/// One row per (lake, catalog, storage, data path) ever attached — settings drift adds rows,
+/// so every location the fork wrote gets cleaned, not just the first. Read-only: resolves
+/// credentials but destroys nothing.
+pub(crate) async fn prepare_fork_ducklake_cleanups(
+    db: &DB,
+    w_id: &str,
+) -> Result<Vec<PreparedForkDucklakeCleanup>> {
+    let rows = sqlx::query_as!(
+        ForkDucklakeNamespaceRow,
         r#"SELECT ducklake_name AS "ducklake_name!", metadata_schema AS "metadata_schema!",
                   catalog AS "catalog!", storage AS "storage!",
                   storage_ref AS "storage_ref!", data_path AS "data_path!"
@@ -1355,9 +1391,30 @@ pub(crate) async fn drop_forked_ducklake_namespaces_impl(
     )
     .fetch_all(db)
     .await?;
+    let mut prepared = Vec::with_capacity(rows.len());
+    for ns in rows {
+        let catalog_pg = resolve_fork_catalog_pg(db, w_id, &ns.ducklake_name, &ns.catalog)
+            .await
+            .map_err(|e| e.to_string());
+        let storage = Some(ns.storage.as_str()).filter(|s| !s.is_empty());
+        let store = resolve_fork_storage(db, w_id, storage, &ns.storage_ref)
+            .await
+            .map_err(|e| e.to_string());
+        prepared.push(PreparedForkDucklakeCleanup { ns, catalog_pg, store });
+    }
+    Ok(prepared)
+}
 
+/// Drop the prepared namespaces' metadata schemas + data files, deleting each registry row
+/// only after both succeed (a no-op when the row already cascaded away with the workspace).
+/// Returns per-namespace error strings; never fails as a whole.
+pub(crate) async fn cleanup_fork_ducklake_namespaces(
+    db: &DB,
+    w_id: &str,
+    prepared: Vec<PreparedForkDucklakeCleanup>,
+) -> Vec<String> {
     let mut errors: Vec<String> = Vec::new();
-    for ns in namespaces {
+    for PreparedForkDucklakeCleanup { ns, catalog_pg, store } in prepared {
         // Hard guards mirroring the forked-datatable drop: never touch a schema outside the
         // fork prefix, never delete outside the fork data dir — even if a registry row was
         // somehow tampered with.
@@ -1389,26 +1446,24 @@ pub(crate) async fn drop_forked_ducklake_namespaces_impl(
             continue;
         }
 
-        if let Err(e) = drop_fork_ducklake_metadata_schema(
-            db,
-            w_id,
-            &ns.ducklake_name,
-            &ns.catalog,
-            &ns.metadata_schema,
-        )
-        .await
-        {
+        let drop_res = match catalog_pg {
+            Ok(pg) => drop_fork_ducklake_metadata_schema(db, pg, &ns.metadata_schema).await,
+            Err(e) => Err(Error::internal_err(e)),
+        };
+        if let Err(e) = drop_res {
             errors.push(format!(
                 "Could not drop metadata schema '{}' for ducklake://{}: {e}",
                 ns.metadata_schema, ns.ducklake_name
             ));
             continue;
         }
-        // '' = default storage in the registry (PK column, cannot hold NULL).
-        let storage = Some(ns.storage.as_str()).filter(|s| !s.is_empty());
-        if let Err(e) =
-            delete_fork_ducklake_data(db, w_id, storage, &ns.storage_ref, &ns.data_path).await
-        {
+        let delete_res = match store {
+            Ok((lfs, resource_value)) => {
+                delete_fork_ducklake_data(lfs, resource_value, &ns.data_path).await
+            }
+            Err(e) => Err(Error::internal_err(e)),
+        };
+        if let Err(e) = delete_res {
             errors.push(format!(
                 "Dropped metadata schema but could not delete data files under '{}' for ducklake://{}: {e}",
                 ns.data_path, ns.ducklake_name
@@ -1427,9 +1482,16 @@ pub(crate) async fn drop_forked_ducklake_namespaces_impl(
             &ns.data_path,
         )
         .execute(db)
-        .await?;
+        .await
+        .map_err(|e| {
+            errors.push(format!(
+                "Cleaned ducklake://{} but could not delete its registry row: {e}",
+                ns.ducklake_name
+            ))
+        })
+        .ok();
     }
-    Ok(errors)
+    errors
 }
 
 /// Drop the fork's metadata schema in the catalog database recorded by the registry row —
@@ -1437,13 +1499,16 @@ pub(crate) async fn drop_forked_ducklake_namespaces_impl(
 /// cleanup drop a schema in the wrong database while orphaning the real one. The pg schema
 /// holds only DuckLake metadata tables (auto-created at first fork attach), so a plain
 /// `DROP SCHEMA … CASCADE` on the catalog connection removes the whole fork namespace.
-async fn drop_fork_ducklake_metadata_schema(
+/// Resolve the catalog connection recorded in the registry row (read-only): instance
+/// identities rebuild instance creds; resource identities resolve their `$res:` in the fork's
+/// workspace — which is why this must run BEFORE the workspace (and its resources) are
+/// deleted. Mysql never registers (rejected at resolution).
+async fn resolve_fork_catalog_pg(
     db: &DB,
     w_id: &str,
     ducklake_name: &str,
     catalog: &str,
-    metadata_schema: &str,
-) -> Result<()> {
+) -> Result<windmill_common::PgDatabase> {
     let (resource_type, resource_path) = catalog.split_once(':').ok_or_else(|| {
         Error::internal_err(format!(
             "ducklake://{ducklake_name}: malformed registry catalog identity `{catalog}`"
@@ -1460,8 +1525,6 @@ async fn drop_fork_ducklake_metadata_schema(
         serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("serializing pg creds: {e}")))?
     } else {
-        // The resource is resolved in the fork's own workspace (it was cloned at fork
-        // creation); mysql never registers (rejected at resolution).
         windmill_common::workspaces::transform_json_value_unchecked(
             &serde_json::Value::String(format!("$res:{resource_path}")),
             w_id,
@@ -1469,12 +1532,18 @@ async fn drop_fork_ducklake_metadata_schema(
         )
         .await?
     };
-    let pg: windmill_common::PgDatabase =
-        serde_json::from_value(catalog_resource).map_err(|e| {
-            Error::internal_err(format!(
-                "ducklake://{ducklake_name}: catalog resource is not a postgres database: {e}"
-            ))
-        })?;
+    serde_json::from_value(catalog_resource).map_err(|e| {
+        Error::internal_err(format!(
+            "ducklake://{ducklake_name}: catalog resource is not a postgres database: {e}"
+        ))
+    })
+}
+
+async fn drop_fork_ducklake_metadata_schema(
+    db: &DB,
+    pg: windmill_common::PgDatabase,
+    metadata_schema: &str,
+) -> Result<()> {
     let (client, connection) = pg.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
     let res = client
@@ -1492,23 +1561,19 @@ async fn drop_fork_ducklake_metadata_schema(
     Ok(())
 }
 
-/// Delete every object under the fork's `__wm_forks/<wid>/…` prefix in the storage identified
-/// by the registry's `storage_ref` — the storage that was active when the fork's data was
-/// WRITTEN, not whatever the logical storage name points at by deletion time (a repointed
-/// storage must not orphan the original fork data, nor get a colliding prefix deleted).
-/// `storage_ref` = '' falls back to resolving the logical name against current settings
-/// (registration couldn't identify the storage — best effort). Requires the `parquet`
-/// (object store) feature; without it the metadata schema is still dropped and the
-/// unreachable data files are left for manual cleanup.
-#[cfg(feature = "parquet")]
-async fn delete_fork_ducklake_data(
+/// Resolve the storage identified by the registry's `storage_ref` (read-only) — the storage
+/// that was active when the fork's data was WRITTEN, not whatever the logical storage name
+/// points at by deletion time (a repointed storage must not orphan the original fork data,
+/// nor get a colliding prefix deleted). `storage_ref` = '' falls back to resolving the
+/// logical name against current settings (registration couldn't identify the storage — best
+/// effort). Resolves the `$res:` in the fork's workspace, which is why this must run BEFORE
+/// the workspace is deleted.
+async fn resolve_fork_storage(
     db: &DB,
     w_id: &str,
     storage: Option<&str>,
     storage_ref: &str,
-    data_path: &str,
-) -> Result<()> {
-    use futures::{StreamExt, TryStreamExt};
+) -> Result<(windmill_types::s3::LargeFileStorage, serde_json::Value)> {
     use windmill_types::s3::{
         AzureBlobStorage, FilesystemStorage, GoogleCloudStorage, LargeFileStorage, S3Storage,
     };
@@ -1590,6 +1655,20 @@ async fn delete_fork_ducklake_data(
         )
         .await?
     };
+    Ok((lfs, resource_value))
+}
+
+/// Delete every object under the fork's data prefix in the pre-resolved storage. Requires the
+/// `parquet` (object store) feature; without it the metadata schema is still dropped and the
+/// unreachable data files are left for manual cleanup.
+#[cfg(feature = "parquet")]
+async fn delete_fork_ducklake_data(
+    lfs: windmill_types::s3::LargeFileStorage,
+    resource_value: serde_json::Value,
+    data_path: &str,
+) -> Result<()> {
+    use futures::{StreamExt, TryStreamExt};
+
     let store = windmill_object_store::build_object_store_client(
         &windmill_object_store::lfs_to_object_store_resource(&lfs, resource_value)?,
     )
@@ -1617,10 +1696,8 @@ async fn delete_fork_ducklake_data(
 
 #[cfg(not(feature = "parquet"))]
 async fn delete_fork_ducklake_data(
-    _db: &DB,
-    _w_id: &str,
-    _storage: Option<&str>,
-    _storage_ref: &str,
+    _lfs: windmill_types::s3::LargeFileStorage,
+    _resource_value: serde_json::Value,
     _data_path: &str,
 ) -> Result<()> {
     Err(Error::internal_err(
