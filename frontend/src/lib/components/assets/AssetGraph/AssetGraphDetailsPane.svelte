@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, type Script } from '$lib/gen'
+	import { ScriptService, type Script, type ScriptLang } from '$lib/gen'
 	import { resource } from 'runed'
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -40,6 +40,7 @@
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
 	import DucklakeAssetPanel from './DucklakeAssetPanel.svelte'
+	import { notifyContractWarnings, type SchemaContractGraphContext } from './schemaContracts'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
@@ -153,6 +154,10 @@
 		// data). Pulled from the graph node by the parent page, like
 		// `schemaCanEvolve`. Undefined outside forks.
 		selectionForkMaterialization?: 'fork' | 'deferred'
+		// Producer-side facts for the editor's live schema-contract diagnostics
+		// (ignore suppression + scd2 `_current` fallback), built by the page from
+		// the resolved graph and forwarded to ScriptEditor.
+		schemaContractContext?: SchemaContractGraphContext
 		// Bumped by the parent after dispatching a run so the runs panel
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
@@ -262,6 +267,7 @@
 		selectionColumnGraph,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
+		schemaContractContext = undefined,
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
@@ -672,6 +678,9 @@
 			// same parent").
 			if (typeof newHash === 'string' && newHash) script.hash = newHash
 			sendUserToast(`Saved ${script.path}`)
+			// Authoritative save-time schema-contract check (pipelines gap #2b):
+			// warn-only, post-commit. Fire-and-forget — must never gate the save.
+			notifyContractWarnings(workspace, script.language as ScriptLang, script.content)
 			if (isDraft) {
 				onDraftSaved?.(script.path)
 			} else {
@@ -1188,6 +1197,7 @@
 							showCaptures={false}
 							noSyncFromGithub
 							requireValidAssets
+							{schemaContractContext}
 							lang={script.language}
 							path={script.path}
 							tag={script.tag}

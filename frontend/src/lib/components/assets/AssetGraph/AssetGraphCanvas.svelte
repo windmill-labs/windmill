@@ -402,6 +402,7 @@
 					in_pipeline: r.in_pipeline ?? false,
 					partition_kind: r.partition_kind,
 					freshness: r.freshness,
+					last_success_at: r.last_success_at,
 					tag: r.tag,
 					retry: r.retry,
 					macros: r.macros,

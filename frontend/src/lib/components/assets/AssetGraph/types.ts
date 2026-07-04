@@ -27,6 +27,11 @@ export interface AssetGraphRunnableNode {
 	// Raw `// freshness <duration>` value, e.g. "1h", "30m". Surfaced for
 	// the badge; the runtime parses it as needed.
 	freshness?: string
+	// Completion time (ISO) of the newest successful run of this pipeline
+	// member visible to the caller. The freshness chip compares it against
+	// the `// freshness` window to render fresh/stale. Absent = no
+	// successful run found (or none visible under job RLS).
+	last_success_at?: string
 	// `// tag <name>` worker-tag override. Surfaced for the badge so users
 	// can see which worker pool will pick this script up at a glance.
 	tag?: string
@@ -49,8 +54,15 @@ export interface AssetGraphRunnableNode {
 	// Managed `// materialize` write strategy. Absent for non-materializing or
 	// `manual` scripts. Used (with `partition_kind`) to decide whether a
 	// produced asset's schema can evolve: only whole-table `replace` can, since
-	// `append`/`merge`/partitioned writes INSERT into a fixed-schema table.
-	materialize_strategy?: 'replace' | 'append' | 'merge'
+	// `append`/`merge`/`scd2`/partitioned writes INSERT into a fixed-schema
+	// table. `scd2` also identifies the producer of a `<dim>_current` companion
+	// view for the schema-contract `_current` → base-table fallback.
+	materialize_strategy?: 'replace' | 'append' | 'merge' | 'scd2'
+	// `on_schema_change=ignore` on the managed materialize — the producer's
+	// opt-out from downstream schema-contract warnings. Only present when set
+	// to `ignore` (default `warn` is absent). Threaded into the editor's
+	// contract mirror so it suppresses the same warnings the server check does.
+	materialize_on_schema_change?: string
 	// Macros this script provides to the workspace registry (deployed
 	// `// macros` library). Non-empty marks the node as a macro library;
 	// drives the "defines N macros" badge and the details-pane signature

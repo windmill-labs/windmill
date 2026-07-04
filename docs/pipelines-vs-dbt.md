@@ -51,7 +51,7 @@ Asset-centric, polyglot, annotation-driven, event-aware:
 | Column lineage | No | **Shipped** (`// column`); docs site still TODO |
 | Snapshots / SCD2 | Yes (`key=… history`) | Managed strategy |
 | Selective execution grammar | No | UI/CLI surface |
-| Schema contracts | No, but design metadata model | TODO with design work |
+| Schema contracts | No, but design metadata model | **Shipped** (capture #2a + save-time check #2b) |
 | Packages / community / macros | No | **Shipped** (`// macros` workspace macro libraries) |
 | Semantic layer / metrics | No | Large additive scope |
 
@@ -140,21 +140,43 @@ Today: `requestRunCascadeSignal` in the canvas, `// tag` annotation parsed.
 Graph + tags + last-run state has all the inputs. UI/CLI surface, not
 abstraction work.
 
-### 6. Schema contracts
+### 6. Schema contracts — **shipped**
 
 dbt: `contract: enforced` + `columns: [{name, data_type}]`. Compile-time
 check that model output matches the declaration.
 
-Today: `// on datatable://users/active` is a string. Rename a column
-upstream → downstream breaks at runtime, silently.
+**Shipped**, capture-then-validate (no declaration to maintain): the schema a
+managed `// materialize` run captures post-DESCRIBE into the versioned
+`materialized_asset_schema` sidecar (#2a) *is* the contract, and every
+consumer save/deploy is validated against the latest capture. Three surfaces,
+same diff (`windmill_common::schema_contracts`, mirrored 1:1 in
+`schemaContracts.ts`):
 
-This is the item where the current asset abstraction is thinnest.
-To do contracts well: capture output schemas after a run (substrate-specific
-DESCRIBE), persist them as asset metadata, validate consumer references at
-save time. The asset-as-typed-node model accommodates it — but **where**
-schemas live (asset row, sidecar?), **when** they're captured (post-run?
-edit-time?), and **how** versioning works are non-trivial design choices.
-Worth doing intentionally now while the asset surface is still young.
+- **Save-time (authoritative)**: `POST /w/{ws}/scripts/check_schema_contracts`
+  runs on the deployed content right after a save and returns **warnings —
+  never errors**. A deliberate upstream reshape must not fail every consumer
+  save; that's why dbt's `on_schema_change=fail` is deliberately not offered
+  in v1 (a CI/CLI gate can layer it on later without touching the grammar).
+- **Editor flycheck**: the WASM parse that already runs on the open buffer
+  feeds the same diff, surfacing mismatches as live Monaco warning squiggles
+  anchored to the offending read / `// column` / `// data_test` line.
+- **Autocompletion**: annotation refs (`// column out <-
+  ducklake://lake/orders.`, `// data_test relationships … ->`) complete
+  column names from the captured schema — the broken ref never gets typed.
+
+What's checked (ducklake-only — the only substrate with capture in v1;
+datatable refs have no captured schema and stay silent): body-read/written
+columns missing from the capture, `// column` lineage sources, and
+`// data_test relationships` refs — including a captured-type *difference* on
+the join columns when both sides are captured (phrased "differs", since the
+runtime probe's IN-subquery still coerces). Column names compare
+case-insensitively (DuckDB unquoted-identifier semantics); the managed
+`_wm_partition` column is whitelisted; a `<dim>_current` scd2 view falls back
+to its base table's capture (identical columns by construction).
+
+The producer-side escape hatch is `// materialize … on_schema_change=ignore`:
+it declares the schema deliberately unstable and collapses downstream
+warnings for that asset into a single informational note. Default is `warn`.
 
 ### 7. Packages / community / macros — **shipped** (macro libraries)
 

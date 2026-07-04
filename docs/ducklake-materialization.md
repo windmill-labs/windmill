@@ -49,6 +49,8 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
 // materialize ducklake://analytics/orders_daily append       → managed, append
 // materialize ducklake://analytics/dim_customer key=id history → managed, SCD type 2 history
 // materialize manual ducklake://analytics/orders_daily       → track-only escape hatch
+// materialize ducklake://analytics/raw_events on_schema_change=ignore
+//                                  → managed, downstream contract warnings muted
 ```
 
 - **managed (default)** — the script is *setup + one trailing `SELECT`*; Windmill
@@ -268,6 +270,14 @@ without anyone asking. This is deliberately **not** built, for three reasons:
 If a workload ever shows the consistency race in practice, pinning can be layered
 on top — the capture and the snapshot surfacing built here are its foundation.
 
+What **is** built is the forensic slice of that sketch: when the cascade
+dispatches a consumer, it records the latest captured snapshot of each of the
+consumer's direct upstream assets into the job's `trigger` arg
+(`upstream_snapshots`, rendered read-only on the run detail page with a
+copyable `AT (VERSION => n)` clause). "What did the failing run actually see"
+stays answerable after the fact, with zero read-path changes — reads are
+*not* pinned to the recorded versions.
+
 This is distinct from **SCD2 history** (`// materialize … key=… history`), which *is* built:
 DuckLake time-travel answers "what did the whole table look like at snapshot N?"
 but not "give me each entity's version history as queryable rows"
@@ -357,6 +367,35 @@ load-bearing.
   language) are the natural follow-up and fit the same verifier seam.
 - **Managed only.** `// materialize manual` + `// data_test` is rejected with a
   clear error (we can't know the manual script's target alias / partition col).
+
+## Schema contracts (save-time, gap #2b)
+
+The captured schema (#2a) is read back as a *contract*: at save/deploy time,
+every consumer's asset references — body-read/written columns, `// column`
+lineage sources, `// data_test relationships` refs — are diffed against the
+latest `materialized_asset_schema` version of each referenced ducklake asset,
+and mismatches surface as **warnings** (deploy never blocks; dbt's
+`on_schema_change=fail` is deliberately absent in v1). The diff lives in
+`windmill_common::schema_contracts` (endpoint:
+`POST /w/{ws}/scripts/check_schema_contracts`, called by the UI right after a
+save) and is mirrored 1:1 by the editor (`schemaContracts.ts`): live Monaco
+warning squiggles from the WASM buffer parse, plus column-name completion for
+annotation refs fed by the same captured schemas.
+
+Comparison rules worth knowing: column names are case-insensitive (DuckDB
+unquoted-identifier semantics); `_wm_partition` is whitelisted (it's excluded
+from capture); `{partition}` tokens are stripped before lookup; a
+`<dim>_current` reference falls back to the scd2 base table's capture; a
+relationships join across two captured assets also flags a captured-type
+*difference* (the runtime probe coerces, so it's "differs", not "will fail").
+An asset with no capture (never materialized, `manual` mode, any
+`datatable://`) produces no warnings.
+
+The producer opts a deliberately unstable schema out with
+`// materialize … on_schema_change=ignore` — consumers then get a single
+informational "suppressed" note instead of per-column warnings. On `manual`
+materialize the option is inert (nothing is captured) and deploy logs a
+warning saying so.
 
 ## Scoping decision: DuckLake vs DataTable
 

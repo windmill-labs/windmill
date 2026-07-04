@@ -22,6 +22,7 @@
 	import type { RunnableRunState, PipelineEvent } from './activeRunnables.svelte'
 	import type { PipelineOutputKind } from './pipelineTemplates'
 	import type { PipelineEditorState } from './pipelineEditorState.svelte'
+	import type { SchemaContractGraphContext } from './schemaContracts'
 
 	type RunProducer = { kind: 'script' | 'flow'; path: string; unsaved?: boolean; cascade?: boolean }
 
@@ -74,6 +75,7 @@
 		selectionColumnGraph,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
+		schemaContractContext = undefined,
 		downstreamSubscribers = 0,
 		onStartBoundedRunForOpen,
 		canBoundedRunOpenScript = false,
@@ -173,6 +175,9 @@
 		schemaCanEvolve?: boolean
 		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
 		selectionForkMaterialization?: 'fork' | 'deferred'
+		/** Producer-side facts for the editor's live schema-contract diagnostics
+		 * (ignore suppression + scd2 `_current` fallback), from the route page. */
+		schemaContractContext?: SchemaContractGraphContext
 		downstreamSubscribers?: number
 		onStartBoundedRunForOpen?: (path: string) => void
 		canBoundedRunOpenScript?: boolean
@@ -490,6 +495,7 @@
 						{selectionColumnGraph}
 						{schemaCanEvolve}
 						{selectionForkMaterialization}
+						{schemaContractContext}
 						{runsRefreshKey}
 						{runsPendingJobId}
 						{activeRunnable}
