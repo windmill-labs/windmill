@@ -890,6 +890,14 @@ impl DucklakeMaintenance {
 /// exists. The schedule API rejects user mutations under this prefix and the
 /// list/export endpoints filter it out — the lifecycle is owned by the
 /// workspace ducklake settings.
+///
+/// Accepted limitation: a schedule that pre-dated this namespace under a real
+/// `ducklake_maintenance` folder keeps running (tick dispatch falls through
+/// to its script when its path's lake has no enabled maintenance config, and
+/// the settings sync only touches rows derived from config) but stays hidden
+/// from list/export and immutable via the schedule API until renamed out of
+/// the namespace. Judged unlikely enough to not warrant a discriminator
+/// column or a rename migration.
 pub const DUCKLAKE_MAINTENANCE_PATH_PREFIX: &str = "f/ducklake_maintenance/";
 
 pub fn ducklake_maintenance_schedule_path(lake: &str) -> String {
