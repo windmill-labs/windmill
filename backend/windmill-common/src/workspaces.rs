@@ -1311,9 +1311,13 @@ async fn fork_scoped_ducklake(
             Ok((mut a, ancestor_behavior)) => {
                 // A fork ancestor lives in its own namespace UNLESS its lake is `Shared` —
                 // then it never redirected and its data sits at its config's default
-                // location, exactly like a root workspace.
-                let is_isolated_fork =
-                    i + 1 < chain.len() && ancestor_behavior != Some(DucklakeForkBehavior::Shared);
+                // location, exactly like a root workspace. Chain position alone can't tell
+                // the two apart: an orphaned `wm-fork-*` ancestor (its own parent deleted,
+                // `parent_workspace_id` SET NULL) ends the chain like a root but its data
+                // lives in ITS fork namespace — key on the prefix too, as in resolution.
+                let is_isolated_fork = (i + 1 < chain.len()
+                    || ancestor_id.starts_with(WM_FORK_PREFIX))
+                    && ancestor_behavior != Some(DucklakeForkBehavior::Shared);
                 let metadata_schema = if is_isolated_fork {
                     a.storage.path = fork_data_path(&a.storage.path, ancestor_id);
                     Some(fork_ducklake_metadata_schema(ancestor_id, name))
