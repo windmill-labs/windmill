@@ -2304,6 +2304,17 @@ async fn edit_ducklake_config(
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
+    // Lake names end up interpolated in `ATTACH 'ducklake://<name>'`,
+    // generated maintenance SQL and the reserved maintenance schedule path
+    // (CHECK-constrained to [\w-]+ segments).
+    for name in new_config.settings.ducklakes.keys() {
+        if !windmill_common::workspaces::is_valid_ducklake_name(name) {
+            return Err(Error::BadRequest(format!(
+                "Invalid ducklake name '{name}': only letters, digits, '_' and '-' are allowed"
+            )));
+        }
+    }
+
     let mut tx = db.begin().await?;
 
     let args_for_audit = format!("{:?}", new_config.settings);
@@ -2318,21 +2329,22 @@ async fn edit_ducklake_config(
     )
     .await?;
 
+    let old_ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT ws.ducklake->'ducklakes' AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(serde_json::Value::Null);
+    let old_ducklakes: HashMap<String, Ducklake> =
+        serde_json::from_value(old_ducklakes).unwrap_or_default();
+
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_ducklakes = sqlx::query_scalar!(
-            r#"
-                SELECT ws.ducklake->'ducklakes' AS ducklake_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_ducklakes: HashMap<String, Ducklake> =
-            serde_json::from_value(old_ducklakes).unwrap_or_default();
         for (name, dl) in new_config.settings.ducklakes.iter() {
             if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
                 let old_dl = old_ducklakes.get(name);
@@ -2350,7 +2362,7 @@ async fn edit_ducklake_config(
         }
     }
 
-    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+    let config: serde_json::Value = serde_json::to_value(&new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
     sqlx::query!(
@@ -2359,6 +2371,19 @@ async fn edit_ducklake_config(
         &w_id
     )
     .execute(&mut *tx)
+    .await?;
+
+    // Same tx as the settings update: a failed schedule sync/push must fail
+    // the whole save — nothing reconciles a half-applied state later.
+    let tx = windmill_queue::ducklake_maintenance::sync_ducklake_maintenance_schedules(
+        &db,
+        tx,
+        &w_id,
+        &new_config.settings.ducklakes,
+        &old_ducklakes,
+        &username,
+        &email,
+    )
     .await?;
 
     tx.commit().await?;
@@ -4089,6 +4114,9 @@ async fn clone_triggers_and_schedules(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
+    // Managed ducklake-maintenance schedules are excluded: the fork starts
+    // with no ducklake config, so cloned rows could never resolve a lake and
+    // the schedule API refuses mutations under the reserved prefix.
     sqlx::query!(
         r#"INSERT INTO schedule (
             workspace_id, path, edited_by, edited_at, schedule, enabled, script_path,
@@ -4105,9 +4133,10 @@ async fn clone_triggers_and_schedules(
             on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
             summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
             cron_version, description, dynamic_skip, permissioned_as, labels
-        FROM schedule WHERE workspace_id = $2"#,
+        FROM schedule WHERE workspace_id = $2 AND NOT starts_with(path, $3)"#,
         target_workspace_id,
         source_workspace_id,
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
     )
     .execute(&mut **tx)
     .await?;

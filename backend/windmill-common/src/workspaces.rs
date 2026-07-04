@@ -848,6 +848,8 @@ pub struct Ducklake {
     /// callers that omit it) never write the parent's lake.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_behavior: Option<DucklakeForkBehavior>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maintenance: Option<DucklakeMaintenance>,
 }
 
 /// Per-lake fork data-environment choice, made at fork creation.
@@ -859,6 +861,78 @@ pub enum DucklakeForkBehavior {
     /// The fork reads AND WRITES the parent's lake directly — explicit opt-out of isolation
     /// (e.g. a fork meant to run prod-equivalent backfills).
     Shared,
+}
+
+/// Scheduled maintenance for a ducklake (enterprise): snapshot expiry,
+/// adjacent-file compaction and orphaned-file cleanup, run as a managed
+/// per-lake schedule. Not mirrored in `instance_config::Ducklake`:
+/// instance-level lakes have no workspace to schedule into.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DucklakeMaintenance {
+    pub enabled: bool,
+    /// Cron (v2/croner, seconds optional). None → daily at 03:00 UTC with a
+    /// deterministic per-(workspace, lake) minute offset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
+    /// Snapshot retention window in days (default 7). Snapshots older than
+    /// this are expired: time-travel reads (`AT (VERSION => n)`) older than
+    /// the window stop working. 0 keeps only the current snapshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<u32>,
+    /// Merge adjacent small parquet files (default true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction: Option<bool>,
+    /// Delete orphaned files older than max(retention, 1 day) (default true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orphan_cleanup: Option<bool>,
+}
+
+impl DucklakeMaintenance {
+    pub const DEFAULT_RETENTION_DAYS: u32 = 7;
+
+    pub fn retention_days(&self) -> u32 {
+        self.retention_days.unwrap_or(Self::DEFAULT_RETENTION_DAYS)
+    }
+    pub fn compaction(&self) -> bool {
+        self.compaction.unwrap_or(true)
+    }
+    pub fn orphan_cleanup(&self) -> bool {
+        self.orphan_cleanup.unwrap_or(true)
+    }
+}
+
+/// Reserved schedule path namespace for managed ducklake maintenance
+/// schedules. Must satisfy the `schedule.path` CHECK constraint
+/// (`^[ufg](\/[\w-]+){2,}$`), hence the `f/` prefix; the folder itself never
+/// exists. The schedule API rejects user mutations under this prefix and the
+/// list/export endpoints filter it out — the lifecycle is owned by the
+/// workspace ducklake settings.
+///
+/// Accepted limitation: a schedule that pre-dated this namespace under a real
+/// `ducklake_maintenance` folder keeps running (tick dispatch falls through
+/// to its script when its path's lake has no enabled maintenance config, and
+/// the settings sync only touches rows derived from config) but stays hidden
+/// from list/export and immutable via the schedule API until renamed out of
+/// the namespace. Judged unlikely enough to not warrant a discriminator
+/// column or a rename migration.
+pub const DUCKLAKE_MAINTENANCE_PATH_PREFIX: &str = "f/ducklake_maintenance/";
+
+pub fn ducklake_maintenance_schedule_path(lake: &str) -> String {
+    format!("{DUCKLAKE_MAINTENANCE_PATH_PREFIX}{lake}")
+}
+
+pub fn lake_from_ducklake_maintenance_path(path: &str) -> Option<&str> {
+    path.strip_prefix(DUCKLAKE_MAINTENANCE_PATH_PREFIX)
+}
+
+/// Lake names are interpolated into `ATTACH 'ducklake://<name>'`, generated
+/// maintenance SQL and the reserved schedule path (CHECK-constrained to
+/// `[\w-]+` segments), so they must stay to this charset.
+pub fn is_valid_ducklake_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 #[derive(Deserialize, Serialize, Debug)]

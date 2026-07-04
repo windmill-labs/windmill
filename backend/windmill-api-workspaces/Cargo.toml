@@ -11,7 +11,11 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = ["windmill-common/enterprise"]
-private = ["windmill-common/private"]
+private = [
+    "windmill-common/private",
+    "windmill-queue/private",
+    "windmill-audit/private",
+]
 cloud = ["windmill-common/cloud"]
 no_auth = ["windmill-api-auth/no_auth"]
 parquet = ["windmill-object-store/parquet", "dep:futures"]
