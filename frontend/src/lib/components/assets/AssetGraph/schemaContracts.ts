@@ -284,7 +284,13 @@ export function buildSchemaContractContext(
 		if (!t || t.kind !== 'ducklake') continue
 		const base = normalizeAssetPath(t.path)
 		if (r.materialize_on_schema_change === 'ignore') {
-			ignoredAssets.push(base, `${base}_current`)
+			ignoredAssets.push(base)
+			// The `_current` companion is the producer's own view only for scd2 —
+			// mirroring the backend's `spec.scd2` gate; for any other strategy a
+			// `<base>_current` ref is an unrelated asset that must keep warning.
+			if (r.materialize_strategy === 'scd2') {
+				ignoredAssets.push(`${base}_current`)
+			}
 		}
 		if (r.materialize_strategy === 'scd2') {
 			scd2CurrentBases[`${base}_current`] = base

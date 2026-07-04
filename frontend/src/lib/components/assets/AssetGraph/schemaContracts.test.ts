@@ -207,6 +207,20 @@ describe('buildSchemaContractContext', () => {
 		expect(ctx.ignoredAssets).toEqual(['lake/dim', 'lake/dim_current'])
 		expect(ctx.scd2CurrentBases).toEqual({ 'lake/dim_current': 'lake/dim' })
 	})
+
+	it('ignores _current only for scd2 producers (backend spec.scd2 gate)', () => {
+		const ctx = buildSchemaContractContext([
+			{
+				materialize_target: { kind: 'ducklake', path: 'lake/t' },
+				materialize_strategy: 'replace',
+				materialize_on_schema_change: 'ignore'
+			}
+		])
+		// a non-scd2 producer's `<base>_current` is an unrelated asset — it must
+		// keep warning, exactly like the server-side check
+		expect(ctx.ignoredAssets).toEqual(['lake/t'])
+		expect(ctx.scd2CurrentBases).toEqual({})
+	})
 })
 
 describe('mapWarningsToMarkers', () => {
