@@ -862,6 +862,25 @@ pub(crate) async fn delete_workspace(
         }
     }
 
+    // Physical ducklake-namespace cleanup BEFORE the row deletes: the registry rows CASCADE
+    // with the workspace row below, and fork namespaces are deterministic from (id, lake) — an
+    // orphaned namespace would silently REATTACH to a recreated identical fork id. Runs inline
+    // so every delete path is covered (CLI, force-delete dialog, direct API — not just the
+    // sidebar flow, which still calls the endpoint first for per-lake error toasts; the rerun
+    // is an idempotent no-op). Best effort: failures are logged and deletion proceeds — broken
+    // storage credentials must not make a workspace undeletable. Uses the pool, not `tx`
+    // (which has only performed reads so far).
+    match drop_forked_ducklake_namespaces_impl(&db, &w_id).await {
+        Ok(errs) => {
+            for e in errs {
+                tracing::warn!("deleting workspace {w_id}: ducklake namespace cleanup: {e}");
+            }
+        }
+        Err(e) => {
+            tracing::warn!("deleting workspace {w_id}: ducklake namespace cleanup failed: {e:#}");
+        }
+    }
+
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1295,7 +1314,11 @@ pub async fn drop_forked_datatable_databases(
 /// the workspace storage. Driven by the `fork_ducklake_namespace` registry written at first
 /// fork attach, so it works even after settings drift. Returns errors per lake that failed;
 /// the registry row is only deleted once both cleanups succeeded, so a retry resumes.
-/// Same permission as delete_workspace: fork owner or super admin.
+/// Same permission as delete_workspace: fork owner or super admin. `delete_workspace` also
+/// runs this inline (the UI calls this endpoint first for error visibility; the inline run
+/// covers every other delete path — CLI, force-delete dialogs, direct API — whose row delete
+/// would otherwise CASCADE the registry away while orphaning the physical namespaces, which a
+/// recreated identical fork id would then silently reattach).
 pub async fn drop_forked_ducklake_namespaces(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1312,7 +1335,15 @@ pub async fn drop_forked_ducklake_namespaces(
         ));
     }
     tx.commit().await?;
+    Ok(Json(drop_forked_ducklake_namespaces_impl(&db, &w_id).await?))
+}
 
+/// The cleanup itself, shared by the endpoint and the inline `delete_workspace` run. No
+/// authorization of its own — callers gate.
+pub(crate) async fn drop_forked_ducklake_namespaces_impl(
+    db: &DB,
+    w_id: &str,
+) -> Result<Vec<String>> {
     // One row per (lake, storage, data path) ever attached — settings drift adds rows, so
     // every prefix the fork wrote gets cleaned, not just the first.
     let namespaces = sqlx::query!(
@@ -1320,9 +1351,9 @@ pub async fn drop_forked_ducklake_namespaces(
                   catalog AS "catalog!", storage AS "storage!",
                   storage_ref AS "storage_ref!", data_path AS "data_path!"
              FROM fork_ducklake_namespace WHERE workspace_id = $1"#,
-        &w_id
+        w_id
     )
-    .fetch_all(&db)
+    .fetch_all(db)
     .await?;
 
     let mut errors: Vec<String> = Vec::new();
@@ -1348,7 +1379,7 @@ pub async fn drop_forked_ducklake_namespaces(
         let expected_prefix = format!(
             "{}/{}/",
             windmill_common::workspaces::FORK_DUCKLAKE_DATA_DIR,
-            windmill_common::workspaces::fork_data_dir_segment(&w_id)
+            windmill_common::workspaces::fork_data_dir_segment(w_id)
         );
         if !format!("{}/", ns.data_path.trim_end_matches('/')).starts_with(&expected_prefix) {
             errors.push(format!(
@@ -1359,8 +1390,8 @@ pub async fn drop_forked_ducklake_namespaces(
         }
 
         if let Err(e) = drop_fork_ducklake_metadata_schema(
-            &db,
-            &w_id,
+            db,
+            w_id,
             &ns.ducklake_name,
             &ns.catalog,
             &ns.metadata_schema,
@@ -1376,7 +1407,7 @@ pub async fn drop_forked_ducklake_namespaces(
         // '' = default storage in the registry (PK column, cannot hold NULL).
         let storage = Some(ns.storage.as_str()).filter(|s| !s.is_empty());
         if let Err(e) =
-            delete_fork_ducklake_data(&db, &w_id, storage, &ns.storage_ref, &ns.data_path).await
+            delete_fork_ducklake_data(db, w_id, storage, &ns.storage_ref, &ns.data_path).await
         {
             errors.push(format!(
                 "Dropped metadata schema but could not delete data files under '{}' for ducklake://{}: {e}",
@@ -1388,17 +1419,17 @@ pub async fn drop_forked_ducklake_namespaces(
             "DELETE FROM fork_ducklake_namespace
              WHERE workspace_id = $1 AND ducklake_name = $2 AND catalog = $3
                AND storage = $4 AND storage_ref = $5 AND data_path = $6",
-            &w_id,
+            w_id,
             &ns.ducklake_name,
             &ns.catalog,
             &ns.storage,
             &ns.storage_ref,
             &ns.data_path,
         )
-        .execute(&db)
+        .execute(db)
         .await?;
     }
-    Ok(Json(errors))
+    Ok(errors)
 }
 
 /// Drop the fork's metadata schema in the catalog database recorded by the registry row —
