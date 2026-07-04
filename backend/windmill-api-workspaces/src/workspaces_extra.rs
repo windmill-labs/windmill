@@ -749,6 +749,7 @@ pub(crate) async fn change_workspace_id(
     // (fork-of-fork) self-heal via the 60s billing-cache TTL.
     for child in &reparented_children {
         windmill_queue::tags::invalidate_fork_parent_cache(child);
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(child);
         #[cfg(feature = "cloud")]
         windmill_common::workspaces::invalidate_billing_workspace_cache(child);
     }
@@ -1099,6 +1100,7 @@ pub(crate) async fn delete_workspace(
     // billing TTL.
     for id in std::iter::once(&w_id).chain(orphaned_children.iter()) {
         windmill_queue::tags::invalidate_fork_parent_cache(id);
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(id);
         #[cfg(feature = "cloud")]
         {
             windmill_common::workspaces::invalidate_billing_workspace_cache(id);

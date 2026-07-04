@@ -1121,6 +1121,15 @@ lazy_static::lazy_static! {
     static ref FORK_DUCKLAKE_REGISTERED: Cache<(String, String), i64> = Cache::new(5000);
 }
 
+/// Drop the cached ancestor chain for a workspace. MUST be called wherever
+/// `parent_workspace_id` lineage changes (fork creation, dev-workspace attach, reparenting
+/// rename, deletion): a cached EMPTY chain reads as "not a fork" and would bypass ducklake
+/// fork isolation for the TTL — the first jobs after a dev-workspace attach would write the
+/// shared lake.
+pub fn invalidate_fork_ancestor_chain_cache(w_id: &str) {
+    FORK_ANCESTOR_CHAIN_CACHE.remove(w_id);
+}
+
 /// Ancestors of `w_id`, nearest-first (direct parent … root). Empty for a non-fork workspace or
 /// an unknown id. The depth bound is a cycle-safety backstop, same convention as
 /// [`fork_chain_depth`].

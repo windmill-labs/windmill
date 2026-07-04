@@ -5565,6 +5565,10 @@ async fn create_workspace_fork(
     .await?;
     tx.commit().await?;
 
+    // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
+    // would bypass ducklake fork isolation for the TTL.
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&forked_id);
+
     if locked_prod {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
     }
@@ -5738,6 +5742,13 @@ async fn attach_dev_workspace(
     // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
     // so per-workspace job tags route to the prod family immediately rather than after the TTL.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    // Drop the cached ancestor chains too — the workspace existed BEFORE the attach, so a
+    // cached empty chain reads as "not a fork" and its ducklake jobs would write the shared
+    // lake until the TTL. Descendants' chains also gained the new root.
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&dev_w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+    }
     // Same reparent invalidates the billing-workspace mapping so its usage meters to prod at once. The
     // candidate can bring its own fork subtree, whose descendants had resolved their (now-stale) root
     // to the candidate's old family; invalidate them too so they meter to prod without waiting out the
