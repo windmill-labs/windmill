@@ -794,6 +794,155 @@ mod temporal_json_tests {
         assert_eq!(json_of(3), serde_json::json!("2026-07-01"));
         assert_eq!(json_of(4), serde_json::json!("10:30:00"));
     }
+
+    // The data-test sample probe shape emitted by
+    // `windmill-parser::sql_materialize::build_data_test_checks`: one scan
+    // yielding the violating-row count plus a bounded `to_json` sample of the
+    // rows as a VARCHAR. These tests gate that design against the *bundled*
+    // engine (json extension availability, row-as-struct alias reference,
+    // NULL degrade on zero rows / oversized samples, exotic column types).
+    fn sample_probe_sql(rows_query: &str, max_len: usize) -> String {
+        format!(
+            "SELECT v, CASE WHEN length(s_raw) <= {max_len} THEN s_raw END AS s \
+             FROM (SELECT count(*) AS v, \
+                   to_json(list(_wm_v ORDER BY _wm_rn) FILTER (WHERE _wm_rn <= 20))::VARCHAR AS s_raw \
+                   FROM (SELECT _wm_v, row_number() OVER () AS _wm_rn FROM ({rows_query}) _wm_v))"
+        )
+    }
+
+    fn run_sample_probe(
+        conn: &duckdb::Connection,
+        rows_query: &str,
+        max_len: usize,
+    ) -> (i64, Option<String>) {
+        let mut stmt = conn
+            .prepare(&sample_probe_sql(rows_query, max_len))
+            .unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let row = rows.next().unwrap().unwrap();
+        (row.get(0).unwrap(), row.get(1).unwrap())
+    }
+
+    #[test]
+    fn data_test_sample_probe_counts_and_samples() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t (id INT, name VARCHAR); \
+             INSERT INTO t VALUES (1, 'a'), (2, NULL), (3, NULL);",
+        )
+        .unwrap();
+        let (v, s) = run_sample_probe(&conn, "SELECT * FROM t WHERE name IS NULL", 51200);
+        assert_eq!(v, 2);
+        let parsed: serde_json::Value = serde_json::from_str(&s.unwrap()).unwrap();
+        assert_eq!(
+            parsed,
+            serde_json::json!([{"id": 2, "name": null}, {"id": 3, "name": null}])
+        );
+    }
+
+    #[test]
+    fn data_test_sample_probe_zero_rows_yields_null_sample() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t (id INT); INSERT INTO t VALUES (1);")
+            .unwrap();
+        let (v, s) = run_sample_probe(&conn, "SELECT * FROM t WHERE id IS NULL", 51200);
+        assert_eq!(v, 0);
+        assert!(s.is_none());
+    }
+
+    #[test]
+    fn data_test_sample_probe_caps_at_20_rows_but_counts_all() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t AS SELECT range AS id FROM range(50);")
+            .unwrap();
+        let (v, s) = run_sample_probe(&conn, "SELECT * FROM t", 51200);
+        assert_eq!(v, 50);
+        let parsed: serde_json::Value = serde_json::from_str(&s.unwrap()).unwrap();
+        assert_eq!(parsed.as_array().unwrap().len(), 20);
+    }
+
+    #[test]
+    fn data_test_sample_probe_oversized_sample_degrades_to_null() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t AS SELECT repeat('x', 1000) AS big FROM range(5);")
+            .unwrap();
+        let (v, s) = run_sample_probe(&conn, "SELECT * FROM t", 100);
+        assert_eq!(v, 5);
+        assert!(s.is_none());
+    }
+
+    #[test]
+    fn data_test_sample_probe_codegen_row_query_shapes() {
+        // The exact rows-query shapes emitted by `build_data_test_checks`:
+        // unique's `{value, count}` grain and the star-EXCLUDE forms used on
+        // partitioned targets (plain and `_wm_src.`-qualified).
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t (id INT, name VARCHAR, _wm_partition VARCHAR); \
+             INSERT INTO t VALUES (1, 'a', 'p'), (1, 'b', 'p'), (2, NULL, 'p');",
+        )
+        .unwrap();
+        let (v, s) = run_sample_probe(
+            &conn,
+            "SELECT \"id\" AS \"value\", count(*) AS \"count\" FROM t \
+             WHERE \"id\" IS NOT NULL GROUP BY \"id\" HAVING count(*) > 1",
+            51200,
+        );
+        assert_eq!(v, 1);
+        let parsed: serde_json::Value = serde_json::from_str(&s.unwrap()).unwrap();
+        assert_eq!(parsed, serde_json::json!([{"value": 1, "count": 2}]));
+
+        let (v, s) = run_sample_probe(
+            &conn,
+            "SELECT * EXCLUDE (\"_wm_partition\") FROM t WHERE name IS NULL",
+            51200,
+        );
+        assert_eq!(v, 1);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&s.unwrap()).unwrap(),
+            serde_json::json!([{"id": 2, "name": null}])
+        );
+
+        let (v, s) = run_sample_probe(
+            &conn,
+            "SELECT _wm_src.* EXCLUDE (\"_wm_partition\") FROM t _wm_src WHERE _wm_src.name IS NULL",
+            51200,
+        );
+        assert_eq!(v, 1);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&s.unwrap()).unwrap(),
+            serde_json::json!([{"id": 2, "name": null}])
+        );
+    }
+
+    #[test]
+    fn data_test_sample_probe_survives_exotic_types() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t AS SELECT \
+                INTERVAL 3 DAY AS iv, \
+                12345678901234567890123456789::HUGEINT AS hi, \
+                '\\xDE\\xAD'::BLOB AS bl, \
+                [1, 2, 3] AS li, \
+                {'a': 1, 'b': 'x'} AS st, \
+                TIMESTAMPTZ '2026-07-01 23:13:42+00' AS tstz, \
+                DECIMAL '12.34' AS dec;",
+        )
+        .unwrap();
+        let (v, s) = run_sample_probe(&conn, "SELECT * FROM t", 51200);
+        assert_eq!(v, 1);
+        let parsed: serde_json::Value = serde_json::from_str(&s.unwrap()).unwrap();
+        let row = &parsed.as_array().unwrap()[0];
+        // Exact renderings are DuckDB's to_json choices — the gate is only
+        // that every type serializes without error and parses back as JSON.
+        assert!(row.get("iv").is_some());
+        assert!(row.get("hi").is_some());
+        assert!(row.get("bl").is_some());
+        assert_eq!(row["li"], serde_json::json!([1, 2, 3]));
+        assert_eq!(row["st"], serde_json::json!({"a": 1, "b": "x"}));
+        assert!(row.get("tstz").is_some());
+        assert!(row.get("dec").is_some());
+    }
 }
 
 fn json_value_to_duckdb_value(

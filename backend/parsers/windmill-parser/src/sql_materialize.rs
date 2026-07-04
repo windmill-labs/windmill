@@ -778,16 +778,29 @@ pub fn materialize_result_sql(
     if checks.is_empty() {
         return format!("SELECT {base_cols};");
     }
-    // Per-test breakdown. Each check's violating-count is computed once as a CTE
-    // column (`c0`, `c1`, …); the `data_tests` list-of-struct then references
-    // those columns — DuckDB rejects scalar subqueries *inside* a struct/list
-    // literal, hence the CTE. Names are single-quote-escaped. The result row
-    // carries the whole breakdown so the worker runs every test (no
-    // abort-on-first) and decides pass/fail itself.
-    let cte_cols = checks
+    // Per-test breakdown. Each check's one-row probe `(v, s)` becomes a CTE
+    // (`_wm_t0`, `_wm_t1`, …); `_wm_tr` cross-joins them (all one-row, so the
+    // join stays one row) and the `data_tests` list-of-struct references the
+    // flattened columns — DuckDB rejects scalar subqueries *inside* a
+    // struct/list literal, hence the CTE lift. Names are single-quote-escaped.
+    // The result row carries the whole breakdown so the worker runs every
+    // test (no abort-on-first) and decides pass/fail itself.
+    let probe_ctes = checks
         .iter()
         .enumerate()
-        .map(|(i, c)| format!("{} AS c{i}", c.violating))
+        .map(|(i, c)| format!("_wm_t{i} AS ({})", c.probe))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let tr_cols = checks
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("_wm_t{i}.v AS c{i}, _wm_t{i}.s AS s{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let tr_from = checks
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("_wm_t{i}"))
         .collect::<Vec<_>>()
         .join(", ");
     let list_items = checks
@@ -795,12 +808,12 @@ pub fn materialize_result_sql(
         .enumerate()
         .map(|(i, c)| {
             let name = c.name.replace('\'', "''");
-            format!("{{'test': '{name}', 'violating': c{i}}}")
+            format!("{{'test': '{name}', 'violating': c{i}, 'sample': s{i}}}")
         })
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "WITH _wm_tr AS (SELECT {cte_cols}) \
+        "WITH {probe_ctes}, _wm_tr AS (SELECT {tr_cols} FROM {tr_from}) \
          SELECT {base_cols}, [{list_items}] AS data_tests FROM _wm_tr;"
     )
 }
@@ -821,18 +834,19 @@ fn terminate(stmt: &str) -> String {
 //
 // A data test is the FIRST extensible annotation: the parser yields a
 // `DataTest` from a known vocabulary, and this module turns each into a
-// *check* — a `(name, violating-row-count query)` pair — that runs against the
-// freshly-materialized target after the write commits. The materialize summary
-// query embeds every check's count in one `data_tests` column, so all tests
-// run in a single pass (no abort-on-first) and the worker, not the SQL,
-// decides pass/fail and reports the full per-test breakdown.
+// *check* — a `(name, probe)` pair whose probe counts and samples the
+// violating rows — that runs against the freshly-materialized target after
+// the write commits. The materialize summary query embeds every check's
+// outcome in one `data_tests` column, so all tests run in a single pass (no
+// abort-on-first) and the worker, not the SQL, decides pass/fail and reports
+// the full per-test breakdown.
 //
-// The pattern is deliberately open: a verifier is just `(name, count query)`.
-// Built-ins differ only in their count query; the `Custom` escape hatch
-// supplies its own (a user SELECT returning the violating rows). A sibling
-// annotation family (column-lineage) can emit its own checks through the same
-// `push_check` shape rather than bolting on a parallel mechanism. See
-// `docs/ducklake-materialization.md`.
+// The pattern is deliberately open: a verifier is just `(name, violating-rows
+// query)` handed to `push_check`. Built-ins differ only in their rows query;
+// the `Custom` escape hatch supplies its own (a user SELECT returning the
+// violating rows). A sibling annotation family (column-lineage) can emit its
+// own checks through the same `push_check` shape rather than bolting on a
+// parallel mechanism. See `docs/ducklake-materialization.md`.
 
 use crate::asset_parser::{AssetKind, DataTest};
 
@@ -867,18 +881,30 @@ pub enum DataTestResolved {
     Custom { path: String, body: String },
 }
 
-/// One compiled data-test check: a human-readable `name` and a scalar SQL
-/// expression (`violating`) yielding the number of rows that violate it (0 =
-/// pass). The materialize summary query embeds every check's count so the
-/// worker gets the whole breakdown in one result — all tests run (no
-/// abort-on-first) and the worker, not the SQL, decides pass/fail.
+/// One compiled data-test check: a human-readable `name` and a one-row probe
+/// query yielding `(v, s)` — the violating-row count (0 = pass) and a bounded
+/// `to_json` sample of the violating rows as a VARCHAR (NULL when there are
+/// none, or when the serialized sample exceeds the size cap). The materialize
+/// summary query embeds every check's outcome so the worker gets the whole
+/// breakdown in one result — all tests run (no abort-on-first) and the
+/// worker, not the SQL, decides pass/fail. The sample is decoration only:
+/// enforcement reads `v`, never `s`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataTestCheck {
     pub name: String,
-    /// Scalar subquery yielding the violating-row count, e.g.
-    /// `(SELECT count(*) AS v FROM (…))`.
-    pub violating: String,
+    /// One-row subquery `SELECT … AS v, … AS s FROM (…)` counting and
+    /// sampling the check's violating rows in a single scan.
+    pub probe: String,
 }
+
+/// Row cap on a data-test sample. Bounded so the sample stays a debugging aid
+/// (the full count is still reported); no ORDER BY on the violating rows, so
+/// which rows land in the sample is nondeterministic.
+const SAMPLE_MAX_ROWS: usize = 20;
+/// Byte cap on one serialized sample. Oversized samples are dropped entirely
+/// (NULL), never truncated — truncated JSON would fail parsing downstream
+/// after paying the bytes anyway.
+const SAMPLE_MAX_BYTES: usize = 51_200;
 
 /// The SQL a set of data tests compiles to: referenced-asset `ATTACH`
 /// statements (resolved by the executor's ATTACH-transform pass) and the
@@ -943,11 +969,38 @@ fn partition_scope(ctx: &DataTestCtx, prefix: &str, table_alias: Option<&str>) -
     format!("{prefix}{}", conds.join(" AND "))
 }
 
-// Record one check: its display `name` plus `count_query` (which yields a
-// single-column violating-row count) wrapped as a scalar subquery.
-fn push_check(out: &mut DataTestChecks, name: String, count_query: String) {
-    out.checks
-        .push(DataTestCheck { name, violating: format!("({count_query})") });
+// Record one check: its display `name` plus `rows_query`, the SELECT of its
+// violating rows. The probe counts and samples those rows in one scan:
+// `_wm_v` (the subquery alias) referenced as a column is the whole row as a
+// struct; `to_json(...)::VARCHAR` keeps the sample a JSON *string* through
+// the FFI — expanded rows would be visible to the executor's key-recursive
+// `extract_i64(result, "rows"/"snapshot_id")` scans, which a user column of
+// the same name could corrupt. `list()` over zero rows and an over-cap
+// sample both degrade to NULL (`s` is optional by contract).
+fn push_check(out: &mut DataTestChecks, name: String, rows_query: String) {
+    let probe = format!(
+        "SELECT v, CASE WHEN length(s_raw) <= {SAMPLE_MAX_BYTES} THEN s_raw END AS s \
+         FROM (SELECT count(*) AS v, \
+         to_json(list(_wm_v ORDER BY _wm_rn) FILTER (WHERE _wm_rn <= {SAMPLE_MAX_ROWS}))::VARCHAR AS s_raw \
+         FROM (SELECT _wm_v, row_number() OVER () AS _wm_rn FROM ({rows_query}) _wm_v))"
+    );
+    out.checks.push(DataTestCheck { name, probe });
+}
+
+// `SELECT *` for a sample rows-query, excluding the synthetic physical
+// partition column on partitioned targets — it's Windmill's storage detail,
+// not part of the producer's logical output (same rule as schema capture).
+// `qualifier` scopes the star when the query aliases the target (`_wm_src`).
+fn sample_star(ctx: &DataTestCtx, qualifier: Option<&str>) -> String {
+    let star = match qualifier {
+        Some(q) => format!("{q}.*"),
+        None => "*".to_string(),
+    };
+    if ctx.partitioned {
+        format!("{star} EXCLUDE ({})", quote_ident(ctx.partition_col))
+    } else {
+        star
+    }
 }
 
 /// Compile resolved data tests into ATTACH statements + per-test checks for
@@ -969,28 +1022,34 @@ pub fn build_data_test_checks(
             DataTestResolved::BuiltIn(DataTest::Unique { column }) => {
                 let c = quote_ident(column);
                 let scope = partition_scope(ctx, " AND ", None);
+                // The rows are the GROUP BY result — one `{value, count}` per
+                // duplicated key — so the count (number of duplicated values,
+                // not of rows) and the sample share one grain and can't
+                // contradict each other in the UI.
                 let q = format!(
-                    "SELECT count(*) AS v FROM (SELECT {c} FROM {t} WHERE {c} IS NOT NULL{scope} \
-                     GROUP BY {c} HAVING count(*) > 1)"
+                    "SELECT {c} AS \"value\", count(*) AS \"count\" FROM {t} \
+                     WHERE {c} IS NOT NULL{scope} GROUP BY {c} HAVING count(*) > 1"
                 );
                 push_check(&mut out, format!("unique({column})"), q);
             }
             DataTestResolved::BuiltIn(DataTest::NotNull { column }) => {
                 let c = quote_ident(column);
                 let scope = partition_scope(ctx, " AND ", None);
-                let q = format!("SELECT count(*) AS v FROM {t} WHERE {c} IS NULL{scope}");
+                let star = sample_star(ctx, None);
+                let q = format!("SELECT {star} FROM {t} WHERE {c} IS NULL{scope}");
                 push_check(&mut out, format!("not_null({column})"), q);
             }
             DataTestResolved::BuiltIn(DataTest::AcceptedValues { column, values }) => {
                 let c = quote_ident(column);
                 let scope = partition_scope(ctx, " AND ", None);
+                let star = sample_star(ctx, None);
                 let list = values
                     .iter()
                     .map(|v| quote_lit(v))
                     .collect::<Vec<_>>()
                     .join(", ");
                 let q = format!(
-                    "SELECT count(*) AS v FROM {t} WHERE {c} IS NOT NULL AND {c} NOT IN ({list}){scope}"
+                    "SELECT {star} FROM {t} WHERE {c} IS NOT NULL AND {c} NOT IN ({list}){scope}"
                 );
                 push_check(&mut out, format!("accepted_values({column})"), q);
             }
@@ -1054,8 +1113,9 @@ pub fn build_data_test_checks(
                 // segment so the dot stays a schema separator, not a literal.
                 let rt = quote_qualified(ref_table);
                 let scope = partition_scope(ctx, " AND ", Some("_wm_src"));
+                let star = sample_star(ctx, Some("_wm_src"));
                 let q = format!(
-                    "SELECT count(*) AS v FROM {t} _wm_src \
+                    "SELECT {star} FROM {t} _wm_src \
                      WHERE _wm_src.{c} IS NOT NULL{scope} \
                      AND NOT EXISTS (SELECT 1 FROM {alias}.{rt} _wm_ref \
                      WHERE _wm_ref.{rc} = _wm_src.{c})"
@@ -1091,8 +1151,7 @@ pub fn build_data_test_checks(
                         stmts.len()
                     ));
                 }
-                let q = format!("SELECT count(*) AS v FROM ({})", stmts[0]);
-                push_check(&mut out, format!("custom({path})"), q);
+                push_check(&mut out, format!("custom({path})"), stmts[0].to_string());
             }
         }
     }
@@ -1519,21 +1578,34 @@ mod tests {
         // short, asset-free names (the asset is shown once by the breakdown).
         assert_eq!(sql.checks[0].name, "unique(order_id)");
         assert_eq!(sql.checks[1].name, "not_null(user_id)");
-        // each `violating` is a scalar count subquery.
+        // each probe counts and samples the violating rows in one scan, with
+        // the size guard on the serialized sample.
+        for c in &sql.checks {
+            assert!(c
+                .probe
+                .starts_with("SELECT v, CASE WHEN length(s_raw) <= 51200 THEN s_raw END AS s"));
+            assert!(c.probe.contains("count(*) AS v"));
+            assert!(c.probe.contains("FILTER (WHERE _wm_rn <= 20)"));
+        }
+        // unique: groups non-null keys within the slice, having count>1; the
+        // sample is `{value, count}` pairs at the same grain as the count.
         assert!(sql.checks[0]
-            .violating
-            .starts_with("(SELECT count(*) AS v FROM"));
-        // unique: groups non-null keys within the slice, having count>1
-        assert!(sql.checks[0]
-            .violating
+            .probe
             .contains("GROUP BY \"order_id\" HAVING count(*) > 1"));
         assert!(sql.checks[0]
-            .violating
+            .probe
+            .contains("SELECT \"order_id\" AS \"value\", count(*) AS \"count\""));
+        assert!(sql.checks[0]
+            .probe
             .contains("\"order_id\" IS NOT NULL AND \"_wm_partition\" = '2026-06-19'"));
-        // not_null: null rows in the slice
+        // not_null: null rows in the slice; the sample excludes the synthetic
+        // partition column (storage detail, not producer output).
         assert!(sql.checks[1]
-            .violating
+            .probe
             .contains("WHERE \"user_id\" IS NULL AND \"_wm_partition\" = '2026-06-19'"));
+        assert!(sql.checks[1]
+            .probe
+            .contains("SELECT * EXCLUDE (\"_wm_partition\") FROM"));
     }
 
     #[test]
@@ -1542,8 +1614,9 @@ mod tests {
             column: "id".into(),
         })];
         let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
-        assert!(sql.checks[0].violating.contains("WHERE \"id\" IS NULL"));
-        assert!(!sql.checks[0].violating.contains("_wm_partition"));
+        assert!(sql.checks[0].probe.contains("WHERE \"id\" IS NULL"));
+        assert!(!sql.checks[0].probe.contains("_wm_partition"));
+        assert!(!sql.checks[0].probe.contains("EXCLUDE"));
     }
 
     #[test]
@@ -1560,14 +1633,14 @@ mod tests {
         ];
         let sql = build_data_test_checks(&tests, &ctx_scd2()).unwrap();
         assert!(sql.checks[0]
-            .violating
+            .probe
             .contains("WHERE \"customer_id\" IS NOT NULL AND is_current"));
         assert!(sql.checks[1]
-            .violating
+            .probe
             .contains("WHERE \"tier\" IS NULL AND is_current"));
-        assert!(sql.checks[2].violating.contains("AND is_current"));
+        assert!(sql.checks[2].probe.contains("AND is_current"));
         // no partition scope leaks in (scd2 is unpartitioned in v1)
-        assert!(!sql.checks[0].violating.contains("_wm_partition"));
+        assert!(!sql.checks[0].probe.contains("_wm_partition"));
     }
 
     #[test]
@@ -1577,10 +1650,8 @@ mod tests {
             values: vec!["paid".into(), "o'brien".into()],
         })];
         let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
-        assert!(sql.checks[0]
-            .violating
-            .contains("NOT IN ('paid', 'o''brien')"));
-        assert!(sql.checks[0].violating.contains("\"status\" IS NOT NULL"));
+        assert!(sql.checks[0].probe.contains("NOT IN ('paid', 'o''brien')"));
+        assert!(sql.checks[0].probe.contains("\"status\" IS NOT NULL"));
     }
 
     #[test]
@@ -1604,14 +1675,19 @@ mod tests {
         assert_eq!(sql.attaches.len(), 1, "same db attached once");
         assert_eq!(sql.attaches[0], "ATTACH 'datatable://prod' AS _wm_ref_0;");
         assert!(sql.checks[0]
-            .violating
+            .probe
             .contains("NOT EXISTS (SELECT 1 FROM _wm_ref_0.\"users\""));
         assert!(sql.checks[1]
-            .violating
+            .probe
             .contains("NOT EXISTS (SELECT 1 FROM _wm_ref_0.\"buyers\""));
         assert!(sql.checks[0]
-            .violating
+            .probe
             .contains("_wm_src.\"_wm_partition\" = '2026-06-19'"));
+        // sample rows come from the aliased target and drop the synthetic
+        // partition column.
+        assert!(sql.checks[0]
+            .probe
+            .contains("SELECT _wm_src.* EXCLUDE (\"_wm_partition\") FROM"));
         assert_eq!(
             sql.checks[0].name,
             "relationships(user_id -> prod/users.id)"
@@ -1648,7 +1724,7 @@ mod tests {
             "same-lake ref must not ATTACH again"
         );
         assert!(sql.checks[0]
-            .violating
+            .probe
             .contains("NOT EXISTS (SELECT 1 FROM _wm_target.\"users\""));
     }
 
@@ -1669,10 +1745,10 @@ mod tests {
         );
         assert!(
             sql.checks[0]
-                .violating
+                .probe
                 .contains("FROM _wm_ref_0.\"main\".\"dim_products\""),
             "schema-qualified target should be quoted per segment: {}",
-            sql.checks[0].violating
+            sql.checks[0].probe
         );
     }
 
@@ -1694,10 +1770,11 @@ mod tests {
             body: "SELECT * FROM _wm_target.orders WHERE amount < 0;".into(),
         }];
         let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
-        // trailing ; stripped, wrapped as a count subquery
-        assert!(sql.checks[0].violating.contains(
-            "SELECT count(*) AS v FROM (SELECT * FROM _wm_target.orders WHERE amount < 0)"
-        ));
+        // trailing ; stripped, body embedded as the probe's rows query
+        assert!(sql.checks[0]
+            .probe
+            .contains("FROM (SELECT * FROM _wm_target.orders WHERE amount < 0) _wm_v"));
+        assert!(sql.checks[0].probe.contains("count(*) AS v"));
         assert_eq!(sql.checks[0].name, "custom(f/tests/amount)");
     }
 
@@ -1724,14 +1801,8 @@ mod tests {
     #[test]
     fn materialize_result_sql_embeds_data_tests_breakdown() {
         let checks = vec![
-            DataTestCheck {
-                name: "unique(order_id)".into(),
-                violating: "(SELECT count(*) AS v FROM q0)".into(),
-            },
-            DataTestCheck {
-                name: "custom(f/t)".into(),
-                violating: "(SELECT count(*) AS v FROM q1)".into(),
-            },
+            DataTestCheck { name: "unique(order_id)".into(), probe: "SELECT v, s FROM q0".into() },
+            DataTestCheck { name: "custom(f/t)".into(), probe: "SELECT v, s FROM q1".into() },
         ];
         let sql = materialize_result_sql(
             "_wm_target.orders",
@@ -1741,10 +1812,17 @@ mod tests {
             false,
             &checks,
         );
-        // counts computed once in a CTE, referenced by the list-of-struct.
-        assert!(sql.starts_with("WITH _wm_tr AS (SELECT (SELECT count(*) AS v FROM q0) AS c0,"));
-        assert!(sql.contains("[{'test': 'unique(order_id)', 'violating': c0}, "));
-        assert!(sql.contains("{'test': 'custom(f/t)', 'violating': c1}] AS data_tests"));
+        // each probe runs once as a one-row CTE; _wm_tr cross-joins them and
+        // the list-of-struct references the flattened count/sample columns.
+        assert!(sql.starts_with(
+            "WITH _wm_t0 AS (SELECT v, s FROM q0), _wm_t1 AS (SELECT v, s FROM q1), \
+             _wm_tr AS (SELECT _wm_t0.v AS c0, _wm_t0.s AS s0, _wm_t1.v AS c1, _wm_t1.s AS s1 \
+             FROM _wm_t0, _wm_t1)"
+        ));
+        assert!(sql.contains("[{'test': 'unique(order_id)', 'violating': c0, 'sample': s0}, "));
+        assert!(
+            sql.contains("{'test': 'custom(f/t)', 'violating': c1, 'sample': s1}] AS data_tests")
+        );
         assert!(sql.contains("FROM _wm_tr;"));
         // no tests -> plain summary, no CTE / data_tests column.
         let plain = materialize_result_sql(

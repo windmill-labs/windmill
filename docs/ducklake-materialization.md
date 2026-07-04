@@ -314,18 +314,61 @@ The reusable shape, in three layers, each a clean extension seam:
    match arm + its sub-parser; the `Custom` arm is the open fallback. A sibling
    family reuses this head-keyword dispatch rather than adding a parallel list.
 2. **Compile** (`sql_materialize.rs::build_data_test_checks`). Each test becomes
-   a **check**: `(name, violating-row-count query)`. Built-ins differ only in
-   their count query; `Custom` supplies its own (the user's SELECT of violating
-   rows). Referenced assets (relationships) emit an `ATTACH` resolved by the
-   same transform pass as the user's own.
+   a **check**: `(name, probe)`, where the probe is a one-row query counting
+   *and sampling* the test's violating rows in a single scan. Built-ins differ
+   only in their violating-rows query; `Custom` supplies its own (the user's
+   SELECT of violating rows). Referenced assets (relationships) emit an
+   `ATTACH` resolved by the same transform pass as the user's own.
 3. **Execute** (`duckdb_executor.rs`). The materialize summary query embeds
-   every check's count in one `data_tests` list-of-struct column (computed in a
-   CTE, since DuckDB rejects subqueries inside struct literals), so **all tests
-   run in a single pass** against the freshly-materialized slice — no
-   abort-on-first. The worker reads the breakdown from the result and decides
-   pass/fail: any violation **fails the run** (record `Failed`, propagate up the
-   cascade) with an error listing *every* test (✓/✗ + counts); a clean run
-   returns the per-test summary so the UI can render a checklist.
+   every check's outcome in one `data_tests` list-of-struct column (probes are
+   lifted into one-row CTEs and cross-joined, since DuckDB rejects subqueries
+   inside struct literals), so **all tests run in a single pass** against the
+   freshly-materialized slice — no abort-on-first. The worker reads the
+   breakdown from the result and decides pass/fail: any violation **fails the
+   run** (record `Failed`, propagate up the cascade) with an error listing
+   *every* test (✓/✗ + counts); a clean run returns the per-test summary so
+   the UI can render a checklist.
+
+### Violating-row samples
+
+Each check's probe also captures a bounded **sample of its violating rows**
+(≤20 rows, ≤50KB serialized per test — over-cap samples are *dropped*, never
+truncated, since truncated JSON fails parsing after paying the bytes). The
+sample is **optional by contract** at every layer: enforcement reads only the
+count; NULL / dropped / unparseable samples degrade to "no sample" and can
+never flip pass/fail. Where they surface:
+
+- **Failed run**: the worker returns a structured error payload
+  (`Error::ExecutionRawError`), so the failed job's result carries
+  `error.data_tests: [{test, violating, sample?}]` with samples on failed
+  tests only. The error *message* stays counts-only plus a pointer at the
+  payload (row data never lands in logs/alerts); `materialized_partition.error`
+  likewise stores counts-only text. The duckdb executor's password-sanitize
+  catch-all must special-case `ExecutionRawError` — flattening it to a string
+  would silently strip the payload.
+- **UI**: `DataTestsResult.svelte` renders a per-failed-test expandable
+  `AutoDataTable`; `DisplayResult.svelte` prefers the structured payload and
+  falls back to text-parsing the breakdown for results predating it.
+
+Sample mechanics worth knowing:
+
+- The sample rides as a **JSON string** (`to_json(...)::VARCHAR`) through the
+  summary row, deliberately: expanded rows would be visible to the executor's
+  key-recursive `extract_i64(result, "rows"/"snapshot_id")` scans, which a
+  user column of the same name could corrupt. It is parsed only inside
+  `extract_data_tests`.
+- No `ORDER BY` on the violating rows — *which* rows land in the sample is
+  nondeterministic (labelled "sample" in the UI for that reason).
+- `unique` samples `{value, count}` pairs at its count's grain (number of
+  duplicated *values*), so count and sample can't contradict each other.
+- On partitioned targets the synthetic `_wm_partition` column is `EXCLUDE`d
+  from samples (same rule as schema capture).
+- A custom body joining with `SELECT *` can yield duplicate column names —
+  duplicate JSON keys keep the last value; harmless but visible.
+- The probe shape is gated by in-memory tests against the bundled engine in
+  `windmill-duckdb-ffi-internal` (json extension availability, zero-row NULL
+  degrade, exotic types) — a sample-expr runtime error would fail the summary
+  read after the write committed, so keep those green when touching the shape.
 
 A new annotation family that produces post-materialize checks (or, for
 column-lineage, post-materialize *metadata reads*) plugs into the same three

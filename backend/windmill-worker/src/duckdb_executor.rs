@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::sanitize_string_from_password;
-use windmill_common::worker::{get_memory, Connection, SqlResultCollectionStrategy};
+use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
     DucklakeCatalogResourceType,
@@ -768,10 +768,14 @@ fn extract_i64(result: &RawValue, field: &str) -> Option<i64> {
 }
 
 // One data test's outcome as carried by the materialize summary's `data_tests`
-// column: its display name and how many rows violated it (0 = pass).
+// column: its display name, how many rows violated it (0 = pass), and an
+// optional bounded sample of the violating rows. The sample is decoration
+// only — enforcement reads `violating`, never `sample` — so a NULL, dropped
+// (over the size cap) or unparseable sample must never affect pass/fail.
 struct DataTestOutcome {
     name: String,
     violating: i64,
+    sample: Option<Value>,
 }
 
 // Pull the per-test breakdown out of the materialize summary result. The
@@ -788,7 +792,21 @@ fn extract_data_tests(result: &RawValue) -> Vec<DataTestOutcome> {
                             .get("violating")
                             .and_then(|x| x.as_i64().or_else(|| x.as_f64().map(|f| f as i64)))
                             .unwrap_or(0);
-                        out.push(DataTestOutcome { name: name.clone(), violating });
+                        // The probe serializes the sample as a JSON *string*
+                        // (a VARCHAR through the FFI), deliberately — parse it
+                        // only here, so sampled user columns named `rows` /
+                        // `snapshot_id` stay invisible to the key-recursive
+                        // `extract_i64` scans over the summary result. Accept
+                        // a native array too (FFI JSON-column quirk); anything
+                        // else (NULL, size-capped, garbage) degrades to None.
+                        let sample = o.get("sample").and_then(|s| match s {
+                            arr @ Value::Array(_) => Some(arr.clone()),
+                            Value::String(txt) => serde_json::from_str::<Value>(txt)
+                                .ok()
+                                .filter(|v| v.is_array()),
+                            _ => None,
+                        });
+                        out.push(DataTestOutcome { name: name.clone(), violating, sample });
                     }
                 }
             }
@@ -1294,7 +1312,42 @@ pub async fn do_duckdb(
                     Some(&breakdown),
                 )
                 .await;
-                return Err(Error::ExecutionErr(breakdown));
+                // Structured failure payload: the queue wraps it as
+                // `{"error": {...}}` (`WrappedError`) and result_processor
+                // derives the run description from the top-level `message`,
+                // so keep `message` at the top and add no `error` nesting of
+                // our own. Samples ride only on failed tests, only in this
+                // structured result — the message text stays counts-only.
+                let has_samples = tests.iter().any(|t| t.violating > 0 && t.sample.is_some());
+                let message = if has_samples {
+                    // Wording must not match the UI's breakdown-line parsing
+                    // (no ✓/✗, no `— N violating`), which older-result
+                    // rendering still relies on.
+                    format!(
+                        "{breakdown}\n\nSamples of the violating rows are \
+                         attached to this run's result (error.data_tests)."
+                    )
+                } else {
+                    breakdown
+                };
+                let data_tests = tests
+                    .iter()
+                    .map(|t| {
+                        let mut o = json!({ "test": t.name, "violating": t.violating });
+                        if t.violating > 0 {
+                            if let Some(s) = &t.sample {
+                                o["sample"] = s.clone();
+                            }
+                        }
+                        o
+                    })
+                    .collect::<Vec<_>>();
+                return Err(Error::ExecutionRawError(to_raw_value(&json!({
+                    "message": message,
+                    "name": "ExecutionErr",
+                    "step_id": job.flow_step_id,
+                    "data_tests": data_tests,
+                }))));
             }
             record_mat(
                 conn,
@@ -1337,14 +1390,35 @@ pub async fn do_duckdb(
     match result {
         Ok(result) => Ok(result),
         Err(e) => {
-            // Passwords might appear in the error message
-            let mut err_str = e.to_string();
-            for pwd in hidden_passwords.lock().unwrap().iter() {
-                if let Some(sanitized) = sanitize_string_from_password(&err_str, &pwd.clone()) {
-                    err_str = sanitized;
+            // Passwords might appear in the error message — and, for the
+            // structured data-test failure, in sampled row data read from an
+            // attached database — so every outgoing error is sanitized here.
+            let sanitize = |mut s: String| {
+                for pwd in hidden_passwords.lock().unwrap().iter() {
+                    if let Some(sanitized) = sanitize_string_from_password(&s, &pwd.clone()) {
+                        s = sanitized;
+                    }
                 }
+                s
+            };
+            match e {
+                // The structured payload must keep its variant: flattening it
+                // to a string (the arm below) would strip the data-test
+                // samples result_processor places verbatim into the failed
+                // job's result. Sanitize the raw JSON text and rebuild it.
+                Error::ExecutionRawError(raw) => {
+                    let sanitized = sanitize(raw.get().to_string());
+                    Err(
+                        match serde_json::value::RawValue::from_string(sanitized.clone()) {
+                            Ok(raw) => Error::ExecutionRawError(raw),
+                            // A replaced secret overlapped the JSON structure —
+                            // prefer redaction over structure.
+                            Err(_) => Error::ExecutionErr(sanitized),
+                        },
+                    )
+                }
+                e => Err(Error::ExecutionErr(sanitize(e.to_string()))),
             }
-            Err(Error::ExecutionErr(err_str))
         }
     }
 }
@@ -2867,15 +2941,22 @@ mod tests {
         // `data_tests` array (how the FFI serialises the list-of-struct).
         let r = raw(
             r#"[{"rows":3,"snapshot_id":17,"materialized":"ducklake://a/b",
-                "data_tests":[{"test":"unique(order_id)","violating":0},
-                              {"test":"accepted_values(status)","violating":2}]}]"#,
+                "data_tests":[{"test":"unique(order_id)","violating":0,"sample":null},
+                              {"test":"accepted_values(status)","violating":2,
+                               "sample":"[{\"id\":1,\"status\":\"bad\"}]"}]}]"#,
         );
         let out = extract_data_tests(&r);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].name, "unique(order_id)");
         assert_eq!(out[0].violating, 0);
+        assert!(out[0].sample.is_none());
         assert_eq!(out[1].name, "accepted_values(status)");
         assert_eq!(out[1].violating, 2);
+        // The probe emits the sample as a JSON string; it parses to rows here.
+        assert_eq!(
+            out[1].sample,
+            Some(serde_json::json!([{"id": 1, "status": "bad"}]))
+        );
     }
 
     #[test]
@@ -2886,8 +2967,28 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].name, "not_null(x)");
         assert_eq!(out[0].violating, 1);
+        assert!(out[0].sample.is_none());
         // Absent column (no tests) -> empty, no panic.
         assert!(extract_data_tests(&raw(r#"[{"rows":3}]"#)).is_empty());
+    }
+
+    #[test]
+    fn extract_data_tests_sample_degrades_to_none_never_flips_outcome() {
+        // sample is optional by contract: native array accepted; non-array
+        // JSON, garbage text, and absence all degrade to None without
+        // touching `violating`.
+        let r = raw(r#"[{"data_tests":[
+                {"test":"a","violating":1,"sample":[{"id":9}]},
+                {"test":"b","violating":2,"sample":"{\"not\":\"an array\"}"},
+                {"test":"c","violating":3,"sample":"not json at all"},
+                {"test":"d","violating":4}]}]"#);
+        let out = extract_data_tests(&r);
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0].sample, Some(serde_json::json!([{"id": 9}])));
+        for (i, t) in out.iter().enumerate().skip(1) {
+            assert!(t.sample.is_none(), "test {} should have no sample", t.name);
+            assert_eq!(t.violating, i as i64 + 1);
+        }
     }
 
     #[test]
@@ -2918,9 +3019,15 @@ mod tests {
     #[test]
     fn format_data_test_breakdown_lists_all_with_marks() {
         let tests = vec![
-            DataTestOutcome { name: "unique(order_id)".into(), violating: 1 },
-            DataTestOutcome { name: "not_null(user_id)".into(), violating: 0 },
-            DataTestOutcome { name: "accepted_values(status)".into(), violating: 2 },
+            DataTestOutcome { name: "unique(order_id)".into(), violating: 1, sample: None },
+            DataTestOutcome { name: "not_null(user_id)".into(), violating: 0, sample: None },
+            DataTestOutcome {
+                name: "accepted_values(status)".into(),
+                violating: 2,
+                // The breakdown is counts-only by design — samples never
+                // appear in the error text.
+                sample: Some(serde_json::json!([{"status": "bad"}])),
+            },
         ];
         let msg = format_data_test_breakdown("analytics/orders", &tests);
         assert_eq!(
