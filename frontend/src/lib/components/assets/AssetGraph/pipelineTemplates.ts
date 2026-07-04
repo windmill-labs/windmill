@@ -391,8 +391,11 @@ function bodyTs(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
+				// `s3:///<key>` URI — one spelling shared with the `// on
+				// s3:///…` annotation form (the object literal `{ s3: <key> }`
+				// is equivalent).
 				return [
-					`  const buf = await wmill.loadS3File({ s3: ${JSON.stringify(s3Key(input.path))} })`,
+					`  const buf = await wmill.loadS3File(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
 					`  const rows = JSON.parse(new TextDecoder().decode(buf))`,
 					``
 				].join('\n')
@@ -418,9 +421,10 @@ function bodyTs(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
+				// `s3:///<key>` URI — see the loadS3File note above.
 				return [
 					`  const payload = new TextEncoder().encode(JSON.stringify(rows))`,
-					`  await wmill.writeS3File({ s3: ${JSON.stringify(s3Key(output.path))} }, payload)`
+					`  await wmill.writeS3File(${JSON.stringify(`s3:///${s3Key(output.path)}`)}, payload)`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
@@ -474,8 +478,11 @@ function bodyPython(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
+				// `s3:///<key>` URI — SDK string params must be s3:// URIs
+				// (bare keys are rejected), and this form matches the
+				// `# on s3:///…` annotation spelling.
 				return [
-					`    buf = wmill.load_s3_file(${JSON.stringify(s3Key(input.path))})`,
+					`    buf = wmill.load_s3_file(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
 					`    import json; rows = json.loads(buf.decode("utf-8"))`
 				].join('\n')
 			case 'datatable':
@@ -498,9 +505,10 @@ function bodyPython(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
+				// `s3:///<key>` URI — see the load_s3_file note above.
 				return [
 					`    import json`,
-					`    wmill.write_s3_file(${JSON.stringify(s3Key(output.path))}, json.dumps(rows).encode("utf-8"))`
+					`    wmill.write_s3_file(${JSON.stringify(`s3:///${s3Key(output.path)}`)}, json.dumps(rows).encode("utf-8"))`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'

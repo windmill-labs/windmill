@@ -30,6 +30,7 @@
 		tenantId: string
 		clientId: string
 		accessKey: string
+		federatedTokenFile?: string
 		endpoint?: string
 	}
 
@@ -631,6 +632,26 @@
 						bind:value={
 							() => (bucket_config as AzureConfig).clientId,
 							(v) => (bucket_config = { ...(bucket_config as AzureConfig), clientId: v })
+						}
+					/>
+				</label>
+				<label class="block pb-2">
+					<span class="text-xs font-semibold text-emphasis"
+						>Federated token file <span class="text-2xs text-primary">(optional)</span></span
+					>
+					<span class="text-primary text-2xs"
+						>Path to the projected service account token when using AKS Workload Identity with the
+						tenant ID and client ID above</span
+					>
+					<TextInput
+						inputProps={{ placeholder: '/var/run/secrets/azure/tokens/azure-identity-token' }}
+						bind:value={
+							() => (bucket_config as AzureConfig).federatedTokenFile,
+							(v) =>
+								(bucket_config = {
+									...(bucket_config as AzureConfig),
+									federatedTokenFile: v === '' ? undefined : v
+								})
 						}
 					/>
 				</label>

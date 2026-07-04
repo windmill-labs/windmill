@@ -37,21 +37,31 @@
 //!       "asset_path": "...",
 //!       "producer_path": "...",
 //!       "producer_job_id": "...",
-//!       "chain": ["f/a/producer0", "f/a/producer1"]
+//!       "chain": ["f/a/producer0", "f/a/producer1"],
+//!       "upstream_snapshots": [
+//!         { "asset": "ducklake://analytics/orders", "snapshot_id": 42 }
+//!       ]
 //!     }
 //!   }
 //!   ```
 //!
+//! `upstream_snapshots` is a forensic record only (present when at least one
+//! direct upstream has a captured materialization snapshot): it says which
+//! substrate version each of the subscriber's `// on` assets was at when the
+//! job was dispatched, so a failing run can be replayed against DuckLake
+//! time-travel (`AT (VERSION => n)`). Nothing pins the consumer's reads to it.
+//!
 //! Errors are logged but never bubble up to fail the producer's job.
 
 use crate::{push, MiniCompletedJob, PushArgs, PushIsolationLevel};
+use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
-use windmill_common::assets::AssetKind;
+use windmill_common::assets::{parse_asset_trigger_ref, AssetKind};
 use windmill_common::error::{self, Result};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
@@ -286,6 +296,10 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     // subscriber × asset write). The mid-pass join-slot writes
     // (record_and_check_join_slot) are a separate table and unaffected.
     let mut events: Vec<EventRow> = Vec::new();
+    // A subscriber listening to several of this producer's writes is pushed
+    // once per edge; its upstream-snapshot record is identical across those
+    // pushes (same instant, same trigger set), so resolve it once per pass.
+    let mut snapshot_memo: HashMap<String, Arc<Vec<UpstreamSnapshot>>> = HashMap::new();
     for (asset_kind, asset_path) in writes {
         let Some(prefix) = asset_kind.canonical_prefix() else {
             continue;
@@ -361,6 +375,29 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                     }
                 }
             }
+            // Forensic upstream-state capture, resolved at dispatch time (a
+            // debounced job that gets superseded is re-pushed by the later
+            // arrival, which re-resolves — the surviving job records what its
+            // own dispatch saw). Best-effort: a lookup failure must not stop
+            // the cascade.
+            let snapshots = match snapshot_memo.get(&sub_path) {
+                Some(s) => s.clone(),
+                None => {
+                    let s = Arc::new(
+                        upstream_snapshots(db, &job.workspace_id, &sub_path)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::error!(
+                                    "upstream-snapshot lookup failed for {}: {e:#}",
+                                    sub_path
+                                );
+                                Vec::new()
+                            }),
+                    );
+                    snapshot_memo.insert(sub_path.clone(), s.clone());
+                    s
+                }
+            };
             match push_subscriber(
                 db,
                 job,
@@ -373,6 +410,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                 debounce_s,
                 retry_count,
                 retry_delay_s,
+                &snapshots,
             )
             .await
             {
@@ -552,6 +590,91 @@ async fn workspace_producer_writes(
     Ok(map)
 }
 
+/// Forensic record of one direct upstream's state at dispatch time: the
+/// latest captured materialization snapshot of an asset in the subscriber's
+/// `// on` trigger set. Serialized into the dispatched job's `trigger` arg
+/// (`upstream_snapshots`) so a failing consumer run stays debuggable against
+/// DuckLake time-travel. Record-only — the consumer's reads are not pinned.
+#[derive(Debug, Serialize)]
+struct UpstreamSnapshot {
+    /// Canonical asset uri, e.g. `ducklake://analytics/orders_daily`.
+    asset: String,
+    snapshot_id: i64,
+    /// Partition whose write produced this snapshot — i.e. the latest slice
+    /// written, not necessarily the slice this consumer processes. The
+    /// snapshot itself is table-global. Omitted for whole-table
+    /// materializations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partition: Option<String>,
+}
+
+/// Latest captured snapshot per direct upstream of `subscriber_path`: its
+/// asset trigger set joined against `materialized_partition`, keeping the
+/// highest `snapshot_id` per asset (the newest substrate version the consumer
+/// could read). Assets with no captured snapshot (non-materialized upstreams)
+/// simply produce no entry. Two queries total regardless of upstream count.
+async fn upstream_snapshots(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    subscriber_path: &str,
+) -> Result<Vec<UpstreamSnapshot>> {
+    let refs = sqlx::query_scalar!(
+        r#"SELECT DISTINCT trigger_ref AS "trigger_ref!"
+           FROM script_trigger
+           WHERE workspace_id = $1
+             AND runnable_path = $2
+             AND trigger_kind = 'asset'
+             AND runnable_kind = 'script'
+           ORDER BY trigger_ref"#,
+        workspace_id,
+        subscriber_path,
+    )
+    .fetch_all(db)
+    .await?;
+    // Keep only refs with a recognized asset prefix, preserving ref order so
+    // the recorded list is deterministic.
+    let parsed: Vec<(String, AssetKind, String)> = refs
+        .into_iter()
+        .filter_map(|r| parse_asset_trigger_ref(&r).map(|(k, p)| (r, k, p)))
+        .collect();
+    if parsed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let kinds: Vec<AssetKind> = parsed.iter().map(|(_, k, _)| *k).collect();
+    let paths: Vec<String> = parsed.iter().map(|(_, _, p)| p.clone()).collect();
+    let rows = sqlx::query!(
+        r#"SELECT DISTINCT ON (mp.asset_kind, mp.asset_path)
+                  mp.asset_kind AS "asset_kind: AssetKind", mp.asset_path,
+                  mp.snapshot_id AS "snapshot_id!", mp.partition
+             FROM materialized_partition mp
+             JOIN unnest($2::ASSET_KIND[], $3::text[]) AS u(kind, path)
+               ON mp.asset_kind = u.kind AND mp.asset_path = u.path
+            WHERE mp.workspace_id = $1
+              AND mp.status = 'materialized' AND mp.snapshot_id IS NOT NULL
+            ORDER BY mp.asset_kind, mp.asset_path, mp.snapshot_id DESC"#,
+        workspace_id,
+        kinds as Vec<AssetKind>,
+        &paths,
+    )
+    .fetch_all(db)
+    .await?;
+    let mut latest: HashMap<(AssetKind, String), (i64, String)> = rows
+        .into_iter()
+        .map(|r| ((r.asset_kind, r.asset_path), (r.snapshot_id, r.partition)))
+        .collect();
+    Ok(parsed
+        .into_iter()
+        .filter_map(|(trigger_ref, kind, path)| {
+            let (snapshot_id, partition) = latest.remove(&(kind, path))?;
+            Some(UpstreamSnapshot {
+                asset: trigger_ref,
+                snapshot_id,
+                partition: (!partition.is_empty()).then_some(partition),
+            })
+        })
+        .collect())
+}
+
 /// A subscriber row resolved from `script_trigger`. Bundles the per-edge
 /// options (debounce) and the script-level policy fields (`join_all`,
 /// retry) that travel together to dispatch.
@@ -614,6 +737,7 @@ async fn push_subscriber(
     debounce_s: Option<i32>,
     retry_count: Option<i16>,
     retry_delay_s: Option<i32>,
+    upstream_snapshots: &[UpstreamSnapshot],
 ) -> Result<Uuid> {
     // Same resolution as every other trigger path (`script_path_to_payload`):
     // latest deployed hash plus the script's own runnable settings
@@ -700,7 +824,7 @@ async fn push_subscriber(
     };
 
     let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
-    let trigger_payload = serde_json::json!({
+    let mut trigger_payload = serde_json::json!({
         "kind": "asset",
         "asset_kind": serde_json::to_value(&asset_kind).expect("AssetKind serializes"),
         "asset_path": asset_path,
@@ -709,6 +833,10 @@ async fn push_subscriber(
         CHAIN_KEY: chain,
         PARTITION_ARG: partition,
     });
+    if !upstream_snapshots.is_empty() {
+        trigger_payload["upstream_snapshots"] =
+            serde_json::to_value(upstream_snapshots).expect("UpstreamSnapshot serializes");
+    }
     args.insert(TRIGGER_ARG.to_string(), to_raw_value(&trigger_payload));
     // Carry the producer's resolved partition forward as a top-level arg so
     // the subscriber's body can read it and the next cascade hop's

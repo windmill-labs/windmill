@@ -242,7 +242,7 @@ fn build_materialized_query(
         }
     }
 
-    let blocks = build_wrap_blocks(
+    let mat_plan = build_wrap_blocks(
         &plan,
         &synthetic_attach,
         table,
@@ -254,6 +254,11 @@ fn build_materialized_query(
         &resolved,
     )
     .map_err(Error::ExecutionErr)?;
+    // Enterprise seam: assembles the plan into the final statement list —
+    // verbatim on the public build (commit-then-test), restructured into
+    // write-audit-publish (guarded transaction, rollback on violation) on EE.
+    let blocks =
+        windmill_common::pipeline_advanced::finalize_materialize_query(mat_plan, &m.target_path);
 
     Ok(Some((Some(blocks.join("\n")), meta)))
 }
@@ -1258,6 +1263,11 @@ pub async fn do_duckdb(
             // committed (like dbt), so the slice is recorded `Failed` and the
             // cascade stops. The error lists *every* test so the user sees the
             // whole picture, not just the first failure.
+            // Under enterprise write-audit-publish an in-transaction guard
+            // (the enterprise `finalize_materialize_query` restructure) already aborted a failing run before
+            // COMMIT — that surfaces on the Err path above with the same
+            // breakdown in the error string, and nothing was published; this
+            // post-commit path then only ever sees passing counts.
             let tests = extract_data_tests(&result);
             // Captured output schema (gap #2a) — recorded only on the successful
             // path below, not on the failure paths (a failed run shouldn't
@@ -2580,6 +2590,37 @@ mod tests {
         assert!(
             format!("{err}").contains("not supported with scd2"),
             "got: {err}"
+        );
+    }
+
+    // The rewritten SQL is the plan assembled by
+    // `pipeline_advanced::finalize_materialize_query`, so what it contains is
+    // build-dependent: the public assembly runs the plan verbatim (tests only
+    // in the post-commit summary breakdown), the enterprise assembly adds the
+    // in-transaction write-audit-publish guard (whose shape/placement is
+    // tested next to its implementation in windmill-common's
+    // `pipeline_advanced_ee`).
+    #[test]
+    fn materialize_rewrite_carries_data_test_summary() {
+        let script = "-- materialize ducklake://main/orders\n\
+                      -- data_test not_null id\n\
+                      SELECT id FROM dl.src";
+        let (rewritten, meta) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(rewritten.contains("AS data_tests"));
+        assert_eq!(meta.n_data_tests, 1);
+        #[cfg(not(feature = "private"))]
+        assert!(
+            !rewritten.contains("error("),
+            "public assembly is commit-then-test (no guard)"
+        );
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        assert!(
+            rewritten.contains("error("),
+            "enterprise assembly places the WAP guard"
         );
     }
 

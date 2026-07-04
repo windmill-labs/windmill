@@ -2,7 +2,10 @@
 
 Design sketch for "managed, versioned, incremental" assets built on the
 DuckLake substrate. This is a companion to [`pipelines-vs-dbt.md`](./pipelines-vs-dbt.md)
-and extends its **Path C (hybrid, partition-first)** recommendation. The new
+and extends its **Path C (hybrid, partition-first)** recommendation. For the
+extract-load side that feeds these materializations, see §"Ingestion (EL)"
+at the end of this doc (user-facing guide: windmilldocs
+`core_concepts/63_pipelines` → "Ingestion (EL)"). The new
 contribution here is leveraging DuckLake's snapshot/time-travel layer, which
 the earlier doc's incremental deep-dive did not use. The annotation grammar is
 reconciled with that doc — `// partitioned` + `// unique_key` + `// append`
@@ -49,6 +52,8 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
 // materialize ducklake://analytics/orders_daily append       → managed, append
 // materialize ducklake://analytics/dim_customer key=id history → managed, SCD type 2 history
 // materialize manual ducklake://analytics/orders_daily       → track-only escape hatch
+// materialize ducklake://analytics/raw_events on_schema_change=ignore
+//                                  → managed, downstream contract warnings muted
 ```
 
 - **managed (default)** — the script is *setup + one trailing `SELECT`*; Windmill
@@ -268,6 +273,14 @@ without anyone asking. This is deliberately **not** built, for three reasons:
 If a workload ever shows the consistency race in practice, pinning can be layered
 on top — the capture and the snapshot surfacing built here are its foundation.
 
+What **is** built is the forensic slice of that sketch: when the cascade
+dispatches a consumer, it records the latest captured snapshot of each of the
+consumer's direct upstream assets into the job's `trigger` arg
+(`upstream_snapshots`, rendered read-only on the run detail page with a
+copyable `AT (VERSION => n)` clause). "What did the failing run actually see"
+stays answerable after the fact, with zero read-path changes — reads are
+*not* pinned to the recorded versions.
+
 This is distinct from **SCD2 history** (`// materialize … key=… history`), which *is* built:
 DuckLake time-travel answers "what did the whole table look like at snapshot N?"
 but not "give me each entity's version history as queryable rows"
@@ -387,10 +400,22 @@ load-bearing.
   repeats the natural key across closed versions, so an unscoped
   `unique(<key>)` would fail the run on the second change of any key. Custom
   tests see the raw history and scope themselves.
-- **Commit-then-test.** Like dbt, the write commits before tests run; a failed
-  test fails the *run* (and records `Failed`, so downstream cascade stops) but
-  does not roll back the committed snapshot. Time-travel still lets you inspect
-  exactly what failed.
+- **Commit-then-test (public) / write-audit-publish (enterprise).** In the
+  public build, like dbt, the write commits before tests run; a failed test
+  fails the *run* (and records `Failed`, so downstream cascade stops) but does
+  not roll back the committed snapshot — time-travel still lets you inspect
+  exactly what failed. Enterprise upgrades this to write-audit-publish: the
+  same checks also run *inside* the write transaction as a guard statement
+  that raises on any violation, aborting the run before `COMMIT` — a failing
+  slice is never published, readers keep the previous version, and no snapshot
+  is created (even a *first* run of a new asset rolls back to "no table").
+  The whole mechanism lives in the enterprise repo:
+  `sql_materialize::build_wrap_blocks` produces a typed statement plan
+  (`MaterializePlan` — statements plus structural kinds and the compiled
+  checks), and `pipeline_advanced::finalize_materialize_query` assembles it —
+  verbatim on the public build, restructured into the guarded transaction on
+  EE. The public build thus carries only plan metadata, not the
+  write-audit-publish transform itself.
 - **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
   script's content (a single DuckDB `SELECT`/CTE returning the violating rows —
   it's embedded as a subquery, so a multi-statement body is rejected with a
@@ -400,6 +425,35 @@ load-bearing.
   language) are the natural follow-up and fit the same verifier seam.
 - **Managed only.** `// materialize manual` + `// data_test` is rejected with a
   clear error (we can't know the manual script's target alias / partition col).
+
+## Schema contracts (save-time, gap #2b)
+
+The captured schema (#2a) is read back as a *contract*: at save/deploy time,
+every consumer's asset references — body-read/written columns, `// column`
+lineage sources, `// data_test relationships` refs — are diffed against the
+latest `materialized_asset_schema` version of each referenced ducklake asset,
+and mismatches surface as **warnings** (deploy never blocks; dbt's
+`on_schema_change=fail` is deliberately absent in v1). The diff lives in
+`windmill_common::schema_contracts` (endpoint:
+`POST /w/{ws}/scripts/check_schema_contracts`, called by the UI right after a
+save) and is mirrored 1:1 by the editor (`schemaContracts.ts`): live Monaco
+warning squiggles from the WASM buffer parse, plus column-name completion for
+annotation refs fed by the same captured schemas.
+
+Comparison rules worth knowing: column names are case-insensitive (DuckDB
+unquoted-identifier semantics); `_wm_partition` is whitelisted (it's excluded
+from capture); `{partition}` tokens are stripped before lookup; a
+`<dim>_current` reference falls back to the scd2 base table's capture; a
+relationships join across two captured assets also flags a captured-type
+*difference* (the runtime probe coerces, so it's "differs", not "will fail").
+An asset with no capture (never materialized, `manual` mode, any
+`datatable://`) produces no warnings.
+
+The producer opts a deliberately unstable schema out with
+`// materialize … on_schema_change=ignore` — consumers then get a single
+informational "suppressed" note instead of per-column warnings. On `manual`
+materialize the option is inert (nothing is captured) and deploy logs a
+warning saying so.
 
 ## Scoping decision: DuckLake vs DataTable
 
@@ -457,3 +511,38 @@ forces"; DuckLake-specific:
    rejects anything else at deploy with a clear error pointing to
    `// materialize manual`. The classifier (`sql_materialize.rs`) is the single
    source of truth.
+
+## Ingestion (EL): the sanctioned entry-node shape
+
+Design constraints for how external data enters the lake — the user-facing
+how-to (extract-engine choice, cursor recipes, schema-drift handling, worked
+examples) lives in windmilldocs `core_concepts/63_pipelines` → "Ingestion
+(EL)"; this section records only what future feature work must not break.
+
+- **`// materialize` is DuckDB-only** (deploy-rejected elsewhere, managed and
+  `manual` alike — `windmill-api-scripts/src/scripts.rs`), and the SDK
+  materialize helpers (`upsert_partition` / `upsertPartition`) build their SQL
+  inside the SDK, so the asset parsers cannot see the write. A polyglot node
+  that "writes the lake directly" therefore deploys with **no output edge** —
+  breaking lineage, cascade scheduling, and the backfill UI's producer lookup.
+- **The sanctioned polyglot shape is two scripts**: an entry node that lands
+  the raw batch as an object in workspace storage (`write_s3_file` — a
+  parser-visible write), and a DuckDB loader (`-- on s3:///<key>` +
+  `-- materialize`) that the asset dispatcher re-runs per batch. The landing
+  object is the seam; splitting E from L also keeps row work vectorized and
+  gives the load the full engine treatment (strategies, snapshots, partition
+  grid, `// data_test`).
+- **One string spelling: `s3:///<key>`.** SDK string params are strictly
+  `s3://…` URIs with a non-empty key; anything else raises (clients >
+  1.746.0 — older clients silently upload such strings to an auto-generated
+  `windmill_uploads/…` name, so keep URIs in code that must run on them).
+  The same URI is what
+  `// on` annotations and DuckDB SQL take, and all forms (URI, `{s3}` object,
+  `S3Object(s3=…)`) canonicalize to path `/<key>`. The asset parsers record
+  **no asset** for a bare-string SDK argument (the call can only error at
+  run time) — keep `parse_s3_object` (py client), `parseS3Object`
+  (ts client, `s3Types.ts`) and both `s3_object_arg_path` parsers in lockstep
+  when touching any of them.
+- DuckDB workers load no ICU extension: bare `TIMESTAMPTZ - INTERVAL`
+  arithmetic binder-errors. Incremental-pull SQL casts both sides
+  (`updated_at::TIMESTAMP > now()::TIMESTAMP - INTERVAL 7 DAY`).
