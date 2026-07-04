@@ -1252,16 +1252,6 @@ async fn create_script_internal<'c>(
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
     let pipeline_annotations = parse_pipeline_annotations(&ns.content);
-    // `// freshness` is parsed but enforcement is a not-yet-implemented
-    // enterprise feature (skeleton in windmill_common::pipeline_advanced).
-    // Surface a clear TODO at deploy rather than silently accepting an
-    // annotation that does nothing.
-    if pipeline_annotations.freshness.is_some() {
-        tracing::warn!(
-            "{}",
-            windmill_common::pipeline_advanced::freshness_enforcement_todo()
-        );
-    }
     // `// materialize` materializes a `ducklake://<name>/<table>` target from a
     // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
     // target would otherwise deploy, register a producer in the asset graph, then

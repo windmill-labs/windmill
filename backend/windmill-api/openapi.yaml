@@ -25592,6 +25592,7 @@ components:
         - google
         - github
         - asset
+        - freshness
 
     TriggerMode:
       description: job trigger mode

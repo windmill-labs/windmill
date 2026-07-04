@@ -67,6 +67,28 @@ export type FreshnessSpec = {
 	duration: string
 }
 
+// Mirrors backend `parse_duration_secs` (windmill-common assets.rs): a bare
+// integer means seconds, otherwise `<n>` with an `s`/`m`/`h`/`d` suffix
+// (e.g. `30s`, `5m`, `2h`, `1d`). Returns undefined for malformed or
+// non-positive input so a typo'd `// freshness` window fails safe (the chip
+// stays neutral instead of guessing a staleness verdict).
+export function parseDurationSecs(s: string): number | undefined {
+	const t = s.trim()
+	if (!t) return undefined
+	const last = t[t.length - 1]
+	const mult =
+		last === 's' ? 1 : last === 'm' ? 60 : last === 'h' ? 3600 : last === 'd' ? 86400 : undefined
+	const num = (mult !== undefined ? t.slice(0, -1) : t).trim()
+	// `+?`: Rust's i64 parsing accepts an explicit plus sign (`+5m`), so the
+	// mirror must too — divergence here would leave the chip neutral for a
+	// window the deploy path and watchdog honor.
+	if (mult === undefined && !/^\+?\d+$/.test(t)) return undefined
+	if (!/^\+?\d+$/.test(num)) return undefined
+	const secs = Number(num) * (mult ?? 1)
+	if (!Number.isSafeInteger(secs) || secs <= 0 || secs > 2147483647) return undefined
+	return secs
+}
+
 // `// retry <count> [<delay>]` — see backend RetrySpec. Delay is kept as the
 // raw duration string and resolved to seconds at deploy.
 export type RetrySpec = {

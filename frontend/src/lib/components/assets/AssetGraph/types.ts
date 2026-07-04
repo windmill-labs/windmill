@@ -22,6 +22,11 @@ export interface AssetGraphRunnableNode {
 	// Raw `// freshness <duration>` value, e.g. "1h", "30m". Surfaced for
 	// the badge; the runtime parses it as needed.
 	freshness?: string
+	// Completion time (ISO) of the newest successful run of this pipeline
+	// member visible to the caller. The freshness chip compares it against
+	// the `// freshness` window to render fresh/stale. Absent = no
+	// successful run found (or none visible under job RLS).
+	last_success_at?: string
 	// `// tag <name>` worker-tag override. Surfaced for the badge so users
 	// can see which worker pool will pick this script up at a glance.
 	tag?: string
