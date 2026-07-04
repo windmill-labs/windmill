@@ -698,11 +698,13 @@
 	// short-TTL contract cache, so per-keystroke cost is a map lookup.
 	function addSchemaContractCompletions() {
 		schemaContractCompletor?.dispose()
-		const workspace = $workspaceStore
-		if (!workspace) return
 		schemaContractCompletor = languages.registerCompletionItemProvider(lang, {
 			triggerCharacters: ['.'],
 			provideCompletionItems: async function (model, position) {
+				// Read the store per request, not at registration — the provider
+				// outlives a workspace switch.
+				const workspace = $workspaceStore
+				if (!workspace) return { suggestions: [] }
 				const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
 				if (!/^\s*(\/\/|--|#)\s*(column|data_test|on|materialize)\b/.test(before)) {
 					return { suggestions: [] }
