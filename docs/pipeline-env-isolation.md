@@ -121,7 +121,9 @@ the equivalent banner.
 ### Lifecycle & cleanup
 
 A sidecar registry `fork_ducklake_namespace(workspace_id FK ON DELETE CASCADE, ducklake_name,
-metadata_schema, catalog, storage, storage_ref, data_path)` is upserted (behind a TTL'd in-process cache) on fork
+metadata_schema, catalog, storage, storage_ref, data_path)` is upserted (behind a TTL'd in-process cache, keyed
+per workspace and invalidated whenever a workspace's registry rows are cleaned up — a same-id fork recreated
+within the TTL must re-register or its namespace would be orphaned at its own deletion) on fork
 resolution, **one row per physical location ever attached** — its PK includes
 `(catalog, storage, storage_ref, data_path)`, so if the fork's lake settings drift, later attaches add rows rather
 than replace them and cleanup covers every location the fork wrote, not just the first — connecting to the
@@ -130,8 +132,9 @@ REGISTERED catalog identity and deleting files from the REGISTERED storage ident
 fork's settings point at by deletion time. Explicit
 `GRANT`s ship in the same migration; the registry is not cloned into sub-forks.
 
-`POST /w/{fork}/workspaces/drop_forked_ducklake_namespaces` (same permission as
-`delete_workspace`: fork owner or superadmin) drops each registered pg metadata schema
+`POST /w/{fork}/workspaces/drop_forked_ducklake_namespaces` (same permissions as
+`delete_workspace` via a shared gate: fork owner or superadmin, plus parent-prod-admin when the
+fork is an attached dev workspace) drops each registered pg metadata schema
 (`DROP SCHEMA … CASCADE` on the catalog connection, hard-guarded on the `wm_fork_` prefix) and
 deletes the `__wm_forks/<fork segment>/…` objects in the workspace storage (hard-guarded on that
 prefix; `parquet` feature). The fork-deletion UI calls it next to

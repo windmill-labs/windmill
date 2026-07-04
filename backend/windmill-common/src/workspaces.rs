@@ -1113,12 +1113,22 @@ lazy_static::lazy_static! {
     /// fork workspace id -> (ancestor chain nearest-first, expiry ts). Empty chain = not a fork.
     /// `parent_workspace_id` only changes on dev-workspace attach/detach, so a short TTL is safe.
     static ref FORK_ANCESTOR_CHAIN_CACHE: Cache<String, (Vec<String>, i64)> = Cache::new(5000);
-    /// (fork workspace id, lake name) pairs recently upserted into `fork_ducklake_namespace`,
-    /// so the registry write doesn't run on every job of a fork. TTL'd (value = expiry ts)
-    /// rather than permanent: `drop_forked_ducklake_namespaces` deletes rows, and a fork that
-    /// keeps attaching afterwards must re-register within a bounded window or the final
-    /// workspace deletion would leak its recreated namespace.
-    static ref FORK_DUCKLAKE_REGISTERED: Cache<(String, String), i64> = Cache::new(5000);
+    /// fork workspace id -> (locations recently upserted into `fork_ducklake_namespace`,
+    /// expiry ts), so the registry write doesn't run on every job of a fork. Keyed by
+    /// workspace id so cleanup can drop a fork's whole entry: a same-id fork recreated within
+    /// the TTL must re-register, or its materializations would carry no registry row and leak
+    /// at ITS deletion. TTL'd as a second line of defense for cleanup paths that bypass
+    /// `cleanup_fork_ducklake_namespaces` (e.g. manual registry edits).
+    static ref FORK_DUCKLAKE_REGISTERED: Cache<String, (std::collections::HashSet<String>, i64)> =
+        Cache::new(5000);
+}
+
+/// Drop the "already registered" once-cache for a workspace. MUST be called whenever
+/// `fork_ducklake_namespace` rows for that workspace are deleted (namespace cleanup, workspace
+/// deletion): a surviving entry would make a same-id fork recreated within the TTL skip
+/// re-registration, orphaning its namespace at deletion time.
+pub fn invalidate_fork_ducklake_registration_cache(w_id: &str) {
+    FORK_DUCKLAKE_REGISTERED.remove(w_id);
 }
 
 /// Drop the cached ancestor chain for a workspace. MUST be called wherever
@@ -1529,14 +1539,11 @@ async fn register_fork_ducklake_namespace(
     let storage_ref = fork_storage_ref(db, w_id, storage)
         .await
         .unwrap_or_default();
-    let key = (
-        w_id.to_string(),
-        format!("{name}\0{catalog}\0{storage}\0{storage_ref}\0{data_path}"),
-    );
+    let location = format!("{name}\0{catalog}\0{storage}\0{storage_ref}\0{data_path}");
     let now = chrono::Utc::now().timestamp();
     if FORK_DUCKLAKE_REGISTERED
-        .get(&key)
-        .is_some_and(|exp| exp > now)
+        .get(w_id)
+        .is_some_and(|(locations, exp)| exp > now && locations.contains(&location))
     {
         return Ok(());
     }
@@ -1557,7 +1564,13 @@ async fn register_fork_ducklake_namespace(
     .execute(db)
     .await
     .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
-    FORK_DUCKLAKE_REGISTERED.insert(key, now + 60);
+    let mut locations = FORK_DUCKLAKE_REGISTERED
+        .get(w_id)
+        .filter(|(_, exp)| *exp > now)
+        .map(|(locations, _)| locations)
+        .unwrap_or_default();
+    locations.insert(location);
+    FORK_DUCKLAKE_REGISTERED.insert(w_id.to_string(), (locations, now + 60));
     Ok(())
 }
 

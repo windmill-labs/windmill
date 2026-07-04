@@ -839,28 +839,7 @@ pub(crate) async fn delete_workspace(
     // Deleting an attached dev workspace removes the parent prod's dev_workspace_lock (below), so it
     // must be a prod-admin action, not just the dev's own owner (dev ownership can diverge from
     // prod's) — mirrors detach_dev_workspace, which is prod-admin gated.
-    if let Some(prod) = sqlx::query_scalar!(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten()
-    {
-        let is_prod_admin = sqlx::query_scalar!(
-            "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
-            &prod,
-            &authed.email
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .unwrap_or(false);
-        if !is_prod_admin && !is_super_admin_email(&db, &authed.email).await? {
-            return Err(Error::PermissionDenied(format!(
-                "Deleting dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
-            )));
-        }
-    }
+    require_prod_admin_for_dev_workspace(&db, &authed, &w_id).await?;
 
     // Snapshot the fork's ducklake namespaces + RESOLVE their connection material NOW — the
     // registry rows and the fork's `$res:` resources both CASCADE with the workspace row —
@@ -1339,6 +1318,7 @@ pub async fn drop_forked_ducklake_namespaces(
         ));
     }
     tx.commit().await?;
+    require_prod_admin_for_dev_workspace(&db, &authed, &w_id).await?;
     Ok(Json(drop_forked_ducklake_namespaces_impl(&db, &w_id).await?))
 }
 
@@ -1413,6 +1393,11 @@ pub(crate) async fn cleanup_fork_ducklake_namespaces(
     w_id: &str,
     prepared: Vec<PreparedForkDucklakeCleanup>,
 ) -> Vec<String> {
+    // The registration once-cache must not outlive the rows it mirrors: a same-id fork
+    // recreated within the TTL would otherwise skip re-registration, and ITS eventual
+    // deletion would find no rows — orphaning the deterministic namespace for the next
+    // same-id fork to silently reattach.
+    windmill_common::workspaces::invalidate_fork_ducklake_registration_cache(w_id);
     let mut errors: Vec<String> = Vec::new();
     for PreparedForkDucklakeCleanup { ns, catalog_pg, store } in prepared {
         // Hard guards mirroring the forked-datatable drop: never touch a schema outside the
@@ -1683,6 +1668,14 @@ async fn delete_fork_ducklake_data(
         .try_collect()
         .await
         .map_err(windmill_object_store::object_store_error_to_error)?;
+    // The object_store crate evaluates list prefixes on a path-SEGMENT basis (`a/b` does not
+    // match `a/bc/…`), so sibling fork segments sharing a string prefix are already excluded.
+    // Filter anyway — deletion must not depend on a listing implementation detail.
+    let boundary = format!("{}/", prefix.as_ref());
+    let locations: Vec<_> = locations
+        .into_iter()
+        .filter(|l| l.as_ref().starts_with(&boundary))
+        .collect();
     // 1000-object chunks: S3 DeleteObjects caps a batch at 1000 keys.
     for chunk in locations.chunks(1000) {
         store
@@ -1703,6 +1696,42 @@ async fn delete_fork_ducklake_data(
     Err(Error::internal_err(
         "object storage support (parquet feature) is not compiled in".to_string(),
     ))
+}
+
+/// Destroying an ATTACHED dev workspace (or its data environments) must be a prod-admin
+/// action, not just the dev's own owner (dev ownership can diverge from prod's) — mirrors
+/// detach_dev_workspace. Shared by `delete_workspace` and `drop_forked_ducklake_namespaces`
+/// so the two gates cannot drift: the sidebar calls the drop endpoint BEFORE deleteWorkspace,
+/// and a weaker gate on the drop would let a non-prod-admin dev owner destroy the live dev's
+/// materializations and then have the deletion itself rejected. No-op for non-dev workspaces.
+async fn require_prod_admin_for_dev_workspace(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+) -> Result<()> {
+    if let Some(prod) = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    {
+        let is_prod_admin = sqlx::query_scalar!(
+            "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+            &prod,
+            &authed.email
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false);
+        if !is_prod_admin && !is_super_admin_email(db, &authed.email).await? {
+            return Err(Error::PermissionDenied(format!(
+                "Destroying dev workspace '{w_id}' or its data requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
+            )));
+        }
+    }
+    Ok(())
 }
 
 async fn is_workspace_owner(
