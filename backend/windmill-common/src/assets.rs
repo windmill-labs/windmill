@@ -6,7 +6,7 @@ use crate::{error, scripts::ScriptHash};
 
 pub use windmill_parser::asset_parser::{
     merge_column_lineage, parse_pipeline_annotations, ColumnLineage, ColumnRef, DataTest,
-    PartitionKind, PipelineAnnotations, RetrySpec, TriggerSpec, PARTITION_TOKEN,
+    OnSchemaChange, PartitionKind, PipelineAnnotations, RetrySpec, TriggerSpec, PARTITION_TOKEN,
 };
 pub use windmill_types::assets::*;
 

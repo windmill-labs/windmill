@@ -72,6 +72,8 @@ type Fixture = {
 			scd2?: boolean
 			track?: string[]
 			close_deleted?: boolean
+			// "warn" | "ignore"; absent === "warn" (the default)
+			on_schema_change?: string
 		} | null
 		// Snake_case form matching the Rust `DataTest` serde output, so the one
 		// corpus drives both sides. The TS parser emits this shape verbatim
@@ -179,6 +181,9 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 				)
 				expect(got.materialize?.closeDeleted ?? false, 'materialize close_deleted').toBe(
 					f.expected.materialize.close_deleted ?? false
+				)
+				expect(got.materialize?.onSchemaChange ?? 'warn', 'materialize on_schema_change').toBe(
+					f.expected.materialize.on_schema_change ?? 'warn'
 				)
 			}
 

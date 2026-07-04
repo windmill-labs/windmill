@@ -91,6 +91,11 @@
 		listWorkspaceMacrosCached,
 		macroDefinitionSql
 	} from '$lib/components/assets/workspaceMacros'
+	import {
+		fetchLatestSchema,
+		normalizeAssetPath,
+		type ContractMarker
+	} from '$lib/components/assets/AssetGraph/schemaContracts'
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
 
@@ -162,6 +167,11 @@
 		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 		// To execute preview scripts with the right worker group
 		customTag?: string
+		// Live schema-contract diagnostics (pipelines gap #2b): owner-scoped
+		// warning markers computed by the caller (ScriptEditor's contract
+		// mirror) from the buffer's asset refs vs captured producer schemas.
+		// Warning severity only — contracts never block; empty clears.
+		schemaContractMarkers?: ContractMarker[]
 	}
 
 	let {
@@ -194,7 +204,8 @@
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
 		preparedAssetsSqlQueries,
-		customTag
+		customTag,
+		schemaContractMarkers = []
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -672,6 +683,51 @@
 					sortText: 'b' + m.name
 				}))
 				return { suggestions }
+			}
+		})
+	}
+
+	let schemaContractCompletor: IDisposable | undefined = undefined
+
+	// Column-name completion for pipeline annotation refs (`// column out <-
+	// ducklake://lake/orders.|`, `// data_test relationships col ->
+	// ducklake://lake/customers.|`): suggests the referenced asset's *captured*
+	// columns (with types) so a broken ref never gets typed — the prevention
+	// side of the schema-contract check. Only fires on annotation comment lines
+	// with a ducklake URI right before the cursor's `.`; schemas come from the
+	// short-TTL contract cache, so per-keystroke cost is a map lookup.
+	function addSchemaContractCompletions() {
+		schemaContractCompletor?.dispose()
+		const workspace = $workspaceStore
+		if (!workspace) return
+		schemaContractCompletor = languages.registerCompletionItemProvider(lang, {
+			triggerCharacters: ['.'],
+			provideCompletionItems: async function (model, position) {
+				const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+				if (!/^\s*(\/\/|--|#)\s*(column|data_test|on|materialize)\b/.test(before)) {
+					return { suggestions: [] }
+				}
+				const uri = before.match(/ducklake:\/\/([\w/.{}-]+?)\.$/)
+				if (!uri) return { suggestions: [] }
+				const schema = await fetchLatestSchema(workspace, normalizeAssetPath(uri[1]))
+				if (!schema) return { suggestions: [] }
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+				return {
+					suggestions: schema.columns.map((c) => ({
+						label: c.name,
+						kind: languages.CompletionItemKind.Field,
+						detail: `${c.type} · captured schema v${schema.version}`,
+						insertText: c.name,
+						range,
+						sortText: 'a' + c.name
+					}))
+				}
 			}
 		})
 	}
@@ -1885,6 +1941,7 @@
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		resultCollectionCompletor && resultCollectionCompletor.dispose()
 		workspaceMacroCompletor && workspaceMacroCompletor.dispose()
+		schemaContractCompletor && schemaContractCompletor.dispose()
 		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 		changeChainStart = undefined
@@ -1966,6 +2023,36 @@
 					addWorkspaceMacroCompletions()
 				})
 			: workspaceMacroCompletor?.dispose()
+	})
+
+	// Pipeline annotation grammar is language-agnostic (`//` / `--` / `#`
+	// comment headers), so contract-ref completions register for every script
+	// language that can be a pipeline member. The provider line-gates itself,
+	// so it is inert outside annotation lines.
+	$effect(() => {
+		initialized && ['duckdb', 'python3', 'bun', 'deno', 'nativets'].includes(scriptLang ?? '')
+			? untrack(() => addSchemaContractCompletions())
+			: schemaContractCompletor?.dispose()
+	})
+
+	// Schema-contract markers arrive as a prop because the mirror can finish
+	// computing before Monaco initializes on mount — reacting to `initialized`
+	// re-applies the pending set once the model exists. The ever-set latch
+	// keeps unrelated editors from calling setModelMarkers with [] forever.
+	let contractMarkersEverSet = false
+	$effect(() => {
+		const ms = schemaContractMarkers
+		if (!initialized || (ms.length === 0 && !contractMarkersEverSet)) return
+		contractMarkersEverSet = true
+		untrack(() => {
+			const model = editor?.getModel()
+			if (!model) return
+			meditor.setModelMarkers(
+				model,
+				'schema-contracts',
+				ms.map((m) => ({ ...m, severity: MarkerSeverity.Warning }))
+			)
+		})
 	})
 
 	$effect(() => {

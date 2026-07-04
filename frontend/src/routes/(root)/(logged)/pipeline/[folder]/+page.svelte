@@ -36,6 +36,7 @@
 		type ColumnLineageGraph
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
 	import {
 		computeDownstreamClosure,
 		computeInducedSchedule,
@@ -1677,6 +1678,12 @@
 	// metadata (e.g. a draft-overlay runnable, which the graph synthesizes
 	// without it) is treated as unknown → evolvable, so captured history is never
 	// hidden behind a stale "fixed" verdict.
+	// Producer-side facts for the editor's live schema-contract diagnostics:
+	// which assets are muted (`on_schema_change=ignore`) and which `_current`
+	// views map to an scd2 base table. Derived from the same resolved graph the
+	// canvas renders so the mirror suppresses exactly what the server check does.
+	let schemaContractContext = $derived(buildSchemaContractContext(graphWithDraft.runnables))
+
 	let schemaCanEvolve = $derived.by(() => {
 		const sel = pe.selection
 		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return true
@@ -2201,6 +2208,7 @@
 				{selectionProducers}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				{schemaCanEvolve}
+				{schemaContractContext}
 				downstreamSubscribers={editedScriptDownstreamCount}
 				onStartBoundedRunForOpen={startBoundedRun}
 				canBoundedRunOpenScript={!!openScriptPath &&
