@@ -803,7 +803,7 @@ mod temporal_json_tests {
     // NULL degrade on zero rows / oversized samples, exotic column types).
     fn sample_probe_sql(rows_query: &str, max_len: usize) -> String {
         format!(
-            "SELECT v, CASE WHEN length(s_raw) <= {max_len} THEN s_raw END AS s \
+            "SELECT v, CASE WHEN strlen(s_raw) <= {max_len} THEN s_raw END AS s \
              FROM (SELECT count(*) AS v, \
                    to_json(list(_wm_v ORDER BY _wm_rn) FILTER (WHERE _wm_rn <= 20))::VARCHAR AS s_raw \
                    FROM (SELECT _wm_v, row_number() OVER () AS _wm_rn FROM ({rows_query}) _wm_v))"

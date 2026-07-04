@@ -978,8 +978,10 @@ fn partition_scope(ctx: &DataTestCtx, prefix: &str, table_alias: Option<&str>) -
 // the same name could corrupt. `list()` over zero rows and an over-cap
 // sample both degrade to NULL (`s` is optional by contract).
 fn push_check(out: &mut DataTestChecks, name: String, rows_query: String) {
+    // `strlen` counts bytes (unlike `length`, characters) — the cap bounds
+    // payload size on the wire, so bytes are the right unit.
     let probe = format!(
-        "SELECT v, CASE WHEN length(s_raw) <= {SAMPLE_MAX_BYTES} THEN s_raw END AS s \
+        "SELECT v, CASE WHEN strlen(s_raw) <= {SAMPLE_MAX_BYTES} THEN s_raw END AS s \
          FROM (SELECT count(*) AS v, \
          to_json(list(_wm_v ORDER BY _wm_rn) FILTER (WHERE _wm_rn <= {SAMPLE_MAX_ROWS}))::VARCHAR AS s_raw \
          FROM (SELECT _wm_v, row_number() OVER () AS _wm_rn FROM ({rows_query}) _wm_v))"
@@ -1583,7 +1585,7 @@ mod tests {
         for c in &sql.checks {
             assert!(c
                 .probe
-                .starts_with("SELECT v, CASE WHEN length(s_raw) <= 51200 THEN s_raw END AS s"));
+                .starts_with("SELECT v, CASE WHEN strlen(s_raw) <= 51200 THEN s_raw END AS s"));
             assert!(c.probe.contains("count(*) AS v"));
             assert!(c.probe.contains("FILTER (WHERE _wm_rn <= 20)"));
         }

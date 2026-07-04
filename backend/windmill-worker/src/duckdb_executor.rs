@@ -1405,17 +1405,28 @@ pub async fn do_duckdb(
                 // The structured payload must keep its variant: flattening it
                 // to a string (the arm below) would strip the data-test
                 // samples result_processor places verbatim into the failed
-                // job's result. Sanitize the raw JSON text and rebuild it.
+                // job's result. Sanitize its string *leaves*, not the
+                // serialized text: a secret containing `"` or `\` is
+                // JSON-escaped in the text, so a plain-substring pass would
+                // miss it — and samples carry raw row data from attached
+                // databases.
                 Error::ExecutionRawError(raw) => {
-                    let sanitized = sanitize(raw.get().to_string());
-                    Err(
-                        match serde_json::value::RawValue::from_string(sanitized.clone()) {
-                            Ok(raw) => Error::ExecutionRawError(raw),
-                            // A replaced secret overlapped the JSON structure —
-                            // prefer redaction over structure.
-                            Err(_) => Error::ExecutionErr(sanitized),
-                        },
-                    )
+                    fn walk(v: &mut Value, f: &dyn Fn(String) -> String) {
+                        match v {
+                            Value::String(s) => *s = f(std::mem::take(s)),
+                            Value::Array(a) => a.iter_mut().for_each(|x| walk(x, f)),
+                            Value::Object(o) => o.values_mut().for_each(|x| walk(x, f)),
+                            _ => {}
+                        }
+                    }
+                    Err(match serde_json::from_str::<Value>(raw.get()) {
+                        Ok(mut v) => {
+                            walk(&mut v, &sanitize);
+                            Error::ExecutionRawError(to_raw_value(&v))
+                        }
+                        // Not valid JSON (shouldn't happen) — redact as text.
+                        Err(_) => Error::ExecutionErr(sanitize(raw.get().to_string())),
+                    })
                 }
                 e => Err(Error::ExecutionErr(sanitize(e.to_string()))),
             }
