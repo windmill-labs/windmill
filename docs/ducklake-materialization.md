@@ -362,6 +362,12 @@ never flip pass/fail. Where they surface:
 - **UI**: `DataTestsResult.svelte` renders a per-failed-test expandable
   `AutoDataTable`; `DisplayResult.svelte` prefers the structured payload and
   falls back to text-parsing the breakdown for results predating it.
+- **Enterprise (write-audit-publish)**: samples only exist on the
+  commit-then-test path. Under the EE in-transaction guard a violation aborts
+  pre-commit and the slice rolls back, so the violating rows cease to exist —
+  WAP failures are counts-only by construction (the guard's in-SQL ✓/✗
+  message), and the guard projects only the probe's count column
+  (`pipeline_advanced_ee.rs::data_test_guard_sql`).
 
 Sample mechanics worth knowing:
 
