@@ -229,234 +229,61 @@ pub async fn push_scheduled_job<'c>(
 
     // If schedule handler is defined, wrap the scheduled job in a synthetic flow
     // with the handler as the first step (with stop_after_if to skip if handler returns false)
-    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(lake) =
-        windmill_common::workspaces::lake_from_ducklake_maintenance_path(&schedule.path)
-    {
-        // Managed ducklake maintenance schedule (enterprise): the runnable is
-        // a generated DuckDB script, not a deployed one. Keyed on
-        // schedule.path — a user schedule pointing at a real script under a
-        // user-created folder of that name must not land here. Config is read
-        // through the tx so change_workspace_id's re-push sees its
-        // uncommitted workspace_settings copy.
-        let maintenance =
-            windmill_common::workspaces::get_ducklake_raw_unchecked(&mut *tx, &schedule.workspace_id, lake)
+    let (payload, tag, timeout, on_behalf_of_email, created_by) =
+        if windmill_common::workspaces::lake_from_ducklake_maintenance_path(&schedule.path)
+            .is_some()
+        {
+            // Managed ducklake maintenance schedule (enterprise): the runnable is
+            // a generated DuckDB script, not a deployed one — built in the EE
+            // module (the CE stub returns NotFound so a stale row auto-disables
+            // with schedule.error recorded instead of retrying). Keyed on
+            // schedule.path — a user schedule pointing at a real script under a
+            // user-created folder of that name must not land here.
+            crate::ducklake_maintenance::build_maintenance_schedule_payload(&mut tx, schedule)
                 .await?
-                .and_then(|dl| dl.maintenance)
-                .filter(|m| m.enabled)
-                // NotFound so a stale row (lake removed, or config left over from an
-                // enterprise period) is auto-disabled with schedule.error recorded by
-                // the post-completion scheduler, not endlessly retried.
-                .ok_or_else(|| {
-                    error::Error::NotFound(format!(
-                        "no enabled maintenance config for ducklake '{lake}'"
-                    ))
-                })?;
-        let content =
-            crate::ducklake_maintenance::build_ducklake_maintenance_sql(lake, &maintenance)?;
-        (
-            JobPayload::Code(windmill_common::jobs::RawCode {
-                content,
-                path: Some(schedule.path.clone()),
-                hash: None,
-                language: windmill_common::scripts::ScriptLang::DuckDb,
-                lock: None,
-                cache_ttl: None,
-                cache_ignore_s3_path: None,
-                dedicated_worker: None,
-                tag: None,
-                concurrency_settings:
-                    windmill_common::runnable_settings::ConcurrencySettingsWithCustom::default(),
-                debouncing_settings: DebouncingSettings::default(),
-                modules: None,
-            }),
-            // explicit tag: an untagged preview-kind job would be rerouted to
-            // preview workers when the preview_tags_override setting is on
-            schedule
-                .tag
-                .clone()
-                .filter(|x| x != "")
-                .or_else(|| Some("duckdb".to_string())),
-            None,
-            None,
-            schedule.edited_by.clone(),
-        )
-    } else if let Some(handler_path) = &schedule.dynamic_skip {
-        // Build skip handler args
-        let mut skip_handler_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
-        skip_handler_args.insert(
-            "scheduled_for".to_string(),
-            to_raw_value(&next.to_rfc3339()),
-        );
+        } else if let Some(handler_path) = &schedule.dynamic_skip {
+            // Build skip handler args
+            let mut skip_handler_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
+            skip_handler_args.insert(
+                "scheduled_for".to_string(),
+                to_raw_value(&next.to_rfc3339()),
+            );
 
-        let stop_condition = "result !== true".to_string();
-        let stop_message = format!(
+            let stop_condition = "result !== true".to_string();
+            let stop_message = format!(
             "Schedule handler {} did not return true for datetime {}. Handler must return boolean true to execute scheduled job.",
             handler_path,
             next.to_rfc3339()
         );
 
-        // Get metadata from the scheduled script/flow for tag, timeout, etc.
-        let (tag, timeout, on_behalf_of_email, created_by, hash, flow_version, retry) =
-            get_schedule_metadata(&mut tx, schedule).await?;
+            // Get metadata from the scheduled script/flow for tag, timeout, etc.
+            let (tag, timeout, on_behalf_of_email, created_by, hash, flow_version, retry) =
+                get_schedule_metadata(&mut tx, schedule).await?;
 
-        (
-            JobPayload::SingleStepFlow {
-                path: schedule.script_path.clone(),
-                hash,
-                flow_version,
-                language: None,
-                args: args.clone(),
-                retry,
-                error_handler_path: None,
-                error_handler_args: None,
-                skip_handler: Some(windmill_common::jobs::SkipHandler {
-                    path: handler_path.clone(),
-                    args: skip_handler_args,
-                    stop_condition,
-                    stop_message,
-                }),
-                cache_ttl: None,
-                cache_ignore_s3_path: None,
-                priority: None,
-                tag_override: schedule.tag.clone(),
-                trigger_path: None,
-                apply_preprocessor: false,
-                concurrency_settings: ConcurrencySettings::default(),
-                debouncing_settings: DebouncingSettings::default(),
-            },
-            if schedule.tag.as_ref().is_some_and(|x| x != "") {
-                schedule.tag.clone()
-            } else {
-                tag
-            },
-            timeout,
-            on_behalf_of_email,
-            created_by,
-        )
-    } else if schedule.is_flow {
-        let version = get_latest_flow_version_id_for_path(
-            None,
-            &mut *tx,
-            &schedule.workspace_id,
-            &schedule.script_path,
-            false,
-        )
-        .warn_after_seconds_with_sql(1, "get_latest_flow_version_id_for_path".to_string())
-        .await?;
-
-        let FlowVersionInfo {
-            version,
-            tag,
-            dedicated_worker,
-            on_behalf_of_email,
-            edited_by,
-            labels,
-            ..
-        } = get_flow_version_info_from_version(
-            &mut *tx,
-            version,
-            &schedule.workspace_id,
-            &schedule.script_path,
-        )
-        .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
-        .await?;
-
-        (
-            JobPayload::Flow {
-                path: schedule.script_path.clone(),
-                dedicated_worker,
-                apply_preprocessor: false,
-                version,
-                labels,
-            },
-            tag,
-            None,
-            on_behalf_of_email,
-            edited_by,
-        )
-    } else {
-        let (
-            hash,
-            tag,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            debounce_key,
-            debounce_delay_s,
-            cache_ttl,
-            cache_ignore_s3_path,
-            language,
-            dedicated_worker,
-            priority,
-            timeout,
-            on_behalf_of_email,
-            created_by,
-            runnable_settings_handle,
-            labels,
-        ) = windmill_common::get_latest_hash_for_path(
-            &mut *tx,
-            &schedule.workspace_id,
-            &schedule.script_path,
-            false,
-        )
-        .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
-        .await?;
-
-        // NB: read on the non-RLS pool (`db`), not `tx`. push_scheduled_job is
-        // also invoked with an RLS user_db transaction (api-schedule/api-flows),
-        // under which these lookups would resolve against the caller's row
-        // visibility rather than the full table. The dual-connection here is
-        // intentional and required for correctness.
-        let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                runnable_settings_handle,
-                db,
-            )
-            .await?;
-
-        if schedule.retry.is_some() {
-            let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
-                .map_err(|err| {
-                    error::Error::internal_err(format!(
-                        "Unable to parse retry information from schedule: {}",
-                        err.to_string(),
-                    ))
-                })?;
-            let mut static_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
-            for (arg_name, arg_value) in args.clone() {
-                static_args.insert(arg_name, arg_value);
-            }
-            // A retry on a scheduled script is materialized into a native retry
-            // (see `push`): `Some(language)` opts in. Completion handlers are
-            // driven from the terminal attempt, and the per-occurrence
-            // failure/recovery counting queries (apply_schedule_handlers) resolve
-            // terminal status across the retry chain — so on_failure/on_recovery
-            // (incl. multi-count/exact) are all handled. A `retry_if` gate is
-            // evaluated at failure time; on a worker built without quickjs it
-            // cannot be evaluated and fails closed (no retry).
             (
                 JobPayload::SingleStepFlow {
                     path: schedule.script_path.clone(),
-                    hash: Some(hash),
-                    flow_version: None,
-                    language: Some(language),
-                    retry: Some(parsed_retry),
+                    hash,
+                    flow_version,
+                    language: None,
+                    args: args.clone(),
+                    retry,
                     error_handler_path: None,
                     error_handler_args: None,
-                    skip_handler: None,
-                    args: static_args,
-                    cache_ttl,
-                    cache_ignore_s3_path,
-                    priority,
+                    skip_handler: Some(windmill_common::jobs::SkipHandler {
+                        path: handler_path.clone(),
+                        args: skip_handler_args,
+                        stop_condition,
+                        stop_message,
+                    }),
+                    cache_ttl: None,
+                    cache_ignore_s3_path: None,
+                    priority: None,
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
-                    // Carry the script's concurrency/debounce settings (fetched
-                    // above) into the native retry materialization, so a retrying
-                    // concurrency-limited scheduled script still inserts its
-                    // concurrency_key instead of running unbounded.
-                    concurrency_settings,
-                    debouncing_settings,
+                    concurrency_settings: ConcurrencySettings::default(),
+                    debouncing_settings: DebouncingSettings::default(),
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -467,37 +294,171 @@ pub async fn push_scheduled_job<'c>(
                 on_behalf_of_email,
                 created_by,
             )
-        } else {
+        } else if schedule.is_flow {
+            let version = get_latest_flow_version_id_for_path(
+                None,
+                &mut *tx,
+                &schedule.workspace_id,
+                &schedule.script_path,
+                false,
+            )
+            .warn_after_seconds_with_sql(1, "get_latest_flow_version_id_for_path".to_string())
+            .await?;
+
+            let FlowVersionInfo {
+                version,
+                tag,
+                dedicated_worker,
+                on_behalf_of_email,
+                edited_by,
+                labels,
+                ..
+            } = get_flow_version_info_from_version(
+                &mut *tx,
+                version,
+                &schedule.workspace_id,
+                &schedule.script_path,
+            )
+            .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
+            .await?;
+
             (
-                JobPayload::ScriptHash {
-                    hash,
+                JobPayload::Flow {
                     path: schedule.script_path.clone(),
-                    cache_ttl,
-                    cache_ignore_s3_path,
                     dedicated_worker,
-                    language,
-                    priority,
                     apply_preprocessor: false,
-                    debouncing_settings: debouncing_settings
-                        .maybe_fallback(debounce_key, debounce_delay_s),
-                    concurrency_settings: concurrency_settings.maybe_fallback(
-                        concurrency_key,
-                        concurrent_limit,
-                        concurrency_time_window_s,
-                    ),
+                    version,
                     labels,
                 },
-                if schedule.tag.as_ref().is_some_and(|x| x != "") {
-                    schedule.tag.clone()
-                } else {
-                    tag
-                },
+                tag,
+                None,
+                on_behalf_of_email,
+                edited_by,
+            )
+        } else {
+            let (
+                hash,
+                tag,
+                concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s,
+                debounce_key,
+                debounce_delay_s,
+                cache_ttl,
+                cache_ignore_s3_path,
+                language,
+                dedicated_worker,
+                priority,
                 timeout,
                 on_behalf_of_email,
                 created_by,
+                runnable_settings_handle,
+                labels,
+            ) = windmill_common::get_latest_hash_for_path(
+                &mut *tx,
+                &schedule.workspace_id,
+                &schedule.script_path,
+                false,
             )
-        }
-    };
+            .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
+            .await?;
+
+            // NB: read on the non-RLS pool (`db`), not `tx`. push_scheduled_job is
+            // also invoked with an RLS user_db transaction (api-schedule/api-flows),
+            // under which these lookups would resolve against the caller's row
+            // visibility rather than the full table. The dual-connection here is
+            // intentional and required for correctness.
+            let (debouncing_settings, concurrency_settings) =
+                windmill_common::runnable_settings::prefetch_cached_from_handle(
+                    runnable_settings_handle,
+                    db,
+                )
+                .await?;
+
+            if schedule.retry.is_some() {
+                let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
+                    .map_err(|err| {
+                        error::Error::internal_err(format!(
+                            "Unable to parse retry information from schedule: {}",
+                            err.to_string(),
+                        ))
+                    })?;
+                let mut static_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
+                for (arg_name, arg_value) in args.clone() {
+                    static_args.insert(arg_name, arg_value);
+                }
+                // A retry on a scheduled script is materialized into a native retry
+                // (see `push`): `Some(language)` opts in. Completion handlers are
+                // driven from the terminal attempt, and the per-occurrence
+                // failure/recovery counting queries (apply_schedule_handlers) resolve
+                // terminal status across the retry chain — so on_failure/on_recovery
+                // (incl. multi-count/exact) are all handled. A `retry_if` gate is
+                // evaluated at failure time; on a worker built without quickjs it
+                // cannot be evaluated and fails closed (no retry).
+                (
+                    JobPayload::SingleStepFlow {
+                        path: schedule.script_path.clone(),
+                        hash: Some(hash),
+                        flow_version: None,
+                        language: Some(language),
+                        retry: Some(parsed_retry),
+                        error_handler_path: None,
+                        error_handler_args: None,
+                        skip_handler: None,
+                        args: static_args,
+                        cache_ttl,
+                        cache_ignore_s3_path,
+                        priority,
+                        tag_override: schedule.tag.clone(),
+                        trigger_path: None,
+                        apply_preprocessor: false,
+                        // Carry the script's concurrency/debounce settings (fetched
+                        // above) into the native retry materialization, so a retrying
+                        // concurrency-limited scheduled script still inserts its
+                        // concurrency_key instead of running unbounded.
+                        concurrency_settings,
+                        debouncing_settings,
+                    },
+                    if schedule.tag.as_ref().is_some_and(|x| x != "") {
+                        schedule.tag.clone()
+                    } else {
+                        tag
+                    },
+                    timeout,
+                    on_behalf_of_email,
+                    created_by,
+                )
+            } else {
+                (
+                    JobPayload::ScriptHash {
+                        hash,
+                        path: schedule.script_path.clone(),
+                        cache_ttl,
+                        cache_ignore_s3_path,
+                        dedicated_worker,
+                        language,
+                        priority,
+                        apply_preprocessor: false,
+                        debouncing_settings: debouncing_settings
+                            .maybe_fallback(debounce_key, debounce_delay_s),
+                        concurrency_settings: concurrency_settings.maybe_fallback(
+                            concurrency_key,
+                            concurrent_limit,
+                            concurrency_time_window_s,
+                        ),
+                        labels,
+                    },
+                    if schedule.tag.as_ref().is_some_and(|x| x != "") {
+                        schedule.tag.clone()
+                    } else {
+                        tag
+                    },
+                    timeout,
+                    on_behalf_of_email,
+                    created_by,
+                )
+            }
+        };
 
     if let Err(e) = sqlx::query!(
         "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",

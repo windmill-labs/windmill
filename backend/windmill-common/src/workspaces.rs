@@ -900,17 +900,6 @@ pub fn lake_from_ducklake_maintenance_path(path: &str) -> Option<&str> {
     path.strip_prefix(DUCKLAKE_MAINTENANCE_PATH_PREFIX)
 }
 
-/// Default maintenance cadence: daily at 03:00-03:59 UTC, minute picked
-/// deterministically per (workspace, lake) so all lakes of an instance don't
-/// fire in the same second.
-pub fn default_ducklake_maintenance_cron(w_id: &str, lake: &str) -> String {
-    let mut hash: u32 = 5381;
-    for b in w_id.bytes().chain("/".bytes()).chain(lake.bytes()) {
-        hash = hash.wrapping_mul(33).wrapping_add(b as u32);
-    }
-    format!("0 {} 3 * * *", hash % 60)
-}
-
 /// Lake names are interpolated into `ATTACH 'ducklake://<name>'`, generated
 /// maintenance SQL and the reserved schedule path (CHECK-constrained to
 /// `[\w-]+` segments), so they must stay to this charset.
@@ -919,37 +908,6 @@ pub fn is_valid_ducklake_name(name: &str) -> bool {
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
-
-/// Raw per-lake config (no credential interpolation). This does not check for
-/// any permission (like [`get_ducklake_from_db_unchecked`]): callers are
-/// internal (schedule-tick payload construction) and must not expose the
-/// config to a user. Generic over the executor so callers inside a
-/// transaction (e.g. `push_scheduled_job` during `change_workspace_id`) see
-/// uncommitted settings.
-pub async fn get_ducklake_raw_unchecked<'c, E: sqlx::PgExecutor<'c>>(
-    executor: E,
-    w_id: &str,
-    name: &str,
-) -> Result<Option<Ducklake>> {
-    let config = sqlx::query_scalar!(
-        r#"
-            SELECT ws.ducklake->'ducklakes'->$2 AS config
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id,
-        name
-    )
-    .fetch_optional(executor)
-    .await
-    .map_err(|err| Error::internal_err(format!("getting ducklake {name}: {err}")))?
-    .flatten();
-
-    match config {
-        Some(c) => Ok(Some(serde_json::from_value::<Ducklake>(c)?)),
-        None => Ok(None),
-    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]

@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
     error::{Error, Result},
-    workspaces::{Ducklake, DucklakeMaintenance},
+    jobs::JobPayload,
+    schedule::Schedule,
+    workspaces::Ducklake,
     DB,
 };
 
@@ -45,11 +47,22 @@ pub async fn sync_ducklake_maintenance_schedules<'c>(
     Ok(tx)
 }
 
-/// Generate the DuckDB maintenance script for one lake.
+/// Build the job payload for one occurrence of a managed maintenance schedule
+/// (`push_scheduled_job` calls this for reserved-prefix schedule paths).
+/// Returns `(payload, tag, timeout, on_behalf_of_email, created_by)`.
 // NotFound (not a generic error) so a schedule row left over from an
 // enterprise period is auto-disabled with `schedule.error` recorded by the
 // post-completion scheduler, instead of grinding through completion retries.
-pub fn build_ducklake_maintenance_sql(_lake: &str, _m: &DucklakeMaintenance) -> Result<String> {
+pub async fn build_maintenance_schedule_payload<'c>(
+    _tx: &mut Transaction<'c, Postgres>,
+    _schedule: &Schedule,
+) -> Result<(
+    JobPayload,
+    Option<String>,
+    Option<i32>,
+    Option<String>,
+    String,
+)> {
     Err(Error::NotFound(
         "Ducklake scheduled maintenance is only available in the enterprise edition".to_string(),
     ))
