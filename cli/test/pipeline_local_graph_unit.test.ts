@@ -493,6 +493,39 @@ test("a `// macros` (slash-prefix) DuckDB library is detected (backend prefix pa
   );
 });
 
+test("a non-pipeline DuckDB macro consumer is a display-only node, never a run step", async () => {
+  // A `.duckdb.sql` helper that calls a macro but isn't `// pipeline` surfaces as
+  // a graph node (lineage parity) but is NOT a runnable pipeline script: it must
+  // be absent from `scripts` (the previewable set `run --local` selects from), so
+  // it can never be scheduled or fail a preview for lack of local content.
+  await withFolder(
+    {
+      "lib.duckdb.sql": `-- macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "helper.duckdb.sql": `-- on ducklake://main/src\nSELECT dbl(x) FROM main.src;\n`,
+      "root.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/out\nSELECT dbl(1) AS v;\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      // the helper IS a node (macro consumer, for lineage display) …
+      const helper = graph.runnables.find((r) => r.path === "f/mypipe/helper");
+      expect(helper).toBeDefined();
+      // … but not a pipeline member (no local file to preview) and carries no macros
+      expect(helper?.in_pipeline).toBeFalsy();
+      expect(helper?.macros).toBeUndefined();
+      // the previewable set (what `run --local` can schedule) is ONLY the member
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/root"]);
+      // and the macro edge still connects lib → helper for the lineage view
+      expect(graph.macro_edges).toContainEqual({
+        lib_path: "f/mypipe/lib",
+        consumer_path: "f/mypipe/helper",
+        macro_names: ["dbl"],
+        via_use: false,
+      });
+    },
+  );
+});
+
 test("`#`-comment languages (ruby) use the `#` annotation fallback (no wasm parser)", async () => {
   await withFolder(
     { "ingest.rb": `# pipeline\n# on s3://demo/raw.csv\nputs "hi"\n` },

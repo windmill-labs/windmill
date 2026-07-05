@@ -674,12 +674,26 @@ async function run(
       .filter((r) => r.usage_kind === "script" && (r.macros?.length ?? 0) > 0)
       .map((r) => r.path),
   );
+  // Non-runnable graph nodes: the macro libraries above, plus (under `--local`)
+  // any script node with no local file. The local graph surfaces macro-consumer
+  // nodes for lineage display — a DuckDB script that calls a macro but isn't a
+  // `// pipeline` member (so has no previewable content). They must never enter
+  // the run: as a manual root they'd be scheduled, and a preview would fail with
+  // no local content to send.
+  const notRunnablePaths = new Set<string>(macroLibPaths);
+  if (opts.local && localScripts) {
+    for (const r of graph.runnables) {
+      if (r.usage_kind === "script" && !localScripts.has(r.path)) {
+        notRunnablePaths.add(r.path);
+      }
+    }
+  }
 
   // Resolve the start: explicit --from (must be a valid start) or the folder's
   // sole valid start. `--upload`-bound scripts join the valid starts.
   const starts = new Set(
     [...validStarts(graph), ...boundNodeIds].filter(
-      (id) => !macroLibPaths.has(scriptPathOf(id)),
+      (id) => !notRunnablePaths.has(scriptPathOf(id)),
     ),
   );
   // `runAll` = no `--from` on a multi-root pipeline (fan-in): run the whole
@@ -810,10 +824,10 @@ async function run(
     }
   }
 
-  // Selections can still pull a macro library in via graph reachability (e.g.
-  // whole-pipeline mode collects every root's closure) — drop them before
-  // ordering so they never run.
-  for (const p of macroLibPaths) selectedScripts.delete(p);
+  // Selections can still pull a non-runnable node in via graph reachability (e.g.
+  // whole-pipeline mode collects every root's closure) — drop macro libraries and
+  // local-only display nodes before ordering so they never run.
+  for (const p of notRunnablePaths) selectedScripts.delete(p);
 
   const { order, cyclic } = topoOrder(graph, selectedScripts);
   if (cyclic.length > 0) {
