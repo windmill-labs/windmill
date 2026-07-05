@@ -278,26 +278,53 @@ pub struct MaterializeSpec {
     // `hard_deletes=close`). Default (false) leaves absent keys current.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub close_deleted: bool,
-    // `on_schema_change=ignore` opts this producer's asset out of downstream
-    // schema-contract warnings (gap #2b): consumers referencing columns the
-    // captured schema no longer has warn by default (`warn`); `ignore` declares
-    // the schema deliberately unstable and suppresses those warnings. Save-time
-    // metadata only — the materialize write strategy is unaffected.
+    // `on_schema_change=warn|ignore|fail|sync` governs two orthogonal things:
+    //   • Save-time contract warnings (gap #2b): consumers referencing columns
+    //     the captured schema no longer has warn by default; only `ignore`
+    //     suppresses those warnings (`warn`/`fail`/`sync` all keep them).
+    //   • Run-time write guardrails for the persist-and-mutate strategies
+    //     (partitioned replace, merge, append), where the table schema is fixed
+    //     at first CREATE and the write is positional — a renamed/added/removed
+    //     SELECT column silently lands in the wrong column. `warn` logs the
+    //     drift and proceeds positionally; `fail` aborts before mutating; `sync`
+    //     ALTERs the table to match and writes by name. Whole-table replace and
+    //     scd2 are unaffected. See `sql_materialize.rs`.
     #[serde(skip_serializing_if = "OnSchemaChange::is_warn", default)]
     pub on_schema_change: OnSchemaChange,
 }
 
-// dbt's `on_schema_change` narrowed to the save-time contract check: `warn`
-// (default) surfaces consumer warnings, `ignore` suppresses them. dbt's `fail`
-// is deliberately not offered — saves are never hard-blocked (a deliberate
-// upstream reshape must not fail every consumer save); a CI/CLI gate can layer
-// it on later without touching the grammar.
+// dbt's `on_schema_change`, covering both the save-time contract check and the
+// run-time write guardrail for the positional persist-and-mutate strategies:
+//   • `warn` (default): surface consumer contract warnings; at write time, log
+//     the drift loudly and proceed with the positional write against the fixed
+//     table schema.
+//   • `ignore`: suppress consumer contract warnings; at write time, no guard
+//     (the pre-guardrail behaviour).
+//   • `fail`: keep contract warnings; at write time, abort the run before
+//     mutating when the SELECT's column *set* diverges from the table's.
+//   • `sync`: keep contract warnings; at write time, ALTER the table to match
+//     the SELECT (add/drop columns) and INSERT BY NAME.
+// `warn`/`fail` drift detection is name-set based (added/removed columns), which
+// is what the positional persist-and-mutate INSERT can misalign on. It does NOT
+// flag a pure *reorder* of same-named columns: `SELECT b, a` into a `(a, b)`
+// table has an identical column set, so `fail` does not abort and the positional
+// INSERT swaps the values. Reorder-safety is exactly what `sync` provides
+// (INSERT BY NAME maps by name), so a SELECT whose column order is not pinned to
+// the table's should use `sync`, not `fail`. (An ordered-list comparison would
+// close this, but a false positive there would abort a correctly-aligned write,
+// so the guard stays on the set difference.)
+// `fail`/`sync` only affect partitioned replace, merge and append; whole-table
+// replace already rebuilds each run, and scd2 has no positional write — for an
+// scd2 target `sync` degrades to `warn` (no write-time effect; deploy-time
+// rejection is out of scope here).
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum OnSchemaChange {
     #[default]
     Warn,
     Ignore,
+    Fail,
+    Sync,
 }
 
 impl OnSchemaChange {
@@ -869,6 +896,39 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
     out
 }
 
+// Count `// data_test <…>` lines in the leading comment header whose right-hand
+// side fails to parse into a check. `parse_pipeline_annotations` drops these
+// fail-safe (a malformed line just yields no check), which is the wrong default
+// for a data-quality assertion: a typo silently disables the test. The deploy
+// path uses this count to warn. Same leading-block boundary as the parser (stop
+// at the first non-comment line) so a body comment can't be miscounted, and the
+// same `parse_data_test_spec` grammar so "malformed" means exactly what the
+// parser rejects — no second grammar to drift.
+pub fn count_malformed_data_tests(code: &str) -> usize {
+    let mut malformed = 0;
+    for raw_line in code.lines() {
+        let line = raw_line.trim_start();
+        if line.is_empty() {
+            continue;
+        }
+        let rest = if let Some(r) = line.strip_prefix("//") {
+            r
+        } else if let Some(r) = line.strip_prefix("--") {
+            r
+        } else if let Some(r) = line.strip_prefix('#') {
+            r
+        } else {
+            break;
+        };
+        if let Some(after_kw) = consume_keyword(rest.trim_start(), "data_test") {
+            if parse_data_test_spec(after_kw.trim()).is_none() {
+                malformed += 1;
+            }
+        }
+    }
+    malformed
+}
+
 // Parse a `// retry <count> [<delay>]` right-hand side. `<count>` is a
 // non-negative decimal; `<delay>` is an optional raw duration string left
 // for `parse_duration_secs` to validate at deploy. A bare zero count (or
@@ -945,13 +1005,14 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
     // `deletes=close` (scd2 only) opts into hard-delete-close; any other value
     // (or absence) keeps the soft-delete default.
     let close_deleted = opts.get("deletes").map(|v| v == "close").unwrap_or(false);
-    // `on_schema_change=ignore` suppresses downstream contract warnings; any
-    // other value (or absence) keeps the `warn` default, fail-safe like
-    // `deletes=` above.
-    let on_schema_change = if opts.get("on_schema_change").map(String::as_str) == Some("ignore") {
-        OnSchemaChange::Ignore
-    } else {
-        OnSchemaChange::Warn
+    // `on_schema_change=ignore|fail|sync`; any other value (or absence) keeps
+    // the `warn` default, fail-safe like `deletes=` above (a typo must never
+    // silently disable the guardrail).
+    let on_schema_change = match opts.get("on_schema_change").map(String::as_str) {
+        Some("ignore") => OnSchemaChange::Ignore,
+        Some("fail") => OnSchemaChange::Fail,
+        Some("sync") => OnSchemaChange::Sync,
+        _ => OnSchemaChange::Warn,
     };
     Some(MaterializeSpec {
         target_kind,
@@ -1673,10 +1734,22 @@ mod pipeline_annotation_tests {
             out.materialize.expect("materialize").on_schema_change,
             OnSchemaChange::Warn
         );
-        // unknown value keeps the warn default (fail-safe, like `deletes=`);
-        // `fail` is deliberately unrecognized in v1
+        // fail + sync parse to their own variants
         let out =
             parse_pipeline_annotations("// materialize ducklake://a/orders on_schema_change=fail");
+        assert_eq!(
+            out.materialize.expect("materialize").on_schema_change,
+            OnSchemaChange::Fail
+        );
+        let out =
+            parse_pipeline_annotations("// materialize ducklake://a/orders on_schema_change=sync");
+        assert_eq!(
+            out.materialize.expect("materialize").on_schema_change,
+            OnSchemaChange::Sync
+        );
+        // unknown/junk value keeps the warn default (fail-safe, like `deletes=`)
+        let out =
+            parse_pipeline_annotations("// materialize ducklake://a/orders on_schema_change=bogus");
         assert_eq!(
             out.materialize.expect("materialize").on_schema_change,
             OnSchemaChange::Warn
@@ -2018,5 +2091,24 @@ mod pipeline_annotation_tests {
             "// column\n",                               // bare keyword
         ));
         assert!(out.column_lineage.is_empty());
+    }
+
+    #[test]
+    fn count_malformed_data_tests_counts_only_broken_header_lines() {
+        let n = count_malformed_data_tests(concat!(
+            "-- data_test not_null id\n",                 // valid
+            "-- data_test unique id\n",                   // valid
+            "-- data_test accepted_values status paid\n", // malformed: missing `=`
+            "-- data_test relationships cust ducklake\n", // malformed: no `->`
+            "-- data_test\n",                             // malformed: bare keyword
+            "-- data_test f/tests/custom\n",              // valid: custom script path
+            "SELECT 1 -- data_test not_a_test\n",         // body line: not counted
+        ));
+        assert_eq!(n, 3);
+        // A clean header has zero.
+        assert_eq!(
+            count_malformed_data_tests("-- data_test unique id\nSELECT 1"),
+            0
+        );
     }
 }

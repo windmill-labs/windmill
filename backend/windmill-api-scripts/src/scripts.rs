@@ -1316,6 +1316,23 @@ async fn create_script_internal<'c>(
             );
         }
     }
+    // A `// data_test` line whose right-hand side doesn't parse into a known
+    // check is dropped silently by the parser (fail-safe). For a data-quality
+    // assertion that is a footgun — a typo disables the test with no signal —
+    // so warn at deploy. Warning, not rejection: it matches the other pipeline
+    // deploy checks above and can't false-positive a deploy on an edge the
+    // coarse count and the parser disagree on.
+    let malformed_data_tests =
+        windmill_parser::asset_parser::count_malformed_data_tests(&ns.content);
+    if malformed_data_tests > 0 {
+        tracing::warn!(
+            "script {}: {} `// data_test` line(s) are malformed and were dropped — the intended \
+             check(s) will not run. Fix the syntax (e.g. `data_test accepted_values <col> = a,b,c`, \
+             `data_test relationships <col> -> <asset>.<refcol>`).",
+            ns.path,
+            malformed_data_tests
+        );
+    }
     // `// macros` — this script is a workspace macro library: its body is
     // CREATE [OR REPLACE] MACRO statements plus plain setup, registered into
     // `macro_definition` and injected as TEMP macros into consumer jobs.

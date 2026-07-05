@@ -390,9 +390,39 @@ pub struct MaterializeCodegen<'a> {
     /// and the partition column / `SET PARTITIONED BY` are omitted.
     pub partitioned: bool,
     pub strategy: MaterializeStrategy,
+    /// Write-time guardrail for a drifted SELECT vs the fixed table schema.
+    /// Only the persist-and-mutate strategies (partitioned replace, merge,
+    /// append) act on it: `Fail` emits an in-txn guard that raises on drift,
+    /// `Sync` writes BY NAME and expects the executor to inject `ALTER TABLE`
+    /// DDL at the [`SYNC_ALTER_SENTINEL`] slot, `Warn`/`Ignore` write
+    /// positionally (drift surfaced by the summary in `Warn`, silent in
+    /// `Ignore`). See [`MaterializeCodegen::is_persist_and_mutate`].
+    pub on_schema_change: OnSchemaChange,
 }
 
+/// The exact statement the `sync` codegen emits right after `BEGIN
+/// TRANSACTION;` as the injection slot for `ALTER TABLE … ADD/DROP COLUMN`
+/// DDL. The executor computes the drift with a pre-pass probe and replaces this
+/// literal in the assembled query text (with the DDL, or removes it when there
+/// is no drift). Classified `Write` so the EE write-audit-publish reassembly
+/// keeps it inside the transaction with the mutations; a plain no-op SELECT so
+/// that if it is somehow left un-replaced the run still succeeds unchanged.
+pub const SYNC_ALTER_SENTINEL: &str = "SELECT '__wm_sync_alter_sentinel__' AS _wm_sync;";
+
 impl<'a> MaterializeCodegen<'a> {
+    /// Whether this (strategy, partitioned) uses the positional persist-and-
+    /// mutate write whose table schema is fixed at first CREATE — the only case
+    /// the `on_schema_change` write-time guardrail applies to. Whole-table
+    /// replace (`CREATE OR REPLACE`) and scd2 self-heal / are name-mapped, so
+    /// they are excluded.
+    pub fn is_persist_and_mutate(&self) -> bool {
+        match self.strategy {
+            MaterializeStrategy::Scd2 { .. } => false,
+            MaterializeStrategy::Replace => self.partitioned,
+            MaterializeStrategy::Append | MaterializeStrategy::Merge { .. } => true,
+        }
+    }
+
     /// The ordered statements that perform the materialization, to be run after
     /// the setup blocks and inside the caller's execution. The first-run
     /// bootstrap is idempotent (`IF NOT EXISTS`), so this is safe to run every
@@ -441,20 +471,38 @@ impl<'a> MaterializeCodegen<'a> {
             ));
         }
         out.push("BEGIN TRANSACTION;".to_string());
+        // Write-time schema guardrail, emitted right after BEGIN so it runs
+        // before any mutation (a failing guard aborts before touching data; the
+        // sync ALTERs run before the INSERT so the sets match). Reached only on
+        // the persist-and-mutate path here (whole-table replace and scd2 return
+        // above), so no extra strategy gate is needed.
+        match self.on_schema_change {
+            OnSchemaChange::Fail => out.push(schema_drift_guard_sql(sel, t, pcol)),
+            OnSchemaChange::Sync => out.push(SYNC_ALTER_SENTINEL.to_string()),
+            OnSchemaChange::Warn | OnSchemaChange::Ignore => {}
+        }
         // The rows to write, with the partition column appended when partitioned.
         let source = if self.partitioned {
             format!("SELECT *, {pval} AS {pcol} FROM ({sel})")
         } else {
             format!("SELECT * FROM ({sel})")
         };
+        // `sync` maps columns by name (positional would cross-wire: an ALTERed
+        // ADD COLUMN appends at the end, so a positional INSERT of the SELECT
+        // would fill it from the wrong source column).
+        let by_name = if self.on_schema_change == OnSchemaChange::Sync {
+            " BY NAME"
+        } else {
+            ""
+        };
         match &self.strategy {
             MaterializeStrategy::Replace => {
                 // Only reached when partitioned (whole-table replace returned above).
                 out.push(format!("DELETE FROM {t} WHERE {pcol} = {pval};"));
-                out.push(format!("INSERT INTO {t} {source};"));
+                out.push(format!("INSERT INTO {t}{by_name} {source};"));
             }
             MaterializeStrategy::Append => {
-                out.push(format!("INSERT INTO {t} {source};"));
+                out.push(format!("INSERT INTO {t}{by_name} {source};"));
             }
             MaterializeStrategy::Merge { unique_key } => {
                 // Upsert within the slice via delete-by-key + insert (dbt's
@@ -474,7 +522,7 @@ impl<'a> MaterializeCodegen<'a> {
                 out.push(format!(
                     "DELETE FROM {t} WHERE {scope}{unique_key} IN (SELECT {unique_key} FROM ({sel}));"
                 ));
-                out.push(format!("INSERT INTO {t} {source};"));
+                out.push(format!("INSERT INTO {t}{by_name} {source};"));
             }
             // Handled by the early return above (scd2 has no partitioned form).
             MaterializeStrategy::Scd2 { .. } => unreachable!("scd2 handled before this match"),
@@ -632,6 +680,89 @@ impl<'a> MaterializeCodegen<'a> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// on_schema_change drift detection (write-time guardrail)
+// ---------------------------------------------------------------------------
+//
+// Drift is computed entirely in SQL against the live DuckDB session: the
+// SELECT's output columns come from `DESCRIBE`, the table's from `DESCRIBE` of
+// the target (the managed `_wm_partition` column is excluded so it is compared
+// as the producer's logical output, matching schema capture). `added` = SELECT
+// columns absent from the table, `removed` = table columns absent from the
+// SELECT. When the table was just created this run (first materialize) the two
+// DESCRIBEs agree, so both lists are empty and no guard fires.
+
+/// A `DESCRIBE`-derived set of column names of `rel_sql` (any SELECT-able
+/// relation, already parenthesized/qualified by the caller), optionally
+/// dropping the managed partition column.
+fn describe_col_names(rel_sql: &str, exclude_col: Option<&str>) -> String {
+    let filter = match exclude_col {
+        Some(c) => format!(" WHERE column_name <> {}", quote_lit(c)),
+        None => String::new(),
+    };
+    format!("SELECT column_name FROM (DESCRIBE SELECT * FROM {rel_sql}){filter}")
+}
+
+/// Scalar subqueries `(added, removed)` — the list of column names in the
+/// SELECT but not the table, and vice versa. Each is a `list(...)` over an
+/// `EXCEPT`; empty ⇒ `list()` yields an empty list (`len` 0). The partition
+/// column is excluded on the table side only.
+///
+/// Set difference, not ordered: this catches the add/remove/rename that a
+/// positional INSERT misaligns on, but by design NOT a pure reorder of
+/// same-named columns (identical sets ⇒ empty added/removed). See the
+/// `OnSchemaChange` doc in asset_parser.rs — reorder-safety is `sync`'s job
+/// (INSERT BY NAME); the set difference is deliberately kept over an ordered
+/// comparison so the `fail` guard cannot false-positive on a correctly-aligned
+/// write.
+fn drift_lists(sel_sql: &str, target_qualified: &str, partition_col: &str) -> (String, String) {
+    let sel = describe_col_names(&format!("({sel_sql})"), None);
+    let tbl = describe_col_names(target_qualified, Some(partition_col));
+    let added = format!("(SELECT list(column_name) FROM (({sel}) EXCEPT ({tbl})))");
+    let removed = format!("(SELECT list(column_name) FROM (({tbl}) EXCEPT ({sel})))");
+    (added, removed)
+}
+
+/// The `fail`-mode guard: a single statement that raises via DuckDB `error(...)`
+/// when the SELECT's columns diverge from the table's, naming the added/removed
+/// columns and the target. Both `CASE` branches are cast to VARCHAR so the
+/// planner cannot constant-fold the `error(...)` away, and the condition depends
+/// on the runtime drift subqueries so it is never folded to a constant.
+fn schema_drift_guard_sql(sel_sql: &str, target_qualified: &str, partition_col: &str) -> String {
+    let (added, removed) = drift_lists(sel_sql, target_qualified, partition_col);
+    // `target_qualified` is safe in table-reference position (quoted identifiers)
+    // but here it lands inside a SQL string literal, so single-quotes must be
+    // doubled (same as `quote_lit`).
+    let tq = target_qualified.replace('\'', "''");
+    format!(
+        "SELECT CASE WHEN coalesce(len(_wm_added), 0) + coalesce(len(_wm_removed), 0) > 0 \
+         THEN CAST(error('managed materialize: on_schema_change=fail blocked a schema-drifted \
+         write to {tq} — added column(s): [' || coalesce(array_to_string(_wm_added, ', '), '') || \
+         '], removed column(s): [' || coalesce(array_to_string(_wm_removed, ', '), '') || \
+         ']. The table schema is fixed at first create; set on_schema_change=sync to auto-migrate, \
+         or align the SELECT with the table.') AS VARCHAR) ELSE 'ok' END \
+         FROM (SELECT {added} AS _wm_added, {removed} AS _wm_removed);",
+        tq = tq,
+    )
+}
+
+/// The `warn`-mode summary column: a `schema_drift` struct `{added, removed}`
+/// when the SELECT drifted from the table, else NULL. Appended to the
+/// materialize summary row so the executor can log it and fold it into the job
+/// result without an extra round-trip.
+fn schema_drift_summary_field(
+    sel_sql: &str,
+    target_qualified: &str,
+    partition_col: &str,
+) -> String {
+    let (added, removed) = drift_lists(sel_sql, target_qualified, partition_col);
+    format!(
+        "(SELECT CASE WHEN coalesce(len(_wm_added), 0) + coalesce(len(_wm_removed), 0) > 0 \
+         THEN {{'added': _wm_added, 'removed': _wm_removed}} END \
+         FROM (SELECT {added} AS _wm_added, {removed} AS _wm_removed)) AS schema_drift"
+    )
+}
+
 /// The read that captures the DuckLake snapshot id produced by the write, for
 /// the given attach alias (e.g. `_wm_target`). The worker runs this last and
 /// records the result into `materialized_partition`.
@@ -713,6 +844,7 @@ pub fn build_wrap_blocks(
     partition_value_sql: &str,
     partitioned: bool,
     strategy: MaterializeStrategy,
+    on_schema_change: OnSchemaChange,
     tests: &[DataTestResolved],
 ) -> Result<MaterializePlan, String> {
     let target_qualified = format!("{TARGET_ALIAS}.{target_table}");
@@ -733,7 +865,17 @@ pub fn build_wrap_blocks(
         partition_value_sql,
         partitioned,
         strategy,
+        on_schema_change,
     };
+    // `warn` folds the post-write drift into the summary row (executor logs it +
+    // returns it) — only for the positional persist-and-mutate path, and only in
+    // `warn`: `fail`/`sync` guard the write itself, `ignore` is silent.
+    let drift_summary_select =
+        if on_schema_change == OnSchemaChange::Warn && cg.is_persist_and_mutate() {
+            Some(plan.output.as_str())
+        } else {
+            None
+        };
     let mut stmts: Vec<MaterializeStmt> = Vec::new();
     let setup = |sql: String| MaterializeStmt { kind: MaterializeStmtKind::Setup, sql };
     // Setup blocks come from the splitter with their `;` stripped — re-terminate
@@ -766,6 +908,7 @@ pub fn build_wrap_blocks(
             partition_value_sql,
             partitioned,
             &test_sql.checks,
+            drift_summary_select,
         ),
     });
     Ok(MaterializePlan { stmts, checks: test_sql.checks })
@@ -782,6 +925,10 @@ pub fn materialize_result_sql(
     partition_value_sql: &str,
     partitioned: bool,
     checks: &[DataTestCheck],
+    // `on_schema_change=warn` on a persist-and-mutate strategy: the SELECT to
+    // diff against the (post-write) table for the `schema_drift` summary column.
+    // `None` ⇒ no drift column (every other mode / strategy).
+    drift_summary_select: Option<&str>,
 ) -> String {
     let (count_expr, partition_sel) = if partitioned {
         // Row count is the slice this run wrote (the partition); `partition`
@@ -828,11 +975,20 @@ pub fn materialize_result_sql(
          FROM (SELECT column_name, column_type, row_number() OVER () AS _wm_ord \
                FROM (DESCRIBE SELECT * FROM {target_qualified}){partition_filter})) AS output_schema"
     );
+    // `on_schema_change=warn`: fold the drift `{added, removed}` (or NULL) into
+    // the same row so the executor logs it + returns it with no extra probe.
+    let drift_col = match drift_summary_select {
+        Some(sel) => format!(
+            ", {}",
+            schema_drift_summary_field(sel, target_qualified, partition_col)
+        ),
+        None => String::new(),
+    };
     let base_cols = format!(
         "'ducklake://{asset_path}' AS materialized, \
          {partition_sel}{count_expr} AS rows, \
          (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id, \
-         {schema_capture}"
+         {schema_capture}{drift_col}"
     );
     if checks.is_empty() {
         return format!("SELECT {base_cols};");
@@ -907,7 +1063,7 @@ fn terminate(stmt: &str) -> String {
 // own checks through the same `push_check` shape rather than bolting on a
 // parallel mechanism. See `docs/ducklake-materialization.md`.
 
-use crate::asset_parser::{AssetKind, DataTest};
+use crate::asset_parser::{AssetKind, DataTest, OnSchemaChange};
 
 /// Target context a data-test probe runs against — the materialized table and
 /// the partition slice (when partitioned, tests are scoped to the slice just
@@ -1355,6 +1511,7 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Replace,
+            on_schema_change: OnSchemaChange::Warn,
         };
         let st = cg.statements();
         assert!(st[0].contains("CREATE TABLE IF NOT EXISTS _wm_target.orders_daily"));
@@ -1380,6 +1537,7 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Merge { unique_key: "order_id".to_string() },
+            on_schema_change: OnSchemaChange::Warn,
         };
         let st = cg.statements();
         // upsert = delete-by-key (partition-scoped) + insert — NO `MERGE INTO`
@@ -1406,6 +1564,7 @@ mod tests {
             partition_value_sql: "'2026-06-19'",
             partitioned: true,
             strategy: MaterializeStrategy::Append,
+            on_schema_change: OnSchemaChange::Warn,
         };
         let st = cg.statements();
         assert!(st
@@ -1427,6 +1586,7 @@ mod tests {
             partition_value_sql: "''",
             partitioned: false,
             strategy: MaterializeStrategy::Replace,
+            on_schema_change: OnSchemaChange::Warn,
         };
         let st = cg.statements();
         assert_eq!(
@@ -1452,6 +1612,7 @@ mod tests {
                 track: vec![],
                 close_deleted: false,
             },
+            on_schema_change: OnSchemaChange::Warn,
         };
         let st = cg.statements();
         // bootstrap adds the three SCD metadata columns
@@ -1508,6 +1669,7 @@ mod tests {
                 track: vec!["name".to_string()],
                 close_deleted: false,
             },
+            on_schema_change: OnSchemaChange::Warn,
         };
         let st = cg.statements();
         // only key + tracked cols are compared (addr changes don't rotate a version)
@@ -1527,6 +1689,7 @@ mod tests {
                 track: vec![],
                 close_deleted: true,
             },
+            on_schema_change: OnSchemaChange::Warn,
         };
         let st = cg.statements();
         // the deleted-key set: current keys absent from the snapshot, captured
@@ -1563,6 +1726,169 @@ mod tests {
         assert!(begin < del_close && del_close < commit);
     }
 
+    fn persist_cg(strategy: MaterializeStrategy, osc: OnSchemaChange) -> Vec<String> {
+        MaterializeCodegen {
+            target_qualified: "_wm_target.t",
+            select_sql: "SELECT a, c FROM dl.src",
+            partition_col: "_wm_partition",
+            partition_value_sql: "''",
+            partitioned: false,
+            strategy,
+            on_schema_change: osc,
+        }
+        .statements()
+    }
+
+    #[test]
+    fn codegen_fail_emits_drift_guard_inside_txn_before_write() {
+        let st = persist_cg(
+            MaterializeStrategy::Merge { unique_key: "a".into() },
+            OnSchemaChange::Fail,
+        );
+        let begin = st.iter().position(|s| s == "BEGIN TRANSACTION;").unwrap();
+        let guard = st
+            .iter()
+            .position(|s| s.contains("error(") && s.contains("on_schema_change=fail"))
+            .expect("fail emits a guard");
+        let del = st
+            .iter()
+            .position(|s| s.starts_with("DELETE FROM"))
+            .unwrap();
+        let insert = st
+            .iter()
+            .position(|s| s.starts_with("INSERT INTO"))
+            .unwrap();
+        let commit = st.iter().position(|s| s == "COMMIT;").unwrap();
+        // guard runs right after BEGIN and before any mutation, inside the txn
+        assert!(begin < guard && guard < del && del < insert && insert < commit);
+        // both CASE branches are VARCHAR so the planner can't fold error() away
+        assert!(st[guard].contains("CAST(error("));
+        assert!(st[guard].contains("ELSE 'ok' END"));
+        // fail is positional (no BY NAME) and emits no sync sentinel
+        assert!(st[insert].starts_with("INSERT INTO _wm_target.t SELECT"));
+        assert!(!st.iter().any(|s| s == SYNC_ALTER_SENTINEL));
+    }
+
+    #[test]
+    fn fail_guard_drift_is_name_set_based_not_ordered() {
+        // Documents a deliberate boundary: the fail guard fires on the column
+        // SET difference (EXCEPT over column_name), so a pure reorder of
+        // same-named columns is NOT caught here — that is `sync`'s job (BY NAME).
+        // Keeping this name-set (not an ordered comparison) is what prevents the
+        // guard from false-positive-aborting a correctly-aligned write. If this
+        // ever moves to an ordered comparison, update the OnSchemaChange doc.
+        let guard =
+            schema_drift_guard_sql("SELECT b, a FROM dl.src", "_wm_target.t", "_wm_partition");
+        assert!(guard.contains("column_name"));
+        assert!(guard.contains("EXCEPT"));
+        // No positional/ordinal comparison in the guard condition.
+        assert!(!guard.to_lowercase().contains("ordinal"));
+        assert!(!guard.to_lowercase().contains("row_number"));
+    }
+
+    #[test]
+    fn codegen_sync_uses_by_name_and_sentinel() {
+        let st = persist_cg(MaterializeStrategy::Append, OnSchemaChange::Sync);
+        let begin = st.iter().position(|s| s == "BEGIN TRANSACTION;").unwrap();
+        let sentinel = st.iter().position(|s| s == SYNC_ALTER_SENTINEL).unwrap();
+        let insert = st
+            .iter()
+            .position(|s| s.starts_with("INSERT INTO"))
+            .unwrap();
+        // the ALTER-injection slot is right after BEGIN, before the write
+        assert!(begin < sentinel && sentinel < insert);
+        // name-mapped insert (a positional insert would cross-wire ALTERed cols)
+        assert!(st[insert].starts_with("INSERT INTO _wm_target.t BY NAME SELECT"));
+        assert!(!st.iter().any(|s| s.contains("error(")));
+    }
+
+    #[test]
+    fn codegen_ignore_and_warn_write_positionally_no_guard() {
+        for osc in [OnSchemaChange::Ignore, OnSchemaChange::Warn] {
+            let st = persist_cg(MaterializeStrategy::Append, osc);
+            assert!(!st.iter().any(|s| s.contains("error(")), "{osc:?}");
+            assert!(!st.iter().any(|s| s == SYNC_ALTER_SENTINEL), "{osc:?}");
+            let insert = st.iter().find(|s| s.starts_with("INSERT INTO")).unwrap();
+            assert!(
+                insert.starts_with("INSERT INTO _wm_target.t SELECT"),
+                "{osc:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn codegen_whole_table_replace_and_scd2_ignore_guardrail() {
+        // Whole-table replace (unpartitioned) and scd2 are not persist-and-mutate:
+        // fail/sync must not add a guard/sentinel/BY NAME there.
+        let repl = MaterializeCodegen {
+            target_qualified: "_wm_target.t",
+            select_sql: "SELECT a FROM dl.src",
+            partition_col: "_wm_partition",
+            partition_value_sql: "''",
+            partitioned: false,
+            strategy: MaterializeStrategy::Replace,
+            on_schema_change: OnSchemaChange::Fail,
+        };
+        assert!(!repl.is_persist_and_mutate());
+        let st = repl.statements();
+        assert!(!st
+            .iter()
+            .any(|s| s.contains("error(") || s == SYNC_ALTER_SENTINEL));
+
+        let scd2 = MaterializeCodegen {
+            strategy: MaterializeStrategy::Scd2 {
+                key: "a".into(),
+                track: vec![],
+                close_deleted: false,
+            },
+            on_schema_change: OnSchemaChange::Sync,
+            ..repl
+        };
+        assert!(!scd2.is_persist_and_mutate());
+        let st = scd2.statements();
+        assert!(!st.iter().any(|s| s == SYNC_ALTER_SENTINEL));
+        assert!(!st.iter().any(|s| s.contains(" BY NAME ")));
+    }
+
+    #[test]
+    fn summary_schema_drift_field_only_for_warn_persist_and_mutate() {
+        // warn + persist-and-mutate ⇒ summary carries the drift column
+        let warn = plan_for_osc(MaterializeStrategy::Append, false, OnSchemaChange::Warn);
+        assert!(warn.stmts.last().unwrap().sql.contains("AS schema_drift"));
+        // ignore / fail / sync ⇒ no summary drift column (they guard the write)
+        for osc in [
+            OnSchemaChange::Ignore,
+            OnSchemaChange::Fail,
+            OnSchemaChange::Sync,
+        ] {
+            let p = plan_for_osc(MaterializeStrategy::Append, false, osc);
+            assert!(
+                !p.stmts.last().unwrap().sql.contains("schema_drift"),
+                "{osc:?} must not emit the summary drift column"
+            );
+        }
+        // whole-table replace + warn ⇒ not persist-and-mutate ⇒ no drift column
+        let repl = plan_for_osc(MaterializeStrategy::Replace, false, OnSchemaChange::Warn);
+        assert!(!repl.stmts.last().unwrap().sql.contains("schema_drift"));
+    }
+
+    #[test]
+    fn fail_guard_is_write_kind_between_txn_markers() {
+        use MaterializeStmtKind::*;
+        let plan = plan_for_osc(
+            MaterializeStrategy::Merge { unique_key: "a".into() },
+            false,
+            OnSchemaChange::Fail,
+        );
+        let begin = kidx(&plan, |s| s.kind == TxnBegin);
+        let commit = kidx(&plan, |s| s.kind == TxnCommit);
+        let guard = kidx(&plan, |s| {
+            s.sql.contains("error(") && s.sql.contains("on_schema_change=fail")
+        });
+        assert_eq!(plan.stmts[guard].kind, Write);
+        assert!(begin < guard && guard < commit);
+    }
+
     #[test]
     fn snapshot_capture_targets_alias() {
         assert_eq!(
@@ -1583,6 +1909,7 @@ mod tests {
             "'2026-06-19'",
             true,
             MaterializeStrategy::Replace,
+            OnSchemaChange::Warn,
             &[],
         )
         .unwrap()
@@ -1615,6 +1942,14 @@ mod tests {
     // -- materialize plan structure ------------------------------------------
 
     fn plan_for(strategy: MaterializeStrategy, partitioned: bool) -> MaterializePlan {
+        plan_for_osc(strategy, partitioned, OnSchemaChange::Warn)
+    }
+
+    fn plan_for_osc(
+        strategy: MaterializeStrategy,
+        partitioned: bool,
+        on_schema_change: OnSchemaChange,
+    ) -> MaterializePlan {
         let plan = ok("SELECT a, b FROM src");
         build_wrap_blocks(
             &plan,
@@ -1625,6 +1960,7 @@ mod tests {
             "'2026-06-19'",
             partitioned,
             strategy,
+            on_schema_change,
             &[
                 DataTestResolved::BuiltIn(DataTest::NotNull { column: "a".into() }),
                 DataTestResolved::BuiltIn(DataTest::Unique { column: "b".into() }),
@@ -1702,6 +2038,7 @@ mod tests {
             "''",
             false,
             MaterializeStrategy::Append,
+            OnSchemaChange::Warn,
             &[],
         )
         .unwrap();
@@ -1972,6 +2309,7 @@ mod tests {
             "'2026-06-19'",
             false,
             &checks,
+            None,
         );
         // each probe runs once as a one-row CTE; _wm_tr cross-joins them and
         // the list-of-struct references the flattened count/sample columns.
@@ -1993,6 +2331,7 @@ mod tests {
             "'x'",
             false,
             &[],
+            None,
         );
         assert!(plain.starts_with("SELECT 'ducklake://analytics/orders' AS materialized"));
         assert!(!plain.contains("data_tests"));
@@ -2019,6 +2358,7 @@ mod tests {
             "'2026-06-19'",
             true,
             &[],
+            None,
         );
         assert!(sql.contains(
             "FROM (DESCRIBE SELECT * FROM _wm_target.orders_daily) \
