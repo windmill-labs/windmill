@@ -2,17 +2,9 @@ import { expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-// =============================================================================
-// PARSER PACKAGE LOCKSTEP TEST
-//
-// The npm publish (build-npm.ts) derives its externals + published
-// dependencies from package.json's windmill-parser-wasm-* entries. A parser
-// package that src/ loads but package.json does not declare therefore ships a
-// CLI where loadParser() throws and callers silently degrade — e.g. the local
-// pipeline graph (`wmill pipeline show|dev --local`) loses every inferred
-// write edge. This test scans src/ for parser-package string literals and
-// requires each one to be a declared dependency.
-// =============================================================================
+// build-npm.ts derives the published CLI's parser dependencies from
+// package.json, so a parser package that src/ loads but package.json omits
+// ships a CLI where loadParser() throws and callers silently degrade.
 
 const cliRoot = join(import.meta.dir, "..");
 

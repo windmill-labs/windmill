@@ -9,12 +9,10 @@ const outDir = "./npm";
 const cliDeps: Record<string, string> =
   JSON.parse(readFileSync("./package.json", "utf-8")).dependencies ?? {};
 
-// Parser npm packages — used as externals and added to generated package.json.
-// Derived from package.json rather than hand-listed: a parser dependency that
-// is missing here ships a CLI whose loadParser() silently falls back (e.g. the
-// local pipeline graph loses every inferred write edge), so the set must stay
-// in lockstep with the dependencies. test/parser_packages_unit.test.ts keeps
-// package.json in lockstep with the loadParser() call sites in src/.
+// Parser packages: bundle externals + published dependencies. Derived from
+// package.json (not hand-listed) — a parser missing from this set ships a CLI
+// whose loadParser() silently falls back. package.json itself is kept in sync
+// with loadParser() call sites by test/parser_packages_unit.test.ts.
 const parserPackages = Object.keys(cliDeps).filter((p) =>
   p.startsWith("windmill-parser-wasm")
 );

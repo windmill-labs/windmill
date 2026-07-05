@@ -340,11 +340,9 @@ export async function inferScriptAssets(
   return out;
 }
 
-// A missing/broken wasm asset parser degrades every script to the
-// annotation-only fallback: the graph keeps `// on` edges but silently loses
-// all inferred writes (materialize targets, COPY TO, writeS3File), which reads
-// as "my pipeline has no lineage". Warn once so a packaging or install problem
-// is visible instead of masquerading as a parsing limitation.
+// Warn once when the wasm asset parser can't load: the annotation-only
+// fallback silently drops all inferred read/write edges, so a packaging or
+// install problem would otherwise masquerade as a parsing limitation.
 let warnedAssetParserUnavailable = false;
 
 async function inferScriptAssetsBody(
