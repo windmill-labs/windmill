@@ -32,8 +32,8 @@ describe('pipelineTemplates S3 seed/body parity', () => {
 				expect(output).toBeDefined()
 				const asset = output!
 
-				// The seed must be a canonical slashless key (the invariant that
-				// broke when the parser started stripping the leading slash).
+				// The seed must be a canonical slashless key so it matches the
+				// identity the parser infers from the generated body.
 				expect(asset.kind).toBe('s3object')
 				expect(asset.path.startsWith('/')).toBe(false)
 
