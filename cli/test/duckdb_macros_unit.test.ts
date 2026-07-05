@@ -62,16 +62,26 @@ test("detectMacroCalls: word-boundary, case-insensitive, skips qualified/strings
 });
 
 test("parseMacroAnnotations: leading-header only, marker stands alone, `// use` needs a path token", () => {
-  expect(parseMacroAnnotations("-- macros\nCREATE MACRO m(a) AS a;", "--")).toEqual({
+  expect(parseMacroAnnotations("-- macros\nCREATE MACRO m(a) AS a;")).toEqual({
     macros: true,
     useLibs: [],
   });
   // marker with trailing prose is not the macros marker
-  expect(parseMacroAnnotations("-- macros are below\nSELECT 1;", "--").macros).toBe(false);
+  expect(parseMacroAnnotations("-- macros are below\nSELECT 1;").macros).toBe(false);
   // `// use` accumulates path-shaped tokens, dedups, and stops at the body
   expect(
-    parseMacroAnnotations("-- pipeline\n-- use f/lib/a\n-- use f/lib/a\n-- use notapath\nSELECT 1;", "--").useLibs,
+    parseMacroAnnotations("-- pipeline\n-- use f/lib/a\n-- use f/lib/a\n-- use notapath\nSELECT 1;").useLibs,
   ).toEqual(["f/lib/a"]);
   // an annotation after code is ignored (leading header only)
-  expect(parseMacroAnnotations("SELECT 1;\n-- use f/lib/a", "--").useLibs).toEqual([]);
+  expect(parseMacroAnnotations("SELECT 1;\n-- use f/lib/a").useLibs).toEqual([]);
+});
+
+test("parseMacroAnnotations accepts `//`, `--`, and `#` prefixes (backend parity, any language)", () => {
+  // The canonical backend parser strips `//`/`--`/`#` regardless of language, so
+  // a DuckDB library headed with `// macros` (not `-- macros`) must be detected.
+  expect(parseMacroAnnotations("// macros\nCREATE MACRO m(a) AS a;").macros).toBe(true);
+  expect(parseMacroAnnotations("# macros\nSELECT 1;").macros).toBe(true);
+  expect(parseMacroAnnotations("// use f/lib/a\nSELECT 1;").useLibs).toEqual(["f/lib/a"]);
+  // mixed prefixes in one header both register
+  expect(parseMacroAnnotations("// pipeline\n-- use f/lib/a\nSELECT 1;").useLibs).toEqual(["f/lib/a"]);
 });

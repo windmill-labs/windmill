@@ -240,33 +240,35 @@ export function detectMacroCalls(sql: string, names: Set<string>): Set<string> {
 }
 
 // Scan the LEADING comment header for the `// macros` marker and `// use <lib>`
-// annotations, independent of the wasm parser (which drops both). Mirrors the
-// canonical `parse_pipeline_annotations` handling: the marker must stand alone on
-// its line; a `// use` target is a single whitespace-free token containing `/`.
-// `prefix` is the language comment prefix (`--` for SQL). Scanning stops at the
-// first non-comment line so a body comment can't inject a phantom annotation.
+// annotations, independent of the wasm parser (which drops both). Faithful mirror
+// of the canonical `parse_pipeline_annotations` (asset_parser.rs): each line's
+// prefix is stripped as `//`, `--`, or `#` REGARDLESS of language (a DuckDB
+// library may legitimately head its annotations with `// macros`), scanning stops
+// at the first non-comment line, the marker must stand alone on its line, and a
+// `// use` target is a single whitespace-free token containing `/`.
 export function parseMacroAnnotations(
   content: string,
-  prefix: string,
 ): { macros: boolean; useLibs: string[] } {
-  const p = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const macrosRe = new RegExp(`^\\s*${p}\\s*macros\\s*$`);
-  const useRe = new RegExp(`^\\s*${p}\\s*use\\s+(\\S+)\\s*$`);
   let macros = false;
   const useLibs: string[] = [];
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "") continue;
-    if (!trimmed.startsWith(prefix)) break;
-    if (macrosRe.test(line)) {
+  for (const raw of content.split("\n")) {
+    const line = raw.replace(/^\s+/, "");
+    if (line === "") continue;
+    let rest: string;
+    if (line.startsWith("//") || line.startsWith("--")) rest = line.slice(2);
+    else if (line.startsWith("#")) rest = line.slice(1);
+    else break; // first line of actual code ends the annotation header
+    rest = rest.replace(/^\s+/, "");
+    // marker: `macros` as the only content on the line (rejects `macros_v2`,
+    // `macros are below`)
+    if (/^macros\s*$/.test(rest)) {
       macros = true;
       continue;
     }
-    const u = line.match(useRe);
-    if (u) {
-      const path = u[1];
-      if (path.includes("/") && !useLibs.includes(path)) useLibs.push(path);
-    }
+    // `use <lib>`: a single whitespace-free path token (must contain `/`, so
+    // prose like `use this to …` is dropped)
+    const u = rest.match(/^use\s+(\S+)\s*$/);
+    if (u && u[1].includes("/") && !useLibs.includes(u[1])) useLibs.push(u[1]);
   }
   return { macros, useLibs };
 }

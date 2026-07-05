@@ -655,7 +655,7 @@ function collectMacroLibraries(root: string): Map<string, ParsedMacro[]> {
       } catch {
         continue;
       }
-      if (!parseMacroAnnotations(content, "--").macros) continue;
+      if (!parseMacroAnnotations(content).macros) continue;
       const relFromRoot = path.relative(root, abs).replaceAll("\\", "/");
       out.set(removeExtensionToPath(relFromRoot), parseMacroLibrary(content));
     }
@@ -680,7 +680,7 @@ function buildMacroEdges(
   const useLibsByScript = new Map<string, string[]>();
   for (const s of all) {
     if (s.language !== "duckdb") continue;
-    const { useLibs } = parseMacroAnnotations(s.content, "--");
+    const { useLibs } = parseMacroAnnotations(s.content);
     if (useLibs.length > 0) useLibsByScript.set(s.path, useLibs);
   }
 
@@ -692,9 +692,9 @@ function buildMacroEdges(
   }
   const allMacroNames = new Set(providerByName.keys());
 
-  // Only `// pipeline` scripts are graph nodes, so only they are candidate
-  // consumers. Aggregate per (lib, consumer): the set of called macro names and
-  // whether the edge came (also) from a whole-library `// use`.
+  // Aggregate per (lib, consumer): the set of called macro names and whether the
+  // edge came (also) from a whole-library `// use`. Consumers are folder-scoped
+  // (`all` is this folder's scripts).
   const pipelinePaths = new Set(runnables.map((r) => r.path));
   type EdgeAgg = { names: Set<string>; viaUse: boolean };
   const edgeMap = new Map<string, EdgeAgg>();
@@ -709,12 +709,20 @@ function buildMacroEdges(
     return agg;
   };
   for (const s of all) {
-    if (s.language !== "duckdb" || !pipelinePaths.has(s.path)) continue;
+    if (s.language !== "duckdb") continue;
+    // Lexical call edges: the deploy path records `macro_usage` for EVERY DuckDB
+    // script in the folder (not only pipeline members) — including a macro
+    // library that calls another library's macros — so a lib→lib edge and its
+    // upstream provider node survive. Mirror that: any folder DuckDB script is a
+    // candidate consumer here.
     for (const name of detectMacroCalls(s.content, allMacroNames)) {
       const lib = providerByName.get(name)!;
       if (lib === s.path) continue; // a library calling its own macro is not an edge
       aggFor(lib, s.path).names.add(name);
     }
+    // `// use` whole-library edges: the deployed graph re-parses these only from
+    // pipeline members (`annotations_by_path`), so scope them the same way.
+    if (!pipelinePaths.has(s.path)) continue;
     for (const lib of useLibsByScript.get(s.path) ?? []) {
       const macros = libMacros.get(lib);
       // An out-of-tree / unknown `// use` target can't be resolved locally.
@@ -742,10 +750,13 @@ function buildMacroEdges(
       a.consumer_path.localeCompare(b.consumer_path),
     );
 
-  // Surface each referenced library as a node with its macro signatures. If the
-  // library is also a `// pipeline` member it already has a runnable — enrich it
-  // in place rather than duplicating.
-  for (const lib of new Set(edges.map((e) => e.lib_path))) {
+  // Force BOTH endpoints of every edge into the node set, like the deployed
+  // builder. A provider library carries its macro signatures (enriched in place
+  // if it is already a `// pipeline` runnable). A consumer that is not already a
+  // runnable — a non-pipeline DuckDB helper, or an in-folder library consuming
+  // another — is added as a bare node so no edge dangles at a missing runnable.
+  const libPaths = new Set(edges.map((e) => e.lib_path));
+  for (const lib of libPaths) {
     const macros = (libMacros.get(lib) ?? []).map((m) => ({
       name: m.name,
       params: m.params,
@@ -754,6 +765,13 @@ function buildMacroEdges(
     const existing = runnables.find((r) => r.path === lib);
     if (existing) existing.macros = macros;
     else runnables.push({ path: lib, usage_kind: "script", macros });
+  }
+  for (const consumer of new Set(edges.map((e) => e.consumer_path))) {
+    // A consumer that is itself a library was already added above (with macros).
+    if (libPaths.has(consumer)) continue;
+    if (!runnables.some((r) => r.path === consumer)) {
+      runnables.push({ path: consumer, usage_kind: "script" });
+    }
   }
   runnables.sort((a, b) => a.path.localeCompare(b.path));
 
