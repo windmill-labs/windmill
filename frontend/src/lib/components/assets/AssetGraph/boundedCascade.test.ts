@@ -16,15 +16,17 @@ import { computeInducedSchedule } from './graphTraversal'
 type W = [script: string, asset: string] // producer write edge (datatable)
 type R = [script: string, asset: string] // pure-read edge (datatable)
 type S = [script: string, asset: string] // `// on <asset>` subscription
+type T = [producer: string, tested: string, asset: string] // `// data_test` ordering edge
 
 function graph(opts: {
 	scripts?: string[]
 	writes?: W[]
 	reads?: R[]
 	subs?: S[]
+	tests?: T[]
 	native?: Array<[kind: NativeTriggerKind, script: string]>
 }): AssetGraphResponse {
-	const { scripts = [], writes = [], reads = [], subs = [], native = [] } = opts
+	const { scripts = [], writes = [], reads = [], subs = [], tests = [], native = [] } = opts
 	const triggers: AssetGraphTrigger[] = [
 		...subs.map(
 			([s, a]) =>
@@ -60,7 +62,15 @@ function graph(opts: {
 				access_type: 'r' as const
 			}))
 		],
-		triggers
+		triggers,
+		test_edges: tests.map(([producer, tested, a]) => ({
+			producer_kind: 'script' as const,
+			producer_path: producer,
+			runnable_kind: 'script' as const,
+			runnable_path: tested,
+			asset_kind: 'datatable' as const,
+			asset_path: a
+		}))
 	}
 }
 
@@ -94,6 +104,22 @@ describe('buildLineageDag', () => {
 		const dag = buildLineageDag(g)
 		expect([...(dag.down.get(sn('u')) ?? [])]).toEqual([asset('x')])
 		expect(dag.up.get(sn('u'))).toBeUndefined() // asset is not upstream of its own writer
+	})
+
+	it('routes a data_test ordering edge through the referenced asset', () => {
+		// prod writes x; tested has a `// data_test` against x (prod → tested edge).
+		// The DAG must place x (and thus prod) upstream of tested so a cascade
+		// materializes x first.
+		const g = graph({
+			scripts: ['prod', 'tested'],
+			writes: [['prod', 'x']],
+			tests: [['prod', 'tested', 'x']]
+		})
+		const dag = buildLineageDag(g)
+		// asset x → tested (routed through the asset, not a direct prod → tested hop)
+		expect([...(dag.down.get(asset('x')) ?? [])]).toEqual([sn('tested')])
+		// prod → x → tested makes prod an ancestor of tested.
+		expect(ancestors(dag, sn('tested'))).toEqual(new Set([asset('x'), sn('prod')]))
 	})
 })
 
@@ -270,6 +296,47 @@ describe('buildLineageDownstreamMap (read-aware scheduling)', () => {
 		expect(readAware.roots).toEqual(['a'])
 		expect(readAware.indegree.get('c')).toBe(1)
 		expect(readAware.nodes).toEqual(['a', 'c'])
+	})
+
+	it('orders a disjoint-root producer before a data_test that references it', () => {
+		// Two disjoint roots (the HD-1 repro): `dim` produces the dimension
+		// `dimc`; `fct` produces `fcto` and has a `// data_test relationships`
+		// against `dimc`. Without the test edge they are unordered and a cold
+		// cascade can run `fct` first ("table dimc does not exist"). The test
+		// edge must place `dim` strictly before `fct`.
+		const g = graph({
+			scripts: ['dim', 'fct'],
+			writes: [
+				['dim', 'dimc'],
+				['fct', 'fcto']
+			],
+			tests: [['dim', 'fct', 'dimc']]
+		})
+		const selected = new Set(['dim', 'fct'])
+		const map = buildLineageDownstreamMap(g)
+		expect([...(map.get('dim') ?? [])]).toEqual(['fct'])
+		const schedule = computeInducedSchedule(g, selected, map)
+		expect(schedule.roots).toEqual(['dim'])
+		expect(schedule.indegree.get('fct')).toBe(1)
+		expect(schedule.nodes).toEqual(['dim', 'fct'])
+		expect(schedule.cyclic).toEqual([])
+	})
+
+	it('adds no ordering when the referenced asset has no in-pipeline producer', () => {
+		// `fct` tests against an external `ext` table nothing produces — the
+		// backend emits no test edge, so the frontend sees none and `fct` stays
+		// an independent root (the runtime error stands, as designed).
+		const g = graph({
+			scripts: ['dim', 'fct'],
+			writes: [['fct', 'fcto']],
+			tests: [] // no producer for `ext` ⇒ backend omitted the edge
+		})
+		const schedule = computeInducedSchedule(
+			g,
+			new Set(['dim', 'fct']),
+			buildLineageDownstreamMap(g)
+		)
+		expect(schedule.roots.sort()).toEqual(['dim', 'fct'])
 	})
 })
 

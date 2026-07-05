@@ -21595,6 +21595,38 @@ paths:
                             type: string
                         via_use:
                           type: boolean
+                  test_edges:
+                    type: array
+                    description: >-
+                      Ordering-only "must-run-after" edges — a `// data_test relationships`
+                      (or custom test reading a pipeline asset) requires the referenced
+                      asset's producer to run before the tested script. Not a data-consumption
+                      edge; fed into the cascade topo-sort so cold runs order correctly.
+                      Omitted when empty.
+                    items:
+                      type: object
+                      required:
+                        [
+                          producer_kind,
+                          producer_path,
+                          runnable_kind,
+                          runnable_path,
+                          asset_kind,
+                          asset_path,
+                        ]
+                      properties:
+                        producer_kind:
+                          $ref: "#/components/schemas/AssetUsageKind"
+                        producer_path:
+                          type: string
+                        runnable_kind:
+                          $ref: "#/components/schemas/AssetUsageKind"
+                        runnable_path:
+                          type: string
+                        asset_kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        asset_path:
+                          type: string
 
   /w/{workspace}/assets/macros:
     get:

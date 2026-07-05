@@ -401,6 +401,40 @@ seams: add a parsed variant, emit its check/reader SQL into the summary, read
 it back in the worker. Nothing about the closed set of *today's* keywords is
 load-bearing.
 
+### Cascade ordering (`test_edges`)
+
+A `relationships` test — and, best-effort, a custom test whose body reads a
+pipeline asset — needs the *referenced* asset to exist at test time, but it is
+**not** a data-consumption `// on`/read of that asset, so it contributes no
+lineage edge. Without an ordering constraint, a cold cascade can run the tested
+script before the referenced dimension is materialized and hard-fail
+(`Catalog Error: Table … does not exist`).
+
+`asset_graph` (`windmill-api-assets/src/lib.rs`) closes this by resolving the
+referenced asset's in-pipeline **producer** (from the write edges it already
+builds) and emitting an ordering-only `test_edges` entry
+`producer → testing_script`. It is:
+
+- **Only emitted when a producer exists in the graph.** An external table (no
+  in-pipeline producer) adds no edge — the missing dependency is real and the
+  runtime error is the correct signal. Self-edges (a script relationship-testing
+  its own output) are dropped.
+- **Rendered distinctly** — amber dashed "test needs" link on the canvas, apart
+  from lineage (blue/gray solid) and triggers (gray) — because the tested script
+  does not ingest the asset's rows.
+- **Fed into the cascade topo-sort** via `buildLineageDag`
+  (`AssetGraph/boundedCascade.ts`), routed *through* the referenced asset node
+  (`asset → testing_script`) so the existing `producer → asset` write edge
+  extends into `producer → asset → testing_script` and the two-hop
+  `buildLineageDownstreamMap` invariant holds. Bounded and full-pipeline runs
+  (`computeInducedSchedule`) then order the producer first.
+
+Scope caveat: this orders *within a single client-driven cascade* (dev run /
+bounded run / full-pipeline run). It does not change the production reactive
+asset-dispatch of two independently-scheduled roots — there, `relationships`
+targets on a disjoint root should still be co-scheduled or bound with an
+explicit `// on <dim>` if a hard ordering is required.
+
 ### Scoping decisions (v1)
 
 - **Partition scope.** When `// partitioned`, built-in checks are scoped to the

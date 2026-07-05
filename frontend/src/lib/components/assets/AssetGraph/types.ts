@@ -147,12 +147,29 @@ export interface AssetGraphMacroEdge {
 	unsaved?: boolean
 }
 
+// Ordering-only "must-run-after" edge: `runnable_path`'s `// data_test`
+// (a `relationships` ref, or a custom test reading a pipeline asset) needs
+// `asset` materialized before the tested script runs — but the tested script
+// doesn't consume the asset's rows, so this is NOT a lineage edge. Resolved
+// server-side to the referenced asset's in-pipeline producer; fed into the
+// cascade topo-sort (buildLineageDag) so a cold cascade orders the referenced
+// dimension first, and rendered dashed on the canvas (like macro edges).
+export interface AssetGraphTestEdge {
+	producer_kind: GraphUsageKind
+	producer_path: string
+	runnable_kind: GraphUsageKind
+	runnable_path: string
+	asset_kind: AssetKind
+	asset_path: string
+}
+
 export interface AssetGraphResponse {
 	assets: AssetGraphAssetNode[]
 	runnables: AssetGraphRunnableNode[]
 	edges: AssetGraphEdge[]
 	triggers: AssetGraphTrigger[]
 	macro_edges?: AssetGraphMacroEdge[]
+	test_edges?: AssetGraphTestEdge[]
 }
 
 export type AssetGraphNodeData =
