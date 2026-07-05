@@ -2004,6 +2004,17 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
 }
 
 // Read backend/windmill-duckdb-ffi-internal/README_DEV.md for details about why we use FFI
+// The FFI returns errors as `ERROR <json-encoded-message>`: the DuckDB error
+// string is `serde_json::to_string`'d, so it arrives wrapped in quotes with
+// newlines/quotes escaped. Decode it back to the raw message so multi-line
+// errors — e.g. the write-audit-publish data-test ✓/✗ breakdown — render with
+// real newlines and no stray quoting. Falls back to the raw slice if it is not
+// a JSON string (defensive; the FFI always JSON-encodes).
+fn decode_ffi_error(result_str: &str) -> String {
+    let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
+    serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
+}
+
 fn run_duckdb_ffi_safe<'a>(
     query_block_list: impl Iterator<Item = &'a str>,
     query_block_list_count: usize,
@@ -2069,7 +2080,7 @@ fn run_duckdb_ffi_safe<'a>(
     };
 
     if result_str.starts_with("ERROR") {
-        Err(Error::ExecutionErr(result_str[6..].to_string()))
+        Err(Error::ExecutionErr(decode_ffi_error(&result_str)))
     } else {
         let result = if collection_strategy == SqlResultCollectionStrategy::AllStatementsAllRows {
             // Avoid parsing JSON
@@ -2133,7 +2144,7 @@ fn prepare_duckdb_ffi_safe<'a>(
     };
 
     if result_str.starts_with("ERROR") {
-        Err(Error::ExecutionErr(result_str[6..].to_string()))
+        Err(Error::ExecutionErr(decode_ffi_error(&result_str)))
     } else {
         Ok(serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?)
     }
@@ -2628,6 +2639,31 @@ pub struct Arg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decode_ffi_error_unescapes_multiline_and_strips_quotes() {
+        // Mirror the FFI: JSON-encode the raw DuckDB message, prefix "ERROR ".
+        let raw_msg = "Invalid Input Error: data tests failed on main/raw_orders \
+             (1/3 failed) — write rolled back, previous version left live:\n  \
+             ✓ not_null(order_id)\n  ✗ accepted_values(status) — 12 violating row(s)";
+        let ffi = format!("ERROR {}", serde_json::to_string(raw_msg).unwrap());
+        let decoded = decode_ffi_error(&ffi);
+        assert_eq!(decoded, raw_msg);
+        // real newlines, no literal `\n`, no wrapping quotes
+        assert!(decoded.contains('\n') && !decoded.contains("\\n"));
+        assert!(!decoded.starts_with('"'));
+        // single-line error with inner quotes round-trips unescaped
+        let single = format!(
+            "ERROR {}",
+            serde_json::to_string("Binder Error: column \"x\" not found").unwrap()
+        );
+        assert_eq!(
+            decode_ffi_error(&single),
+            "Binder Error: column \"x\" not found"
+        );
+        // non-JSON payload falls back to the raw slice
+        assert_eq!(decode_ffi_error("ERROR not json"), "not json");
+    }
 
     fn test_ancestor(wid: &str) -> windmill_common::workspaces::DucklakeAncestorAttach {
         windmill_common::workspaces::DucklakeAncestorAttach {
