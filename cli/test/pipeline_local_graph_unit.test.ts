@@ -143,6 +143,15 @@ test("`// materialize <asset>` producer connects to its `// on` consumer", async
   );
 });
 
+// NOTE: the scd2 `<dim>_current` companion-view write edge (buildLocalPipelineGraph)
+// is exercised end-to-end by the backend parser test
+// (`materialize_scd2_write_targets_include_current_view`) and the frontend
+// live-graph test (`resolveGraph.test.ts` — "scd2 materialize draft"). It has no
+// unit test here because it depends on the `scd2` flag emitted by the bundled
+// `windmill-parser-wasm-asset`, which lags the source (the vendored build
+// predates the scd2 fields); the branch activates once a wasm carrying `scd2` is
+// republished (cf. the wasm-publish plumbing in #9926).
+
 test("a bare `.sql` (ambiguous dialect) is skipped, not a build-aborting crash", async () => {
   // `inferContentTypeFromFilePath` throws on a dialect-less `.sql`; one such file
   // must not abort the whole graph build (it also wedged `pipeline dev` at start).

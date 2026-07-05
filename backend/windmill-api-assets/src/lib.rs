@@ -620,6 +620,15 @@ struct GraphAssetNode {
     // anywhere. Lockstep with TS `AssetGraphAssetNode.fork_materialization`.
     #[serde(skip_serializing_if = "Option::is_none")]
     fork_materialization: Option<String>,
+    // The base dimension this asset is the SCD2 `<dim>_current` companion view
+    // of — set only on a `ducklake://…/<dim>_current` node whose producer
+    // declares `// materialize … history` on `<dim>`. The producer edge already
+    // links it to that script (both writes are registered at deploy); this lets
+    // the canvas render it as a derived "current view" of the base rather than an
+    // unrelated table. Absent for every other asset. Lockstep with TS
+    // `AssetGraphAssetNode.derived_from`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    derived_from: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -1327,6 +1336,24 @@ async fn asset_graph(
         }
     };
 
+    // (kind, `<dim>_current` path) → base `<dim>` path, for every managed scd2
+    // producer in the graph. Reads of the companion view resolve to a node
+    // whose producer edge already exists (the deploy path registers both writes)
+    // — this map lets that node advertise which base dimension it derives from.
+    let scd2_current_base: std::collections::HashMap<(AssetKind, String), String> =
+        annotations_by_path
+            .values()
+            .filter_map(|a| a.materialize.as_ref())
+            .filter_map(|m| {
+                m.scd2_current_target().map(|(k, current)| {
+                    (
+                        (windmill_common::assets::asset_kind_from_parser(k), current),
+                        m.target_path.clone(),
+                    )
+                })
+            })
+            .collect();
+
     let mut assets: Vec<GraphAssetNode> = asset_set
         .into_iter()
         .map(|(kind, path)| GraphAssetNode {
@@ -1337,6 +1364,7 @@ async fn asset_graph(
                         .map(|s| s.to_string())
                 })
                 .flatten(),
+            derived_from: scd2_current_base.get(&(kind, path.clone())).cloned(),
             kind,
             path,
         })

@@ -293,6 +293,30 @@ pub struct MaterializeSpec {
     pub on_schema_change: OnSchemaChange,
 }
 
+impl MaterializeSpec {
+    /// The `<target>_current` SCD2 companion view this managed materialize also
+    /// produces, or `None` when it isn't a managed scd2 target. Managed scd2
+    /// creates the base table *and* a `<dim>_current` "latest row per key" view
+    /// each run (see `sql_materialize.rs`); `manual` mode owns its own DDL and
+    /// short-circuits before that codegen, so it produces no companion.
+    pub fn scd2_current_target(&self) -> Option<(AssetKind, String)> {
+        (self.scd2 && !self.manual)
+            .then(|| (self.target_kind, format!("{}_current", self.target_path)))
+    }
+
+    /// Every asset this managed materialize produces: the base table, plus — for
+    /// managed scd2 — the `<target>_current` companion view. The producer's
+    /// trailing `SELECT` doesn't express these writes (the runtime generates the
+    /// DDL), so this is the single source of truth every graph surface (deploy
+    /// asset rows, the CLI `--local` graph, and the frontend live graph) uses to
+    /// link reads of the base *and* the `_current` view back to this producer.
+    pub fn write_targets(&self) -> Vec<(AssetKind, String)> {
+        let mut targets = vec![(self.target_kind, self.target_path.clone())];
+        targets.extend(self.scd2_current_target());
+        targets
+    }
+}
+
 // dbt's `on_schema_change`, covering both the save-time contract check and the
 // run-time write guardrail for the positional persist-and-mutate strategies:
 //   • `warn` (default): surface consumer contract warnings; at write time, log
@@ -1704,6 +1728,62 @@ mod pipeline_annotation_tests {
         assert!(m.track.is_empty());
         // soft-delete default
         assert!(!m.close_deleted);
+    }
+
+    #[test]
+    fn materialize_scd2_write_targets_include_current_view() {
+        // A managed scd2 materialize produces the base table AND the
+        // `<dim>_current` companion view, so the producer must be recorded as
+        // writing both (reads of the view otherwise resolve to an orphan asset).
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://main/dim_customers key=id history",
+        );
+        let m = out.materialize.expect("materialize");
+        assert_eq!(
+            m.write_targets(),
+            vec![
+                (AssetKind::Ducklake, "main/dim_customers".to_string()),
+                (
+                    AssetKind::Ducklake,
+                    "main/dim_customers_current".to_string()
+                ),
+            ]
+        );
+        assert_eq!(
+            m.scd2_current_target(),
+            Some((
+                AssetKind::Ducklake,
+                "main/dim_customers_current".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn materialize_non_scd2_write_targets_are_base_only() {
+        // A plain merge (no `history`) creates no companion view — only the base.
+        let out = parse_pipeline_annotations("// materialize ducklake://main/dim_customers key=id");
+        let m = out.materialize.expect("materialize");
+        assert_eq!(
+            m.write_targets(),
+            vec![(AssetKind::Ducklake, "main/dim_customers".to_string())]
+        );
+        assert_eq!(m.scd2_current_target(), None);
+    }
+
+    #[test]
+    fn materialize_manual_scd2_has_no_companion_view() {
+        // `manual` mode owns its own DDL and never creates the `_current` view,
+        // so registering it would be a false producer edge.
+        let out = parse_pipeline_annotations(
+            "// materialize manual ducklake://main/dim_customers key=id history",
+        );
+        let m = out.materialize.expect("materialize");
+        assert!(m.manual && m.scd2);
+        assert_eq!(m.scd2_current_target(), None);
+        assert_eq!(
+            m.write_targets(),
+            vec![(AssetKind::Ducklake, "main/dim_customers".to_string())]
+        );
     }
 
     #[test]

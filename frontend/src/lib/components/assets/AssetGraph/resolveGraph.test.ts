@@ -99,6 +99,50 @@ describe('resolveGraph', () => {
 		})
 	})
 
+	it('scd2 materialize draft: writes both the base dim and its _current companion view', () => {
+		const drafts = new Map([
+			[
+				'f/x/dim',
+				{
+					script: {
+						content: '-- materialize ducklake://main/dim_customers key=id history\nselect 1'
+					}
+				}
+			]
+		])
+		const r = resolveGraph(input({ drafts }))
+		// Base dimension: a plain write output node.
+		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/dim_customers' })
+		// Companion `_current` view: same producer, marked derived from the base.
+		expect(r.assets).toContainEqual({
+			kind: 'ducklake',
+			path: 'main/dim_customers_current',
+			derived_from: 'main/dim_customers'
+		})
+		for (const path of ['main/dim_customers', 'main/dim_customers_current']) {
+			expect(r.edges).toContainEqual({
+				runnable_path: 'f/x/dim',
+				runnable_kind: 'script',
+				asset_kind: 'ducklake',
+				asset_path: path,
+				access_type: 'w',
+				unsaved: true
+			})
+		}
+	})
+
+	it('non-scd2 materialize draft: writes only the base dim, no _current companion', () => {
+		const drafts = new Map([
+			[
+				'f/x/dim',
+				{ script: { content: '-- materialize ducklake://main/dim_customers key=id\nselect 1' } }
+			]
+		])
+		const r = resolveGraph(input({ drafts }))
+		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/dim_customers' })
+		expect(r.assets.some((a) => a.path === 'main/dim_customers_current')).toBe(false)
+	})
+
 	it('active draft: live body writes are authoritative over the snapshot', () => {
 		const drafts = new Map([
 			[

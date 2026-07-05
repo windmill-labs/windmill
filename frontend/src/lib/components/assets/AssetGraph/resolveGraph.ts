@@ -2,6 +2,7 @@ import type { AssetGraphMacroEdge, AssetGraphResponse, NativeTriggerKind } from 
 import {
 	mergeColumnLineage,
 	parsePipelineAnnotations,
+	scd2CurrentTargetPath,
 	type ColumnLineage,
 	type PipelineAnnotations
 } from './parsePipelineAnnotations'
@@ -373,7 +374,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		//      creation/last edit, or the seeded output for a fresh draft
 		//      whose body doesn't yet write anything inferable).
 		const liveForThisDraft = liveBodyAssets.scriptPath === path
-		const writeOuts: Array<{ kind: AssetKind; path: string }> = []
+		const writeOuts: Array<{ kind: AssetKind; path: string; derivedFrom?: string }> = []
 		if (liveForThisDraft) {
 			writeOuts.push(...extractWrites(liveBodyAssets.assets))
 		} else if (d.outputAssets) {
@@ -382,16 +383,35 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		// `// materialize <asset>` declares a write output via annotation, not
 		// the SQL body, so the body-inference tiers above miss it. Add it from
 		// the live-parsed annotations so an edited materialize script keeps its
-		// output edge (the loop below dedups against existing assets/edges).
+		// output edge (the loop below dedups against existing assets/edges). A
+		// managed scd2 materialize also produces the `<dim>_current` companion
+		// view — add it too (mirrors the deploy path) so a draft consuming only
+		// the view links back to this producer instead of orphaning.
 		if (parsed.materialize) {
 			writeOuts.push({
 				kind: parsed.materialize.targetKind,
 				path: parsed.materialize.targetPath
 			})
+			const currentPath = scd2CurrentTargetPath(parsed.materialize)
+			if (currentPath) {
+				writeOuts.push({
+					kind: parsed.materialize.targetKind,
+					path: currentPath,
+					derivedFrom: parsed.materialize.targetPath
+				})
+			}
 		}
 		for (const out of writeOuts) {
-			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
-			if (!hasAsset) assets.push({ kind: out.kind, path: out.path })
+			const existing = assets.find((a) => a.kind === out.kind && a.path === out.path)
+			if (!existing) {
+				assets.push({
+					kind: out.kind,
+					path: out.path,
+					...(out.derivedFrom ? { derived_from: out.derivedFrom } : {})
+				})
+			} else if (out.derivedFrom && existing.derived_from == undefined) {
+				existing.derived_from = out.derivedFrom
+			}
 			// Dedup against edges already in the overlay (this draft's base
 			// edges were dropped above, so this only guards against duplicate
 			// writeOuts entries — not against the persisted version).
