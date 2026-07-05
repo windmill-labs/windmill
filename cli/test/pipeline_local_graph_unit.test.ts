@@ -377,6 +377,53 @@ test("an unused `// macros` library is not surfaced as a node", async () => {
   );
 });
 
+test("a shared macro library OUTSIDE the pipeline folder is resolved (workspace-wide)", async () => {
+  // The deployed graph loads the macro registry workspace-wide and only
+  // folder-scopes consumers, so a pipeline in `f/mypipe` can use a shared library
+  // in `f/shared`. Local discovery must walk the whole `f/` tree, not just the
+  // folder, or the edge/node/docs are missing (parity gap).
+  const root = mkdtempSync(join(tmpdir(), "wm-pl-"));
+  writeFileSync(join(root, "wmill.yaml"), "defaultTs: bun\n");
+  mkdirSync(join(root, "f", "shared"), { recursive: true });
+  mkdirSync(join(root, "f", "mypipe"), { recursive: true });
+  writeFileSync(
+    join(root, "f", "shared", "stats.duckdb.sql"),
+    `-- macros\nCREATE MACRO zscore(x, m, s) AS (x - m) / s;\n`,
+  );
+  // one consumer calls the shared macro lexically, another pulls it via `// use`
+  writeFileSync(
+    join(root, "f", "mypipe", "fct.duckdb.sql"),
+    `-- pipeline\n-- on datatable://main/metrics\nSELECT zscore(v, 0, 1) FROM main.metrics;\n`,
+  );
+  writeFileSync(
+    join(root, "f", "mypipe", "dyn.duckdb.sql"),
+    `-- pipeline\n-- on datatable://main/metrics\n-- use f/shared/stats\nSELECT query('SELECT zscore(v, 0, 1)');\n`,
+  );
+  try {
+    const { graph } = await buildLocalPipelineGraph({ root, folder: "mypipe", defaultTs: "bun" });
+    expect(graph.macro_edges).toEqual([
+      {
+        lib_path: "f/shared/stats",
+        consumer_path: "f/mypipe/dyn",
+        macro_names: ["zscore"],
+        via_use: true,
+      },
+      {
+        lib_path: "f/shared/stats",
+        consumer_path: "f/mypipe/fct",
+        macro_names: ["zscore"],
+        via_use: false,
+      },
+    ]);
+    // the out-of-folder library is surfaced as a node with its signatures
+    expect(graph.runnables.find((r) => r.path === "f/shared/stats")?.macros).toEqual([
+      { name: "zscore", params: "x, m, s", is_table: false },
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("`#`-comment languages (ruby) use the `#` annotation fallback (no wasm parser)", async () => {
   await withFolder(
     { "ingest.rb": `# pipeline\n# on s3://demo/raw.csv\nputs "hi"\n` },

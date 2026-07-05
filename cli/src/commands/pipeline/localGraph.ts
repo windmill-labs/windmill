@@ -601,8 +601,13 @@ export async function buildLocalPipelineGraph(args: {
   // `// macros` libraries + lib→consumer edges. The wasm asset parser drops the
   // `// macros` / `// use` annotations and never emits a macro registry, so we
   // derive both from the working tree here (see ./duckdbMacros.ts) to match the
-  // deployed graph, which records them at deploy. Macros are DuckDB-only.
-  const macroEdges = buildMacroEdges(all, runnables);
+  // deployed graph, which records them at deploy. Libraries are discovered
+  // WORKSPACE-WIDE (not just this folder) — the deployed builder fetches the
+  // macro registry unfiltered so a shared library (e.g. `f/shared/stats`) is the
+  // provider endpoint of an in-folder consumer's edge; only consumers are
+  // folder-scoped. Macros are DuckDB-only.
+  const libMacros = collectMacroLibraries(args.root);
+  const macroEdges = buildMacroEdges(all, libMacros, runnables);
 
   const assets = [...assetSet.entries()].map(([key, a]) => {
     const derived_from = a.derived_from ?? derivedFromByKey.get(key);
@@ -621,27 +626,63 @@ export async function buildLocalPipelineGraph(args: {
   };
 }
 
-// Detect `// macros` libraries, resolve which pipeline scripts call their macros
-// (by lexical call detection + `// use` annotations), and (a) mutate `runnables`
-// to add each referenced library as a node carrying its macro signatures, and
-// (b) return the lib→consumer edges. Mirrors the deployed graph builder
-// (`asset_graph` in windmill-api-assets): a library node appears only when it is
-// an endpoint of at least one edge, so an unused library is not surfaced.
+// Every `// macros` DuckDB library in the workspace, keyed by its windmill path,
+// mapped to its parsed macro definitions. Walks the whole `f/` tree (not just the
+// pipeline folder) because the deployed graph resolves consumers against the
+// workspace-wide macro registry — a pipeline may `// use` / call a shared library
+// living outside its own folder. Only `*.duckdb.sql` files are read (macros are
+// DuckDB-only), so the extra walk stays cheap.
+function collectMacroLibraries(root: string): Map<string, ParsedMacro[]> {
+  const out = new Map<string, ParsedMacro[]>();
+  const walk = (dir: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith(".") || e.name === "node_modules") continue;
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(abs);
+        continue;
+      }
+      if (!e.isFile() || !e.name.endsWith(".duckdb.sql")) continue;
+      let content: string;
+      try {
+        content = fs.readFileSync(abs, "utf-8");
+      } catch {
+        continue;
+      }
+      if (!parseMacroAnnotations(content, "--").macros) continue;
+      const relFromRoot = path.relative(root, abs).replaceAll("\\", "/");
+      out.set(removeExtensionToPath(relFromRoot), parseMacroLibrary(content));
+    }
+  };
+  walk(path.join(root, "f"));
+  return out;
+}
+
+// Resolve which of this folder's pipeline scripts call the workspace's macro
+// libraries (by lexical call detection + `// use` annotations), then (a) mutate
+// `runnables` to add each referenced library as a node carrying its macro
+// signatures, and (b) return the lib→consumer edges. Mirrors the deployed graph
+// builder (`asset_graph` in windmill-api-assets): libraries come from the
+// workspace-wide registry, consumers are folder-scoped, and a library node
+// appears only when it is an endpoint of at least one edge (unused → not shown).
 function buildMacroEdges(
   all: LocalScript[],
+  libMacros: Map<string, ParsedMacro[]>,
   runnables: GraphRunnable[],
 ): NonNullable<AssetGraph["macro_edges"]> {
-  // Parse every `// macros` library body into its macro definitions. Only DuckDB
-  // scripts can be libraries.
-  const libMacros = new Map<string, ParsedMacro[]>();
+  if (libMacros.size === 0) return [];
   const useLibsByScript = new Map<string, string[]>();
   for (const s of all) {
     if (s.language !== "duckdb") continue;
-    const { macros, useLibs } = parseMacroAnnotations(s.content, "--");
+    const { useLibs } = parseMacroAnnotations(s.content, "--");
     if (useLibs.length > 0) useLibsByScript.set(s.path, useLibs);
-    if (macros) libMacros.set(s.path, parseMacroLibrary(s.content));
   }
-  if (libMacros.size === 0) return [];
 
   // Macro name → providing library. Names are workspace-unique (the deploy path
   // enforces this); on a local collision, last-writer-wins, harmlessly.
