@@ -277,6 +277,23 @@ describe('validFromStarts (mid-DAG selective execution)', () => {
 		expect(validFromStarts(g()).has(sn('k'))).toBe(false)
 	})
 
+	it('keeps a scheduled root that also carries an event trigger', () => {
+		// schedule wins over the secondary kafka trigger in validStarts, so the
+		// scheduled root stays --from-eligible (regression guard).
+		const g2 = graph({
+			scripts: ['sched_evt', 'consumer'],
+			writes: [['sched_evt', 'x']],
+			subs: [['consumer', 'x']],
+			native: [
+				['schedule', 'sched_evt'],
+				['kafka', 'sched_evt']
+			]
+		})
+		expect(validStarts(g2).has(sn('sched_evt'))).toBe(true)
+		expect(nonAutorunTriggerScripts(g2).has(sn('sched_evt'))).toBe(true)
+		expect(validFromStarts(g2).has(sn('sched_evt'))).toBe(true) // union with roots
+	})
+
 	it('runs a mid-DAG start plus its downstream WITHOUT re-running upstream', () => {
 		// Starting at `sub`, the unbounded downstream is {sub, y, reader} — `a`/`x`
 		// upstream are never pulled in (dbt `--select sub+`).

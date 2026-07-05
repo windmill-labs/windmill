@@ -47,7 +47,6 @@
 		boundedSet,
 		buildLineageDag,
 		buildLineageDownstreamMap,
-		descendants,
 		isScriptNode,
 		nonAutorunTriggerScripts,
 		reachableCutting,
@@ -1525,9 +1524,6 @@
 
 	// Rebuilt only while a pick is active (cheap to skip otherwise).
 	let boundDag = $derived(boundPickStart ? buildLineageDag(displayGraph) : undefined)
-	let boundEligible = $derived(
-		boundDag && boundPickStart ? descendants(boundDag, boundPickStart) : new Set<string>()
-	)
 	let boundResult = $derived(
 		boundDag && boundPickStart
 			? boundedSet(boundDag, boundPickStart, [...boundPickEnds])
@@ -1545,17 +1541,23 @@
 				)
 			: new Set<string>()
 	)
-	// No end picked → "Run + downstream" (dbt `model+`): the start plus its full
-	// transitive downstream. Picking end(s) narrows it to the path-between set.
-	// Either way, intersect with the barrier-cut closure so an event descendant is
-	// never launched empty.
-	let boundScripts = $derived(
+	// Nodes pickable as end bounds: the barrier-cut downstream (excluding the
+	// start), NOT raw descendants — else an event handler or a node only reachable
+	// through one could be clicked as an end yet get silently dropped from the run.
+	let boundEligible = $derived(new Set([...boundReachable].filter((id) => id !== boundPickStart)))
+	// The actual run set (nodes, scripts + assets). No end picked → "Run +
+	// downstream" (dbt `model+`): the start plus its full transitive downstream.
+	// Picking end(s) narrows it to the path-between set. Either way, intersect with
+	// the barrier-cut closure so an event descendant is never launched empty. The
+	// canvas highlights exactly this set, so the ring matches what will run.
+	let boundRunNodes = $derived(
 		boundPickStart
 			? boundPickEnds.size === 0
-				? scriptsOf(boundReachable)
-				: scriptsOf([...(boundResult?.nodes ?? [])].filter((n) => boundReachable.has(n)))
-			: []
+				? boundReachable
+				: new Set([...(boundResult?.nodes ?? [])].filter((n) => boundReachable.has(n)))
+			: new Set<string>()
 	)
+	let boundScripts = $derived(scriptsOf(boundRunNodes))
 
 	// Engine id → canvas id: scripts keep `script:path`; assets gain the
 	// canvas's `asset:` prefix (AssetGraphCanvas node ids).
@@ -1573,7 +1575,7 @@
 					start: boundPickStart,
 					eligible: new Set([...boundEligible].map(toCanvasId)),
 					ends: new Set([...boundPickEnds].map(toCanvasId)),
-					bounded: new Set([...(boundResult?.nodes ?? [])].map(toCanvasId))
+					bounded: new Set([...boundRunNodes].map(toCanvasId))
 				}
 			: undefined
 	)

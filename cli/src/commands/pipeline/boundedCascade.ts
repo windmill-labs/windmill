@@ -228,7 +228,11 @@ export function validStarts(g: BCGraph): Set<string> {
  */
 export function validFromStarts(g: BCGraph): Set<string> {
   const nonAutorun = nonAutorunTriggerScripts(g);
-  const out = new Set<string>();
+  // Seed with the schedule/manual roots: `validStarts` lets a schedule identity
+  // win over a secondary non-autorun trigger (a `// on schedule` + `// on
+  // data_upload` script IS a scheduled root), so a root must stay `--from`-
+  // eligible even though it's also in `nonAutorunTriggerScripts`.
+  const out = new Set<string>(validStarts(g));
   for (const r of g.runnables ?? []) {
     if (r.usage_kind !== "script") continue;
     const id = scriptNodeId(r.path);

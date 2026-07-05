@@ -175,6 +175,22 @@ test("validFromStarts: mid-DAG models are eligible starts, event/upload/webhook 
   expect(from.has(sn("hook"))).toBe(false);
 });
 
+test("validFromStarts keeps a scheduled root that also carries a non-autorun trigger", () => {
+  // Regression: `--from sched_upload` must be accepted just like the implicit
+  // start. `sched_upload` is a scheduled root AND a data_upload handler — schedule
+  // wins in validStarts, so it stays --from-eligible despite being a nonAutorun
+  // handler (else explicit --from throws where the implicit start succeeds).
+  const g = graph({
+    scripts: ["sched_upload", "consumer"],
+    writes: [["sched_upload", "x"]],
+    subs: [["consumer", "x"]],
+    native: [["schedule", "sched_upload"], ["data_upload", "sched_upload"]],
+  });
+  expect(validStarts(g).has(sn("sched_upload"))).toBe(true);
+  expect(nonAutorunTriggerScripts(g).has(sn("sched_upload"))).toBe(true);
+  expect(validFromStarts(g).has(sn("sched_upload"))).toBe(true); // union with roots
+});
+
 test("a mid-DAG start runs itself + downstream, never upstream", () => {
   // Starting at `sub`, the unbounded downstream is {sub, reader}; `a`/`x` upstream
   // are never pulled in (dbt `--select sub+`).

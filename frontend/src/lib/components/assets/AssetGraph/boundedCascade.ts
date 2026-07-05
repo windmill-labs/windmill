@@ -249,7 +249,10 @@ export function validFromStarts(g: AssetGraphResponse): Set<string> {
 		if (t.runnable_kind !== 'script') continue
 		if (EVENT_TRIGGER_KINDS.has(t.trigger_kind)) eventScripts.add(t.runnable_path)
 	}
-	const out = new Set<string>()
+	// Seed with schedule/manual roots: `validStarts` lets a schedule identity win
+	// over a secondary event trigger, so a scheduled root that also carries e.g.
+	// a `// on kafka` stays `--from`-eligible even though it's an event script.
+	const out = new Set<string>(validStarts(g))
 	for (const r of g.runnables ?? []) {
 		if (r.usage_kind !== 'script') continue
 		if (!eventScripts.has(r.path)) out.add(scriptNodeId(r.path))
