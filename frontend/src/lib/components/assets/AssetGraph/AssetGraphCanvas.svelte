@@ -142,8 +142,8 @@
 		// editor passes it, so the asset-graph page is unaffected. The page
 		// clears it once the pan has had time to settle.
 		panToNodeId?: string | undefined
-		// Script paths eligible to *start* a bounded-cascade run (schedule
-		// roots + manual roots — see boundedCascade.validStarts). When a path is
+		// Script paths eligible to *start* a bounded-cascade run — roots AND
+		// mid-DAG models (see boundedCascade.validFromStarts). When a path is
 		// in this set and `onStartBoundedRun` is wired, its node's cascade menu
 		// gains a "Run downstream up to…" entry.
 		validStartPaths?: ReadonlySet<string>

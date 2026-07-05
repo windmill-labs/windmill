@@ -15,6 +15,7 @@ import {
   scriptsOf,
   topoOrder,
   validStarts,
+  validFromStarts,
   nonAutorunTriggerScripts,
   reachableCutting,
   isScriptNode,
@@ -152,6 +153,42 @@ test("a scheduled root with a secondary data_upload trigger stays a start and is
   );
   expect(sel.has("sched_upload")).toBe(true); // runs on its schedule path…
   expect(sel.has("consumer")).toBe(true); // …and its downstream isn't cut off
+});
+
+test("validFromStarts: mid-DAG models are eligible starts, event/upload/webhook are not", () => {
+  // a(root) → x → sub → y → reader ; k=kafka, upl=data_upload, hook=webhook.
+  const g = graph({
+    scripts: ["a", "sub", "reader", "k", "upl", "hook"],
+    writes: [["a", "x"], ["sub", "y"]],
+    reads: [["reader", "y"]],
+    subs: [["sub", "x"]],
+    native: [["kafka", "k"], ["data_upload", "upl"], ["webhook", "hook"]],
+  });
+  const from = validFromStarts(g);
+  expect(from.has(sn("a"))).toBe(true); // root
+  expect(from.has(sn("sub"))).toBe(true); // mid-DAG subscriber — NOT a validStart
+  expect(from.has(sn("reader"))).toBe(true); // pure reader
+  expect(validStarts(g).has(sn("sub"))).toBe(false); // old root-only gate rejected it
+  // Non-autorun handlers stay out (they need caller input / fan out per event).
+  expect(from.has(sn("k"))).toBe(false);
+  expect(from.has(sn("upl"))).toBe(false);
+  expect(from.has(sn("hook"))).toBe(false);
+});
+
+test("a mid-DAG start runs itself + downstream, never upstream", () => {
+  // Starting at `sub`, the unbounded downstream is {sub, reader}; `a`/`x` upstream
+  // are never pulled in (dbt `--select sub+`).
+  const g = graph({
+    scripts: ["a", "sub", "reader"],
+    writes: [["a", "x"], ["sub", "y"]],
+    reads: [["reader", "y"]],
+    subs: [["sub", "x"]],
+  });
+  const dag = buildLineageDag(g);
+  const downstream = new Set([sn("sub"), ...descendants(dag, sn("sub"))]);
+  expect(sorted(scriptsOf(downstream))).toEqual(["reader", "sub"]);
+  expect(downstream.has(sn("a"))).toBe(false);
+  expect(downstream.has("datatable:x")).toBe(false);
 });
 
 test("nonAutorunTriggerScripts: event + upload/webhook handlers, incl. subscribers (descendants)", () => {

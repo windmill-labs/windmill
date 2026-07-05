@@ -49,9 +49,11 @@
 		buildLineageDownstreamMap,
 		descendants,
 		isScriptNode,
+		nonAutorunTriggerScripts,
+		reachableCutting,
 		scriptNodeId,
 		scriptsOf,
-		validStarts
+		validFromStarts
 	} from '$lib/components/assets/AssetGraph/boundedCascade'
 	import {
 		diffDeployedGraph,
@@ -1510,7 +1512,11 @@
 	let boundPickEnds = $state<Set<string>>(new Set())
 
 	// Script paths eligible to start a bounded run, for the canvas menu gate.
-	let validStartPaths = $derived(new Set(scriptsOf(validStarts(displayGraph))))
+	// Any node with downstream — roots AND mid-DAG models — can be a "Run +
+	// downstream" start (dbt `model+`); only event-triggered scripts are excluded
+	// (see boundedCascade.validFromStarts). The canvas additionally requires the
+	// node to have lineage downstream before offering the entry.
+	let validStartPaths = $derived(new Set(scriptsOf(validFromStarts(displayGraph))))
 	// Scripts with read-aware downstream — the same gate the canvas applies
 	// (AssetGraphCanvas `hasLineageDownstream`). A valid start with no downstream
 	// has no end to pick, so the bounded-run entry is suppressed everywhere,
@@ -1527,7 +1533,29 @@
 			? boundedSet(boundDag, boundPickStart, [...boundPickEnds])
 			: undefined
 	)
-	let boundScripts = $derived(boundResult ? scriptsOf(boundResult.nodes) : [])
+	// Event handlers (kafka/mqtt/…) can't run with empty args, so they're cut from
+	// any cascade run — as is a consumer reachable only through one. The explicit
+	// start is protected (the user named it). Parity with the CLI `barriers` set.
+	let boundReachable = $derived(
+		boundDag && boundPickStart
+			? reachableCutting(
+					boundDag,
+					[boundPickStart],
+					new Set([...nonAutorunTriggerScripts(displayGraph)].filter((id) => id !== boundPickStart))
+				)
+			: new Set<string>()
+	)
+	// No end picked → "Run + downstream" (dbt `model+`): the start plus its full
+	// transitive downstream. Picking end(s) narrows it to the path-between set.
+	// Either way, intersect with the barrier-cut closure so an event descendant is
+	// never launched empty.
+	let boundScripts = $derived(
+		boundPickStart
+			? boundPickEnds.size === 0
+				? scriptsOf(boundReachable)
+				: scriptsOf([...(boundResult?.nodes ?? [])].filter((n) => boundReachable.has(n)))
+			: []
+	)
 
 	// Engine id → canvas id: scripts keep `script:path`; assets gain the
 	// canvas's `asset:` prefix (AssetGraphCanvas node ids).
@@ -2316,7 +2344,7 @@
 							<div class="flex flex-col leading-tight">
 								<span class="text-xs font-semibold text-emphasis">
 									{boundPickEnds.size === 0
-										? 'Click end node(s) to bound the run'
+										? `Run + all downstream · ${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} (click node(s) to bound)`
 										: `${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} up to ${boundPickEnds.size} end${boundPickEnds.size === 1 ? '' : 's'}`}
 								</span>
 								<span class="text-2xs text-tertiary">
@@ -2328,10 +2356,10 @@
 								variant="accent"
 								unifiedSize="sm"
 								startIcon={{ icon: Play }}
-								disabled={boundPickEnds.size === 0 || boundScripts.length === 0}
+								disabled={boundScripts.length === 0}
 								onclick={confirmBoundedRun}
 							>
-								Run selection
+								{boundPickEnds.size === 0 ? 'Run + downstream' : 'Run selection'}
 							</Button>
 						</div>
 					{/if}

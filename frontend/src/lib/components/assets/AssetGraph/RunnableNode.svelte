@@ -410,10 +410,10 @@
 								>
 									<Target size={14} class="mt-0.5 shrink-0 text-secondary" />
 									<div class="flex flex-col min-w-0">
-										<span class="font-medium">Run downstream up to…</span>
+										<span class="font-medium">Run + downstream…</span>
 										<span class="text-2xs text-secondary">
-											Pick end node(s) on the graph, then run only the cascade between this script
-											and them.
+											Run this script and everything downstream. Or pick end node(s) on the graph to
+											bound the cascade between this script and them.
 										</span>
 									</div>
 								</button>

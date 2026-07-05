@@ -138,6 +138,37 @@ export function ancestors(dag: LineageDag, n: string): Set<string> {
 	return closure(dag.up, n)
 }
 
+/**
+ * Nodes reachable from `starts` over the lineage DAG, treating `barriers` as cut
+ * points: a barrier node is neither included NOR traversed through, so a node
+ * reachable ONLY via a barrier is excluded while one also reachable via another
+ * path stays. Mirror of the CLI `reachableCutting`. Used to keep event handlers
+ * (and their event-only downstream) out of a cascade run — running such a
+ * consumer whose producer was skipped would feed it missing/stale inputs.
+ */
+export function reachableCutting(
+	dag: LineageDag,
+	starts: Iterable<string>,
+	barriers: Set<string>
+): Set<string> {
+	const seen = new Set<string>()
+	const queue: string[] = []
+	for (const s of starts) {
+		if (barriers.has(s) || seen.has(s)) continue
+		seen.add(s)
+		queue.push(s)
+	}
+	while (queue.length > 0) {
+		const n = queue.shift()!
+		for (const next of dag.down.get(n) ?? []) {
+			if (barriers.has(next) || seen.has(next)) continue
+			seen.add(next)
+			queue.push(next)
+		}
+	}
+	return seen
+}
+
 export type BoundedResult = {
 	/** Path-between node set (scripts + assets), always including `start`. */
 	nodes: Set<string>
@@ -197,6 +228,50 @@ export function validStarts(g: AssetGraphResponse): Set<string> {
 		const p = r.path
 		if (scheduleScripts.has(p)) out.add(scriptNodeId(p))
 		else if (!subscribers.has(p) && !eventScripts.has(p)) out.add(scriptNodeId(p))
+	}
+	return out
+}
+
+/**
+ * Script node ids eligible as an EXPLICIT bounded-run start from *anywhere* in
+ * the DAG (dbt's `--select model+`): every script that can run with empty args —
+ * i.e. all scripts except event-triggered ones (kafka/mqtt/nats/postgres/sqs/
+ * gcp/email fan out per event and have no "run now" gesture). Unlike
+ * `validStarts` (schedule/manual roots only), this INCLUDES mid-DAG asset
+ * subscribers and pure readers, so "Run + downstream" can begin at any model —
+ * that node plus its transitive downstream runs, upstream is never re-run.
+ * (`webhook`/`data_upload` have no trigger row here — same as `validStarts` they
+ * read as manual roots and are already included.)
+ */
+export function validFromStarts(g: AssetGraphResponse): Set<string> {
+	const eventScripts = new Set<string>()
+	for (const t of g.triggers ?? []) {
+		if (t.runnable_kind !== 'script') continue
+		if (EVENT_TRIGGER_KINDS.has(t.trigger_kind)) eventScripts.add(t.runnable_path)
+	}
+	const out = new Set<string>()
+	for (const r of g.runnables ?? []) {
+		if (r.usage_kind !== 'script') continue
+		if (!eventScripts.has(r.path)) out.add(scriptNodeId(r.path))
+	}
+	return out
+}
+
+/**
+ * Script node ids carrying an event trigger (kafka/mqtt/nats/postgres/sqs/gcp/
+ * email) — they fan out per event and can't run with empty args, so a cascade
+ * must cut them (as `barriers` for `reachableCutting`) even when they're a
+ * lineage descendant of the start. Mirror of the CLI `nonAutorunTriggerScripts`,
+ * minus `webhook`/`data_upload`: those have no trigger row in `/assets/graph`
+ * so they can't be detected here and read as manual roots (same limitation as
+ * `validStarts`).
+ */
+export function nonAutorunTriggerScripts(g: AssetGraphResponse): Set<string> {
+	const out = new Set<string>()
+	for (const t of g.triggers ?? []) {
+		if (t.runnable_kind === 'script' && EVENT_TRIGGER_KINDS.has(t.trigger_kind)) {
+			out.add(scriptNodeId(t.runnable_path))
+		}
 	}
 	return out
 }
