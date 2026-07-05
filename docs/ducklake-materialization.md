@@ -62,9 +62,18 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   error pointing to the `wmll.ducklake` helpers).
 - **`manual`** — escape hatch: the script writes its own DDL; Windmill only
   records state (no snapshot capture, no idempotency guarantee). Rare; explicit.
-- **`key=<col>`** → MERGE (dedup within slice, SCD type 1 — overwrites history);
-  **`append`** → INSERT-only; neither → DELETE-by-partition + INSERT (replace).
-  `append` wins over `key` if both are given (deploy warning).
+- **`key=<col>`** → MERGE (upsert-by-key within the slice, SCD type 1 —
+  overwrites history); **`append`** → INSERT-only; neither → DELETE-by-partition
+  + INSERT (replace). `append` wins over `key` if both are given (deploy warning).
+  - **Source must have unique keys.** The merge is delete-by-key + insert-all: it
+    reconciles the incoming rows against the *target* (rows whose key is in the
+    SELECT are replaced), but it does **not** deduplicate the *source*. Two
+    incoming rows sharing a key would therefore both land under that key, silently
+    breaking the "one row per key" contract. The managed write guards against this
+    — the run **fails** with a clear error when the SELECT returns more than one
+    row for a non-NULL key (`NULL` keys are exempt, matching the insert-only path).
+    Deduplicate in the SELECT (e.g. `QUALIFY row_number() OVER (PARTITION BY <key>
+    ORDER BY <recency-col> DESC) = 1`) or use `append` if duplicates are intended.
 - **`key=<col> history [track=<c1,c2,…>] [deletes=close]`** → upgrades the keyed
   merge to managed SCD **type 2** history (the leading keyword `scd2` is an alias).
   The SELECT is the *current snapshot* (one row per `key`), and the runtime adds
@@ -73,7 +82,9 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   history. Diff → close-old (`UPDATE`) → open-new (`INSERT`) in one transaction;
   the effective timestamp is the transaction clock (`now()`), so a run is
   self-consistent. v1 is **non-partitioned only** (`// partitioned` + history is
-  rejected). Unlike `manual`, it is managed, so `// data_test` and schema capture
+  rejected **at deploy**), and it **requires `key=`** (also rejected at deploy).
+  Both misconfigurations fail fast at save with a clear message instead of on the
+  first run. Unlike `manual`, it is managed, so `// data_test` and schema capture
   work.
   - **Deletes.** By default a key that disappears from the snapshot stays current
     (soft delete — dbt's `hard_deletes=ignore`). `deletes=close` opts into
@@ -400,6 +411,40 @@ column-lineage, post-materialize *metadata reads*) plugs into the same three
 seams: add a parsed variant, emit its check/reader SQL into the summary, read
 it back in the worker. Nothing about the closed set of *today's* keywords is
 load-bearing.
+
+### Cascade ordering (`test_edges`)
+
+A `relationships` test — and, best-effort, a custom test whose body reads a
+pipeline asset — needs the *referenced* asset to exist at test time, but it is
+**not** a data-consumption `// on`/read of that asset, so it contributes no
+lineage edge. Without an ordering constraint, a cold cascade can run the tested
+script before the referenced dimension is materialized and hard-fail
+(`Catalog Error: Table … does not exist`).
+
+`asset_graph` (`windmill-api-assets/src/lib.rs`) closes this by resolving the
+referenced asset's in-pipeline **producer** (from the write edges it already
+builds) and emitting an ordering-only `test_edges` entry
+`producer → testing_script`. It is:
+
+- **Only emitted when a producer exists in the graph.** An external table (no
+  in-pipeline producer) adds no edge — the missing dependency is real and the
+  runtime error is the correct signal. Self-edges (a script relationship-testing
+  its own output) are dropped.
+- **Rendered distinctly** — amber dashed "test needs" link on the canvas, apart
+  from lineage (blue/gray solid) and triggers (gray) — because the tested script
+  does not ingest the asset's rows.
+- **Fed into the cascade topo-sort** via `buildLineageDag`
+  (`AssetGraph/boundedCascade.ts`), routed *through* the referenced asset node
+  (`asset → testing_script`) so the existing `producer → asset` write edge
+  extends into `producer → asset → testing_script` and the two-hop
+  `buildLineageDownstreamMap` invariant holds. Bounded and full-pipeline runs
+  (`computeInducedSchedule`) then order the producer first.
+
+Scope caveat: this orders *within a single client-driven cascade* (dev run /
+bounded run / full-pipeline run). It does not change the production reactive
+asset-dispatch of two independently-scheduled roots — there, `relationships`
+targets on a disjoint root should still be co-scheduled or bound with an
+explicit `// on <dim>` if a hard ordering is required.
 
 ### Scoping decisions (v1)
 

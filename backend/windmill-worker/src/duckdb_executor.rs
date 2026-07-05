@@ -219,19 +219,18 @@ fn build_materialized_query(
     for s in plan.setup.iter_mut() {
         *s = substitute(s);
     }
+    // Deploy (`create_script_internal`) already rejects the invalid SCD2 combos,
+    // but preview/test runs reach the executor without a deploy — re-check so a
+    // bad combo fails with the same clear message instead of a raw DuckDB error.
+    m.validate(partitioned).map_err(Error::ExecutionErr)?;
     let strategy = if m.scd2 {
-        // SCD2 needs a natural key to identify an entity across versions, and its
-        // diff/close/open shape has no partition-scoped form in v1.
+        // SCD2 needs a natural key to identify an entity across versions (checked
+        // by `validate` above, which guarantees a non-empty key here).
         let key = m.unique_key.clone().ok_or_else(|| {
             Error::ExecutionErr(
                 "materialize scd2: requires a natural key — add `key=<col>`".to_string(),
             )
         })?;
-        if partitioned {
-            return Err(Error::ExecutionErr(
-                "materialize scd2: `// partitioned` is not supported with scd2 in v1".to_string(),
-            ));
-        }
         MaterializeStrategy::Scd2 { key, track: m.track.clone(), close_deleted: m.close_deleted }
     } else if m.append {
         MaterializeStrategy::Append
@@ -3510,7 +3509,10 @@ mod tests {
             rewritten.contains("AS schema_drift"),
             "warn folds drift into the summary: {rewritten}"
         );
-        assert!(!rewritten.contains("CAST(error("));
+        // No schema-drift *fail* guard in warn mode (the keyed merge still emits
+        // its own duplicate-source-key guard, which is a different `error(...)`).
+        assert!(!rewritten.contains("on_schema_change=fail blocked"));
+        assert!(rewritten.contains("keyed merge on `id` blocked"));
         assert!(!rewritten.contains("BY NAME"));
         assert!(meta.sync_prepass.is_none());
     }

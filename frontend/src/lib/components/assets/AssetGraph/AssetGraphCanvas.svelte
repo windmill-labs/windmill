@@ -222,6 +222,7 @@
 			| 'add-anchor'
 			| 'data-test'
 			| 'macro'
+			| 'test-dependency'
 		unsaved?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
@@ -331,6 +332,7 @@
 					asset_kind: a.kind,
 					path: a.path,
 					fork_materialization: a.fork_materialization,
+					derived_from: a.derived_from,
 					onAddScript: onAddScriptForAsset,
 					pathPrefix,
 					defaultPathSuffix,
@@ -520,6 +522,22 @@
 				unsaved: me.unsaved,
 				macro_names: me.macro_names,
 				via_use: me.via_use
+			})
+		}
+
+		// Data-test ordering edges (producer → tested script): the referenced
+		// asset must be materialized before the test runs, so the cascade orders
+		// the producer first. Rendered as a dashed "must run after" link, distinct
+		// from data flow — the tested script doesn't consume the asset's rows.
+		for (const te of g.test_edges ?? []) {
+			const producerId = `${te.producer_kind}:${te.producer_path}`
+			const testedId = `${te.runnable_kind}:${te.runnable_path}`
+			if (!runnableNodeIds.has(producerId) || !runnableNodeIds.has(testedId)) continue
+			edges.push({
+				id: `testdep:${producerId}->${testedId}`,
+				source: producerId,
+				target: testedId,
+				kind: 'test-dependency'
 			})
 		}
 
@@ -950,6 +968,16 @@
 						markerColor = 'rgb(139 92 246)'
 						label = e.via_use ? 'uses lib' : 'macros'
 						labelStyle = 'fill: rgb(139 92 246); font-size: 10px; font-weight: 600;'
+						break
+					case 'test-dependency':
+						// Producer → tested script: amber dashed ordering link. Not
+						// data flow (blue/gray) nor execution trigger (gray "triggers")
+						// — it only says "the test needs this asset to exist first".
+						style = 'stroke: rgb(217 119 6); stroke-width: 1.25px;'
+						strokeDasharray = '5 3'
+						markerColor = 'rgb(217 119 6)'
+						label = 'test needs'
+						labelStyle = 'fill: rgb(217 119 6); font-size: 10px; font-weight: 600;'
 						break
 					default:
 						style = ''
