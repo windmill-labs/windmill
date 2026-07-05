@@ -1298,14 +1298,19 @@ async fn asset_graph(
                 .push((e.runnable_kind, e.runnable_path.clone()));
         }
     }
-    // Assets a custom-test script reads, keyed by its path — used to order that
-    // script's producers before whichever member declares `// data_test <path>`.
-    let mut reads_by_runnable: std::collections::HashMap<String, Vec<(AssetKind, String)>> =
-        Default::default();
+    // Assets a runnable reads, keyed by (usage_kind, path) — used to order a
+    // custom-test *script*'s producers before whichever member declares
+    // `// data_test <path>`. Keyed on the kind too because a flow can share a
+    // script's path; `// data_test <path>` resolves a deployed script body, so
+    // the lookup below pins `Script` and never pulls a same-path flow's reads.
+    let mut reads_by_runnable: std::collections::HashMap<
+        (AssetUsageKind, String),
+        Vec<(AssetKind, String)>,
+    > = Default::default();
     for e in &edges {
         if matches!(e.access_type.as_deref(), None | Some("r") | Some("rw")) {
             reads_by_runnable
-                .entry(e.runnable_path.clone())
+                .entry((e.runnable_kind, e.runnable_path.clone()))
                 .or_default()
                 .push((e.asset_kind, e.asset_path.clone()));
         }
@@ -1325,12 +1330,13 @@ async fn asset_graph(
                         to_path.clone(),
                     )]
                 }
-                // Best-effort: the custom test script's parsed reads. Reading the
-                // member's OWN output resolves to the member as producer and is
-                // dropped by the self-edge guard below.
-                DataTest::Custom { path } => {
-                    reads_by_runnable.get(path).cloned().unwrap_or_default()
-                }
+                // Best-effort: the custom test *script*'s parsed reads. Reading
+                // the member's OWN output resolves to the member as producer and
+                // is dropped by the self-edge guard below.
+                DataTest::Custom { path } => reads_by_runnable
+                    .get(&(AssetUsageKind::Script, path.clone()))
+                    .cloned()
+                    .unwrap_or_default(),
                 _ => vec![],
             };
             for (asset_kind, asset_path) in referenced {
