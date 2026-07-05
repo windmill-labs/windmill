@@ -321,6 +321,300 @@ test("`# volume:` producer connects to its `# on volume://` consumer", async () 
   );
 });
 
+test("`// macros` library: node with signatures + call-detected consumer edge, counted", async () => {
+  // The wasm asset parser drops `// macros`/`// use`; the CLI-side lexical scan
+  // must surface the library node, its macro signatures, and the caller edge so
+  // `--local` reaches parity with the deployed graph.
+  await withFolder(
+    {
+      "macros_finance.duckdb.sql":
+        `-- macros\nCREATE MACRO net_revenue(gross, refunds) AS gross - refunds;\nCREATE OR REPLACE MACRO safe_div(a, b) AS TABLE SELECT a / b;\n`,
+      "fct.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/orders\nSELECT net_revenue(gross, refunds) AS rev FROM main.orders;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      // the library is a node carrying its macro signatures
+      const lib = graph.runnables.find((r) => r.path === "f/mypipe/macros_finance");
+      expect(lib?.macros).toEqual([
+        { name: "net_revenue", params: "gross, refunds", is_table: false },
+        { name: "safe_div", params: "a, b", is_table: true },
+      ]);
+
+      // library counts toward the script total (2 scripts, not just the 1 pipeline member)
+      expect(graph.runnables.map((r) => r.path).sort()).toEqual([
+        "f/mypipe/fct",
+        "f/mypipe/macros_finance",
+      ]);
+
+      // the caller edge names only the macro actually called (safe_div is not)
+      expect(graph.macro_edges).toEqual([
+        {
+          lib_path: "f/mypipe/macros_finance",
+          consumer_path: "f/mypipe/fct",
+          macro_names: ["net_revenue"],
+          via_use: false,
+        },
+      ]);
+    },
+  );
+});
+
+test("`// use <lib>` forces a whole-library edge even with no lexical call", async () => {
+  // Dynamic-SQL callers annotate `// use`; the edge lists every macro and is
+  // flagged via_use (mirrors the deployed graph).
+  await withFolder(
+    {
+      "stats.duckdb.sql":
+        `-- macros\nCREATE MACRO zscore(x, m, s) AS (x - m) / s;\n`,
+      "report.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/metrics\n-- use f/mypipe/stats\nSELECT query('SELECT zscore(v, 0, 1) FROM main.metrics');\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.macro_edges).toEqual([
+        {
+          lib_path: "f/mypipe/stats",
+          consumer_path: "f/mypipe/report",
+          macro_names: ["zscore"],
+          via_use: true,
+        },
+      ]);
+      // the library still becomes a node
+      expect(graph.runnables.some((r) => r.path === "f/mypipe/stats")).toBe(true);
+    },
+  );
+});
+
+test("an UNUSED in-folder `// macros` library is still a member node (deployed parity)", async () => {
+  // The deployed graph marks every macro library `auto_kind='pipeline'`, so an
+  // in-folder library is a member node (in_pipeline, with signatures) whether or
+  // not a consumer uses it. It is still excluded from runs (via `macros`).
+  await withFolder(
+    {
+      "unused.duckdb.sql": `-- macros\nCREATE MACRO helper(a) AS a + 1;\n`,
+      "solo.duckdb.sql": `-- pipeline\nSELECT 1;\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const lib = graph.runnables.find((r) => r.path === "f/mypipe/unused");
+      expect(lib?.in_pipeline).toBe(true);
+      expect(lib?.macros).toEqual([{ name: "helper", params: "a", is_table: false }]);
+      expect(graph.macro_edges).toBeUndefined();
+      // but it is not a previewable/runnable script — only `solo` is
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/solo"]);
+    },
+  );
+});
+
+test("a shared macro library OUTSIDE the pipeline folder is resolved (workspace-wide)", async () => {
+  // The deployed graph loads the macro registry workspace-wide and only
+  // folder-scopes consumers, so a pipeline in `f/mypipe` can use a shared library
+  // in `f/shared`. Local discovery must walk the whole `f/` tree, not just the
+  // folder, or the edge/node/docs are missing (parity gap).
+  const root = mkdtempSync(join(tmpdir(), "wm-pl-"));
+  writeFileSync(join(root, "wmill.yaml"), "defaultTs: bun\n");
+  mkdirSync(join(root, "f", "shared"), { recursive: true });
+  mkdirSync(join(root, "f", "mypipe"), { recursive: true });
+  writeFileSync(
+    join(root, "f", "shared", "stats.duckdb.sql"),
+    `-- macros\nCREATE MACRO zscore(x, m, s) AS (x - m) / s;\n`,
+  );
+  // one consumer calls the shared macro lexically, another pulls it via `// use`
+  writeFileSync(
+    join(root, "f", "mypipe", "fct.duckdb.sql"),
+    `-- pipeline\n-- on datatable://main/metrics\nSELECT zscore(v, 0, 1) FROM main.metrics;\n`,
+  );
+  writeFileSync(
+    join(root, "f", "mypipe", "dyn.duckdb.sql"),
+    `-- pipeline\n-- on datatable://main/metrics\n-- use f/shared/stats\nSELECT query('SELECT zscore(v, 0, 1)');\n`,
+  );
+  try {
+    const { graph } = await buildLocalPipelineGraph({ root, folder: "mypipe", defaultTs: "bun" });
+    expect(graph.macro_edges).toEqual([
+      {
+        lib_path: "f/shared/stats",
+        consumer_path: "f/mypipe/dyn",
+        macro_names: ["zscore"],
+        via_use: true,
+      },
+      {
+        lib_path: "f/shared/stats",
+        consumer_path: "f/mypipe/fct",
+        macro_names: ["zscore"],
+        via_use: false,
+      },
+    ]);
+    // the out-of-folder library is surfaced as a node with its signatures
+    expect(graph.runnables.find((r) => r.path === "f/shared/stats")?.macros).toEqual([
+      { name: "zscore", params: "x, m, s", is_table: false },
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("macro library that CONSUMES another library gets a lib→lib edge (both nodes surface)", async () => {
+  // The deploy path records macro_usage for any DuckDB script, including a macro
+  // library calling another library's macros. A `base → derived` edge must exist
+  // (and `base`, an in-folder library, is a member node not just an edge stub).
+  await withFolder(
+    {
+      "base.duckdb.sql": `-- macros\nCREATE MACRO base_add(a, b) AS a + b;\n`,
+      // derived is a `// macros` library (NOT `// pipeline`) whose body calls base_add
+      "derived.duckdb.sql":
+        `-- macros\nCREATE MACRO derived_sum(a, b) AS base_add(a, b) * 2;\n`,
+      // the pipeline consumer calls derived_sum
+      "report.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/t\nSELECT derived_sum(x, y) FROM main.t;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.macro_edges).toEqual([
+        // base → derived: the intermediate library is itself a consumer
+        {
+          lib_path: "f/mypipe/base",
+          consumer_path: "f/mypipe/derived",
+          macro_names: ["base_add"],
+          via_use: false,
+        },
+        // derived → report: the pipeline consumer
+        {
+          lib_path: "f/mypipe/derived",
+          consumer_path: "f/mypipe/report",
+          macro_names: ["derived_sum"],
+          via_use: false,
+        },
+      ]);
+      // both libraries surface as nodes with their signatures (base does NOT
+      // disappear just because it is only reached transitively)
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/base")?.macros).toEqual([
+        { name: "base_add", params: "a, b", is_table: false },
+      ]);
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/derived")?.macros).toEqual([
+        { name: "derived_sum", params: "a, b", is_table: false },
+      ]);
+      // both intermediate libraries are members (in_pipeline), like the deployed graph
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/base")?.in_pipeline).toBe(true);
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/derived")?.in_pipeline).toBe(true);
+    },
+  );
+});
+
+test("macro library reaching another only via dynamic SQL gets a `// use` lib→lib edge", async () => {
+  // A library that calls another's macro only inside a `query('…')` string is
+  // invisible to lexical detection; `// use` forces the lib→lib edge. Exercises
+  // the case where the CONSUMER is itself a `// macros` library.
+  await withFolder(
+    {
+      "base.duckdb.sql": `-- macros\nCREATE MACRO base_add(a, b) AS a + b;\n`,
+      "derived.duckdb.sql":
+        `-- macros\n-- use f/mypipe/base\nCREATE MACRO wrap(a, b) AS query('SELECT base_add(1, 2)');\n`,
+      "report.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/t\nSELECT wrap(x, y) FROM main.t;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.macro_edges).toEqual([
+        // base → derived comes from `// use` (via_use), NOT a lexical call
+        {
+          lib_path: "f/mypipe/base",
+          consumer_path: "f/mypipe/derived",
+          macro_names: ["base_add"],
+          via_use: true,
+        },
+        {
+          lib_path: "f/mypipe/derived",
+          consumer_path: "f/mypipe/report",
+          macro_names: ["wrap"],
+          via_use: false,
+        },
+      ]);
+    },
+  );
+});
+
+test("a `// macros` (slash-prefix) DuckDB library is detected (backend prefix parity)", async () => {
+  // A `.duckdb.sql` library may head its annotation with `// macros` (the backend
+  // accepts `//`/`--`/`#` for any language); the local scan must too.
+  await withFolder(
+    {
+      "lib.duckdb.sql": `// macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "use_it.duckdb.sql": `-- pipeline\n-- on datatable://main/t\nSELECT dbl(x) FROM main.t;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.macro_edges).toEqual([
+        {
+          lib_path: "f/mypipe/lib",
+          consumer_path: "f/mypipe/use_it",
+          macro_names: ["dbl"],
+          via_use: false,
+        },
+      ]);
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/lib")?.macros).toEqual([
+        { name: "dbl", params: "a", is_table: false },
+      ]);
+    },
+  );
+});
+
+test("a non-pipeline DuckDB macro consumer is a display-only node, never a run step", async () => {
+  // A `.duckdb.sql` helper that calls a macro but isn't `// pipeline` surfaces as
+  // a graph node (lineage parity) but is NOT a runnable pipeline script: it must
+  // be absent from `scripts` (the previewable set `run --local` selects from), so
+  // it can never be scheduled or fail a preview for lack of local content.
+  await withFolder(
+    {
+      "lib.duckdb.sql": `-- macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "helper.duckdb.sql": `-- on ducklake://main/src\nSELECT dbl(x) FROM main.src;\n`,
+      "root.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/out\nSELECT dbl(1) AS v;\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      // the helper IS a node (macro consumer, for lineage display) …
+      const helper = graph.runnables.find((r) => r.path === "f/mypipe/helper");
+      expect(helper).toBeDefined();
+      // … but not a pipeline member (no local file to preview) and carries no macros
+      expect(helper?.in_pipeline).toBeFalsy();
+      expect(helper?.macros).toBeUndefined();
+      // the previewable set (what `run --local` can schedule) is ONLY the member
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/root"]);
+      // and the macro edge still connects lib → helper for the lineage view
+      expect(graph.macro_edges).toContainEqual({
+        lib_path: "f/mypipe/lib",
+        consumer_path: "f/mypipe/helper",
+        macro_names: ["dbl"],
+        via_use: false,
+      });
+    },
+  );
+});
+
+test("`// pipeline` on a macros library is redundant — it's a library node either way", async () => {
+  // The backend marks a macro library `auto_kind='pipeline'` regardless of the
+  // `// pipeline` marker, so a `-- pipeline -- macros` script behaves exactly like
+  // a plain `-- macros` one: a member library node (in_pipeline + signatures),
+  // excluded from runs (via `macros`) and from the previewable `scripts` set.
+  await withFolder(
+    {
+      "lib.duckdb.sql": `-- pipeline\n-- macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "root.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/out\nSELECT 1 AS v;\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const lib = graph.runnables.find((r) => r.path === "f/mypipe/lib");
+      expect(lib?.in_pipeline).toBe(true);
+      expect(lib?.macros).toEqual([{ name: "dbl", params: "a", is_table: false }]);
+      // unused here → no edges, but still a node; not previewable/runnable
+      expect(graph.macro_edges).toBeUndefined();
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/root"]);
+    },
+  );
+});
+
 test("`#`-comment languages (ruby) use the `#` annotation fallback (no wasm parser)", async () => {
   await withFolder(
     { "ingest.rb": `# pipeline\n# on s3://demo/raw.csv\nputs "hi"\n` },
@@ -332,6 +626,38 @@ test("`#`-comment languages (ruby) use the `#` annotation fallback (no wasm pars
       ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
       expect(at?.asset_kind).toBe("s3object");
       expect(at?.asset_path).toBe("demo/raw.csv");
+    },
+  );
+});
+
+test("pipeline docs renders a `Macro libraries` section (call + `// use`)", async () => {
+  const { generatePipelineMarkdown } = await import(
+    "../src/commands/pipeline/docs.ts"
+  );
+  await withFolder(
+    {
+      "macros_finance.duckdb.sql":
+        `-- macros\nCREATE MACRO net_revenue(gross, refunds) AS gross - refunds;\nCREATE MACRO safe_div(a, b) AS TABLE SELECT a / b;\n`,
+      "fct.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/orders\nSELECT net_revenue(gross, refunds) FROM main.orders;\n`,
+      "report.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/orders\n-- use f/mypipe/macros_finance\nSELECT query('SELECT safe_div(1, 2)');\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const md = generatePipelineMarkdown(folder, graph, [], true);
+
+      // count line mentions the library; two pipeline scripts, one library
+      expect(md).toContain("**2** scripts · **1** asset · **1** macro library");
+      // dedicated section with signatures (TABLE marker) and callers
+      expect(md).toContain("## Macro libraries");
+      expect(md).toContain("### `f/mypipe/macros_finance`");
+      expect(md).toContain("- `net_revenue(gross, refunds)`");
+      expect(md).toContain("- `safe_div(a, b)` → TABLE");
+      expect(md).toContain("`f/mypipe/fct` (calls `net_revenue`)");
+      expect(md).toContain("`f/mypipe/report` (via `// use`)");
+      // the library is NOT double-listed under `## Scripts`
+      expect(md).not.toContain("### `f/mypipe/macros_finance`\n\n- **");
     },
   );
 });

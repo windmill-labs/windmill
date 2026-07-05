@@ -19,6 +19,12 @@ import * as log from "../../core/log.ts";
 import { exts, removeExtensionToPath } from "../script/script.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { getWmillYamlPath } from "../../core/conf.ts";
+import {
+  detectMacroCalls,
+  parseMacroAnnotations,
+  parseMacroLibrary,
+  type ParsedMacro,
+} from "./duckdbMacros.ts";
 
 // Resolve the workspace root (the directory containing wmill.yaml) for reading
 // local files, falling back to the current directory.
@@ -53,8 +59,9 @@ export type GraphRunnable = {
   // schema-contract warnings; only present when set (default `warn` is absent),
   // mirroring the deployed graph node.
   materialize_on_schema_change?: string;
-  // `// macros` library: the macros it defines (deployed graph only — the wasm
-  // asset parser does not emit them). Non-empty ⇒ definition-only node.
+  // `// macros` library: the macros it defines. Derived locally by
+  // `buildMacroEdges` (the wasm asset parser emits neither the marker nor the
+  // registry). Non-empty ⇒ definition-only node.
   macros?: { name: string; params?: string; is_table?: boolean }[];
 };
 export type GraphEdge = {
@@ -89,7 +96,7 @@ export type AssetGraph = {
   edges: GraphEdge[];
   triggers: GraphTrigger[];
   // ƒ edges from a `// macros` library to the scripts calling its macros
-  // (deployed graph only).
+  // (present on both the deployed graph and the locally-derived one).
   macro_edges?: {
     lib_path: string;
     consumer_path: string;
@@ -456,6 +463,10 @@ export async function buildLocalPipelineGraph(args: {
   const folderDir = path.join(args.root, "f", folderClean);
   const all = await collectScripts(folderDir, args.root, args.defaultTs);
 
+  // `// macros` DuckDB libraries across the whole workspace (a pipeline may use a
+  // shared library outside its folder).
+  const libMacros = collectMacroLibraries(args.root);
+
   const runnables: GraphRunnable[] = [];
   const edges: GraphEdge[] = [];
   const triggers: GraphTrigger[] = [];
@@ -471,6 +482,26 @@ export async function buildLocalPipelineGraph(args: {
 
   for (const s of all) {
     const out = await inferScriptAssets(s.content, s.language);
+    // A `// macros` library is a pipeline-member node carrying its macro
+    // signatures — whether or not any consumer uses it — matching the deployed
+    // graph, which marks every macro library `auto_kind='pipeline'`. It is
+    // definition-only (no assets/triggers, never run), so we add just the node;
+    // it is NOT a previewable script (excluded from `pipelineScripts`).
+    const macroLibDefs = libMacros.get(s.path);
+    if (macroLibDefs) {
+      runnables.push({
+        path: s.path,
+        usage_kind: "script",
+        in_pipeline: true,
+        ...(out.tag ? { tag: out.tag } : {}),
+        macros: macroLibDefs.map((m) => ({
+          name: m.name,
+          params: m.params,
+          is_table: m.isTable,
+        })),
+      });
+      continue;
+    }
     if (!out.in_pipeline) continue; // not a pipeline member
     const retry = normalizeRetry(out.retry);
     const nativeTriggers = recoverHeaderNativeTriggers(s.content, s.language);
@@ -598,6 +629,8 @@ export async function buildLocalPipelineGraph(args: {
     }
   }
 
+  const macroEdges = buildMacroEdges(all, libMacros, runnables);
+
   const assets = [...assetSet.entries()].map(([key, a]) => {
     const derived_from = a.derived_from ?? derivedFromByKey.get(key);
     return derived_from ? { ...a, derived_from } : a;
@@ -609,7 +642,162 @@ export async function buildLocalPipelineGraph(args: {
       assets,
       edges,
       triggers,
+      ...(macroEdges.length > 0 ? { macro_edges: macroEdges } : {}),
     },
     scripts: pipelineScripts,
   };
+}
+
+// Every `// macros` DuckDB library in the workspace, keyed by its windmill path,
+// mapped to its parsed macro definitions. Walks the whole `f/` tree (not just the
+// pipeline folder) because the deployed graph resolves consumers against the
+// workspace-wide macro registry — a pipeline may `// use` / call a shared library
+// living outside its own folder. Only `*.duckdb.sql` files are read (macros are
+// DuckDB-only), so the extra walk stays cheap.
+function collectMacroLibraries(root: string): Map<string, ParsedMacro[]> {
+  const out = new Map<string, ParsedMacro[]>();
+  const walk = (dir: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith(".") || e.name === "node_modules") continue;
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(abs);
+        continue;
+      }
+      if (!e.isFile() || !e.name.endsWith(".duckdb.sql")) continue;
+      let content: string;
+      try {
+        content = fs.readFileSync(abs, "utf-8");
+      } catch {
+        continue;
+      }
+      if (!parseMacroAnnotations(content).macros) continue;
+      const relFromRoot = path.relative(root, abs).replaceAll("\\", "/");
+      out.set(removeExtensionToPath(relFromRoot), parseMacroLibrary(content));
+    }
+  };
+  walk(path.join(root, "f"));
+  return out;
+}
+
+// Derive lib→consumer edges (lexical calls + `// use`). In-folder libraries are
+// already member nodes; this adds any out-of-folder provider referenced by an
+// in-folder consumer. Mirrors the deployed `asset_graph`: libraries resolve
+// workspace-wide, consumers are folder-scoped.
+function buildMacroEdges(
+  all: LocalScript[],
+  libMacros: Map<string, ParsedMacro[]>,
+  runnables: GraphRunnable[],
+): NonNullable<AssetGraph["macro_edges"]> {
+  if (libMacros.size === 0) return [];
+  const useLibsByScript = new Map<string, string[]>();
+  for (const s of all) {
+    if (s.language !== "duckdb") continue;
+    const { useLibs } = parseMacroAnnotations(s.content);
+    if (useLibs.length > 0) useLibsByScript.set(s.path, useLibs);
+  }
+
+  // Macro name → providing library. Names are workspace-unique (the deploy path
+  // enforces this); on a local collision, last-writer-wins, harmlessly.
+  const providerByName = new Map<string, string>();
+  for (const [lib, macros] of libMacros) {
+    for (const m of macros) providerByName.set(m.name, lib);
+  }
+  const allMacroNames = new Set(providerByName.keys());
+
+  // Aggregate per (lib, consumer): the set of called macro names and whether the
+  // edge came (also) from a whole-library `// use`. Consumers are folder-scoped
+  // (`all` is this folder's scripts).
+  const pipelinePaths = new Set(runnables.map((r) => r.path));
+  type EdgeAgg = { names: Set<string>; viaUse: boolean };
+  // lib_path → consumer_path → aggregate. Nested (not a packed single-string key)
+  // so no separator can ever collide with a path.
+  const edgeMap = new Map<string, Map<string, EdgeAgg>>();
+  const aggFor = (lib: string, consumer: string): EdgeAgg => {
+    let byConsumer = edgeMap.get(lib);
+    if (!byConsumer) {
+      byConsumer = new Map();
+      edgeMap.set(lib, byConsumer);
+    }
+    let agg = byConsumer.get(consumer);
+    if (!agg) {
+      agg = { names: new Set(), viaUse: false };
+      byConsumer.set(consumer, agg);
+    }
+    return agg;
+  };
+  for (const s of all) {
+    if (s.language !== "duckdb") continue;
+    // Lexical call edges: the deploy path records `macro_usage` for EVERY DuckDB
+    // script in the folder (not only pipeline members) — including a macro
+    // library that calls another library's macros — so a lib→lib edge and its
+    // upstream provider node survive. Mirror that: any folder DuckDB script is a
+    // candidate consumer here.
+    for (const name of detectMacroCalls(s.content, allMacroNames)) {
+      const lib = providerByName.get(name)!;
+      if (lib === s.path) continue; // a library calling its own macro is not an edge
+      aggFor(lib, s.path).names.add(name);
+    }
+    // `// use` whole-library edges: the deployed graph re-parses these only from
+    // pipeline members (`annotations_by_path`), so scope them the same way.
+    if (!pipelinePaths.has(s.path)) continue;
+    for (const lib of useLibsByScript.get(s.path) ?? []) {
+      const macros = libMacros.get(lib);
+      // An out-of-tree / unknown `// use` target can't be resolved locally.
+      if (!macros || lib === s.path) continue;
+      const agg = aggFor(lib, s.path);
+      agg.viaUse = true;
+      for (const m of macros) agg.names.add(m.name);
+    }
+  }
+
+  const edges = [...edgeMap.entries()]
+    .flatMap(([lib_path, byConsumer]) =>
+      [...byConsumer.entries()].map(([consumer_path, agg]) => ({
+        lib_path,
+        consumer_path,
+        macro_names: [...agg.names].sort(),
+        // `via_use` is always present (the deployed `MacroEdge` serializes it
+        // unconditionally) so `--json` matches byte-for-byte.
+        via_use: agg.viaUse,
+      })),
+    )
+    .sort((a, b) =>
+      a.lib_path.localeCompare(b.lib_path) ||
+      a.consumer_path.localeCompare(b.consumer_path),
+    );
+
+  // In-folder libraries are already member nodes (added above with `in_pipeline`
+  // + macros). An OUT-OF-folder library referenced by an in-folder consumer is
+  // added here as a non-member provider node (no `in_pipeline`), matching the
+  // deployed graph, which folder-scopes membership but pulls the out-of-folder
+  // provider in as the edge's endpoint.
+  const libPaths = new Set<string>(edges.map((e) => e.lib_path));
+  for (const lib of libPaths) {
+    if (runnables.some((r) => r.path === lib)) continue;
+    const macros = (libMacros.get(lib) ?? []).map((m) => ({
+      name: m.name,
+      params: m.params,
+      is_table: m.isTable,
+    }));
+    runnables.push({ path: lib, usage_kind: "script", macros });
+  }
+  // Force every edge's CONSUMER endpoint into the node set too, like the deployed
+  // builder, so no edge dangles at a missing runnable. Members and libraries are
+  // already nodes; only a non-member DuckDB helper (calls a macro but isn't
+  // `// pipeline` and isn't itself a library) needs a bare node here.
+  for (const consumer of new Set(edges.map((e) => e.consumer_path))) {
+    if (!runnables.some((r) => r.path === consumer)) {
+      runnables.push({ path: consumer, usage_kind: "script" });
+    }
+  }
+  runnables.sort((a, b) => a.path.localeCompare(b.path));
+
+  return edges;
 }

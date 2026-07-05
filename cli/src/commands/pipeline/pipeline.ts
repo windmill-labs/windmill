@@ -304,8 +304,9 @@ async function renderGraph(
   }
 
   // `// macros` libraries: badge the node with the macros it defines and list
-  // its consumers as ƒ edges. Deployed graphs only — the local wasm parse does
-  // not emit `macros`/`macro_edges`, so local mode renders them as plain nodes.
+  // its consumers as ƒ edges. Populated on both the deployed graph and the local
+  // graph (localGraph.ts derives `macros`/`macro_edges` from the working tree,
+  // since the wasm asset parser emits neither).
   const macrosByLib = new Map(
     graph.runnables
       .filter((r) => (r.macros?.length ?? 0) > 0)
@@ -590,19 +591,25 @@ async function run(
     // Resolve relative imports from local (not-yet-deployed) content so a script
     // that imports a sibling workspace lib previews against local edits. Same
     // trick as `wmill dev` / `wmill app dev`; degrades to undefined gracefully.
-    try {
-      const codebases = await listSyncCodebases(merged);
-      const { buildPreviewTempScriptRefs } = await import(
-        "../generate-metadata/generate-metadata.ts"
-      );
-      tempScriptRefs = await buildPreviewTempScriptRefs(
-        workspace,
-        merged,
-        codebases,
-        { kind: "all" },
-      );
-    } catch {
-      // best-effort: relative imports fall back to deployed versions
+    // Skipped for `--dry-run`: it locks/uploads scripts as a side effect (it
+    // regenerates `*.script.yaml` / `*.script.lock` / `wmill-lock.yaml`), and a
+    // plan preview must stay READ-ONLY — the refs are only consumed when a
+    // preview job actually runs below, which dry-run never reaches.
+    if (!opts.dryRun) {
+      try {
+        const codebases = await listSyncCodebases(merged);
+        const { buildPreviewTempScriptRefs } = await import(
+          "../generate-metadata/generate-metadata.ts"
+        );
+        tempScriptRefs = await buildPreviewTempScriptRefs(
+          workspace,
+          merged,
+          codebases,
+          { kind: "all" },
+        );
+      } catch {
+        // best-effort: relative imports fall back to deployed versions
+      }
     }
   } else {
     graph = await apiGet<BCGraph>(
@@ -671,6 +678,20 @@ async function run(
       .filter((r) => r.usage_kind === "script" && (r.macros?.length ?? 0) > 0)
       .map((r) => r.path),
   );
+  // Non-runnable graph nodes: the macro libraries above, plus (under `--local`)
+  // any script node with no local file. The local graph surfaces macro-consumer
+  // nodes for lineage display — a DuckDB script that calls a macro but isn't a
+  // `// pipeline` member (so has no previewable content). They must never enter
+  // the run: as a manual root they'd be scheduled, and a preview would fail with
+  // no local content to send.
+  const notRunnablePaths = new Set<string>(macroLibPaths);
+  if (opts.local && localScripts) {
+    for (const r of graph.runnables) {
+      if (r.usage_kind === "script" && !localScripts.has(r.path)) {
+        notRunnablePaths.add(r.path);
+      }
+    }
+  }
 
   // Resolve the start. Two eligibility sets:
   //   `starts`       — schedule/manual roots (+ `--upload`-bound handlers). The
@@ -684,12 +705,12 @@ async function run(
   //                    unless `--upload`-bound.
   const starts = new Set(
     [...validStarts(graph), ...boundNodeIds].filter(
-      (id) => !macroLibPaths.has(scriptPathOf(id)),
+      (id) => !notRunnablePaths.has(scriptPathOf(id)),
     ),
   );
   const fromEligible = new Set(
     [...validFromStarts(graph), ...boundNodeIds].filter(
-      (id) => !macroLibPaths.has(scriptPathOf(id)),
+      (id) => !notRunnablePaths.has(scriptPathOf(id)),
     ),
   );
   // `runAll` = no `--from` on a multi-root pipeline (fan-in): run the whole
@@ -716,6 +737,14 @@ async function run(
     if (macroLibPaths.has(scriptPathOf(resolved))) {
       throw new Error(
         `--from '${opts.from}' is a \`// macros\` library — definition-only, injected into consuming scripts at run time, never a runnable step.`,
+      );
+    }
+    // A `--local` display-only node (a non-`// pipeline` DuckDB script surfaced
+    // only because it calls a macro) has no previewable content — reject it
+    // clearly rather than admitting it and silently producing an empty plan.
+    if (notRunnablePaths.has(scriptPathOf(resolved))) {
+      throw new Error(
+        `--from '${opts.from}' isn't a \`// pipeline\` script — it appears in the local graph only as a macro consumer (lineage). Mark it \`// pipeline\` to run it.`,
       );
     }
     if (!resolved.startsWith("script:")) {
@@ -829,10 +858,10 @@ async function run(
     }
   }
 
-  // Selections can still pull a macro library in via graph reachability (e.g.
-  // whole-pipeline mode collects every root's closure) — drop them before
-  // ordering so they never run.
-  for (const p of macroLibPaths) selectedScripts.delete(p);
+  // Selections can still pull a non-runnable node in via graph reachability (e.g.
+  // whole-pipeline mode collects every root's closure) — drop macro libraries and
+  // local-only display nodes before ordering so they never run.
+  for (const p of notRunnablePaths) selectedScripts.delete(p);
 
   const { order, cyclic } = topoOrder(graph, selectedScripts);
   if (cyclic.length > 0) {
