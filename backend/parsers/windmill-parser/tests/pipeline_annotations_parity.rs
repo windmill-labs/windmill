@@ -219,6 +219,8 @@ fn pipeline_annotation_fixtures_match() {
                 let osc = match m.on_schema_change {
                     windmill_parser::asset_parser::OnSchemaChange::Warn => "warn",
                     windmill_parser::asset_parser::OnSchemaChange::Ignore => "ignore",
+                    windmill_parser::asset_parser::OnSchemaChange::Fail => "fail",
+                    windmill_parser::asset_parser::OnSchemaChange::Sync => "sync",
                 };
                 assert_eq!(
                     osc, e.on_schema_change,

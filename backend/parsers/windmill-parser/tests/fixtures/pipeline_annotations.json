@@ -329,8 +329,8 @@
 		}
 	},
 	{
-		"name": "materialize on_schema_change unknown value keeps warn default (fail unrecognized in v1)",
-		"code": "// materialize ducklake://analytics/orders key=id on_schema_change=fail\nSELECT 1;",
+		"name": "materialize on_schema_change unknown value keeps warn default (fail-safe)",
+		"code": "// materialize ducklake://analytics/orders key=id on_schema_change=bogus\nSELECT 1;",
 		"expected": {
 			"in_pipeline": false,
 			"asset_triggers": [],
