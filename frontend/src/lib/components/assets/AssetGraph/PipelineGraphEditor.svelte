@@ -74,6 +74,7 @@
 		selectionProducers = [],
 		selectionColumnGraph,
 		schemaCanEvolve = true,
+		selectionForkMaterialization = undefined,
 		schemaContractContext = undefined,
 		downstreamSubscribers = 0,
 		onStartBoundedRunForOpen,
@@ -172,6 +173,8 @@
 		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
 		schemaCanEvolve?: boolean
+		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
+		selectionForkMaterialization?: 'fork' | 'deferred'
 		/** Producer-side facts for the editor's live schema-contract diagnostics
 		 * (ignore suppression + scd2 `_current` fallback), from the route page. */
 		schemaContractContext?: SchemaContractGraphContext
@@ -491,6 +494,7 @@
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{selectionColumnGraph}
 						{schemaCanEvolve}
+						{selectionForkMaterialization}
 						{schemaContractContext}
 						{runsRefreshKey}
 						{runsPendingJobId}

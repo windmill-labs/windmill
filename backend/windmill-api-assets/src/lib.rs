@@ -614,6 +614,12 @@ struct GraphQuery {
 struct GraphAssetNode {
     kind: AssetKind,
     path: String,
+    // Fork workspaces only: 'fork' when the fork has materialized this ducklake asset itself,
+    // 'deferred' when reads fall back to the parent workspace's current table (defer view).
+    // Absent outside forks, for non-ducklake assets, and for assets never materialized
+    // anywhere. Lockstep with TS `AssetGraphAssetNode.fork_materialization`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_materialization: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -805,6 +811,7 @@ async fn asset_graph(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<windmill_common::DB>,
     Query(q): Query<GraphQuery>,
 ) -> JsonResult<AssetGraphResponse> {
     let mut tx = user_db.begin(&authed).await?;
@@ -1250,9 +1257,89 @@ async fn asset_graph(
         runnable_set.insert((AssetUsageKind::Script, e.consumer_path.clone()));
     }
 
+    // Fork data-environment state per ducklake asset. The parent's rows are read on the plain
+    // pool: fork membership does not imply parent membership, and defer already exposes the
+    // parent's data to fork jobs — surfacing its materialization status is strictly less.
+    let fork_materialization_by_path: std::collections::HashMap<String, &'static str> = {
+        // The WHOLE ancestor chain, matching defer discovery: a grandchild fork whose direct
+        // parent only defers a table still reads it (from the grandparent), so it must show
+        // as deferred, not unmarked.
+        let ancestors = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id).await?;
+        match ancestors {
+            // An orphaned `wm-fork-*` (parent deleted, chain empty) is still isolated — its
+            // own materializations must keep their 'fork' chips (nothing can be 'deferred').
+            a if a.is_empty() && !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) => {
+                std::collections::HashMap::new()
+            }
+            ancestors => {
+                // Lakes the fork chose to SHARE at creation have no fork namespace — their
+                // assets live in the parent's tables for real, so no chip applies.
+                let shared_lakes: std::collections::HashSet<String> = sqlx::query_scalar!(
+                    "SELECT ducklake->'ducklakes' FROM workspace_settings WHERE workspace_id = $1",
+                    &w_id,
+                )
+                .fetch_optional(&db)
+                .await?
+                .flatten()
+                .and_then(|v| v.as_object().cloned())
+                .map(|lakes| {
+                    lakes
+                        .into_iter()
+                        .filter(|(_, cfg)| {
+                            cfg.get("fork_behavior").and_then(|b| b.as_str()) == Some("shared")
+                        })
+                        .map(|(name, _)| name)
+                        .collect()
+                })
+                .unwrap_or_default();
+                sqlx::query!(
+                    r#"
+                    -- Fork rows also count when a snapshot ever committed (a failed run
+                    -- preserves it): the physical table exists, so reads hit the FORK's
+                    -- data — showing 'deferred' would misstate what a query returns.
+                    -- Ancestor rows still require a clean materialization.
+                    SELECT DISTINCT asset_path AS "asset_path!", workspace_id AS "workspace_id!"
+                    FROM materialized_partition
+                    WHERE (workspace_id = $1 OR workspace_id = ANY($2))
+                      AND asset_kind = 'ducklake'
+                      AND (status = 'materialized'
+                           OR (workspace_id = $1 AND snapshot_id IS NOT NULL))
+                    "#,
+                    &w_id,
+                    &ancestors,
+                )
+                .fetch_all(&db)
+                .await?
+                .into_iter()
+                .filter(|r| {
+                    !shared_lakes.contains(r.asset_path.split('/').next().unwrap_or_default())
+                })
+                .fold(std::collections::HashMap::new(), |mut m, r| {
+                    // A fork row wins over an inherited 'deferred' from any ancestor's row.
+                    if r.workspace_id == w_id {
+                        m.insert(r.asset_path, "fork");
+                    } else {
+                        m.entry(r.asset_path).or_insert("deferred");
+                    }
+                    m
+                })
+            }
+        }
+    };
+
     let mut assets: Vec<GraphAssetNode> = asset_set
         .into_iter()
-        .map(|(kind, path)| GraphAssetNode { kind, path })
+        .map(|(kind, path)| GraphAssetNode {
+            fork_materialization: (kind == AssetKind::Ducklake)
+                .then(|| {
+                    fork_materialization_by_path
+                        .get(&path)
+                        .map(|s| s.to_string())
+                })
+                .flatten(),
+            kind,
+            path,
+        })
         .collect();
     assets.sort_by(|a, b| a.path.cmp(&b.path));
 

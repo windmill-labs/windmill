@@ -1703,6 +1703,16 @@
 		return producers.length === 0 || !producers.every(knownFixed)
 	})
 
+	// Fork data-environment state of the selected ducklake asset (fork workspaces
+	// only): read off the graph node so the details pane can show the
+	// deferred-to-parent / fork-materialized banner matching the canvas chip.
+	let selectionForkMaterialization = $derived.by(() => {
+		const sel = pe.selection
+		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return undefined
+		return displayGraph.assets.find((a) => a.kind === 'ducklake' && a.path === sel.path)
+			?.fork_materialization
+	})
+
 	// Downstream subscriber count for the currently-edited script. Drives
 	// the Test button's cascade UX: when > 0, ScriptEditor renders a split
 	// button exposing "just this step" (default, with `_wmill_skip_asset_dispatch`)
@@ -2217,6 +2227,7 @@
 				{selectionProducers}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				{schemaCanEvolve}
+				{selectionForkMaterialization}
 				{schemaContractContext}
 				downstreamSubscribers={editedScriptDownstreamCount}
 				onStartBoundedRunForOpen={startBoundedRun}

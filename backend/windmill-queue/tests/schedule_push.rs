@@ -1656,12 +1656,13 @@ mod schedule_push {
         tx.commit().await?;
 
         assert_eq!(count_queued_jobs(&db).await, 1);
-        let (kind, path, tag, raw_code) = sqlx::query_as::<_, (String, Option<String>, String, Option<String>)>(
-            "SELECT j.kind::text, j.runnable_path, j.tag, j.raw_code
+        let (kind, path, tag, raw_code) =
+            sqlx::query_as::<_, (String, Option<String>, String, Option<String>)>(
+                "SELECT j.kind::text, j.runnable_path, j.tag, j.raw_code
              FROM v2_job j JOIN v2_job_queue q ON j.id = q.id LIMIT 1",
-        )
-        .fetch_one(&db)
-        .await?;
+            )
+            .fetch_one(&db)
+            .await?;
         assert_eq!(kind, "preview");
         assert_eq!(path.as_deref(), Some("f/ducklake_maintenance/legacy"));
         assert_eq!(tag, "duckdb");
@@ -1694,6 +1695,7 @@ mod schedule_push {
                 },
                 storage: DucklakeStorage { storage: None, path: "legacy".to_string() },
                 extra_args: None,
+                fork_behavior: None,
                 maintenance: Some(DucklakeMaintenance {
                     enabled: maintenance_enabled,
                     schedule: None,

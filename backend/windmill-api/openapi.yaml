@@ -4666,6 +4666,24 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/workspaces/drop_forked_ducklake_namespaces:
+    post:
+      summary: drop this fork workspace's ducklake namespaces (catalog metadata schemas + data files)
+      operationId: dropForkedDucklakeNamespaces
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of errors (empty if all succeeded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/workspaces/import_pg_database:
     post:
       summary: import a PostgreSQL database from source to target via pg_dump
@@ -21464,6 +21482,10 @@ paths:
                           $ref: "#/components/schemas/AssetKind"
                         path:
                           type: string
+                        fork_materialization:
+                          type: string
+                          enum: [fork, deferred]
+                          description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
                   runnables:
                     type: array
                     items:
@@ -28178,6 +28200,11 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+        shared_ducklakes:
+          type: array
+          items:
+            type: string
+          description: "Lake names the fork SHARES with the parent (reads and writes the parent's lake directly). Every lake not listed gets the default isolated fork namespace with read-defer to the parent."
         is_dev_workspace:
           type: boolean
           description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
@@ -28917,6 +28944,12 @@ components:
                   - path
               extra_args:
                 type: string
+              fork_behavior:
+                type: string
+                enum: [isolated, shared]
+                description:
+                  Fork workspaces only - how this lake behaves in the fork, stamped at fork
+                  creation. Absent = isolated (fork-scoped namespace + read-defer to parent).
               maintenance:
                 type: object
                 description:

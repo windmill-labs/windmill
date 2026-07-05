@@ -749,6 +749,16 @@ pub(crate) async fn change_workspace_id(
     // (fork-of-fork) self-heal via the 60s billing-cache TTL.
     for child in &reparented_children {
         windmill_queue::tags::invalidate_fork_parent_cache(child);
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(child);
+        // Grandchildren's cached chains contain the old (renamed-away) ancestor id; a stale
+        // chain drops all defer ancestors in the ducklake resolver, so sweep the subtree
+        // rather than letting it wait out the TTL.
+        for id in windmill_common::workspaces::list_fork_descendants(&db, child)
+            .await
+            .unwrap_or_default()
+        {
+            windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+        }
         #[cfg(feature = "cloud")]
         windmill_common::workspaces::invalidate_billing_workspace_cache(child);
     }
@@ -829,28 +839,19 @@ pub(crate) async fn delete_workspace(
     // Deleting an attached dev workspace removes the parent prod's dev_workspace_lock (below), so it
     // must be a prod-admin action, not just the dev's own owner (dev ownership can diverge from
     // prod's) — mirrors detach_dev_workspace, which is prod-admin gated.
-    if let Some(prod) = sqlx::query_scalar!(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten()
-    {
-        let is_prod_admin = sqlx::query_scalar!(
-            "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
-            &prod,
-            &authed.email
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .unwrap_or(false);
-        if !is_prod_admin && !is_super_admin_email(&db, &authed.email).await? {
-            return Err(Error::PermissionDenied(format!(
-                "Deleting dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
-            )));
-        }
-    }
+    require_prod_admin_for_dev_workspace(&db, &authed, &w_id).await?;
+
+    // Snapshot the fork's ducklake namespaces + RESOLVE their connection material NOW — the
+    // registry rows and the fork's `$res:` resources both CASCADE with the workspace row —
+    // but the destructive cleanup itself runs only after the commit below: a delete that
+    // fails mid-way must never leave a live workspace with its fork data destroyed and no
+    // registry row to retry from. Read-only: nothing is dropped here.
+    let fork_ducklake_cleanups = prepare_fork_ducklake_cleanups(&db, &w_id, None)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("deleting workspace {w_id}: preparing ducklake cleanup: {e:#}");
+            vec![]
+        });
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1086,6 +1087,17 @@ pub(crate) async fn delete_workspace(
     .await?;
     tx.commit().await?;
 
+    // Physical ducklake-namespace cleanup, post-commit, from the pre-read snapshot: fork
+    // namespaces are deterministic from (id, lake), so an orphan would silently REATTACH to a
+    // recreated identical fork id. Runs inline so every delete path is covered (CLI,
+    // force-delete dialog, direct API — not just the sidebar flow, which still calls the
+    // endpoint first for per-lake error toasts; the rerun is an idempotent no-op). Best
+    // effort: failures are logged — the workspace row is already gone, and broken storage
+    // credentials must not have made it undeletable.
+    for e in cleanup_fork_ducklake_namespaces(&db, &w_id, fork_ducklake_cleanups).await {
+        tracing::warn!("deleted workspace {w_id}: ducklake namespace cleanup: {}", e.msg);
+    }
+
     if let Some(parent) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent);
     }
@@ -1099,10 +1111,24 @@ pub(crate) async fn delete_workspace(
     // billing TTL.
     for id in std::iter::once(&w_id).chain(orphaned_children.iter()) {
         windmill_queue::tags::invalidate_fork_parent_cache(id);
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(id);
         #[cfg(feature = "cloud")]
         {
             windmill_common::workspaces::invalidate_billing_workspace_cache(id);
             windmill_common::workspaces::invalidate_team_plan_cache(id);
+        }
+    }
+    // Deeper descendants' cached ancestor CHAINS still contain the deleted workspace; unlike
+    // the sibling caches (which self-heal harmlessly via TTL), a stale chain makes the
+    // ducklake resolver drop all defer ancestors (all-or-nothing on broken links) — a visible
+    // defer/chips outage for up to the TTL. Anchor at the orphaned children: the deleted row
+    // is gone, but their subtrees are intact.
+    for child in orphaned_children.iter() {
+        for id in windmill_common::workspaces::list_fork_descendants(&db, child)
+            .await
+            .unwrap_or_default()
+        {
+            windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
         }
     }
 
@@ -1264,6 +1290,538 @@ pub async fn drop_forked_datatable_databases(
     }
 
     Ok(Json(errors))
+}
+
+/// Drop this fork workspace's ducklake namespaces: the `wm_fork_*` metadata schema in each
+/// lake's catalog database, plus (best effort) the fork's `__wm_forks/<wid>/…` data files in
+/// the workspace storage. Driven by the `fork_ducklake_namespace` registry written at first
+/// fork attach, so it works even after settings drift. Returns errors per lake that failed;
+/// the registry row is only deleted once both cleanups succeeded, so a retry resumes.
+/// Same permission as delete_workspace: fork owner or super admin. `delete_workspace` also
+/// runs this inline (the UI calls this endpoint first for error visibility; the inline run
+/// covers every other delete path — CLI, force-delete dialogs, direct API — whose row delete
+/// would otherwise CASCADE the registry away while orphaning the physical namespaces, which a
+/// recreated identical fork id would then silently reattach).
+pub async fn drop_forked_ducklake_namespaces(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> Result<Json<Vec<String>>> {
+    let is_fork = workspace_is_fork(&db, &w_id).await?;
+    let mut tx = db.begin().await?;
+    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
+        && !is_super_admin_email(&db, &authed.email).await?
+    {
+        return Err(Error::PermissionDenied(
+            "Dropping forked ducklake namespaces requires being the fork's owner or a superadmin"
+                .to_string(),
+        ));
+    }
+    tx.commit().await?;
+    require_prod_admin_for_dev_workspace(&db, &authed, &w_id).await?;
+    Ok(Json(
+        drop_forked_ducklake_namespaces_impl(&db, &w_id, None)
+            .await?
+            .into_iter()
+            .map(|i| i.msg)
+            .collect(),
+    ))
+}
+
+/// The cleanup itself, shared by the endpoint and the post-commit `delete_workspace` run. No
+/// authorization of its own — callers gate.
+pub(crate) async fn drop_forked_ducklake_namespaces_impl(
+    db: &DB,
+    w_id: &str,
+    res_fallback_w_id: Option<&str>,
+) -> Result<Vec<ForkDucklakeCleanupIssue>> {
+    let prepared = prepare_fork_ducklake_cleanups(db, w_id, res_fallback_w_id).await?;
+    Ok(cleanup_fork_ducklake_namespaces(db, w_id, prepared).await)
+}
+
+struct ForkDucklakeNamespaceRow {
+    ducklake_name: String,
+    metadata_schema: String,
+    catalog: String,
+    storage: String,
+    storage_ref: String,
+    schema_dropped: bool,
+    data_path: String,
+}
+
+/// A namespace row plus its RESOLVED connection material. `delete_workspace` prepares these
+/// BEFORE its transaction commits — the registry rows AND the fork's `$res:` resources both
+/// disappear with the workspace row — and runs the destructive cleanup only AFTER the commit:
+/// a delete that fails mid-way must never leave a live workspace with its fork data
+/// destroyed, and a committed delete must still be able to reach catalogs/storages whose
+/// credentials lived in the (now gone) fork resources. Per-row resolution failures are
+/// carried as strings so they surface with the other cleanup errors.
+pub(crate) struct PreparedForkDucklakeCleanup {
+    ns: ForkDucklakeNamespaceRow,
+    catalog_pg: std::result::Result<windmill_common::PgDatabase, String>,
+    store: std::result::Result<(windmill_types::s3::LargeFileStorage, serde_json::Value), String>,
+}
+
+/// One row per (lake, catalog, storage, data path) ever attached — settings drift adds rows,
+/// so every location the fork wrote gets cleaned, not just the first. Read-only: resolves
+/// credentials but destroys nothing.
+/// `res_fallback_w_id`: second workspace to resolve `$res:` catalog/storage paths against
+/// when the row's own workspace no longer has them — the retry path runs AFTER the fork and
+/// its resources were deleted. Fork resources are clones of a parent's, so the workspace
+/// being forked again is the natural donor. None on live-workspace paths.
+pub(crate) async fn prepare_fork_ducklake_cleanups(
+    db: &DB,
+    w_id: &str,
+    res_fallback_w_id: Option<&str>,
+) -> Result<Vec<PreparedForkDucklakeCleanup>> {
+    let rows = sqlx::query_as!(
+        ForkDucklakeNamespaceRow,
+        r#"SELECT ducklake_name AS "ducklake_name!", metadata_schema AS "metadata_schema!",
+                  catalog AS "catalog!", storage AS "storage!",
+                  storage_ref AS "storage_ref!", data_path AS "data_path!",
+                  schema_dropped AS "schema_dropped!"
+             FROM fork_ducklake_namespace WHERE workspace_id = $1"#,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+    let mut prepared = Vec::with_capacity(rows.len());
+    for ns in rows {
+        let catalog_pg = if ns.schema_dropped {
+            // Schema phase already done — the retry needs no catalog connection at all
+            // (its credentials may be unresolvable for good with the fork's resources gone).
+            Err("unused: metadata schema already dropped".to_string())
+        } else {
+            resolve_fork_catalog_pg(db, w_id, res_fallback_w_id, &ns.ducklake_name, &ns.catalog)
+                .await
+                .map_err(|e| e.to_string())
+        };
+        let storage = Some(ns.storage.as_str()).filter(|s| !s.is_empty());
+        let store = resolve_fork_storage(db, w_id, res_fallback_w_id, storage, &ns.storage_ref)
+            .await
+            .map_err(|e| e.to_string());
+        prepared.push(PreparedForkDucklakeCleanup { ns, catalog_pg, store });
+    }
+    Ok(prepared)
+}
+
+/// Drop the prepared namespaces' metadata schemas + data files, deleting each registry row
+/// only after both succeed (a no-op when the row already cascaded away with the workspace).
+/// Returns per-namespace error strings; never fails as a whole.
+/// One failed step of a fork ducklake cleanup. `blocking` = the metadata schema (or its
+/// guards) failed, so the namespace is still attachable and a same-id fork must NOT be
+/// created. Non-blocking = the schema is gone and only data files (or the registry-row
+/// delete) failed — inert storage leftovers, tracked by the surviving row and swept by the
+/// next successful cleanup of the same prefix.
+pub(crate) struct ForkDucklakeCleanupIssue {
+    pub(crate) blocking: bool,
+    pub(crate) msg: String,
+}
+
+pub(crate) async fn cleanup_fork_ducklake_namespaces(
+    db: &DB,
+    w_id: &str,
+    prepared: Vec<PreparedForkDucklakeCleanup>,
+) -> Vec<ForkDucklakeCleanupIssue> {
+    // The registration once-cache must not outlive the rows it mirrors: a same-id fork
+    // recreated within the TTL would otherwise skip re-registration, and ITS eventual
+    // deletion would find no rows — orphaning the deterministic namespace for the next
+    // same-id fork to silently reattach.
+    windmill_common::workspaces::invalidate_fork_ducklake_registration_cache(w_id);
+    let mut errors: Vec<ForkDucklakeCleanupIssue> = Vec::new();
+    for PreparedForkDucklakeCleanup { ns, catalog_pg, store } in prepared {
+        // Hard guards mirroring the forked-datatable drop: never touch a schema outside the
+        // fork prefix, never delete outside the fork data dir — even if a registry row was
+        // somehow tampered with.
+        if !ns
+            .metadata_schema
+            .starts_with(windmill_common::workspaces::FORK_DUCKLAKE_SCHEMA_PREFIX)
+        {
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: true,
+                msg: format!(
+                    "Refusing to drop schema '{}' for ducklake://{}: name does not start with '{}'",
+                    ns.metadata_schema,
+                    ns.ducklake_name,
+                    windmill_common::workspaces::FORK_DUCKLAKE_SCHEMA_PREFIX
+                ),
+            });
+            continue;
+        }
+        // The fork's directory segment, NOT the raw workspace id: ids are only
+        // git-branch-safe and may contain `/`, which raw would let one fork's prefix nest
+        // inside a sibling's (`wm-fork-a/b` under `wm-fork-a`) and be swept by its cleanup.
+        let expected_prefix = format!(
+            "{}/{}/",
+            windmill_common::workspaces::FORK_DUCKLAKE_DATA_DIR,
+            windmill_common::workspaces::fork_data_dir_segment(w_id)
+        );
+        if !format!("{}/", ns.data_path.trim_end_matches('/')).starts_with(&expected_prefix) {
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: true,
+                msg: format!(
+                    "Refusing to delete data path '{}' for ducklake://{}: not under '{}'",
+                    ns.data_path, ns.ducklake_name, expected_prefix
+                ),
+            });
+            continue;
+        }
+
+        let drop_res = if ns.schema_dropped {
+            // Recorded as already dropped by a prior partial cleanup; skipping means no
+            // catalog credentials are needed. Registration resets the flag when a live fork
+            // re-attaches (recreating the schema).
+            Ok(())
+        } else {
+            match catalog_pg {
+                Ok(pg) => drop_fork_ducklake_metadata_schema(db, pg, &ns.metadata_schema).await,
+                Err(e) => Err(Error::internal_err(e)),
+            }
+        };
+        if let Err(e) = drop_res {
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: true,
+                msg: format!(
+                    "Could not drop metadata schema '{}' for ducklake://{}: {e}",
+                    ns.metadata_schema, ns.ducklake_name
+                ),
+            });
+            continue;
+        }
+        let delete_res = match store {
+            Ok((lfs, resource_value)) => {
+                delete_fork_ducklake_data(lfs, resource_value, &ns.data_path).await
+            }
+            Err(e) => Err(Error::internal_err(e)),
+        };
+        if let Err(e) = delete_res {
+            // Record the completed schema phase so retries never need catalog credentials
+            // again (best effort — a failed update just means the next retry re-drops an
+            // absent schema, which requires the catalog to be reachable).
+            sqlx::query!(
+                "UPDATE fork_ducklake_namespace SET schema_dropped = true
+                 WHERE workspace_id = $1 AND ducklake_name = $2 AND catalog = $3
+                   AND storage = $4 AND storage_ref = $5 AND data_path = $6",
+                w_id,
+                &ns.ducklake_name,
+                &ns.catalog,
+                &ns.storage,
+                &ns.storage_ref,
+                &ns.data_path,
+            )
+            .execute(db)
+            .await
+            .ok();
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: false,
+                msg: format!(
+                    "Dropped metadata schema but could not delete data files under '{}' for ducklake://{}: {e}",
+                    ns.data_path, ns.ducklake_name
+                ),
+            });
+            continue;
+        }
+        sqlx::query!(
+            "DELETE FROM fork_ducklake_namespace
+             WHERE workspace_id = $1 AND ducklake_name = $2 AND catalog = $3
+               AND storage = $4 AND storage_ref = $5 AND data_path = $6",
+            w_id,
+            &ns.ducklake_name,
+            &ns.catalog,
+            &ns.storage,
+            &ns.storage_ref,
+            &ns.data_path,
+        )
+        .execute(db)
+        .await
+        .map_err(|e| {
+            errors.push(ForkDucklakeCleanupIssue {
+                blocking: false,
+                msg: format!(
+                    "Cleaned ducklake://{} but could not delete its registry row: {e}",
+                    ns.ducklake_name
+                ),
+            })
+        })
+        .ok();
+    }
+    errors
+}
+
+/// Drop the fork's metadata schema in the catalog database recorded by the registry row —
+/// NOT whatever the fork's settings point at by now: a drifted catalog resource must not make
+/// cleanup drop a schema in the wrong database while orphaning the real one. The pg schema
+/// holds only DuckLake metadata tables (auto-created at first fork attach), so a plain
+/// `DROP SCHEMA … CASCADE` on the catalog connection removes the whole fork namespace.
+/// Resolve the catalog connection recorded in the registry row (read-only): instance
+/// identities rebuild instance creds; resource identities resolve their `$res:` in the fork's
+/// workspace — which is why this must run BEFORE the workspace (and its resources) are
+/// deleted. Mysql never registers (rejected at resolution).
+async fn resolve_fork_catalog_pg(
+    db: &DB,
+    w_id: &str,
+    res_fallback_w_id: Option<&str>,
+    ducklake_name: &str,
+    catalog: &str,
+) -> Result<windmill_common::PgDatabase> {
+    let (resource_type, resource_path) = catalog.split_once(':').ok_or_else(|| {
+        Error::internal_err(format!(
+            "ducklake://{ducklake_name}: malformed registry catalog identity `{catalog}`"
+        ))
+    })?;
+    let catalog_resource = if resource_type == "instance" {
+        let mut pg_creds = windmill_common::PgDatabase::parse_uri(
+            &windmill_common::get_database_url().await?.as_str().await,
+        )?;
+        pg_creds.dbname = resource_path.to_string();
+        pg_creds.user = Some("custom_instance_user".to_string());
+        pg_creds.password =
+            Some(windmill_common::utils::get_custom_pg_instance_password(db).await?);
+        serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("serializing pg creds: {e}")))?
+    } else {
+        resolve_res_with_fallback(db, w_id, res_fallback_w_id, resource_path).await?
+    };
+    serde_json::from_value(catalog_resource).map_err(|e| {
+        Error::internal_err(format!(
+            "ducklake://{ducklake_name}: catalog resource is not a postgres database: {e}"
+        ))
+    })
+}
+
+async fn drop_fork_ducklake_metadata_schema(
+    db: &DB,
+    pg: windmill_common::PgDatabase,
+    metadata_schema: &str,
+) -> Result<()> {
+    let (client, connection) = pg.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    let res = client
+        .execute(
+            &format!(
+                "DROP SCHEMA IF EXISTS \"{}\" CASCADE",
+                metadata_schema.replace('"', "\"\"")
+            ),
+            &[],
+        )
+        .await;
+    drop(client);
+    let _ = join_handle.await;
+    res.map_err(|e| Error::internal_err(format!("{e:#}")))?;
+    Ok(())
+}
+
+/// Resolve the storage identified by the registry's `storage_ref` (read-only) — the storage
+/// that was active when the fork's data was WRITTEN, not whatever the logical storage name
+/// points at by deletion time (a repointed storage must not orphan the original fork data,
+/// nor get a colliding prefix deleted). `storage_ref` = '' falls back to resolving the
+/// logical name against current settings (registration couldn't identify the storage — best
+/// effort). Resolves the `$res:` in the fork's workspace, which is why this must run BEFORE
+/// the workspace is deleted.
+async fn resolve_fork_storage(
+    db: &DB,
+    w_id: &str,
+    res_fallback_w_id: Option<&str>,
+    storage: Option<&str>,
+    storage_ref: &str,
+) -> Result<(windmill_types::s3::LargeFileStorage, serde_json::Value)> {
+    use windmill_types::s3::{
+        AzureBlobStorage, FilesystemStorage, GoogleCloudStorage, LargeFileStorage, S3Storage,
+    };
+
+    let lfs: LargeFileStorage = if let Some((typ, path)) = storage_ref.split_once(':') {
+        // Rebuild the LFS entry from the registered identity; only the variant (which
+        // resource parser applies) and the path matter to `lfs_to_object_store_resource`.
+        let s3 = |p: &str| S3Storage {
+            s3_resource_path: p.to_string(),
+            public_resource: None,
+            advanced_permissions: None,
+        };
+        match typ {
+            "S3Storage" => LargeFileStorage::S3Storage(s3(path)),
+            "S3AwsOidc" => LargeFileStorage::S3AwsOidc(s3(path)),
+            "AzureBlobStorage" => LargeFileStorage::AzureBlobStorage(AzureBlobStorage {
+                azure_blob_resource_path: path.to_string(),
+                public_resource: None,
+                advanced_permissions: None,
+            }),
+            "AzureWorkloadIdentity" => LargeFileStorage::AzureWorkloadIdentity(AzureBlobStorage {
+                azure_blob_resource_path: path.to_string(),
+                public_resource: None,
+                advanced_permissions: None,
+            }),
+            "GoogleCloudStorage" => LargeFileStorage::GoogleCloudStorage(GoogleCloudStorage {
+                gcs_resource_path: path.to_string(),
+                public_resource: None,
+                advanced_permissions: None,
+            }),
+            "FilesystemStorage" => LargeFileStorage::FilesystemStorage(FilesystemStorage {
+                root_path: path.to_string(),
+                public_resource: None,
+                advanced_permissions: None,
+            }),
+            other => {
+                return Err(Error::internal_err(format!(
+                    "unknown registered storage type `{other}`"
+                )))
+            }
+        }
+    } else {
+        let lfs_json = sqlx::query_scalar!(
+            "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .ok_or_else(|| Error::BadRequest("workspace has no storage configured".to_string()))?;
+        // Named storages live under `secondary_storage`; `None`/`_default_` is the primary.
+        match storage.filter(|s| *s != "_default_") {
+            None => serde_json::from_value(lfs_json.clone())
+                .map_err(|e| Error::internal_err(format!("parsing large_file_storage: {e}")))?,
+            Some(name) => serde_json::from_value(
+                lfs_json
+                    .get("secondary_storage")
+                    .and_then(|s| s.get(name))
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::BadRequest(format!("workspace has no storage named {name}"))
+                    })?,
+            )
+            .map_err(|e| Error::internal_err(format!("parsing storage {name}: {e}")))?,
+        }
+    };
+    // Filesystem storage stores a direct path (`lfs_to_object_store_resource` ignores the
+    // resource value); everything else references a resource whose stored path may or may not
+    // carry the `$res:` prefix — same normalization as `get_workspace_s3_resource_from_lfs`.
+    let resource_value = if matches!(lfs, LargeFileStorage::FilesystemStorage(_)) {
+        serde_json::Value::Null
+    } else {
+        let path = lfs.get_s3_resource_path();
+        let path = path.strip_prefix("$res:").unwrap_or(path);
+        resolve_res_with_fallback(db, w_id, res_fallback_w_id, path).await?
+    };
+    Ok((lfs, resource_value))
+}
+
+/// Resolve a `$res:` path in `w_id`, falling back to the same path in `res_fallback_w_id`
+/// when the first lookup fails — retry-path cleanups run after the fork workspace (and its
+/// cloned resource rows) were deleted, and the fork's resources were clones of a parent's.
+async fn resolve_res_with_fallback(
+    db: &DB,
+    w_id: &str,
+    res_fallback_w_id: Option<&str>,
+    resource_path: &str,
+) -> Result<serde_json::Value> {
+    let res = windmill_common::workspaces::transform_json_value_unchecked(
+        &serde_json::Value::String(format!("$res:{resource_path}")),
+        w_id,
+        db,
+    )
+    .await;
+    match (res, res_fallback_w_id) {
+        (Ok(v), _) => Ok(v),
+        (Err(e), None) => Err(e),
+        (Err(_), Some(fb)) => {
+            windmill_common::workspaces::transform_json_value_unchecked(
+                &serde_json::Value::String(format!("$res:{resource_path}")),
+                fb,
+                db,
+            )
+            .await
+        }
+    }
+}
+
+/// Delete every object under the fork's data prefix in the pre-resolved storage. Requires the
+/// `parquet` (object store) feature; without it the metadata schema is still dropped and the
+/// unreachable data files are left for manual cleanup.
+#[cfg(feature = "parquet")]
+async fn delete_fork_ducklake_data(
+    lfs: windmill_types::s3::LargeFileStorage,
+    resource_value: serde_json::Value,
+    data_path: &str,
+) -> Result<()> {
+    use futures::{StreamExt, TryStreamExt};
+
+    let store = windmill_object_store::build_object_store_client(
+        &windmill_object_store::lfs_to_object_store_resource(&lfs, resource_value)?,
+    )
+    .await?;
+
+    let prefix = windmill_object_store::object_store_reexports::Path::from(
+        data_path.trim_matches('/').to_string(),
+    );
+    let locations: Vec<_> = store
+        .list(Some(&prefix))
+        .map_ok(|m| m.location)
+        .try_collect()
+        .await
+        .map_err(windmill_object_store::object_store_error_to_error)?;
+    // The object_store crate evaluates list prefixes on a path-SEGMENT basis (`a/b` does not
+    // match `a/bc/…`), so sibling fork segments sharing a string prefix are already excluded.
+    // Filter anyway — deletion must not depend on a listing implementation detail.
+    let boundary = format!("{}/", prefix.as_ref());
+    let locations: Vec<_> = locations
+        .into_iter()
+        .filter(|l| l.as_ref().starts_with(&boundary))
+        .collect();
+    // 1000-object chunks: S3 DeleteObjects caps a batch at 1000 keys.
+    for chunk in locations.chunks(1000) {
+        store
+            .delete_stream(futures::stream::iter(chunk.iter().cloned().map(Ok)).boxed())
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(windmill_object_store::object_store_error_to_error)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn delete_fork_ducklake_data(
+    _lfs: windmill_types::s3::LargeFileStorage,
+    _resource_value: serde_json::Value,
+    _data_path: &str,
+) -> Result<()> {
+    Err(Error::internal_err(
+        "object storage support (parquet feature) is not compiled in".to_string(),
+    ))
+}
+
+/// Destroying an ATTACHED dev workspace (or its data environments) must be a prod-admin
+/// action, not just the dev's own owner (dev ownership can diverge from prod's) — mirrors
+/// detach_dev_workspace. Shared by `delete_workspace` and `drop_forked_ducklake_namespaces`
+/// so the two gates cannot drift: the sidebar calls the drop endpoint BEFORE deleteWorkspace,
+/// and a weaker gate on the drop would let a non-prod-admin dev owner destroy the live dev's
+/// materializations and then have the deletion itself rejected. No-op for non-dev workspaces.
+async fn require_prod_admin_for_dev_workspace(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+) -> Result<()> {
+    if let Some(prod) = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    {
+        let is_prod_admin = sqlx::query_scalar!(
+            "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+            &prod,
+            &authed.email
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false);
+        if !is_prod_admin && !is_super_admin_email(db, &authed.email).await? {
+            return Err(Error::PermissionDenied(format!(
+                "Destroying dev workspace '{w_id}' or its data requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
+            )));
+        }
+    }
+    Ok(())
 }
 
 async fn is_workspace_owner(

@@ -330,6 +330,7 @@
 				data: {
 					asset_kind: a.kind,
 					path: a.path,
+					fork_materialization: a.fork_materialization,
 					onAddScript: onAddScriptForAsset,
 					pathPrefix,
 					defaultPathSuffix,

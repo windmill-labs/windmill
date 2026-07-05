@@ -14,7 +14,7 @@ use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
-    DucklakeCatalogResourceType,
+    strip_fork_reserved_attach_args, DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
@@ -1155,6 +1155,7 @@ pub async fn do_duckdb(
                     conn,
                     &mut hidden_passwords,
                     &job.workspace_id,
+                    materialize.as_ref().map(|(_, m)| m.asset_path.as_str()),
                 )
                 .await?
                 {
@@ -1858,6 +1859,7 @@ async fn transform_attach_ducklake(
     conn: &Connection,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     w_id: &str,
+    materialize_target: Option<&str>,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
@@ -1867,14 +1869,27 @@ async fn transform_attach_ducklake(
     };
     let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
     let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-    let extra_args = cap
+    let user_extra_args = cap
         .get(3)
-        .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
-        .unwrap_or("".to_string());
+        .map(|m| m.as_str()[1..m.as_str().len() - 1].to_string())
+        .unwrap_or_default();
 
     let ducklake = match conn {
         Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
+    };
+    // In a fork, METADATA_SCHEMA / DATA_PATH / OVERRIDE_DATA_PATH are owned by the fork
+    // resolution (DuckDB silently keeps the last occurrence of a duplicated option, so a
+    // user-supplied one would escape the fork namespace back to the parent's).
+    let user_extra_args = if ducklake.fork_defer.is_some() {
+        strip_fork_reserved_attach_args(&user_extra_args)
+    } else {
+        user_extra_args
+    };
+    let extra_args = if user_extra_args.is_empty() {
+        String::new()
+    } else {
+        format!(", {}", user_extra_args)
     };
     let db_type = match ducklake.catalog.resource_type {
         DucklakeCatalogResourceType::Instance => "postgres",
@@ -1921,17 +1936,170 @@ async fn transform_attach_ducklake(
     } else {
         format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
     };
+    // In a fork, re-emit the fork-owned DATA_PATH as the LAST option: DuckDB keeps the last
+    // occurrence of a duplicated option, so this wins over anything the arg stripping might
+    // not recognize (e.g. a dollar-quoted literal), regardless of literal syntax. The
+    // METADATA_SCHEMA injected by the fork resolution is already last within `extra_args`.
+    let extra_args = if ducklake.fork_defer.is_some() {
+        format!("{extra_args}, DATA_PATH 's3://{storage}/{data_path}'")
+    } else {
+        extra_args
+    };
 
     let attach_str = format!(
         "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
-    Ok(Some(vec![
+    let mut statements = vec![
         "INSTALL ducklake;".to_string(),
         install_db_ext_str.to_string(),
         attach_str,
-    ]))
+    ];
+    if let Some(defer) = ducklake.fork_defer.as_ref() {
+        statements.extend(fork_defer_statements(
+            name,
+            alias_name,
+            defer,
+            materialize_target,
+            hidden_passwords,
+        )?);
+    }
+    Ok(Some(statements))
+}
+
+// Double-quote a possibly schema-qualified table reference, each dotted segment
+// independently (local copy of sql_materialize's private helper).
+fn quote_qualified_table(name: &str) -> String {
+    name.split('.')
+        .map(|id| format!("\"{}\"", id.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+// `schema.table` → `schema.table_current`: the SCD2 companion view lives next to its table.
+fn current_companion(table: &str) -> String {
+    match table.rsplit_once('.') {
+        Some((s, t)) => format!("{s}.{t}_current"),
+        None => format!("{table}_current"),
+    }
+}
+
+/// Statements appended after a fork workspace's lake ATTACH: read-only attaches of the
+/// ancestor namespaces plus `CREATE VIEW IF NOT EXISTS` defer views over the direct parent for
+/// every table the fork has not materialized. When this job's managed materialize targets one
+/// of the deferred tables, its defer view is dropped instead of created — the write must hit a
+/// real fork table (`CREATE [OR REPLACE] TABLE` refuses to replace a view).
+fn fork_defer_statements(
+    lake_name: &str,
+    alias_name: &str,
+    defer: &windmill_common::workspaces::DucklakeForkDefer,
+    materialize_target: Option<&str>,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+) -> Result<Vec<String>> {
+    let mut stmts = vec![];
+    if defer.ancestors.is_empty() {
+        // Defer unavailable (an ancestor no longer defines this lake); the fork namespace
+        // still isolates writes.
+        return Ok(stmts);
+    }
+    for a in &defer.ancestors {
+        if let Some(pwd) = a.catalog_resource.get("password").and_then(|p| p.as_str()) {
+            hidden_passwords.lock().unwrap().push(pwd.to_string());
+        }
+        let db_type = match a.catalog.resource_type {
+            DucklakeCatalogResourceType::Instance => "postgres",
+            _ => a.catalog.resource_type.as_ref(),
+        };
+        stmts.push(get_attach_db_install_str(db_type)?.to_string());
+        let conn_str =
+            format_attach_db_conn_str(a.catalog_resource.clone(), db_type)?.replace('\'', "''");
+        let storage = a
+            .storage
+            .storage
+            .as_deref()
+            .unwrap_or(DEFAULT_STORAGE)
+            .replace('\'', "''");
+        let data_path = a.storage.path.replace('\'', "''");
+        let metadata_schema = a
+            .metadata_schema
+            .as_ref()
+            .map(|s| format!(", METADATA_SCHEMA '{}'", s.replace('\'', "''")))
+            .unwrap_or_default();
+        // The ancestor config's own non-reserved args (e.g. `ENCRYPTED true`) — an
+        // option-dependent lake wouldn't attach without them. Emitted FIRST: DuckDB keeps the
+        // last occurrence of a duplicated option, so the fork-owned DATA_PATH / READ_ONLY /
+        // METADATA_SCHEMA after them always win.
+        let extra_args = a
+            .extra_args
+            .as_ref()
+            .map(|e| format!("{e}, "))
+            .unwrap_or_default();
+        // READ_ONLY: a fork job must never write an ancestor namespace. No AUTOMATIC_MIGRATION
+        // / CREATE_IF_NOT_EXISTS: an ancestor lake that would need creating or migrating fails
+        // loudly rather than being mutated from a fork. IF NOT EXISTS: several ATTACH blocks in
+        // one script (e.g. the user's + the materialize synthetic one) emit the same ancestors.
+        stmts.push(format!(
+            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema});",
+            a.alias
+        ));
+    }
+    let parent_alias = &defer.ancestors[0].alias;
+    let target_table = materialize_target.and_then(|ap| {
+        let (l, t) = ap.split_once('/')?;
+        (l == lake_name).then_some(t)
+    });
+    let mut created_schemas = std::collections::HashSet::new();
+    for dt in &defer.defer_tables {
+        if Some(dt.table.as_str()) == target_table {
+            continue;
+        }
+        // Each view targets the NEAREST ancestor that physically owns the table (a direct
+        // parent that itself defers has no copy to bind against). Out-of-range index (never
+        // produced by the resolver, but the field crosses the agent wire) falls back to the
+        // direct parent rather than panicking.
+        let owner_alias = defer
+            .ancestors
+            .get(dt.ancestor_idx as usize)
+            .map(|a| a.alias.as_str())
+            .unwrap_or(parent_alias);
+        if let Some((schema, _)) = dt.table.rsplit_once('.') {
+            if created_schemas.insert(schema) {
+                stmts.push(format!(
+                    "CREATE SCHEMA IF NOT EXISTS {alias_name}.{};",
+                    quote_qualified_table(schema)
+                ));
+            }
+        }
+        let q = quote_qualified_table(&dt.table);
+        stmts.push(format!(
+            "CREATE VIEW IF NOT EXISTS {alias_name}.{q} AS SELECT * FROM {owner_alias}.{q};"
+        ));
+        if dt.with_current_view {
+            let qc = quote_qualified_table(&current_companion(&dt.table));
+            stmts.push(format!(
+                "CREATE VIEW IF NOT EXISTS {alias_name}.{qc} AS SELECT * FROM {owner_alias}.{qc};"
+            ));
+        }
+    }
+    if let Some(t) = target_table {
+        // View→table transition: replace the target's defer view(s) with the real table this
+        // job writes (`CREATE [OR REPLACE] TABLE` refuses to replace a view). Keyed on the
+        // catalog's ACTUAL live views — not on recorded materialization status, which after a
+        // failed run can't tell a defer view from a real table, and a mismatched DROP VIEW
+        // would wedge the asset. `_current` is dropped too when it is a view — SCD2 codegen
+        // recreates it with `IF NOT EXISTS`, which would otherwise silently keep a view over
+        // the parent.
+        for name in [t.to_string(), current_companion(t)] {
+            if defer.fork_views.iter().any(|v| v == &name) {
+                stmts.push(format!(
+                    "DROP VIEW IF EXISTS {alias_name}.{};",
+                    quote_qualified_table(&name)
+                ));
+            }
+        }
+    }
+    Ok(stmts)
 }
 
 async fn transform_attach_datatable(
@@ -2035,6 +2203,198 @@ pub struct Arg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_ancestor(wid: &str) -> windmill_common::workspaces::DucklakeAncestorAttach {
+        windmill_common::workspaces::DucklakeAncestorAttach {
+            workspace_id: wid.to_string(),
+            alias: format!("__wm_dl_lake_{}_abcd1234", wid.replace('-', "_")),
+            catalog: windmill_common::workspaces::DucklakeCatalog {
+                resource_type: windmill_common::workspaces::DucklakeCatalogResourceType::Instance,
+                resource_path: "cat_db".to_string(),
+            },
+            catalog_resource: serde_json::json!({
+                "host": "h", "dbname": "cat_db", "user": "u", "password": "pw"
+            }),
+            storage: windmill_common::workspaces::DucklakeStorage {
+                storage: None,
+                path: "lake".to_string(),
+            },
+            metadata_schema: None,
+            extra_args: None,
+        }
+    }
+
+    fn test_fork_defer_chain(
+        ancestor_wids: Vec<&str>,
+        defer_tables: Vec<(&str, bool, u32)>,
+        fork_views: Vec<&str>,
+    ) -> windmill_common::workspaces::DucklakeForkDefer {
+        windmill_common::workspaces::DucklakeForkDefer {
+            ancestors: ancestor_wids.into_iter().map(test_ancestor).collect(),
+            defer_tables: defer_tables
+                .into_iter()
+                .map(
+                    |(t, cur, idx)| windmill_common::materialization::ForkDeferTable {
+                        table: t.to_string(),
+                        with_current_view: cur,
+                        ancestor_idx: idx,
+                    },
+                )
+                .collect(),
+            fork_views: fork_views.into_iter().map(str::to_string).collect(),
+        }
+    }
+
+    fn test_fork_defer(
+        defer_tables: Vec<(&str, bool)>,
+        fork_views: Vec<&str>,
+    ) -> windmill_common::workspaces::DucklakeForkDefer {
+        test_fork_defer_chain(
+            vec!["parent-ws"],
+            defer_tables.into_iter().map(|(t, c)| (t, c, 0)).collect(),
+            fork_views,
+        )
+    }
+
+    #[test]
+    fn test_fork_defer_statements_ancestor_extra_args() {
+        // The ancestor config's own args (e.g. ENCRYPTED) must ride on its read-only attach —
+        // BEFORE the fork-owned options, so DuckDB's last-occurrence-wins keeps DATA_PATH /
+        // READ_ONLY / METADATA_SCHEMA authoritative even if the args tried to override them.
+        let mut defer = test_fork_defer(vec![("orders", false)], vec![]);
+        defer.ancestors[0].extra_args = Some("ENCRYPTED true".to_string());
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let attach = stmts
+            .iter()
+            .find(|s| s.starts_with("ATTACH IF NOT EXISTS"))
+            .unwrap();
+        assert!(attach.contains("(ENCRYPTED true, DATA_PATH "), "{attach}");
+        assert!(
+            attach.find("ENCRYPTED true").unwrap() < attach.find("READ_ONLY").unwrap(),
+            "{attach}"
+        );
+    }
+
+    #[test]
+    fn test_fork_defer_statements_chained_ancestors() {
+        // fork → parent → root: `orders` was only materialized in the root (idx 1) — its view
+        // must target the ROOT alias (the parent has no physical copy); `daily` owned by the
+        // direct parent (idx 0) targets the parent alias. Out-of-range idx falls back to the
+        // direct parent instead of panicking.
+        let defer = test_fork_defer_chain(
+            vec!["parent-ws", "root-ws"],
+            vec![("orders", false, 1), ("daily", false, 0), ("oob", false, 9)],
+            vec![],
+        );
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"orders\" AS SELECT * FROM __wm_dl_lake_root_ws_abcd1234.\"orders\""
+            ),
+            "{joined}"
+        );
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"daily\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"daily\""
+            ),
+            "{joined}"
+        );
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"oob\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"oob\""
+            ),
+            "{joined}"
+        );
+        // Both ancestors attached read-only.
+        assert_eq!(
+            joined.matches("ATTACH IF NOT EXISTS").count(),
+            2,
+            "{joined}"
+        );
+    }
+
+    #[test]
+    fn test_fork_defer_statements_shape() {
+        let defer = test_fork_defer(vec![("orders", false), ("dim", true)], vec![]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        // Ancestor attach: read-only, idempotent, never auto-migrating or auto-creating.
+        assert!(joined.contains("ATTACH IF NOT EXISTS"), "{joined}");
+        assert!(joined.contains("READ_ONLY"), "{joined}");
+        assert!(!joined.contains("AUTOMATIC_MIGRATION"), "{joined}");
+        assert!(!joined.contains("CREATE_IF_NOT_EXISTS"), "{joined}");
+        // Ancestor catalog password is hidden from logs.
+        assert_eq!(hp.lock().unwrap().as_slice(), ["pw"]);
+        // Defer views over the parent alias, plus the SCD2 `_current` companion.
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"orders\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"orders\""
+            ),
+            "{joined}"
+        );
+        assert!(joined.contains("dl.\"dim_current\""), "{joined}");
+        // No target → no transition drops.
+        assert!(!joined.contains("DROP VIEW"), "{joined}");
+    }
+
+    #[test]
+    fn test_fork_defer_statements_target_transition() {
+        // Target currently a defer view → skip its CREATE, drop the view (+ companion).
+        let defer = test_fork_defer(vec![("orders", false)], vec!["orders", "orders_current"]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts =
+            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
+                .unwrap();
+        let joined = stmts.join("\n");
+        assert!(!joined.contains("CREATE VIEW"), "{joined}");
+        assert!(
+            joined.contains("DROP VIEW IF EXISTS _wm_target.\"orders\";"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("DROP VIEW IF EXISTS _wm_target.\"orders_current\";"),
+            "{joined}"
+        );
+
+        // Target already a real table (NOT in fork_views, e.g. after a failed re-run whose
+        // status can't be trusted) → no DROP VIEW, or the job would wedge on a type mismatch.
+        let defer = test_fork_defer(vec![("orders", false)], vec![]);
+        let stmts =
+            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
+                .unwrap();
+        assert!(!stmts.join("\n").contains("DROP VIEW"), "{stmts:?}");
+
+        // Target in a different lake → this lake's defer views are untouched.
+        let defer = test_fork_defer(vec![("orders", false)], vec!["orders"]);
+        let stmts =
+            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains("CREATE VIEW IF NOT EXISTS dl.\"orders\""),
+            "{joined}"
+        );
+        assert!(!joined.contains("DROP VIEW"), "{joined}");
+    }
+
+    #[test]
+    fn test_fork_defer_statements_schema_qualified() {
+        let defer = test_fork_defer(vec![("staging.raw", false)], vec![]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains("CREATE SCHEMA IF NOT EXISTS dl.\"staging\";"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("CREATE VIEW IF NOT EXISTS dl.\"staging\".\"raw\""),
+            "{joined}"
+        );
+    }
 
     fn mrow(name: &str, params: &str, body: &str, is_table: bool, provider: &str) -> MacroRow {
         MacroRow {
