@@ -43,7 +43,7 @@ async function fetchDeployedGraph(
 }
 
 // Render the pipeline graph as a markdown document.
-function generatePipelineMarkdown(
+export function generatePipelineMarkdown(
   folder: string,
   graph: AssetGraph,
   datatableSchemas: any[],
@@ -73,7 +73,26 @@ function generatePipelineMarkdown(
     }
   }
 
-  const scripts = graph.runnables.filter((r) => r.usage_kind === "script").map((r) => r.path).sort();
+  // `// macros` libraries are definition-only nodes (not runnable pipeline
+  // steps), so they get their own section below and are excluded from the
+  // per-script listing + the script count.
+  const macroLibs = graph.runnables
+    .filter((r) => r.usage_kind === "script" && (r.macros?.length ?? 0) > 0)
+    .sort((a, b) => a.path.localeCompare(b.path));
+  const macroLibPaths = new Set(macroLibs.map((r) => r.path));
+  const macroConsumersByLib = new Map<string, { consumer: string; names: string[]; viaUse?: boolean }[]>();
+  for (const me of graph.macro_edges ?? []) {
+    (macroConsumersByLib.get(me.lib_path) ?? macroConsumersByLib.set(me.lib_path, []).get(me.lib_path)!).push({
+      consumer: me.consumer_path,
+      names: me.macro_names,
+      viaUse: me.via_use,
+    });
+  }
+
+  const scripts = graph.runnables
+    .filter((r) => r.usage_kind === "script" && !macroLibPaths.has(r.path))
+    .map((r) => r.path)
+    .sort();
 
   let md = `# Pipeline \`f/${folder}\`
 
@@ -85,7 +104,7 @@ produces data by reading/writing assets in its body (\`datatable://\`,
 \`ducklake://\`, \`s3://\`, \`volume://\`). The cascade runs a producer, then every
 downstream subscriber, in topological order.
 
-- **${scripts.length}** script${scripts.length === 1 ? "" : "s"} · **${graph.assets.length}** asset${graph.assets.length === 1 ? "" : "s"}
+- **${scripts.length}** script${scripts.length === 1 ? "" : "s"} · **${graph.assets.length}** asset${graph.assets.length === 1 ? "" : "s"}${macroLibs.length > 0 ? ` · **${macroLibs.length}** macro librar${macroLibs.length === 1 ? "y" : "ies"}` : ""}
 
 ## Scripts
 
@@ -105,6 +124,30 @@ downstream subscriber, in topological order.
       md += `- _No declared triggers or asset IO._\n`;
     }
     md += `\n`;
+  }
+
+  // Macro libraries: `// macros` scripts whose macros are injected into consuming
+  // DuckDB scripts at run time. List each library's signatures and its callers so
+  // an agent discovers the reuse layer instead of re-inlining the logic.
+  if (macroLibs.length > 0) {
+    md += `## Macro libraries\n\n`;
+    md += `\`// macros\` DuckDB libraries. Their \`CREATE MACRO\` definitions are injected as\nTEMP macros into consuming scripts at run time — call a macro by name, or force the\nwhole library in with \`// use <lib-path>\` (needed for macros only reached via dynamic SQL).\n\n`;
+    for (const lib of macroLibs) {
+      md += `### \`${lib.path}\`\n\n`;
+      for (const m of lib.macros ?? []) {
+        md += `- \`${m.name}(${m.params ?? ""})\`${m.is_table ? " → TABLE" : ""}\n`;
+      }
+      const consumers = [...(macroConsumersByLib.get(lib.path) ?? [])].sort((a, b) =>
+        a.consumer.localeCompare(b.consumer),
+      );
+      if (consumers.length > 0) {
+        md += `- **Used by:**\n`;
+        for (const c of consumers) {
+          md += `  - \`${c.consumer}\` (${c.viaUse ? "via \`// use\`" : `calls ${c.names.map((n) => `\`${n}\``).join(", ")}`})\n`;
+        }
+      }
+      md += `\n`;
+    }
   }
 
   // Datatable schemas, restricted to datatables this pipeline references.

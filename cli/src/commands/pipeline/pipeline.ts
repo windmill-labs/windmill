@@ -587,19 +587,25 @@ async function run(
     // Resolve relative imports from local (not-yet-deployed) content so a script
     // that imports a sibling workspace lib previews against local edits. Same
     // trick as `wmill dev` / `wmill app dev`; degrades to undefined gracefully.
-    try {
-      const codebases = await listSyncCodebases(merged);
-      const { buildPreviewTempScriptRefs } = await import(
-        "../generate-metadata/generate-metadata.ts"
-      );
-      tempScriptRefs = await buildPreviewTempScriptRefs(
-        workspace,
-        merged,
-        codebases,
-        { kind: "all" },
-      );
-    } catch {
-      // best-effort: relative imports fall back to deployed versions
+    // Skipped for `--dry-run`: it locks/uploads scripts as a side effect (it
+    // regenerates `*.script.yaml` / `*.script.lock` / `wmill-lock.yaml`), and a
+    // plan preview must stay READ-ONLY — the refs are only consumed when a
+    // preview job actually runs below, which dry-run never reaches.
+    if (!opts.dryRun) {
+      try {
+        const codebases = await listSyncCodebases(merged);
+        const { buildPreviewTempScriptRefs } = await import(
+          "../generate-metadata/generate-metadata.ts"
+        );
+        tempScriptRefs = await buildPreviewTempScriptRefs(
+          workspace,
+          merged,
+          codebases,
+          { kind: "all" },
+        );
+      } catch {
+        // best-effort: relative imports fall back to deployed versions
+      }
     }
   } else {
     graph = await apiGet<BCGraph>(
