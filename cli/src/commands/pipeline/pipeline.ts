@@ -304,8 +304,9 @@ async function renderGraph(
   }
 
   // `// macros` libraries: badge the node with the macros it defines and list
-  // its consumers as ƒ edges. Deployed graphs only — the local wasm parse does
-  // not emit `macros`/`macro_edges`, so local mode renders them as plain nodes.
+  // its consumers as ƒ edges. Populated on both the deployed graph and the local
+  // graph (localGraph.ts derives `macros`/`macro_edges` from the working tree,
+  // since the wasm asset parser emits neither).
   const macrosByLib = new Map(
     graph.runnables
       .filter((r) => (r.macros?.length ?? 0) > 0)

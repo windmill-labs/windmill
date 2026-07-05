@@ -59,8 +59,9 @@ export type GraphRunnable = {
   // schema-contract warnings; only present when set (default `warn` is absent),
   // mirroring the deployed graph node.
   materialize_on_schema_change?: string;
-  // `// macros` library: the macros it defines (deployed graph only — the wasm
-  // asset parser does not emit them). Non-empty ⇒ definition-only node.
+  // `// macros` library: the macros it defines. Derived locally by
+  // `buildMacroEdges` (the wasm asset parser emits neither the marker nor the
+  // registry). Non-empty ⇒ definition-only node.
   macros?: { name: string; params?: string; is_table?: boolean }[];
 };
 export type GraphEdge = {
@@ -95,7 +96,7 @@ export type AssetGraph = {
   edges: GraphEdge[];
   triggers: GraphTrigger[];
   // ƒ edges from a `// macros` library to the scripts calling its macros
-  // (deployed graph only).
+  // (present on both the deployed graph and the locally-derived one).
   macro_edges?: {
     lib_path: string;
     consumer_path: string;
@@ -697,14 +698,19 @@ function buildMacroEdges(
   // (`all` is this folder's scripts).
   const pipelinePaths = new Set(runnables.map((r) => r.path));
   type EdgeAgg = { names: Set<string>; viaUse: boolean };
-  const edgeMap = new Map<string, EdgeAgg>();
-  const edgeKey = (lib: string, consumer: string) => `${lib} ${consumer}`;
+  // lib_path → consumer_path → aggregate. Nested (not a packed single-string key)
+  // so no separator can ever collide with a path.
+  const edgeMap = new Map<string, Map<string, EdgeAgg>>();
   const aggFor = (lib: string, consumer: string): EdgeAgg => {
-    const key = edgeKey(lib, consumer);
-    let agg = edgeMap.get(key);
+    let byConsumer = edgeMap.get(lib);
+    if (!byConsumer) {
+      byConsumer = new Map();
+      edgeMap.set(lib, byConsumer);
+    }
+    let agg = byConsumer.get(consumer);
     if (!agg) {
       agg = { names: new Set(), viaUse: false };
-      edgeMap.set(key, agg);
+      byConsumer.set(consumer, agg);
     }
     return agg;
   };
@@ -734,17 +740,16 @@ function buildMacroEdges(
   }
 
   const edges = [...edgeMap.entries()]
-    .map(([key, agg]) => {
-      const [lib_path, consumer_path] = key.split(" ");
-      // `via_use` is always present (the deployed `MacroEdge` serializes it
-      // unconditionally) so `--json` matches byte-for-byte.
-      return {
+    .flatMap(([lib_path, byConsumer]) =>
+      [...byConsumer.entries()].map(([consumer_path, agg]) => ({
         lib_path,
         consumer_path,
         macro_names: [...agg.names].sort(),
+        // `via_use` is always present (the deployed `MacroEdge` serializes it
+        // unconditionally) so `--json` matches byte-for-byte.
         via_use: agg.viaUse,
-      };
-    })
+      })),
+    )
     .sort((a, b) =>
       a.lib_path.localeCompare(b.lib_path) ||
       a.consumer_path.localeCompare(b.consumer_path),
