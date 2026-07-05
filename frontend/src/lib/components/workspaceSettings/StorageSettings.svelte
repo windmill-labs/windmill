@@ -190,8 +190,7 @@
 {#if !$enterpriseLicense}
 	<Alert type="info" title="Workspace storage is limited to {quotaDisplay} in Windmill CE">
 		Total workspace storage is capped at {quotaDisplay} in the Community Edition: writes that would exceed
-		the quota are rejected. The bucket browser will also not work for buckets containing more than 20
-		files. Consider upgrading to Windmill EE for unlimited workspace storage.
+		the quota are rejected. Consider upgrading to Windmill EE for unlimited workspace storage.
 	</Alert>
 {:else}
 	<Alert type="info" title="Logs storage is set at the instance level">
