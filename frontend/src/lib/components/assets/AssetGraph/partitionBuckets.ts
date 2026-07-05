@@ -43,24 +43,73 @@ function pad(n: number): string {
 	return String(n).padStart(2, '0')
 }
 
+const ZONED_PARTS_OPTS: Intl.DateTimeFormatOptions = {
+	year: 'numeric',
+	month: '2-digit',
+	day: '2-digit',
+	hour: '2-digit',
+	minute: '2-digit',
+	second: '2-digit',
+	hourCycle: 'h23'
+}
+
 // Re-express `at` as a Date whose UTC fields equal the wall-clock in `tz`, so
 // all downstream field reads / calendar arithmetic can use the UTC getters and
-// stay in the producer's zone. `hourCycle: 'h23'` keeps hours 00–23.
+// stay in the producer's zone. `hourCycle: 'h23'` keeps hours 00–23. A
+// malformed `tz` (rejected by `Intl`) falls back to UTC rather than throwing —
+// the backend validates `tz=` and is the source of truth for the error; the
+// picker must never crash the graph view (`partitionMetadataError` gates
+// auto-seeding so a bogus bucket isn't silently sent).
 function zonedAsUtc(at: Date, tz: string): Date {
-	const parts = new Intl.DateTimeFormat('en-US', {
-		timeZone: tz,
-		year: 'numeric',
-		month: '2-digit',
-		day: '2-digit',
-		hour: '2-digit',
-		minute: '2-digit',
-		second: '2-digit',
-		hourCycle: 'h23'
-	}).formatToParts(at)
+	let parts: Intl.DateTimeFormatPart[]
+	try {
+		parts = new Intl.DateTimeFormat('en-US', { ...ZONED_PARTS_OPTS, timeZone: tz }).formatToParts(
+			at
+		)
+	} catch {
+		parts = new Intl.DateTimeFormat('en-US', {
+			...ZONED_PARTS_OPTS,
+			timeZone: 'UTC'
+		}).formatToParts(at)
+	}
 	const g = (t: string) => Number(parts.find((p) => p.type === t)?.value)
 	return new Date(
 		Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second'))
 	)
+}
+
+// `tz=` is valid iff `Intl` accepts it (absent === UTC === valid).
+export function isValidTimeZone(tz?: string): boolean {
+	if (!tz) return true
+	try {
+		new Intl.DateTimeFormat('en-US', { timeZone: tz })
+		return true
+	} catch {
+		return false
+	}
+}
+
+// `start=` is valid iff it's a real `YYYY-MM-DD` calendar date. The round-trip
+// check rejects dates JS would silently normalize (e.g. `2026-02-31` → Mar 3),
+// which the backend's `NaiveDate::parse_from_str` also rejects.
+export function isValidStart(start?: string): boolean {
+	if (!start) return true
+	const m = start.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+	if (!m) return false
+	const y = Number(m[1])
+	const mo = Number(m[2])
+	const d = Number(m[3])
+	const dt = new Date(Date.UTC(y, mo - 1, d))
+	return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d
+}
+
+// A human-readable reason the `// partitioned` metadata is unusable, or
+// undefined when it's sound. Mirrors the backend's `tz=` / `start=` validation
+// so the picker can refuse to auto-seed a bucket the backend would reject.
+export function partitionMetadataError(spec: PartitionSpec): string | undefined {
+	if (!isValidTimeZone(spec.tz)) return `invalid timezone "${spec.tz}"`
+	if (!isValidStart(spec.start)) return `invalid start date "${spec.start}" (want YYYY-MM-DD)`
+	return undefined
 }
 
 // ISO 8601 week-numbering year + week (chrono's %G / %V) of a UTC-substituted
@@ -105,9 +154,8 @@ export function bucketFor(spec: PartitionSpec, at: Date): string {
 // 00:00, or undefined if unset/malformed. `start` is a plain date in the
 // producer's tz — the backend parses it as a NaiveDate and compares by date.
 function startDate(spec: PartitionSpec): Date | undefined {
-	if (!spec.start) return undefined
-	const m = spec.start.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-	if (!m) return undefined
+	if (!spec.start || !isValidStart(spec.start)) return undefined
+	const m = spec.start.match(/^(\d{4})-(\d{2})-(\d{2})$/)!
 	return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
 }
 

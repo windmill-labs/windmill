@@ -80,10 +80,14 @@
 	// The details pane keys this component on script.path only, so a same-path
 	// re-resolve (in /pipeline_dev the selected node re-resolves on every WS
 	// bundle) does NOT remount us. `PipelineRunForm` owns the SchemaForm clone and
-	// is keyed on the serialized schema below, so a local edit that adds/removes
-	// args reseeds the run form while an unchanged re-resolve keeps in-progress
-	// input (else the form could run against a stale schema with missing inputs).
-	let schemaKey = $derived(JSON.stringify(script.schema ?? null))
+	// is keyed on the serialized schema + partition spec below: a local edit that
+	// adds/removes args OR changes the `// partitioned` header (which the schema
+	// alone wouldn't capture) reseeds the run form and re-strips the `partition`
+	// field, while an unchanged re-resolve keeps in-progress input (else the form
+	// could run against a stale schema/spec — e.g. keep a pre-`start=` bucket).
+	let schemaKey = $derived(
+		JSON.stringify(script.schema ?? null) + '|' + JSON.stringify(partitionSpec ?? null)
+	)
 
 	async function run(cascade = false) {
 		const dispatch = cascade ? onRunCascade : onRun

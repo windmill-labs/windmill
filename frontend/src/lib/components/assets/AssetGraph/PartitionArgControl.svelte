@@ -4,12 +4,14 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { CalendarClock, CircleCheck, CircleDashed, TriangleAlert } from 'lucide-svelte'
 	import type { PartitionSpec } from './parsePipelineAnnotations'
+	import { untrack } from 'svelte'
 	import {
 		bucketFromInputValue,
 		defaultBucket,
 		inputValueFromBucket,
 		isBeforeStart,
 		partitionInputType,
+		partitionMetadataError,
 		recentBuckets,
 		recentWindow,
 		startBucketOf,
@@ -42,22 +44,28 @@
 
 	const inputType = $derived(partitionInputType(spec))
 	const calendarPicker = $derived(usesCalendarPicker(spec))
+	// Non-undefined when the `// partitioned` metadata is unusable (bad tz/start).
+	const metadataError = $derived(partitionMetadataError(spec))
 
-	// Seed the default bucket once: the backend resolves an absent `partition`
-	// arg to the current bucket, so seeding it makes the picker show that same
-	// value while keeping the run behaviour identical. `defaultBucket` honours
-	// the `start=` anchor (never seeds a pre-start bucket the worker would take
-	// verbatim). Dynamic / custom-format specs stay empty (free text the user
-	// fills in).
+	// Seed the default bucket on (re)mount. The run form is keyed on the schema
+	// AND the partition spec (PipelineScriptView), so a real change to either
+	// remounts this and reseeds — an identical re-resolve keeps the user's
+	// in-progress pick. `defaultBucket` honours the `start=` anchor (never seeds
+	// a pre-start bucket the worker would take verbatim). We deliberately do NOT
+	// auto-seed when the metadata is invalid (bad tz/start): the worker takes an
+	// explicit `partition` arg verbatim, so seeding one would bypass the
+	// backend's own tz/start validation — leave it empty and let the backend
+	// surface the error. Dynamic / custom-format specs also stay empty (free
+	// text). `untrack` so this fires once per mount, not on every `value` edit.
 	$effect(() => {
-		if (calendarPicker && (value === undefined || value === '')) {
-			value = defaultBucket(spec, new Date())
-		}
+		untrack(() => {
+			value = calendarPicker && !metadataError ? defaultBucket(spec, new Date()) : undefined
+		})
 	})
 
 	// Whether the producer hasn't reached its `start=` anchor yet — explains why
 	// the default bucket is the start rather than today.
-	let beforeStart = $derived(calendarPicker && isBeforeStart(spec, new Date()))
+	let beforeStart = $derived(calendarPicker && !metadataError && isBeforeStart(spec, new Date()))
 
 	// The native <input> string mirrors `value`; hourly carries an extra minute
 	// component that the canonical bucket drops.
@@ -98,7 +106,7 @@
 	// offering them as run chips would let a click launch a pre-start partition.
 	let recentlyMissing = $derived.by(() => {
 		if (!materializeTarget || materializeTarget.kind !== 'ducklake' || !calendarPicker) return []
-		if (ownPartitions.loading) return []
+		if (metadataError || ownPartitions.loading) return []
 		const startBucket = startBucketOf(spec)
 		return recentBuckets(spec, new Date(), recentWindow(spec.kind)).filter(
 			(b) => !materializedSet.has(b) && (!startBucket || b >= startBucket)
@@ -157,7 +165,15 @@
 			value={inputValue}
 			onchange={(e) => onNativeInput(e.currentTarget.value)}
 		/>
-		{#if beforeStart}
+		{#if metadataError}
+			<span class="text-3xs inline-flex items-start gap-1 text-amber-700 dark:text-amber-400">
+				<TriangleAlert size={12} class="mt-0.5 shrink-0" />
+				<span>
+					The <span class="font-mono">// partitioned</span> header has {metadataError} — fix it in the
+					script; no default is filled in.
+				</span>
+			</span>
+		{:else if beforeStart}
 			<span class="text-3xs text-tertiary">
 				Partitioning starts <span class="font-mono">{spec.start}</span> — defaulted to the first partition.
 			</span>

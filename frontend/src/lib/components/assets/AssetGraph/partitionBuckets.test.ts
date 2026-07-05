@@ -5,7 +5,10 @@ import {
 	defaultBucket,
 	inputValueFromBucket,
 	isBeforeStart,
+	isValidStart,
+	isValidTimeZone,
 	partitionInputType,
+	partitionMetadataError,
 	recentBuckets,
 	startBucketOf,
 	usesCalendarPicker
@@ -72,6 +75,38 @@ describe('defaultBucket honours the start= anchor', () => {
 		expect(startBucketOf(spec('monthly', { start: '2026-08-15' }))).toBe('2026-08')
 		expect(startBucketOf(spec('hourly', { start: '2026-08-01' }))).toBe('2026-08-01T00')
 		expect(startBucketOf(spec('daily'))).toBeUndefined()
+	})
+})
+
+describe('malformed metadata fails safe (parity with backend validation)', () => {
+	it('isValidTimeZone rejects garbage, accepts real zones and absence', () => {
+		expect(isValidTimeZone(undefined)).toBe(true)
+		expect(isValidTimeZone('UTC')).toBe(true)
+		expect(isValidTimeZone('America/New_York')).toBe(true)
+		expect(isValidTimeZone('Not/AZone')).toBe(false)
+		expect(isValidTimeZone('garbage')).toBe(false)
+	})
+	it('isValidStart rejects malformed and JS-normalized dates', () => {
+		expect(isValidStart(undefined)).toBe(true)
+		expect(isValidStart('2026-08-01')).toBe(true)
+		expect(isValidStart('2026-02-31')).toBe(false) // JS would roll to Mar 3
+		expect(isValidStart('2026-13-01')).toBe(false)
+		expect(isValidStart('08/01/2026')).toBe(false)
+	})
+	it('partitionMetadataError reports the first problem, else undefined', () => {
+		expect(partitionMetadataError(spec('daily'))).toBeUndefined()
+		expect(
+			partitionMetadataError(spec('daily', { tz: 'America/New_York', start: '2026-08-01' }))
+		).toBeUndefined()
+		expect(partitionMetadataError(spec('daily', { tz: 'Not/AZone' }))).toContain('timezone')
+		expect(partitionMetadataError(spec('daily', { start: '2026-02-31' }))).toContain('start date')
+	})
+	it('bucketFor never throws on an invalid tz (falls back to UTC)', () => {
+		expect(bucketFor(spec('daily', { tz: 'Not/AZone' }), at)).toBe('2026-07-05')
+	})
+	it('an invalid start is treated as no anchor (isBeforeStart/startBucketOf)', () => {
+		expect(isBeforeStart(spec('daily', { start: '2026-02-31' }), at)).toBe(false)
+		expect(startBucketOf(spec('daily', { start: '2026-02-31' }))).toBeUndefined()
 	})
 })
 
