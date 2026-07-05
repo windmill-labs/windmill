@@ -25,6 +25,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
 - **DuckDB local jobs**: before running DuckDB scripts locally, build the FFI shared library with `cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh`. Re-run it after clean builds or when `backend/target/debug/libwindmill_duckdb_ffi_internal.*` is missing.
+- **Data pipelines (DuckLake) from source**: a plain `cargo run` (even `--features quickjs`) advertises a `duckdb` worker tag but **cannot** execute DuckDB scripts and has **no** working S3 proxy (DuckLake writes 404). Build CE DuckLake with `cargo run --features quickjs,duckdb,parquet,private` (add `,python` for Python scripts, `,enterprise,license` for EE) **and** build the FFI (bullet above). See `backend/CLAUDE.md` → "Running data pipelines (DuckLake) from source" for the exact feature sets and the two feature-gate gotchas.
 - **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/` (port 3000+)
 - **DB**: `psql postgres://postgres:changeme@localhost:5432/windmill`
 - **Login**: `admin@windmill.dev` / `changeme`
