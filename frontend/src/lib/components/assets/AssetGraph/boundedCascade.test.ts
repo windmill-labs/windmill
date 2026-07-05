@@ -7,9 +7,12 @@ import {
 	buildLineageDag,
 	buildLineageDownstreamMap,
 	descendants,
+	nonAutorunTriggerScripts,
+	reachableCutting,
 	scriptNodeId,
 	scriptsOf,
-	validStarts
+	validStarts,
+	validFromStarts
 } from './boundedCascade'
 import { computeInducedSchedule } from './graphTraversal'
 
@@ -270,6 +273,165 @@ describe('validStarts', () => {
 		expect(starts.has(sn('a'))).toBe(true) // manual root
 		expect(starts.has(sn('sub'))).toBe(false) // event-less but a subscriber
 		expect(starts.has(sn('sched'))).toBe(true) // schedule overrides subscriber
+	})
+})
+
+describe('validFromStarts (mid-DAG selective execution)', () => {
+	// a → x → sub (subscriber) → y → reader (pure read). `k` is event-triggered.
+	const g = () =>
+		graph({
+			scripts: ['a', 'sub', 'reader', 'k'],
+			writes: [
+				['a', 'x'],
+				['sub', 'y']
+			],
+			reads: [['reader', 'y']],
+			subs: [['sub', 'x']],
+			native: [['kafka', 'k']]
+		})
+
+	it('includes mid-DAG subscribers and pure readers, not just roots', () => {
+		const from = validFromStarts(g())
+		expect(from.has(sn('a'))).toBe(true) // root
+		expect(from.has(sn('sub'))).toBe(true) // mid-DAG subscriber — NOT a validStart
+		expect(from.has(sn('reader'))).toBe(true) // pure reader
+		// The old root-only gate would have rejected the mid-DAG nodes.
+		expect(validStarts(g()).has(sn('sub'))).toBe(false)
+	})
+
+	it('excludes event-triggered scripts (no run-now gesture)', () => {
+		expect(validFromStarts(g()).has(sn('k'))).toBe(false)
+	})
+
+	it('excludes webhook/data_upload mid-DAG subscribers (need caller input)', () => {
+		// a → x → upload_mid (subscribes x AND `// on data_upload`) → y → consumer.
+		// upload_mid must NOT be an eligible start (empty-arg run has no S3Object),
+		// and must be a barrier so `consumer` isn't run with a skipped producer.
+		const g2 = graph({
+			scripts: ['a', 'upload_mid', 'hook_mid', 'consumer'],
+			writes: [
+				['a', 'x'],
+				['upload_mid', 'y']
+			],
+			subs: [
+				['upload_mid', 'x'],
+				['hook_mid', 'x'],
+				['consumer', 'y']
+			],
+			native: [
+				['data_upload', 'upload_mid'],
+				['webhook', 'hook_mid']
+			]
+		})
+		const from = validFromStarts(g2)
+		expect(from.has(sn('upload_mid'))).toBe(false)
+		expect(from.has(sn('hook_mid'))).toBe(false)
+		expect(from.has(sn('a'))).toBe(true) // the plain root is still eligible
+		// and they're barriers, so running downstream from `a` cuts them + consumer.
+		const bars = nonAutorunTriggerScripts(g2)
+		expect(bars.has(sn('upload_mid'))).toBe(true)
+		expect(bars.has(sn('hook_mid'))).toBe(true)
+		expect(scriptsOf(reachableCutting(buildLineageDag(g2), [sn('a')], bars)).sort()).toEqual(['a'])
+	})
+
+	it('keeps a scheduled root that also carries an event trigger', () => {
+		// schedule wins over the secondary kafka trigger in validStarts, so the
+		// scheduled root stays --from-eligible (regression guard).
+		const g2 = graph({
+			scripts: ['sched_evt', 'consumer'],
+			writes: [['sched_evt', 'x']],
+			subs: [['consumer', 'x']],
+			native: [
+				['schedule', 'sched_evt'],
+				['kafka', 'sched_evt']
+			]
+		})
+		expect(validStarts(g2).has(sn('sched_evt'))).toBe(true)
+		expect(nonAutorunTriggerScripts(g2).has(sn('sched_evt'))).toBe(true)
+		expect(validFromStarts(g2).has(sn('sched_evt'))).toBe(true) // union with roots
+	})
+
+	it('runs a mid-DAG start plus its downstream WITHOUT re-running upstream', () => {
+		// Starting at `sub`, the unbounded downstream is {sub, y, reader} — `a`/`x`
+		// upstream are never pulled in (dbt `--select sub+`).
+		const dag = buildLineageDag(g())
+		const downstream = new Set([sn('sub'), ...descendants(dag, sn('sub'))])
+		expect(scriptsOf(downstream).sort()).toEqual(['reader', 'sub'])
+		expect(downstream.has(sn('a'))).toBe(false)
+		expect(downstream.has(asset('x'))).toBe(false)
+	})
+})
+
+describe('reachableCutting (barrier cut for "Run + downstream")', () => {
+	// a → x → k(kafka, also reads x) → z → consumer. Starting at `a` and running
+	// downstream must cut the event handler `k` AND `consumer` (only reachable
+	// through it) — else they'd launch with empty args. Mirrors the CLI cut.
+	const g = () =>
+		graph({
+			scripts: ['a', 'k', 'consumer'],
+			writes: [
+				['a', 'x'],
+				['k', 'z']
+			],
+			reads: [['k', 'x']],
+			subs: [['consumer', 'z']],
+			native: [['kafka', 'k']]
+		})
+
+	it('detects event-triggered scripts as barriers', () => {
+		expect(nonAutorunTriggerScripts(g()).has(sn('k'))).toBe(true)
+		expect(nonAutorunTriggerScripts(g()).has(sn('a'))).toBe(false)
+	})
+
+	it('cuts an event descendant and its event-only downstream from a run set', () => {
+		const dag = buildLineageDag(g())
+		const barriers = nonAutorunTriggerScripts(g())
+		const runNodes = reachableCutting(dag, [sn('a')], barriers)
+		expect(scriptsOf(runNodes).sort()).toEqual(['a']) // k + consumer cut
+		expect(runNodes.has(sn('k'))).toBe(false)
+		expect(runNodes.has(sn('consumer'))).toBe(false)
+	})
+
+	it('protects an explicit start even if it carries an event trigger', () => {
+		const dag = buildLineageDag(g())
+		// start = k itself (user named it); it runs, and so does its downstream.
+		const barriers = new Set([...nonAutorunTriggerScripts(g())].filter((id) => id !== sn('k')))
+		const runNodes = reachableCutting(dag, [sn('k')], barriers)
+		expect(scriptsOf(runNodes).sort()).toEqual(['consumer', 'k'])
+	})
+
+	it('keeps a scheduled event root (and its downstream) reachable from an upstream start', () => {
+		// a → x → sched_evt(schedule + kafka) → y → consumer. Running downstream
+		// from `a`, sched_evt is a scheduled root so it must NOT be a barrier even
+		// though it carries an event trigger — matching the CLI, which excludes all
+		// valid roots (`starts`), not just the picked start. Mirror of the page's
+		// barrier construction: nonAutorunTriggerScripts minus validStarts minus start.
+		const g2 = graph({
+			scripts: ['a', 'sched_evt', 'consumer'],
+			writes: [
+				['a', 'x'],
+				['sched_evt', 'y']
+			],
+			subs: [
+				['sched_evt', 'x'],
+				['consumer', 'y']
+			],
+			native: [
+				['schedule', 'sched_evt'],
+				['kafka', 'sched_evt']
+			]
+		})
+		const dag = buildLineageDag(g2)
+		const roots = validStarts(g2)
+		const barriers = new Set(
+			[...nonAutorunTriggerScripts(g2)].filter((id) => !roots.has(id) && id !== sn('a'))
+		)
+		const runNodes = reachableCutting(dag, [sn('a')], barriers)
+		expect(scriptsOf(runNodes).sort()).toEqual(['a', 'consumer', 'sched_evt'])
+		// Without the validStarts exclusion, sched_evt (a kafka handler) would be a
+		// barrier and `consumer` would be dropped — the bug this guards.
+		const naiveBarriers = new Set([...nonAutorunTriggerScripts(g2)].filter((id) => id !== sn('a')))
+		expect(scriptsOf(reachableCutting(dag, [sn('a')], naiveBarriers)).sort()).toEqual(['a'])
 	})
 })
 

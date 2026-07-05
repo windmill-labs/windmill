@@ -20,6 +20,7 @@ import {
   scriptsOf,
   topoOrder,
   validStarts,
+  validFromStarts,
 } from "./boundedCascade.ts";
 import {
   type AssetGraph,
@@ -445,13 +446,15 @@ function formatJobFailure(result: unknown): string | undefined {
   }
 }
 
-// Bounded-cascade run: start at a schedule / manual root, fan downstream, but
-// stop at the `--to` end node(s). Scripts run in topological order; each is
-// launched with `_wmill_skip_asset_dispatch` so the CLI owns the whole closure
-// (the backend dispatcher never double-fires the deployed part). With no
-// `--to`, runs the full read-aware downstream of `--from` (every descendant in
-// the lineage DAG, pure readers included — broader than the canvas cascade,
-// which dispatches subscribers only).
+// Bounded-cascade run: start at `--from` — a schedule/manual root OR any mid-DAG
+// model (asset subscriber / pure reader) — fan downstream, but stop at the
+// `--to` end node(s). A mid-DAG start runs that node plus its transitive
+// downstream and never re-runs upstream (dbt `--select model+`). Scripts run in
+// topological order; each is launched with `_wmill_skip_asset_dispatch` so the
+// CLI owns the whole closure (the backend dispatcher never double-fires the
+// deployed part). With no `--to`, runs the full read-aware downstream of
+// `--from` (every descendant in the lineage DAG, pure readers included — broader
+// than the canvas cascade, which dispatches subscribers only).
 // Resolve one `--upload` binding to the run-arg it injects: pick the target
 // S3Object parameter (explicit `:param`, else the script's sole S3Object arg)
 // and turn the source into an object key — an `s3://` source is used as-is, a
@@ -669,10 +672,23 @@ async function run(
       .map((r) => r.path),
   );
 
-  // Resolve the start: explicit --from (must be a valid start) or the folder's
-  // sole valid start. `--upload`-bound scripts join the valid starts.
+  // Resolve the start. Two eligibility sets:
+  //   `starts`       — schedule/manual roots (+ `--upload`-bound handlers). The
+  //                    fan-in candidates for an IMPLICIT start (`runAll`, or the
+  //                    folder's sole root).
+  //   `fromEligible` — every autorun-able script, roots AND mid-DAG models
+  //                    (asset subscribers, pure readers). An EXPLICIT `--from`
+  //                    may name any of these: `--from <mid-model>` runs that node
+  //                    plus its transitive downstream, without re-running upstream
+  //                    (dbt `--select model+`). Non-autorun handlers stay out
+  //                    unless `--upload`-bound.
   const starts = new Set(
     [...validStarts(graph), ...boundNodeIds].filter(
+      (id) => !macroLibPaths.has(scriptPathOf(id)),
+    ),
+  );
+  const fromEligible = new Set(
+    [...validFromStarts(graph), ...boundNodeIds].filter(
       (id) => !macroLibPaths.has(scriptPathOf(id)),
     ),
   );
@@ -702,9 +718,14 @@ async function run(
         `--from '${opts.from}' is a \`// macros\` library — definition-only, injected into consuming scripts at run time, never a runnable step.`,
       );
     }
-    if (!starts.has(resolved)) {
+    if (!resolved.startsWith("script:")) {
       throw new Error(
-        `--from '${opts.from}' is not a valid bounded-run start. Starts must be schedule-triggered or manual roots; row-backed event triggers (kafka/mqtt/nats/postgres/sqs/gcp/email) fan out per-event and can't be bounded.`,
+        `--from '${opts.from}' is an asset, not a runnable — start a run from a script (assets are produced, not run).`,
+      );
+    }
+    if (!fromEligible.has(resolved)) {
+      throw new Error(
+        `--from '${opts.from}' can't start a run: row-backed event triggers (kafka/mqtt/nats/postgres/sqs/gcp/email) and input-only entrypoints (webhook/data_upload) fan out per-event or need caller-supplied input — bind it with --upload to run it.`,
       );
     }
     start = resolved;
@@ -762,8 +783,12 @@ async function run(
   // barriers: a valid start (a schedule/manual root, or an `--upload`-bound
   // handler) runs with its own input even if it ALSO carries a non-autorun
   // trigger — cutting it would drop a legitimately-scheduled root and its chain.
+  // An explicit mid-DAG `--from` is likewise protected: the user named it as the
+  // start, so it runs even if it also carries a non-autorun trigger.
   const barriers = new Set(
-    [...nonAutorunTriggerScripts(graph)].filter((id) => !starts.has(id)),
+    [...nonAutorunTriggerScripts(graph)].filter(
+      (id) => !starts.has(id) && id !== start,
+    ),
   );
   let selectedScripts: Set<string>;
   let reachableEnds: string[] = [];
@@ -994,12 +1019,12 @@ const command = new Command()
   .action(show as any)
   .command(
     "run",
-    "run a bounded cascade: from a schedule/manual root, fan downstream up to the --to end node(s)",
+    "run a cascade: from --from (a root OR any mid-DAG model), fan downstream up to the --to end node(s)",
   )
   .arguments("<folder:string>")
   .option(
     "--from <script:string>",
-    "Start script (short name or path). Defaults to the folder's sole schedule/manual root.",
+    "Start script (short name or path). May be any node, including a mid-DAG model — that node plus its transitive downstream runs, upstream is NOT re-run (dbt `--select model+`). Defaults to the folder's sole schedule/manual root.",
   )
   .option(
     "--to <node:string>",

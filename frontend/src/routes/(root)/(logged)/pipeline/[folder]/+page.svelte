@@ -47,10 +47,12 @@
 		boundedSet,
 		buildLineageDag,
 		buildLineageDownstreamMap,
-		descendants,
 		isScriptNode,
+		nonAutorunTriggerScripts,
+		reachableCutting,
 		scriptNodeId,
 		scriptsOf,
+		validFromStarts,
 		validStarts
 	} from '$lib/components/assets/AssetGraph/boundedCascade'
 	import {
@@ -1510,7 +1512,11 @@
 	let boundPickEnds = $state<Set<string>>(new Set())
 
 	// Script paths eligible to start a bounded run, for the canvas menu gate.
-	let validStartPaths = $derived(new Set(scriptsOf(validStarts(displayGraph))))
+	// Any node with downstream — roots AND mid-DAG models — can be a "Run +
+	// downstream" start (dbt `model+`); only event-triggered scripts are excluded
+	// (see boundedCascade.validFromStarts). The canvas additionally requires the
+	// node to have lineage downstream before offering the entry.
+	let validStartPaths = $derived(new Set(scriptsOf(validFromStarts(displayGraph))))
 	// Scripts with read-aware downstream — the same gate the canvas applies
 	// (AssetGraphCanvas `hasLineageDownstream`). A valid start with no downstream
 	// has no end to pick, so the bounded-run entry is suppressed everywhere,
@@ -1519,15 +1525,45 @@
 
 	// Rebuilt only while a pick is active (cheap to skip otherwise).
 	let boundDag = $derived(boundPickStart ? buildLineageDag(displayGraph) : undefined)
-	let boundEligible = $derived(
-		boundDag && boundPickStart ? descendants(boundDag, boundPickStart) : new Set<string>()
-	)
 	let boundResult = $derived(
 		boundDag && boundPickStart
 			? boundedSet(boundDag, boundPickStart, [...boundPickEnds])
 			: undefined
 	)
-	let boundScripts = $derived(boundResult ? scriptsOf(boundResult.nodes) : [])
+	// Event handlers (kafka/mqtt/…) can't run with empty args, so they're cut from
+	// any cascade run — as is a consumer reachable only through one. But a
+	// scheduled/manual root is NEVER a barrier even if it also carries an event
+	// trigger: it runs on its own schedule/manual identity (schedule wins in
+	// validStarts), so it — and its downstream — stay reachable when running from
+	// an upstream start. The explicit start is likewise protected. Parity with the
+	// CLI `barriers` set (`nonAutorunTriggerScripts` minus `starts` minus start).
+	let boundReachable = $derived.by(() => {
+		if (!boundDag || !boundPickStart) return new Set<string>()
+		const roots = validStarts(displayGraph)
+		const barriers = new Set(
+			[...nonAutorunTriggerScripts(displayGraph)].filter(
+				(id) => !roots.has(id) && id !== boundPickStart
+			)
+		)
+		return reachableCutting(boundDag, [boundPickStart], barriers)
+	})
+	// Nodes pickable as end bounds: the barrier-cut downstream (excluding the
+	// start), NOT raw descendants — else an event handler or a node only reachable
+	// through one could be clicked as an end yet get silently dropped from the run.
+	let boundEligible = $derived(new Set([...boundReachable].filter((id) => id !== boundPickStart)))
+	// The actual run set (nodes, scripts + assets). No end picked → "Run +
+	// downstream" (dbt `model+`): the start plus its full transitive downstream.
+	// Picking end(s) narrows it to the path-between set. Either way, intersect with
+	// the barrier-cut closure so an event descendant is never launched empty. The
+	// canvas highlights exactly this set, so the ring matches what will run.
+	let boundRunNodes = $derived(
+		boundPickStart
+			? boundPickEnds.size === 0
+				? boundReachable
+				: new Set([...(boundResult?.nodes ?? [])].filter((n) => boundReachable.has(n)))
+			: new Set<string>()
+	)
+	let boundScripts = $derived(scriptsOf(boundRunNodes))
 
 	// Engine id → canvas id: scripts keep `script:path`; assets gain the
 	// canvas's `asset:` prefix (AssetGraphCanvas node ids).
@@ -1545,7 +1581,7 @@
 					start: boundPickStart,
 					eligible: new Set([...boundEligible].map(toCanvasId)),
 					ends: new Set([...boundPickEnds].map(toCanvasId)),
-					bounded: new Set([...(boundResult?.nodes ?? [])].map(toCanvasId))
+					bounded: new Set([...boundRunNodes].map(toCanvasId))
 				}
 			: undefined
 	)
@@ -2374,7 +2410,7 @@
 							<div class="flex flex-col leading-tight">
 								<span class="text-xs font-semibold text-emphasis">
 									{boundPickEnds.size === 0
-										? 'Click end node(s) to bound the run'
+										? `Run + all downstream · ${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} (click node(s) to bound)`
 										: `${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} up to ${boundPickEnds.size} end${boundPickEnds.size === 1 ? '' : 's'}`}
 								</span>
 								<span class="text-2xs text-tertiary">
@@ -2386,10 +2422,10 @@
 								variant="accent"
 								unifiedSize="sm"
 								startIcon={{ icon: Play }}
-								disabled={boundPickEnds.size === 0 || boundScripts.length === 0}
+								disabled={boundScripts.length === 0}
 								onclick={confirmBoundedRun}
 							>
-								Run selection
+								{boundPickEnds.size === 0 ? 'Run + downstream' : 'Run selection'}
 							</Button>
 						</div>
 					{/if}
