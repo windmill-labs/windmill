@@ -1360,7 +1360,7 @@ async fn fork_scoped_ducklake(
     // ("DuckLake does not exist" + creation disabled), and a nonexistent namespace can't own
     // tables or be referenced by any persisted view. Checked against the fork's catalog DB —
     // must happen BEFORE defer discovery so `ancestor_idx` values index the filtered list.
-    let (existing_schemas, fork_views) =
+    let (existing_schemas, fork_views, fork_tables) =
         inspect_fork_catalog(&base, &metadata_schema, &ancestors, db).await?;
     ancestors.retain(|a| {
         a.metadata_schema
@@ -1374,7 +1374,13 @@ async fn fork_scoped_ducklake(
         // physical copy in the direct parent (it defers too), so its view must target the
         // nearest ancestor that owns one.
         let ancestor_ids: Vec<String> = ancestors.iter().map(|a| a.workspace_id.clone()).collect();
-        crate::materialization::list_fork_defer_tables(db, &ancestor_ids, w_id, name).await?
+        let mut tables =
+            crate::materialization::list_fork_defer_tables(db, &ancestor_ids, w_id, name).await?;
+        // Catalog truth beats recorded status: any table live in the fork namespace is
+        // fork-owned, whatever its materialized_partition row says (failed-after-commit,
+        // raw SQL) — a defer view over it would silently yield to it.
+        tables.retain(|t| !fork_tables.contains(&t.table));
+        tables
     };
 
     base.storage.path = fork_path;
@@ -1408,7 +1414,11 @@ async fn inspect_fork_catalog(
     metadata_schema: &str,
     ancestors: &[DucklakeAncestorAttach],
     db: &DB,
-) -> Result<(std::collections::HashSet<String>, Vec<String>)> {
+) -> Result<(
+    std::collections::HashSet<String>,
+    Vec<String>,
+    std::collections::HashSet<String>,
+)> {
     // Ancestor fork-schemas grouped by which catalog database they live in.
     let mut groups: std::collections::HashMap<String, (serde_json::Value, Vec<String>)> =
         std::collections::HashMap::new();
@@ -1460,6 +1470,20 @@ async fn inspect_fork_catalog(
         ms = metadata_schema.replace('"', "\"\"")
     );
     let view_rows = client.query(&q, &[]).await;
+    // Live TABLES in the fork's namespace, same name shape as the views — the defer list is
+    // filtered against them: `CREATE VIEW IF NOT EXISTS` silently yields to an existing
+    // table, so emitting a defer view over one would leave reads on the fork table while
+    // claiming they defer (recorded status can't tell — a committed write whose data tests
+    // failed, or a table left by raw SQL, has no `materialized` row).
+    let qt = format!(
+        r#"SELECT CASE WHEN s.schema_name = 'main' THEN t.table_name
+                       ELSE s.schema_name || '.' || t.table_name END AS name
+           FROM "{ms}".ducklake_table t
+           JOIN "{ms}".ducklake_schema s ON s.schema_id = t.schema_id AND s.end_snapshot IS NULL
+           WHERE t.end_snapshot IS NULL"#,
+        ms = metadata_schema.replace('"', "\"\"")
+    );
+    let table_rows = client.query(&qt, &[]).await;
     drop(client);
     let _ = join_handle.await;
 
@@ -1484,6 +1508,22 @@ async fn inspect_fork_catalog(
         Err(e) => {
             return Err(Error::internal_err(format!(
                 "listing fork ducklake views in {metadata_schema}: {e}"
+            )))
+        }
+    };
+    let fork_tables = match table_rows {
+        Ok(rows) => rows.iter().map(|r| r.get::<_, String>(0)).collect(),
+        Err(e)
+            if e.code().map_or(false, |c| {
+                c == &tokio_postgres::error::SqlState::UNDEFINED_TABLE
+                    || c == &tokio_postgres::error::SqlState::INVALID_SCHEMA_NAME
+            }) =>
+        {
+            Default::default()
+        }
+        Err(e) => {
+            return Err(Error::internal_err(format!(
+                "listing fork ducklake tables in {metadata_schema}: {e}"
             )))
         }
     };
@@ -1513,7 +1553,7 @@ async fn inspect_fork_catalog(
             }
         }
     }
-    Ok((existing_schemas, fork_views))
+    Ok((existing_schemas, fork_views, fork_tables))
 }
 
 /// Canonical identity of a lake's catalog database (`<resource_type>:<resource_path>`) — used

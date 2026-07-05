@@ -94,7 +94,11 @@ pub async fn record_materialization<'e>(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
          ON CONFLICT (workspace_id, asset_kind, asset_path, partition)
          DO UPDATE SET status = EXCLUDED.status,
-                       snapshot_id = EXCLUDED.snapshot_id,
+                       -- A failed run records no snapshot, but must not erase the last
+                       -- committed one: a physical table from an earlier commit (or from a
+                       -- committed write whose data tests then failed) still exists, and
+                       -- fork defer/graph state keys on that evidence.
+                       snapshot_id = COALESCE(EXCLUDED.snapshot_id, materialized_partition.snapshot_id),
                        row_count = EXCLUDED.row_count,
                        job_id = EXCLUDED.job_id,
                        materialized_at = now(),
@@ -304,8 +308,14 @@ pub async fn list_fork_defer_tables<'e>(
               AND split_part(mp.asset_path, '/', 1) = $3 AND mp.asset_path LIKE '%/%'
             ORDER BY mp.asset_path, a.ord
         ), fork_mat AS (
+            -- Fork-OWNED assets: anything whose physical table exists in the fork
+            -- namespace, not just clean materializations. A committed write whose data
+            -- tests failed afterwards records status='failed' WITH a snapshot — its table
+            -- is real, and a defer view emitted over it would silently yield to it
+            -- (CREATE VIEW IF NOT EXISTS) while claiming the read defers to the parent.
             SELECT DISTINCT asset_path FROM materialized_partition
-            WHERE workspace_id = $2 AND asset_kind = 'ducklake' AND status = 'materialized'
+            WHERE workspace_id = $2 AND asset_kind = 'ducklake'
+              AND (status = 'materialized' OR snapshot_id IS NOT NULL)
         ), latest_schema AS (
             SELECT DISTINCT ON (workspace_id, asset_path) workspace_id, asset_path, columns
             FROM materialized_asset_schema

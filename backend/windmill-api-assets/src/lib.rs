@@ -1294,10 +1294,16 @@ async fn asset_graph(
                 .unwrap_or_default();
                 sqlx::query!(
                     r#"
+                    -- Fork rows also count when a snapshot ever committed (a failed run
+                    -- preserves it): the physical table exists, so reads hit the FORK's
+                    -- data — showing 'deferred' would misstate what a query returns.
+                    -- Ancestor rows still require a clean materialization.
                     SELECT DISTINCT asset_path AS "asset_path!", workspace_id AS "workspace_id!"
                     FROM materialized_partition
                     WHERE (workspace_id = $1 OR workspace_id = ANY($2))
-                      AND asset_kind = 'ducklake' AND status = 'materialized'
+                      AND asset_kind = 'ducklake'
+                      AND (status = 'materialized'
+                           OR (workspace_id = $1 AND snapshot_id IS NOT NULL))
                     "#,
                     &w_id,
                     &ancestors,

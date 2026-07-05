@@ -140,9 +140,9 @@
 
 		// Fork-scoped ducklake namespaces (metadata schemas + data files) — driven by the
 		// backend registry, so no per-lake selection is needed. Best-effort: a failure is
-		// surfaced but doesn't block the workspace delete (rows survive workspace deletion
-		// only physically; the DB registry rows cascade with the workspace row, so retry
-		// requires superadmin cleanup — hence the loud toast).
+		// surfaced but doesn't block the workspace delete (the registry rows survive a
+		// failed cleanup and re-creating the same fork id retries it — the toast tells the
+		// user something was left behind).
 		try {
 			const dlErrors = await WorkspaceService.dropForkedDucklakeNamespaces({ workspace })
 			for (const err of dlErrors) {

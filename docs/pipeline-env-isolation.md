@@ -123,7 +123,7 @@ the equivalent banner.
 
 ### Lifecycle & cleanup
 
-A sidecar registry `fork_ducklake_namespace(workspace_id FK ON DELETE CASCADE, ducklake_name,
+A sidecar registry `fork_ducklake_namespace(workspace_id, ducklake_name,
 metadata_schema, catalog, storage, storage_ref, data_path)` is upserted (behind a TTL'd in-process cache, keyed
 per workspace and invalidated whenever a workspace's registry rows are cleaned up — a same-id fork recreated
 within the TTL must re-register or its namespace would be orphaned at its own deletion) on fork
@@ -158,8 +158,7 @@ fork is an attached dev workspace) drops each registered pg metadata schema
 deletes the `__wm_forks/<fork segment>/…` objects in the workspace storage (hard-guarded on that
 prefix; `parquet` feature). The fork-deletion UI calls it next to
 `drop_forked_datatable_databases`, for the fork and for deleted child forks. Registry rows are
-deleted per-lake only after both cleanups succeed, so a partial failure is retryable; the rows
-otherwise die with the workspace via FK cascade.
+deleted per-lake only after both cleanups succeed, so a partial failure is retryable.
 
 ## Semantics & caveats (by design)
 
