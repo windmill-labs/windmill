@@ -19,6 +19,9 @@ export type BCGraph = {
     // `// partitioned <kind>` on the script (daily/hourly/weekly/monthly/dynamic).
     // Emitted by both the deployed graph endpoint and the local builder.
     partition_kind?: string;
+    // `// macros` library: non-empty on a workspace macro library (deployed
+    // graph only). Definition-only — never a runnable cascade step.
+    macros?: { name: string }[];
   }[];
   assets: { kind: string; path: string }[];
   edges: {
