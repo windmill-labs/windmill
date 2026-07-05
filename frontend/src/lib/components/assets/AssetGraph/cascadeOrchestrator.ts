@@ -128,8 +128,9 @@ export type SelectionRunOptions = {
  * Execute an arbitrary selected set of scripts (e.g. a bounded-cascade
  * selection) in topological order. Unlike `runCascade` there is no single
  * privileged root — every `schedule.roots` entry is seeded at once and a node
- * runs as soon as its in-set upstreams all succeed. Failure stops *scheduling*
- * (in-flight jobs finish); everything not yet started ends 'skipped'.
+ * runs as soon as its in-set upstreams all succeed. A failure abandons only
+ * that node's lineage (its transitive descendants end 'skipped'); INDEPENDENT
+ * branches keep running. In-flight jobs always finish.
  */
 export async function runSelection(opts: SelectionRunOptions): Promise<CascadeRunResult> {
 	const { schedule, launch, waitTerminal, onUpdate } = opts
@@ -137,9 +138,28 @@ export async function runSelection(opts: SelectionRunOptions): Promise<CascadeRu
 	for (const n of schedule.nodes) statuses.set(n, { status: 'pending' })
 	const remaining = new Map(schedule.indegree)
 	let failed = false
+	// Nodes a failed prerequisite has made unrunnable — the transitive descendants
+	// of every failure. Gating scheduling on this (rather than a single global
+	// fail-fast flag) is what lets independent branches finish: only the lineage
+	// below a failure is skipped, not every node that happens to become ready
+	// afterwards. Poisoned nodes are never scheduled, so they end 'skipped' below.
+	const poisoned = new Set<string>()
 	const inFlight = new Set<Promise<void>>()
 
 	const emit = () => onUpdate?.(new Map(statuses))
+
+	function poison(path: string) {
+		const stack = [path]
+		while (stack.length > 0) {
+			const n = stack.pop()!
+			for (const s of schedule.edges.get(n) ?? []) {
+				if (!poisoned.has(s)) {
+					poisoned.add(s)
+					stack.push(s)
+				}
+			}
+		}
+	}
 
 	function schedule_(path: string) {
 		const p = runNode(path).finally(() => inFlight.delete(p))
@@ -159,6 +179,7 @@ export async function runSelection(opts: SelectionRunOptions): Promise<CascadeRu
 			emit()
 			if (term === 'failure') {
 				failed = true
+				poison(path)
 				return
 			}
 		} catch (e) {
@@ -169,12 +190,13 @@ export async function runSelection(opts: SelectionRunOptions): Promise<CascadeRu
 			})
 			emit()
 			failed = true
+			poison(path)
 			return
 		}
 		for (const s of schedule.edges.get(path) ?? []) {
 			const d = (remaining.get(s) ?? 0) - 1
 			remaining.set(s, d)
-			if (d === 0 && !failed) schedule_(s)
+			if (d === 0 && !poisoned.has(s)) schedule_(s)
 		}
 	}
 

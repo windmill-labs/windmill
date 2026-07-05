@@ -201,7 +201,48 @@ describe('runSelection', () => {
 		expect(r.launched.indexOf('c')).toBeGreaterThan(r.launched.indexOf('b'))
 	})
 
-	it('stops scheduling after a failure', async () => {
+	it('skips a failed node’s descendants but keeps independent branches running', async () => {
+		// Two independent chains: a → b and c → d. `a` fails; `b` (its descendant)
+		// must be skipped, but `d` depends only on the successful `c`, so it must
+		// still run — a failure must not stall unrelated branches.
+		const sched = schedule(
+			[
+				['a', 'b'],
+				['c', 'd']
+			],
+			['a', 'b', 'c', 'd'],
+			['a', 'c']
+		)
+		const r = fakeRunner({ a: 'failure' })
+		const res = await runSelection({ schedule: sched, ...r })
+		expect(res.ok).toBe(false)
+		expect(res.statuses.get('a')?.status).toBe('failure')
+		expect(res.statuses.get('b')?.status).toBe('skipped')
+		expect(res.statuses.get('c')?.status).toBe('success')
+		expect(res.statuses.get('d')?.status).toBe('success')
+		expect(r.launched).toContain('d')
+		expect(r.launched).not.toContain('b')
+	})
+
+	it('skips a join node when any one of its upstreams fails', async () => {
+		// {a, b} → c. `a` fails; `c` needs both, so it must be skipped even though
+		// `b` succeeds — a poisoned lineage isn’t rescued by a sibling success.
+		const sched = schedule(
+			[
+				['a', 'c'],
+				['b', 'c']
+			],
+			['a', 'b', 'c'],
+			['a', 'b']
+		)
+		const r = fakeRunner({ a: 'failure' })
+		const res = await runSelection({ schedule: sched, ...r })
+		expect(res.ok).toBe(false)
+		expect(res.statuses.get('c')?.status).toBe('skipped')
+		expect(r.launched).not.toContain('c')
+	})
+
+	it('stops scheduling a failed node’s chain', async () => {
 		const sched = schedule([['a', 'b']], ['a', 'b'], ['a'])
 		const r = fakeRunner({ a: 'failure' })
 		const res = await runSelection({ schedule: sched, ...r })
