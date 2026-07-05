@@ -256,6 +256,18 @@ test("assetUriToNodeId maps s3 → s3object, others verbatim", () => {
   expect(assetUriToNodeId("nope")).toBe(undefined);
 });
 
+test("assetUriToNodeId strips leading slashes from S3 keys (canonical node)", () => {
+  // Mirror of Rust `parse_asset_syntax`: `--to s3:///exports/x` must resolve to
+  // the same canonical node as the graph's `s3object:exports/x`.
+  expect(assetUriToNodeId("s3:///exports/x")).toBe("s3object:exports/x");
+  expect(assetUriToNodeId("s3:///exports/x")).toBe(assetUriToNodeId("s3://exports/x"));
+  // All leading slashes stripped so a canonical key never starts with `/`
+  // (the quad-slash `S3Object(s3="/x")` form collapses to `x`).
+  expect(assetUriToNodeId("s3:////x")).toBe("s3object:x");
+  // Hive-partition keys and non-S3 kinds are untouched.
+  expect(assetUriToNodeId("s3:///t/y=2024/f.parquet")).toBe("s3object:t/y=2024/f.parquet");
+});
+
 test("resolveToken: short name, full path, and asset URI", () => {
   const g = graph({ scripts: ["f/p/stage"], writes: [["f/p/stage", "main/staged"]] });
   g.assets = [{ kind: "datatable", path: "main/staged" }];

@@ -223,6 +223,32 @@ test("go/bash fallback: leading-header `// on` only, options stripped, no body p
   );
 });
 
+test("go/bash fallback: `// on s3:///key` canonicalizes to the slashless key", async () => {
+  // Mirror of the Rust/wasm `parse_asset_syntax` S3 strip: a fallback consumer's
+  // triple-slash default-storage trigger must resolve to the bare key `exports/x`
+  // — the same identity a wasm-inferred SDK/DuckDB producer uses — or the local
+  // graph shows a disconnected `/exports/x` node. Explicit storage is untouched.
+  await withFolder(
+    {
+      "triple.go": `// pipeline\n// on s3:///exports/x\npackage inner\nfunc main() {}\n`,
+      "bare.go": `// pipeline\n// on s3://exports/x\npackage inner\nfunc main() {}\n`,
+      "storage.go": `// pipeline\n// on s3://mybucket/exports/x\npackage inner\nfunc main() {}\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const pathFor = (p: string) =>
+        graph.triggers.find(
+          (t) => t.trigger_kind === "asset" && t.runnable_path === p
+        ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      // triple-slash and bare both canonicalize to `exports/x` → same node
+      expect(pathFor("f/mypipe/triple")?.asset_path).toBe("exports/x");
+      expect(pathFor("f/mypipe/bare")?.asset_path).toBe("exports/x");
+      // explicit storage keeps its `storage/key` path (no leading slash to strip)
+      expect(pathFor("f/mypipe/storage")?.asset_path).toBe("mybucket/exports/x");
+    },
+  );
+});
+
 test("go/bash fallback: a native marker with trailing content is rejected (parity)", async () => {
   // The canonical parser rejects a marker line with trailing content, so the
   // fallback must too — else a `// on data_upload f/foo` / `# on kafka topic`

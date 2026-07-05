@@ -74,7 +74,12 @@ export function assetUriToNodeId(uri: string): string | undefined {
   if (!m) return undefined;
   const prefix = m[1].toLowerCase();
   const kind = prefix === "s3" ? "s3object" : prefix;
-  return `${kind}:${m[2]}`;
+  // Mirror Rust `parse_asset_syntax`: strip all leading slashes from S3 keys so a
+  // `--to s3:///exports/x` token resolves to the canonical graph node
+  // `s3object:exports/x` (default storage), same as `s3://exports/x`, and a
+  // canonical key never starts with `/`.
+  const path = kind === "s3object" ? m[2].replace(/^\/+/, "") : m[2];
+  return `${kind}:${path}`;
 }
 
 export type LineageDag = {

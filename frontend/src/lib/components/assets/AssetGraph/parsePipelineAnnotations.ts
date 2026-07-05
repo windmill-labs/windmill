@@ -257,7 +257,18 @@ function parseKvOpts(s: string): Map<string, string> {
 function parseAssetSyntax(s: string): PipelineTriggerAsset | undefined {
 	for (const [prefix, kind] of ASSET_PREFIXES) {
 		if (s.startsWith(prefix)) {
-			return { kind, path: s.slice(prefix.length) }
+			let path = s.slice(prefix.length)
+			// Mirror the Rust `parse_asset_syntax` S3 canonicalization: strip all
+			// leading slashes so the SDK object form (`s3:///key`, default
+			// storage) and DuckDB / `// on s3://key` share one asset path, and a
+			// canonical key never starts with `/` (so ref reconstruction
+			// round-trips). Without this the live graph preview would show
+			// disconnected `/key` and `key` nodes. S3-only; leading slashes only,
+			// so Hive-partition keys are untouched.
+			if (kind === 's3object') {
+				path = path.replace(/^\/+/, '')
+			}
+			return { kind, path }
 		}
 	}
 	return undefined

@@ -175,16 +175,16 @@ export function autoOutputAsset(
 		case 'ducklake':
 		case 'materialize':
 			return { kind: 'ducklake', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
-		// s3 paths carry the canonical leading slash of a default-storage
-		// object (`s3:///<key>` parses to path `/<key>`). The deploy-time
-		// parser stores writes in that form — a slashless seeded path would
-		// never match it, and the post-deploy drift check would report the
-		// output as lost (it isn't; the key differs by one '/'). Bodies that
-		// take a bare key (`{ s3: ... }`) strip the slash via `s3Key`.
+		// s3 outputs use the canonical slashless key. `parse_asset_syntax`
+		// normalizes `s3:///<key>` (default storage) and `s3://<key>` to the
+		// bare `<key>`, so the seeded draft asset must be slashless to match the
+		// deploy-time inferred identity — otherwise the post-deploy drift check
+		// would flag the output as a phantom `/`-prefixed node. The generated
+		// bodies still emit the `s3:///<key>` default-storage URI for runtime I/O.
 		case 's3_parquet':
 			return {
 				kind: 's3object',
-				path: `/pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
+				path: `pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
 			}
 		case 's3_object': {
 			// duckdb's natural output for a generic blob is CSV (one COPY TO
@@ -194,7 +194,7 @@ export function autoOutputAsset(
 			const ext = language === 'duckdb' ? 'csv' : 'json'
 			return {
 				kind: 's3object',
-				path: `/pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
+				path: `pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
 			}
 		}
 		// A macro library produces no asset — its "output" is the registry
@@ -222,10 +222,11 @@ export function assetUri(asset: { kind: AssetKind; path: string }): string {
 	return `${ASSET_URI_PREFIX[asset.kind]}${asset.path}`
 }
 
-// Bare object key for the SDK's `{ s3: <key> }` forms: the canonical asset
-// path of a default-storage object has a leading slash, the key must not.
+// Bare object key for the SDK's `{ s3: <key> }` / `s3:///<key>` forms. Asset
+// paths are already canonical slashless keys; strip stray leading slashes
+// defensively so the emitted key never starts with '/'.
 function s3Key(path: string): string {
-	return path.replace(/^\//, '')
+	return path.replace(/^\/+/, '')
 }
 
 // Splits a datatable asset path (`<db>/<table>` or `<db>/<schema>.<table>`)
@@ -636,7 +637,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 		if (!input) return null
 		switch (input.kind) {
 			case 's3object':
-				return `read_parquet('s3://${input.path}')`
+				return `read_parquet('s3:///${input.path}')`
 			case 'datatable':
 				// `pg` is the attached Postgres catalog (see ATTACH above).
 				// Use a 2-part `pg.<table>` ref so the asset parser maps it
@@ -659,7 +660,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`COPY (`,
 					`  SELECT *`,
 					`  FROM ${fromExpr}`,
-					`) TO 's3://${output.path}' (FORMAT 'parquet');`
+					`) TO 's3:///${output.path}' (FORMAT 'parquet');`
 				)
 			}
 			break
@@ -670,7 +671,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`COPY (`,
 					`  SELECT *`,
 					`  FROM ${fromExpr}`,
-					`) TO 's3://${output.path}' (FORMAT 'csv', HEADER);`
+					`) TO 's3:///${output.path}' (FORMAT 'csv', HEADER);`
 				)
 			}
 			break
