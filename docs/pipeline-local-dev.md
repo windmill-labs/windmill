@@ -153,11 +153,12 @@ http://localhost:3000/pipeline_dev?workspace=<WS>&wm_token=<TOK>&folder=demo_pip
    `startProxyServer` for embedders that need a localhost origin (e.g. Claude Code preview).
 5. **`pipeline dev` editing**: the dev page is view+run only (editing stays in the user's editor).
    If in-browser editing with file round-trip is wanted, mirror flow-dev's `handleFlowRoundTrip`.
-6. **Asset-path normalization**: partially done — the python parser now resolves the
+6. **Asset-path normalization**: done — the python parser resolves the
    `S3Object(s3=…, storage=…?)` constructor / dict-literal forms to the same canonical path as the
-   TS `{s3, storage}` object form (see Language coverage), so SDK writes and reads connect across
-   ts/python. Still open: the SDK-form leading-slash (`/x`) vs bare-URI no-slash (`x`, DuckDB and
-   `// on s3://x`) mismatch silently breaks lineage across those two conventions.
+   TS `{s3, storage}` object form, and `parse_asset_syntax` now strips a single leading slash from
+   S3 keys so the SDK-form `s3:///x` (`/x`) and the bare-URI no-slash form (`x`, DuckDB and
+   `// on s3://x`) canonicalize to one key (see Language coverage). SDK writes and DuckDB reads of
+   the same object connect regardless of URI convention.
 
 ## Plan reference
 
