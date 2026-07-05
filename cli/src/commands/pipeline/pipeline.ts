@@ -709,7 +709,7 @@ async function run(
   );
   const fromEligible = new Set(
     [...validFromStarts(graph), ...boundNodeIds].filter(
-      (id) => !macroLibPaths.has(scriptPathOf(id)),
+      (id) => !notRunnablePaths.has(scriptPathOf(id)),
     ),
   );
   // `runAll` = no `--from` on a multi-root pipeline (fan-in): run the whole
@@ -736,6 +736,14 @@ async function run(
     if (macroLibPaths.has(scriptPathOf(resolved))) {
       throw new Error(
         `--from '${opts.from}' is a \`// macros\` library — definition-only, injected into consuming scripts at run time, never a runnable step.`,
+      );
+    }
+    // A `--local` display-only node (a non-`// pipeline` DuckDB script surfaced
+    // only because it calls a macro) has no previewable content — reject it
+    // clearly rather than admitting it and silently producing an empty plan.
+    if (notRunnablePaths.has(scriptPathOf(resolved))) {
+      throw new Error(
+        `--from '${opts.from}' isn't a \`// pipeline\` script — it appears in the local graph only as a macro consumer (lineage). Mark it \`// pipeline\` to run it.`,
       );
     }
     if (!resolved.startsWith("script:")) {
