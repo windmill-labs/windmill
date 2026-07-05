@@ -1283,6 +1283,26 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
+    fn s3_explicit_storage_aliases_default_storage_nested_key() {
+        // Accepted tradeoff of one canonical key: the explicit-storage form
+        // `s3://storage/key` and the default-storage nested-key form
+        // `s3:///storage/key` collapse to the same node `storage/key`, even
+        // though they name different objects. This is a best-effort lineage
+        // graph that does not split the first segment as a storage name; the
+        // collision only happens when a storage config is named to match a
+        // default-storage prefix. Pinned so the aliasing is intentional, not a
+        // latent surprise.
+        assert_eq!(
+            parse_asset_syntax("s3://mybucket/x", false),
+            parse_asset_syntax("s3:///mybucket/x", false)
+        );
+        assert_eq!(
+            parse_asset_syntax("s3://mybucket/x", false),
+            Some((AssetKind::S3Object, "mybucket/x"))
+        );
+    }
+
+    #[test]
     fn bare_pipeline_marker() {
         let out = parse_pipeline_annotations("// pipeline\nconsole.log('hi')");
         assert!(out.in_pipeline);

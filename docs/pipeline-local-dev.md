@@ -93,7 +93,12 @@ resolve to `s3:///x` (empty default storage) — the triple-slash annotation `//
 writer and a DuckDB reader of the same object therefore connect regardless of which URI form each
 side uses. (Only a single leading slash is stripped, so Hive-partition keys like
 `s3://bucket/y=2024/f.parquet` are untouched, and the explicit-storage form `s3://storage/key`
-keeps its `storage/key` path.)
+keeps its `storage/key` path.) Tradeoff of collapsing to one canonical key: the explicit-storage
+form `s3://storage/key` and the default-storage nested-key form `s3:///storage/key` now alias to
+the same node `storage/key`, even though they name different objects (a bucket `storage` vs. an
+object under the `storage/` prefix in default storage). This only collides when a storage config is
+named to match a default-storage prefix — unlikely, and acceptable for a best-effort lineage graph
+that already doesn't split the first segment as a storage name.
 
 ## How to test
 
