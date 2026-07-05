@@ -5,12 +5,14 @@
 	import { CalendarClock, CircleCheck, CircleDashed, TriangleAlert } from 'lucide-svelte'
 	import type { PartitionSpec } from './parsePipelineAnnotations'
 	import {
-		bucketFor,
 		bucketFromInputValue,
+		defaultBucket,
 		inputValueFromBucket,
+		isBeforeStart,
 		partitionInputType,
 		recentBuckets,
 		recentWindow,
+		startBucketOf,
 		usesCalendarPicker
 	} from './partitionBuckets'
 
@@ -43,13 +45,19 @@
 
 	// Seed the default bucket once: the backend resolves an absent `partition`
 	// arg to the current bucket, so seeding it makes the picker show that same
-	// value while keeping the run behaviour identical. Dynamic / custom-format
-	// specs stay empty (free text the user fills in).
+	// value while keeping the run behaviour identical. `defaultBucket` honours
+	// the `start=` anchor (never seeds a pre-start bucket the worker would take
+	// verbatim). Dynamic / custom-format specs stay empty (free text the user
+	// fills in).
 	$effect(() => {
 		if (calendarPicker && (value === undefined || value === '')) {
-			value = bucketFor(spec, new Date())
+			value = defaultBucket(spec, new Date())
 		}
 	})
+
+	// Whether the producer hasn't reached its `start=` anchor yet — explains why
+	// the default bucket is the start rather than today.
+	let beforeStart = $derived(calendarPicker && isBeforeStart(spec, new Date()))
 
 	// The native <input> string mirrors `value`; hourly carries an extra minute
 	// component that the canonical bucket drops.
@@ -86,41 +94,48 @@
 	let selectedMaterialized = $derived(!!value && materializedSet.has(value))
 
 	// Recently-missing buckets: the last N cadence buckets not yet materialized.
+	// Pre-`start=` buckets are dropped — they never materialize on their own, so
+	// offering them as run chips would let a click launch a pre-start partition.
 	let recentlyMissing = $derived.by(() => {
 		if (!materializeTarget || materializeTarget.kind !== 'ducklake' || !calendarPicker) return []
 		if (ownPartitions.loading) return []
+		const startBucket = startBucketOf(spec)
 		return recentBuckets(spec, new Date(), recentWindow(spec.kind)).filter(
-			(b) => !materializedSet.has(b)
+			(b) => !materializedSet.has(b) && (!startBucket || b >= startBucket)
 		)
 	})
 
-	// Upstream ducklake inputs — union of their materialized partitions, plus a
-	// flag for whether any upstream is actually partition-tracked (has a row
-	// with a non-empty partition). Without that flag a non-partitioned upstream
-	// (single whole-table row) would false-alarm as "no data for this bucket".
+	// Upstream ducklake inputs, one materialized-set PER input (not unioned).
+	// A per-input `tracked` flag (has ≥1 non-empty partition) distinguishes a
+	// partitioned input from a whole-table one, so a non-partitioned upstream
+	// (single whole-table row) never false-alarms as "no data for this bucket".
 	let ducklakeUpstreams = $derived(upstreamAssets.filter((a) => a.kind === 'ducklake'))
 	let upstream = resource(
 		[() => workspace, () => ducklakeUpstreams.map((a) => a.path).join('\n')],
 		async ([ws, joined]) => {
 			const paths = joined ? joined.split('\n') : []
-			if (!ws || paths.length === 0) return { tracked: false, materialized: new Set<string>() }
-			const rows = (await Promise.all(paths.map((p) => listPartitions('ducklake', p)))).flat()
-			return {
-				tracked: rows.some((r) => r.partition !== ''),
-				materialized: new Set(
-					rows.filter((r) => r.status === 'materialized').map((r) => r.partition)
-				)
-			}
+			if (!ws || paths.length === 0) return [] as { tracked: boolean; materialized: Set<string> }[]
+			return await Promise.all(
+				paths.map(async (p) => {
+					const rows = await listPartitions('ducklake', p)
+					return {
+						tracked: rows.some((r) => r.partition !== ''),
+						materialized: new Set(
+							rows.filter((r) => r.status === 'materialized').map((r) => r.partition)
+						)
+					}
+				})
+			)
 		}
 	)
-	// Warn only when we positively know the upstream is partition-tracked and is
-	// missing the selected bucket — never while loading or for untracked inputs.
+	// Warn when ANY partition-tracked upstream is missing the selected bucket —
+	// checked per-input so a fan-in where one input has the bucket doesn't mask
+	// another that lacks it. Never fires while loading or for untracked inputs.
 	let upstreamMissing = $derived(
 		!!value &&
 			calendarPicker &&
 			!upstream.loading &&
-			(upstream.current?.tracked ?? false) &&
-			!(upstream.current?.materialized.has(value) ?? false)
+			(upstream.current ?? []).some((u) => u.tracked && !u.materialized.has(value!))
 	)
 
 	const MAX_MISSING_CHIPS = 8
@@ -142,6 +157,11 @@
 			value={inputValue}
 			onchange={(e) => onNativeInput(e.currentTarget.value)}
 		/>
+		{#if beforeStart}
+			<span class="text-3xs text-tertiary">
+				Partitioning starts <span class="font-mono">{spec.start}</span> — defaulted to the first partition.
+			</span>
+		{/if}
 	{:else}
 		<TextInput
 			bind:value={() => value ?? '', (v) => (value = v)}

@@ -101,6 +101,49 @@ export function bucketFor(spec: PartitionSpec, at: Date): string {
 	return fmtBucket(spec.kind, zonedAsUtc(at, spec.tz ?? 'UTC'))
 }
 
+// The zoned start date (`spec.start`, `YYYY-MM-DD`) as a UTC-substituted Date at
+// 00:00, or undefined if unset/malformed. `start` is a plain date in the
+// producer's tz — the backend parses it as a NaiveDate and compares by date.
+function startDate(spec: PartitionSpec): Date | undefined {
+	if (!spec.start) return undefined
+	const m = spec.start.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+	if (!m) return undefined
+	return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+}
+
+// True when `at` (localized to the producer tz) falls on a date before the
+// `start=` anchor — exactly the backend's `local.date_naive() < start_date`
+// check (`resolve_time_partition`), which resolves such an instant to no
+// partition.
+export function isBeforeStart(spec: PartitionSpec, at: Date): boolean {
+	const start = startDate(spec)
+	if (!start) return false
+	const zoned = zonedAsUtc(at, spec.tz ?? 'UTC')
+	const zonedDate = Date.UTC(zoned.getUTCFullYear(), zoned.getUTCMonth(), zoned.getUTCDate())
+	return zonedDate < start.getTime()
+}
+
+// The canonical bucket of the `start=` anchor (its date at 00:00), or undefined
+// if unset. Buckets sort lexicographically within a cadence, so callers can
+// compare against it to drop pre-start buckets.
+export function startBucketOf(spec: PartitionSpec): string | undefined {
+	const start = startDate(spec)
+	return start ? fmtBucket(spec.kind, start) : undefined
+}
+
+// The bucket to pre-fill the picker with. Normally the current bucket (matching
+// the backend's "absent partition arg -> current bucket" resolution), but when
+// the current instant is before the `start=` anchor the backend would resolve
+// to NO partition — so default to the first valid bucket (the start) rather
+// than a pre-start one the worker would take verbatim and materialize early.
+export function defaultBucket(spec: PartitionSpec, at: Date): string {
+	if (isBeforeStart(spec, at)) {
+		const start = startDate(spec)
+		if (start) return fmtBucket(spec.kind, start)
+	}
+	return bucketFor(spec, at)
+}
+
 // Native input value -> canonical bucket. Only hourly differs: datetime-local
 // carries a minute component the hourly bucket drops. The picked wall-clock is
 // taken verbatim as the bucket (the user picks in the producer's frame), so no

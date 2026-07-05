@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
 	bucketFor,
 	bucketFromInputValue,
+	defaultBucket,
 	inputValueFromBucket,
+	isBeforeStart,
 	partitionInputType,
 	recentBuckets,
+	startBucketOf,
 	usesCalendarPicker
 } from './partitionBuckets'
 import type { PartitionSpec } from './parsePipelineAnnotations'
@@ -44,6 +47,31 @@ describe('bucketFor honours spec.tz', () => {
 		expect(bucketFor(spec('hourly', { tz: 'America/New_York' }), nearMidnight)).toBe(
 			'2026-07-04T22'
 		)
+	})
+})
+
+describe('defaultBucket honours the start= anchor', () => {
+	// `at` is 2026-07-05.
+	it('seeds the current bucket when at or after start', () => {
+		expect(defaultBucket(spec('daily'), at)).toBe('2026-07-05')
+		expect(defaultBucket(spec('daily', { start: '2026-01-01' }), at)).toBe('2026-07-05')
+		expect(defaultBucket(spec('daily', { start: '2026-07-05' }), at)).toBe('2026-07-05') // == start, not before
+	})
+	it('seeds the start bucket (never a pre-start one) when before start', () => {
+		expect(defaultBucket(spec('daily', { start: '2026-08-01' }), at)).toBe('2026-08-01')
+		expect(defaultBucket(spec('monthly', { start: '2026-08-01' }), at)).toBe('2026-08')
+		expect(defaultBucket(spec('hourly', { start: '2026-08-01' }), at)).toBe('2026-08-01T00')
+	})
+	it('isBeforeStart mirrors the backend date comparison', () => {
+		expect(isBeforeStart(spec('daily', { start: '2026-08-01' }), at)).toBe(true)
+		expect(isBeforeStart(spec('daily', { start: '2026-07-05' }), at)).toBe(false)
+		expect(isBeforeStart(spec('daily'), at)).toBe(false)
+	})
+	it('startBucketOf renders the anchor in the cadence, undefined when unset', () => {
+		expect(startBucketOf(spec('daily', { start: '2026-08-01' }))).toBe('2026-08-01')
+		expect(startBucketOf(spec('monthly', { start: '2026-08-15' }))).toBe('2026-08')
+		expect(startBucketOf(spec('hourly', { start: '2026-08-01' }))).toBe('2026-08-01T00')
+		expect(startBucketOf(spec('daily'))).toBeUndefined()
 	})
 })
 
