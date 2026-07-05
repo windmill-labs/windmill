@@ -21,6 +21,10 @@
 				path: string
 			}
 			extra_args?: string
+			// Fork workspaces only — stamped at fork creation, absent = isolated.
+			// Not editable here, but it MUST round-trip through save or a settings
+			// save in a shared fork would silently flip the lake to isolated.
+			fork_behavior?: 'isolated' | 'shared'
 			maintenance?: DucklakeMaintenanceType
 		}[]
 	}
@@ -54,6 +58,7 @@
 				catalog: ducklake.catalog,
 				storage: ducklake.storage,
 				extra_args: ducklake.extra_args || undefined,
+				fork_behavior: ducklake.fork_behavior,
 				maintenance: ducklake.maintenance
 			}
 		}
@@ -62,7 +67,15 @@
 </script>
 
 <script lang="ts">
-	import { AlertTriangle, ExternalLink, Plus, SettingsIcon, Wrench } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		ArrowUpRight,
+		ExternalLink,
+		GitFork,
+		Plus,
+		SettingsIcon,
+		Wrench
+	} from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 	import SettingsFooter from './SettingsFooter.svelte'
@@ -78,7 +91,7 @@
 	import { ScheduleService, SettingService, WorkspaceService } from '$lib/gen'
 	import type { GetSettingsResponse } from '$lib/gen'
 
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { base } from '$app/paths'
 	import Toggle from '../Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -244,6 +257,14 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
+
+	// Same fork detection as the backend's isolation gate: parent link (dev workspaces are
+	// prefix-less) or the wm-fork- prefix (an orphaned fork keeps isolation after its parent
+	// is deleted).
+	let isFork = $derived(
+		$userWorkspaces.find((w) => w.id === $workspaceStore)?.parent_workspace_id != null ||
+			($workspaceStore?.startsWith('wm-fork-') ?? false)
+	)
 </script>
 
 <div class="flex flex-col gap-4 mb-8">
@@ -255,6 +276,20 @@
 		</Description>
 	</div>
 </div>
+
+{#if isFork && ducklakeSettings.ducklakes.length > 0}
+	<div class="mb-4">
+		<Alert title="Fork data environments" type="info">
+			This workspace is a fork, and these settings are its own copy. Lakes marked
+			<span class="font-semibold">isolated</span> read the parent's tables through defer views and
+			write to a fork-scoped namespace that is cleaned up when the fork is deleted. Lakes marked
+			<span class="font-semibold">shared with parent</span> read and write the parent's physical
+			lake directly — editing their catalog or storage here repoints the shared lake for this
+			fork's jobs. The choice is made per lake when the fork is created and cannot be changed
+			here.
+		</Alert>
+	</div>
+{/if}
 
 {#if ducklakeSettings.ducklakes.some((d) => d.catalog.resource_type === 'instance')}
 	<div transition:slide={{ duration: 200 }} class="mb-4">
@@ -303,6 +338,33 @@
 						inputProps={{ placeholder: 'Name' }}
 						class="ducklake-name"
 					/>
+					{#if isFork}
+						<div class="mt-1">
+							{#if ducklake.fork_behavior === 'shared'}
+								<span
+									class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+								>
+									<ArrowUpRight size={10} />
+									shared with parent
+								</span>
+								<Tooltip>
+									This fork reads and writes the parent's physical lake directly. Edits to this
+									lake's catalog or storage repoint the shared lake for this fork's jobs.
+								</Tooltip>
+							{:else}
+								<span
+									class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded border border-emerald-500/40 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+								>
+									<GitFork size={10} />
+									isolated
+								</span>
+								<Tooltip>
+									Writes go to a fork-scoped namespace; reads of tables not yet materialized in
+									this fork defer to the parent. Deleting the fork cleans the namespace up.
+								</Tooltip>
+							{/if}
+						</div>
+					{/if}
 				</Cell>
 				<Cell>
 					<div class="flex gap-1">
