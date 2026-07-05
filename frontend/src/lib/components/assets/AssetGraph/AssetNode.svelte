@@ -147,11 +147,14 @@
 				? 'bg-surface-secondary text-emerald-600 dark:text-emerald-400 border-emerald-500/60'
 				: 'bg-surface-secondary text-amber-600 dark:text-amber-400 border-amber-500/60'
 	)
+	// Failed copy speaks to the edition's write policy, not the failure cause:
+	// `producerFailed` is a generic job failure (could be a runtime/worker error,
+	// not a data-test violation), so we don't assert "failed its data tests".
 	let guardTitle = $derived(
 		guardFailed
 			? isEE
-				? 'Last run failed its data tests — the write was rolled back and the previous version is left live.'
-				: 'Last run failed its data tests — Community Edition does not roll back, so the failing version was published. Rollback is Enterprise-only.'
+				? 'Last run failed — Enterprise rolls a failed materialize back, so the previous version is left live.'
+				: 'Last run failed — Community Edition does not roll a failed materialize back (Enterprise does), so a failing write may be left live. Verify the table.'
 			: isEE
 				? 'Guarded by data tests: a failing write is rolled back, keeping the previous version live.'
 				: 'Guarded by data tests, but Community Edition does not block on failure — a failing write is still published. Rollback is Enterprise-only.'
