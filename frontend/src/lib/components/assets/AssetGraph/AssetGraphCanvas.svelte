@@ -142,8 +142,8 @@
 		// editor passes it, so the asset-graph page is unaffected. The page
 		// clears it once the pan has had time to settle.
 		panToNodeId?: string | undefined
-		// Script paths eligible to *start* a bounded-cascade run (schedule
-		// roots + manual roots — see boundedCascade.validStarts). When a path is
+		// Script paths eligible to *start* a bounded-cascade run — roots AND
+		// mid-DAG models (see boundedCascade.validFromStarts). When a path is
 		// in this set and `onStartBoundedRun` is wired, its node's cascade menu
 		// gains a "Run downstream up to…" entry.
 		validStartPaths?: ReadonlySet<string>
@@ -323,8 +323,44 @@
 		// own adjacency (boundedCascade.buildLineageDownstreamMap).
 		const hasLineageDownstream = new Set<string>(buildLineageDownstreamMap(g).keys())
 
+		// Producers that declare `// data_test` checks, keyed by runnable id — the
+		// asset node uses this (plus the producer's run state) to render the
+		// data-test outcome badge. Tests only assert on ducklake `// materialize`
+		// targets (v1), so guard status is a ducklake-only concept below.
+		const producerHasTests = new Set<string>()
+		// Producer → its declared `// materialize` target, so a multi-output
+		// producer's guard badge lands only on the table its tests assert on —
+		// not on its other ducklake outputs. Mirrors the write-edge badge anchor.
+		const guardMaterializeTarget = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['materialize_target']>
+		>()
+		for (const r of g.runnables) {
+			if (r.data_tests && r.data_tests.length > 0) producerHasTests.add(`${r.usage_kind}:${r.path}`)
+			if (r.materialize_target)
+				guardMaterializeTarget.set(`${r.usage_kind}:${r.path}`, r.materialize_target)
+		}
+
 		for (const a of g.assets) {
 			const assetId = `asset:${a.kind}:${a.path}`
+			// Guard/outcome badge inputs: is a producer of this (ducklake) asset
+			// test-guarded, and did that guarded producer's latest run fail?
+			let dataTestGuarded = false
+			let producerFailed = false
+			if (a.kind === 'ducklake') {
+				for (const p of producersByAsset.get(`${a.kind}:${a.path}`) ?? []) {
+					const rid = `${p.kind}:${p.path}`
+					if (!producerHasTests.has(rid)) continue
+					// Tests assert on the producer's `// materialize` target; when the
+					// producer declares one, only that table is guarded (a multi-output
+					// producer must not badge its other ducklake writes). No declared
+					// target → single-output producer, so its lone ducklake write is it.
+					const mt = guardMaterializeTarget.get(rid)
+					if (mt && !(mt.kind === a.kind && mt.path === a.path)) continue
+					dataTestGuarded = true
+					if (runStates?.get(rid)?.status === 'failure') producerFailed = true
+				}
+			}
 			nodes.push({
 				id: assetId,
 				type: 'asset',
@@ -337,7 +373,9 @@
 					pathPrefix,
 					defaultPathSuffix,
 					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],
-					onRunProducer
+					onRunProducer,
+					dataTestGuarded,
+					producerFailed
 				}
 			})
 		}

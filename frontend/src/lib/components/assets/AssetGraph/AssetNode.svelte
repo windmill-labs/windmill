@@ -5,9 +5,19 @@
 	import { formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
 	import { NODE } from '$lib/components/graph/util'
 	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
-	import { ArrowUpRight, Code2, GitFork, History, Play, Loader2, Plus } from 'lucide-svelte'
+	import {
+		ArrowUpRight,
+		Code2,
+		GitFork,
+		History,
+		Play,
+		Loader2,
+		Plus,
+		ShieldCheck,
+		ShieldAlert
+	} from 'lucide-svelte'
 	import type { ScriptLang } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
 	import type { PipelineOutputKind } from './pipelineTemplates'
@@ -55,6 +65,15 @@
 			// cached draft content). Without this callback, the play button
 			// is hidden — runs only make sense in editor contexts.
 			onRunProducer?: (producer: AssetProducer) => Promise<string | undefined>
+			// True when a producer materializing this asset declares `// data_test`
+			// checks — the asset's write is guarded. Drives the data-test outcome
+			// badge, whose meaning differs by edition (EE rolls a failing write
+			// back; CE publishes it anyway).
+			dataTestGuarded?: boolean
+			// True when the latest observed run of a producer materializing this
+			// asset failed. Escalates the guard badge from "protected" to a
+			// failed-run outcome (rolled-back on EE, published-anyway on CE).
+			producerFailed?: boolean
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -109,6 +128,37 @@
 	}
 
 	let showAdd = $derived(data.onAddScript != undefined)
+
+	// Data-test outcome badge. Only guarded assets show it. The write's fate on a
+	// failing test differs by edition — surface which one applies so a shared
+	// parent/fork table name can't hide a silently-published bad version.
+	let isEE = $derived(!!$enterpriseLicense)
+	let showGuardBadge = $derived(data.dataTestGuarded === true)
+	let guardFailed = $derived(data.producerFailed === true)
+	let GuardIcon = $derived(isEE ? ShieldCheck : ShieldAlert)
+	// Filled + colored when the last run failed (the actionable state); a quiet
+	// ring at rest so the badge doesn't shout on every healthy guarded asset.
+	let guardClass = $derived(
+		guardFailed
+			? isEE
+				? 'bg-amber-500 text-white border-amber-600'
+				: 'bg-red-500 text-white border-red-600'
+			: isEE
+				? 'bg-surface-secondary text-emerald-600 dark:text-emerald-400 border-emerald-500/60'
+				: 'bg-surface-secondary text-amber-600 dark:text-amber-400 border-amber-500/60'
+	)
+	// Failed copy speaks to the edition's write policy, not the failure cause:
+	// `producerFailed` is a generic job failure (could be a runtime/worker error,
+	// not a data-test violation), so we don't assert "failed its data tests".
+	let guardTitle = $derived(
+		guardFailed
+			? isEE
+				? 'Last run failed — Enterprise rolls a failed materialize back, so the previous version is left live.'
+				: 'Last run failed — Community Edition does not roll a failed materialize back (Enterprise does), so a failing write may be left live. Verify the table.'
+			: isEE
+				? 'Guarded by data tests: a failing write is rolled back, keeping the previous version live.'
+				: 'Guarded by data tests, but Community Edition does not block on failure — a failing write is still published. Rollback is Enterprise-only.'
+	)
 </script>
 
 <!-- onmouseenter/leave on the wrapper (not the inner card) so the run
@@ -142,23 +192,26 @@
 		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
 			{formatShortAssetPath(asset)}
 		</span>
-		<!-- Fork data-environment marker: amber ↗ = deferred (reads the parent
-		     workspace's current table via a view), emerald fork glyph = the fork
-		     materialized its own copy. Icon-only — the pill truncates its path
-		     already, a labeled chip wouldn't fit; the title carries the meaning. -->
+		<!-- Fork data-environment chip: in a fork every asset shares its parent's
+		     name, so the env it resolves to must read at a glance. Labeled + tinted
+		     (amber "parent" = deferred read of the parent's current table via a
+		     view; emerald "fork" = the fork's own materialized copy) rather than a
+		     bare icon, which was too easy to miss. The title carries the detail. -->
 		{#if data.fork_materialization === 'deferred'}
 			<span
-				class="shrink-0 mr-1.5 text-amber-600 dark:text-amber-400"
+				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
 				title="Deferred to parent workspace: reads the parent's current data. Materialize it in this fork to iterate on it."
 			>
-				<ArrowUpRight size={12} />
+				<ArrowUpRight size={10} />
+				parent
 			</span>
 		{:else if data.fork_materialization === 'fork'}
 			<span
-				class="shrink-0 mr-1.5 text-emerald-600 dark:text-emerald-500"
+				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold uppercase tracking-wide bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700"
 				title="Materialized in this fork: reads and writes use the fork's isolated copy."
 			>
-				<GitFork size={12} />
+				<GitFork size={10} />
+				fork
 			</span>
 		{/if}
 		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
@@ -173,6 +226,21 @@
 			</span>
 		{/if}
 	</div>
+	{#if showGuardBadge}
+		<!-- Data-test outcome badge. Floats off the TOP-RIGHT corner (opposite the
+		     left-edge run button and the bottom + inserter) so it never collides
+		     with the other node affordances. Shield = guarded; its fill escalates to
+		     amber/red when the last run failed, encoding the edition's write policy. -->
+		<div
+			class={twMerge(
+				'absolute -top-2 -right-2 z-10 rounded-full w-5 h-5 grid place-items-center border shadow-sm',
+				guardClass
+			)}
+			title={guardTitle}
+		>
+			<GuardIcon size={12} strokeWidth={2.25} />
+		</div>
+	{/if}
 	{#if showActions}
 		<!-- Run button revealed on hover/select. Floats off the LEFT edge —
 		     visually closer to the upstream producer it triggers (which lays

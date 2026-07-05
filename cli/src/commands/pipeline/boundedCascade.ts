@@ -216,6 +216,32 @@ export function validStarts(g: BCGraph): Set<string> {
 }
 
 /**
+ * Script node ids eligible as an EXPLICIT bounded-run start from *anywhere* in
+ * the DAG (dbt's `--select model+`): every script that can run with empty args —
+ * i.e. all scripts except non-autorun-trigger ones (kafka/mqtt/…/webhook/
+ * data_upload, which fan out per event or need caller-supplied input). Unlike
+ * `validStarts` (schedule/manual roots only), this INCLUDES mid-DAG asset
+ * subscribers and pure readers, so `--from <mid-model>` runs that node plus its
+ * transitive downstream WITHOUT re-running upstream. Roots stay a subset of this
+ * set. A non-autorun handler still qualifies once it's `--upload`-bound (handled
+ * by the caller, which unions in the bound node ids).
+ */
+export function validFromStarts(g: BCGraph): Set<string> {
+  const nonAutorun = nonAutorunTriggerScripts(g);
+  // Seed with the schedule/manual roots: `validStarts` lets a schedule identity
+  // win over a secondary non-autorun trigger (a `// on schedule` + `// on
+  // data_upload` script IS a scheduled root), so a root must stay `--from`-
+  // eligible even though it's also in `nonAutorunTriggerScripts`.
+  const out = new Set<string>(validStarts(g));
+  for (const r of g.runnables ?? []) {
+    if (r.usage_kind !== "script") continue;
+    const id = scriptNodeId(r.path);
+    if (!nonAutorun.has(id)) out.add(id);
+  }
+  return out;
+}
+
+/**
  * Script node ids that carry a trigger requiring caller-supplied input or
  * per-event fanout (kafka/mqtt/nats/postgres/sqs/gcp/email/webhook/data_upload).
  * These can't be run with empty args, so a whole-pipeline run must exclude them
