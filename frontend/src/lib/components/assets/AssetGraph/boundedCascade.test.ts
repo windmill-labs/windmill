@@ -342,6 +342,40 @@ describe('reachableCutting (barrier cut for "Run + downstream")', () => {
 		const runNodes = reachableCutting(dag, [sn('k')], barriers)
 		expect(scriptsOf(runNodes).sort()).toEqual(['consumer', 'k'])
 	})
+
+	it('keeps a scheduled event root (and its downstream) reachable from an upstream start', () => {
+		// a → x → sched_evt(schedule + kafka) → y → consumer. Running downstream
+		// from `a`, sched_evt is a scheduled root so it must NOT be a barrier even
+		// though it carries an event trigger — matching the CLI, which excludes all
+		// valid roots (`starts`), not just the picked start. Mirror of the page's
+		// barrier construction: nonAutorunTriggerScripts minus validStarts minus start.
+		const g2 = graph({
+			scripts: ['a', 'sched_evt', 'consumer'],
+			writes: [
+				['a', 'x'],
+				['sched_evt', 'y']
+			],
+			subs: [
+				['sched_evt', 'x'],
+				['consumer', 'y']
+			],
+			native: [
+				['schedule', 'sched_evt'],
+				['kafka', 'sched_evt']
+			]
+		})
+		const dag = buildLineageDag(g2)
+		const roots = validStarts(g2)
+		const barriers = new Set(
+			[...nonAutorunTriggerScripts(g2)].filter((id) => !roots.has(id) && id !== sn('a'))
+		)
+		const runNodes = reachableCutting(dag, [sn('a')], barriers)
+		expect(scriptsOf(runNodes).sort()).toEqual(['a', 'consumer', 'sched_evt'])
+		// Without the validStarts exclusion, sched_evt (a kafka handler) would be a
+		// barrier and `consumer` would be dropped — the bug this guards.
+		const naiveBarriers = new Set([...nonAutorunTriggerScripts(g2)].filter((id) => id !== sn('a')))
+		expect(scriptsOf(reachableCutting(dag, [sn('a')], naiveBarriers)).sort()).toEqual(['a'])
+	})
 })
 
 describe('buildLineageDownstreamMap (read-aware scheduling)', () => {

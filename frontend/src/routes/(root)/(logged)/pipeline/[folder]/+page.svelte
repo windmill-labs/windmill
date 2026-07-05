@@ -52,7 +52,8 @@
 		reachableCutting,
 		scriptNodeId,
 		scriptsOf,
-		validFromStarts
+		validFromStarts,
+		validStarts
 	} from '$lib/components/assets/AssetGraph/boundedCascade'
 	import {
 		diffDeployedGraph,
@@ -1530,17 +1531,22 @@
 			: undefined
 	)
 	// Event handlers (kafka/mqtt/…) can't run with empty args, so they're cut from
-	// any cascade run — as is a consumer reachable only through one. The explicit
-	// start is protected (the user named it). Parity with the CLI `barriers` set.
-	let boundReachable = $derived(
-		boundDag && boundPickStart
-			? reachableCutting(
-					boundDag,
-					[boundPickStart],
-					new Set([...nonAutorunTriggerScripts(displayGraph)].filter((id) => id !== boundPickStart))
-				)
-			: new Set<string>()
-	)
+	// any cascade run — as is a consumer reachable only through one. But a
+	// scheduled/manual root is NEVER a barrier even if it also carries an event
+	// trigger: it runs on its own schedule/manual identity (schedule wins in
+	// validStarts), so it — and its downstream — stay reachable when running from
+	// an upstream start. The explicit start is likewise protected. Parity with the
+	// CLI `barriers` set (`nonAutorunTriggerScripts` minus `starts` minus start).
+	let boundReachable = $derived.by(() => {
+		if (!boundDag || !boundPickStart) return new Set<string>()
+		const roots = validStarts(displayGraph)
+		const barriers = new Set(
+			[...nonAutorunTriggerScripts(displayGraph)].filter(
+				(id) => !roots.has(id) && id !== boundPickStart
+			)
+		)
+		return reachableCutting(boundDag, [boundPickStart], barriers)
+	})
 	// Nodes pickable as end bounds: the barrier-cut downstream (excluding the
 	// start), NOT raw descendants — else an event handler or a node only reachable
 	// through one could be clicked as an end yet get silently dropped from the run.
