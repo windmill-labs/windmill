@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.749.0](https://github.com/windmill-labs/windmill/compare/v1.748.0...v1.749.0) (2026-07-05)
+
+
+### Features
+
+* **pipelines:** mid-DAG selective execution (dbt `model+`) for pipeline runs ([#9945](https://github.com/windmill-labs/windmill/issues/9945)) ([2d3a773](https://github.com/windmill-labs/windmill/commit/2d3a77344104a587548f23f1b614ceffd52a5778))
+* **pipelines:** partition run-arg picker + first-run setup signpost ([#9943](https://github.com/windmill-labs/windmill/issues/9943)) ([475b072](https://github.com/windmill-labs/windmill/commit/475b072987b33d50111f5251a5f69f4245f930ae))
+* **pipelines:** self-teaching custom data_test errors + scaffold ([#9937](https://github.com/windmill-labs/windmill/issues/9937)) ([0ad174f](https://github.com/windmill-labs/windmill/commit/0ad174fa490e17eeb26280b5bdfd62956dfed9ff))
+
+
+### Bug Fixes
+
+* **cli:** macro-library parity in --local pipeline graph + read-only run --dry-run ([#9942](https://github.com/windmill-labs/windmill/issues/9942)) ([e3f4303](https://github.com/windmill-labs/windmill/commit/e3f43033cafcdb5df253aeb55ce93e599b2584d2))
+* **datatable:** self-teaching error for unresolved datatable:// references ([#9941](https://github.com/windmill-labs/windmill/issues/9941)) ([55451db](https://github.com/windmill-labs/windmill/commit/55451db009e3060c21948ece2c97e102a3c9b171))
+* **object-storage:** remove 20-file bucket-browser listing cap in CE ([#9935](https://github.com/windmill-labs/windmill/issues/9935)) ([22452ce](https://github.com/windmill-labs/windmill/commit/22452ce54034a9bea8f7d48946818fd148b938c0))
+* **pipelines:** dedup guard for keyed merge + deploy-time SCD2 validation ([#9936](https://github.com/windmill-labs/windmill/issues/9936)) ([52ce805](https://github.com/windmill-labs/windmill/commit/52ce805f619747af4f998cde7819a164c754205a))
+* **pipelines:** link SCD2 &lt;dim&gt;_current view to its producer across all graph surfaces ([#9933](https://github.com/windmill-labs/windmill/issues/9933)) ([574d3ac](https://github.com/windmill-labs/windmill/commit/574d3ac9ff5015b5d3f53040c9d4dfbfd161a076))
+* **pipelines:** order data_test relationships refs before the tested script in a cascade ([#9934](https://github.com/windmill-labs/windmill/issues/9934)) ([46be39d](https://github.com/windmill-labs/windmill/commit/46be39dfb7fbfb2b70e61819d6065b45810c41c9))
+* **pipelines:** pipeline-level run control, tables label, data-test rollback + fork badges ([#9944](https://github.com/windmill-labs/windmill/issues/9944)) ([6ae8dd3](https://github.com/windmill-labs/windmill/commit/6ae8dd37b1de930ab17344cebf7c28385c6cfdba))
+* rebuild windows bun loader main.ts filter from forward-slash cdir ([#9946](https://github.com/windmill-labs/windmill/issues/9946)) ([a582e04](https://github.com/windmill-labs/windmill/commit/a582e04bf40cf685f88bceaf88e3d24bde3d420a))
+
 ## [1.748.0](https://github.com/windmill-labs/windmill/compare/v1.747.0...v1.748.0) (2026-07-05)
 
 
