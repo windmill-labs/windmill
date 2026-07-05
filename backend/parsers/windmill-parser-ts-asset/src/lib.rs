@@ -433,7 +433,7 @@ mod tests {
             s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/test.csv".to_string(),
+                path: "test.csv".to_string(),
                 access_type: Some(R),
                 columns: None,
             },])
@@ -461,7 +461,31 @@ mod tests {
             s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/pipelines/km_real/raw_events.json".to_string(),
+                path: "pipelines/km_real/raw_events.json".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_write_key_matches_duckdb_read_key() {
+        // Cross-language lineage: this write records `exports/x`, the same path a
+        // DuckDB `read_csv('s3://exports/x')` resolves to (see
+        // windmill-parser-sql-asset `test_duckdb_read_key_matches_sdk_write_key`),
+        // so the producer and consumer connect in the pipeline graph.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File({ s3: "exports/x" }, "[]")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "exports/x".to_string(),
                 access_type: Some(W),
                 columns: None,
             },])
@@ -546,25 +570,25 @@ mod tests {
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/pipelines/km_real/enriched.json".to_string(),
+                    path: "pipelines/km_real/enriched.json".to_string(),
                     access_type: Some(W),
                     columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/pipelines/km_real/raw_events.json".to_string(),
+                    path: "pipelines/km_real/raw_events.json".to_string(),
                     access_type: Some(W),
                     columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/pipelines/km_real/report.json".to_string(),
+                    path: "pipelines/km_real/report.json".to_string(),
                     access_type: Some(W),
                     columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/pipelines/km_real/summary.json".to_string(),
+                    path: "pipelines/km_real/summary.json".to_string(),
                     access_type: Some(W),
                     columns: None,
                 },
@@ -585,7 +609,7 @@ mod tests {
             s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/out.json".to_string(),
+                path: "out.json".to_string(),
                 access_type: Some(W),
                 columns: None,
             },])

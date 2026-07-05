@@ -84,14 +84,16 @@ makes the client own the whole cascade so the backend dispatcher never double-fi
 `inferScriptAssets` mirrors `frontend/src/lib/infer.ts:inferAssets`: ts (bun/deno/nativets),
 python3, and SQL dialects all get wasm inference (SQL dialects route to `parse_assets_sql`; its
 comment-header annotation scan is dialect-independent). `go`/`bash` have no wasm asset parser, so
-they fall back to a minimal `// pipeline` + `// on` scan (annotation-only). Note inferred asset
-**paths must match exactly** to connect nodes: DuckDB `read_csv('s3://x')` / `COPY ... TO 's3://x'`
-and `// on s3://x` all yield path `x` (no leading slash), whereas the SDK object forms — TS
-`writeS3File({s3:"x"})` and python `write_s3_file(S3Object(s3="x"))` (or the equivalent dict
-literal), both resolved as `s3://<storage>/<key>` with empty default storage — yield `/x`, matching
-the `// on s3:///x` (triple-slash) annotation form. So an all-DuckDB example connects cleanly, and
-SDK writes connect to `s3:///…` annotations; mixing SDK-write with the no-slash annotation form
-needs care.
+they fall back to a minimal `// pipeline` + `// on` scan (annotation-only). Inferred asset paths
+must match to connect nodes, and all S3 URI forms canonicalize to one key: `parse_asset_syntax`
+(shared by the native and wasm parsers) strips a single leading slash from S3 paths, so the SDK
+object forms — TS `writeS3File({s3:"x"})` and python `write_s3_file(S3Object(s3="x"))`, which
+resolve to `s3:///x` (empty default storage) — the triple-slash annotation `// on s3:///x`, DuckDB
+`read_csv('s3://x')` / `COPY ... TO 's3://x'`, and `// on s3://x` all yield path `x`. A TS/Python
+writer and a DuckDB reader of the same object therefore connect regardless of which URI form each
+side uses. (Only a single leading slash is stripped, so Hive-partition keys like
+`s3://bucket/y=2024/f.parquet` are untouched, and the explicit-storage form `s3://storage/key`
+keeps its `storage/key` path.)
 
 ## How to test
 
