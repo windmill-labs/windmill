@@ -1,22 +1,9 @@
-// Local, lexical DuckDB `// macros`-library parsing for the pipeline graph.
-//
-// The deployed graph records a workspace macro registry (`macro_definition`) and
-// call edges (`macro_usage`) at deploy time and surfaces them on `/assets/graph`.
-// The wasm asset parser used locally does NOT emit any of that (it predates the
-// `// macros` / `// use` annotations — it drops both), so to reach local/deployed
-// parity (`pipeline show --local`, `pipeline dev`, `pipeline docs`) the CLI must
-// derive the same data from the working tree itself.
-//
-// This is a faithful TS port of the lexical rules in
-// `backend/parsers/windmill-parser/src/duckdb_macros.rs` (`split_statements`,
-// `parse_create_macro`, `detect_macro_calls`): top-level `CREATE [OR REPLACE]
-// [TEMP] MACRO|FUNCTION <name>(<params>) AS [TABLE] <body>`, with string/comment
-// spans skipped. It is deliberately lexical, not an AST parse — over-matching a
-// call only draws a spurious edge, never a wrong run.
-//
-// LIMITATION (same as the server's static detection): a macro invoked only from
-// dynamic SQL inside a `query('…')` string is invisible to call detection —
-// annotate the consumer with `// use <lib>` to force the whole-library edge.
+// Faithful TS port of the lexical rules in
+// `backend/parsers/windmill-parser/src/duckdb_macros.rs` — keep the two in
+// lockstep. Deliberately lexical, not an AST parse: over-matching a call only
+// draws a spurious edge, never a wrong run. A macro reached only through dynamic
+// SQL (`query('…')`) is invisible to call detection here as on the server —
+// `// use <lib>` forces the whole-library edge instead.
 
 export type ParsedMacro = {
   // Lowercased bare identifier (DuckDB identifiers are case-insensitive unquoted;
