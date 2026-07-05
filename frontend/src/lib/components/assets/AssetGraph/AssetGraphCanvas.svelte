@@ -322,8 +322,29 @@
 		// own adjacency (boundedCascade.buildLineageDownstreamMap).
 		const hasLineageDownstream = new Set<string>(buildLineageDownstreamMap(g).keys())
 
+		// Producers that declare `// data_test` checks, keyed by runnable id — the
+		// asset node uses this (plus the producer's run state) to render the
+		// data-test outcome badge. Tests only assert on ducklake `// materialize`
+		// targets (v1), so guard status is a ducklake-only concept below.
+		const producerHasTests = new Set<string>()
+		for (const r of g.runnables) {
+			if (r.data_tests && r.data_tests.length > 0) producerHasTests.add(`${r.usage_kind}:${r.path}`)
+		}
+
 		for (const a of g.assets) {
 			const assetId = `asset:${a.kind}:${a.path}`
+			// Guard/outcome badge inputs: is a producer of this (ducklake) asset
+			// test-guarded, and did that guarded producer's latest run fail?
+			let dataTestGuarded = false
+			let producerFailed = false
+			if (a.kind === 'ducklake') {
+				for (const p of producersByAsset.get(`${a.kind}:${a.path}`) ?? []) {
+					const rid = `${p.kind}:${p.path}`
+					if (!producerHasTests.has(rid)) continue
+					dataTestGuarded = true
+					if (runStates?.get(rid)?.status === 'failure') producerFailed = true
+				}
+			}
 			nodes.push({
 				id: assetId,
 				type: 'asset',
@@ -335,7 +356,9 @@
 					pathPrefix,
 					defaultPathSuffix,
 					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],
-					onRunProducer
+					onRunProducer,
+					dataTestGuarded,
+					producerFailed
 				}
 			})
 		}

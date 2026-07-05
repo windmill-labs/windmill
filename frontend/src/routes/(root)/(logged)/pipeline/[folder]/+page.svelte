@@ -1643,6 +1643,20 @@
 		}
 	}
 
+	// Every pipeline script, for the always-visible header "Run pipeline" control.
+	// Per-node runs are hover/select-gated on the canvas; this pipeline-level
+	// affordance runs the whole graph without hunting for a root node to hover.
+	let allPipelineScripts = $derived(
+		displayGraph.runnables.filter((r) => r.usage_kind === 'script').map((r) => r.path)
+	)
+	// Run the whole pipeline: hand every script to the bounded-cascade engine,
+	// which topo-orders them (roots first) and fans downstream — i.e. run + all
+	// downstream from every source at once. Reuses the same per-hop launch/poll
+	// and one-cascade-at-a-time guard as the node-level chain runs.
+	async function runWholePipeline() {
+		await runBoundedCascade(allPipelineScripts)
+	}
+
 	// Counter bumped when the canvas Run button targets the currently-open
 	// script — the pane intercepts and routes through ScriptEditor.runTest
 	// so logs/result/cancel land in the test panel instead of going off
@@ -2004,6 +2018,18 @@
 		return `${n} ${singular}${n === 1 ? '' : 's'}`
 	}
 
+	// Human noun per asset kind for the header summary. The raw `ducklake` kind
+	// counts materialized tables/views (including `_current` history views), so
+	// "N ducklakes" mis-reads as a count of lakes — surface "table" instead. Other
+	// kinds keep their own noun; unmapped kinds fall back to the raw kind.
+	const ASSET_KIND_NOUN: Record<string, string> = {
+		ducklake: 'table',
+		datatable: 'table',
+		s3object: 'file',
+		volume: 'volume',
+		resource: 'resource'
+	}
+
 	let summary = $derived.by<string[]>(() => {
 		const g = graphRes.current
 		if (!g) return []
@@ -2012,9 +2038,14 @@
 		const flows = g.runnables.filter((r) => r.usage_kind === 'flow').length
 		if (scripts) parts.push(pluralize(scripts, 'script'))
 		if (flows) parts.push(pluralize(flows, 'flow'))
-		const byKind = new Map<string, number>()
-		for (const a of g.assets) byKind.set(a.kind, (byKind.get(a.kind) ?? 0) + 1)
-		for (const [kind, n] of byKind) parts.push(pluralize(n, kind))
+		// Collapse kinds that share a noun (ducklake + datatable → "table") into a
+		// single tally so the summary reads "5 tables", not "3 tables · 2 tables".
+		const byNoun = new Map<string, number>()
+		for (const a of g.assets) {
+			const noun = ASSET_KIND_NOUN[a.kind] ?? a.kind
+			byNoun.set(noun, (byNoun.get(noun) ?? 0) + 1)
+		}
+		for (const [noun, n] of byNoun) parts.push(pluralize(n, noun))
 		return parts
 	})
 </script>
@@ -2098,6 +2129,25 @@
 			</div>
 		{/if}
 		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
+			{#if mode === 'edit' && !isOperator && allPipelineScripts.length > 0}
+				<!-- Pipeline-level run: always visible so a run doesn't require
+				     hovering a specific node's play button. Runs every script in
+				     dependency order (roots first, cascading downstream). -->
+				<Button
+					variant="accent-secondary"
+					unifiedSize="sm"
+					startIcon={{ icon: cascadeRunningRoot ? Loader2 : Play }}
+					onclick={runWholePipeline}
+					disabled={!!cascadeRunningRoot}
+					title={cascadeRunningRoot
+						? 'A pipeline run is already in progress'
+						: `Run all ${allPipelineScripts.length} script${
+								allPipelineScripts.length === 1 ? '' : 's'
+							} in dependency order (roots first, cascading downstream)`}
+				>
+					{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
+				</Button>
+			{/if}
 			{#if mode === 'edit' && saveErrors.size > 0}
 				<!-- Compact errors popover anchored next to Save all so users
 				     can see exactly which drafts failed and why without losing
