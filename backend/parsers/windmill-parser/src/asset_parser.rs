@@ -951,12 +951,6 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
         }
     }
 
-    // `// macros` wins over `// pipeline`: a macro library is definition-only
-    // (injected into consumers; running it is a no-op), never a pipeline member.
-    if out.macros {
-        out.in_pipeline = false;
-    }
-
     out
 }
 
@@ -1320,17 +1314,6 @@ mod pipeline_annotation_tests {
         // Trailing prose / keyword variants disqualify the line.
         assert!(!parse_pipeline_annotations("// macros are defined below\n").macros);
         assert!(!parse_pipeline_annotations("// macros_v2\n").macros);
-    }
-
-    #[test]
-    fn macros_wins_over_pipeline_membership() {
-        // A `// macros` library is definition-only, so `// pipeline` is ignored:
-        // `in_pipeline` is forced false even when both markers are present.
-        let out = parse_pipeline_annotations("// pipeline\n// macros\nCREATE MACRO m(a) AS a;");
-        assert!(out.macros);
-        assert!(!out.in_pipeline);
-        // A plain `// pipeline` script (no macros) stays a member.
-        assert!(parse_pipeline_annotations("// pipeline\nSELECT 1;").in_pipeline);
     }
 
     #[test]

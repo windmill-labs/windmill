@@ -108,12 +108,6 @@ describe('parsePipelineAnnotations: macros + use', () => {
 		expect(parsePipelineAnnotations('-- macros   \nSELECT 1;').macros).toBe(true)
 	})
 
-	it('macros wins over pipeline — a library is never a pipeline member', () => {
-		const out = parsePipelineAnnotations('// pipeline\n// macros\nCREATE MACRO m(a) AS a;')
-		expect(out.macros).toBe(true)
-		expect(out.inPipeline).toBe(false)
-	})
-
 	it('use accumulates in order and dedups', () => {
 		const out = parsePipelineAnnotations(
 			'// use f/lib/stats\n// use f/lib/dates\n// use f/lib/stats\n'

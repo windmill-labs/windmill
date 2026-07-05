@@ -671,20 +671,6 @@
 		}
 	},
 	{
-		"name": "macros wins over pipeline (in_pipeline forced false)",
-		"code": "// pipeline\n// macros\nCREATE MACRO dbl(a) AS a * 2;",
-		"expected": {
-			"in_pipeline": false,
-			"asset_triggers": [],
-			"native_triggers": [],
-			"partition": null,
-			"freshness": null,
-			"tag": null,
-			"retry": null,
-			"macros": true
-		}
-	},
-	{
 		"name": "macros with trailing prose is not a marker",
 		"code": "// macros are defined below\nCREATE MACRO dbl(a) AS a * 2;",
 		"expected": {
@@ -701,7 +687,7 @@
 		"name": "macros marker with sql comment prefix",
 		"code": "-- macros\n-- pipeline\nCREATE MACRO dbl(a) AS a * 2;",
 		"expected": {
-			"in_pipeline": false,
+			"in_pipeline": true,
 			"asset_triggers": [],
 			"native_triggers": [],
 			"partition": null,

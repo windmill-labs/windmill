@@ -458,8 +458,7 @@ export async function buildLocalPipelineGraph(args: {
   const all = await collectScripts(folderDir, args.root, args.defaultTs);
 
   // `// macros` DuckDB libraries across the whole workspace (a pipeline may use a
-  // shared library outside its folder). `// macros` wins over `// pipeline`, so a
-  // library is never a pipeline member — matching the backend parser precedence.
+  // shared library outside its folder).
   const libMacros = collectMacroLibraries(args.root);
 
   const runnables: GraphRunnable[] = [];
@@ -477,9 +476,27 @@ export async function buildLocalPipelineGraph(args: {
 
   for (const s of all) {
     const out = await inferScriptAssets(s.content, s.language);
-    // Not a member: no `// pipeline` marker, OR a `// macros` library (which the
-    // pinned wasm still reports as `in_pipeline` — apply the precedence here).
-    if (!out.in_pipeline || libMacros.has(s.path)) continue;
+    // A `// macros` library is a pipeline-member node carrying its macro
+    // signatures — whether or not any consumer uses it — matching the deployed
+    // graph, which marks every macro library `auto_kind='pipeline'`. It is
+    // definition-only (no assets/triggers, never run), so we add just the node;
+    // it is NOT a previewable script (excluded from `pipelineScripts`).
+    const macroLibDefs = libMacros.get(s.path);
+    if (macroLibDefs) {
+      runnables.push({
+        path: s.path,
+        usage_kind: "script",
+        in_pipeline: true,
+        ...(out.tag ? { tag: out.tag } : {}),
+        macros: macroLibDefs.map((m) => ({
+          name: m.name,
+          params: m.params,
+          is_table: m.isTable,
+        })),
+      });
+      continue;
+    }
+    if (!out.in_pipeline) continue; // not a pipeline member
     const retry = normalizeRetry(out.retry);
     const nativeTriggers = recoverHeaderNativeTriggers(s.content, s.language);
     // Carry the parsed `// tag` so previews route to the same worker the
@@ -663,10 +680,10 @@ function collectMacroLibraries(root: string): Map<string, ParsedMacro[]> {
   return out;
 }
 
-// Derive lib→consumer edges (lexical calls + `// use`) and add each referenced
-// library to `runnables` as a node with its signatures. Mirrors the deployed
-// `asset_graph`: libraries are workspace-wide, consumers folder-scoped, and an
-// unused library (no edge) is not surfaced.
+// Derive lib→consumer edges (lexical calls + `// use`). In-folder libraries are
+// already member nodes; this adds any out-of-folder provider referenced by an
+// in-folder consumer. Mirrors the deployed `asset_graph`: libraries resolve
+// workspace-wide, consumers are folder-scoped.
 function buildMacroEdges(
   all: LocalScript[],
   libMacros: Map<string, ParsedMacro[]>,
@@ -750,11 +767,14 @@ function buildMacroEdges(
       a.consumer_path.localeCompare(b.consumer_path),
     );
 
-  // A library node surfaces only when it is an edge provider (a consumer uses
-  // it); an unused library is not shown. Libraries are never pipeline members
-  // (`// macros` wins over `// pipeline`), so each is a fresh node here.
+  // In-folder libraries are already member nodes (added above with `in_pipeline`
+  // + macros). An OUT-OF-folder library referenced by an in-folder consumer is
+  // added here as a non-member provider node (no `in_pipeline`), matching the
+  // deployed graph, which folder-scopes membership but pulls the out-of-folder
+  // provider in as the edge's endpoint.
   const libPaths = new Set<string>(edges.map((e) => e.lib_path));
   for (const lib of libPaths) {
+    if (runnables.some((r) => r.path === lib)) continue;
     const macros = (libMacros.get(lib) ?? []).map((m) => ({
       name: m.name,
       params: m.params,
@@ -763,11 +783,10 @@ function buildMacroEdges(
     runnables.push({ path: lib, usage_kind: "script", macros });
   }
   // Force every edge's CONSUMER endpoint into the node set too, like the deployed
-  // builder, so no edge dangles at a missing runnable. A consumer that is itself
-  // a library was already tagged above; a non-pipeline DuckDB helper (or an
-  // in-folder library consuming another) is added as a bare node.
+  // builder, so no edge dangles at a missing runnable. Members and libraries are
+  // already nodes; only a non-member DuckDB helper (calls a macro but isn't
+  // `// pipeline` and isn't itself a library) needs a bare node here.
   for (const consumer of new Set(edges.map((e) => e.consumer_path))) {
-    if (libPaths.has(consumer)) continue;
     if (!runnables.some((r) => r.path === consumer)) {
       runnables.push({ path: consumer, usage_kind: "script" });
     }
