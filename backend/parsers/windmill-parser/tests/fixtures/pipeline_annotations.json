@@ -754,5 +754,20 @@
 			"tag": null,
 			"retry": null
 		}
+	},
+	{
+		"name": "s3 quad-slash trigger strips all leading slashes to the bare key",
+		"code": "// pipeline\n// on s3:////x\nexport function main() {}",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"s3object:x"
+			],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
 	}
 ]

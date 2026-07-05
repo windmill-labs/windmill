@@ -249,11 +249,12 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
     if (uri) {
       const prefix = uri[1].toLowerCase();
       const kind = prefix === "s3" ? "s3object" : prefix;
-      // Mirror Rust `parse_asset_syntax`: strip one leading slash from S3 keys
+      // Mirror Rust `parse_asset_syntax`: strip all leading slashes from S3 keys
       // so `s3:///key` (default storage) and `s3://key` / DuckDB canonicalize
-      // to the same node id — otherwise a go/bash fallback consumer's
-      // `// on s3:///x` would not connect to a wasm-inferred `x` producer.
-      const path = kind === "s3object" ? uri[2].replace(/^\//, "") : uri[2];
+      // to the same node id (and a canonical key never starts with `/`) —
+      // otherwise a go/bash fallback consumer's `// on s3:///x` would not
+      // connect to a wasm-inferred `x` producer.
+      const path = kind === "s3object" ? uri[2].replace(/^\/+/, "") : uri[2];
       out.triggers!.push({ kind: "asset", asset_kind: kind, path });
     } else if (NATIVE_KINDS.has(firstTok) && rest === firstTok) {
       // A native marker (`// on data_upload`) must stand alone: the canonical

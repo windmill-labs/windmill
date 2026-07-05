@@ -280,12 +280,15 @@ describe('assetUriToNodeId', () => {
 		expect(assetUriToNodeId('ducklake://lake/t')).toBe('ducklake:lake/t')
 		expect(assetUriToNodeId('not-a-uri')).toBeUndefined()
 	})
-	it('strips one leading slash from S3 keys so s3:/// and s3:// share a node', () => {
+	it('strips leading slashes from S3 keys so s3:/// and s3:// share a node', () => {
 		// Mirror of Rust `parse_asset_syntax`: `--to s3:///exports/x` must resolve
 		// to the same canonical node as the graph's `s3object:exports/x`.
 		expect(assetUriToNodeId('s3:///exports/x')).toBe('s3object:exports/x')
 		expect(assetUriToNodeId('s3:///exports/x')).toBe(assetUriToNodeId('s3://exports/x'))
-		// Only one slash; Hive-partition keys and non-S3 kinds are untouched.
+		// All leading slashes are stripped so a canonical key never starts with
+		// `/` (the quad-slash `S3Object(s3="/x")` form collapses to `x`).
+		expect(assetUriToNodeId('s3:////x')).toBe('s3object:x')
+		// Hive-partition keys and non-S3 kinds are untouched.
 		expect(assetUriToNodeId('s3:///t/y=2024/f.parquet')).toBe('s3object:t/y=2024/f.parquet')
 	})
 })

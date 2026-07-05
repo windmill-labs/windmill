@@ -206,10 +206,10 @@ export function assetUri(asset: { kind: AssetKind; path: string }): string {
 }
 
 // Bare object key for the SDK's `{ s3: <key> }` / `s3:///<key>` forms. Asset
-// paths are already canonical slashless keys; strip a stray leading slash
+// paths are already canonical slashless keys; strip stray leading slashes
 // defensively so the emitted key never starts with '/'.
 function s3Key(path: string): string {
-	return path.replace(/^\//, '')
+	return path.replace(/^\/+/, '')
 }
 
 // Splits a datatable asset path (`<db>/<table>` or `<db>/<schema>.<table>`)

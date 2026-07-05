@@ -582,15 +582,18 @@ pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(Asset
             // Canonicalize S3 keys to a single asset identity. The SDK object
             // form (`{ s3: "key" }` / `S3Object(s3="key")`, default storage)
             // resolves to `s3:///key`, whose path is `/key`, while DuckDB
-            // `s3://key` and `// on s3://key` yield the bare `key`. Strip a
+            // `s3://key` and `// on s3://key` yield the bare `key`. Strip every
             // leading slash so the triple-slash default-storage form and the
             // `s3://storage/key` form share one path — otherwise a TS/Python
             // writer and a DuckDB reader of the same object become disconnected
-            // nodes in the pipeline graph. Only a single leading slash is
-            // stripped, so Hive-partition keys (`s3://b/y=2024/f.parquet`) are
-            // untouched.
+            // nodes in the pipeline graph. Stripping ALL leading slashes (not
+            // just one) keeps the identity stable through URI reconstruction:
+            // `trigger_spec_to_row` rebuilds `s3://<path>`, so a canonical path
+            // must never itself start with `/` or the rebuilt ref would parse
+            // back to a different key. Only leading slashes are touched, so
+            // Hive-partition keys (`s3://b/y=2024/f.parquet`) are untouched.
             let path = if matches!(kind, AssetKind::S3Object) {
-                path.strip_prefix('/').unwrap_or(path)
+                path.trim_start_matches('/')
             } else {
                 path
             };
@@ -1263,11 +1266,24 @@ mod pipeline_annotation_tests {
             Some((AssetKind::S3Object, "mybucket/exports/x"))
         );
 
-        // Only a single leading slash is stripped, so Hive-partition keys and
-        // nested paths under default storage are preserved verbatim.
+        // Hive-partition keys and nested paths under default storage are
+        // preserved verbatim (only leading slashes are stripped).
         assert_eq!(
             parse_asset_syntax("s3:///t/year=2024/month=01/f.parquet", false),
             Some((AssetKind::S3Object, "t/year=2024/month=01/f.parquet"))
+        );
+
+        // Every leading slash is stripped so a canonical S3 path never starts
+        // with `/`. `S3Object(s3="/x")` resolves to the quad-slash URI
+        // `s3:////x`; the identity must be the bare `x` (not `/x`) so the ref
+        // that `trigger_spec_to_row` rebuilds round-trips back to it.
+        assert_eq!(
+            parse_asset_syntax("s3:////x", false),
+            Some((AssetKind::S3Object, "x"))
+        );
+        assert_eq!(
+            parse_asset_syntax("s3://///deep///", false),
+            Some((AssetKind::S3Object, "deep///"))
         );
 
         // Non-S3 kinds keep their leading slash (their paths are workspace-

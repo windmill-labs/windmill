@@ -369,6 +369,45 @@ mod debounce_duration_tests {
     }
 }
 
+#[cfg(test)]
+mod trigger_ref_roundtrip_tests {
+    use super::{parse_asset_trigger_ref, trigger_spec_to_row, AssetKind, ScriptTriggerKind};
+    use windmill_parser::asset_parser::{parse_asset_syntax, AssetKind as PAssetKind, TriggerSpec};
+
+    // `trigger_spec_to_row` rebuilds a stored ref as `s3://<path>`, and
+    // `parse_asset_trigger_ref` parses it back. The two must be inverse for
+    // every S3 URI form, or a consumer's `// on` trigger lands on a different
+    // graph node than the producer's inferred write. Because `parse_asset_syntax`
+    // strips ALL leading slashes, a canonical path never starts with `/`, so the
+    // naive `prefix + path` rebuild round-trips — including the `S3Object(s3="/x")`
+    // quad-slash case that previously desynced (path `/x` rebuilt to `s3:///x`,
+    // which re-parsed to `x`).
+    fn roundtrip(uri: &str) -> String {
+        let (pkind, path) = parse_asset_syntax(uri, false).expect("parse uri");
+        assert_eq!(pkind, PAssetKind::S3Object);
+        let spec = TriggerSpec::Asset { asset_kind: pkind, path: path.to_string(), debounce: None };
+        let (kind, stored) = trigger_spec_to_row(&spec).expect("to row");
+        assert_eq!(kind, ScriptTriggerKind::Asset);
+        let (rkind, rpath) = parse_asset_trigger_ref(&stored).expect("parse ref");
+        assert_eq!(rkind, AssetKind::S3Object);
+        // The producer path and the round-tripped consumer path must match.
+        assert_eq!(
+            rpath, path,
+            "round-trip diverged for {uri} (stored {stored})"
+        );
+        rpath
+    }
+
+    #[test]
+    fn s3_trigger_ref_roundtrips_for_every_uri_form() {
+        assert_eq!(roundtrip("s3:///exports/x"), "exports/x"); // SDK default storage
+        assert_eq!(roundtrip("s3://exports/x"), "exports/x"); // DuckDB / bare
+        assert_eq!(roundtrip("s3://mybucket/exports/x"), "mybucket/exports/x"); // explicit
+        assert_eq!(roundtrip("s3:////x"), "x"); // S3Object(s3="/x") quad-slash
+        assert_eq!(roundtrip("s3:///y=2024/f.parquet"), "y=2024/f.parquet"); // Hive
+    }
+}
+
 // Inverse of trigger_spec_to_row for the Asset variant: parses a stored
 // trigger_ref (e.g. `s3://foo`, `$res:bar`) back into the (kind, path) pair
 // used as a graph node id. Returns None for refs that don't match any known
