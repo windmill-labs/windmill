@@ -62,9 +62,18 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   error pointing to the `wmll.ducklake` helpers).
 - **`manual`** — escape hatch: the script writes its own DDL; Windmill only
   records state (no snapshot capture, no idempotency guarantee). Rare; explicit.
-- **`key=<col>`** → MERGE (dedup within slice, SCD type 1 — overwrites history);
-  **`append`** → INSERT-only; neither → DELETE-by-partition + INSERT (replace).
-  `append` wins over `key` if both are given (deploy warning).
+- **`key=<col>`** → MERGE (upsert-by-key within the slice, SCD type 1 —
+  overwrites history); **`append`** → INSERT-only; neither → DELETE-by-partition
+  + INSERT (replace). `append` wins over `key` if both are given (deploy warning).
+  - **Source must have unique keys.** The merge is delete-by-key + insert-all: it
+    reconciles the incoming rows against the *target* (rows whose key is in the
+    SELECT are replaced), but it does **not** deduplicate the *source*. Two
+    incoming rows sharing a key would therefore both land under that key, silently
+    breaking the "one row per key" contract. The managed write guards against this
+    — the run **fails** with a clear error when the SELECT returns more than one
+    row for a non-NULL key (`NULL` keys are exempt, matching the insert-only path).
+    Deduplicate in the SELECT (e.g. `QUALIFY row_number() OVER (PARTITION BY <key>
+    ORDER BY <recency-col> DESC) = 1`) or use `append` if duplicates are intended.
 - **`key=<col> history [track=<c1,c2,…>] [deletes=close]`** → upgrades the keyed
   merge to managed SCD **type 2** history (the leading keyword `scd2` is an alias).
   The SELECT is the *current snapshot* (one row per `key`), and the runtime adds
@@ -73,7 +82,9 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   history. Diff → close-old (`UPDATE`) → open-new (`INSERT`) in one transaction;
   the effective timestamp is the transaction clock (`now()`), so a run is
   self-consistent. v1 is **non-partitioned only** (`// partitioned` + history is
-  rejected). Unlike `manual`, it is managed, so `// data_test` and schema capture
+  rejected **at deploy**), and it **requires `key=`** (also rejected at deploy).
+  Both misconfigurations fail fast at save with a clear message instead of on the
+  first run. Unlike `manual`, it is managed, so `// data_test` and schema capture
   work.
   - **Deletes.** By default a key that disappears from the snapshot stays current
     (soft delete — dbt's `hard_deletes=ignore`). `deletes=close` opts into

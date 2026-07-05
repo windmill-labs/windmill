@@ -137,7 +137,9 @@ schema capture, and each run (re)creates a `<dim>_current` view; consumers get
 effective-dated joins via native `ASOF JOIN … >= valid_from`. Deletes follow dbt:
 soft by default (absent keys stay current), or `deletes=close` for
 `hard_deletes=close`. v1 is non-partitioned; partitioned history is a follow-up.
-See `ducklake-materialization.md`.
+Both misconfigurations — `history` without `key=`, and `history` + `//
+partitioned` — are rejected **at deploy** (fail-fast at save, not on the first
+run). See `ducklake-materialization.md`.
 
 ### 5. Selective execution grammar
 
@@ -433,6 +435,13 @@ You want `orders_daily` to hold the latest version per `order_id`.
 DELETE-by-partition + INSERT works only if you reprocess from a
 source-of-truth source. If you're consuming amendments and need dedup
 *within* the slice, you need MERGE on `order_id`, not DELETE on partition.
+
+Note the boundary: the keyed merge reconciles the incoming rows against the
+*target* (delete-by-key + insert), but it does not deduplicate the *source*.
+"Latest version per `order_id`" is still your SELECT's job — pick one row per
+key (e.g. `QUALIFY row_number() OVER (PARTITION BY order_id ORDER BY updated_at
+DESC) = 1`). A source that still has two rows for one key is rejected at run
+time rather than double-written (see `ducklake-materialization.md`).
 
 This is what dbt's `unique_key` does. Orthogonal to partitioning:
 `partitioned` answers "which slice?"; `unique_key` answers "how do I dedup
