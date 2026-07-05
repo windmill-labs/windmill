@@ -526,25 +526,48 @@ test("a non-pipeline DuckDB macro consumer is a display-only node, never a run s
   );
 });
 
-test("an UNUSED `// pipeline` + `// macros` library is still tagged with its macros", async () => {
-  // A DuckDB file can be both `// pipeline` and `// macros`. The deployed builder
-  // tags such a node with its macros even when no consumer uses it yet, so it's
-  // recognized as definition-only and never scheduled as a manual root. Local
-  // enrichment must do the same (otherwise `run --local` would run it).
+test("`// macros` wins over `// pipeline`: the library is never a pipeline member", async () => {
+  // A DuckDB file marked both `// pipeline` and `// macros` is treated as a
+  // definition-only library (mirrors the backend parser precedence). So an
+  // UNUSED such library is suppressed exactly like a plain `// macros` one — not
+  // a member node, hence never a run step.
   await withFolder(
     {
       "lib.duckdb.sql": `-- pipeline\n-- macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
       "root.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/out\nSELECT 1 AS v;\n`,
     },
     async (root, folder) => {
-      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
-      // the library node carries its macro signatures despite having no consumers
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      // unused library → suppressed (not a node), and never a previewable member
+      expect(graph.runnables.map((r) => r.path)).toEqual(["f/mypipe/root"]);
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/root"]);
+      expect(graph.macro_edges).toBeUndefined();
+    },
+  );
+});
+
+test("a USED `// pipeline` + `// macros` library appears as a library node (not a member)", async () => {
+  await withFolder(
+    {
+      "lib.duckdb.sql": `-- pipeline\n-- macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "root.duckdb.sql": `-- pipeline\n-- on datatable://main/t\nSELECT dbl(x) FROM main.t;\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      // the library surfaces as a node with its signatures (it's used) …
       expect(graph.runnables.find((r) => r.path === "f/mypipe/lib")?.macros).toEqual([
         { name: "dbl", params: "a", is_table: false },
       ]);
-      // no consumer → no macro edges, but the node is still marked (macros.length
-      // > 0 is what `pipeline run` uses to exclude it from the run selection)
-      expect(graph.macro_edges).toBeUndefined();
+      // … but is NOT a pipeline member: absent from the previewable `scripts` set
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/root"]);
+      expect(graph.macro_edges).toEqual([
+        {
+          lib_path: "f/mypipe/lib",
+          consumer_path: "f/mypipe/root",
+          macro_names: ["dbl"],
+          via_use: false,
+        },
+      ]);
     },
   );
 });

@@ -457,6 +457,11 @@ export async function buildLocalPipelineGraph(args: {
   const folderDir = path.join(args.root, "f", folderClean);
   const all = await collectScripts(folderDir, args.root, args.defaultTs);
 
+  // `// macros` DuckDB libraries across the whole workspace (a pipeline may use a
+  // shared library outside its folder). `// macros` wins over `// pipeline`, so a
+  // library is never a pipeline member — matching the backend parser precedence.
+  const libMacros = collectMacroLibraries(args.root);
+
   const runnables: GraphRunnable[] = [];
   const edges: GraphEdge[] = [];
   const triggers: GraphTrigger[] = [];
@@ -472,7 +477,9 @@ export async function buildLocalPipelineGraph(args: {
 
   for (const s of all) {
     const out = await inferScriptAssets(s.content, s.language);
-    if (!out.in_pipeline) continue; // not a pipeline member
+    // Not a member: no `// pipeline` marker, OR a `// macros` library (which the
+    // pinned wasm still reports as `in_pipeline` — apply the precedence here).
+    if (!out.in_pipeline || libMacros.has(s.path)) continue;
     const retry = normalizeRetry(out.retry);
     const nativeTriggers = recoverHeaderNativeTriggers(s.content, s.language);
     // Carry the parsed `// tag` so previews route to the same worker the
@@ -599,15 +606,6 @@ export async function buildLocalPipelineGraph(args: {
     }
   }
 
-  // `// macros` libraries + lib→consumer edges. The wasm asset parser drops the
-  // `// macros` / `// use` annotations and never emits a macro registry, so we
-  // derive both from the working tree here (see ./duckdbMacros.ts) to match the
-  // deployed graph, which records them at deploy. Libraries are discovered
-  // WORKSPACE-WIDE (not just this folder) — the deployed builder fetches the
-  // macro registry unfiltered so a shared library (e.g. `f/shared/stats`) is the
-  // provider endpoint of an in-folder consumer's edge; only consumers are
-  // folder-scoped. Macros are DuckDB-only.
-  const libMacros = collectMacroLibraries(args.root);
   const macroEdges = buildMacroEdges(all, libMacros, runnables);
 
   const assets = [...assetSet.entries()].map(([key, a]) => {
@@ -665,13 +663,10 @@ function collectMacroLibraries(root: string): Map<string, ParsedMacro[]> {
   return out;
 }
 
-// Resolve which of this folder's pipeline scripts call the workspace's macro
-// libraries (by lexical call detection + `// use` annotations), then (a) mutate
-// `runnables` to add each referenced library as a node carrying its macro
-// signatures, and (b) return the lib→consumer edges. Mirrors the deployed graph
-// builder (`asset_graph` in windmill-api-assets): libraries come from the
-// workspace-wide registry, consumers are folder-scoped, and a library node
-// appears only when it is an endpoint of at least one edge (unused → not shown).
+// Derive lib→consumer edges (lexical calls + `// use`) and add each referenced
+// library to `runnables` as a node with its signatures. Mirrors the deployed
+// `asset_graph`: libraries are workspace-wide, consumers folder-scoped, and an
+// unused library (no edge) is not surfaced.
 function buildMacroEdges(
   all: LocalScript[],
   libMacros: Map<string, ParsedMacro[]>,
@@ -755,28 +750,17 @@ function buildMacroEdges(
       a.consumer_path.localeCompare(b.consumer_path),
     );
 
-  // Tag library nodes with their macro signatures, like the deployed builder
-  // (which sets `macros` on any node whose path provides macros, edge or not).
-  // Two sources:
-  //   • every edge provider — added as a node if it isn't already one; and
-  //   • every library that is ALREADY a runnable (a `// pipeline` + `// macros`
-  //     script), even with no consumers yet — so it's recognized as
-  //     definition-only and never scheduled as a manual root.
-  // An unused NON-pipeline library stays absent (suppressed), matching deployed.
+  // A library node surfaces only when it is an edge provider (a consumer uses
+  // it); an unused library is not shown. Libraries are never pipeline members
+  // (`// macros` wins over `// pipeline`), so each is a fresh node here.
   const libPaths = new Set<string>(edges.map((e) => e.lib_path));
-  const existingPaths = new Set(runnables.map((r) => r.path));
-  for (const lib of libMacros.keys()) {
-    if (existingPaths.has(lib)) libPaths.add(lib);
-  }
   for (const lib of libPaths) {
     const macros = (libMacros.get(lib) ?? []).map((m) => ({
       name: m.name,
       params: m.params,
       is_table: m.isTable,
     }));
-    const existing = runnables.find((r) => r.path === lib);
-    if (existing) existing.macros = macros;
-    else runnables.push({ path: lib, usage_kind: "script", macros });
+    runnables.push({ path: lib, usage_kind: "script", macros });
   }
   // Force every edge's CONSUMER endpoint into the node set too, like the deployed
   // builder, so no edge dangles at a missing runnable. A consumer that is itself

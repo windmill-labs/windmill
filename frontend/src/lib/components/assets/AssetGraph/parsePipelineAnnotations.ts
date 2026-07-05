@@ -685,5 +685,9 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		}
 	}
 
+	// `// macros` wins over `// pipeline`: a macro library is definition-only,
+	// never a pipeline member. Mirrors the Rust parse_pipeline_annotations.
+	if (out.macros) out.inPipeline = false
+
 	return out
 }
