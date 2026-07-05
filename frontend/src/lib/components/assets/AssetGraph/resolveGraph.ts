@@ -266,9 +266,16 @@ function makeContext(input: ResolveGraphInput): ResolveContext {
 			// lives in an annotation (not the SQL body), so neither triggerAssets
 			// (inputs) nor the body-inferred assets cover it. Without this its
 			// persisted write-edge is judged stale and dropped the moment the
-			// script is selected/edited — leaving the output asset unlinked.
+			// script is selected/edited — leaving the output asset unlinked. A
+			// managed scd2 producer persists a second write to the `<dim>_current`
+			// companion view, so keep that too or a consumer of only the view
+			// orphans while the producer is open for editing.
 			const m = liveAnnotations.annotations.materialize
-			if (m) liveRefKeys.add(`${m.targetKind}:${m.targetPath}`)
+			if (m) {
+				liveRefKeys.add(`${m.targetKind}:${m.targetPath}`)
+				const currentPath = scd2CurrentTargetPath(m)
+				if (currentPath) liveRefKeys.add(`${m.targetKind}:${currentPath}`)
+			}
 		}
 		for (const a of liveBodyAssets.assets) liveRefKeys.add(`${a.kind}:${a.path}`)
 	}

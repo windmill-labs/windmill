@@ -385,6 +385,55 @@ describe('resolveGraph', () => {
 		expect(r.edges.some((e) => e.asset_path === 'main/out' && e.access_type === 'w')).toBe(true)
 	})
 
+	it('editing a saved scd2 producer keeps both the base and _current persisted write edges', () => {
+		// Deploy persists a write to both `main/dim` and `main/dim_current`.
+		// Opening the producer for editing must not judge the companion `_current`
+		// write stale — otherwise a consumer of only the view orphans mid-edit.
+		const base = baseGraph({
+			runnables: [{ path: 'f/x/dim', usage_kind: 'script' }],
+			edges: [
+				{
+					runnable_path: 'f/x/dim',
+					runnable_kind: 'script',
+					asset_kind: 'ducklake',
+					asset_path: 'main/dim_customers',
+					access_type: 'w'
+				},
+				{
+					runnable_path: 'f/x/dim',
+					runnable_kind: 'script',
+					asset_kind: 'ducklake',
+					asset_path: 'main/dim_customers_current',
+					access_type: 'w'
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: {
+					scriptPath: 'f/x/dim',
+					annotations: ann({
+						materialize: {
+							targetKind: 'ducklake',
+							targetPath: 'main/dim_customers',
+							uniqueKey: 'id',
+							scd2: true
+						}
+					})
+				},
+				liveBodyAssets: { scriptPath: 'f/x/dim', assets: [] }
+			})
+		)
+		for (const path of ['main/dim_customers', 'main/dim_customers_current']) {
+			expect(
+				r.edges.some(
+					(e) => e.runnable_path === 'f/x/dim' && e.asset_path === path && e.access_type === 'w'
+				)
+			).toBe(true)
+		}
+	})
+
 	it('selecting a saved script unchanged drops nothing (no stale removal)', () => {
 		const base = baseGraph({
 			runnables: [{ path: 'f/x/prod', usage_kind: 'script' }],
