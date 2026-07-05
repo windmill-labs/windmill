@@ -796,25 +796,55 @@ pub enum DataTableCatalogResourceType {
     Instance,
 }
 
+/// Build a self-teaching error for an unresolved `datatable://<name>` reference.
+/// The raw "not found" gives the user no way forward — the datatable substrate has
+/// no auto-provisioning (unlike a DuckLake catalog), so the fix is always to create
+/// one in workspace settings. Surface the available names (to catch typos) and point
+/// at the settings page so the message is actionable wherever it bubbles up
+/// (pipeline `ATTACH`, schema fetch, postgres executor, ...).
+fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>) -> Error {
+    let available: Vec<&str> = datatables
+        .and_then(|d| d.as_object())
+        .map(|o| o.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let hint = if available.is_empty() {
+        "No data table is configured in this workspace yet.".to_string()
+    } else {
+        format!("Configured data tables: {}.", available.join(", "))
+    };
+
+    Error::NotFound(format!(
+        "Data table '{name}' not found. {hint} \
+         Create one in workspace settings under the \"Data tables\" tab \
+         (/workspace_settings?tab=windmill_data_tables) — the name \"main\" is the default \
+         used by `datatable://main`."
+    ))
+}
+
 pub async fn get_datatable_resource_from_db_unchecked(
     db: &DB,
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
-    let datatable = sqlx::query_scalar!(
+    let datatables = sqlx::query_scalar!(
         r#"
-            SELECT ws.datatable->'datatables'->$2 AS config
+            SELECT ws.datatable->'datatables' AS datatables
             FROM workspace_settings ws
             WHERE ws.workspace_id = $1
         "#,
         &w_id,
-        name
     )
     .fetch_one(db)
     .await
-    .map_err(|err| Error::internal_err(format!("getting datatable {name}: {err}")))?
-    .ok_or_else(|| Error::internal_err(format!("datatable {name} not found")))?;
-    let datatable = serde_json::from_value::<DataTable>(datatable)?;
+    .map_err(|err| Error::internal_err(format!("getting datatable {name}: {err}")))?;
+
+    let datatable = datatables
+        .as_ref()
+        .and_then(|d| d.get(name))
+        .filter(|v| !v.is_null())
+        .ok_or_else(|| datatable_not_found_error(name, datatables.as_ref()))?;
+    let datatable = serde_json::from_value::<DataTable>(datatable.clone())?;
 
     let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
     {
@@ -1978,5 +2008,25 @@ mod tests {
             strip_fork_reserved_attach_args("METADATA_SCHEMA 'wm_fork_evil'"),
             ""
         );
+    }
+
+    #[test]
+    fn test_datatable_not_found_error_no_datatables() {
+        let msg = datatable_not_found_error("main", None).to_string();
+        assert!(msg.contains("'main' not found"), "{msg}");
+        assert!(msg.contains("No data table is configured"), "{msg}");
+        // Always signposts the settings tab so the message is actionable.
+        assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
+    }
+
+    #[test]
+    fn test_datatable_not_found_error_lists_available() {
+        let configured = serde_json::json!({ "analytics": {}, "staging": {} });
+        let msg = datatable_not_found_error("main", Some(&configured)).to_string();
+        assert!(msg.contains("'main' not found"), "{msg}");
+        // Surface configured names to catch typos.
+        assert!(msg.contains("analytics"), "{msg}");
+        assert!(msg.contains("staging"), "{msg}");
+        assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
     }
 }
