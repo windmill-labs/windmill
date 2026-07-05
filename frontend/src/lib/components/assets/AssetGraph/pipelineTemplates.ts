@@ -17,6 +17,7 @@ export type PipelineOutputKind =
 	| 'datatable'
 	| 'ducklake'
 	| 'materialize'
+	| 'data_test'
 	| 's3_parquet'
 	| 's3_object'
 	| 'macros'
@@ -36,6 +37,11 @@ export const PIPELINE_OUTPUT_KINDS: PipelineOutputKindMeta[] = [
 		id: 'materialize',
 		label: 'Materialized table',
 		description: 'Managed DuckLake table — idempotent, versioned, tracked'
+	},
+	{
+		id: 'data_test',
+		label: 'Data test',
+		description: 'Custom assertion — a single SELECT returning offending rows (empty = pass)'
 	},
 	{
 		id: 'datatable',
@@ -83,7 +89,16 @@ const LANG_COMPATIBILITY: Record<ScriptLang, PipelineOutputKind[]> = {
 	// single SELECT. The Python/TS `wmll.ducklake` helper currently takes a SQL
 	// SELECT (not in-memory rows), so a polyglot managed materialize is a
 	// separate follow-up — those langs keep the `ducklake` raw-write kind.
-	duckdb: ['materialize', 'datatable', 'ducklake', 's3_parquet', 's3_object', 'macros', 'none'],
+	duckdb: [
+		'materialize',
+		'data_test',
+		'datatable',
+		'ducklake',
+		's3_parquet',
+		's3_object',
+		'macros',
+		'none'
+	],
 	postgresql: ['datatable', 'none'],
 	mysql: ['none'],
 	mssql: ['none'],
@@ -183,8 +198,10 @@ export function autoOutputAsset(
 			}
 		}
 		// A macro library produces no asset — its "output" is the registry
-		// entries the deploy records.
+		// entries the deploy records. A custom data test produces no asset
+		// either — it asserts against an existing materialized target.
 		case 'macros':
+		case 'data_test':
 		case 'none':
 			return undefined
 	}
@@ -316,6 +333,17 @@ export type TemplateContext = {
 function header(ctx: TemplateContext): string {
 	const { language, triggers, output, outputKind } = ctx
 	const p = commentPrefix(language)
+	// A custom data test is a standalone script, not a graph node that produces
+	// an asset — so it gets no `// pipeline` / output annotation. Instead, tell
+	// the author how to wire it up (the `data_test` reference) and the two rules
+	// that aren't obvious: single SELECT, returning the offending rows.
+	if (outputKind === 'data_test') {
+		return [
+			`${p} Custom data test — reference it from a materialize script with \`${p} data_test <this-script-path>\`.`,
+			`${p} It must be a single SELECT returning the offending rows; the run fails if any row comes back.`,
+			''
+		].join('\n')
+	}
 	const lines = triggers.map((t) => {
 		switch (t.kind) {
 			case 'asset':
@@ -544,6 +572,22 @@ function bodyPython(ctx: TemplateContext): string {
 function bodyDuckdb(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
 	const dataUpload = isDataUpload(ctx.triggers)
+	if (outputKind === 'data_test') {
+		// Standalone custom data test: it reads ONLY the freshly-materialized
+		// target, which the runtime attaches under the internal `_wm_target`
+		// schema — so it emits no ATTACH / input load of its own. When the test
+		// was created off a ducklake asset, seed its table name; otherwise a
+		// clear placeholder. This exact shape (single SELECT vs `_wm_target`) is
+		// what the backend's self-teaching errors ask for.
+		const testTable = input?.kind === 'ducklake' ? catalogTableRef(input.path) : 'your_table'
+		return [
+			'',
+			`-- Return the rows that VIOLATE your assertion; an empty result means the test passes.`,
+			`-- \`_wm_target\` is the freshly-materialized target, attached by the runtime.`,
+			`SELECT * FROM _wm_target.${testTable} WHERE your_condition;`,
+			''
+		].join('\n')
+	}
 	const lines: string[] = []
 	if (dataUpload) {
 		// `(s3object)` param declaration → the run form renders the S3 picker

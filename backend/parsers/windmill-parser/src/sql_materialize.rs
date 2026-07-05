@@ -1220,6 +1220,28 @@ fn sample_star(ctx: &DataTestCtx, qualifier: Option<&str>) -> String {
     }
 }
 
+// Self-teaching tail appended to every malformed-custom-test error. It states
+// the two rules that aren't documented or scaffolded anywhere else — the body
+// is a single SELECT, and it reads the freshly-materialized target through the
+// internal `_wm_target.<table>` alias — and doubles that alias into a copyable
+// one-line example. `target_qualified` is already `_wm_target.<table>`.
+fn custom_test_hint(target_qualified: &str) -> String {
+    format!(
+        "Write a single SELECT against `{target_qualified}` returning the offending rows, e.g. \
+         `SELECT * FROM {target_qualified} WHERE <condition>` — an empty result means the test \
+         passes."
+    )
+}
+
+// Whether a custom-test statement reads the materialized target through the
+// reserved `_wm_target` alias (the only handle the runtime attaches it under).
+// SQL identifiers are case-insensitive, so match case-insensitively;
+// `split_statements` has already stripped comments, so a match here is a real
+// reference, not one buried in a comment. `TARGET_ALIAS` is lowercase.
+fn references_target(stmt: &str) -> bool {
+    stmt.to_lowercase().contains(TARGET_ALIAS)
+}
+
 /// Compile resolved data tests into ATTACH statements + per-test checks for
 /// `ctx`'s target. Pure: returns SQL text, executes nothing. Errors carry an
 /// actionable message (e.g. a relationships target that isn't an attachable
@@ -1351,24 +1373,44 @@ pub fn build_data_test_checks(
             }
             DataTestResolved::Custom { path, body } => {
                 // dbt singular-test convention: the body is a *single* SELECT
-                // (or CTE) returning the violating rows. It is embedded as a
-                // subquery (`FROM (<body>)`), so a multi-statement body would
-                // produce invalid SQL — validate up front with an actionable
-                // error. It runs in the target's connection (can read
-                // `_wm_target` + the user's attaches); partition substitution is
-                // already applied by the worker.
+                // (or CTE) returning the violating rows, reading the
+                // freshly-materialized target through the internal `_wm_target`
+                // schema. It is embedded as a subquery (`FROM (<body>)`), so a
+                // multi-statement or non-SELECT body would produce invalid SQL.
+                // Neither rule is documented or scaffolded elsewhere, so the
+                // errors are self-teaching: they name the exact violation and
+                // append a correct one-line example. It runs in the target's
+                // connection (can read `_wm_target` + the user's attaches);
+                // partition substitution is already applied by the worker.
+                let hint = custom_test_hint(t);
                 let stmts = split_statements(body);
                 if stmts.is_empty() {
-                    return Err(format!("data_test custom `{path}`: empty test body"));
+                    return Err(format!(
+                        "data_test custom `{path}`: empty test body. {hint}"
+                    ));
                 }
                 if stmts.len() > 1 {
                     return Err(format!(
-                        "data_test custom `{path}`: must be a single SELECT returning the \
-                         violating rows (found {} statements)",
+                        "data_test custom `{path}`: a custom data test must be a single SELECT, \
+                         but found {} statements. {hint}",
                         stmts.len()
                     ));
                 }
-                push_check(&mut out, format!("custom({path})"), stmts[0].to_string());
+                let stmt = &stmts[0];
+                if classify_block(stmt) != BlockClass::Output {
+                    return Err(format!(
+                        "data_test custom `{path}`: a custom data test must be a single SELECT, \
+                         not a write or DDL statement. {hint}"
+                    ));
+                }
+                if !references_target(stmt) {
+                    return Err(format!(
+                        "data_test custom `{path}`: the test never reads the freshly-materialized \
+                         target — reference it through the internal `{TARGET_ALIAS}` schema (as \
+                         `{t}`), not the table name on its own. {hint}"
+                    ));
+                }
+                push_check(&mut out, format!("custom({path})"), stmt.to_string());
             }
         }
     }
@@ -2279,13 +2321,85 @@ mod tests {
     #[test]
     fn data_test_custom_rejects_multi_statement_body() {
         // The body is embedded as a subquery, so a setup-then-SELECT body would
-        // produce invalid SQL — reject it up front with an actionable error.
+        // produce invalid SQL — reject it up front with a self-teaching error
+        // that names the violation and shows the correct single-SELECT shape.
         let tests = vec![DataTestResolved::Custom {
             path: "f/tests/amount".into(),
             body: "SET threads = 1; SELECT * FROM _wm_target.orders WHERE amount < 0".into(),
         }];
         let err = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap_err();
         assert!(err.contains("single SELECT"), "unexpected error: {err}");
+        assert!(
+            err.contains("found 2 statements"),
+            "unexpected error: {err}"
+        );
+        // the copyable example points at the internal target alias.
+        assert!(
+            err.contains("SELECT * FROM _wm_target.orders WHERE <condition>"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn data_test_custom_rejects_non_select_body() {
+        // A write/DDL body can't be embedded as `FROM (<body>)`; the error must
+        // say so and teach the single-SELECT convention.
+        let tests = vec![DataTestResolved::Custom {
+            path: "f/tests/amount".into(),
+            body: "DELETE FROM _wm_target.orders WHERE amount < 0".into(),
+        }];
+        let err = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap_err();
+        assert!(err.contains("single SELECT"), "unexpected error: {err}");
+        assert!(
+            err.contains("SELECT * FROM _wm_target.orders WHERE <condition>"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn data_test_custom_rejects_wrong_target_alias() {
+        // Referencing the target by its bare table name (not `_wm_target.<table>`)
+        // is the most common custom-test mistake — the runtime only attaches the
+        // freshly-materialized target under `_wm_target`, so the query would fail
+        // at runtime. Catch it at codegen with a self-teaching error.
+        let tests = vec![DataTestResolved::Custom {
+            path: "f/tests/amount".into(),
+            body: "SELECT * FROM orders WHERE amount < 0".into(),
+        }];
+        let err = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap_err();
+        assert!(err.contains("_wm_target"), "unexpected error: {err}");
+        assert!(
+            err.contains("SELECT * FROM _wm_target.orders WHERE <condition>"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn data_test_custom_accepts_from_first_and_uppercased_alias() {
+        // DuckDB's FROM-first syntax is a valid Output, and the alias match is
+        // case-insensitive (SQL identifiers are), so this passes.
+        let tests = vec![DataTestResolved::Custom {
+            path: "f/tests/amount".into(),
+            body: "FROM _WM_TARGET.orders WHERE amount < 0".into(),
+        }];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        assert!(sql.checks[0]
+            .probe
+            .contains("FROM (FROM _WM_TARGET.orders WHERE amount < 0) _wm_v"));
+    }
+
+    #[test]
+    fn data_test_custom_empty_body_teaches_shape() {
+        let tests = vec![DataTestResolved::Custom {
+            path: "f/tests/amount".into(),
+            body: "   \n-- just a comment\n".into(),
+        }];
+        let err = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap_err();
+        assert!(err.contains("empty test body"), "unexpected error: {err}");
+        assert!(
+            err.contains("SELECT * FROM _wm_target.orders WHERE <condition>"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
