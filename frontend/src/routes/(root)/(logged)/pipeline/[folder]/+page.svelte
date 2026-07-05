@@ -1643,11 +1643,16 @@
 		}
 	}
 
-	// Every pipeline script, for the always-visible header "Run pipeline" control.
-	// Per-node runs are hover/select-gated on the canvas; this pipeline-level
-	// affordance runs the whole graph without hunting for a root node to hover.
+	// Every pipeline-member script, for the always-visible header "Run pipeline"
+	// control. Per-node runs are hover/select-gated on the canvas; this
+	// pipeline-level affordance runs the whole graph without hunting for a root
+	// node to hover. Gated on `in_pipeline` so it never launches dependency-only
+	// endpoints the graph surfaces for context (macro libraries, custom
+	// data-test scripts, out-of-folder producers) — only actual pipeline steps.
 	let allPipelineScripts = $derived(
-		displayGraph.runnables.filter((r) => r.usage_kind === 'script').map((r) => r.path)
+		displayGraph.runnables
+			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
+			.map((r) => r.path)
 	)
 	// Run the whole pipeline: hand every script to the bounded-cascade engine,
 	// which topo-orders them (roots first) and fans downstream — i.e. run + all
@@ -2136,7 +2141,10 @@
 				<Button
 					variant="accent-secondary"
 					unifiedSize="sm"
-					startIcon={{ icon: cascadeRunningRoot ? Loader2 : Play }}
+					startIcon={{
+						icon: cascadeRunningRoot ? Loader2 : Play,
+						classes: cascadeRunningRoot ? 'animate-spin' : undefined
+					}}
 					onclick={runWholePipeline}
 					disabled={!!cascadeRunningRoot}
 					title={cascadeRunningRoot

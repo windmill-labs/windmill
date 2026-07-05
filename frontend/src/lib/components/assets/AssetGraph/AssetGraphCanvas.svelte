@@ -328,8 +328,17 @@
 		// data-test outcome badge. Tests only assert on ducklake `// materialize`
 		// targets (v1), so guard status is a ducklake-only concept below.
 		const producerHasTests = new Set<string>()
+		// Producer → its declared `// materialize` target, so a multi-output
+		// producer's guard badge lands only on the table its tests assert on —
+		// not on its other ducklake outputs. Mirrors the write-edge badge anchor.
+		const guardMaterializeTarget = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['materialize_target']>
+		>()
 		for (const r of g.runnables) {
 			if (r.data_tests && r.data_tests.length > 0) producerHasTests.add(`${r.usage_kind}:${r.path}`)
+			if (r.materialize_target)
+				guardMaterializeTarget.set(`${r.usage_kind}:${r.path}`, r.materialize_target)
 		}
 
 		for (const a of g.assets) {
@@ -342,6 +351,12 @@
 				for (const p of producersByAsset.get(`${a.kind}:${a.path}`) ?? []) {
 					const rid = `${p.kind}:${p.path}`
 					if (!producerHasTests.has(rid)) continue
+					// Tests assert on the producer's `// materialize` target; when the
+					// producer declares one, only that table is guarded (a multi-output
+					// producer must not badge its other ducklake writes). No declared
+					// target → single-output producer, so its lone ducklake write is it.
+					const mt = guardMaterializeTarget.get(rid)
+					if (mt && !(mt.kind === a.kind && mt.path === a.path)) continue
 					dataTestGuarded = true
 					if (runStates?.get(rid)?.status === 'failure') producerFailed = true
 				}
