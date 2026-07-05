@@ -797,6 +797,25 @@ enum TriggerEdge {
     },
 }
 
+// Ordering-only "must-run-after" edge: `runnable_path`'s data test reads
+// `asset` (a `// data_test relationships` ref, or a custom test whose body
+// reads a known pipeline asset), so the asset's in-pipeline producer must
+// materialize before `runnable_path` runs. NOT a data-consumption edge — the
+// tested script doesn't ingest the asset's rows, it only needs the table to
+// exist at test time. Rendered dashed (like macro edges) and fed into the
+// cascade topo-sort so a cold cascade orders the referenced dimension first.
+// Only emitted when the referenced asset has a producer in the graph; an
+// external table (no producer) adds no edge — the runtime error stands.
+#[derive(Serialize, Debug)]
+struct TestEdge {
+    producer_kind: AssetUsageKind,
+    producer_path: String,
+    runnable_kind: AssetUsageKind,
+    runnable_path: String,
+    asset_kind: AssetKind,
+    asset_path: String,
+}
+
 #[derive(Serialize, Debug)]
 struct AssetGraphResponse {
     assets: Vec<GraphAssetNode>,
@@ -805,6 +824,8 @@ struct AssetGraphResponse {
     triggers: Vec<TriggerEdge>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     macro_edges: Vec<MacroEdge>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    test_edges: Vec<TestEdge>,
 }
 
 async fn asset_graph(
@@ -1257,6 +1278,102 @@ async fn asset_graph(
         runnable_set.insert((AssetUsageKind::Script, e.consumer_path.clone()));
     }
 
+    // Data-test ordering edges. A `// data_test relationships <col> -> <asset>`
+    // (and, best-effort, a custom `// data_test <script>` whose body reads a
+    // pipeline asset) needs the referenced asset materialized before the tested
+    // script runs — but that dependency is otherwise absent from the execution
+    // DAG, so a cold cascade can run the tested script first and hard-fail
+    // ("Catalog Error: Table … does not exist"). Resolve the referenced asset's
+    // producer(s) from the write edges built above and add an ordering-only
+    // edge producer → testing_script. No producer (external table) ⇒ no edge.
+    let mut producers_by_asset: std::collections::HashMap<
+        (AssetKind, String),
+        Vec<(AssetUsageKind, String)>,
+    > = Default::default();
+    for e in &edges {
+        if matches!(e.access_type.as_deref(), Some("w") | Some("rw")) {
+            producers_by_asset
+                .entry((e.asset_kind, e.asset_path.clone()))
+                .or_default()
+                .push((e.runnable_kind, e.runnable_path.clone()));
+        }
+    }
+    // Assets a runnable reads, keyed by (usage_kind, path) — used to order a
+    // custom-test *script*'s producers before whichever member declares
+    // `// data_test <path>`. Keyed on the kind too because a flow can share a
+    // script's path; `// data_test <path>` resolves a deployed script body, so
+    // the lookup below pins `Script` and never pulls a same-path flow's reads.
+    let mut reads_by_runnable: std::collections::HashMap<
+        (AssetUsageKind, String),
+        Vec<(AssetKind, String)>,
+    > = Default::default();
+    for e in &edges {
+        if matches!(e.access_type.as_deref(), None | Some("r") | Some("rw")) {
+            reads_by_runnable
+                .entry((e.runnable_kind, e.runnable_path.clone()))
+                .or_default()
+                .push((e.asset_kind, e.asset_path.clone()));
+        }
+    }
+    let mut test_edges: Vec<TestEdge> = Vec::new();
+    // Dedup on (producer, tested_script, asset) so several tests referencing the
+    // same asset, or a repeated producer, yield one edge.
+    let mut seen_test_edges: std::collections::HashSet<(String, String, AssetKind, String)> =
+        Default::default();
+    for (member_path, ann) in &annotations_by_path {
+        for dt in &ann.data_tests {
+            use windmill_common::assets::DataTest;
+            let referenced: Vec<(AssetKind, String)> = match dt {
+                DataTest::Relationships { to_kind, to_path, .. } => {
+                    vec![(
+                        windmill_common::assets::asset_kind_from_parser(*to_kind),
+                        to_path.clone(),
+                    )]
+                }
+                // Best-effort: the custom test *script*'s parsed reads. Reading
+                // the member's OWN output resolves to the member as producer and
+                // is dropped by the self-edge guard below.
+                DataTest::Custom { path } => reads_by_runnable
+                    .get(&(AssetUsageKind::Script, path.clone()))
+                    .cloned()
+                    .unwrap_or_default(),
+                _ => vec![],
+            };
+            for (asset_kind, asset_path) in referenced {
+                let Some(producers) = producers_by_asset.get(&(asset_kind, asset_path.clone()))
+                else {
+                    continue;
+                };
+                for (producer_kind, producer_path) in producers {
+                    // Skip a self-edge: the tested script produces the asset it
+                    // tests (a materialize + relationships/custom on its own output).
+                    if *producer_kind == AssetUsageKind::Script && producer_path == member_path {
+                        continue;
+                    }
+                    if seen_test_edges.insert((
+                        producer_path.clone(),
+                        member_path.clone(),
+                        asset_kind,
+                        asset_path.clone(),
+                    )) {
+                        test_edges.push(TestEdge {
+                            producer_kind: *producer_kind,
+                            producer_path: producer_path.clone(),
+                            runnable_kind: AssetUsageKind::Script,
+                            runnable_path: member_path.clone(),
+                            asset_kind,
+                            asset_path: asset_path.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    for e in &test_edges {
+        runnable_set.insert((e.producer_kind, e.producer_path.clone()));
+        runnable_set.insert((e.runnable_kind, e.runnable_path.clone()));
+    }
+
     // Fork data-environment state per ducklake asset. The parent's rows are read on the plain
     // pool: fork membership does not imply parent membership, and defer already exposes the
     // parent's data to fork jobs — surfacing its materialization status is strictly less.
@@ -1421,6 +1538,7 @@ async fn asset_graph(
         edges,
         triggers,
         macro_edges,
+        test_edges,
     }))
 }
 

@@ -70,10 +70,17 @@ export type LineageDag = {
  *   - producer script → asset   (write / rw edges)
  *   - asset → reader script      (pure-read edges — a data dependency)
  *   - asset → subscriber script  (`// on <asset>` triggers)
+ *   - asset → testing script     (`// data_test` ordering edges)
  *
  * An `rw` edge is treated as production only (script → asset); emitting the
  * reverse asset → script too would make every upsert a 2-cycle through its own
  * asset.
+ *
+ * `test_edges` are modeled through the referenced asset (asset → testing
+ * script), NOT as a direct producer → testing-script hop: the producer already
+ * has a write edge to that asset, so this yields producer → asset → testing
+ * script and keeps the two-hop (script → asset → script) invariant that
+ * `buildLineageDownstreamMap` relies on.
  */
 export function buildLineageDag(g: AssetGraphResponse): LineageDag {
 	const down = new Map<string, Set<string>>()
@@ -105,6 +112,13 @@ export function buildLineageDag(g: AssetGraphResponse): LineageDag {
 	}
 	for (const t of g.triggers ?? []) {
 		if (t.trigger_kind !== 'asset' || t.runnable_kind !== 'script') continue
+		addEdge(assetKey(t), scriptNodeId(t.runnable_path))
+	}
+	// Data-test ordering edges: the referenced asset must exist before the
+	// tested script runs. Routed through the asset node so the existing
+	// producer → asset write edge extends into producer → asset → testing script.
+	for (const t of g.test_edges ?? []) {
+		if (t.runnable_kind !== 'script') continue
 		addEdge(assetKey(t), scriptNodeId(t.runnable_path))
 	}
 
