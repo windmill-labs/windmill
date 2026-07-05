@@ -2004,12 +2004,10 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
 }
 
 // Read backend/windmill-duckdb-ffi-internal/README_DEV.md for details about why we use FFI
-// The FFI returns errors as `ERROR <json-encoded-message>`: the DuckDB error
-// string is `serde_json::to_string`'d, so it arrives wrapped in quotes with
-// newlines/quotes escaped. Decode it back to the raw message so multi-line
-// errors — e.g. the write-audit-publish data-test ✓/✗ breakdown — render with
-// real newlines and no stray quoting. Falls back to the raw slice if it is not
-// a JSON string (defensive; the FFI always JSON-encodes).
+// The FFI returns errors as `ERROR <json-encoded-message>` (the message is
+// serde_json::to_string'd). Decode the JSON string back so multi-line errors
+// render with real newlines, not escaped `\n` inside wrapping quotes; fall back
+// to the raw slice if it is somehow not a JSON string.
 fn decode_ffi_error(result_str: &str) -> String {
     let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
     serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
