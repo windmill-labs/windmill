@@ -755,12 +755,19 @@ function buildMacroEdges(
       a.consumer_path.localeCompare(b.consumer_path),
     );
 
-  // Force BOTH endpoints of every edge into the node set, like the deployed
-  // builder. A provider library carries its macro signatures (enriched in place
-  // if it is already a `// pipeline` runnable). A consumer that is not already a
-  // runnable — a non-pipeline DuckDB helper, or an in-folder library consuming
-  // another — is added as a bare node so no edge dangles at a missing runnable.
-  const libPaths = new Set(edges.map((e) => e.lib_path));
+  // Tag library nodes with their macro signatures, like the deployed builder
+  // (which sets `macros` on any node whose path provides macros, edge or not).
+  // Two sources:
+  //   • every edge provider — added as a node if it isn't already one; and
+  //   • every library that is ALREADY a runnable (a `// pipeline` + `// macros`
+  //     script), even with no consumers yet — so it's recognized as
+  //     definition-only and never scheduled as a manual root.
+  // An unused NON-pipeline library stays absent (suppressed), matching deployed.
+  const libPaths = new Set<string>(edges.map((e) => e.lib_path));
+  const existingPaths = new Set(runnables.map((r) => r.path));
+  for (const lib of libMacros.keys()) {
+    if (existingPaths.has(lib)) libPaths.add(lib);
+  }
   for (const lib of libPaths) {
     const macros = (libMacros.get(lib) ?? []).map((m) => ({
       name: m.name,
@@ -771,8 +778,11 @@ function buildMacroEdges(
     if (existing) existing.macros = macros;
     else runnables.push({ path: lib, usage_kind: "script", macros });
   }
+  // Force every edge's CONSUMER endpoint into the node set too, like the deployed
+  // builder, so no edge dangles at a missing runnable. A consumer that is itself
+  // a library was already tagged above; a non-pipeline DuckDB helper (or an
+  // in-folder library consuming another) is added as a bare node.
   for (const consumer of new Set(edges.map((e) => e.consumer_path))) {
-    // A consumer that is itself a library was already added above (with macros).
     if (libPaths.has(consumer)) continue;
     if (!runnables.some((r) => r.path === consumer)) {
       runnables.push({ path: consumer, usage_kind: "script" });

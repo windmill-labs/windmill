@@ -526,6 +526,29 @@ test("a non-pipeline DuckDB macro consumer is a display-only node, never a run s
   );
 });
 
+test("an UNUSED `// pipeline` + `// macros` library is still tagged with its macros", async () => {
+  // A DuckDB file can be both `// pipeline` and `// macros`. The deployed builder
+  // tags such a node with its macros even when no consumer uses it yet, so it's
+  // recognized as definition-only and never scheduled as a manual root. Local
+  // enrichment must do the same (otherwise `run --local` would run it).
+  await withFolder(
+    {
+      "lib.duckdb.sql": `-- pipeline\n-- macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "root.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/out\nSELECT 1 AS v;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      // the library node carries its macro signatures despite having no consumers
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/lib")?.macros).toEqual([
+        { name: "dbl", params: "a", is_table: false },
+      ]);
+      // no consumer → no macro edges, but the node is still marked (macros.length
+      // > 0 is what `pipeline run` uses to exclude it from the run selection)
+      expect(graph.macro_edges).toBeUndefined();
+    },
+  );
+});
+
 test("`#`-comment languages (ruby) use the `#` annotation fallback (no wasm parser)", async () => {
   await withFolder(
     { "ingest.rb": `# pipeline\n# on s3://demo/raw.csv\nputs "hi"\n` },
