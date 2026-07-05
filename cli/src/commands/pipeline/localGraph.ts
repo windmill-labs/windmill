@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import { loadParser } from "../../utils/metadata.ts";
+import * as log from "../../core/log.ts";
 import { exts, removeExtensionToPath } from "../script/script.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { getWmillYamlPath } from "../../core/conf.ts";
@@ -339,6 +340,13 @@ export async function inferScriptAssets(
   return out;
 }
 
+// A missing/broken wasm asset parser degrades every script to the
+// annotation-only fallback: the graph keeps `// on` edges but silently loses
+// all inferred writes (materialize targets, COPY TO, writeS3File), which reads
+// as "my pipeline has no lineage". Warn once so a packaging or install problem
+// is visible instead of masquerading as a parsing limitation.
+let warnedAssetParserUnavailable = false;
+
 async function inferScriptAssetsBody(
   content: string,
   language: string,
@@ -349,7 +357,15 @@ async function inferScriptAssetsBody(
   try {
     const mod = await loadParser(ASSET_WASM_PKG);
     raw = mod[fn](content) as string;
-  } catch {
+  } catch (e) {
+    if (!warnedAssetParserUnavailable) {
+      warnedAssetParserUnavailable = true;
+      log.warnStderr(
+        `warning: ${ASSET_WASM_PKG} failed to load (${
+          e instanceof Error ? e.message : e
+        }) — falling back to annotation-only parsing; inferred read/write edges (materialize targets, COPY TO, writeS3File) will be missing from the local graph`,
+      );
+    }
     return fallbackParse(content, language);
   }
   if (raw.startsWith("err:")) return fallbackParse(content, language);
