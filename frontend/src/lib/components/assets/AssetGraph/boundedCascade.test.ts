@@ -277,6 +277,37 @@ describe('validFromStarts (mid-DAG selective execution)', () => {
 		expect(validFromStarts(g()).has(sn('k'))).toBe(false)
 	})
 
+	it('excludes webhook/data_upload mid-DAG subscribers (need caller input)', () => {
+		// a → x → upload_mid (subscribes x AND `// on data_upload`) → y → consumer.
+		// upload_mid must NOT be an eligible start (empty-arg run has no S3Object),
+		// and must be a barrier so `consumer` isn't run with a skipped producer.
+		const g2 = graph({
+			scripts: ['a', 'upload_mid', 'hook_mid', 'consumer'],
+			writes: [
+				['a', 'x'],
+				['upload_mid', 'y']
+			],
+			subs: [
+				['upload_mid', 'x'],
+				['hook_mid', 'x'],
+				['consumer', 'y']
+			],
+			native: [
+				['data_upload', 'upload_mid'],
+				['webhook', 'hook_mid']
+			]
+		})
+		const from = validFromStarts(g2)
+		expect(from.has(sn('upload_mid'))).toBe(false)
+		expect(from.has(sn('hook_mid'))).toBe(false)
+		expect(from.has(sn('a'))).toBe(true) // the plain root is still eligible
+		// and they're barriers, so running downstream from `a` cuts them + consumer.
+		const bars = nonAutorunTriggerScripts(g2)
+		expect(bars.has(sn('upload_mid'))).toBe(true)
+		expect(bars.has(sn('hook_mid'))).toBe(true)
+		expect(scriptsOf(reachableCutting(buildLineageDag(g2), [sn('a')], bars)).sort()).toEqual(['a'])
+	})
+
 	it('keeps a scheduled root that also carries an event trigger', () => {
 		// schedule wins over the secondary kafka trigger in validStarts, so the
 		// scheduled root stays --from-eligible (regression guard).
