@@ -38,7 +38,10 @@ export function assetUriToNodeId(uri: string): string | undefined {
 	// `s3` is the URI prefix for the `s3object` asset kind (mirrors the CLI
 	// `assetUri` and the canvas). All other kinds use their name verbatim.
 	const kind = prefix === 's3' ? 's3object' : prefix
-	return `${kind}:${m[2]}`
+	// Mirror Rust `parse_asset_syntax`: strip one leading slash from S3 keys so
+	// `s3:///key` (default storage) and `s3://key` resolve to the same node id.
+	const path = kind === 's3object' ? m[2].replace(/^\//, '') : m[2]
+	return `${kind}:${path}`
 }
 
 // Native trigger kinds that fan out *per event*: a single event always flows
