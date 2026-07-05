@@ -514,6 +514,11 @@ impl<'a> MaterializeCodegen<'a> {
                 // same write shape as `replace`, which is reliable. The DELETE is
                 // scoped to the current partition when partitioned so it stays
                 // slice-local (a key present in another partition is untouched).
+                //
+                // Guard first: the DELETE+INSERT does not dedup the source, so
+                // two incoming rows sharing a key would both persist under it.
+                // Raise instead of silently double-writing (see the helper).
+                out.push(duplicate_source_key_guard_sql(sel, unique_key));
                 let scope = if self.partitioned {
                     format!("{pcol} = {pval} AND ")
                 } else {
@@ -743,6 +748,29 @@ fn schema_drift_guard_sql(sel_sql: &str, target_qualified: &str, partition_col: 
          or align the SELECT with the table.') AS VARCHAR) ELSE 'ok' END \
          FROM (SELECT {added} AS _wm_added, {removed} AS _wm_removed);",
         tq = tq,
+    )
+}
+
+/// In-transaction guard for the keyed `merge` strategy: raises via DuckDB
+/// `error(...)` when the source SELECT holds more than one row for the same
+/// non-NULL `unique_key`. A keyed merge is delete-by-key + insert-all (it does
+/// NOT deduplicate the source), so duplicate source keys would land every
+/// duplicate row under one key — the exact silent double-write this guards
+/// against. Erroring keeps the semantics explicit: the author must deduplicate
+/// in the SELECT (or use `append`). NULL keys are excluded to match the delete's
+/// `key IN (...)` scope, which never matches NULL. `unique_key` is embedded raw
+/// in identifier position (matching the merge's own DELETE/IN) and doubled-quote
+/// escaped where it lands inside the error string literal.
+fn duplicate_source_key_guard_sql(sel_sql: &str, unique_key: &str) -> String {
+    let key_lit = unique_key.replace('\'', "''");
+    format!(
+        "SELECT CASE WHEN _wm_dup_keys > 0 THEN CAST(error('managed materialize: keyed merge on \
+         `{key_lit}` blocked — the source has ' || _wm_dup_keys || ' key value(s) with more than \
+         one row. A keyed merge keeps one row per key and does not deduplicate; deduplicate in the \
+         SELECT (e.g. QUALIFY row_number() OVER (PARTITION BY {key_lit} ORDER BY …) = 1) or use \
+         `append`.') AS VARCHAR) ELSE 'ok' END FROM (SELECT count(*) AS _wm_dup_keys FROM (SELECT \
+         {unique_key} FROM ({sel_sql}) WHERE {unique_key} IS NOT NULL GROUP BY {unique_key} HAVING \
+         count(*) > 1));"
     )
 }
 
@@ -1553,6 +1581,42 @@ mod tests {
         assert!(st
             .iter()
             .any(|s| s.starts_with("INSERT INTO _wm_target.orders_daily SELECT *, '2026-06-19'")));
+    }
+
+    #[test]
+    fn codegen_merge_emits_duplicate_source_key_guard() {
+        // A keyed merge does not dedup its source, so codegen must emit a guard
+        // that fails the write when the SELECT has >1 row per key — otherwise
+        // duplicate source keys silently double-write.
+        let cg = MaterializeCodegen {
+            target_qualified: "_wm_target.orders_daily",
+            select_sql: "SELECT order_id, amount FROM dl.orders",
+            partition_col: "_wm_partition",
+            partition_value_sql: "'2026-06-19'",
+            partitioned: false,
+            strategy: MaterializeStrategy::Merge { unique_key: "order_id".to_string() },
+            on_schema_change: OnSchemaChange::Warn,
+        };
+        let st = cg.statements();
+        let guard = st
+            .iter()
+            .find(|s| s.contains("_wm_dup_keys"))
+            .expect("duplicate-key guard stmt");
+        // raises via error(), counts non-NULL keys appearing more than once
+        assert!(guard.contains("error('managed materialize: keyed merge on `order_id` blocked"));
+        assert!(guard.contains("GROUP BY order_id HAVING count(*) > 1"));
+        assert!(guard.contains("WHERE order_id IS NOT NULL"));
+        // must run before the mutations so a violation aborts before any write
+        let guard_pos = st.iter().position(|s| s.contains("_wm_dup_keys")).unwrap();
+        let del_pos = st
+            .iter()
+            .position(|s| s.starts_with("DELETE FROM"))
+            .unwrap();
+        let ins_pos = st
+            .iter()
+            .position(|s| s.starts_with("INSERT INTO"))
+            .unwrap();
+        assert!(guard_pos < del_pos && guard_pos < ins_pos);
     }
 
     #[test]

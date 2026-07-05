@@ -1307,6 +1307,13 @@ async fn create_script_internal<'c>(
                 ns.path
             );
         }
+        // SCD2 (`key=<col> history` / `scd2`) option-combination checks the
+        // runtime cannot honor: reject at deploy with a clear message rather
+        // than letting the script deploy and fail on its first run. Mirrors the
+        // executor's safety-net `MaterializeSpec::validate` (duckdb_executor).
+        if let Err(e) = m.validate(pipeline_annotations.partition.is_some()) {
+            return Err(Error::BadRequest(e));
+        }
         // `manual` materialize never captures a schema (no wrap codegen), so
         // there is no contract for `on_schema_change` to mute downstream.
         if m.manual && m.on_schema_change == windmill_parser::asset_parser::OnSchemaChange::Ignore {

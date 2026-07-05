@@ -333,6 +333,40 @@ impl OnSchemaChange {
     }
 }
 
+impl MaterializeSpec {
+    /// Deploy-time validation of the option combination against the script's
+    /// partitioning, returning a human-facing error for combinations the
+    /// runtime cannot honor. Called at save (`create_script_internal`) so a
+    /// misconfigured script is rejected up front, and again in the DuckDB
+    /// executor as a safety net for preview/test runs that never deploy. Both
+    /// checks are SCD2-specific and inert for `manual` mode (which owns its DDL
+    /// and ignores the reconciliation strategy). `partitioned` is whether the
+    /// script declares `// partitioned`.
+    pub fn validate(&self, partitioned: bool) -> Result<(), String> {
+        if self.manual || !self.scd2 {
+            return Ok(());
+        }
+        // SCD2 needs a natural key to identify an entity across versions.
+        if self.unique_key.as_deref().map_or(true, str::is_empty) {
+            return Err(
+                "materialize scd2: requires a natural key — add `key=<col>` (e.g. \
+                 `// materialize ducklake://<name>/<table> key=id history`)"
+                    .to_string(),
+            );
+        }
+        // SCD2's diff/close/open shape has no partition-scoped form in v1.
+        if partitioned {
+            return Err(
+                "materialize scd2: `// partitioned` is not supported with scd2 in v1 — remove \
+                 `// partitioned`, or drop `history`/`scd2` to materialize the partition without \
+                 history"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
 // `// data_test <kind> …` — a data-quality assertion run against the
 // freshly-materialized asset (post DELETE+INSERT), failing the run on
 // violation. The first extensible annotation family: the parser turns a
@@ -1719,6 +1753,51 @@ mod pipeline_annotation_tests {
             "// materialize ducklake://a/dim key=id history deletes=ignore",
         );
         assert!(!out.materialize.expect("materialize").close_deleted);
+    }
+
+    #[test]
+    fn materialize_validate_scd2_requires_key() {
+        // scd2 without `key=` is rejected at deploy (was a run-time error).
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim history")
+            .materialize
+            .expect("materialize");
+        assert!(m.scd2 && m.unique_key.is_none());
+        let err = m.validate(false).expect_err("scd2 without key must fail");
+        assert!(err.contains("requires a natural key"));
+        // with a key it validates
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim key=id history")
+            .materialize
+            .expect("materialize");
+        assert!(m.validate(false).is_ok());
+    }
+
+    #[test]
+    fn materialize_validate_scd2_rejects_partitioned() {
+        // scd2 + `// partitioned` has no v1 form — rejected at deploy.
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim key=id history")
+            .materialize
+            .expect("materialize");
+        let err = m.validate(true).expect_err("scd2 + partitioned must fail");
+        assert!(err.contains("`// partitioned` is not supported with scd2"));
+        // unpartitioned scd2 is fine
+        assert!(m.validate(false).is_ok());
+    }
+
+    #[test]
+    fn materialize_validate_non_scd2_and_manual_are_inert() {
+        // Non-scd2 strategies are unconstrained by these checks, partitioned or not.
+        let m = parse_pipeline_annotations("// materialize ducklake://a/orders key=id")
+            .materialize
+            .expect("materialize");
+        assert!(m.validate(true).is_ok());
+        assert!(m.validate(false).is_ok());
+        // `manual` owns its DDL and ignores the strategy — never rejected here,
+        // even with a partitioned scd2-looking combo.
+        let m = parse_pipeline_annotations("// materialize manual ducklake://a/dim history")
+            .materialize
+            .expect("materialize");
+        assert!(m.manual && m.scd2);
+        assert!(m.validate(true).is_ok());
     }
 
     #[test]
