@@ -1,11 +1,13 @@
 <script lang="ts">
-	import type { Script } from '$lib/gen'
-	import { Loader2, Play, Upload, Zap } from 'lucide-svelte'
+	import type { AssetKind, Script } from '$lib/gen'
+	import { CalendarClock, Loader2, Play, Upload, Zap } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import PipelineRunForm from './PipelineRunForm.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { workspaceStore } from '$lib/stores'
+	import { parsePipelineAnnotations } from './parsePipelineAnnotations'
 
 	interface Props {
 		script: Script
@@ -52,13 +54,40 @@
 	// and the script actually has subscribers to fan out to.
 	let hasCascade = $derived(!!onRunCascade && downstreamCount > 0)
 
+	// Parse the pipeline header for the partition cadence + materialize target +
+	// ducklake inputs, so a partitioned producer's run form swaps the bare
+	// `partition` string for a cadence-aware date picker with missing/upstream
+	// hints (see PartitionArgControl).
+	let annotations = $derived(parsePipelineAnnotations(script.content ?? ''))
+	let partitionSpec = $derived(annotations.partition)
+	let materializeTarget = $derived<{ kind: AssetKind; path: string } | undefined>(
+		annotations.materialize
+			? { kind: annotations.materialize.targetKind, path: annotations.materialize.targetPath }
+			: undefined
+	)
+	let upstreamAssets = $derived(
+		annotations.triggerAssets.map((a) => ({ kind: a.kind, path: a.path }))
+	)
+
+	// The run form appears for data-upload entry points (S3 picker) and for any
+	// partitioned producer — materializing a single partition is available in
+	// OSS, and the picker is where the user chooses which one.
+	let showRunForm = $derived(canRun || !!partitionSpec)
+	// A partitioned producer that isn't a data-upload entry is materializing a
+	// partition rather than uploading data — reflect that in the header.
+	let partitionOnly = $derived(!canRun && !!partitionSpec)
+
 	// The details pane keys this component on script.path only, so a same-path
 	// re-resolve (in /pipeline_dev the selected node re-resolves on every WS
 	// bundle) does NOT remount us. `PipelineRunForm` owns the SchemaForm clone and
-	// is keyed on the serialized schema below, so a local edit that adds/removes
-	// args reseeds the run form while an unchanged re-resolve keeps in-progress
-	// input (else the form could run against a stale schema with missing inputs).
-	let schemaKey = $derived(JSON.stringify(script.schema ?? null))
+	// is keyed on the serialized schema + partition spec below: a local edit that
+	// adds/removes args OR changes the `// partitioned` header (which the schema
+	// alone wouldn't capture) reseeds the run form and re-strips the `partition`
+	// field, while an unchanged re-resolve keeps in-progress input (else the form
+	// could run against a stale schema/spec — e.g. keep a pre-`start=` bucket).
+	let schemaKey = $derived(
+		JSON.stringify(script.schema ?? null) + '|' + JSON.stringify(partitionSpec ?? null)
+	)
 
 	async function run(cascade = false) {
 		const dispatch = cascade ? onRunCascade : onRun
@@ -83,12 +112,17 @@
 	<Splitpanes horizontal class="!h-full">
 		<Pane size={55} minSize={20}>
 			<div class="flex flex-col h-full overflow-auto">
-				{#if canRun}
+				{#if showRunForm}
 					<div class="shrink-0 flex flex-col gap-2 p-3 border-b" data-run-form>
 						<div class="flex items-center justify-between gap-2">
 							<span class="text-xs font-semibold text-emphasis inline-flex items-center gap-1.5">
-								<Upload size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
-								Run pipeline
+								{#if partitionOnly}
+									<CalendarClock size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
+									Materialize a partition
+								{:else}
+									<Upload size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
+									Run pipeline
+								{/if}
 							</span>
 							<div class="flex items-center gap-1.5">
 								{#if hasCascade}
@@ -120,7 +154,15 @@
 							</div>
 						</div>
 						{#key schemaKey}
-							<PipelineRunForm schema={script.schema} bind:args bind:isValid />
+							<PipelineRunForm
+								schema={script.schema}
+								bind:args
+								bind:isValid
+								{partitionSpec}
+								workspace={$workspaceStore ?? ''}
+								{materializeTarget}
+								{upstreamAssets}
+							/>
 						{/key}
 					</div>
 				{/if}
