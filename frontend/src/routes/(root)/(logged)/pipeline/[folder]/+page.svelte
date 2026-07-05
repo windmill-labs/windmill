@@ -1480,9 +1480,12 @@
 			} else {
 				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
 				const skipped = [...res.statuses.values()].filter((s) => s.status === 'skipped').length
-				// Surface the failed node in the details pane so its error is visible
-				// without hunting for the red node on the canvas.
+				// Surface the failed node's error in the details pane. Clear the
+				// active draft too — it has pane priority over `selection`
+				// (openScriptPath), so a bare selection would stay masked while a
+				// draft is open.
 				if (failed.length > 0) {
+					pe.activeDraftPath = undefined
 					pe.selection = { kind: 'runnable', runnable_kind: 'script', path: failed[0][0] }
 				}
 				sendUserToast(
@@ -1621,9 +1624,12 @@
 			} else {
 				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
 				const skipped = [...res.statuses.values()].filter((s) => s.status === 'skipped').length
-				// Surface the failed node in the details pane so its error is visible
-				// without hunting for the red node on the canvas.
+				// Surface the failed node's error in the details pane. Clear the
+				// active draft too — it has pane priority over `selection`
+				// (openScriptPath), so a bare selection would stay masked while a
+				// draft is open.
 				if (failed.length > 0) {
+					pe.activeDraftPath = undefined
 					pe.selection = { kind: 'runnable', runnable_kind: 'script', path: failed[0][0] }
 				}
 				sendUserToast(
