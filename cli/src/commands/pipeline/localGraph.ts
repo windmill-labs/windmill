@@ -53,6 +53,9 @@ export type GraphRunnable = {
   // schema-contract warnings; only present when set (default `warn` is absent),
   // mirroring the deployed graph node.
   materialize_on_schema_change?: string;
+  // `// macros` library: the macros it defines (deployed graph only — the wasm
+  // asset parser does not emit them). Non-empty ⇒ definition-only node.
+  macros?: { name: string; params?: string; is_table?: boolean }[];
 };
 export type GraphEdge = {
   runnable_kind: string;
@@ -81,6 +84,14 @@ export type AssetGraph = {
   assets: { kind: string; path: string }[];
   edges: GraphEdge[];
   triggers: GraphTrigger[];
+  // ƒ edges from a `// macros` library to the scripts calling its macros
+  // (deployed graph only).
+  macro_edges?: {
+    lib_path: string;
+    consumer_path: string;
+    macro_names: string[];
+    via_use?: boolean;
+  }[];
 };
 
 export type LocalScript = {

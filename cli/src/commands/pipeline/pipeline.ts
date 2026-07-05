@@ -302,6 +302,25 @@ async function renderGraph(
     return out.length > 0 ? " " + out.join(" ") : "";
   }
 
+  // `// macros` libraries: badge the node with the macros it defines and list
+  // its consumers as ƒ edges. Deployed graphs only — the local wasm parse does
+  // not emit `macros`/`macro_edges`, so local mode renders them as plain nodes.
+  const macrosByLib = new Map(
+    graph.runnables
+      .filter((r) => (r.macros?.length ?? 0) > 0)
+      .map((r) => [r.path, r.macros!]),
+  );
+  const macroConsumersByLib = new Map<
+    string,
+    { consumer: string; names: string[] }[]
+  >();
+  for (const me of graph.macro_edges ?? []) {
+    pushTo(macroConsumersByLib, me.lib_path, {
+      consumer: me.consumer_path,
+      names: me.macro_names,
+    });
+  }
+
   const printed = new Set<string>();
   const lines: string[] = [];
 
@@ -317,8 +336,22 @@ async function renderGraph(
       return;
     }
     printed.add(script);
-    lines.push(`${prefix}${colors.bold(shortName(script))}${triggerBadges(script)}${alsoOn}`);
+    const libMacros = macrosByLib.get(script);
+    const macroBadge = libMacros
+      ? " " +
+        colors.magenta(`[ƒ macros: ${libMacros.map((m) => m.name).join(", ")}]`)
+      : "";
+    lines.push(`${prefix}${colors.bold(shortName(script))}${macroBadge}${triggerBadges(script)}${alsoOn}`);
     const childPrefix = prefix.replace(/├─ $/, "│  ").replace(/└─ $/, "   ");
+    const macroConsumers = [...(macroConsumersByLib.get(script) ?? [])].sort(
+      (a, b) => a.consumer.localeCompare(b.consumer),
+    );
+    macroConsumers.forEach(({ consumer, names }, i) => {
+      const branch = i === macroConsumers.length - 1 ? "└─ƒ " : "├─ƒ ";
+      lines.push(
+        `${childPrefix}${branch}${shortName(consumer)} ${colors.dim(`(uses ${names.join(", ")})`)}`,
+      );
+    });
     const writes = [...(writesByScript.get(script) ?? [])].sort();
     writes.forEach((uri, i) => {
       const lastAsset = i === writes.length - 1;
@@ -368,7 +401,10 @@ async function renderGraph(
 
 // Poll a launched job to a terminal state. Modest fixed cadence; capped so a
 // wedged job can't hang the CLI forever.
-async function waitJob(workspace: string, id: string): Promise<boolean> {
+async function waitJob(
+  workspace: string,
+  id: string,
+): Promise<{ ok: boolean; result?: unknown }> {
   const MAX_RETRIES = 6000; // ~10min at 100ms
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
@@ -380,13 +416,33 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
       // A completed job without an explicit `success: true` is a failure
       // (mirrors the frontend `waitJobTerminal`): the cascade only advances on
       // a confirmed success.
-      if (r.completed) return r.success === true;
+      if (r.completed) return { ok: r.success === true, result: r.result };
     } catch {
       // transient — retry
     }
     await new Promise((res) => setTimeout(res, 100));
   }
   throw new Error(`Timed out waiting for job ${id}`);
+}
+
+// Render a failed job's `{error: {name, message}}` result for the terminal, so
+// the user sees WHY the cascade stopped without opening the UI. Result shapes
+// vary (structured data-test payloads, plain strings), so fall back to raw
+// JSON when the canonical error shape is absent.
+function formatJobFailure(result: unknown): string | undefined {
+  if (result == null) return undefined;
+  const err = (result as any)?.error;
+  if (err && typeof err === "object") {
+    const name = typeof err.name === "string" ? err.name : undefined;
+    const message = typeof err.message === "string" ? err.message : undefined;
+    if (message) return name ? `${name}: ${message}` : message;
+  }
+  if (typeof result === "string") return result;
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return undefined;
+  }
 }
 
 // Bounded-cascade run: start at a schedule / manual root, fan downstream, but
@@ -603,9 +659,23 @@ async function run(
     merged[b.param] = b.value;
   }
 
+  // `// macros` libraries are definition-only: their macros are injected into
+  // consuming DuckDB scripts at run time, so "running" one is a no-op preview.
+  // They are excluded from starts and from every selection below (they'd
+  // otherwise read as manual roots, since nothing triggers them).
+  const macroLibPaths = new Set(
+    graph.runnables
+      .filter((r) => r.usage_kind === "script" && (r.macros?.length ?? 0) > 0)
+      .map((r) => r.path),
+  );
+
   // Resolve the start: explicit --from (must be a valid start) or the folder's
   // sole valid start. `--upload`-bound scripts join the valid starts.
-  const starts = new Set([...validStarts(graph), ...boundNodeIds]);
+  const starts = new Set(
+    [...validStarts(graph), ...boundNodeIds].filter(
+      (id) => !macroLibPaths.has(scriptPathOf(id)),
+    ),
+  );
   // `runAll` = no `--from` on a multi-root pipeline (fan-in): run the whole
   // pipeline in topological order rather than forcing a single start, the way
   // `dbt run` (no `--select`) runs the entire project. `--to` still needs an
@@ -626,6 +696,11 @@ async function run(
         );
       }
       throw new Error(`--from '${opts.from}' matched no script in f/${f}.`);
+    }
+    if (macroLibPaths.has(scriptPathOf(resolved))) {
+      throw new Error(
+        `--from '${opts.from}' is a \`// macros\` library — definition-only, injected into consuming scripts at run time, never a runnable step.`,
+      );
     }
     if (!starts.has(resolved)) {
       throw new Error(
@@ -728,6 +803,11 @@ async function run(
       }
     }
   }
+
+  // Selections can still pull a macro library in via graph reachability (e.g.
+  // whole-pipeline mode collects every root's closure) — drop them before
+  // ordering so they never run.
+  for (const p of macroLibPaths) selectedScripts.delete(p);
 
   const { order, cyclic } = topoOrder(graph, selectedScripts);
   if (cyclic.length > 0) {
@@ -877,9 +957,15 @@ async function run(
         requestBody: nodeArgs,
       });
     }
-    const ok = await waitJob(workspace.workspaceId, id);
+    const { ok, result } = await waitJob(workspace.workspaceId, id);
     if (!ok) {
-      throw new Error(`Bounded run failed at ${nodePath} (job ${id}).`);
+      const detail = formatJobFailure(result);
+      const runUrl = `${workspace.remote}run/${id}?workspace=${workspace.workspaceId}`;
+      throw new Error(
+        `Bounded run failed at ${nodePath} (job ${id}).` +
+          (detail ? `\n${detail}` : "") +
+          `\nFull logs: ${runUrl}`,
+      );
     }
     if (!opts.json) log.info(colors.green(`  ✓ ${nodePath}`));
   }
