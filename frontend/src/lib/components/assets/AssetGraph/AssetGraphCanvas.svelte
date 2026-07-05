@@ -332,6 +332,7 @@
 					asset_kind: a.kind,
 					path: a.path,
 					fork_materialization: a.fork_materialization,
+					derived_from: a.derived_from,
 					onAddScript: onAddScriptForAsset,
 					pathPrefix,
 					defaultPathSuffix,

@@ -123,6 +123,16 @@ export type MaterializeSpec = {
 	onSchemaChange?: 'warn' | 'ignore'
 }
 
+// The `<targetPath>_current` SCD2 companion view this managed materialize also
+// produces, or `undefined` when it isn't a managed scd2 target. Mirrors Rust
+// `MaterializeSpec::scd2_current_target`: managed scd2 creates the base table
+// *and* the `_current` view each run; `manual` mode owns its own DDL and creates
+// no companion. The graph surfaces register it as a second write of the producer
+// so a read of the view links back instead of orphaning.
+export function scd2CurrentTargetPath(m: MaterializeSpec): string | undefined {
+	return m.scd2 && !m.manual ? `${m.targetPath}_current` : undefined
+}
+
 // `// data_test <kind> …` — a data-quality assertion run against the
 // freshly-materialized asset, failing the run on violation. See backend
 // `DataTest`. The first extensible annotation family: a keyword head selects

@@ -11,6 +11,11 @@ export interface AssetGraphAssetNode {
 	// current table via a defer view. Absent outside forks / for other kinds /
 	// when never materialized anywhere. Lockstep with Rust `GraphAssetNode`.
 	fork_materialization?: 'fork' | 'deferred'
+	// Base dimension path this node is the SCD2 `<dim>_current` companion view of
+	// (its producer declares `// materialize … history` on `<dim>`). Set only on
+	// the `_current` node; lets the canvas mark it as a derived "current view"
+	// rather than an unrelated table. Lockstep with Rust `GraphAssetNode`.
+	derived_from?: string
 }
 
 export interface AssetGraphRunnableNode {

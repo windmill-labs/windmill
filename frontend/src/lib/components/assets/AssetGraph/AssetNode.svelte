@@ -5,7 +5,7 @@
 	import { formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
 	import { NODE } from '$lib/components/graph/util'
 	import PipelineInsertMenu, { type PipelineInsertPick } from './PipelineInsertMenu.svelte'
-	import { ArrowUpRight, Code2, GitFork, Play, Loader2, Plus } from 'lucide-svelte'
+	import { ArrowUpRight, Code2, GitFork, History, Play, Loader2, Plus } from 'lucide-svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
@@ -29,6 +29,11 @@
 			// Fork workspaces: 'fork' = materialized in this fork, 'deferred' =
 			// reads fall back to the parent workspace's current data.
 			fork_materialization?: 'fork' | 'deferred'
+			// Set on an SCD2 `<dim>_current` companion view: the base `<dim>` path
+			// its producer materializes with `// materialize … history`. Drives the
+			// "current view of <dim>" marker so it reads as a derived node, not an
+			// unrelated table.
+			derived_from?: string
 			onAddScript?: (
 				asset: { kind: AssetKind; path: string },
 				language: ScriptLang,
@@ -154,6 +159,17 @@
 				title="Materialized in this fork: reads and writes use the fork's isolated copy."
 			>
 				<GitFork size={12} />
+			</span>
+		{/if}
+		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
+		     per key" view its producer maintains alongside the base dimension.
+		     Icon-only (the pill already truncates); the title names the base. -->
+		{#if data.derived_from}
+			<span
+				class="shrink-0 mr-1.5 text-violet-600 dark:text-violet-400"
+				title={`SCD2 current view of ${data.derived_from}: latest row per key, maintained by the same producer as the base dimension.`}
+			>
+				<History size={12} />
 			</span>
 		{/if}
 	</div>

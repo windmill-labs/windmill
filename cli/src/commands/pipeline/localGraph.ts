@@ -81,7 +81,11 @@ export type GraphTrigger =
     };
 export type AssetGraph = {
   runnables: GraphRunnable[];
-  assets: { kind: string; path: string }[];
+  // `derived_from` is the base `<dim>` path when this node is the SCD2
+  // `<dim>_current` companion view of a managed `// materialize … history`
+  // producer — lets the canvas mark it as a derived "current view". Absent
+  // otherwise. Lockstep with backend `GraphAssetNode`.
+  assets: { kind: string; path: string; derived_from?: string }[];
   edges: GraphEdge[];
   triggers: GraphTrigger[];
   // ƒ edges from a `// macros` library to the scripts calling its macros
@@ -449,7 +453,14 @@ export async function buildLocalPipelineGraph(args: {
   const runnables: GraphRunnable[] = [];
   const edges: GraphEdge[] = [];
   const triggers: GraphTrigger[] = [];
-  const assetSet = new Map<string, { kind: string; path: string }>();
+  const assetSet = new Map<
+    string,
+    { kind: string; path: string; derived_from?: string }
+  >();
+  // `<kind>:<current-path>` → base `<dim>` path, for scd2 `_current` companion
+  // views. Applied to the final asset nodes so a consumer's `// on …_current`
+  // trigger (processed after the producer) can't clobber the derived marker.
+  const derivedFromByKey = new Map<string, string>();
   const pipelineScripts: LocalScript[] = [];
 
   for (const s of all) {
@@ -507,27 +518,44 @@ export async function buildLocalPipelineGraph(args: {
     // SQL body, so body-inference misses it. Translate the parsed materialize
     // target into the producer's write edge here (mirrors frontend
     // resolveGraph.ts) so the materialized asset connects to its `// on`
-    // consumers; dedup against any body write.
+    // consumers; dedup against any body write. A managed scd2 materialize also
+    // produces the `<dim>_current` companion view — register it as a second
+    // write (mirrors the deploy path) so a consumer reading only the view links
+    // back to this producer instead of orphaning.
     if (mat) {
-      assetSet.set(`${mat.target_kind}:${mat.target_path}`, {
-        kind: mat.target_kind,
-        path: mat.target_path,
-      });
-      const hasWrite = edges.some(
-        (e) =>
-          e.runnable_path === s.path &&
-          e.asset_kind === mat.target_kind &&
-          e.asset_path === mat.target_path &&
-          (e.access_type === "w" || e.access_type === "rw"),
-      );
-      if (!hasWrite) {
-        edges.push({
-          runnable_kind: "script",
-          runnable_path: s.path,
-          asset_kind: mat.target_kind,
-          asset_path: mat.target_path,
-          access_type: "w",
+      const matWrites: { path: string; derived_from?: string }[] = [
+        { path: mat.target_path },
+      ];
+      if (mat.scd2 && !mat.manual) {
+        const currentPath = `${mat.target_path}_current`;
+        matWrites.push({ path: currentPath, derived_from: mat.target_path });
+        derivedFromByKey.set(
+          `${mat.target_kind}:${currentPath}`,
+          mat.target_path,
+        );
+      }
+      for (const w of matWrites) {
+        assetSet.set(`${mat.target_kind}:${w.path}`, {
+          kind: mat.target_kind,
+          path: w.path,
+          ...(w.derived_from ? { derived_from: w.derived_from } : {}),
         });
+        const hasWrite = edges.some(
+          (e) =>
+            e.runnable_path === s.path &&
+            e.asset_kind === mat.target_kind &&
+            e.asset_path === w.path &&
+            (e.access_type === "w" || e.access_type === "rw"),
+        );
+        if (!hasWrite) {
+          edges.push({
+            runnable_kind: "script",
+            runnable_path: s.path,
+            asset_kind: mat.target_kind,
+            asset_path: w.path,
+            access_type: "w",
+          });
+        }
       }
     }
     const existingNativeTriggers = new Set<string>();
@@ -564,10 +592,15 @@ export async function buildLocalPipelineGraph(args: {
     }
   }
 
+  const assets = [...assetSet.entries()].map(([key, a]) => {
+    const derived_from = a.derived_from ?? derivedFromByKey.get(key);
+    return derived_from ? { ...a, derived_from } : a;
+  });
+
   return {
     graph: {
       runnables,
-      assets: [...assetSet.values()],
+      assets,
       edges,
       triggers,
     },
