@@ -11,6 +11,11 @@ export interface AssetGraphAssetNode {
 	// current table via a defer view. Absent outside forks / for other kinds /
 	// when never materialized anywhere. Lockstep with Rust `GraphAssetNode`.
 	fork_materialization?: 'fork' | 'deferred'
+	// Base dimension path this node is the SCD2 `<dim>_current` companion view of
+	// (its producer declares `// materialize … history` on `<dim>`). Set only on
+	// the `_current` node; lets the canvas mark it as a derived "current view"
+	// rather than an unrelated table. Lockstep with Rust `GraphAssetNode`.
+	derived_from?: string
 }
 
 export interface AssetGraphRunnableNode {
@@ -147,12 +152,29 @@ export interface AssetGraphMacroEdge {
 	unsaved?: boolean
 }
 
+// Ordering-only "must-run-after" edge: `runnable_path`'s `// data_test`
+// (a `relationships` ref, or a custom test reading a pipeline asset) needs
+// `asset` materialized before the tested script runs — but the tested script
+// doesn't consume the asset's rows, so this is NOT a lineage edge. Resolved
+// server-side to the referenced asset's in-pipeline producer; fed into the
+// cascade topo-sort (buildLineageDag) so a cold cascade orders the referenced
+// dimension first, and rendered dashed on the canvas (like macro edges).
+export interface AssetGraphTestEdge {
+	producer_kind: GraphUsageKind
+	producer_path: string
+	runnable_kind: GraphUsageKind
+	runnable_path: string
+	asset_kind: AssetKind
+	asset_path: string
+}
+
 export interface AssetGraphResponse {
 	assets: AssetGraphAssetNode[]
 	runnables: AssetGraphRunnableNode[]
 	edges: AssetGraphEdge[]
 	triggers: AssetGraphTrigger[]
 	macro_edges?: AssetGraphMacroEdge[]
+	test_edges?: AssetGraphTestEdge[]
 }
 
 export type AssetGraphNodeData =

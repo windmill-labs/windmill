@@ -293,6 +293,30 @@ pub struct MaterializeSpec {
     pub on_schema_change: OnSchemaChange,
 }
 
+impl MaterializeSpec {
+    /// The `<target>_current` SCD2 companion view this managed materialize also
+    /// produces, or `None` when it isn't a managed scd2 target. Managed scd2
+    /// creates the base table *and* a `<dim>_current` "latest row per key" view
+    /// each run (see `sql_materialize.rs`); `manual` mode owns its own DDL and
+    /// short-circuits before that codegen, so it produces no companion.
+    pub fn scd2_current_target(&self) -> Option<(AssetKind, String)> {
+        (self.scd2 && !self.manual)
+            .then(|| (self.target_kind, format!("{}_current", self.target_path)))
+    }
+
+    /// Every asset this managed materialize produces: the base table, plus — for
+    /// managed scd2 — the `<target>_current` companion view. The producer's
+    /// trailing `SELECT` doesn't express these writes (the runtime generates the
+    /// DDL), so this is the single source of truth every graph surface (deploy
+    /// asset rows, the CLI `--local` graph, and the frontend live graph) uses to
+    /// link reads of the base *and* the `_current` view back to this producer.
+    pub fn write_targets(&self) -> Vec<(AssetKind, String)> {
+        let mut targets = vec![(self.target_kind, self.target_path.clone())];
+        targets.extend(self.scd2_current_target());
+        targets
+    }
+}
+
 // dbt's `on_schema_change`, covering both the save-time contract check and the
 // run-time write guardrail for the positional persist-and-mutate strategies:
 //   • `warn` (default): surface consumer contract warnings; at write time, log
@@ -330,6 +354,40 @@ pub enum OnSchemaChange {
 impl OnSchemaChange {
     pub fn is_warn(&self) -> bool {
         matches!(self, OnSchemaChange::Warn)
+    }
+}
+
+impl MaterializeSpec {
+    /// Deploy-time validation of the option combination against the script's
+    /// partitioning, returning a human-facing error for combinations the
+    /// runtime cannot honor. Called at save (`create_script_internal`) so a
+    /// misconfigured script is rejected up front, and again in the DuckDB
+    /// executor as a safety net for preview/test runs that never deploy. Both
+    /// checks are SCD2-specific and inert for `manual` mode (which owns its DDL
+    /// and ignores the reconciliation strategy). `partitioned` is whether the
+    /// script declares `// partitioned`.
+    pub fn validate(&self, partitioned: bool) -> Result<(), String> {
+        if self.manual || !self.scd2 {
+            return Ok(());
+        }
+        // SCD2 needs a natural key to identify an entity across versions.
+        if self.unique_key.as_deref().map_or(true, str::is_empty) {
+            return Err(
+                "materialize scd2: requires a natural key — add `key=<col>` (e.g. \
+                 `// materialize ducklake://<name>/<table> key=id history`)"
+                    .to_string(),
+            );
+        }
+        // SCD2's diff/close/open shape has no partition-scoped form in v1.
+        if partitioned {
+            return Err(
+                "materialize scd2: `// partitioned` is not supported with scd2 in v1 — remove \
+                 `// partitioned`, or drop `history`/`scd2` to materialize the partition without \
+                 history"
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -1707,6 +1765,62 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
+    fn materialize_scd2_write_targets_include_current_view() {
+        // A managed scd2 materialize produces the base table AND the
+        // `<dim>_current` companion view, so the producer must be recorded as
+        // writing both (reads of the view otherwise resolve to an orphan asset).
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://main/dim_customers key=id history",
+        );
+        let m = out.materialize.expect("materialize");
+        assert_eq!(
+            m.write_targets(),
+            vec![
+                (AssetKind::Ducklake, "main/dim_customers".to_string()),
+                (
+                    AssetKind::Ducklake,
+                    "main/dim_customers_current".to_string()
+                ),
+            ]
+        );
+        assert_eq!(
+            m.scd2_current_target(),
+            Some((
+                AssetKind::Ducklake,
+                "main/dim_customers_current".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn materialize_non_scd2_write_targets_are_base_only() {
+        // A plain merge (no `history`) creates no companion view — only the base.
+        let out = parse_pipeline_annotations("// materialize ducklake://main/dim_customers key=id");
+        let m = out.materialize.expect("materialize");
+        assert_eq!(
+            m.write_targets(),
+            vec![(AssetKind::Ducklake, "main/dim_customers".to_string())]
+        );
+        assert_eq!(m.scd2_current_target(), None);
+    }
+
+    #[test]
+    fn materialize_manual_scd2_has_no_companion_view() {
+        // `manual` mode owns its own DDL and never creates the `_current` view,
+        // so registering it would be a false producer edge.
+        let out = parse_pipeline_annotations(
+            "// materialize manual ducklake://main/dim_customers key=id history",
+        );
+        let m = out.materialize.expect("materialize");
+        assert!(m.manual && m.scd2);
+        assert_eq!(m.scd2_current_target(), None);
+        assert_eq!(
+            m.write_targets(),
+            vec![(AssetKind::Ducklake, "main/dim_customers".to_string())]
+        );
+    }
+
+    #[test]
     fn materialize_scd2_deletes_close_opt() {
         let out = parse_pipeline_annotations(
             "// materialize ducklake://a/dim key=id history deletes=close",
@@ -1719,6 +1833,51 @@ mod pipeline_annotation_tests {
             "// materialize ducklake://a/dim key=id history deletes=ignore",
         );
         assert!(!out.materialize.expect("materialize").close_deleted);
+    }
+
+    #[test]
+    fn materialize_validate_scd2_requires_key() {
+        // scd2 without `key=` is rejected at deploy (was a run-time error).
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim history")
+            .materialize
+            .expect("materialize");
+        assert!(m.scd2 && m.unique_key.is_none());
+        let err = m.validate(false).expect_err("scd2 without key must fail");
+        assert!(err.contains("requires a natural key"));
+        // with a key it validates
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim key=id history")
+            .materialize
+            .expect("materialize");
+        assert!(m.validate(false).is_ok());
+    }
+
+    #[test]
+    fn materialize_validate_scd2_rejects_partitioned() {
+        // scd2 + `// partitioned` has no v1 form — rejected at deploy.
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim key=id history")
+            .materialize
+            .expect("materialize");
+        let err = m.validate(true).expect_err("scd2 + partitioned must fail");
+        assert!(err.contains("`// partitioned` is not supported with scd2"));
+        // unpartitioned scd2 is fine
+        assert!(m.validate(false).is_ok());
+    }
+
+    #[test]
+    fn materialize_validate_non_scd2_and_manual_are_inert() {
+        // Non-scd2 strategies are unconstrained by these checks, partitioned or not.
+        let m = parse_pipeline_annotations("// materialize ducklake://a/orders key=id")
+            .materialize
+            .expect("materialize");
+        assert!(m.validate(true).is_ok());
+        assert!(m.validate(false).is_ok());
+        // `manual` owns its DDL and ignores the strategy — never rejected here,
+        // even with a partitioned scd2-looking combo.
+        let m = parse_pipeline_annotations("// materialize manual ducklake://a/dim history")
+            .materialize
+            .expect("materialize");
+        assert!(m.manual && m.scd2);
+        assert!(m.validate(true).is_ok());
     }
 
     #[test]
