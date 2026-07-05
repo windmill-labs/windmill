@@ -9,8 +9,8 @@ import {
 // The seeded draft asset (`autoOutputAsset`, stored as `outputAssets` and used
 // by resolveGraph for inactive-draft node identity) must match the asset
 // identity the deploy-time / wasm parser infers from the generated body. The
-// parser canonicalizes any S3 URI by stripping the `s3://` prefix and a single
-// leading slash (see backend `parse_asset_syntax`); if the seed carried a
+// parser canonicalizes any S3 URI by stripping the `s3://` prefix and all
+// leading slashes (see backend `parse_asset_syntax`); if the seed carried a
 // leading slash while the body wrote `s3:///key`, the preview would render a
 // duplicate `/key` node and a phantom post-deploy drift. This pins the two in
 // lockstep so that class of drift can't regress.
@@ -18,7 +18,7 @@ import {
 // Mirror of the parser's S3 canonicalization for a raw `s3://…` URI.
 function canonicalS3Key(uri: string): string {
 	const rest = uri.replace(/^s3:\/\//, '')
-	return rest.replace(/^\//, '')
+	return rest.replace(/^\/+/, '')
 }
 
 const S3_KINDS: PipelineOutputKind[] = ['s3_parquet', 's3_object']
