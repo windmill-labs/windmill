@@ -32,7 +32,11 @@ const p = {
 
     let cdirNodeModules = `${cdirFwd}/node_modules/`;
 
-    const filterLoad = new RegExp(`^${cdir}\/main\\.ts$`);
+    // Match the entry main.ts against bun's forward-slash resolver output on
+    // Windows — raw `cdir` carries backslashes that corrupt the regex, so the
+    // onLoad below would never fire and extensionless relative imports in
+    // main.ts would slip past filterResolve unrewritten.
+    const filterLoad = new RegExp(`^(?:${cdirFwd}|${cdirPosix})\/main\\.ts$`);
     const transpiler = new Bun.Transpiler({
       loader: "ts",
     });
