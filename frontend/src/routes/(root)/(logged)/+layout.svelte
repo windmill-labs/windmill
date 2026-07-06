@@ -53,7 +53,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Home, Play, Search, WandSparkles } from 'lucide-svelte'
+	import { PanelLeftClose, PanelLeftOpen, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
@@ -65,7 +65,7 @@
 	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
-	import { setContext, untrack } from 'svelte'
+	import { onDestroy, setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -102,12 +102,93 @@
 	// which dismisses it). Consumed once in beforeNavigate.
 	let preserveMenuOnNextNav = false
 	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
-	// Persisted nav-rail collapse preference. Only the manual toggle writes to it;
-	// the contextual auto-collapse (app-mode routes, narrow widths) mutates the
-	// in-memory `isCollapsed` without persisting, so it stays transient and never
-	// gets "stuck" collapsed across reloads.
+	// Persisted nav-rail collapse preference. A deliberate collapse writes to it —
+	// the manual toggle and a drag past the collapse threshold. The contextual
+	// auto-collapse (app-mode routes, narrow widths) mutates the in-memory
+	// `isCollapsed` without persisting, so it stays transient and never gets
+	// "stuck" collapsed across reloads.
 	const collapsePref = useLocalStorageValue<boolean>('nav_menu_collapsed', false, 'boolean')
 	let isCollapsed = $state(collapsePref.val)
+
+	// Resizable desktop rail, sized in REM so it scales with the root font-size the
+	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px past 1760px
+	// wide (app.css), which grows the rem-based button content; a fixed-px rail would
+	// not grow with it and the content would overflow. SIDEBAR_MIN_REM is the default
+	// expanded width (the old w-52); the handle only resizes when expanded and only
+	// widens from there — collapsing is the toggle button's job, not the drag's.
+	const SIDEBAR_MIN_REM = 13
+	const SIDEBAR_COLLAPSED_REM = 3
+	// Root font-size in px, used to convert the pointer's clientX (px) into rem.
+	function rootFontPx(): number {
+		if (!BROWSER) return 16
+		const px = parseFloat(getComputedStyle(document.documentElement).fontSize)
+		return Number.isFinite(px) && px > 0 ? px : 16
+	}
+	const widthPref = useLocalStorageValue<number>('nav_menu_width_rem', SIDEBAR_MIN_REM, 'number')
+	// A non-finite stored width (e.g. NaN from a corrupt entry) must never reach the
+	// `style:width` binding: `Math.max(13, NaN)` is NaN, which renders as the invalid
+	// `width: NaNrem` and collapses the fixed rail to content width, mangling every
+	// menu button. Clamp defensively.
+	function clampSidebarWidth(v: number): number {
+		return Number.isFinite(v) ? Math.max(SIDEBAR_MIN_REM, v) : SIDEBAR_MIN_REM
+	}
+	const initialSidebarWidth = clampSidebarWidth(widthPref.val)
+	let sidebarWidth = $state(initialSidebarWidth)
+	// Heal a corrupt stored value so it stops breaking the rail on every reload.
+	if (widthPref.val !== initialSidebarWidth) widthPref.val = initialSidebarWidth
+	let resizingSidebar = $state(false)
+	// Width (in rem) the content offset must track: the icon strip when collapsed,
+	// the user-chosen width otherwise.
+	let railWidth = $derived(isCollapsed ? SIDEBAR_COLLAPSED_REM : sidebarWidth)
+	// Width transition shared by the rail and the content offset: none for the whole
+	// drag (the rail tracks the pointer 1:1 and hits the min as a hard wall, no
+	// friction), a plain ease only for the collapse/expand toggle.
+	let sidebarTransitionClass = $derived(
+		resizingSidebar ? '' : 'transition-all duration-200 ease-in-out'
+	)
+	// Set while a drag is live so it can be torn down if the layout unmounts
+	// mid-drag (otherwise the window listeners would leak).
+	let stopSidebarResize: (() => void) | null = null
+
+	function startSidebarResize(e: PointerEvent) {
+		e.preventDefault()
+		const handle = e.currentTarget as HTMLElement
+		// Capture the pointer so events keep flowing to us even when the cursor
+		// crosses an iframe in the content area (app/session previews) — without
+		// this the drag silently stalls the moment it enters the iframe.
+		try {
+			handle.setPointerCapture(e.pointerId)
+		} catch {}
+		resizingSidebar = true
+		// The rail is fixed at left:0, so the pointer's clientX is the width — in px.
+		// Convert to rem (the unit the rail is sized in) via the root font-size. Pure
+		// resize: clamp at the min so the rail stops there like a wall (dragging left
+		// never collapses — that's the toggle button's job).
+		const onMove = (ev: PointerEvent) => {
+			sidebarWidth = Math.max(SIDEBAR_MIN_REM, ev.clientX / rootFontPx())
+		}
+		// pointercancel (and unmount, via onDestroy) must clear the state too, or
+		// `resizingSidebar` sticks true — the overlay and handle highlight stay up
+		// and the window listeners leak.
+		const stop = () => {
+			if (!resizingSidebar) return
+			resizingSidebar = false
+			widthPref.val = sidebarWidth
+			window.removeEventListener('pointermove', onMove)
+			window.removeEventListener('pointerup', stop)
+			window.removeEventListener('pointercancel', stop)
+			try {
+				handle.releasePointerCapture(e.pointerId)
+			} catch {}
+			stopSidebarResize = null
+		}
+		stopSidebarResize = stop
+		window.addEventListener('pointermove', onMove)
+		window.addEventListener('pointerup', stop)
+		window.addEventListener('pointercancel', stop)
+	}
+
+	onDestroy(() => stopSidebarResize?.())
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 	let menuHidden = $state(false)
@@ -665,6 +746,11 @@
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
 	<div class="h-screen flex flex-col">
+		{#if resizingSidebar}
+			<!-- While dragging, this overlay gives the whole viewport the resize cursor
+			     and stops the pointer from selecting text or hovering content/iframes. -->
+			<div class="fixed inset-0 z-50 cursor-col-resize select-none"></div>
+		{/if}
 		{#if !menuHidden}
 			{#if !$userStore?.operator}
 				{#if innerWidth < 768}
@@ -831,15 +917,32 @@
 					<div
 						id="sidebar"
 						class={classNames(
-							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
-							isCollapsed ? 'w-12' : 'w-52',
+							'flex flex-col fixed inset-y-0 z-40 ',
+							sidebarTransitionClass,
 							devOnly ? '!hidden' : ''
 						)}
+						style:width="{railWidth}rem"
 					>
 						<div
-							class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
+							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151]"
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
+							{#if !isCollapsed}
+								<!-- Resize handle straddling the right edge, only while expanded:
+								     drag to widen (clamped at the min). Collapsing is the toggle
+								     button's job. -->
+								<div
+									role="separator"
+									aria-orientation="vertical"
+									aria-label="Resize sidebar"
+									title="Drag to resize"
+									class={classNames(
+										'absolute inset-y-0 -right-0.5 w-1.5 cursor-col-resize z-50 transition-colors',
+										resizingSidebar ? '' : 'hover:bg-surface-hover'
+									)}
+									onpointerdown={startSidebarResize}
+								></div>
+							{/if}
 							<!-- Workspace picker as the sidebar header (replaces the Windmill logo).
 							     Kept in both modes: it scopes which workspace family's sessions
 							     the sessions sidebar shows. -->
@@ -951,13 +1054,11 @@
 										collapsePref.val = isCollapsed
 									}}
 								>
-									<ArrowLeft
-										size={16}
-										class={classNames(
-											'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-secondary',
-											isCollapsed ? 'rotate-180' : 'rotate-0'
-										)}
-									/>
+									{#if isCollapsed}
+										<PanelLeftOpen size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
+									{:else}
+										<PanelLeftClose size={14} class="flex-shrink-0 h-3.5 w-3.5 text-hint" />
+									{/if}
 								</button>
 							</div>
 						</div>
@@ -1100,7 +1201,8 @@
 				{children}
 				noPadding={devOnly || menuHidden}
 				disableAi={globalAiEnabled ? true : sessionMode}
-				{isCollapsed}
+				sidebarWidth={railWidth}
+				transitionClass={sidebarTransitionClass}
 				isMobile={innerWidth < 768}
 				onMenuOpen={() => {
 					menuOpen = true
