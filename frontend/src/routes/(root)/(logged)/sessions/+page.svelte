@@ -15,7 +15,6 @@
 		X
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { slide } from 'svelte/transition'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PreviewRouterPicker, {
@@ -32,6 +31,7 @@
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
+	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
@@ -170,49 +170,60 @@
 	const activeRuntime = $derived(activeSession ? getRuntime(activeSession.id) : undefined)
 	const owner = $derived(activeRuntime?.previewTabs)
 
-	// Lazy-mount gate: a tab's iframe only renders once its id lands here (on
+	// Lazy-mount gate: a tab's content only renders once its key lands here (on
 	// first activation) — so restoring a session with N saved tabs boots just
 	// the active one instead of N full Windmill apps at once. Pure "has this
-	// iframe been created yet" DOM bookkeeping, so it stays page-local while
-	// the owner holds the tab identity. Mount the owner's active tab whenever
-	// it changes, and clear on session change so a prior session's tab ids
-	// (incl. the shared 'session' seed id) don't leak in.
+	// content been created yet" DOM bookkeeping, so it stays page-local while
+	// the owner holds the tab identity. Keys are session-scoped (tab ids alone
+	// collide across sessions — every session seeds a 'session' tab id) and the
+	// set survives session switches: a warm session's mounted tabs stay alive
+	// while another session is shown, same as its stacked chat column.
 	//
-	// MRU-capped at MAX_MOUNTED_TABS: each mounted tab is a full Windmill app
-	// (iframe) — without a cap a long-lived session accumulates one per tab
-	// ever activated. An evicted tab stays in the strip and simply remounts on
-	// its next activation, same as the lazy-mount path.
+	// MRU-capped at MAX_MOUNTED_TABS, shared across sessions: each mounted tab
+	// is a full Windmill app (iframe) or live editor — without a cap warm
+	// sessions accumulate one per tab ever activated. An evicted tab stays in
+	// the strip and simply remounts on its next activation, same as the
+	// lazy-mount path.
 	const MAX_MOUNTED_TABS = 5
-	const mountedTabIds = new SvelteSet<string>()
-	let mountedForSession: string | undefined
-	function mountTab(id: string) {
-		// Delete-then-add moves the id to the MRU end; evict from the LRU front,
+	const mountedTabKeys = new SvelteSet<string>()
+	const tabKey = (sessionId: string, tabId: string) => `${sessionId}:${tabId}`
+	const sessionOfKey = (key: string) => key.slice(0, key.indexOf(':'))
+	function mountTab(key: string) {
+		// Delete-then-add moves the key to the MRU end; evict from the LRU front,
 		// never the tab just activated.
-		mountedTabIds.delete(id)
-		mountedTabIds.add(id)
-		while (mountedTabIds.size > MAX_MOUNTED_TABS) {
-			const oldest = mountedTabIds.values().next().value
-			if (oldest === undefined || oldest === id) break
-			mountedTabIds.delete(oldest)
+		mountedTabKeys.delete(key)
+		mountedTabKeys.add(key)
+		while (mountedTabKeys.size > MAX_MOUNTED_TABS) {
+			const oldest = mountedTabKeys.values().next().value
+			if (oldest === undefined || oldest === key) break
+			mountedTabKeys.delete(oldest)
 		}
 	}
+	// Mount the active session's active tab whenever either changes. Background
+	// sessions' activeId changes (a chat tool opening a tab) don't mount — their
+	// tabs boot lazily on first visible activation.
 	$effect(() => {
-		const sid = activeSession?.id
-		const o = owner
-		const activeId = o?.activeId
-		if (!sid || !o) return
+		const sid = activeRuntime?.sessionId
+		const activeId = owner?.activeId
+		if (!sid || !activeId) return
+		untrack(() => mountTab(tabKey(sid, activeId)))
+	})
+	// A disposed runtime unmounts its hosts; drop its keys too, else a later
+	// re-open would boot every previously-mounted tab at once instead of
+	// lazily, and stale keys would squat the shared MRU budget.
+	$effect(() => {
+		const warm = new Set(listRuntimes().map((r) => r.sessionId))
 		untrack(() => {
-			if (mountedForSession !== sid) {
-				mountedForSession = sid
-				mountedTabIds.clear()
+			for (const key of [...mountedTabKeys]) {
+				if (!warm.has(sessionOfKey(key))) mountedTabKeys.delete(key)
 			}
-			if (activeId) mountTab(activeId)
 		})
 	})
 
 	function selectTab(id: string) {
 		owner?.select(id)
-		mountTab(id)
+		const sid = activeRuntime?.sessionId
+		if (sid) mountTab(tabKey(sid, id))
 		activeTabPickerOpen = false
 	}
 	function openInNewTab(target: PreviewTarget) {
@@ -220,7 +231,8 @@
 	}
 	function closeTab(id: string) {
 		owner?.close(id)
-		mountedTabIds.delete(id)
+		const sid = activeRuntime?.sessionId
+		if (sid) mountedTabKeys.delete(tabKey(sid, id))
 	}
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -234,17 +246,53 @@
 	// toggle) so it survives session switches with the rest of the tab model.
 	const previewCollapsed = $derived(owner?.collapsed ?? false)
 
+	// Collapse works by resizing the preview pane to zero, never unmounting it:
+	// the pane hosts every warm session's preview tabs, and unmounting would
+	// destroy them all whenever the active session's preview is collapsed (the
+	// default for a session with no tabs). Both panes are driven together — a
+	// given size on one pane against a stale size on the other makes Splitpanes
+	// normalize (e.g. 50 vs 100 lands at 33%), drifting on every toggle.
+	// null = let Splitpanes auto-distribute (initial even split).
+	let previewPaneSize = $state<number | null>(null)
+	let chatPaneSize = $state<number | null>(null)
+	let lastExpandedPreviewSize = 50
+	$effect(() => {
+		const collapsed = previewCollapsed
+		const full = fullscreen
+		untrack(() => {
+			if (full) {
+				// Chat pane is unmounted: the preview is the only pane and must own
+				// the full width, not its remembered split share.
+				previewPaneSize = 100
+			} else if (collapsed) {
+				if (previewPaneSize && previewPaneSize > 0 && previewPaneSize < 100) {
+					lastExpandedPreviewSize = previewPaneSize
+				}
+				previewPaneSize = 0
+				chatPaneSize = 100
+			} else {
+				if (previewPaneSize === 0 || previewPaneSize === 100 || previewPaneSize === null) {
+					previewPaneSize = lastExpandedPreviewSize
+				}
+				chatPaneSize = 100 - previewPaneSize
+			}
+		})
+	})
+
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
 	const displayPath = $derived(owner?.activeTab?.loc ?? owner?.activeTab?.url ?? `${base}/`)
-	function onTabLoad(tab: SessionPreviewTab, frame: HTMLIFrameElement) {
+	// Writes to the tab's own session model: a hidden warm session's iframe can
+	// finish loading while another session is shown, and its location must not
+	// land on the visible session's tabs.
+	function onTabLoad(tabs: SessionPreviewTabs, tab: SessionPreviewTab, frame: HTMLIFrameElement) {
 		try {
 			const loc = frame.contentWindow?.location
 			if (!loc) return
 			// Drop the injected `nomenubar` flag so the breadcrumb stays readable.
 			const u = new URL(loc.href)
 			u.searchParams.delete('nomenubar')
-			owner?.observeLocation(tab.id, u.pathname + u.search)
+			tabs.observeLocation(tab.id, u.pathname + u.search)
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.
@@ -262,9 +310,10 @@
 	const MUTATING_TOOL_RE = /^(write_|patch_|delete_|deploy_|discard_|set_|create_|update_|remove_)/
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
 	function reloadAllTabs() {
-		for (const tab of owner?.tabs ?? []) {
-			if (!mountedTabIds.has(tab.id)) continue
-			tabHosts[tab.id]?.reload()
+		// All warm sessions' mounted tabs, not just the visible session's — a
+		// hidden preview would otherwise show pre-mutation content on return.
+		for (const key of mountedTabKeys) {
+			tabHosts[key]?.reload()
 		}
 	}
 	$effect(() => {
@@ -436,14 +485,14 @@
 		</div>
 	{:else}
 		<div class="flex-1 min-h-0 flex flex-row relative" use:splitterPointerCapture>
-			<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
+			<Splitpanes
+				horizontal={false}
+				class="flex-1 min-h-0 splitter-hidden {previewCollapsed ? 'splitter-off' : ''}"
+			>
 				{#if !fullscreen}
 					<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
 					     so switching between them preserves chat scroll/draft state. -->
-					<!-- No explicit `size`: Splitpanes auto-distributes — when the preview
-				     pane unmounts on collapse the chat fills 100%; with both panes it
-				     splits evenly. An explicit size would pin the chat and leave a gap. -->
-					<Pane minSize={25} class="flex flex-col min-h-0">
+					<Pane bind:size={chatPaneSize} minSize={25} class="flex flex-col min-h-0">
 						<div class="relative flex-1 min-h-0">
 							{#each warmSessions as s (s.id)}
 								<div
@@ -459,205 +508,215 @@
 					</Pane>
 				{/if}
 
-				<!-- Preview panel: the live Windmill page, framed like the editor pane. -->
-				{#if !previewCollapsed}
-					<Pane minSize={30} class="flex flex-col min-h-0">
-						<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
-							<div
-								transition:slide={{ axis: 'x', duration: 200 }}
-								class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
-									? ''
-									: 'rounded-md border border-light'}"
-							>
-								{#if !fullscreen}
-									<!-- Collapse the preview panel — floats over the top-left corner so
+				<!-- Preview panel: the live Windmill page, framed like the editor pane.
+				     Always mounted (collapse resizes it to 0 — see previewPaneSize) so
+				     warm sessions' preview hosts survive a collapsed active session. -->
+				<Pane
+					bind:size={previewPaneSize}
+					minSize={previewCollapsed ? 0 : 30}
+					maxSize={previewCollapsed ? 0 : 100}
+					class="flex flex-col min-h-0"
+				>
+					<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
+						<div
+							class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
+								? ''
+								: 'rounded-md border border-light'}"
+						>
+							{#if !fullscreen}
+								<!-- Collapse the preview panel — floats over the top-left corner so
 									     the tab strip keeps the full width. -->
-									<button
-										type="button"
-										onclick={() => owner?.setCollapsed(true)}
-										title="Collapse preview"
-										aria-label="Collapse preview"
-										class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
-									>
-										<PanelRightClose size={14} />
-									</button>
-								{/if}
-
-								<!-- Open-in-full-page + full-screen toggle, floating over the top-right
-								     corner to mirror the collapse control. -->
-								<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
-									<a
-										href={owner?.activeTab?.url ?? `${base}/`}
-										title="Open in workspace"
-										aria-label="Open in workspace"
-										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
-									>
-										<ExternalLink size={14} />
-									</a>
-									<button
-										type="button"
-										onclick={() => (fullscreen = !fullscreen)}
-										title={fullscreen ? 'Exit full screen' : 'Full screen'}
-										aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
-									>
-										{#if fullscreen}
-											<Minimize2 size={14} />
-										{:else}
-											<Maximize2 size={14} />
-										{/if}
-									</button>
-								</div>
-
-								<!-- Tab strip: open preview pages. "+" opens the router picker to
-								     add more. -->
-								<div
-									class="flex items-center gap-1 h-8 border-b border-light shrink-0 bg-surface-secondary overflow-x-auto {fullscreen
-										? 'pl-1.5'
-										: 'pl-9'} pr-16"
+								<button
+									type="button"
+									onclick={() => owner?.setCollapsed(true)}
+									title="Collapse preview"
+									aria-label="Collapse preview"
+									class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
 								>
-									{#each owner?.tabs ?? [] as tab (tab.id)}
-										<div
-											class="group/tab flex items-center gap-1 shrink-0 max-w-[14rem] h-6 pl-2 pr-1 rounded-md text-xs border transition-colors {tab.id ===
-											owner?.activeId
-												? 'bg-surface text-primary border-light'
-												: 'text-secondary border-transparent hover:bg-surface-hover'}"
-										>
-											{#if tab.id === owner?.activeId}
-												<!-- Active tab doubles as its own breadcrumb picker. -->
-												<Popover
-													placement="bottom-start"
-													usePointerDownOutside
-													excludeSelectors=".drawer"
-													disableFocusTrap
-													closeOnOtherPopoverOpen
-													bind:isOpen={activeTabPickerOpen}
-													openFocus="[data-workspace-picker-search]"
-													class="flex items-center gap-1.5 min-w-0 cursor-pointer"
-												>
-													{#snippet trigger()}
-														<span class="truncate">{tabLabel(tab.loc)}</span>
-														<ChevronDown size={12} class="shrink-0 text-tertiary" />
-													{/snippet}
-													{#snippet content()}
-														<PreviewRouterPicker
-															initialScope={activePickerScope}
-															initialHighlight={activePickerHighlight}
-															{currentItem}
-															onPick={(t) => {
-																activeTabPickerOpen = false
-																navigatePreviewTo(t)
-															}}
-														/>
-													{/snippet}
-												</Popover>
-											{:else}
-												<button
-													type="button"
-													class="flex items-center gap-1.5 min-w-0"
-													onclick={() => selectTab(tab.id)}
-													title={tabLabel(tab.loc)}
-												>
-													<span class="truncate">{tabLabel(tab.loc)}</span>
-												</button>
-											{/if}
-											<button
-												type="button"
-												onclick={() => closeTab(tab.id)}
-												title="Close tab"
-												aria-label="Close tab"
-												class="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded text-tertiary hover:text-primary hover:bg-surface-hover opacity-0 group-hover/tab:opacity-100"
-											>
-												<X size={11} />
-											</button>
-										</div>
-									{/each}
-									<Popover
-										placement="bottom-start"
-										usePointerDownOutside
-										excludeSelectors=".drawer"
-										disableFocusTrap
-										closeOnOtherPopoverOpen
-										bind:isOpen={newTabOpen}
-										openFocus="[data-workspace-picker-search]"
-										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
-									>
-										{#snippet trigger()}
-											<Plus size={14} />
-										{/snippet}
-										{#snippet content()}
-											<PreviewRouterPicker
-												onPick={(t) => {
-													newTabOpen = false
-													openInNewTab(t)
-												}}
-											/>
-										{/snippet}
-									</Popover>
-								</div>
+									<PanelRightClose size={14} />
+								</button>
+							{/if}
 
-								<!-- One host per tab, stacked and visibility-toggled so every tab
-								     stays mounted (switching never reloads). Each host renders a
-								     live editor (script/flow/raw_app target) or an iframe fallback. -->
-								<div class="relative flex-1 min-h-0">
-									{#each owner?.tabs ?? [] as tab (tab.id)}
-										<PreviewTabHost
-											bind:this={tabHosts[tab.id]}
-											{tab}
-											session={activeSession}
-											runtime={activeRuntime}
-											active={tab.id === owner?.activeId}
-											mounted={mountedTabIds.has(tab.id)}
-											label={tabLabel(tab.loc)}
-											onNavigate={navigateEditorTo}
-											onLoad={(frame) => onTabLoad(tab, frame)}
-										/>
-									{/each}
-									{#if (owner?.tabs.length ?? 0) === 0}
-										<!-- New session with nothing to preview: an empty state with a
-										     picker to open one, instead of defaulting to the home page. -->
-										<div
-											class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 bg-surface"
-										>
-											<MonitorPlay size={28} class="text-tertiary" />
-											<div class="flex flex-col gap-1">
-												<span class="text-sm font-medium text-secondary">No preview open</span>
-												<span class="text-xs text-tertiary max-w-xs"
-													>Open a page, flow, script or app to preview it alongside the chat.</span
-												>
-											</div>
+							<!-- Open-in-full-page + full-screen toggle, floating over the top-right
+								     corner to mirror the collapse control. -->
+							<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
+								<a
+									href={owner?.activeTab?.url ?? `${base}/`}
+									title="Open in workspace"
+									aria-label="Open in workspace"
+									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+								>
+									<ExternalLink size={14} />
+								</a>
+								<button
+									type="button"
+									onclick={() => (fullscreen = !fullscreen)}
+									title={fullscreen ? 'Exit full screen' : 'Full screen'}
+									aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+								>
+									{#if fullscreen}
+										<Minimize2 size={14} />
+									{:else}
+										<Maximize2 size={14} />
+									{/if}
+								</button>
+							</div>
+
+							<!-- Tab strip: open preview pages. "+" opens the router picker to
+								     add more. -->
+							<div
+								class="flex items-center gap-1 h-8 border-b border-light shrink-0 bg-surface-secondary overflow-x-auto {fullscreen
+									? 'pl-1.5'
+									: 'pl-9'} pr-16"
+							>
+								{#each owner?.tabs ?? [] as tab (tab.id)}
+									<div
+										class="group/tab flex items-center gap-1 shrink-0 max-w-[14rem] h-6 pl-2 pr-1 rounded-md text-xs border transition-colors {tab.id ===
+										owner?.activeId
+											? 'bg-surface text-primary border-light'
+											: 'text-secondary border-transparent hover:bg-surface-hover'}"
+									>
+										{#if tab.id === owner?.activeId}
+											<!-- Active tab doubles as its own breadcrumb picker. -->
 											<Popover
-												placement="bottom"
+												placement="bottom-start"
 												usePointerDownOutside
 												excludeSelectors=".drawer"
 												disableFocusTrap
 												closeOnOtherPopoverOpen
-												bind:isOpen={emptyStateNewTabOpen}
+												bind:isOpen={activeTabPickerOpen}
 												openFocus="[data-workspace-picker-search]"
+												class="flex items-center gap-1.5 min-w-0 cursor-pointer"
 											>
 												{#snippet trigger()}
-													<span
-														class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-light text-secondary hover:bg-surface-hover cursor-pointer"
-													>
-														<Plus size={14} /> Open a preview
-													</span>
+													<span class="truncate">{tabLabel(tab.loc)}</span>
+													<ChevronDown size={12} class="shrink-0 text-tertiary" />
 												{/snippet}
 												{#snippet content()}
 													<PreviewRouterPicker
+														initialScope={activePickerScope}
+														initialHighlight={activePickerHighlight}
+														{currentItem}
 														onPick={(t) => {
-															emptyStateNewTabOpen = false
-															openInNewTab(t)
+															activeTabPickerOpen = false
+															navigatePreviewTo(t)
 														}}
 													/>
 												{/snippet}
 											</Popover>
+										{:else}
+											<button
+												type="button"
+												class="flex items-center gap-1.5 min-w-0"
+												onclick={() => selectTab(tab.id)}
+												title={tabLabel(tab.loc)}
+											>
+												<span class="truncate">{tabLabel(tab.loc)}</span>
+											</button>
+										{/if}
+										<button
+											type="button"
+											onclick={() => closeTab(tab.id)}
+											title="Close tab"
+											aria-label="Close tab"
+											class="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded text-tertiary hover:text-primary hover:bg-surface-hover opacity-0 group-hover/tab:opacity-100"
+										>
+											<X size={11} />
+										</button>
+									</div>
+								{/each}
+								<Popover
+									placement="bottom-start"
+									usePointerDownOutside
+									excludeSelectors=".drawer"
+									disableFocusTrap
+									closeOnOtherPopoverOpen
+									bind:isOpen={newTabOpen}
+									openFocus="[data-workspace-picker-search]"
+									class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
+								>
+									{#snippet trigger()}
+										<Plus size={14} />
+									{/snippet}
+									{#snippet content()}
+										<PreviewRouterPicker
+											onPick={(t) => {
+												newTabOpen = false
+												openInNewTab(t)
+											}}
+										/>
+									{/snippet}
+								</Popover>
+							</div>
+
+							<!-- One host per tab of every warm session, stacked and
+								     visibility-toggled so switching tabs or sessions never reloads
+								     a mounted tab — hosts live as long as the session's runtime,
+								     content-gated by the shared mount MRU. Each host renders a
+								     live editor (script/flow/raw_app target) or an iframe fallback. -->
+							<div class="relative flex-1 min-h-0">
+								{#each warmSessions as s (s.id)}
+									{@const rt = getRuntime(s.id)}
+									{@const tabs = rt?.previewTabs}
+									{#each tabs?.tabs ?? [] as tab (tab.id)}
+										<PreviewTabHost
+											bind:this={tabHosts[tabKey(s.id, tab.id)]}
+											{tab}
+											session={s}
+											runtime={rt}
+											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
+											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
+											label={tabLabel(tab.loc)}
+											onNavigate={navigateEditorTo}
+											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
+										/>
+									{/each}
+								{/each}
+								{#if (owner?.tabs.length ?? 0) === 0}
+									<!-- New session with nothing to preview: an empty state with a
+										     picker to open one, instead of defaulting to the home page. -->
+									<div
+										class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 bg-surface"
+									>
+										<MonitorPlay size={28} class="text-tertiary" />
+										<div class="flex flex-col gap-1">
+											<span class="text-sm font-medium text-secondary">No preview open</span>
+											<span class="text-xs text-tertiary max-w-xs"
+												>Open a page, flow, script or app to preview it alongside the chat.</span
+											>
 										</div>
-									{/if}
-								</div>
+										<Popover
+											placement="bottom"
+											usePointerDownOutside
+											excludeSelectors=".drawer"
+											disableFocusTrap
+											closeOnOtherPopoverOpen
+											bind:isOpen={emptyStateNewTabOpen}
+											openFocus="[data-workspace-picker-search]"
+										>
+											{#snippet trigger()}
+												<span
+													class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-light text-secondary hover:bg-surface-hover cursor-pointer"
+												>
+													<Plus size={14} /> Open a preview
+												</span>
+											{/snippet}
+											{#snippet content()}
+												<PreviewRouterPicker
+													onPick={(t) => {
+														emptyStateNewTabOpen = false
+														openInNewTab(t)
+													}}
+												/>
+											{/snippet}
+										</Popover>
+									</div>
+								{/if}
 							</div>
 						</div>
-					</Pane>
-				{/if}
+					</div>
+				</Pane>
 			</Splitpanes>
 			{#if previewCollapsed && !fullscreen}
 				<!-- Collapsed preview: no rail — a floating launcher in the top-right to
@@ -687,5 +746,12 @@
 		border: none !important;
 		opacity: 0 !important;
 		width: 10px !important;
+	}
+
+	/* Collapsed preview: the pane is resized to 0 but stays mounted, so remove
+	   the (invisible) gutter entirely — it would otherwise leave a dead 10px
+	   drag zone on the chat's right edge. */
+	:global(.splitpanes--vertical.splitter-off) > :global(.splitpanes__splitter) {
+		display: none !important;
 	}
 </style>

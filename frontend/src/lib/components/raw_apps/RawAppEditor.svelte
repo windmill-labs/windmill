@@ -524,7 +524,7 @@
 	// user's call. The sidebar is set without persisting so a transient narrow
 	// open never overrides the user's saved expand/collapse preference.
 	let rootWidth = $state(0)
-	const NARROW_PX = 800
+	const NARROW_PX = 900
 	let appliedNarrowDefault = false
 	$effect(() => {
 		const w = rootWidth
