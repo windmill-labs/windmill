@@ -3,6 +3,7 @@
 	import { findWorkspaceRoot } from '$lib/utils/workspaceHierarchy'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { Badge, Button } from '$lib/components/common'
+	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
 	import { Building, ChevronDown, EllipsisVertical, GitFork } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { type Item } from '$lib/utils'
@@ -162,7 +163,7 @@
 					color="dark-blue"
 					small
 					class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-					>dev</Badge
+					>{devBadgeText(currentWs.dev_workspace_label)}</Badge
 				>
 			{/if}
 		{/if}

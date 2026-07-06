@@ -29,6 +29,7 @@
 	import InputError from '$lib/components/InputError.svelte'
 	import PrefixedInput from '$lib/components/PrefixedInput.svelte'
 	import { Badge, Button, CopyButton } from '$lib/components/common'
+	import { devBadgeText, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import Select from '../select/Select.svelte'
 	import { Building, Check, GitFork, Plus, Settings } from 'lucide-svelte'
 
@@ -382,7 +383,7 @@
 							disabled={rootDisabled}
 							title={rootDisabled
 								? devOfRoot
-									? `${root.name} is locked. Run in its dev workspace instead.`
+									? `${root.name} is locked. Run in its ${devLabelNoun(devOfRoot.dev_workspace_label)} instead.`
 									: `${root.name} is locked for direct deploys.`
 								: undefined}
 							class={`${rowBase} pr-8 ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
@@ -429,7 +430,7 @@
 									color="dark-blue"
 									small
 									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-									>dev</Badge
+									>{devBadgeText(f.dev_workspace_label)}</Badge
 								>
 							{/if}
 							{#if isSelected(f.id)}

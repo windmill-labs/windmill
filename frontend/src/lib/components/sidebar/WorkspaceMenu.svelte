@@ -34,6 +34,7 @@
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { getContrastTextColor } from '$lib/utils'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
+	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
 
 	interface Props {
 		isCollapsed?: boolean
@@ -266,6 +267,7 @@
 										workspaceColor={workspace.color}
 										{isForked}
 										isDevWorkspace={workspace.is_dev_workspace}
+										devWorkspaceLabel={workspace.dev_workspace_label}
 										{parentName}
 										padding="p-1"
 									/>
@@ -285,7 +287,7 @@
 													color="dark-blue"
 													small
 													class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-													>dev</Badge
+													>{devBadgeText(workspace.dev_workspace_label)}</Badge
 												>
 											{/if}
 										</div>

@@ -3,7 +3,7 @@
 	import { createEventDispatcher, type Snippet } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
-	import { AlertTriangle, CornerDownLeft, Loader2, RefreshCcw } from 'lucide-svelte'
+	import { AlertTriangle, CornerDownLeft, Info, Loader2, RefreshCcw } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	type Props = {
@@ -12,7 +12,7 @@
 		keyListen?: boolean
 		loading?: boolean
 		open?: boolean
-		type?: 'danger' | 'reload'
+		type?: 'danger' | 'reload' | 'info'
 		showIcon?: boolean
 		id?: string
 		trashbin?: boolean
@@ -79,6 +79,17 @@
 		reload: {
 			Icon: RefreshCcw,
 			color: 'dark',
+			classes: {
+				icon: 'text-blue-700 dark:text-blue-300',
+				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
+			}
+		},
+
+		// Neutral, affirmative confirmation (non-destructive) — e.g. proceeding with
+		// an import. The confirm button stays a plain accent (see `destructive` below).
+		info: {
+			Icon: Info,
+			color: 'blue',
 			classes: {
 				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'

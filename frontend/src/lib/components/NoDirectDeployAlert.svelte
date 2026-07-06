@@ -6,6 +6,7 @@
 		isRuleActive
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { Alert, Button } from './common'
@@ -40,12 +41,14 @@
 	<div class="my-2">
 		<Alert
 			type="info"
-			title={canonicalDev ? 'Edits happen in the dev workspace' : 'Workspace protection active'}
+			title={canonicalDev
+				? `Edits happen in the ${devLabelNoun(canonicalDev.dev_workspace_label)}`
+				: 'Workspace protection active'}
 		>
 			<div class="flex flex-col gap-2">
 				{#if canonicalDev}
 					<p>
-						Edits to this workspace are made in its dev workspace
+						Edits to this workspace are made in its {devLabelNoun(canonicalDev.dev_workspace_label)}
 						<b>{canonicalDev.name}</b> ({canonicalDev.id}) and promoted here.
 					</p>
 					<div>
@@ -58,7 +61,7 @@
 								if (canonicalDev) switchWorkspace(canonicalDev.id)
 							}}
 						>
-							Go to dev workspace
+							Go to {devLabelNoun(canonicalDev.dev_workspace_label)}
 						</Button>
 					</div>
 				{:else}

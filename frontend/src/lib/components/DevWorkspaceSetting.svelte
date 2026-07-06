@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces, usersWorkspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
-	import { Button } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -9,12 +9,14 @@
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { devBadgeText, devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink } from 'lucide-svelte'
 	import { resource } from 'runed'
 
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let isDev = $derived(currentWs?.is_dev_workspace ?? false)
+	let currentLabel = $derived(devLabelKey(currentWs?.dev_workspace_label))
 	let parentId = $derived(currentWs?.parent_workspace_id ?? undefined)
 	let canonicalDev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
 
@@ -29,12 +31,18 @@
 	// else the server result (pairing + detach still available to a prod admin).
 	let pairedDev = $derived(
 		canonicalDev
-			? { id: canonicalDev.id, name: canonicalDev.name, isMember: true }
+			? {
+					id: canonicalDev.id,
+					name: canonicalDev.name,
+					isMember: true,
+					label: canonicalDev.dev_workspace_label
+				}
 			: devWorkspaceResource.current
 				? {
 						id: devWorkspaceResource.current.id,
 						name: devWorkspaceResource.current.name,
-						isMember: false
+						isMember: false,
+						label: devWorkspaceResource.current.dev_workspace_label
 					}
 				: undefined
 	)
@@ -42,7 +50,10 @@
 	let selectedDevId = $state<string | undefined>(undefined)
 	let lockProdDeploy = $state(true)
 	let lockProdForking = $state(true)
+	// Cosmetic display label chosen when attaching an existing workspace as dev.
+	let attachLabel = $state<'dev' | 'staging'>('dev')
 	let busy = $state(false)
+	let labelBusy = $state(false)
 
 	// A standalone root workspace, or an existing fork of this prod (same family), can be attached.
 	// A fork parented to a different workspace can't (the backend rejects a parent that isn't this
@@ -82,16 +93,33 @@
 				requestBody: {
 					dev_workspace_id: selectedDevId,
 					lock_prod_deploy: lockProdDeploy,
-					lock_prod_forking: lockProdForking
+					lock_prod_forking: lockProdForking,
+					dev_workspace_label: attachLabel
 				}
 			})
-			sendUserToast(`Attached ${selectedDevId} as dev workspace`)
+			sendUserToast(`Attached ${selectedDevId} as ${attachLabel} workspace`)
 			selectedDevId = undefined
 			await refresh()
 		} catch (e: any) {
 			sendUserToast(`Failed to attach dev workspace: ${e?.body ?? e}`, true)
 		} finally {
 			busy = false
+		}
+	}
+
+	async function setLabel(label: 'dev' | 'staging') {
+		if (!$workspaceStore || label === devLabelKey(currentWs?.dev_workspace_label)) return
+		labelBusy = true
+		try {
+			await WorkspaceService.setDevWorkspaceLabel({
+				workspace: $workspaceStore,
+				requestBody: { dev_workspace_label: label }
+			})
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		} catch (e: any) {
+			sendUserToast(`Failed to update display label: ${e?.body ?? e}`, true)
+		} finally {
+			labelBusy = false
 		}
 	}
 
@@ -116,9 +144,20 @@
 {#if isDev && parentId}
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm">
-			This is a <b>dev workspace</b> paired with root workspace <b>{parentId}</b>. Promote changes
-			from the home page banner or the Compare &amp; Deploy page.
+			This is a <b>{devLabelNoun(currentWs?.dev_workspace_label)}</b> paired with root workspace
+			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
+		<div class="text-2xs text-secondary">
+			Cosmetic label: <Badge color="indigo" small>{devBadgeText(currentLabel)}</Badge>
+			<button
+				type="button"
+				disabled={labelBusy}
+				class="text-secondary hover:text-primary hover:underline disabled:opacity-50"
+				onclick={() => setLabel(currentLabel === 'staging' ? 'dev' : 'staging')}
+			>
+				Change to {currentLabel === 'staging' ? 'dev' : 'staging'}
+			</button>
+		</div>
 		<div>
 			<Button
 				variant="default"
@@ -132,8 +171,8 @@
 {:else if pairedDev}
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm">
-			This workspace's dev workspace is <b>{pairedDev.name}</b> ({pairedDev.id}). Edits to this
-			workspace are redirected there.
+			This workspace's {devLabelNoun(pairedDev.label)} is <b>{pairedDev.name}</b> ({pairedDev.id}).
+			Edits to this workspace are redirected there.
 		</p>
 		<div class="flex gap-2">
 			{#if pairedDev.isMember}
@@ -142,7 +181,7 @@
 					startIcon={{ icon: GitFork }}
 					onclick={() => switchWorkspace(pairedDev.id)}
 				>
-					Go to dev workspace
+					Go to {devLabelNoun(pairedDev.label)}
 				</Button>
 			{/if}
 			<Button color="red" disabled={busy} onclick={() => detach(pairedDev.id)}>Detach</Button>
@@ -167,6 +206,16 @@
 				placeholder="Select a workspace"
 				clearable
 			/>
+		</div>
+		<div class="text-2xs text-secondary">
+			Cosmetic label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
+			<button
+				type="button"
+				class="text-secondary hover:text-primary hover:underline"
+				onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
+			>
+				Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
+			</button>
 		</div>
 		<Toggle
 			bind:checked={lockProdDeploy}

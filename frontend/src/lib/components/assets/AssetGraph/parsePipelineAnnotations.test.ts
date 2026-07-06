@@ -62,6 +62,13 @@ describe('parsePipelineAnnotations: header scan', () => {
 		const out = parsePipelineAnnotations(code)
 		expect(out.tag).toBe('heavy')
 	})
+
+	it('strips trailing key=value opts from a // on asset ref', () => {
+		// The path must be the bare asset, not `main.orders debounce=60s`, so it
+		// dedups against body inference and matches the deploy path.
+		const out = parsePipelineAnnotations('// on ducklake://main.orders debounce=60s')
+		expect(out.triggerAssets).toEqual([{ kind: 'ducklake', path: 'main.orders' }])
+	})
 })
 
 describe('parsePipelineAnnotations: retry', () => {

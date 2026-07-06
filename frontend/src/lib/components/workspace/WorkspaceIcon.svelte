@@ -3,11 +3,13 @@
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { getContrastTextColor } from '$lib/utils'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
+	import { devLabelWord } from '$lib/utils/devWorkspaceLabel'
 
 	interface Props {
 		workspaceColor?: string
 		isForked?: boolean
 		isDevWorkspace?: boolean
+		devWorkspaceLabel?: string | null
 		parentName?: string
 		size?: number
 		// Tailwind padding class for the round badge — shrink it (e.g. 'p-0.5') for
@@ -19,6 +21,7 @@
 		workspaceColor,
 		isForked = false,
 		isDevWorkspace = false,
+		devWorkspaceLabel,
 		parentName,
 		size = 14,
 		padding = 'p-1.5'
@@ -40,7 +43,7 @@
 		<Tooltip>
 			{#snippet text()}
 				{#if isForked && parentName}
-					{isDevWorkspace ? 'Dev workspace of' : 'Fork of'}
+					{isDevWorkspace ? `${devLabelWord(devWorkspaceLabel)} workspace of` : 'Fork of'}
 					{parentName}
 				{/if}
 			{/snippet}
