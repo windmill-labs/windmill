@@ -701,12 +701,13 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			// we don't know the user's timestamp column name.
 			lines.push(
 				`-- Partitioned table? Filter the source to the active slice — {partition} is the`,
-				`-- identity string, so compare via strftime (works for every grain; matches the`,
-				`-- whole bucket). Add \`-- partitioned <grain>\` in the header, then e.g.:`,
+				`-- identity string, so compare via strftime (works for every time grain; matches`,
+				`-- the whole bucket). Add \`-- partitioned <grain>\` in the header, then e.g.:`,
 				`--   daily    WHERE strftime(<ts_col>, '%Y-%m-%d')   = {partition}`,
 				`--   hourly   WHERE strftime(<ts_col>, '%Y-%m-%dT%H') = {partition}`,
 				`--   weekly   WHERE strftime(<ts_col>, '%G-W%V')      = {partition}`,
 				`--   monthly  WHERE strftime(<ts_col>, '%Y-%m')       = {partition}`,
+				`--   dynamic  WHERE <your_key_col> = {partition}   -- identity is your key, not a ts`,
 				`-- (\`= TIMESTAMP {partition}\` only parses for daily — avoid it.)`,
 				`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 			)
