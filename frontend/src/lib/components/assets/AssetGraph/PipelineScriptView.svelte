@@ -105,7 +105,9 @@
 		if (!dispatch || running) return
 		running = true
 		try {
-			await dispatch(script.path, $state.snapshot(args))
+			// No form rendered ⇒ no inputs to collect: run with {} rather than args a
+			// prior (input-carrying) resolve of this same path left behind unmounted.
+			await dispatch(script.path, showRunForm ? $state.snapshot(args) : {})
 		} finally {
 			running = false
 		}
