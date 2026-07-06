@@ -47,6 +47,43 @@ describe('buildDiffTree — structure', () => {
 		expect(t.root.children[0]).toMatchObject({ type: 'file', name: 'orphan', key: 'orphan' })
 	})
 
+	it('app roots sort as items among leaves — same position before and after unwrap', () => {
+		const apps = new Map<string, AppRootMeta>([['u/admin/beta_app', { summaryKey: 'raw_app/b' }]])
+		// Unloaded: the app is a plain leaf between alpha and zeta.
+		const before = buildDiffTree(
+			[
+				item('a', 'u/admin/alpha'),
+				item('raw_app/b', 'u/admin/beta_app'),
+				item('z', 'u/admin/zeta')
+			],
+			apps
+		)
+		const scopeBefore = before.root.children[0]
+		if (scopeBefore.type !== 'folder') throw new Error('expected scope')
+		expect(scopeBefore.children.map((c) => `${c.type}:${c.name}`)).toEqual([
+			'file:alpha',
+			'file:beta_app',
+			'file:zeta'
+		])
+		// Loaded: the leaf is replaced by the app-root folder — same position,
+		// not hoisted to the folder group.
+		const after = buildDiffTree(
+			[
+				item('a', 'u/admin/alpha'),
+				item('f', 'u/admin/beta_app/App.tsx'),
+				item('z', 'u/admin/zeta')
+			],
+			apps
+		)
+		const scopeAfter = after.root.children[0]
+		if (scopeAfter.type !== 'folder') throw new Error('expected scope')
+		expect(scopeAfter.children.map((c) => `${c.type}:${c.name}`)).toEqual([
+			'file:alpha',
+			'folder:beta_app',
+			'file:zeta'
+		])
+	})
+
 	it('tags the folder matching an app root and leaves others untagged', () => {
 		const apps = new Map<string, AppRootMeta>([
 			['u/admin/my_app', { summaryKey: 'raw_app/x', summary: 'My app' }]

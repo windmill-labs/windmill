@@ -184,6 +184,10 @@ pub fn workspaced_service() -> Router {
             post(crate::workspaces_extra::drop_forked_datatable_databases),
         )
         .route(
+            "/drop_forked_ducklake_namespaces",
+            post(crate::workspaces_extra::drop_forked_ducklake_namespaces),
+        )
+        .route(
             "/get_datatable_full_schema",
             post(get_datatable_full_schema),
         )
@@ -449,6 +453,11 @@ struct CreateWorkspaceFork {
     /// forked workspace's datatable config to point to the new database.
     #[serde(default)]
     forked_datatables: Vec<ForkedDatatableInfo>,
+    /// Lakes the user explicitly chose to SHARE with the parent (the fork then reads and
+    /// writes the parent's lake directly). Every lake not listed gets the default isolated
+    /// fork namespace + read-defer.
+    #[serde(default)]
+    shared_ducklakes: Vec<String>,
     /// Create the fork as a persistent dev workspace: the id is not required to carry the
     /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
     #[serde(default)]
@@ -2295,6 +2304,17 @@ async fn edit_ducklake_config(
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
+    // Lake names end up interpolated in `ATTACH 'ducklake://<name>'`,
+    // generated maintenance SQL and the reserved maintenance schedule path
+    // (CHECK-constrained to [\w-]+ segments).
+    for name in new_config.settings.ducklakes.keys() {
+        if !windmill_common::workspaces::is_valid_ducklake_name(name) {
+            return Err(Error::BadRequest(format!(
+                "Invalid ducklake name '{name}': only letters, digits, '_' and '-' are allowed"
+            )));
+        }
+    }
+
     let mut tx = db.begin().await?;
 
     let args_for_audit = format!("{:?}", new_config.settings);
@@ -2309,21 +2329,22 @@ async fn edit_ducklake_config(
     )
     .await?;
 
+    let old_ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT ws.ducklake->'ducklakes' AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(serde_json::Value::Null);
+    let old_ducklakes: HashMap<String, Ducklake> =
+        serde_json::from_value(old_ducklakes).unwrap_or_default();
+
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_ducklakes = sqlx::query_scalar!(
-            r#"
-                SELECT ws.ducklake->'ducklakes' AS ducklake_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_ducklakes: HashMap<String, Ducklake> =
-            serde_json::from_value(old_ducklakes).unwrap_or_default();
         for (name, dl) in new_config.settings.ducklakes.iter() {
             if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
                 let old_dl = old_ducklakes.get(name);
@@ -2341,7 +2362,7 @@ async fn edit_ducklake_config(
         }
     }
 
-    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+    let config: serde_json::Value = serde_json::to_value(&new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
     sqlx::query!(
@@ -2350,6 +2371,19 @@ async fn edit_ducklake_config(
         &w_id
     )
     .execute(&mut *tx)
+    .await?;
+
+    // Same tx as the settings update: a failed schedule sync/push must fail
+    // the whole save — nothing reconciles a half-applied state later.
+    let tx = windmill_queue::ducklake_maintenance::sync_ducklake_maintenance_schedules(
+        &db,
+        tx,
+        &w_id,
+        &new_config.settings.ducklakes,
+        &old_ducklakes,
+        &username,
+        &email,
+    )
     .await?;
 
     tx.commit().await?;
@@ -4038,6 +4072,7 @@ async fn clone_workspace_data(
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
     clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
+    clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
@@ -4079,6 +4114,9 @@ async fn clone_triggers_and_schedules(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
+    // Managed ducklake-maintenance schedules are excluded: the fork starts
+    // with no ducklake config, so cloned rows could never resolve a lake and
+    // the schedule API refuses mutations under the reserved prefix.
     sqlx::query!(
         r#"INSERT INTO schedule (
             workspace_id, path, edited_by, edited_at, schedule, enabled, script_path,
@@ -4095,9 +4133,10 @@ async fn clone_triggers_and_schedules(
             on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
             summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
             cron_version, description, dynamic_skip, permissioned_as, labels
-        FROM schedule WHERE workspace_id = $2"#,
+        FROM schedule WHERE workspace_id = $2 AND NOT starts_with(path, $3)"#,
         target_workspace_id,
         source_workspace_id,
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
     )
     .execute(&mut **tx)
     .await?;
@@ -4622,6 +4661,39 @@ async fn clone_macro_registry(
         "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name)
          SELECT $2, consumer_path, macro_name
          FROM macro_usage WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// Asset usage rows and `// on` subscriber triggers are deploy-derived like
+// ci_test_reference / the macro registry: without cloning them the fork's
+// pipeline graph has no asset nodes or lineage edges, and — worse — the asset
+// dispatch cascade never fires in the fork (it reads `script_trigger`), so
+// materializing an upstream node can't trigger its consumers until every
+// script is manually redeployed. `job`-kind usage rows (runtime-detected,
+// ephemeral) are skipped like the graph does.
+async fn clone_asset_usages_and_triggers(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+         SELECT $2, path, kind, usage_access_type, usage_path, usage_kind, columns
+         FROM asset WHERE workspace_id = $1 AND usage_kind IN ('script', 'flow')",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script_trigger (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s)
+         SELECT $2, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s
+         FROM script_trigger WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
     )
@@ -5351,6 +5423,42 @@ async fn create_workspace_fork(
     // conflict instead of a misleading "maximum number of workspaces" error.
     check_fork_w_id_conflict(&db, &nw.id).await?;
     purge_stale_fork_diff_state(&db, &nw.id).await?;
+    // A previously deleted fork with this id may have left ducklake namespaces behind if its
+    // physical cleanup failed after the delete committed (registry rows are the durable
+    // ledger — no FK, they outlive the workspace). Retry that cleanup now, and refuse to
+    // proceed while any metadata schema still can't be dropped: creating the fork anyway
+    // would silently reattach the deterministic namespace and its stale tables. Data-file
+    // leftovers alone don't block — once the schema is gone they are inert (a deleted fork's
+    // `$res:` storage resource is gone forever, so they may never resolve again), and the
+    // surviving registry row has the next successful same-prefix cleanup sweep them.
+    // `$res:` fallback = the workspace being forked: the deleted fork's resource clones came
+    // from a parent, so the new parent is the natural donor for the retry's credentials.
+    let leftover_issues = crate::workspaces_extra::drop_forked_ducklake_namespaces_impl(
+        &db,
+        &nw.id,
+        Some(&parent_workspace_id),
+    )
+    .await?;
+    let blocking: Vec<&str> = leftover_issues
+        .iter()
+        .filter(|i| i.blocking)
+        .map(|i| i.msg.as_str())
+        .collect();
+    if !blocking.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "a previously deleted workspace with id '{}' left ducklake namespaces that could \
+             not be cleaned up: {}; retry once the catalog is reachable again",
+            nw.id,
+            blocking.join("; ")
+        )));
+    }
+    for i in &leftover_issues {
+        tracing::warn!(
+            "creating fork {}: leftover ducklake cleanup: {}",
+            nw.id,
+            i.msg
+        );
+    }
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -5448,6 +5556,42 @@ async fn create_workspace_fork(
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
 
+    // The settings clone copies the source's ducklake config verbatim — including a parent
+    // fork's own `fork_behavior` stamps. Sharing is a per-fork-creation choice, never
+    // inherited: reset any cloned stamps first, then apply this fork's requested list.
+    sqlx::query!(
+        r#"UPDATE workspace_settings
+           SET ducklake = jsonb_set(ducklake, '{ducklakes}', (
+               SELECT COALESCE(jsonb_object_agg(key, value - 'fork_behavior'), '{}'::jsonb)
+               FROM jsonb_each(ducklake->'ducklakes')
+           ))
+           WHERE workspace_id = $1 AND jsonb_typeof(ducklake->'ducklakes') = 'object'"#,
+        &forked_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Stamp the per-lake ducklake fork choice into the fork's own settings. Only the `shared`
+    // opt-out needs stamping — absent `fork_behavior` already means isolated (the default),
+    // so unlisted lakes and API callers that omit the field stay safe.
+    for lake in &nw.shared_ducklakes {
+        let stamped = sqlx::query_scalar!(
+            r#"UPDATE workspace_settings
+               SET ducklake = jsonb_set(ducklake, ARRAY['ducklakes', $2, 'fork_behavior'], '"shared"')
+               WHERE workspace_id = $1 AND ducklake->'ducklakes' ? $2
+               RETURNING 1 AS "one!""#,
+            &forked_id,
+            lake,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if stamped.is_none() {
+            return Err(Error::BadRequest(format!(
+                "cannot mark ducklake `{lake}` as shared: no such lake in the workspace settings"
+            )));
+        }
+    }
+
     // Lock the parent ("prod") so edits are funneled through this dev workspace.
     let locked_prod = nw.is_dev_workspace && (nw.lock_prod_deploy || nw.lock_prod_forking);
     if locked_prod {
@@ -5471,6 +5615,10 @@ async fn create_workspace_fork(
     )
     .await?;
     tx.commit().await?;
+
+    // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
+    // would bypass ducklake fork isolation for the TTL.
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&forked_id);
 
     if locked_prod {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
@@ -5645,6 +5793,13 @@ async fn attach_dev_workspace(
     // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
     // so per-workspace job tags route to the prod family immediately rather than after the TTL.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    // Drop the cached ancestor chains too — the workspace existed BEFORE the attach, so a
+    // cached empty chain reads as "not a fork" and its ducklake jobs would write the shared
+    // lake until the TTL. Descendants' chains also gained the new root.
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&dev_w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+    }
     // Same reparent invalidates the billing-workspace mapping so its usage meters to prod at once. The
     // candidate can bring its own fork subtree, whose descendants had resolved their (now-stale) root
     // to the candidate's old family; invalidate them too so they meter to prod without waiting out the

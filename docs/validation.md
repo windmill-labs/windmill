@@ -10,6 +10,7 @@ After making changes, run the appropriate checks and fix all errors before consi
 | Enterprise code (`*_ee.rs`) | `cargo check --features enterprise,private` | Also do EE PR workflow (see `docs/enterprise.md`) |
 | Enterprise + license-gated code | `cargo check --features enterprise,private,license` | When the feature requires a valid license key |
 | Kafka trigger code | `cargo check --features kafka` | |
+| DuckDB executor code | `cargo check -p windmill-worker --features duckdb` | `duckdb_executor.rs` (and its `#[cfg(test)]` tests) only compile with this flag — a plain check/test silently skips them |
 | Native trigger code | `cargo check --features native_trigger` | |
 | Parquet code | `cargo check --features parquet` | |
 | Multiple gated modules | `cargo check --features enterprise,parquet` | Combine only the flags you need |

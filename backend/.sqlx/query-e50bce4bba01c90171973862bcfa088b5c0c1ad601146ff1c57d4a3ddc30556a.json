@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT runnable_path AS \"runnable_path!\", created_by AS \"created_by!\",\n                  args AS \"args: sqlx::types::Json<serde_json::Value>\"\n             FROM v2_job\n             WHERE workspace_id = $1 AND trigger_kind = 'freshness'\n             ORDER BY created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "args: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "e50bce4bba01c90171973862bcfa088b5c0c1ad601146ff1c57d4a3ddc30556a"
+}

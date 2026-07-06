@@ -16,10 +16,12 @@ import { OpenAPI } from "./core/OpenAPI";
 import {
   DenoS3LightClientSettings,
   S3ObjectRecord,
+  parseS3Object,
   type S3Object,
 } from "./s3Types";
 
 export {
+  parseS3Object,
   type S3Object,
   type S3ObjectRecord,
   type S3ObjectURI,
@@ -1503,17 +1505,6 @@ interface MockedApi {
 function parseResourceSyntax(s: string | undefined) {
   if (s?.startsWith("$res:")) return s.substring(5);
   if (s?.startsWith("res://")) return s.substring(6);
-}
-
-/**
- * Parse an S3 object from URI string or record format
- * @param s3Object - S3 object as URI string (s3://storage/key) or record
- * @returns S3 object record with storage and s3 key
- */
-export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
-  if (typeof s3Object === "object") return s3Object;
-  const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/);
-  return { storage: match?.[1] || undefined, s3: match?.[2] ?? "" };
 }
 
 function parseVariableSyntax(s: string) {

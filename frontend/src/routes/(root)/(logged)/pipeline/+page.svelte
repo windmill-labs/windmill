@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import PipelineFolderList from '$lib/components/assets/AssetGraph/PipelineFolderList.svelte'
+	import PipelineSetupSignpost from '$lib/components/assets/AssetGraph/PipelineSetupSignpost.svelte'
 	import PipelineAlphaAckModal from '$lib/components/assets/AssetGraph/PipelineAlphaAckModal.svelte'
 	import { BookOpen, NetworkIcon } from 'lucide-svelte'
 	import { onMount } from 'svelte'
@@ -72,6 +73,10 @@
 					Pipelines documentation
 				</a>
 			</div>
+
+			{#if !$userStore?.operator && $workspaceStore}
+				<PipelineSetupSignpost workspace={$workspaceStore} />
+			{/if}
 
 			<PipelineFolderList />
 		</div>

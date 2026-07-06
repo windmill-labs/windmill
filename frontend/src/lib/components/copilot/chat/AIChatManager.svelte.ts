@@ -44,6 +44,9 @@ import {
 	buildSummaryMessageContent
 } from './compactionPrompt'
 import { dfs } from '$lib/components/flows/previousResults'
+import { SvelteSet } from 'svelte/reactivity'
+import type { UserDraftItemKind } from '$lib/gen'
+import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
 import { chatDraft, expanded } from './chatDraft'
@@ -353,6 +356,75 @@ export class AIChatManager {
 	// resolver is set, else the globally-active workspace.
 	get operatingWorkspace(): string | undefined {
 		return this.workspaceResolver?.() ?? get(workspaceStore)
+	}
+
+	// Fired whenever the active chat id changes away from the one the consumer
+	// knows (a "/clear" rotation or a history switch). Session runtimes wire this
+	// to keep the session record's chatId aligned — the compare-page handoff
+	// (`from_session`) reads it, and a stale id would preselect the previous
+	// chat's items. Set here (not imported) to avoid a copilot→sessions cycle.
+	onChatRotated: ((chatId: string) => void) | undefined = undefined
+
+	// Workspace items the CURRENT chat modified via AI tool calls, as
+	// `${UserDraftItemKind}:${storagePath}` keys (see modifiedItemsMask.ts).
+	// undefined = untracked: the global side-panel chat (never initialised) and
+	// loaded legacy chats with no stored mask, both of which fall back to the
+	// show-all bar. A SvelteSet (even empty) = tracked. Reactive so the session
+	// bar updates as tools record mid-turn.
+	modifiedItems = $state<SvelteSet<string> | undefined>(undefined)
+
+	// Start tracking for a brand-new session chat (empty = "tracked, nothing yet").
+	initModifiedItemsTracking() {
+		this.modifiedItems = new SvelteSet()
+	}
+
+	// Record an item an AI tool call created/edited/deleted. No-op when untracked
+	// (the global singleton never initialises the set), so it stays unaffected.
+	recordModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
+		this.modifiedItems?.add(maskKey(itemKind, storagePath))
+	}
+
+	// Un-record an item whose chat-made change was discarded — without this the
+	// still-existing deployed item would keep reading as this chat's "Deployed"
+	// edit. Persisted immediately: unlike recordModifiedItem (whose persistence
+	// rides on the turn's saveChat), a discard can fire from the review dock
+	// outside any turn, and waiting would resurrect the entry on reload.
+	async removeModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
+		if (!this.modifiedItems?.delete(maskKey(itemKind, storagePath))) return
+		await this.#persistModifiedItems()
+	}
+
+	// Move a mask entry to the path a draft actually deployed to. A draft-only
+	// flow/app parks at a synthetic `draft_{uuid}` storage path and deploys to
+	// its chosen path — without the move, the existence check at the synthetic
+	// path fails after reload and the deployed row vanishes from the dock.
+	async renameModifiedItem(itemKind: UserDraftItemKind, fromPath: string, toPath: string) {
+		if (fromPath === toPath) return
+		if (!this.modifiedItems?.delete(maskKey(itemKind, fromPath))) return
+		this.modifiedItems.add(maskKey(itemKind, toPath))
+		await this.#persistModifiedItems()
+	}
+
+	// Serialized, snapshot-at-write-time persistence: two rapid dock actions
+	// would otherwise race their saveChat writes, and the earlier (staler)
+	// snapshot could land last — dropping the later mutation until the next
+	// turn-end save.
+	#maskPersistQueue: Promise<void> = Promise.resolve()
+	#persistModifiedItems(): Promise<void> {
+		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
+			this.historyManager
+				.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
+				// Swallow (and log) a failed write so it can't wedge the queue as a
+				// rejected link — the next persist snapshots the full current set, so
+				// a lost write self-heals on the next mutation or turn-end save.
+				.catch((e) => console.error('Failed to persist modified-items mask', e))
+		)
+		return this.#maskPersistQueue
 	}
 
 	// Workspace AI skills (name + description) advertised in the GLOBAL system
@@ -671,7 +743,12 @@ export class AIChatManager {
 			)
 			switch (result) {
 				case 'ok':
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					await this.historyManager.saveChat(
+						this.displayMessages,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
+					)
 					sendUserToast('Conversation compacted.')
 					break
 				case 'empty':
@@ -1648,7 +1725,12 @@ export class AIChatManager {
 			const projectedContextTokens = this.contextTokens + this.estimateMessagesTokens([userMessage])
 
 			this.messages.push(userMessage)
-			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+			await this.historyManager.saveChat(
+				this.displayMessages,
+				this.messages,
+				this.contextUsage,
+				this.modifiedItems ? [...this.modifiedItems] : undefined
+			)
 
 			this.currentReply = ''
 			this.currentReasoning = ''
@@ -1684,7 +1766,12 @@ export class AIChatManager {
 							this.contextUsage = Math.max(0, this.contextUsage - freed)
 						}
 					}
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					await this.historyManager.saveChat(
+						this.displayMessages,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
+					)
 				}
 			}
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
@@ -1770,7 +1857,10 @@ export class AIChatManager {
 					},
 					requestConfirmation: this.requestConfirmation,
 					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
-					requestUserQuestion: this.requestUserQuestion
+					requestUserQuestion: this.requestUserQuestion,
+					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
+					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
+					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path)
 				}
 			}
 
@@ -1806,7 +1896,12 @@ export class AIChatManager {
 				this.contextUsage = result?.lastIterationUsage
 					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
 					: undefined
-				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				await this.historyManager.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
 				// Still counts as the saved first turn — skipping the hook here would
 				// permanently miss it (the next turn isn't "first" anymore).
 				if (isFirstUserTurn && this.afterFirstTurnSaved) {
@@ -1836,7 +1931,12 @@ export class AIChatManager {
 					// user message on reload. Remove it instead.
 					this.historyManager.deletePastChat(this.historyManager.getCurrentChatId())
 				} else {
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					await this.historyManager.saveChat(
+						this.displayMessages,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
+					)
 				}
 				if (!wasAborted) {
 					sendUserToast('The model returned no response — your message was restored to the input.')
@@ -1855,7 +1955,12 @@ export class AIChatManager {
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}
-				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				await this.historyManager.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
 				// Only this branch is a clean send: the queued-message flush below
 				// auto-sends the next message after it (set after saveChat so a
 				// persistence failure falls through to the restore path instead).
@@ -1879,7 +1984,12 @@ export class AIChatManager {
 				// compaction on the next send instead of failing the same way again.
 				this.contextUsage = undefined
 				try {
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+					await this.historyManager.saveChat(
+						this.displayMessages,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined
+					)
 				} catch (saveErr) {
 					console.error('Failed to persist partial chat after error', saveErr)
 				}
@@ -2008,15 +2118,25 @@ export class AIChatManager {
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
 		this.queuedMessage = ''
-		await this.historyManager.save(this.displayMessages, this.messages, this.contextUsage)
+		await this.historyManager.save(
+			this.displayMessages,
+			this.messages,
+			this.contextUsage,
+			this.modifiedItems ? [...this.modifiedItems] : undefined
+		)
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
+		// The mask belongs to the conversation just saved — the fresh chat starts
+		// its own (empty) tracking; carrying entries over would claim the previous
+		// conversation's edits for the new one. Untracked chats stay untracked.
+		if (this.modifiedItems) this.modifiedItems = new SvelteSet()
 		// In an AI session, linked files are session-scoped: they persist across conversations
 		// (cleared only when the session is deleted). The ephemeral global side-panel chat has no
 		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
 		// would still get the previous file roster and could read/search it.
 		if (!this.isSessionChat) this.attachedFiles.clear()
+		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
 	loadPastChat = async (id: string) => {
@@ -2031,7 +2151,16 @@ export class AIChatManager {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)
+			// Seed the modified-items mask from the stored chat. A stored array
+			// (even empty) → tracked; a legacy chat with no field stays untracked
+			// (undefined) so the session bar falls back to showing all drafts. The
+			// global side-panel chat never tracks, so leave it untouched there.
+			if (this.isSessionChat) {
+				const stored = this.historyManager.getModifiedItems(id)
+				this.modifiedItems = stored !== undefined ? new SvelteSet(stored) : undefined
+			}
 			this.#automaticScroll = true
+			this.onChatRotated?.(id)
 		}
 	}
 

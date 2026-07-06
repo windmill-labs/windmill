@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.747.0
+  version: 1.749.0
   title: Windmill API
 
   contact:
@@ -4666,6 +4666,24 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/workspaces/drop_forked_ducklake_namespaces:
+    post:
+      summary: drop this fork workspace's ducklake namespaces (catalog metadata schemas + data files)
+      operationId: dropForkedDucklakeNamespaces
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of errors (empty if all succeeded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/workspaces/import_pg_database:
     post:
       summary: import a PostgreSQL database from source to target via pg_dump
@@ -9186,6 +9204,50 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/CiTestResult"
+
+  /w/{workspace}/scripts/check_schema_contracts:
+    post:
+      summary: check a script's asset references against captured producer schemas
+      description: |
+        Save-time schema-contract check for data pipelines: validates the given
+        script content's asset references (body column reads, `// column` lineage,
+        `// data_test relationships`) against the latest captured producer schemas
+        and returns warnings. Warnings never block a save/deploy; an asset whose
+        producer declares `on_schema_change=ignore` is suppressed to a single
+        informational entry.
+      operationId: checkSchemaContracts
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - language
+                - content
+              properties:
+                language:
+                  $ref: "#/components/schemas/ScriptLang"
+                content:
+                  type: string
+      responses:
+        "200":
+          description: contract warnings (empty when all references match)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - warnings
+                properties:
+                  warnings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ContractWarning"
 
   /w/{workspace}/scripts/raw_temp/store:
     post:
@@ -21420,6 +21482,10 @@ paths:
                           $ref: "#/components/schemas/AssetKind"
                         path:
                           type: string
+                        fork_materialization:
+                          type: string
+                          enum: [fork, deferred]
+                          description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
                   runnables:
                     type: array
                     items:
@@ -21529,6 +21595,38 @@ paths:
                             type: string
                         via_use:
                           type: boolean
+                  test_edges:
+                    type: array
+                    description: >-
+                      Ordering-only "must-run-after" edges — a `// data_test relationships`
+                      (or custom test reading a pipeline asset) requires the referenced
+                      asset's producer to run before the tested script. Not a data-consumption
+                      edge; fed into the cascade topo-sort so cold runs order correctly.
+                      Omitted when empty.
+                    items:
+                      type: object
+                      required:
+                        [
+                          producer_kind,
+                          producer_path,
+                          runnable_kind,
+                          runnable_path,
+                          asset_kind,
+                          asset_path,
+                        ]
+                      properties:
+                        producer_kind:
+                          $ref: "#/components/schemas/AssetUsageKind"
+                        producer_path:
+                          type: string
+                        runnable_kind:
+                          $ref: "#/components/schemas/AssetUsageKind"
+                        runnable_path:
+                          type: string
+                        asset_kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        asset_path:
+                          type: string
 
   /w/{workspace}/assets/macros:
     get:
@@ -25592,6 +25690,7 @@ components:
         - google
         - github
         - asset
+        - freshness
 
     TriggerMode:
       description: job trigger mode
@@ -28133,6 +28232,11 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+        shared_ducklakes:
+          type: array
+          items:
+            type: string
+          description: "Lake names the fork SHARES with the parent (reads and writes the parent's lake directly). Every lake not listed gets the default isolated fork namespace with read-defer to the parent."
         is_dev_workspace:
           type: boolean
           description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
@@ -28872,6 +28976,33 @@ components:
                   - path
               extra_args:
                 type: string
+              fork_behavior:
+                type: string
+                enum: [isolated, shared]
+                description:
+                  Fork workspaces only - how this lake behaves in the fork, stamped at fork
+                  creation. Absent = isolated (fork-scoped namespace + read-defer to parent).
+              maintenance:
+                type: object
+                description:
+                  Scheduled maintenance (enterprise) - snapshot expiry, adjacent-file
+                  compaction and orphaned-file cleanup, run as a managed per-lake schedule
+                required: [enabled]
+                properties:
+                  enabled:
+                    type: boolean
+                  schedule:
+                    type: string
+                    description: cron cadence (v2, UTC); defaults to daily at 03h with a per-lake minute offset
+                  retention_days:
+                    type: integer
+                    description: snapshot retention window in days (default 7); time-travel older than this stops working
+                  compaction:
+                    type: boolean
+                    description: merge adjacent small parquet files (default true)
+                  orphan_cleanup:
+                    type: boolean
+                    description: delete orphaned files older than max(retention, 1 day) (default true)
 
     DataTableSettings:
       type: object
@@ -29902,6 +30033,39 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    ContractWarning:
+      description: |
+        One save-time schema-contract warning: a consumer reference that does
+        not match the referenced asset's latest captured schema.
+        `schema_version`/`captured_at` identify the capture the check ran
+        against (as-of the producer's last run, not its latest save).
+      type: object
+      required: [kind, asset_path, message]
+      properties:
+        kind:
+          type: string
+          enum:
+            - missing_column
+            - missing_lineage_source
+            - missing_relationship_column
+            - relationship_type_mismatch
+            - suppressed
+        asset_path:
+          type: string
+        column:
+          type: string
+        expected_type:
+          type: string
+        found_type:
+          type: string
+        schema_version:
+          type: integer
+          format: int64
+        captured_at:
+          type: string
+          format: date-time
+        message:
+          type: string
     Volume:
       type: object
       required:

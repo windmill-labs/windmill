@@ -11,15 +11,15 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::sanitize_string_from_password;
-use windmill_common::worker::{get_memory, Connection, SqlResultCollectionStrategy};
+use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
-    DucklakeCatalogResourceType,
+    strip_fork_reserved_attach_args, DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
-use windmill_queue::{CanceledBy, MiniPulledJob};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
@@ -44,6 +44,27 @@ struct MaterializeExec {
     // (e.g. an FFI serialization change drops the column), we fail loud rather
     // than silently pass declared-but-unverified tests.
     n_data_tests: usize,
+    // `on_schema_change=warn` (default) on a positional persist-and-mutate write:
+    // the summary carries a `schema_drift` column the worker logs + returns.
+    on_schema_change: windmill_parser::asset_parser::OnSchemaChange,
+    // `on_schema_change=sync`: the pre-pass probe (setup + target ATTACH + the
+    // SELECT's/table's column reads) whose result drives the injected ALTER DDL.
+    // `None` for every other mode / non-persist-and-mutate strategy.
+    sync_prepass: Option<SyncPrepass>,
+}
+
+// Inputs for the `on_schema_change=sync` pre-pass: a probe query read against
+// the live session and the target table it migrates. The worker runs the probe
+// (same interpolation + ATTACH transform as the main query), diffs the SELECT's
+// columns against the table's, and splices `ALTER TABLE … ADD/DROP COLUMN` DDL
+// into the plan at the [`SYNC_ALTER_SENTINEL`] slot before the write.
+struct SyncPrepass {
+    // Setup + synthetic target ATTACH + the two column reads. Carries `$args`/
+    // `{partition}` verbatim (the worker interpolates it like the main query).
+    probe_query: String,
+    // Target table within `_wm_target` (e.g. `orders` or `schema.orders`), used
+    // to build the quoted `ALTER TABLE _wm_target.<table>` statements.
+    target_table: String,
 }
 
 // Fetch and validate a custom data-test script's body. v1 custom tests are
@@ -148,11 +169,14 @@ fn build_materialized_query(
         .target_path
         .split_once('/')
         .unwrap_or((m.target_path.as_str(), ""));
-    let meta = MaterializeExec {
+    let mut meta = MaterializeExec {
         asset_kind: windmill_common::assets::AssetKind::Ducklake,
         asset_path: m.target_path.clone(),
         partition: partition.clone(),
         n_data_tests: ann.data_tests.len(),
+        on_schema_change: m.on_schema_change,
+        // Set below once the strategy is known (managed persist-and-mutate only).
+        sync_prepass: None,
     };
 
     // `{partition}` → escaped SQL literal substitution, applied to the managed
@@ -195,19 +219,18 @@ fn build_materialized_query(
     for s in plan.setup.iter_mut() {
         *s = substitute(s);
     }
+    // Deploy (`create_script_internal`) already rejects the invalid SCD2 combos,
+    // but preview/test runs reach the executor without a deploy — re-check so a
+    // bad combo fails with the same clear message instead of a raw DuckDB error.
+    m.validate(partitioned).map_err(Error::ExecutionErr)?;
     let strategy = if m.scd2 {
-        // SCD2 needs a natural key to identify an entity across versions, and its
-        // diff/close/open shape has no partition-scoped form in v1.
+        // SCD2 needs a natural key to identify an entity across versions (checked
+        // by `validate` above, which guarantees a non-empty key here).
         let key = m.unique_key.clone().ok_or_else(|| {
             Error::ExecutionErr(
                 "materialize scd2: requires a natural key — add `key=<col>`".to_string(),
             )
         })?;
-        if partitioned {
-            return Err(Error::ExecutionErr(
-                "materialize scd2: `// partitioned` is not supported with scd2 in v1".to_string(),
-            ));
-        }
         MaterializeStrategy::Scd2 { key, track: m.track.clone(), close_deleted: m.close_deleted }
     } else if m.append {
         MaterializeStrategy::Append
@@ -242,7 +265,37 @@ fn build_materialized_query(
         }
     }
 
-    let blocks = build_wrap_blocks(
+    let cg_probe = windmill_parser::sql_materialize::MaterializeCodegen {
+        target_qualified: "",
+        select_sql: "",
+        partition_col: "_wm_partition",
+        partition_value_sql: "",
+        partitioned,
+        strategy: strategy.clone(),
+        on_schema_change: m.on_schema_change,
+    };
+    // `sync` needs a host round-trip: a pre-pass probe reads the SELECT's and the
+    // table's columns so the ALTER DDL can be computed, then spliced into the
+    // plan at the sentinel slot. Build the probe query here (setup + target
+    // ATTACH + the two column reads) while we still have the substituted SELECT +
+    // setup; the executor runs it through the same interpolation/ATTACH transform
+    // as the main query. Only for the positional persist-and-mutate strategies
+    // (scd2 / whole-table replace emit no sentinel).
+    if m.on_schema_change == windmill_parser::asset_parser::OnSchemaChange::Sync
+        && cg_probe.is_persist_and_mutate()
+    {
+        meta.sync_prepass = Some(SyncPrepass {
+            probe_query: build_sync_probe_query(
+                &plan.setup,
+                &synthetic_attach,
+                &plan.output,
+                table,
+            ),
+            target_table: table.to_string(),
+        });
+    }
+
+    let mat_plan = build_wrap_blocks(
         &plan,
         &synthetic_attach,
         table,
@@ -251,11 +304,202 @@ fn build_materialized_query(
         &pval,
         partitioned,
         strategy,
+        m.on_schema_change,
         &resolved,
     )
     .map_err(Error::ExecutionErr)?;
+    // Enterprise seam: assembles the plan into the final statement list —
+    // verbatim on the public build (commit-then-test), restructured into
+    // write-audit-publish (guarded transaction, rollback on violation) on EE.
+    let blocks =
+        windmill_common::pipeline_advanced::finalize_materialize_query(mat_plan, &m.target_path);
 
     Ok(Some((Some(blocks.join("\n")), meta)))
+}
+
+// Build the `on_schema_change=sync` pre-pass probe: the substituted setup + the
+// synthetic target ATTACH, then two column reads unioned — the SELECT's columns
+// (via `DESCRIBE`) tagged `sel`, and the target table's (via information_schema,
+// which yields zero rows when the table doesn't exist yet, so a first
+// materialize is a no-drift skip rather than an error) tagged `tbl`. The managed
+// `_wm_partition` column is filtered out of the table side. Carries
+// `$args`/`{partition}` verbatim; the caller interpolates + ATTACH-transforms it
+// like the main query so the DESCRIBE binds run-time args.
+fn build_sync_probe_query(
+    setup: &[String],
+    synthetic_attach: &str,
+    select_sql: &str,
+    table: &str,
+) -> String {
+    let (schema, tname) = match table.split_once('.') {
+        Some((s, t)) => (Some(s), t),
+        None => (None, table),
+    };
+    let esc = |s: &str| s.replace('\'', "''");
+    let schema_filter = schema
+        .map(|s| format!(" AND table_schema = '{}'", esc(s)))
+        .unwrap_or_default();
+    let mut out = String::new();
+    let mut push_stmt = |s: &str| {
+        let t = s.trim_end();
+        if t.is_empty() {
+            return;
+        }
+        out.push_str(t);
+        if !t.ends_with(';') {
+            out.push(';');
+        }
+        out.push('\n');
+    };
+    for s in setup {
+        push_stmt(s);
+    }
+    push_stmt(synthetic_attach);
+    // Read the target's columns from `information_schema.columns` scoped to the
+    // attached target catalog via `table_catalog` (DuckDB's catalog-qualified
+    // `<db>.information_schema` does NOT exist; the unqualified view spans
+    // attached catalogs and distinguishes them by `table_catalog`). It yields
+    // zero rows for a not-yet-created table — a no-drift skip, not an error
+    // (unlike `pragma_table_info`/`DESCRIBE`).
+    out.push_str(&format!(
+        "SELECT 'sel' AS _wm_which, column_name AS _wm_name, column_type AS _wm_type \
+         FROM (DESCRIBE SELECT * FROM ({select_sql})) \
+         UNION ALL \
+         SELECT 'tbl' AS _wm_which, column_name AS _wm_name, data_type AS _wm_type \
+         FROM information_schema.columns \
+         WHERE table_catalog = '{alias}' AND table_name = '{tname}'{schema_filter} \
+         AND column_name <> '_wm_partition';",
+        alias = windmill_parser::sql_materialize::TARGET_ALIAS,
+        tname = esc(tname),
+    ));
+    out
+}
+
+// Run the sync pre-pass probe (already interpolated + ATTACH-transformed by the
+// caller) and turn its column diff into the `ALTER TABLE … ADD/DROP COLUMN` DDL
+// to splice at the sentinel. Empty string when the table is fresh (no rows) or
+// the SELECT already matches. The probe failing is fatal (no silent fallback).
+async fn compute_sync_alter_ddl(
+    probe_blocks: Vec<String>,
+    job_args: Vec<Arg>,
+    target_table: String,
+    token: String,
+    base_internal_url: String,
+    w_id: String,
+    job_dir: String,
+) -> Result<String> {
+    let n = probe_blocks.len();
+    let (result, _) = tokio::task::spawn_blocking(move || {
+        run_duckdb_ffi_safe(
+            probe_blocks.iter().map(String::as_str),
+            n,
+            job_args,
+            &token,
+            &base_internal_url,
+            &w_id,
+            &job_dir,
+            SqlResultCollectionStrategy::LastStatementAllRows,
+        )
+    })
+    .await
+    .map_err(|e| Error::from(to_anyhow(e)))
+    .and_then(|r| r)
+    .map_err(|e| {
+        Error::ExecutionErr(format!(
+            "on_schema_change=sync: the schema pre-pass probe failed ({e}); refusing to write"
+        ))
+    })?;
+
+    let (added, removed) = parse_sync_drift(&result)?;
+    let tq = format!(
+        "{}.{}",
+        windmill_parser::sql_materialize::TARGET_ALIAS,
+        quote_qualified_table(&target_table)
+    );
+    let mut stmts = Vec::new();
+    for (name, typ) in &added {
+        if typ.is_empty() {
+            return Err(Error::ExecutionErr(format!(
+                "on_schema_change=sync: could not resolve a type for new column `{name}`"
+            )));
+        }
+        // `typ` is DuckDB's own DESCRIBE type name (e.g. BIGINT, VARCHAR,
+        // DECIMAL(10,2)) — a valid type expression, injected verbatim.
+        stmts.push(format!(
+            "ALTER TABLE {tq} ADD COLUMN \"{}\" {typ};",
+            name.replace('"', "\"\"")
+        ));
+    }
+    for name in &removed {
+        stmts.push(format!(
+            "ALTER TABLE {tq} DROP COLUMN \"{}\";",
+            name.replace('"', "\"\"")
+        ));
+    }
+    Ok(stmts.join("\n"))
+}
+
+// Parse the sync probe result rows (`_wm_which`/`_wm_name`/`_wm_type`) into the
+// column diff: `added` = SELECT columns (with their types) absent from the
+// table, `removed` = table columns absent from the SELECT. `_wm_partition` and
+// empty names are ignored. An empty table side means the table doesn't exist
+// yet — a no-op first materialize, so both lists are empty.
+fn parse_sync_drift(result: &RawValue) -> Result<(Vec<(String, String)>, Vec<String>)> {
+    let root: Value = serde_json::from_str(result.get()).map_err(|e| {
+        Error::ExecutionErr(format!("on_schema_change=sync: bad probe result json: {e}"))
+    })?;
+    // The FFI may surface the rows as an array, a single object, or a JSON
+    // string — normalize to a list of row objects.
+    let owned;
+    let rows: Vec<&Value> = match &root {
+        Value::Array(a) => a.iter().collect(),
+        Value::Object(_) => vec![&root],
+        Value::String(s) => {
+            owned = serde_json::from_str::<Value>(s).unwrap_or(Value::Null);
+            match &owned {
+                Value::Array(a) => a.iter().collect(),
+                Value::Object(_) => vec![&owned],
+                _ => vec![],
+            }
+        }
+        _ => vec![],
+    };
+    let mut sel: Vec<(String, String)> = Vec::new();
+    let mut tbl: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for row in rows {
+        let Some(o) = row.as_object() else { continue };
+        let name = o
+            .get("_wm_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if name.is_empty() || name == "_wm_partition" {
+            continue;
+        }
+        let typ = o
+            .get("_wm_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        match o.get("_wm_which").and_then(|v| v.as_str()).unwrap_or("") {
+            "sel" => sel.push((name, typ)),
+            "tbl" => {
+                tbl.insert(name);
+            }
+            _ => {}
+        }
+    }
+    if tbl.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let sel_names: std::collections::HashSet<&String> = sel.iter().map(|(n, _)| n).collect();
+    let added = sel
+        .iter()
+        .filter(|(n, _)| !tbl.contains(n))
+        .cloned()
+        .collect();
+    let removed = tbl.into_iter().filter(|n| !sel_names.contains(n)).collect();
+    Ok((added, removed))
 }
 
 // Fetch the deployed body of every `// data_test <path>` custom test declared in
@@ -768,10 +1012,14 @@ fn extract_i64(result: &RawValue, field: &str) -> Option<i64> {
 }
 
 // One data test's outcome as carried by the materialize summary's `data_tests`
-// column: its display name and how many rows violated it (0 = pass).
+// column: its display name, how many rows violated it (0 = pass), and an
+// optional bounded sample of the violating rows. The sample is decoration
+// only — enforcement reads `violating`, never `sample` — so a NULL, dropped
+// (over the size cap) or unparseable sample must never affect pass/fail.
 struct DataTestOutcome {
     name: String,
     violating: i64,
+    sample: Option<Value>,
 }
 
 // Pull the per-test breakdown out of the materialize summary result. The
@@ -788,7 +1036,21 @@ fn extract_data_tests(result: &RawValue) -> Vec<DataTestOutcome> {
                             .get("violating")
                             .and_then(|x| x.as_i64().or_else(|| x.as_f64().map(|f| f as i64)))
                             .unwrap_or(0);
-                        out.push(DataTestOutcome { name: name.clone(), violating });
+                        // The probe serializes the sample as a JSON *string*
+                        // (a VARCHAR through the FFI), deliberately — parse it
+                        // only here, so sampled user columns named `rows` /
+                        // `snapshot_id` stay invisible to the key-recursive
+                        // `extract_i64` scans over the summary result. Accept
+                        // a native array too (FFI JSON-column quirk); anything
+                        // else (NULL, size-capped, garbage) degrades to None.
+                        let sample = o.get("sample").and_then(|s| match s {
+                            arr @ Value::Array(_) => Some(arr.clone()),
+                            Value::String(txt) => serde_json::from_str::<Value>(txt)
+                                .ok()
+                                .filter(|v| v.is_array()),
+                            _ => None,
+                        });
+                        out.push(DataTestOutcome { name: name.clone(), violating, sample });
                     }
                 }
             }
@@ -852,6 +1114,50 @@ fn extract_schema(
         // FFI serialized the list-of-struct as a JSON string — parse it.
         Value::String(s) => collect(&serde_json::from_str::<Value>(s).ok()?),
         _ => None,
+    }
+}
+
+// Pull the `on_schema_change=warn` drift out of the materialize summary's
+// `schema_drift` column: a `{added: [..], removed: [..]}` struct (or NULL when
+// the SELECT matched the table). Like `output_schema`, the FFI may surface it
+// nested or as a JSON string — accept both. `None` when there is no drift.
+fn extract_schema_drift(result: &RawValue) -> Option<(Vec<String>, Vec<String>)> {
+    fn str_list(v: Option<&Value>) -> Vec<String> {
+        match v {
+            Some(Value::Array(a)) => a
+                .iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+    fn find_field(v: &Value) -> Option<&Value> {
+        match v {
+            Value::Object(o) => o.get("schema_drift"),
+            Value::Array(a) => a.iter().find_map(find_field),
+            _ => None,
+        }
+    }
+    let root = serde_json::from_str::<Value>(result.get()).ok()?;
+    let field = find_field(&root)?;
+    let owned;
+    let obj = match field {
+        Value::Object(_) => field,
+        // FFI serialized the struct as a JSON string — parse it.
+        Value::String(s) => {
+            owned = serde_json::from_str::<Value>(s).ok()?;
+            &owned
+        }
+        // NULL / absent ⇒ no drift.
+        _ => return None,
+    };
+    let o = obj.as_object()?;
+    let added = str_list(o.get("added"));
+    let removed = str_list(o.get("removed"));
+    if added.is_empty() && removed.is_empty() {
+        None
+    } else {
+        Some((added, removed))
     }
 }
 
@@ -1069,7 +1375,27 @@ pub async fn do_duckdb(
 
         let (query, _) =
             &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
-        let query = transform_s3_uris(query).await?;
+        let mut query = transform_s3_uris(query).await?;
+
+        // `on_schema_change=sync`: interpolate the pre-pass probe with the same
+        // sig / args / reserved vars as the main query (before `sig` is consumed
+        // and the arg map drained just below) so its `DESCRIBE` of the SELECT
+        // binds `$args`/`$partition` the same way.
+        let sync_probe_interpolated = match materialize
+            .as_ref()
+            .and_then(|(_, m)| m.sync_prepass.as_ref())
+        {
+            Some(pp) => {
+                let (interp, _) = sanitize_and_interpolate_unsafe_sql_args(
+                    &pp.probe_query,
+                    &sig,
+                    &job_args,
+                    &reserved_variables,
+                )?;
+                Some(transform_s3_uris(&interp).await?)
+            }
+            None => None,
+        };
 
         let job_args = {
             let mut m = Vec::new();
@@ -1104,6 +1430,96 @@ pub async fn do_duckdb(
             m
         };
 
+        // `on_schema_change=sync` pre-pass: run the probe (through the same
+        // ATTACH transform as the main query), diff the SELECT's columns against
+        // the table's, and splice the `ALTER TABLE … ADD/DROP COLUMN` DDL into
+        // the plan at the sentinel slot (removing the sentinel when there is no
+        // drift). Runs before the main query so the ALTERs are in place when the
+        // BY NAME insert executes.
+        if let (Some(probe_sql), Some(pp)) = (
+            &sync_probe_interpolated,
+            materialize
+                .as_ref()
+                .and_then(|(_, m)| m.sync_prepass.as_ref()),
+        ) {
+            let mut probe_blocks = vec![];
+            // Held for the whole probe (through compute_sync_alter_ddl): a
+            // `TYPE bigquery` ATTACH needs GOOGLE_APPLICATION_CREDENTIALS + the
+            // temp creds file set before DuckDB binds the extension, exactly as
+            // the main query path does — otherwise the probe DESCRIBE fails.
+            let mut probe_bigquery_credentials = None;
+            for query_block in parse_sql_blocks(probe_sql, true).iter() {
+                let query_block = remove_comments(query_block);
+                if let Some(parsed) = parse_attach_db_resource(query_block) {
+                    probe_blocks.extend(
+                        transform_attach_db_resource_query(
+                            &parsed,
+                            &job.id,
+                            client,
+                            &mut hidden_passwords,
+                        )
+                        .await?,
+                    );
+                    if parsed.db_type == "bigquery" {
+                        probe_bigquery_credentials = Some(UseBigQueryCredentialsFile::new(
+                            job.id,
+                            parsed.resource_path,
+                        )?);
+                    }
+                } else if let Some(q) = transform_attach_ducklake(
+                    &query_block,
+                    conn,
+                    &mut hidden_passwords,
+                    &job.workspace_id,
+                    materialize.as_ref().map(|(_, m)| m.asset_path.as_str()),
+                )
+                .await?
+                {
+                    probe_blocks.extend(q);
+                } else if let Some(q) = transform_attach_datatable(
+                    &query_block,
+                    conn,
+                    &mut hidden_passwords,
+                    &job.workspace_id,
+                )
+                .await?
+                {
+                    probe_blocks.extend(q);
+                } else {
+                    probe_blocks.push(query_block.to_string());
+                }
+            }
+            // The probe `DESCRIBE`s the same SELECT as the main query, so it
+            // needs the same workspace-macro / `// use` library definitions
+            // injected (post-ATTACH), or a macro-calling SELECT fails to bind
+            // here and the fatal probe makes `sync` unusable with macros.
+            let probe_blocks = inject_workspace_macros(
+                conn,
+                &job.workspace_id,
+                macro_ann.macros,
+                &macro_ann.use_libs,
+                probe_blocks,
+            )
+            .await?;
+            let alter_ddl = compute_sync_alter_ddl(
+                probe_blocks,
+                job_args.clone(),
+                pp.target_table.clone(),
+                token.clone(),
+                client.base_internal_url.clone(),
+                job.workspace_id.clone(),
+                job_dir.to_string(),
+            )
+            .await?;
+            query = query.replace(
+                windmill_parser::sql_materialize::SYNC_ALTER_SENTINEL,
+                &alter_ddl,
+            );
+            // Kept alive until the probe finished; the main query path recreates
+            // its own credentials for its own ATTACH pass below.
+            drop(probe_bigquery_credentials);
+        }
+
         let query_block_list = parse_sql_blocks(&query, true);
 
         // Replace custom ATTACH statements with the real instructions
@@ -1132,6 +1548,7 @@ pub async fn do_duckdb(
                     conn,
                     &mut hidden_passwords,
                     &job.workspace_id,
+                    materialize.as_ref().map(|(_, m)| m.asset_path.as_str()),
                 )
                 .await?
                 {
@@ -1240,6 +1657,11 @@ pub async fn do_duckdb(
             // committed (like dbt), so the slice is recorded `Failed` and the
             // cascade stops. The error lists *every* test so the user sees the
             // whole picture, not just the first failure.
+            // Under enterprise write-audit-publish an in-transaction guard
+            // (the enterprise `finalize_materialize_query` restructure) already aborted a failing run before
+            // COMMIT — that surfaces on the Err path above with the same
+            // breakdown in the error string, and nothing was published; this
+            // post-commit path then only ever sees passing counts.
             let tests = extract_data_tests(&result);
             // Captured output schema (gap #2a) — recorded only on the successful
             // path below, not on the failure paths (a failed run shouldn't
@@ -1254,6 +1676,37 @@ pub async fn do_duckdb(
             } else {
                 None
             };
+            // `on_schema_change=warn` (default): the summary carries a
+            // `schema_drift` column when the SELECT's columns diverged from the
+            // fixed table schema. The write already happened positionally (data
+            // may have landed in the wrong/old columns) — log it LOUDLY so the
+            // drift isn't silent. The drift also rides back in the job result
+            // (it's a column of the returned summary row).
+            if is_managed
+                && meta.on_schema_change == windmill_parser::asset_parser::OnSchemaChange::Warn
+            {
+                if let Some((added, removed)) = extract_schema_drift(&result) {
+                    let fmt = |cols: &[String]| {
+                        if cols.is_empty() {
+                            "(none)".to_string()
+                        } else {
+                            cols.join(", ")
+                        }
+                    };
+                    let warning = format!(
+                        "\n⚠️  SCHEMA DRIFT on {asset}: the SELECT's columns no longer match the \
+                         existing table.\n    added (in SELECT, not in table): {added}\n    removed \
+                         (in table, not in SELECT): {removed}\n    The write proceeded POSITIONALLY \
+                         against the existing table schema — data may have landed in the wrong \
+                         columns. Set `on_schema_change=fail` to block this, or \
+                         `on_schema_change=sync` to migrate the table automatically.\n",
+                        asset = meta.asset_path,
+                        added = fmt(&added),
+                        removed = fmt(&removed),
+                    );
+                    append_logs(&job.id, &job.workspace_id, warning, conn).await;
+                }
+            }
             // Defense-in-depth: codegen embedded `n_data_tests` checks, so the
             // summary row must carry that many outcomes. Recovering fewer means
             // the `data_tests` column was dropped/reshaped before we read it —
@@ -1294,7 +1747,42 @@ pub async fn do_duckdb(
                     Some(&breakdown),
                 )
                 .await;
-                return Err(Error::ExecutionErr(breakdown));
+                // Structured failure payload: the queue wraps it as
+                // `{"error": {...}}` (`WrappedError`) and result_processor
+                // derives the run description from the top-level `message`,
+                // so keep `message` at the top and add no `error` nesting of
+                // our own. Samples ride only on failed tests, only in this
+                // structured result — the message text stays counts-only.
+                let has_samples = tests.iter().any(|t| t.violating > 0 && t.sample.is_some());
+                let message = if has_samples {
+                    // Wording must not match the UI's breakdown-line parsing
+                    // (no ✓/✗, no `— N violating`), which older-result
+                    // rendering still relies on.
+                    format!(
+                        "{breakdown}\n\nSamples of the violating rows are \
+                         attached to this run's result (error.data_tests)."
+                    )
+                } else {
+                    breakdown
+                };
+                let data_tests = tests
+                    .iter()
+                    .map(|t| {
+                        let mut o = json!({ "test": t.name, "violating": t.violating });
+                        if t.violating > 0 {
+                            if let Some(s) = &t.sample {
+                                o["sample"] = s.clone();
+                            }
+                        }
+                        o
+                    })
+                    .collect::<Vec<_>>();
+                return Err(Error::ExecutionRawError(to_raw_value(&json!({
+                    "message": message,
+                    "name": "ExecutionErr",
+                    "step_id": job.flow_step_id,
+                    "data_tests": data_tests,
+                }))));
             }
             record_mat(
                 conn,
@@ -1337,14 +1825,46 @@ pub async fn do_duckdb(
     match result {
         Ok(result) => Ok(result),
         Err(e) => {
-            // Passwords might appear in the error message
-            let mut err_str = e.to_string();
-            for pwd in hidden_passwords.lock().unwrap().iter() {
-                if let Some(sanitized) = sanitize_string_from_password(&err_str, &pwd.clone()) {
-                    err_str = sanitized;
+            // Passwords might appear in the error message — and, for the
+            // structured data-test failure, in sampled row data read from an
+            // attached database — so every outgoing error is sanitized here.
+            let sanitize = |mut s: String| {
+                for pwd in hidden_passwords.lock().unwrap().iter() {
+                    if let Some(sanitized) = sanitize_string_from_password(&s, &pwd.clone()) {
+                        s = sanitized;
+                    }
                 }
+                s
+            };
+            match e {
+                // The structured payload must keep its variant: flattening it
+                // to a string (the arm below) would strip the data-test
+                // samples result_processor places verbatim into the failed
+                // job's result. Sanitize its string *leaves*, not the
+                // serialized text: a secret containing `"` or `\` is
+                // JSON-escaped in the text, so a plain-substring pass would
+                // miss it — and samples carry raw row data from attached
+                // databases.
+                Error::ExecutionRawError(raw) => {
+                    fn walk(v: &mut Value, f: &dyn Fn(String) -> String) {
+                        match v {
+                            Value::String(s) => *s = f(std::mem::take(s)),
+                            Value::Array(a) => a.iter_mut().for_each(|x| walk(x, f)),
+                            Value::Object(o) => o.values_mut().for_each(|x| walk(x, f)),
+                            _ => {}
+                        }
+                    }
+                    Err(match serde_json::from_str::<Value>(raw.get()) {
+                        Ok(mut v) => {
+                            walk(&mut v, &sanitize);
+                            Error::ExecutionRawError(to_raw_value(&v))
+                        }
+                        // Not valid JSON (shouldn't happen) — redact as text.
+                        Err(_) => Error::ExecutionErr(sanitize(raw.get().to_string())),
+                    })
+                }
+                e => Err(Error::ExecutionErr(sanitize(e.to_string()))),
             }
-            Err(Error::ExecutionErr(err_str))
         }
     }
 }
@@ -1483,6 +2003,15 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
 }
 
 // Read backend/windmill-duckdb-ffi-internal/README_DEV.md for details about why we use FFI
+// The FFI returns errors as `ERROR <json-encoded-message>` (the message is
+// serde_json::to_string'd). Decode the JSON string back so multi-line errors
+// render with real newlines, not escaped `\n` inside wrapping quotes; fall back
+// to the raw slice if it is somehow not a JSON string.
+fn decode_ffi_error(result_str: &str) -> String {
+    let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
+    serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
+}
+
 fn run_duckdb_ffi_safe<'a>(
     query_block_list: impl Iterator<Item = &'a str>,
     query_block_list_count: usize,
@@ -1548,7 +2077,7 @@ fn run_duckdb_ffi_safe<'a>(
     };
 
     if result_str.starts_with("ERROR") {
-        Err(Error::ExecutionErr(result_str[6..].to_string()))
+        Err(Error::ExecutionErr(decode_ffi_error(&result_str)))
     } else {
         let result = if collection_strategy == SqlResultCollectionStrategy::AllStatementsAllRows {
             // Avoid parsing JSON
@@ -1612,7 +2141,7 @@ fn prepare_duckdb_ffi_safe<'a>(
     };
 
     if result_str.starts_with("ERROR") {
-        Err(Error::ExecutionErr(result_str[6..].to_string()))
+        Err(Error::ExecutionErr(decode_ffi_error(&result_str)))
     } else {
         Ok(serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?)
     }
@@ -1763,6 +2292,7 @@ async fn transform_attach_ducklake(
     conn: &Connection,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     w_id: &str,
+    materialize_target: Option<&str>,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
@@ -1772,14 +2302,27 @@ async fn transform_attach_ducklake(
     };
     let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
     let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-    let extra_args = cap
+    let user_extra_args = cap
         .get(3)
-        .map(|m| format!(", {}", &m.as_str()[1..m.as_str().len() - 1]))
-        .unwrap_or("".to_string());
+        .map(|m| m.as_str()[1..m.as_str().len() - 1].to_string())
+        .unwrap_or_default();
 
     let ducklake = match conn {
         Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
+    };
+    // In a fork, METADATA_SCHEMA / DATA_PATH / OVERRIDE_DATA_PATH are owned by the fork
+    // resolution (DuckDB silently keeps the last occurrence of a duplicated option, so a
+    // user-supplied one would escape the fork namespace back to the parent's).
+    let user_extra_args = if ducklake.fork_defer.is_some() {
+        strip_fork_reserved_attach_args(&user_extra_args)
+    } else {
+        user_extra_args
+    };
+    let extra_args = if user_extra_args.is_empty() {
+        String::new()
+    } else {
+        format!(", {}", user_extra_args)
     };
     let db_type = match ducklake.catalog.resource_type {
         DucklakeCatalogResourceType::Instance => "postgres",
@@ -1826,17 +2369,170 @@ async fn transform_attach_ducklake(
     } else {
         format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
     };
+    // In a fork, re-emit the fork-owned DATA_PATH as the LAST option: DuckDB keeps the last
+    // occurrence of a duplicated option, so this wins over anything the arg stripping might
+    // not recognize (e.g. a dollar-quoted literal), regardless of literal syntax. The
+    // METADATA_SCHEMA injected by the fork resolution is already last within `extra_args`.
+    let extra_args = if ducklake.fork_defer.is_some() {
+        format!("{extra_args}, DATA_PATH 's3://{storage}/{data_path}'")
+    } else {
+        extra_args
+    };
 
     let attach_str = format!(
         "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
     );
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
-    Ok(Some(vec![
+    let mut statements = vec![
         "INSTALL ducklake;".to_string(),
         install_db_ext_str.to_string(),
         attach_str,
-    ]))
+    ];
+    if let Some(defer) = ducklake.fork_defer.as_ref() {
+        statements.extend(fork_defer_statements(
+            name,
+            alias_name,
+            defer,
+            materialize_target,
+            hidden_passwords,
+        )?);
+    }
+    Ok(Some(statements))
+}
+
+// Double-quote a possibly schema-qualified table reference, each dotted segment
+// independently (local copy of sql_materialize's private helper).
+fn quote_qualified_table(name: &str) -> String {
+    name.split('.')
+        .map(|id| format!("\"{}\"", id.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+// `schema.table` → `schema.table_current`: the SCD2 companion view lives next to its table.
+fn current_companion(table: &str) -> String {
+    match table.rsplit_once('.') {
+        Some((s, t)) => format!("{s}.{t}_current"),
+        None => format!("{table}_current"),
+    }
+}
+
+/// Statements appended after a fork workspace's lake ATTACH: read-only attaches of the
+/// ancestor namespaces plus `CREATE VIEW IF NOT EXISTS` defer views over the direct parent for
+/// every table the fork has not materialized. When this job's managed materialize targets one
+/// of the deferred tables, its defer view is dropped instead of created — the write must hit a
+/// real fork table (`CREATE [OR REPLACE] TABLE` refuses to replace a view).
+fn fork_defer_statements(
+    lake_name: &str,
+    alias_name: &str,
+    defer: &windmill_common::workspaces::DucklakeForkDefer,
+    materialize_target: Option<&str>,
+    hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+) -> Result<Vec<String>> {
+    let mut stmts = vec![];
+    if defer.ancestors.is_empty() {
+        // Defer unavailable (an ancestor no longer defines this lake); the fork namespace
+        // still isolates writes.
+        return Ok(stmts);
+    }
+    for a in &defer.ancestors {
+        if let Some(pwd) = a.catalog_resource.get("password").and_then(|p| p.as_str()) {
+            hidden_passwords.lock().unwrap().push(pwd.to_string());
+        }
+        let db_type = match a.catalog.resource_type {
+            DucklakeCatalogResourceType::Instance => "postgres",
+            _ => a.catalog.resource_type.as_ref(),
+        };
+        stmts.push(get_attach_db_install_str(db_type)?.to_string());
+        let conn_str =
+            format_attach_db_conn_str(a.catalog_resource.clone(), db_type)?.replace('\'', "''");
+        let storage = a
+            .storage
+            .storage
+            .as_deref()
+            .unwrap_or(DEFAULT_STORAGE)
+            .replace('\'', "''");
+        let data_path = a.storage.path.replace('\'', "''");
+        let metadata_schema = a
+            .metadata_schema
+            .as_ref()
+            .map(|s| format!(", METADATA_SCHEMA '{}'", s.replace('\'', "''")))
+            .unwrap_or_default();
+        // The ancestor config's own non-reserved args (e.g. `ENCRYPTED true`) — an
+        // option-dependent lake wouldn't attach without them. Emitted FIRST: DuckDB keeps the
+        // last occurrence of a duplicated option, so the fork-owned DATA_PATH / READ_ONLY /
+        // METADATA_SCHEMA after them always win.
+        let extra_args = a
+            .extra_args
+            .as_ref()
+            .map(|e| format!("{e}, "))
+            .unwrap_or_default();
+        // READ_ONLY: a fork job must never write an ancestor namespace. No AUTOMATIC_MIGRATION
+        // / CREATE_IF_NOT_EXISTS: an ancestor lake that would need creating or migrating fails
+        // loudly rather than being mutated from a fork. IF NOT EXISTS: several ATTACH blocks in
+        // one script (e.g. the user's + the materialize synthetic one) emit the same ancestors.
+        stmts.push(format!(
+            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema});",
+            a.alias
+        ));
+    }
+    let parent_alias = &defer.ancestors[0].alias;
+    let target_table = materialize_target.and_then(|ap| {
+        let (l, t) = ap.split_once('/')?;
+        (l == lake_name).then_some(t)
+    });
+    let mut created_schemas = std::collections::HashSet::new();
+    for dt in &defer.defer_tables {
+        if Some(dt.table.as_str()) == target_table {
+            continue;
+        }
+        // Each view targets the NEAREST ancestor that physically owns the table (a direct
+        // parent that itself defers has no copy to bind against). Out-of-range index (never
+        // produced by the resolver, but the field crosses the agent wire) falls back to the
+        // direct parent rather than panicking.
+        let owner_alias = defer
+            .ancestors
+            .get(dt.ancestor_idx as usize)
+            .map(|a| a.alias.as_str())
+            .unwrap_or(parent_alias);
+        if let Some((schema, _)) = dt.table.rsplit_once('.') {
+            if created_schemas.insert(schema) {
+                stmts.push(format!(
+                    "CREATE SCHEMA IF NOT EXISTS {alias_name}.{};",
+                    quote_qualified_table(schema)
+                ));
+            }
+        }
+        let q = quote_qualified_table(&dt.table);
+        stmts.push(format!(
+            "CREATE VIEW IF NOT EXISTS {alias_name}.{q} AS SELECT * FROM {owner_alias}.{q};"
+        ));
+        if dt.with_current_view {
+            let qc = quote_qualified_table(&current_companion(&dt.table));
+            stmts.push(format!(
+                "CREATE VIEW IF NOT EXISTS {alias_name}.{qc} AS SELECT * FROM {owner_alias}.{qc};"
+            ));
+        }
+    }
+    if let Some(t) = target_table {
+        // View→table transition: replace the target's defer view(s) with the real table this
+        // job writes (`CREATE [OR REPLACE] TABLE` refuses to replace a view). Keyed on the
+        // catalog's ACTUAL live views — not on recorded materialization status, which after a
+        // failed run can't tell a defer view from a real table, and a mismatched DROP VIEW
+        // would wedge the asset. `_current` is dropped too when it is a view — SCD2 codegen
+        // recreates it with `IF NOT EXISTS`, which would otherwise silently keep a view over
+        // the parent.
+        for name in [t.to_string(), current_companion(t)] {
+            if defer.fork_views.iter().any(|v| v == &name) {
+                stmts.push(format!(
+                    "DROP VIEW IF EXISTS {alias_name}.{};",
+                    quote_qualified_table(&name)
+                ));
+            }
+        }
+    }
+    Ok(stmts)
 }
 
 async fn transform_attach_datatable(
@@ -1940,6 +2636,223 @@ pub struct Arg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decode_ffi_error_unescapes_multiline_and_strips_quotes() {
+        // Mirror the FFI: JSON-encode the raw DuckDB message, prefix "ERROR ".
+        let raw_msg = "Invalid Input Error: data tests failed on main/raw_orders \
+             (1/3 failed) — write rolled back, previous version left live:\n  \
+             ✓ not_null(order_id)\n  ✗ accepted_values(status) — 12 violating row(s)";
+        let ffi = format!("ERROR {}", serde_json::to_string(raw_msg).unwrap());
+        let decoded = decode_ffi_error(&ffi);
+        assert_eq!(decoded, raw_msg);
+        // real newlines, no literal `\n`, no wrapping quotes
+        assert!(decoded.contains('\n') && !decoded.contains("\\n"));
+        assert!(!decoded.starts_with('"'));
+        // single-line error with inner quotes round-trips unescaped
+        let single = format!(
+            "ERROR {}",
+            serde_json::to_string("Binder Error: column \"x\" not found").unwrap()
+        );
+        assert_eq!(
+            decode_ffi_error(&single),
+            "Binder Error: column \"x\" not found"
+        );
+        // non-JSON payload falls back to the raw slice
+        assert_eq!(decode_ffi_error("ERROR not json"), "not json");
+    }
+
+    fn test_ancestor(wid: &str) -> windmill_common::workspaces::DucklakeAncestorAttach {
+        windmill_common::workspaces::DucklakeAncestorAttach {
+            workspace_id: wid.to_string(),
+            alias: format!("__wm_dl_lake_{}_abcd1234", wid.replace('-', "_")),
+            catalog: windmill_common::workspaces::DucklakeCatalog {
+                resource_type: windmill_common::workspaces::DucklakeCatalogResourceType::Instance,
+                resource_path: "cat_db".to_string(),
+            },
+            catalog_resource: serde_json::json!({
+                "host": "h", "dbname": "cat_db", "user": "u", "password": "pw"
+            }),
+            storage: windmill_common::workspaces::DucklakeStorage {
+                storage: None,
+                path: "lake".to_string(),
+            },
+            metadata_schema: None,
+            extra_args: None,
+        }
+    }
+
+    fn test_fork_defer_chain(
+        ancestor_wids: Vec<&str>,
+        defer_tables: Vec<(&str, bool, u32)>,
+        fork_views: Vec<&str>,
+    ) -> windmill_common::workspaces::DucklakeForkDefer {
+        windmill_common::workspaces::DucklakeForkDefer {
+            ancestors: ancestor_wids.into_iter().map(test_ancestor).collect(),
+            defer_tables: defer_tables
+                .into_iter()
+                .map(
+                    |(t, cur, idx)| windmill_common::materialization::ForkDeferTable {
+                        table: t.to_string(),
+                        with_current_view: cur,
+                        ancestor_idx: idx,
+                    },
+                )
+                .collect(),
+            fork_views: fork_views.into_iter().map(str::to_string).collect(),
+        }
+    }
+
+    fn test_fork_defer(
+        defer_tables: Vec<(&str, bool)>,
+        fork_views: Vec<&str>,
+    ) -> windmill_common::workspaces::DucklakeForkDefer {
+        test_fork_defer_chain(
+            vec!["parent-ws"],
+            defer_tables.into_iter().map(|(t, c)| (t, c, 0)).collect(),
+            fork_views,
+        )
+    }
+
+    #[test]
+    fn test_fork_defer_statements_ancestor_extra_args() {
+        // The ancestor config's own args (e.g. ENCRYPTED) must ride on its read-only attach —
+        // BEFORE the fork-owned options, so DuckDB's last-occurrence-wins keeps DATA_PATH /
+        // READ_ONLY / METADATA_SCHEMA authoritative even if the args tried to override them.
+        let mut defer = test_fork_defer(vec![("orders", false)], vec![]);
+        defer.ancestors[0].extra_args = Some("ENCRYPTED true".to_string());
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let attach = stmts
+            .iter()
+            .find(|s| s.starts_with("ATTACH IF NOT EXISTS"))
+            .unwrap();
+        assert!(attach.contains("(ENCRYPTED true, DATA_PATH "), "{attach}");
+        assert!(
+            attach.find("ENCRYPTED true").unwrap() < attach.find("READ_ONLY").unwrap(),
+            "{attach}"
+        );
+    }
+
+    #[test]
+    fn test_fork_defer_statements_chained_ancestors() {
+        // fork → parent → root: `orders` was only materialized in the root (idx 1) — its view
+        // must target the ROOT alias (the parent has no physical copy); `daily` owned by the
+        // direct parent (idx 0) targets the parent alias. Out-of-range idx falls back to the
+        // direct parent instead of panicking.
+        let defer = test_fork_defer_chain(
+            vec!["parent-ws", "root-ws"],
+            vec![("orders", false, 1), ("daily", false, 0), ("oob", false, 9)],
+            vec![],
+        );
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"orders\" AS SELECT * FROM __wm_dl_lake_root_ws_abcd1234.\"orders\""
+            ),
+            "{joined}"
+        );
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"daily\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"daily\""
+            ),
+            "{joined}"
+        );
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"oob\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"oob\""
+            ),
+            "{joined}"
+        );
+        // Both ancestors attached read-only.
+        assert_eq!(
+            joined.matches("ATTACH IF NOT EXISTS").count(),
+            2,
+            "{joined}"
+        );
+    }
+
+    #[test]
+    fn test_fork_defer_statements_shape() {
+        let defer = test_fork_defer(vec![("orders", false), ("dim", true)], vec![]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        // Ancestor attach: read-only, idempotent, never auto-migrating or auto-creating.
+        assert!(joined.contains("ATTACH IF NOT EXISTS"), "{joined}");
+        assert!(joined.contains("READ_ONLY"), "{joined}");
+        assert!(!joined.contains("AUTOMATIC_MIGRATION"), "{joined}");
+        assert!(!joined.contains("CREATE_IF_NOT_EXISTS"), "{joined}");
+        // Ancestor catalog password is hidden from logs.
+        assert_eq!(hp.lock().unwrap().as_slice(), ["pw"]);
+        // Defer views over the parent alias, plus the SCD2 `_current` companion.
+        assert!(
+            joined.contains(
+                "CREATE VIEW IF NOT EXISTS dl.\"orders\" AS SELECT * FROM __wm_dl_lake_parent_ws_abcd1234.\"orders\""
+            ),
+            "{joined}"
+        );
+        assert!(joined.contains("dl.\"dim_current\""), "{joined}");
+        // No target → no transition drops.
+        assert!(!joined.contains("DROP VIEW"), "{joined}");
+    }
+
+    #[test]
+    fn test_fork_defer_statements_target_transition() {
+        // Target currently a defer view → skip its CREATE, drop the view (+ companion).
+        let defer = test_fork_defer(vec![("orders", false)], vec!["orders", "orders_current"]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts =
+            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
+                .unwrap();
+        let joined = stmts.join("\n");
+        assert!(!joined.contains("CREATE VIEW"), "{joined}");
+        assert!(
+            joined.contains("DROP VIEW IF EXISTS _wm_target.\"orders\";"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("DROP VIEW IF EXISTS _wm_target.\"orders_current\";"),
+            "{joined}"
+        );
+
+        // Target already a real table (NOT in fork_views, e.g. after a failed re-run whose
+        // status can't be trusted) → no DROP VIEW, or the job would wedge on a type mismatch.
+        let defer = test_fork_defer(vec![("orders", false)], vec![]);
+        let stmts =
+            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
+                .unwrap();
+        assert!(!stmts.join("\n").contains("DROP VIEW"), "{stmts:?}");
+
+        // Target in a different lake → this lake's defer views are untouched.
+        let defer = test_fork_defer(vec![("orders", false)], vec!["orders"]);
+        let stmts =
+            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains("CREATE VIEW IF NOT EXISTS dl.\"orders\""),
+            "{joined}"
+        );
+        assert!(!joined.contains("DROP VIEW"), "{joined}");
+    }
+
+    #[test]
+    fn test_fork_defer_statements_schema_qualified() {
+        let defer = test_fork_defer(vec![("staging.raw", false)], vec![]);
+        let mut hp = Arc::new(Mutex::new(vec![]));
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let joined = stmts.join("\n");
+        assert!(
+            joined.contains("CREATE SCHEMA IF NOT EXISTS dl.\"staging\";"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("CREATE VIEW IF NOT EXISTS dl.\"staging\".\"raw\""),
+            "{joined}"
+        );
+    }
 
     fn mrow(name: &str, params: &str, body: &str, is_table: bool, provider: &str) -> MacroRow {
         MacroRow {
@@ -2498,6 +3411,168 @@ mod tests {
         );
     }
 
+    // The rewritten SQL is the plan assembled by
+    // `pipeline_advanced::finalize_materialize_query`, so what it contains is
+    // build-dependent: the public assembly runs the plan verbatim (tests only
+    // in the post-commit summary breakdown), the enterprise assembly adds the
+    // in-transaction write-audit-publish guard (whose shape/placement is
+    // tested next to its implementation in windmill-common's
+    // `pipeline_advanced_ee`).
+    #[test]
+    fn materialize_rewrite_carries_data_test_summary() {
+        let script = "-- materialize ducklake://main/orders\n\
+                      -- data_test not_null id\n\
+                      SELECT id FROM dl.src";
+        let (rewritten, meta) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(rewritten.contains("AS data_tests"));
+        assert_eq!(meta.n_data_tests, 1);
+        #[cfg(not(feature = "private"))]
+        assert!(
+            !rewritten.contains("error("),
+            "public assembly is commit-then-test (no guard)"
+        );
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        assert!(
+            rewritten.contains("error("),
+            "enterprise assembly places the WAP guard"
+        );
+    }
+
+    // on_schema_change=fail on a persist-and-mutate strategy (merge) emits the
+    // drift guard inside the write, and no sync artifacts.
+    #[test]
+    fn materialize_fail_emits_drift_guard() {
+        let script = "-- materialize ducklake://main/dim key=id on_schema_change=fail\n\
+                      SELECT id, name FROM dl.src";
+        let (rewritten, meta) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(
+            rewritten.contains("CAST(error(") && rewritten.contains("on_schema_change=fail"),
+            "fail emits the drift guard: {rewritten}"
+        );
+        assert!(!rewritten.contains("BY NAME"), "fail writes positionally");
+        assert!(meta.sync_prepass.is_none(), "fail needs no pre-pass probe");
+    }
+
+    // on_schema_change=sync writes BY NAME, emits the ALTER sentinel, and builds
+    // the pre-pass probe (DESCRIBE of the SELECT + information_schema read).
+    #[test]
+    fn materialize_sync_by_name_and_prepass() {
+        let script = "-- materialize ducklake://main/dim key=id on_schema_change=sync\n\
+                      SELECT id, name FROM dl.src";
+        let (rewritten, meta) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(
+            rewritten.contains("INSERT INTO _wm_target.dim BY NAME"),
+            "sync insert is name-mapped: {rewritten}"
+        );
+        assert!(
+            rewritten.contains(windmill_parser::sql_materialize::SYNC_ALTER_SENTINEL),
+            "sync emits the ALTER injection sentinel"
+        );
+        let pp = meta.sync_prepass.expect("sync builds a pre-pass probe");
+        assert_eq!(pp.target_table, "dim");
+        assert!(pp
+            .probe_query
+            .contains("DESCRIBE SELECT * FROM (SELECT id, name FROM dl.src)"));
+        assert!(pp.probe_query.contains("FROM information_schema.columns"));
+        assert!(pp
+            .probe_query
+            .contains("table_catalog = '_wm_target' AND table_name = 'dim'"));
+        assert!(pp
+            .probe_query
+            .contains("ATTACH 'ducklake://main' AS _wm_target;"));
+    }
+
+    // on_schema_change=warn (default) on a persist-and-mutate strategy folds the
+    // drift into the summary; no guard, no sync artifacts.
+    #[test]
+    fn materialize_warn_summary_carries_schema_drift() {
+        let script = "-- materialize ducklake://main/dim key=id\n\
+                      SELECT id, name FROM dl.src";
+        let (rewritten, meta) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(
+            rewritten.contains("AS schema_drift"),
+            "warn folds drift into the summary: {rewritten}"
+        );
+        // No schema-drift *fail* guard in warn mode (the keyed merge still emits
+        // its own duplicate-source-key guard, which is a different `error(...)`).
+        assert!(!rewritten.contains("on_schema_change=fail blocked"));
+        assert!(rewritten.contains("keyed merge on `id` blocked"));
+        assert!(!rewritten.contains("BY NAME"));
+        assert!(meta.sync_prepass.is_none());
+    }
+
+    // Whole-table replace (unpartitioned, no key/append) is not persist-and-
+    // mutate: even with on_schema_change=fail there is no guard / sentinel — the
+    // CREATE OR REPLACE already rebuilds the schema each run.
+    #[test]
+    fn materialize_whole_table_replace_ignores_guardrail() {
+        let script = "-- materialize ducklake://main/t on_schema_change=fail\n\
+                      SELECT a, b FROM dl.src";
+        let (rewritten, meta) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(rewritten.contains("CREATE OR REPLACE TABLE _wm_target.t"));
+        assert!(!rewritten.contains("on_schema_change=fail"));
+        assert!(!rewritten.contains(windmill_parser::sql_materialize::SYNC_ALTER_SENTINEL));
+        assert!(meta.sync_prepass.is_none());
+    }
+
+    #[test]
+    fn extract_schema_drift_parses_struct_and_string_and_null() {
+        // nested struct form
+        let r = raw(
+            r#"{"materialized":"ducklake://main/dim","schema_drift":{"added":["c"],"removed":["b"]}}"#,
+        );
+        let (added, removed) = extract_schema_drift(&r).expect("drift present");
+        assert_eq!(added, vec!["c".to_string()]);
+        assert_eq!(removed, vec!["b".to_string()]);
+        // FFI string-encoded form
+        let r = raw(r#"{"schema_drift":"{\"added\":[\"x\"],\"removed\":[]}"}"#);
+        let (added, removed) = extract_schema_drift(&r).expect("drift present");
+        assert_eq!(added, vec!["x".to_string()]);
+        assert!(removed.is_empty());
+        // NULL / both-empty ⇒ no drift
+        assert!(extract_schema_drift(&raw(r#"{"schema_drift":null}"#)).is_none());
+        assert!(
+            extract_schema_drift(&raw(r#"{"schema_drift":{"added":[],"removed":[]}}"#)).is_none()
+        );
+        assert!(extract_schema_drift(&raw(r#"{"rows":3}"#)).is_none());
+    }
+
+    #[test]
+    fn parse_sync_drift_computes_added_removed_and_skips_fresh_table() {
+        // table (a, b) vs SELECT (a, c): add c, drop b; _wm_partition ignored
+        let r = raw(r#"[{"_wm_which":"sel","_wm_name":"a","_wm_type":"BIGINT"},
+                {"_wm_which":"sel","_wm_name":"c","_wm_type":"VARCHAR"},
+                {"_wm_which":"tbl","_wm_name":"a","_wm_type":"BIGINT"},
+                {"_wm_which":"tbl","_wm_name":"b","_wm_type":"BIGINT"}]"#);
+        let (added, removed) = parse_sync_drift(&r).unwrap();
+        assert_eq!(added, vec![("c".to_string(), "VARCHAR".to_string())]);
+        assert_eq!(removed, vec!["b".to_string()]);
+        // no `tbl` rows ⇒ table doesn't exist yet ⇒ no migration
+        let r = raw(r#"[{"_wm_which":"sel","_wm_name":"a","_wm_type":"BIGINT"}]"#);
+        let (added, removed) = parse_sync_drift(&r).unwrap();
+        assert!(added.is_empty() && removed.is_empty());
+    }
+
     // Tests for parse_attach_db_resource function
     #[test]
     fn test_parse_attach_db_resource_postgres_res_prefix() {
@@ -2867,15 +3942,22 @@ mod tests {
         // `data_tests` array (how the FFI serialises the list-of-struct).
         let r = raw(
             r#"[{"rows":3,"snapshot_id":17,"materialized":"ducklake://a/b",
-                "data_tests":[{"test":"unique(order_id)","violating":0},
-                              {"test":"accepted_values(status)","violating":2}]}]"#,
+                "data_tests":[{"test":"unique(order_id)","violating":0,"sample":null},
+                              {"test":"accepted_values(status)","violating":2,
+                               "sample":"[{\"id\":1,\"status\":\"bad\"}]"}]}]"#,
         );
         let out = extract_data_tests(&r);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].name, "unique(order_id)");
         assert_eq!(out[0].violating, 0);
+        assert!(out[0].sample.is_none());
         assert_eq!(out[1].name, "accepted_values(status)");
         assert_eq!(out[1].violating, 2);
+        // The probe emits the sample as a JSON string; it parses to rows here.
+        assert_eq!(
+            out[1].sample,
+            Some(serde_json::json!([{"id": 1, "status": "bad"}]))
+        );
     }
 
     #[test]
@@ -2886,8 +3968,28 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].name, "not_null(x)");
         assert_eq!(out[0].violating, 1);
+        assert!(out[0].sample.is_none());
         // Absent column (no tests) -> empty, no panic.
         assert!(extract_data_tests(&raw(r#"[{"rows":3}]"#)).is_empty());
+    }
+
+    #[test]
+    fn extract_data_tests_sample_degrades_to_none_never_flips_outcome() {
+        // sample is optional by contract: native array accepted; non-array
+        // JSON, garbage text, and absence all degrade to None without
+        // touching `violating`.
+        let r = raw(r#"[{"data_tests":[
+                {"test":"a","violating":1,"sample":[{"id":9}]},
+                {"test":"b","violating":2,"sample":"{\"not\":\"an array\"}"},
+                {"test":"c","violating":3,"sample":"not json at all"},
+                {"test":"d","violating":4}]}]"#);
+        let out = extract_data_tests(&r);
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0].sample, Some(serde_json::json!([{"id": 9}])));
+        for (i, t) in out.iter().enumerate().skip(1) {
+            assert!(t.sample.is_none(), "test {} should have no sample", t.name);
+            assert_eq!(t.violating, i as i64 + 1);
+        }
     }
 
     #[test]
@@ -2918,9 +4020,15 @@ mod tests {
     #[test]
     fn format_data_test_breakdown_lists_all_with_marks() {
         let tests = vec![
-            DataTestOutcome { name: "unique(order_id)".into(), violating: 1 },
-            DataTestOutcome { name: "not_null(user_id)".into(), violating: 0 },
-            DataTestOutcome { name: "accepted_values(status)".into(), violating: 2 },
+            DataTestOutcome { name: "unique(order_id)".into(), violating: 1, sample: None },
+            DataTestOutcome { name: "not_null(user_id)".into(), violating: 0, sample: None },
+            DataTestOutcome {
+                name: "accepted_values(status)".into(),
+                violating: 2,
+                // The breakdown is counts-only by design — samples never
+                // appear in the error text.
+                sample: Some(serde_json::json!([{"status": "bad"}])),
+            },
         ];
         let msg = format_data_test_breakdown("analytics/orders", &tests);
         assert_eq!(

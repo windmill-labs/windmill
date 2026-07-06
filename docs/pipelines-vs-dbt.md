@@ -51,7 +51,7 @@ Asset-centric, polyglot, annotation-driven, event-aware:
 | Column lineage | No | **Shipped** (`// column`); docs site still TODO |
 | Snapshots / SCD2 | Yes (`key=… history`) | Managed strategy |
 | Selective execution grammar | No | UI/CLI surface |
-| Schema contracts | No, but design metadata model | TODO with design work |
+| Schema contracts | No, but design metadata model | **Shipped** (capture #2a + save-time check #2b) |
 | Packages / community / macros | No | **Shipped** (`// macros` workspace macro libraries) |
 | Semantic layer / metrics | No | Large additive scope |
 
@@ -74,6 +74,12 @@ violation, riding the existing failure-propagation path. This is also the first
 the annotation→verifier pattern that column-lineage will reuse. The keyword is
 `data_test`, not `test`, to stay clear of the unrelated `// test:` CI-test
 annotation.
+
+Enterprise goes one step *beyond* dbt here: write-audit-publish. dbt commits
+the model then tests it, so a failing test leaves the bad table live for BI
+readers; the enterprise build runs the same probes inside the write
+transaction and rolls back on violation, so a failing slice is never
+published (see `ducklake-materialization.md` §"Scoping decisions").
 
 ### 2. Incremental materializations
 
@@ -131,7 +137,9 @@ schema capture, and each run (re)creates a `<dim>_current` view; consumers get
 effective-dated joins via native `ASOF JOIN … >= valid_from`. Deletes follow dbt:
 soft by default (absent keys stay current), or `deletes=close` for
 `hard_deletes=close`. v1 is non-partitioned; partitioned history is a follow-up.
-See `ducklake-materialization.md`.
+Both misconfigurations — `history` without `key=`, and `history` + `//
+partitioned` — are rejected **at deploy** (fail-fast at save, not on the first
+run). See `ducklake-materialization.md`.
 
 ### 5. Selective execution grammar
 
@@ -140,21 +148,43 @@ Today: `requestRunCascadeSignal` in the canvas, `// tag` annotation parsed.
 Graph + tags + last-run state has all the inputs. UI/CLI surface, not
 abstraction work.
 
-### 6. Schema contracts
+### 6. Schema contracts — **shipped**
 
 dbt: `contract: enforced` + `columns: [{name, data_type}]`. Compile-time
 check that model output matches the declaration.
 
-Today: `// on datatable://users/active` is a string. Rename a column
-upstream → downstream breaks at runtime, silently.
+**Shipped**, capture-then-validate (no declaration to maintain): the schema a
+managed `// materialize` run captures post-DESCRIBE into the versioned
+`materialized_asset_schema` sidecar (#2a) *is* the contract, and every
+consumer save/deploy is validated against the latest capture. Three surfaces,
+same diff (`windmill_common::schema_contracts`, mirrored 1:1 in
+`schemaContracts.ts`):
 
-This is the item where the current asset abstraction is thinnest.
-To do contracts well: capture output schemas after a run (substrate-specific
-DESCRIBE), persist them as asset metadata, validate consumer references at
-save time. The asset-as-typed-node model accommodates it — but **where**
-schemas live (asset row, sidecar?), **when** they're captured (post-run?
-edit-time?), and **how** versioning works are non-trivial design choices.
-Worth doing intentionally now while the asset surface is still young.
+- **Save-time (authoritative)**: `POST /w/{ws}/scripts/check_schema_contracts`
+  runs on the deployed content right after a save and returns **warnings —
+  never errors**. A deliberate upstream reshape must not fail every consumer
+  save; that's why dbt's `on_schema_change=fail` is deliberately not offered
+  in v1 (a CI/CLI gate can layer it on later without touching the grammar).
+- **Editor flycheck**: the WASM parse that already runs on the open buffer
+  feeds the same diff, surfacing mismatches as live Monaco warning squiggles
+  anchored to the offending read / `// column` / `// data_test` line.
+- **Autocompletion**: annotation refs (`// column out <-
+  ducklake://lake/orders.`, `// data_test relationships … ->`) complete
+  column names from the captured schema — the broken ref never gets typed.
+
+What's checked (ducklake-only — the only substrate with capture in v1;
+datatable refs have no captured schema and stay silent): body-read/written
+columns missing from the capture, `// column` lineage sources, and
+`// data_test relationships` refs — including a captured-type *difference* on
+the join columns when both sides are captured (phrased "differs", since the
+runtime probe's IN-subquery still coerces). Column names compare
+case-insensitively (DuckDB unquoted-identifier semantics); the managed
+`_wm_partition` column is whitelisted; a `<dim>_current` scd2 view falls back
+to its base table's capture (identical columns by construction).
+
+The producer-side escape hatch is `// materialize … on_schema_change=ignore`:
+it declares the schema deliberately unstable and collapses downstream
+warnings for that asset into a single informational note. Default is `warn`.
 
 ### 7. Packages / community / macros — **shipped** (macro libraries)
 
@@ -405,6 +435,13 @@ You want `orders_daily` to hold the latest version per `order_id`.
 DELETE-by-partition + INSERT works only if you reprocess from a
 source-of-truth source. If you're consuming amendments and need dedup
 *within* the slice, you need MERGE on `order_id`, not DELETE on partition.
+
+Note the boundary: the keyed merge reconciles the incoming rows against the
+*target* (delete-by-key + insert), but it does not deduplicate the *source*.
+"Latest version per `order_id`" is still your SELECT's job — pick one row per
+key (e.g. `QUALIFY row_number() OVER (PARTITION BY order_id ORDER BY updated_at
+DESC) = 1`). A source that still has two rows for one key is rejected at run
+time rather than double-written (see `ducklake-materialization.md`).
 
 This is what dbt's `unique_key` does. Orthogonal to partitioning:
 `partitioned` answers "which slice?"; `unique_key` answers "how do I dedup

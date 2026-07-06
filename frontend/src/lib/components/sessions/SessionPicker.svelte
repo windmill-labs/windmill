@@ -22,7 +22,6 @@
 	import { slide } from 'svelte/transition'
 	import {
 		createSession,
-		deriveForkStatus,
 		deleteSessionsForWorkspace,
 		isForkSession,
 		reconcileAfterWorkspaceChange,
@@ -61,9 +60,9 @@
 
 	// The row icon only distinguishes "the session's fork workspace no longer
 	// exists" (detached) — never the fork's ahead/behind sync state, which is
-	// the fork bar's job. No comparison needed, so none is passed.
+	// the fork bar's job.
 	function forkDetachedFor(session: Session): boolean {
-		return deriveForkStatus(session, $userWorkspaces, undefined) === 'unavailable'
+		return isUnavailableFork(session)
 	}
 
 	function isForkFor(session: Session): boolean {
@@ -142,8 +141,8 @@
 	}
 
 	// Flat list passing the archive + scope filters. Grouping for display happens
-	// in `sessionGroups`; this flat view drives the runtime / fork-comparison
-	// effects, the unread total, and keyboard navigation.
+	// in `sessionGroups`; this flat view drives the runtime effect, the unread
+	// total, and keyboard navigation.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
 			if (s.transient) return false
@@ -281,23 +280,6 @@
 		}
 	})
 
-	// Pre-fetch the fork comparison for every visible fork session so the
-	// sidebar icons reflect the right ahead/diverged state without
-	// requiring the user to click into each session. Cheap enough at
-	// typical session counts; falls back to a plain dot until the
-	// fetch lands.
-	$effect(() => {
-		if (sectionCollapsed.val) return
-		for (const session of visibleSessions) {
-			if (!session.workspace_id) continue
-			const ws = $userWorkspaces.find((w) => w.id === session.workspace_id)
-			if (!ws?.parent_workspace_id) continue
-			const rt = getRuntime(session.id)
-			if (!rt) continue
-			void rt.ensureForkComparison(ws.parent_workspace_id, session.workspace_id)
-		}
-	})
-
 	function isUnavailableFork(session: Session): boolean {
 		return !!session.workspace_id && !$userWorkspaces.find((w) => w.id === session.workspace_id)
 	}
@@ -309,10 +291,6 @@
 		// The global workspaceStore is intentionally NOT switched here: a session
 		// runs against its own workspace via the chat manager's workspace resolver,
 		// so opening one must not change the user's active (navigation) workspace.
-		// Refresh the fork diff count — users typically click back into a
-		// session after editing items elsewhere in the SPA, where neither
-		// the visibility-change nor the AI-loading signal would fire.
-		void getRuntime(session.id)?.refreshForkComparison()
 		// Open the dedicated sessions page; its preview panel iframes the
 		// session's view (captured page / editor target).
 		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)

@@ -71,6 +71,13 @@ struct ExpectedMaterialize {
     track: Vec<String>,
     #[serde(default)]
     close_deleted: bool,
+    // "warn" | "ignore"; absent === "warn" (the default).
+    #[serde(default = "default_on_schema_change")]
+    on_schema_change: String,
+}
+
+fn default_on_schema_change() -> String {
+    "warn".to_string()
 }
 
 #[derive(Deserialize)]
@@ -208,6 +215,16 @@ fn pipeline_annotation_fixtures_match() {
                 assert_eq!(
                     m.close_deleted, e.close_deleted,
                     "{ctx}: materialize close_deleted"
+                );
+                let osc = match m.on_schema_change {
+                    windmill_parser::asset_parser::OnSchemaChange::Warn => "warn",
+                    windmill_parser::asset_parser::OnSchemaChange::Ignore => "ignore",
+                    windmill_parser::asset_parser::OnSchemaChange::Fail => "fail",
+                    windmill_parser::asset_parser::OnSchemaChange::Sync => "sync",
+                };
+                assert_eq!(
+                    osc, e.on_schema_change,
+                    "{ctx}: materialize on_schema_change"
                 );
             }
             (got, want) => panic!(

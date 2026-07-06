@@ -178,6 +178,14 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    // Ops kill switch for the pipeline freshness watchdog (a background
+    // pusher — being able to stop it without a redeploy matters more than
+    // for read-only monitors).
+    pub static ref DISABLE_FRESHNESS_WATCHDOG: bool = std::env::var("DISABLE_FRESHNESS_WATCHDOG")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
     pub static ref WORKERS_NAMES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
@@ -2994,6 +3002,28 @@ pub async fn monitor_db(
         }
     };
 
+    // run every ~60s (2 iterations * 30s). Enterprise feature: the active
+    // `// freshness` backstop lives in windmill-queue's `freshness_watchdog`
+    // (`private`); OSS gets a no-op stub. Runtime-gated on an Enterprise
+    // license like the audit export above. Safe on concurrent servers — the
+    // watchdog claims per-script state rows atomically before pushing.
+    let pipeline_freshness_watchdog_f = async {
+        if server_mode
+            && !*DISABLE_FRESHNESS_WATCHDOG
+            && iteration.is_some()
+            && iteration.as_ref().unwrap().should_run(2)
+        {
+            if let Some(db) = conn.as_sql() {
+                if matches!(
+                    windmill_common::ee_oss::get_license_plan().await,
+                    windmill_common::ee_oss::LicensePlan::Enterprise
+                ) {
+                    windmill_queue::freshness_watchdog::tick(db).await;
+                }
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -3021,6 +3051,7 @@ pub async fn monitor_db(
         manage_audit_partitions_f,
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
+        pipeline_freshness_watchdog_f,
     );
 }
 
