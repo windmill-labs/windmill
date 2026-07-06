@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace SET dev_workspace_label = $1 WHERE id = $2 AND is_dev_workspace RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "63d6d968905cf82fb3bb0577d41a29a8f88010891fcf3eaf4761a57461f97703"
+}
