@@ -473,25 +473,21 @@
 	let autoAdd = $state(true)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
 	run(() => {
-		// In dev-workspace mode the id is owned by the auto-default effect below, so the suggested
-		// `<root>-dev` / `<root>-stg` id isn't clobbered by the name field.
-		if (!createAsDevWorkspace) id = name.toLowerCase().replace(/\s/gi, '-')
+		id = name.toLowerCase().replace(/\s/gi, '-')
 	})
-	// Suggest a `<root>-dev` / `<root>-stg` id when creating a dev workspace and the id field is empty
-	// (or still holds a previous suggestion). A user-typed id is never overwritten, and flipping
-	// Dev<->Staging updates the suffix.
-	let lastAutoDevId = $state<string | undefined>(undefined)
+	// When creating a dev workspace, prefill the fork name with `<root>-dev` / `<root>-stg` (the effect
+	// above slugifies it into the id). Only fill an empty field or one still holding a prior suggestion,
+	// so a user-typed name is never overwritten; flipping Dev<->Staging updates the suffix, and turning
+	// the dev toggle back off clears the suggestion.
+	let lastAutoDevName = $state<string | undefined>(undefined)
 	$effect(() => {
-		if (!createAsDevWorkspace) {
-			lastAutoDevId = undefined
-			return
-		}
-		const target = $workspaceStore
-			? `${$workspaceStore}-${devWorkspaceLabel === 'staging' ? 'stg' : 'dev'}`
-			: ''
-		if (id === '' || id === lastAutoDevId) {
-			id = target
-			lastAutoDevId = target
+		const target =
+			createAsDevWorkspace && $workspaceStore
+				? `${$workspaceStore}-${devWorkspaceLabel === 'staging' ? 'stg' : 'dev'}`
+				: ''
+		if (name === '' || name === lastAutoDevName) {
+			name = target
+			lastAutoDevName = target === '' ? undefined : target
 		}
 	})
 	run(() => {
@@ -625,18 +621,18 @@
 					<div class="flex flex-col gap-2 pt-1">
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
-							<div class="flex flex-col gap-1">
-								<span class="text-xs font-semibold text-emphasis">Display label</span>
-								<span class="text-2xs text-secondary">
-									Cosmetic only: sets the badge text and wording (dev vs staging). Behavior is
-									identical either way.
-								</span>
-								<ToggleButtonGroup bind:selected={devWorkspaceLabel} class="w-56">
-									{#snippet children({ item })}
-										<ToggleButton value="dev" label="Dev" {item} />
-										<ToggleButton value="staging" label="Staging" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
+							<div class="text-2xs text-secondary">
+								Cosmetic label, currently <span class="font-semibold text-emphasis"
+									>{devWorkspaceLabel}</span
+								>.
+								<button
+									type="button"
+									class="text-secondary hover:text-primary hover:underline"
+									onclick={() =>
+										(devWorkspaceLabel = devWorkspaceLabel === 'staging' ? 'dev' : 'staging')}
+								>
+									Show as {devWorkspaceLabel === 'staging' ? 'dev' : 'staging'}
+								</button>
 							</div>
 							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 								<div class="flex flex-col gap-0.5">

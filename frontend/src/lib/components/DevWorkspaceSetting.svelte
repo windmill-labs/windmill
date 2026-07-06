@@ -10,14 +10,13 @@
 	import { base } from '$lib/base'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 	import { devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink } from 'lucide-svelte'
 	import { resource } from 'runed'
 
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let isDev = $derived(currentWs?.is_dev_workspace ?? false)
+	let currentLabel = $derived(devLabelKey(currentWs?.dev_workspace_label))
 	let parentId = $derived(currentWs?.parent_workspace_id ?? undefined)
 	let canonicalDev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
 
@@ -148,23 +147,16 @@
 			This is a <b>{devLabelNoun(currentWs?.dev_workspace_label)}</b> paired with root workspace
 			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
-		<div class="flex flex-col gap-1">
-			<span class="text-xs font-semibold text-emphasis">Display label</span>
-			<span class="text-2xs text-secondary">
-				Cosmetic only: sets the badge text and wording (dev vs staging). Behavior is identical
-				either way.
-			</span>
-			<ToggleButtonGroup
+		<div class="text-2xs text-secondary">
+			Cosmetic label, currently <span class="font-semibold text-emphasis">{currentLabel}</span>.
+			<button
+				type="button"
 				disabled={labelBusy}
-				selected={devLabelKey(currentWs?.dev_workspace_label)}
-				on:selected={(e) => setLabel(e.detail as 'dev' | 'staging')}
-				class="w-56"
+				class="text-secondary hover:text-primary hover:underline disabled:opacity-50"
+				onclick={() => setLabel(currentLabel === 'staging' ? 'dev' : 'staging')}
 			>
-				{#snippet children({ item })}
-					<ToggleButton value="dev" label="Dev" {item} />
-					<ToggleButton value="staging" label="Staging" {item} />
-				{/snippet}
-			</ToggleButtonGroup>
+				Show as {currentLabel === 'staging' ? 'dev' : 'staging'}
+			</button>
 		</div>
 		<div>
 			<Button
@@ -215,17 +207,15 @@
 				clearable
 			/>
 		</div>
-		<div class="flex flex-col gap-1">
-			<span class="text-xs font-semibold text-emphasis">Display label</span>
-			<span class="text-2xs text-secondary">
-				Cosmetic only: sets the badge text and wording (dev vs staging).
-			</span>
-			<ToggleButtonGroup bind:selected={attachLabel} class="w-56">
-				{#snippet children({ item })}
-					<ToggleButton value="dev" label="Dev" {item} />
-					<ToggleButton value="staging" label="Staging" {item} />
-				{/snippet}
-			</ToggleButtonGroup>
+		<div class="text-2xs text-secondary">
+			Cosmetic label, currently <span class="font-semibold text-emphasis">{attachLabel}</span>.
+			<button
+				type="button"
+				class="text-secondary hover:text-primary hover:underline"
+				onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
+			>
+				Show as {attachLabel === 'staging' ? 'dev' : 'staging'}
+			</button>
 		</div>
 		<Toggle
 			bind:checked={lockProdDeploy}
