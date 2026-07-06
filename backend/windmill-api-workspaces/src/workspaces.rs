@@ -2722,17 +2722,20 @@ async fn edit_git_sync_config(
             .map(|e| {
                 e.repositories
                     .iter()
-                    .filter(|old| {
-                        !git_sync_settings
+                    .filter_map(|old| {
+                        let hook = old.auto_pull.as_ref().and_then(|a| a.webhook_id)?;
+                        // The save carries the hook forward (reconciled below) only
+                        // when the repo is still present AND still has auto_pull — the
+                        // preservation loop copies webhook fields only onto a Some
+                        // auto_pull. Otherwise (repo dropped, or auto_pull cleared) the
+                        // hook would orphan, so delete it.
+                        let carried = git_sync_settings
                             .repositories
                             .iter()
-                            .any(|n| n.git_repo_resource_path == old.git_repo_resource_path)
-                    })
-                    .filter_map(|old| {
-                        old.auto_pull
-                            .as_ref()
-                            .and_then(|a| a.webhook_id)
-                            .map(|h| (old.git_repo_resource_path.clone(), h))
+                            .find(|n| n.git_repo_resource_path == old.git_repo_resource_path)
+                            .map(|n| n.auto_pull.is_some())
+                            .unwrap_or(false);
+                        (!carried).then_some((old.git_repo_resource_path.clone(), hook))
                     })
                     .collect()
             })

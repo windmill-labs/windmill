@@ -80,8 +80,10 @@
 	// repo and applied to all of its forks, so hide it when the current workspace
 	// is itself a fork.
 	const currentWorkspaceData = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	// A fork or dev workspace: has a parent, or carries the wm-fork- id prefix
+	// (which survives if the parent is deleted). Mirrors the backend/CLI rule.
 	const isFork = $derived(
-		($workspaceStore?.startsWith('wm-fork-') ?? false) &&
+		($workspaceStore?.startsWith('wm-fork-') ?? false) ||
 			!!currentWorkspaceData?.parent_workspace_id
 	)
 	function setForkOpenPrs(v: boolean) {
