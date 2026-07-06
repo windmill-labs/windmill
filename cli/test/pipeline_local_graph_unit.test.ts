@@ -143,14 +143,152 @@ test("`// materialize <asset>` producer connects to its `// on` consumer", async
   );
 });
 
-// NOTE: the scd2 `<dim>_current` companion-view write edge (buildLocalPipelineGraph)
-// is exercised end-to-end by the backend parser test
-// (`materialize_scd2_write_targets_include_current_view`) and the frontend
-// live-graph test (`resolveGraph.test.ts` — "scd2 materialize draft"). It has no
-// unit test here because it depends on the `scd2` flag emitted by the bundled
-// `windmill-parser-wasm-asset`, which lags the source (the vendored build
-// predates the scd2 fields); the branch activates once a wasm carrying `scd2` is
-// republished (cf. the wasm-publish plumbing in #9926).
+test("HD-1: `// data_test relationships` adds a producer → tested-script ordering edge", async () => {
+  // Mirror of the deployed graph's `test_edges` (backend `asset_graph`): the
+  // referenced dimension's in-pipeline producer must materialize before the
+  // tested script runs, so a cold cascade orders it first. The wasm emits the
+  // parsed `relationships` test; the local builder resolves its producer.
+  await withFolder(
+    {
+      "dim_customers.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/dim_customers\nSELECT 1 AS id;\n`,
+      "fct_orders_daily.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/orders\n-- data_test relationships customer_id -> ducklake://main/dim_customers.id\nSELECT customer_id FROM main.orders;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.test_edges).toEqual([
+        {
+          producer_kind: "script",
+          producer_path: "f/mypipe/dim_customers",
+          runnable_kind: "script",
+          runnable_path: "f/mypipe/fct_orders_daily",
+          asset_kind: "ducklake",
+          asset_path: "main/dim_customers",
+        },
+      ]);
+    },
+  );
+});
+
+test("HD-1: a relationships ref to an asset with no in-pipeline producer adds no edge", async () => {
+  // No producer (external / not-yet-in-pipeline table) ⇒ no ordering edge — the
+  // runtime error stands, exactly like the backend (`test_edges` stays empty and
+  // is omitted from the graph).
+  await withFolder(
+    {
+      "fct.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/orders\n-- data_test relationships customer_id -> ducklake://main/external_dim.id\nSELECT customer_id FROM main.orders;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.test_edges).toBeUndefined();
+    },
+  );
+});
+
+test("HD-1: a self-test (relationships on the script's own materialize output) is dropped", async () => {
+  // The tested script produces the very asset it references — the backend's
+  // self-edge guard drops it, and so must the local builder (no self-ordering).
+  await withFolder(
+    {
+      "dim.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/dim\n-- data_test relationships id -> ducklake://main/dim.id\nSELECT 1 AS id;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.test_edges).toBeUndefined();
+    },
+  );
+});
+
+test("HD-1: a custom `// data_test <script>` whose body reads an in-pipeline asset orders it (best-effort)", async () => {
+  // Escape-hatch test: the tested member declares `// data_test f/mypipe/test_dim`;
+  // that script reads `s3://demo/dim.parquet`, which a pipeline member produces.
+  // The producer must run before the tested script, so the custom test resolves
+  // to a producer → tested-script edge through the shared asset (mirrors the
+  // backend resolving custom tests against the script's parsed reads).
+  await withFolder(
+    {
+      // producer writes the S3 asset the custom test reads
+      "export_dim.duckdb.sql":
+        `-- pipeline\nCOPY (SELECT 1 AS id) TO 's3://demo/dim.parquet';\n`,
+      // the escape-hatch test script (NOT a pipeline member) reads that asset
+      "test_dim.duckdb.sql":
+        `SELECT * FROM read_parquet('s3://demo/dim.parquet') WHERE id IS NULL;\n`,
+      // the tested member points at the custom test
+      "fct.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/orders\n-- data_test f/mypipe/test_dim\nSELECT 1 AS id;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.test_edges).toEqual([
+        {
+          producer_kind: "script",
+          producer_path: "f/mypipe/export_dim",
+          runnable_kind: "script",
+          runnable_path: "f/mypipe/fct",
+          asset_kind: "s3object",
+          asset_path: "demo/dim.parquet",
+        },
+      ]);
+    },
+  );
+});
+
+test("HD-2: an scd2 `history` producer writes both `<dim>` and `<dim>_current` so a `_current` reader resolves to it", async () => {
+  // Managed `// materialize … history` (scd2) also produces a `<dim>_current`
+  // companion view (backend `MaterializeSpec::write_targets`). The wasm asset
+  // parser emits the `scd2` flag; the local builder must add the second write
+  // edge and mark the view `derived_from` its base dimension so a consumer
+  // reading only the view links back to the producer instead of orphaning.
+  await withFolder(
+    {
+      "dim.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/dim_customers key=id history\nSELECT 1 AS id;\n`,
+      // a consumer reading ONLY the `_current` companion view
+      "consume.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/dim_customers_current\nSELECT * FROM main.dim_customers_current;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({
+        root,
+        folder,
+        defaultTs: "bun",
+      });
+
+      // the producer carries BOTH write edges (base dim + `_current` companion)
+      const writes = graph.edges
+        .filter(
+          (e) =>
+            e.runnable_path === "f/mypipe/dim" && e.access_type === "w",
+        )
+        .map((e) => e.asset_path)
+        .sort();
+      expect(writes).toEqual(["main/dim_customers", "main/dim_customers_current"]);
+
+      // the strategy is derived as scd2 on the producer node
+      expect(
+        graph.runnables.find((r) => r.path === "f/mypipe/dim")?.materialize_strategy,
+      ).toBe("scd2");
+
+      // the `_current` asset is marked as derived from its base dimension, so the
+      // canvas renders it as a companion view rather than an orphan table
+      expect(graph.assets).toContainEqual({
+        kind: "ducklake",
+        path: "main/dim_customers_current",
+        derived_from: "main/dim_customers",
+      });
+
+      // the `_current` reader's `// on` trigger points at the same node the
+      // producer now writes — no orphaned read
+      const at = graph.triggers.find(
+        (t) => t.trigger_kind === "asset" && t.runnable_path === "f/mypipe/consume",
+      ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      expect(at?.asset_path).toBe("main/dim_customers_current");
+    },
+  );
+});
 
 test("a bare `.sql` (ambiguous dialect) is skipped, not a build-aborting crash", async () => {
   // `inferContentTypeFromFilePath` throws on a dialect-less `.sql`; one such file

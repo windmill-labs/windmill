@@ -28,7 +28,7 @@
     "pg-gateway": "0.3.0-beta.4",
     "svelte": "^5.45.2",
     "tar-stream": "^3.1.7",
-    "windmill-parser-wasm-asset": "1.740.0",
+    "windmill-parser-wasm-asset": "1.749.0",
     "windmill-parser-wasm-csharp": "1.510.1",
     "windmill-parser-wasm-go": "1.510.1",
     "windmill-parser-wasm-java": "1.510.1",

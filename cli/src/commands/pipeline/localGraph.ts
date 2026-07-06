@@ -71,6 +71,23 @@ export type GraphEdge = {
   asset_path: string;
   access_type?: "r" | "w" | "rw";
 };
+// Ordering-only "must-run-after" edge (HD-1): a `// data_test relationships`
+// (or, best-effort, a custom `// data_test <script>` whose body reads an
+// in-pipeline asset) needs the referenced asset's producer to materialize before
+// the tested script runs — a dependency otherwise absent from the DAG, so a cold
+// cascade could run the tested script first and hard-fail. Synthesized locally
+// from the parsed `data_tests` + write edges; mirrors the deployed graph's
+// `test_edges` (backend `asset_graph`) so `--local` orders a cold cascade the
+// same way. Only emitted when the referenced asset has an in-pipeline producer;
+// an external table (no producer) adds no edge. NOT a data-consumption edge.
+export type GraphTestEdge = {
+  producer_kind: string;
+  producer_path: string;
+  runnable_kind: string;
+  runnable_path: string;
+  asset_kind: string;
+  asset_path: string;
+};
 export type GraphTrigger =
   | {
       trigger_kind: "asset";
@@ -103,6 +120,10 @@ export type AssetGraph = {
     macro_names: string[];
     via_use?: boolean;
   }[];
+  // `// data_test` ordering edges (HD-1); present on both the deployed graph and
+  // this local one. Absent when empty (matches the deployed graph's
+  // `skip_serializing_if = Vec::is_empty`).
+  test_edges?: GraphTestEdge[];
 };
 
 export type LocalScript = {
@@ -118,7 +139,25 @@ export type LocalScript = {
 // `ParseAssetsOutput`). `triggers` is internally tagged on `kind`
 // (`#[serde(tag = "kind", rename_all = "lowercase")]`): asset triggers carry
 // `asset_kind` + `path`; native triggers are bare `{ kind }`.
-type ParseAssetsRaw = {
+// One parsed `// data_test` entry (serialized Rust `DataTest`, tagged on `type`).
+// A proper discriminated union over the five built-ins so a `dt.type` switch
+// narrows; only `relationships` / `custom` carry a cross-asset ref that the
+// local test-edge synthesis reads. Kept structurally identical to the wasm
+// output and the deployed graph's `data_tests`.
+export type ParsedDataTest =
+  | { type: "unique"; column: string }
+  | { type: "not_null"; column: string }
+  | { type: "accepted_values"; column: string; values: string[] }
+  | {
+      type: "relationships";
+      column: string;
+      to_kind: string;
+      to_path: string;
+      to_column: string;
+    }
+  | { type: "custom"; path: string };
+
+export type ParseAssetsRaw = {
   assets?: {
     kind: string;
     path: string;
@@ -148,7 +187,7 @@ type ParseAssetsRaw = {
   partition?: { kind: string };
   freshness?: { duration: string };
   retry?: { count: number; delay?: string };
-  data_tests?: unknown[];
+  data_tests?: ParsedDataTest[];
   column_lineage?: unknown[];
 };
 
@@ -349,10 +388,11 @@ function parseVolumeAnnotations(
 }
 
 // Infer a single script's assets + pipeline annotations. Returns the raw
-// `ParseAssetsOutput` (incl. `materialize`, which the wasm asset parser emits as
-// of windmill-parser-wasm-asset 1.740.0 — kept in lockstep with the frontend's
-// pin so the local graph mirrors the deployed one), plus `volume:` annotation
-// assets the wasm doesn't surface (merged in below, like the frontend/backend).
+// `ParseAssetsOutput` (incl. `materialize` with its `scd2` flag, which the wasm
+// asset parser emits as of windmill-parser-wasm-asset 1.749.0 — kept in lockstep
+// with the frontend's pin so the local graph mirrors the deployed one), plus
+// `volume:` annotation assets the wasm doesn't surface (merged in below, like
+// the frontend/backend).
 // wasm parse errors degrade to the annotation fallback so a syntactically-broken
 // script still shows as a pipeline node if it's annotated.
 export async function inferScriptAssets(
@@ -479,9 +519,24 @@ export async function buildLocalPipelineGraph(args: {
   // trigger (processed after the producer) can't clobber the derived marker.
   const derivedFromByKey = new Map<string, string>();
   const pipelineScripts: LocalScript[] = [];
+  // For HD-1 test edges: a pipeline member's parsed `// data_test`s, and the
+  // assets each script READS (any script, so a custom test resolves against a
+  // non-member test script's reads — best-effort, mirroring the backend, which
+  // resolves custom tests against every deployed runnable's asset usages).
+  const dataTestsByPath = new Map<string, ParsedDataTest[]>();
+  const readsByRunnable = new Map<string, { kind: string; path: string }[]>();
 
   for (const s of all) {
     const out = await inferScriptAssets(s.content, s.language);
+    const reads = (out.assets ?? [])
+      .filter(
+        (a) =>
+          a.access_type == null ||
+          a.access_type === "r" ||
+          a.access_type === "rw",
+      )
+      .map((a) => ({ kind: a.kind, path: a.path }));
+    if (reads.length > 0) readsByRunnable.set(s.path, reads);
     // A `// macros` library is a pipeline-member node carrying its macro
     // signatures — whether or not any consumer uses it — matching the deployed
     // graph, which marks every macro library `auto_kind='pipeline'`. It is
@@ -503,6 +558,9 @@ export async function buildLocalPipelineGraph(args: {
       continue;
     }
     if (!out.in_pipeline) continue; // not a pipeline member
+    if (out.data_tests && out.data_tests.length > 0) {
+      dataTestsByPath.set(s.path, out.data_tests);
+    }
     const retry = normalizeRetry(out.retry);
     const nativeTriggers = recoverHeaderNativeTriggers(s.content, s.language);
     // Carry the parsed `// tag` so previews route to the same worker the
@@ -631,6 +689,8 @@ export async function buildLocalPipelineGraph(args: {
 
   const macroEdges = buildMacroEdges(all, libMacros, runnables);
 
+  const testEdges = buildTestEdges(dataTestsByPath, readsByRunnable, edges);
+
   const assets = [...assetSet.entries()].map(([key, a]) => {
     const derived_from = a.derived_from ?? derivedFromByKey.get(key);
     return derived_from ? { ...a, derived_from } : a;
@@ -643,9 +703,81 @@ export async function buildLocalPipelineGraph(args: {
       edges,
       triggers,
       ...(macroEdges.length > 0 ? { macro_edges: macroEdges } : {}),
+      ...(testEdges.length > 0 ? { test_edges: testEdges } : {}),
     },
     scripts: pipelineScripts,
   };
+}
+
+// Synthesize HD-1 ordering edges from parsed `// data_test`s. Ports backend
+// `asset_graph` (windmill-api-assets): resolve each test's referenced asset(s)
+// to their in-pipeline producer(s) via the write edges, and add an ordering-only
+// producer → tested-script edge. A `relationships` test references its `to_path`
+// asset directly; a `custom` test references the tested/other script's parsed
+// reads (best-effort). Self-edges (a script testing its own output) and assets
+// with no in-pipeline producer are dropped, exactly like the backend.
+function buildTestEdges(
+  dataTestsByPath: Map<string, ParsedDataTest[]>,
+  readsByRunnable: Map<string, { kind: string; path: string }[]>,
+  edges: GraphEdge[],
+): GraphTestEdge[] {
+  const producersByAsset = new Map<string, { kind: string; path: string }[]>();
+  for (const e of edges) {
+    if (e.access_type !== "w" && e.access_type !== "rw") continue;
+    // `\u0000` as the (kind, path) separator: it can't occur in an asset path,
+    // so no packed key can collide.
+    const key = `${e.asset_kind}\u0000${e.asset_path}`;
+    (producersByAsset.get(key) ?? producersByAsset.set(key, []).get(key)!).push({
+      kind: e.runnable_kind,
+      path: e.runnable_path,
+    });
+  }
+
+  const out: GraphTestEdge[] = [];
+  // Dedup on (producer, tested_script, asset) so repeated tests / producers
+  // referencing the same asset yield one edge (mirrors the backend's set).
+  const seen = new Set<string>();
+  for (const [memberPath, dts] of dataTestsByPath) {
+    for (const dt of dts) {
+      let referenced: { kind: string; path: string }[] = [];
+      if (dt.type === "relationships") {
+        referenced = [{ kind: dt.to_kind, path: dt.to_path }];
+      } else if (dt.type === "custom") {
+        // The custom test script's own parsed reads. Reading the member's OWN
+        // output resolves to the member as producer and is dropped below.
+        referenced = readsByRunnable.get(dt.path) ?? [];
+      }
+      for (const ref of referenced) {
+        const producers = producersByAsset.get(`${ref.kind}\u0000${ref.path}`);
+        if (!producers) continue; // external table (no producer) ⇒ no edge
+        for (const p of producers) {
+          // Skip a self-edge: the tested script produces the asset it tests.
+          if (p.kind === "script" && p.path === memberPath) continue;
+          const key = [p.path, memberPath, ref.kind, ref.path].join("\u0000");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({
+            producer_kind: p.kind,
+            producer_path: p.path,
+            runnable_kind: "script",
+            runnable_path: memberPath,
+            asset_kind: ref.kind,
+            asset_path: ref.path,
+          });
+        }
+      }
+    }
+  }
+  // Deterministic order for stable `--json` output (the deployed graph iterates
+  // an unordered map; the local one sorts so snapshots don't churn).
+  out.sort(
+    (a, b) =>
+      a.producer_path.localeCompare(b.producer_path) ||
+      a.runnable_path.localeCompare(b.runnable_path) ||
+      a.asset_kind.localeCompare(b.asset_kind) ||
+      a.asset_path.localeCompare(b.asset_path),
+  );
+  return out;
 }
 
 // Every `// macros` DuckDB library in the workspace, keyed by its windmill path,

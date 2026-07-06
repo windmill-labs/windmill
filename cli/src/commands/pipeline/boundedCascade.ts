@@ -41,6 +41,18 @@ export type BCGraph = {
       }
     | { trigger_kind: string; runnable_kind: string; runnable_path: string }
   )[];
+  // `// data_test` ordering edges (HD-1): the referenced asset's producer must
+  // materialize before the tested script runs. Fed into the lineage DAG so a
+  // bounded/cold cascade orders the referenced dimension first. Optional — the
+  // deployed graph omits it when empty, and older local graphs never emit it.
+  test_edges?: {
+    producer_kind: string;
+    producer_path: string;
+    runnable_kind: string;
+    runnable_path: string;
+    asset_kind: string;
+    asset_path: string;
+  }[];
 };
 
 export const SCRIPT_PREFIX = "script:";
@@ -117,6 +129,14 @@ export function buildLineageDag(g: BCGraph): LineageDag {
     if (t.trigger_kind !== "asset" || t.runnable_kind !== "script") continue;
     const at = t as Extract<BCGraph["triggers"][number], { trigger_kind: "asset" }>;
     addEdge(dag, assetNodeId(at.asset_kind, at.asset_path), scriptNodeId(at.runnable_path));
+  }
+  // Data-test ordering edges: route through the referenced asset node so the
+  // existing producer → asset write edge extends into producer → asset → testing
+  // script (mirrors frontend boundedCascade.ts) — the tested script runs after
+  // the referenced dimension materializes.
+  for (const t of g.test_edges ?? []) {
+    if (t.runnable_kind !== "script") continue;
+    addEdge(dag, assetNodeId(t.asset_kind, t.asset_path), scriptNodeId(t.runnable_path));
   }
   return dag;
 }
