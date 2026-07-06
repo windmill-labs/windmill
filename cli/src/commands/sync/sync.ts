@@ -41,6 +41,7 @@ import { handleFile } from "../script/script.ts";
 import {
   deepEqual,
   fetchRemoteVersion,
+  getHeaders,
   isFileResource,
   isFilesetResource,
   isRawAppFile,
@@ -3550,6 +3551,61 @@ function removeSuffix(str: string, suffix: string) {
 const SYNC_PUSH_DESTRUCTIVE_WARNING =
   "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites or deletes remote items that differ from or are absent locally — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation.";
 
+// A script pushed without a local lock queues a server-side dependency job; if
+// that job fails the script deploys broken (no lock/assets) with no CLI signal.
+// One-shot (no polling): report this push's already-failed + still-running
+// dependency jobs.
+async function checkServerLockJobs(
+  workspaceId: string,
+  sinceIso: string,
+  changedPaths: string[],
+): Promise<{ pending: number; failed: { path: string; error?: string }[] }> {
+  // A dependency job's script_path has no file extension; changed paths do.
+  const belongsToPush = (scriptPath?: string) =>
+    !!scriptPath &&
+    changedPaths.some(
+      (p) => p === scriptPath || p.startsWith(scriptPath + "."),
+    );
+  // Raw fetch: the checked-in generated client predates the `created_after` /
+  // `success` filters on the job list routes (see the `apiGet` note in
+  // pipeline.ts).
+  const listJobs = async (path: string): Promise<unknown[]> => {
+    const { OpenAPI } = await import("../../../gen/index.ts");
+    const resp = await fetch(`${OpenAPI.BASE}${path}`, {
+      headers: { ...getHeaders(), Authorization: `Bearer ${OpenAPI.TOKEN}` },
+    });
+    if (!resp.ok) throw new Error(`GET ${path} -> ${resp.status}`);
+    return (await resp.json()) as unknown[];
+  };
+  try {
+    const since = encodeURIComponent(sinceIso);
+    const [queued, completed] = await Promise.all([
+      listJobs(
+        `/w/${workspaceId}/jobs/queue/list?job_kinds=dependencies&created_after=${since}`,
+      ),
+      listJobs(
+        `/w/${workspaceId}/jobs/completed/list?job_kinds=dependencies&created_after=${since}&success=false`,
+      ),
+    ]);
+    const pending = (queued as { script_path?: string }[]).filter((j) =>
+      belongsToPush(j.script_path),
+    ).length;
+    const failed = (
+      completed as { script_path?: string; result?: unknown }[]
+    )
+      .filter((j) => belongsToPush(j.script_path))
+      .map((j) => ({
+        path: j.script_path!,
+        error: (j.result as { error?: { message?: string } } | undefined)
+          ?.error?.message,
+      }));
+    return { pending, failed };
+  } catch {
+    // Advisory only: a failed check must not fail an otherwise-complete push.
+    return { pending: 0, failed: [] };
+  }
+}
+
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
 ) {
@@ -4176,6 +4232,7 @@ export async function push(
     }
 
     const start = performance.now();
+    const pushStartedAt = new Date().toISOString();
     log.info(colors.gray(`Applying changes to files ...`));
 
     let stateful = opts.stateful;
@@ -4917,9 +4974,30 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    const lockJobs = await checkServerLockJobs(
+      workspace.workspaceId,
+      pushStartedAt,
+      changes.map((c) => c.path.replaceAll(SEP, "/")),
+    );
+    if (!opts.jsonOutput) {
+      for (const f of lockJobs.failed) {
+        log.warn(
+          `⚠ server-side lock generation FAILED for ${f.path} — the deployed script is broken until it locks.` +
+            (f.error ? `\n  ${f.error.split("\n")[0]}` : ""),
+        );
+      }
+      if (lockJobs.pending > 0) {
+        log.info(
+          colors.gray(
+            `${lockJobs.pending} server-side lock job(s) still running — locks (and inferred assets) land when they finish; check the Runs page if a script stays broken.`,
+          ),
+        );
+      }
+    }
     if (opts.jsonOutput) {
       const result = {
         success: true,
+        lock_jobs: lockJobs,
         message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
         changes: changes.map((change) => ({
           type: change.name,

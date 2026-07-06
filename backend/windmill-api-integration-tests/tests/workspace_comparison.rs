@@ -1642,3 +1642,130 @@ async fn test_compare_workspaces_phantom_trigger_shortfuse(
 
     Ok(())
 }
+
+/// Regression: the "sees everything" guard must require admin of BOTH sides, not
+/// just the fork. `filter_visible_diffs` keeps a modified/conflict row (one that
+/// exists in the source AND the fork) only when the caller can see it on both
+/// sides, so an ahead diff can be dropped for a *source-side* visibility gap even
+/// when the caller is a fork admin. If the guard cleared the ahead flag on
+/// fork-admin alone, the UI would report "all ahead visible" and let the user
+/// deploy from an incomplete comparison. Here test-user-2 is admin of the fork
+/// but only a plain member of the parent with no access to folder `restricted`,
+/// so the parent copy of the modified script is hidden from them and the ahead
+/// diff is (correctly) dropped — the flag must stay false.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_fork_admin_source_hidden_ahead(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let fork_admin_user = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // Parent folder `restricted` owned by test-user (the admin), NOT test-user-2,
+    // and a script inside it (access flows through the folder). test-user-2 is a
+    // plain member of the parent, so RLS hides this script from them.
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by)
+         VALUES ('test-workspace', 'restricted', 'restricted', ARRAY['u/test-user']::varchar[], '{\"u/test-user\": true}'::jsonb, '', 'test-user')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted, extra_perms)
+         VALUES ('test-workspace', 'f/restricted/item', 314159, 'def main(): return 1', '', '', 'python3', 'test-user', NOW(), false, false, false, false, '{}'::jsonb)"
+    )
+    .execute(&db)
+    .await?;
+
+    // Fork (clones the folder + script into the fork).
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-guard-test", "name": "Guard Fork", "color": "#0000ff"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // test-user-2 is ADMIN of the fork (so they see the fork copy via RLS bypass)
+    // but only a plain member of the parent.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('wm-fork-guard-test', 'test2@windmill.dev', 'test-user-2', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+
+    // A confirmed modified/ahead diff on the script that exists on both sides.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-guard-test', 'f/restricted/item', 'script', 1, 0, true, true, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id IN ('test-workspace', 'wm-fork-guard-test')"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = fork_admin_user
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-guard-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    // The parent copy is hidden from test-user-2, so the ahead diff is dropped.
+    // Fork-admin alone must NOT clear the flag — the comparison is incomplete.
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(false),
+        "fork admin without source-side visibility must not be reported as seeing all ahead items: {comparison}"
+    );
+    assert!(
+        !comparison["diffs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "f/restricted/item"),
+        "source-hidden item must not appear in the fork admin's diff list: {comparison}"
+    );
+
+    // Sanity: a superadmin (admin of both sides) still sees everything.
+    let comparison: serde_json::Value = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-guard-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "superadmin must see all ahead items: {comparison}"
+    );
+
+    Ok(())
+}

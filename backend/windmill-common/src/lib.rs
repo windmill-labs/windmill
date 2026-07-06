@@ -65,6 +65,7 @@ pub mod materialization;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
+pub mod schema_contracts;
 pub mod workspace_dependencies;
 
 #[cfg(feature = "private")]
@@ -268,6 +269,10 @@ lazy_static::lazy_static! {
     pub static ref INSTANCE_NAME: String = rd_string(5);
 
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
+    // Latest non-archived version per (workspace, path) for bundle cache keying —
+    // looser predicate than DEPLOYED_SCRIPT_HASH_CACHE (no lock requirement), so
+    // the two must not share entries. See get_latest_script_hash_for_import_cached.
+    pub static ref IMPORTED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref FLOW_VERSION_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref DYNAMIC_INPUT_CACHE: Cache<String, Arc<jobs::DynamicInput>> = Cache::new(1000);
     pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo<ScriptRunnableSettingsHandle>> = Cache::new(1000);
@@ -1600,6 +1605,46 @@ pub async fn get_latest_script_hash<'e, E: sqlx::PgExecutor<'e>>(
     .fetch_optional(db)
     .await?;
     return Ok(hash);
+}
+
+/// Latest non-archived hash for an imported `path`, for bundle cache keying.
+/// MUST select the same row as the bundler's content endpoint
+/// (`raw_script_by_path_internal`: `archived = false ORDER BY created_at DESC`,
+/// no lock predicate) — a stricter filter here would let the key point at an
+/// older version than the content that gets inlined. Cached with the same
+/// freshness contract as that endpoint's `RAW_SCRIPT_LATEST_HASH_CACHE`:
+/// evicted by `notify_runnable_version_change` events, 60s TTL fallback.
+pub async fn get_latest_script_hash_for_import_cached(
+    db: &DB,
+    w_id: &str,
+    script_path: &str,
+) -> error::Result<Option<i64>> {
+    let use_cache = !DEPLOYED_SCRIPT_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+    let cache_key = (w_id.to_string(), script_path.to_string());
+    if use_cache {
+        if let Some(cached) = IMPORTED_SCRIPT_HASH_CACHE.get(&cache_key) {
+            if cached.expires_at > std::time::Instant::now() {
+                return Ok(Some(cached.id));
+            }
+        }
+    }
+    let hash = sqlx::query_scalar!(
+        "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+        script_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    if let (true, Some(hash)) = (use_cache, hash) {
+        IMPORTED_SCRIPT_HASH_CACHE.insert(
+            cache_key,
+            ExpiringLatestVersionId {
+                id: hash,
+                expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
+            },
+        );
+    }
+    Ok(hash)
 }
 
 pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(

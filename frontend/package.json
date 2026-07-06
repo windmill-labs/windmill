@@ -1,6 +1,6 @@
 {
 	"name": "@windmill-labs/components",
-	"version": "1.744.0",
+	"version": "1.749.0",
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui-builder": "mv static/ui_builder static/ui_builder.dev-disabled 2>/dev/null || true ; trap 'mv static/ui_builder.dev-disabled static/ui_builder 2>/dev/null || true' EXIT ; vite dev",
@@ -154,7 +154,7 @@
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.1.0",
 		"vscode-ws-jsonrpc": "~3.5.0",
-		"windmill-parser-wasm-asset": "1.740.0",
+		"windmill-parser-wasm-asset": "1.749.0",
 		"windmill-parser-wasm-csharp": "1.510.1",
 		"windmill-parser-wasm-go": "1.510.1",
 		"windmill-parser-wasm-java": "1.510.1",

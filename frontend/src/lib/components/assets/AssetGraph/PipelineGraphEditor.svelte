@@ -22,6 +22,7 @@
 	import type { RunnableRunState, PipelineEvent } from './activeRunnables.svelte'
 	import type { PipelineOutputKind } from './pipelineTemplates'
 	import type { PipelineEditorState } from './pipelineEditorState.svelte'
+	import type { SchemaContractGraphContext } from './schemaContracts'
 
 	type RunProducer = { kind: 'script' | 'flow'; path: string; unsaved?: boolean; cascade?: boolean }
 
@@ -31,6 +32,7 @@
 		mode,
 		workspace,
 		folder,
+		viewportFitKey = undefined,
 		stackBelow = 680,
 		persistDrafts = false,
 		pathPrefix,
@@ -67,11 +69,16 @@
 		canRunByPath = false,
 		onRunByPath,
 		onRunCascadeByPath,
+		runFormInitialArgs,
+		onRunFormArgsChange,
+		readyDataUploadPaths,
 		resolveLocalScript,
 		localScriptsVersion,
 		selectionProducers = [],
 		selectionColumnGraph,
 		schemaCanEvolve = true,
+		selectionForkMaterialization = undefined,
+		schemaContractContext = undefined,
 		downstreamSubscribers = 0,
 		onStartBoundedRunForOpen,
 		canBoundedRunOpenScript = false,
@@ -95,6 +102,13 @@
 		workspace: string | undefined
 		/** Folder the pipeline is scoped to — drives the autosave draft path. */
 		folder: string
+		/** Folder whose graph is actually *loaded* (not the route param). On an
+		 * in-place folder switch the stale graph stays rendered while the new
+		 * fetch is in flight, so keying the canvas's one-shot initial fit on
+		 * `folder` would consume the new folder's fit on the old graph. Pages
+		 * that stale-while-revalidate should pass the folder captured when the
+		 * fetch resolved; defaults to `folder`. */
+		viewportFitKey?: string
 		/** Below this container width (px) the graph/details split stacks
 		 * vertically instead of side-by-side — for narrow side panels / AI
 		 * session previews. Defaults to 680. */
@@ -151,6 +165,12 @@
 		// Run the open script AND its downstream closure (dev preview only; the
 		// deployed pane leaves this unset — its single run cascades via the backend).
 		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Persisted run-form args for the currently-open data-upload entry, and a
+		// callback to persist them as they change — see the page's dataUploadArgs.
+		runFormInitialArgs?: Record<string, any>
+		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
+		// Data-upload entry scripts whose staged upload is ready (green node).
+		readyDataUploadPaths?: Set<string>
 		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
 		 * so the details pane skips the (nonexistent) deployed-script fetch. May
 		 * be async (to infer the args schema for the run form). */
@@ -162,6 +182,11 @@
 		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
 		schemaCanEvolve?: boolean
+		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
+		selectionForkMaterialization?: 'fork' | 'deferred'
+		/** Producer-side facts for the editor's live schema-contract diagnostics
+		 * (ignore suppression + scd2 `_current` fallback), from the route page. */
+		schemaContractContext?: SchemaContractGraphContext
 		downstreamSubscribers?: number
 		onStartBoundedRunForOpen?: (path: string) => void
 		canBoundedRunOpenScript?: boolean
@@ -422,6 +447,7 @@
 					{onDeleteTrigger}
 					{onOpenWebhook}
 					{onOpenDataUpload}
+					{readyDataUploadPaths}
 					onselect={onSelect}
 					{onAddScriptForAsset}
 					{onAddPipelineScript}
@@ -433,6 +459,7 @@
 					{onPickEnd}
 					{panToNodeId}
 					showMinimap={!stacked}
+					viewportFitKey={viewportFitKey ?? folder}
 				/>
 				{#if boundBar}{@render boundBar()}{/if}
 				{#if mode === 'edit'}
@@ -471,12 +498,16 @@
 						{canRunByPath}
 						{onRunByPath}
 						{onRunCascadeByPath}
+						{runFormInitialArgs}
+						{onRunFormArgsChange}
 						{resolveLocalScript}
 						{localScriptsVersion}
 						selection={activeDraft ? undefined : editor.selection}
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{selectionColumnGraph}
 						{schemaCanEvolve}
+						{selectionForkMaterialization}
+						{schemaContractContext}
 						{runsRefreshKey}
 						{runsPendingJobId}
 						{activeRunnable}

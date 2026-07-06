@@ -37,10 +37,12 @@
 
 	import type { Kind } from '$lib/utils_deployable'
 	import {
+		checkDeployPermission,
 		deployItem,
 		deleteItemInWorkspace,
 		getItemValue,
 		getOnBehalfOf,
+		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
 	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
@@ -58,6 +60,7 @@
 	import { base } from '$lib/base'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
+	import { diffInMask } from './sessions/modifiedItemsMask'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
 
 	interface Props {
@@ -77,6 +80,14 @@
 		 * out of the default selection — deploying/updating moves the deployed
 		 * version, not the draft. The page derives this from the fork drafts. */
 		draftKeys?: Set<string>
+		/** When set (reached via a session's Review button), preselect only the
+		 * diffs this chat caused (matched via diffInMask). The deploy_to default
+		 * narrows to these; the update direction (parent→fork) preselects nothing,
+		 * since it's never chat-caused. All rows are still shown. */
+		chatMask?: Set<string>
+		/** False while the (async) chatMask is still loading. The select-all default
+		 * waits for this so it doesn't race the mask. Defaults to true. */
+		chatMaskReady?: boolean
 		/** Selecting `draft` asks the page to swap us out for CompareDrafts;
 		 * deploy_to/update are handled internally but reported so the page can
 		 * remember the direction. */
@@ -95,6 +106,8 @@
 		updateCount = 0,
 		draftCount = 0,
 		draftKeys = new Set<string>(),
+		chatMask,
+		chatMaskReady = true,
 		onModeSelected,
 		onChanged
 	}: Props = $props()
@@ -703,21 +716,32 @@
 		deselectAll()
 
 		// If every selected item deployed cleanly and the direction was
-		// merge-into-parent, close any open deployment request for this fork.
+		// merge-into-parent, resolve any open deployment request for this fork.
 		if (!anyFailed && mergeIntoParent) {
 			try {
 				const open = await WorkspaceService.getOpenDeploymentRequest({
 					workspace: currentWorkspaceId
 				})
 				if (open) {
-					await WorkspaceService.closeDeploymentRequestMerged({
-						workspace: currentWorkspaceId,
-						id: open.id
-					})
-					deploymentRequestPanel?.refresh()
+					if (comparison?.all_ahead_items_visible) {
+						await WorkspaceService.closeDeploymentRequestMerged({
+							workspace: currentWorkspaceId,
+							id: open.id
+						})
+						deploymentRequestPanel?.refresh()
+					} else {
+						// Hidden ahead changes remain: those items are excluded from the
+						// list and stay undeployed, so this deploy is only partial. Closing
+						// the request as "merged" (which marks its comments obsolete and
+						// notifies requester/assignees of a merge) would be a lie — leave it
+						// open so someone with full access can finish it.
+						sendUserToast(
+							'Deployed the changes visible to you. The deployment request stays open because some ahead changes are hidden from you and were not deployed.'
+						)
+					}
 				}
 			} catch (e) {
-				console.error('Failed to close open deployment request after merge', e)
+				console.error('Failed to resolve open deployment request after merge', e)
 			}
 		}
 
@@ -741,11 +765,19 @@
 		// to parent" flow. The user picks them à la carte by clicking the row.
 		// Items with a pending draft are also left out by default: the deployed
 		// version (not the draft) is what moves, so we make the user opt in.
+		// The update direction (parent→fork) is never something the chat caused, so
+		// when scoped to a chat's items (chatMask set) preselect nothing there.
+		if (chatMask && !mergeIntoParent) {
+			selectedItems = []
+			return
+		}
 		const filtered = selectableDiffs.filter((d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d))
 		const conflictSafe = mergeIntoParent
 			? filtered
 			: filtered.filter((d) => !(d.ahead > 0 && d.behind > 0))
-		selectedItems = conflictSafe
+		// When reached from a session's Review, narrow the default to this chat's items.
+		const scoped = chatMask ? conflictSafe.filter((d) => diffInMask(d, chatMask)) : conflictSafe
+		selectedItems = scoped
 			.map((d) => getItemKey(d))
 			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
 	}
@@ -787,6 +819,21 @@
 		fetchPermissions()
 	})
 
+	// Can the user actually deploy into the target workspace? Fills the frontend
+	// gap for the `RestrictDeployToDeployers` rule (+ operator), shared with the
+	// session review drawer via the same checkDeployPermission util. Cached per
+	// workspace; `deployPerm` tracks whichever side the current direction targets.
+	let deployPerms = $state<Record<string, DeployPermission>>({})
+	const deployPermFetched = new Set<string>()
+	$effect(() => {
+		for (const ws of [currentWorkspaceId, parentWorkspaceId]) {
+			if (!ws || deployPermFetched.has(ws)) continue
+			deployPermFetched.add(ws)
+			void checkDeployPermission(ws).then((p) => (deployPerms = { ...deployPerms, [ws]: p }))
+		}
+	})
+	let deployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+
 	// Fetch summaries and on_behalf_of_email when comparison data loads
 	$effect(() => {
 		if (comparison?.diffs) {
@@ -797,7 +844,7 @@
 
 	// Auto-select items on initial load
 	$effect(() => {
-		if (comparison?.diffs && !hasAutoSelected && selectableDiffs.length > 0) {
+		if (comparison?.diffs && !hasAutoSelected && chatMaskReady && selectableDiffs.length > 0) {
 			selectDefault()
 			hasAutoSelected = true
 		}
@@ -897,6 +944,28 @@
 		azure_trigger: 'Azure trigger',
 		email_trigger: 'Email trigger'
 	}
+
+	// Human label for a diff kind, lowercased for inline use in the hidden-items
+	// summary ("2 scripts, 1 http route").
+	function hiddenKindLabel(kind: string): string {
+		const base: Record<string, string> = {
+			script: 'script',
+			flow: 'flow',
+			app: 'app',
+			raw_app: 'app',
+			resource: 'resource',
+			variable: 'variable',
+			resource_type: 'resource type',
+			folder: 'folder'
+		}
+		return base[kind] ?? KIND_DISPLAY_NAMES[kind]?.toLowerCase() ?? kind
+	}
+
+	function formatHiddenByKind(byKind: Record<string, number>): string {
+		return Object.entries(byKind)
+			.map(([kind, n]) => `${n} ${hiddenKindLabel(kind)}${n !== 1 ? 's' : ''}`)
+			.join(', ')
+	}
 </script>
 
 {#if $workspaceStore != currentWorkspaceId}
@@ -995,6 +1064,20 @@
 						</div>
 					</div>
 				{/snippet}
+				{#snippet groupActions(groupItems)}
+					<!-- Conflicts stay visible at the folder level so a group can be
+					     (de)selected without scanning every row for orange badges. -->
+					{@const groupConflicts = groupItems.filter((i) => {
+						const d = i.diff as WorkspaceItemDiff
+						return d.ahead > 0 && d.behind > 0
+					}).length}
+					{#if groupConflicts > 0}
+						<Badge color="orange" size="xs">
+							<AlertTriangle class="w-3 h-3 inline mr-0.5" />
+							{groupConflicts} conflict{groupConflicts !== 1 ? 's' : ''}
+						</Badge>
+					{/if}
+				{/snippet}
 				{#if allCiTests.length > 0}
 					<div class="flex flex-col gap-1.5 mt-3 p-3 border bg-surface-secondary rounded text-xs">
 						<div class="flex items-center gap-1.5 font-semibold text-secondary">
@@ -1085,22 +1168,31 @@
 							</span>
 						</Alert>
 					{/if}
-					{#if !comparison.all_ahead_items_visible || !comparison.all_behind_items_visible}
-						<Alert
-							title="This fork has changes not visible to your user"
-							type="warning"
-							class="my-2"
-						>
-							{#if !comparison.all_ahead_items_visible && !comparison.all_behind_items_visible}
-								This fork is ahead and behind its parent
-							{:else if !comparison.all_behind_items_visible}
-								This fork is behind of its parent
-							{:else if !comparison.all_ahead_items_visible}
-								This fork is ahead of its parent
-							{/if}
-							and some of the changes are not visible by you. Only a user with access to the whole context
-							may deploy or update this fork. You can share the link to this page to someone with proper
-							permissions to get it deployed.
+					{@const hiddenDir = mergeIntoParent ? comparison.hidden_ahead : comparison.hidden_behind}
+					{#if hiddenDir.items.length > 0}
+						<!-- Caller is an admin of this side, so the dropped items are provably
+						     stale/phantom diff rows (they can see every real item). List them with
+						     paths — useful for debugging the "why is this fork ahead" question. -->
+						<Alert title="Hidden diff rows (visible to you as admin)" type="info" class="my-2">
+							{hiddenDir.items.length}
+							{mergeIntoParent ? 'ahead' : 'behind'} item{hiddenDir.items.length !== 1 ? 's' : ''}
+							{hiddenDir.items.length !== 1 ? 'are' : 'is'} excluded from the list below — they are not
+							resolvable as live items and are most likely stale/phantom diff rows:
+							<ul class="mt-1 font-mono text-2xs">
+								{#each hiddenDir.items as it}
+									<li>{hiddenKindLabel(it.kind)} · {it.path}</li>
+								{/each}
+							</ul>
+						</Alert>
+					{:else if mergeIntoParent ? !comparison.all_ahead_items_visible : !comparison.all_behind_items_visible}
+						<Alert title="Some changes are hidden from you" type="warning" class="my-2">
+							{hiddenDir.total}
+							{mergeIntoParent ? 'ahead' : 'behind'} item{hiddenDir.total !== 1 ? 's' : ''}
+							({formatHiddenByKind(hiddenDir.by_kind)})
+							{hiddenDir.total !== 1 ? 'are' : 'is'} not visible to your user and
+							{hiddenDir.total !== 1 ? 'are' : 'is'} excluded from the list below. You can still
+							{mergeIntoParent ? 'deploy' : 'update'} the items you can see — share this page with someone
+							who has full access to include the rest.
 						</Alert>
 					{/if}
 				{/snippet}
@@ -1285,44 +1377,51 @@
 							<div></div>
 
 							<div class="flex flex-col items-end gap-2">
-								{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-									<div class="flex items-center gap-2">
-										{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
-											<Button
-												variant="default"
-												startIcon={{ icon: UserPlus }}
-												on:click={() => deploymentRequestPanel?.openRequestDialog()}
-											>
-												Request deployment
-											</Button>
-										{/if}
+								<!-- Always show the deploy footer: only the items visible to the user are
+								     listed and selectable, so a partial-visibility user deploys the subset they
+								     can see. The hidden items are surfaced by the non-blocking banner above,
+								     not by removing the action. -->
+								<div class="flex items-center gap-2">
+									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
 										<Button
-											variant="accent"
-											disabled={selectedItems.length === 0 ||
-												deploying ||
-												(hasBehindChanges && !allowBehindChangesOverride) ||
-												(mergeIntoParent && !canDeployToParent) ||
-												hasUnselectedOnBehalfOf}
-											loading={deploying}
-											on:click={requestDeploy}
+											variant="default"
+											startIcon={{ icon: UserPlus }}
+											on:click={() => deploymentRequestPanel?.openRequestDialog()}
 										>
-											{mergeIntoParent ? 'Deploy' : 'Update'}
-											{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-											{#if selectedConflicts != 0}
-												({selectedConflicts} conflicts)
-											{/if}
+											Request deployment
 										</Button>
-									</div>
-									{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
-										<span class="text-xs text-yellow-600">
-											You must set the "on behalf of" user for all items before deploying
-											<Tooltip class="text-yellow-600">
-												The "run on behalf of" field defines which user's permissions will be
-												applied during execution. Make sure this is set to an appropriate user
-												before deploying.
-											</Tooltip>
-										</span>
 									{/if}
+									<Button
+										variant="accent"
+										disabled={selectedItems.length === 0 ||
+											deploying ||
+											(hasBehindChanges && !allowBehindChangesOverride) ||
+											(mergeIntoParent && !canDeployToParent) ||
+											!deployPerm.ok ||
+											hasUnselectedOnBehalfOf}
+										title={!deployPerm.ok ? deployPerm.reason : undefined}
+										loading={deploying}
+										on:click={requestDeploy}
+									>
+										{mergeIntoParent ? 'Deploy' : 'Update'}
+										{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+										{#if selectedConflicts != 0}
+											({selectedConflicts} conflicts)
+										{/if}
+									</Button>
+								</div>
+								{#if !deployPerm.ok}
+									<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
+								{/if}
+								{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
+									<span class="text-xs text-yellow-600">
+										You must set the "on behalf of" user for all items before deploying
+										<Tooltip class="text-yellow-600">
+											The "run on behalf of" field defines which user's permissions will be applied
+											during execution. Make sure this is set to an appropriate user before
+											deploying.
+										</Tooltip>
+									</span>
 								{/if}
 
 								{#if deploymentErrorMessage != ''}

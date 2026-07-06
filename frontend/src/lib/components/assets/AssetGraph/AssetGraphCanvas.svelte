@@ -16,6 +16,7 @@
 	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
+	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
@@ -128,6 +129,9 @@
 		// form (with the auto-generated S3 picker) for the given script.
 		// data_upload has no trigger row; it's a UI-first entry point.
 		onOpenDataUpload?: (scriptPath: string) => void
+		// Data-upload entry scripts whose file has been staged in the run form —
+		// their source node renders green (ready) instead of the neutral prompt.
+		readyDataUploadPaths?: ReadonlySet<string>
 		// Script paths the cursor is over in the Activity panel — a thin neutral
 		// ring each. One entry for a single run row; the whole cascade's runs
 		// when hovering a group header. Distinct from `selectedRunPaths`.
@@ -141,8 +145,8 @@
 		// editor passes it, so the asset-graph page is unaffected. The page
 		// clears it once the pan has had time to settle.
 		panToNodeId?: string | undefined
-		// Script paths eligible to *start* a bounded-cascade run (schedule
-		// roots + manual roots — see boundedCascade.validStarts). When a path is
+		// Script paths eligible to *start* a bounded-cascade run — roots AND
+		// mid-DAG models (see boundedCascade.validFromStarts). When a path is
 		// in this set and `onStartBoundedRun` is wired, its node's cascade menu
 		// gains a "Run downstream up to…" entry.
 		validStartPaths?: ReadonlySet<string>
@@ -162,6 +166,10 @@
 		/** Hide the minimap when the canvas is too narrow for it to be worth the
 		 * space (e.g. stacked layout in a side panel). Defaults to shown. */
 		showMinimap?: boolean
+		/** Identity of the displayed graph (e.g. the pipeline folder). The
+		 * initial viewport fit re-arms when it changes, so switching folders
+		 * in-place gets a fresh fit. */
+		viewportFitKey?: string
 	}
 	let {
 		graph,
@@ -181,6 +189,7 @@
 		onDeleteTrigger,
 		onOpenWebhook,
 		onOpenDataUpload,
+		readyDataUploadPaths,
 		hoveredPaths,
 		selectedRunPaths,
 		panToNodeId,
@@ -188,7 +197,8 @@
 		onStartBoundedRun,
 		boundPick,
 		onPickEnd,
-		showMinimap = true
+		showMinimap = true,
+		viewportFitKey = ''
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -215,6 +225,8 @@
 			| 'trigger-native'
 			| 'add-anchor'
 			| 'data-test'
+			| 'macro'
+			| 'test-dependency'
 		unsaved?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
@@ -226,6 +238,10 @@
 		// Producer's `// column` declared lineage, on the same write-edge —
 		// rendered as a columns badge on the link.
 		column_lineage?: NonNullable<AssetGraphResponse['runnables'][number]['column_lineage']>
+		// Macro-library edge payload: the macros the consumer calls (or the
+		// whole lib when pulled in via `// use`) — rendered as a ƒ badge.
+		macro_names?: string[]
+		via_use?: boolean
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -311,19 +327,59 @@
 		// own adjacency (boundedCascade.buildLineageDownstreamMap).
 		const hasLineageDownstream = new Set<string>(buildLineageDownstreamMap(g).keys())
 
+		// Producers that declare `// data_test` checks, keyed by runnable id — the
+		// asset node uses this (plus the producer's run state) to render the
+		// data-test outcome badge. Tests only assert on ducklake `// materialize`
+		// targets (v1), so guard status is a ducklake-only concept below.
+		const producerHasTests = new Set<string>()
+		// Producer → its declared `// materialize` target, so a multi-output
+		// producer's guard badge lands only on the table its tests assert on —
+		// not on its other ducklake outputs. Mirrors the write-edge badge anchor.
+		const guardMaterializeTarget = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['materialize_target']>
+		>()
+		for (const r of g.runnables) {
+			if (r.data_tests && r.data_tests.length > 0) producerHasTests.add(`${r.usage_kind}:${r.path}`)
+			if (r.materialize_target)
+				guardMaterializeTarget.set(`${r.usage_kind}:${r.path}`, r.materialize_target)
+		}
+
 		for (const a of g.assets) {
 			const assetId = `asset:${a.kind}:${a.path}`
+			// Guard/outcome badge inputs: is a producer of this (ducklake) asset
+			// test-guarded, and did that guarded producer's latest run fail?
+			let dataTestGuarded = false
+			let producerFailed = false
+			if (a.kind === 'ducklake') {
+				for (const p of producersByAsset.get(`${a.kind}:${a.path}`) ?? []) {
+					const rid = `${p.kind}:${p.path}`
+					if (!producerHasTests.has(rid)) continue
+					// Tests assert on the producer's `// materialize` target; when the
+					// producer declares one, only that table is guarded (a multi-output
+					// producer must not badge its other ducklake writes). No declared
+					// target → single-output producer, so its lone ducklake write is it.
+					const mt = guardMaterializeTarget.get(rid)
+					if (mt && !(mt.kind === a.kind && mt.path === a.path)) continue
+					dataTestGuarded = true
+					if (runStates?.get(rid)?.status === 'failure') producerFailed = true
+				}
+			}
 			nodes.push({
 				id: assetId,
 				type: 'asset',
 				data: {
 					asset_kind: a.kind,
 					path: a.path,
+					fork_materialization: a.fork_materialization,
+					derived_from: a.derived_from,
 					onAddScript: onAddScriptForAsset,
 					pathPrefix,
 					defaultPathSuffix,
 					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],
-					onRunProducer
+					onRunProducer,
+					dataTestGuarded,
+					producerFailed
 				}
 			})
 		}
@@ -390,8 +446,10 @@
 					in_pipeline: r.in_pipeline ?? false,
 					partition_kind: r.partition_kind,
 					freshness: r.freshness,
+					last_success_at: r.last_success_at,
 					tag: r.tag,
 					retry: r.retry,
+					macros: r.macros,
 					unsaved: r.unsaved ?? false,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits
@@ -487,6 +545,42 @@
 					unsaved: e.unsaved
 				})
 			}
+		}
+
+		// Macro-library → consumer edges (runnable→runnable, unlike the
+		// asset-mediated lineage above). Endpoints must exist as nodes — an
+		// undeployed `// use` target without a draft has none, so its edge is
+		// skipped (the annotation still shows in the script body itself).
+		const runnableNodeIds = new Set(g.runnables.map((r) => `${r.usage_kind}:${r.path}`))
+		for (const me of g.macro_edges ?? []) {
+			const libId = `script:${me.lib_path}`
+			const consumerId = `script:${me.consumer_path}`
+			if (!runnableNodeIds.has(libId) || !runnableNodeIds.has(consumerId)) continue
+			edges.push({
+				id: `macro:${libId}->${consumerId}`,
+				source: libId,
+				target: consumerId,
+				kind: 'macro',
+				unsaved: me.unsaved,
+				macro_names: me.macro_names,
+				via_use: me.via_use
+			})
+		}
+
+		// Data-test ordering edges (producer → tested script): the referenced
+		// asset must be materialized before the test runs, so the cascade orders
+		// the producer first. Rendered as a dashed "must run after" link, distinct
+		// from data flow — the tested script doesn't consume the asset's rows.
+		for (const te of g.test_edges ?? []) {
+			const producerId = `${te.producer_kind}:${te.producer_path}`
+			const testedId = `${te.runnable_kind}:${te.runnable_path}`
+			if (!runnableNodeIds.has(producerId) || !runnableNodeIds.has(testedId)) continue
+			edges.push({
+				id: `testdep:${producerId}->${testedId}`,
+				source: producerId,
+				target: testedId,
+				kind: 'test-dependency'
+			})
 		}
 
 		// Non-asset triggers (schedule + native) are rendered as source nodes
@@ -613,6 +707,11 @@
 					runnable_unsaved: info.runnable_path
 						? unsavedRunnablePaths.has(info.runnable_path)
 						: false,
+					// data_upload nodes go green once a file is staged for their
+					// target script (see readyDataUploadPaths / page dataUploadArgs).
+					ready: info.runnable_path
+						? (readyDataUploadPaths?.has(info.runnable_path) ?? false)
+						: false,
 					onCreateMissingTrigger,
 					onEditTrigger,
 					onDeleteTrigger,
@@ -677,11 +776,27 @@
 	// edges + paths → same layout. Renames *do* change the layout for
 	// the renamed entry, since its id moves in the sort, but that's
 	// expected: a rename is a path change, which is part of the input.
+	// A script with rw access to an asset yields both a write (script → asset)
+	// and a read/trigger (asset → script) edge — a 2-cycle. The layout resolves
+	// it producer-above-asset by omitting the backward direction from its
+	// input; the rendered edges are untouched (both arrows still drawn).
+	let writeEdgePairs = $derived(
+		new Set(
+			model.edges.filter((e) => e.kind === 'lineage-write').map((e) => `${e.source}\n${e.target}`)
+		)
+	)
 	let layoutInput = $derived({
 		nodes: model.nodes
 			.map((n) => ({ id: n.id, data: n.data }))
 			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
 		edges: model.edges
+			.filter(
+				(e) =>
+					!(
+						(e.kind === 'lineage-read' || e.kind === 'trigger-asset') &&
+						writeEdgePairs.has(`${e.target}\n${e.source}`)
+					)
+			)
 			.map((e) => ({ source: e.source, target: e.target }))
 			.sort((a, b) =>
 				a.source === b.source
@@ -891,6 +1006,26 @@
 						label = 'triggers'
 						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
 						break
+					case 'macro':
+						// Library → consumer: violet dashed, visually apart from both
+						// lineage (blue/gray solid) and trigger (gray dashed) families —
+						// it's a code dependency, not data flow or execution.
+						style = 'stroke: rgb(139 92 246); stroke-width: 1.25px;'
+						strokeDasharray = '5 3'
+						markerColor = 'rgb(139 92 246)'
+						label = e.via_use ? 'uses lib' : 'macros'
+						labelStyle = 'fill: rgb(139 92 246); font-size: 10px; font-weight: 600;'
+						break
+					case 'test-dependency':
+						// Producer → tested script: amber dashed ordering link. Not
+						// data flow (blue/gray) nor execution trigger (gray "triggers")
+						// — it only says "the test needs this asset to exist first".
+						style = 'stroke: rgb(217 119 6); stroke-width: 1.25px;'
+						strokeDasharray = '5 3'
+						markerColor = 'rgb(217 119 6)'
+						label = 'test needs'
+						labelStyle = 'fill: rgb(217 119 6); font-size: 10px; font-weight: 600;'
+						break
 					default:
 						style = ''
 				}
@@ -940,7 +1075,11 @@
 						testsRunStatus: e.data_tests?.length ? runStates?.get(e.source)?.status : undefined,
 						// Column-lineage badge on the same write-edge (the link is the
 						// transformation whose output columns the lineage describes).
-						column_lineage: e.column_lineage
+						column_lineage: e.column_lineage,
+						// Macro-edge badge: which of the library's macros the consumer
+						// calls (all of them when pulled in via `// use`).
+						macro_names: e.macro_names,
+						via_use: e.via_use
 					},
 					animated,
 					label,
@@ -1023,21 +1162,35 @@
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+		<InitialFitView {nodes} fitKey={viewportFitKey} />
 		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
 		{#if showMinimap}
+			<!-- Node hues mirror the canvas: blue asset cards, amber triggers,
+			     bordered neutral script cards. Visible strokes + rounded corners +
+			     a bordered container + the outlined viewport mask are what make
+			     this read as a minimap instead of a loading skeleton. -->
 			<MiniMap
 				pannable
 				zoomable
-				class="!bg-surface !mb-10"
+				class="!bg-surface !mb-10 rounded-md border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden"
+				nodeBorderRadius={12}
+				nodeStrokeWidth={6}
 				nodeColor={(n) =>
 					n.type === 'asset'
-						? 'rgb(96 165 250 / 0.5)'
+						? 'rgb(59 130 246 / 0.3)'
 						: n.type === 'trigger'
-							? 'rgb(251 191 36 / 0.5)'
-							: 'rgb(52 211 153 / 0.5)'}
-				nodeStrokeColor="transparent"
-				maskColor="rgb(0 0 0 / 0.2)"
+							? 'rgb(245 158 11 / 0.3)'
+							: 'rgb(148 163 184 / 0.15)'}
+				nodeStrokeColor={(n) =>
+					n.type === 'asset'
+						? 'rgb(59 130 246 / 0.8)'
+						: n.type === 'trigger'
+							? 'rgb(245 158 11 / 0.8)'
+							: 'rgb(100 116 139 / 0.7)'}
+				maskColor="rgb(100 116 139 / 0.12)"
+				maskStrokeColor="rgb(59 130 246 / 0.5)"
+				maskStrokeWidth={4}
 			/>
 		{/if}
 	</SvelteFlow>

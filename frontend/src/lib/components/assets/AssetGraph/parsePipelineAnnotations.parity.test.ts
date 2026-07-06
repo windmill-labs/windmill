@@ -20,7 +20,9 @@ const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
 	retry: true,
 	materialize: true,
 	dataTests: true,
-	columnLineage: true
+	columnLineage: true,
+	macros: true,
+	useLibs: true
 }
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
@@ -70,6 +72,8 @@ type Fixture = {
 			scd2?: boolean
 			track?: string[]
 			close_deleted?: boolean
+			// "warn" | "ignore"; absent === "warn" (the default)
+			on_schema_change?: string
 		} | null
 		// Snake_case form matching the Rust `DataTest` serde output, so the one
 		// corpus drives both sides. The TS parser emits this shape verbatim
@@ -78,6 +82,10 @@ type Fixture = {
 		// Snake_case `ColumnLineage` serde shape — TS parser emits it verbatim,
 		// so the comparison is 1:1. Absent === [].
 		column_lineage?: Array<Record<string, unknown>>
+		// `// macros` marker. Absent === false.
+		macros?: boolean
+		// `// use <lib_path>` accumulation, declaration order, deduped. Absent === [].
+		use_libs?: string[]
 	}
 }
 
@@ -174,11 +182,18 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 				expect(got.materialize?.closeDeleted ?? false, 'materialize close_deleted').toBe(
 					f.expected.materialize.close_deleted ?? false
 				)
+				expect(got.materialize?.onSchemaChange ?? 'warn', 'materialize on_schema_change').toBe(
+					f.expected.materialize.on_schema_change ?? 'warn'
+				)
 			}
 
 			expect(got.dataTests, 'data tests').toEqual(f.expected.data_tests ?? [])
 
 			expect(got.columnLineage, 'column lineage').toEqual(f.expected.column_lineage ?? [])
+
+			expect(got.macros, 'macros').toBe(f.expected.macros ?? false)
+
+			expect(got.useLibs, 'use_libs').toEqual(f.expected.use_libs ?? [])
 		})
 	}
 })

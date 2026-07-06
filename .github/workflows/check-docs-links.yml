@@ -1,0 +1,23 @@
+name: Check frontend docs links
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  check-docs-links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            frontend/src
+            .github/scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+      - name: Verify docs links are not 404
+        run: node .github/scripts/check-docs-links.mjs

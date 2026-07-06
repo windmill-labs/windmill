@@ -38,6 +38,7 @@
 	import { base } from '$lib/base'
 	import Label from '../Label.svelte'
 	import ForkDatatableSection from './ForkDatatableSection.svelte'
+	import ForkDucklakeSection from './ForkDucklakeSection.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -92,6 +93,7 @@
 	let checking = $state(false)
 
 	let forkDatatableSection: ReturnType<typeof ForkDatatableSection> | undefined = $state(undefined)
+	let forkDucklakeSection: ReturnType<typeof ForkDucklakeSection> | undefined = $state(undefined)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -228,20 +230,31 @@
 	}
 
 	async function completeFork(prefixed_id: string): Promise<void> {
-		let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
-			workspace: $workspaceStore!,
-			requestBody: {
-				id: prefixed_id,
-				name,
-				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-				is_dev_workspace: createAsDevWorkspace,
-				// Send the lock intent in this first phase too so the backend can reject a non-admin's
-				// locked-dev request before any branch is created (avoids dangling branches).
-				lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-				lock_prod_forking: createAsDevWorkspace && lockProdForking,
-				copy_members: copyMembers
-			}
-		})
+		let gitSyncJobIds: string[]
+		try {
+			gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
+				workspace: $workspaceStore!,
+				requestBody: {
+					id: prefixed_id,
+					name,
+					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+					is_dev_workspace: createAsDevWorkspace,
+					// Send the lock intent in this first phase too so the backend can reject a non-admin's
+					// locked-dev request before any branch is created (avoids dangling branches).
+					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					copy_members: copyMembers
+				}
+			})
+		} catch (e) {
+			// The backend can reject here (fork cap, depth limit, premium, non-admin lock). Reset the
+			// loading state and surface the error rather than leaving the button spinning.
+			forkCreationError = `Failed to create fork '${prefixed_id}'`
+			errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+			forkCreationLoading = false
+			sendUserToast(`Could not create fork '${prefixed_id}' ${e?.body ?? e}`, true)
+			return
+		}
 
 		try {
 			await Promise.all(
@@ -293,6 +306,7 @@
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 					forked_datatables: forkedDatatables,
+					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
 					lock_prod_forking: createAsDevWorkspace && lockProdForking,
@@ -655,6 +669,7 @@
 						forkCreationLoading = false
 					}}
 				/>
+				<ForkDucklakeSection bind:this={forkDucklakeSection} />
 			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">

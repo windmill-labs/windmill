@@ -20,6 +20,7 @@ import {
   scriptsOf,
   topoOrder,
   validStarts,
+  validFromStarts,
 } from "./boundedCascade.ts";
 import {
   type AssetGraph,
@@ -40,6 +41,7 @@ import { generatePipelineDocs } from "./docs.ts";
 import {
   type UploadBinding,
   devUploadKey,
+  parseArgBinding,
   parseS3Uri,
   parseUploadBinding,
   s3Arg,
@@ -301,6 +303,26 @@ async function renderGraph(
     return out.length > 0 ? " " + out.join(" ") : "";
   }
 
+  // `// macros` libraries: badge the node with the macros it defines and list
+  // its consumers as ƒ edges. Populated on both the deployed graph and the local
+  // graph (localGraph.ts derives `macros`/`macro_edges` from the working tree,
+  // since the wasm asset parser emits neither).
+  const macrosByLib = new Map(
+    graph.runnables
+      .filter((r) => (r.macros?.length ?? 0) > 0)
+      .map((r) => [r.path, r.macros!]),
+  );
+  const macroConsumersByLib = new Map<
+    string,
+    { consumer: string; names: string[] }[]
+  >();
+  for (const me of graph.macro_edges ?? []) {
+    pushTo(macroConsumersByLib, me.lib_path, {
+      consumer: me.consumer_path,
+      names: me.macro_names,
+    });
+  }
+
   const printed = new Set<string>();
   const lines: string[] = [];
 
@@ -316,8 +338,22 @@ async function renderGraph(
       return;
     }
     printed.add(script);
-    lines.push(`${prefix}${colors.bold(shortName(script))}${triggerBadges(script)}${alsoOn}`);
+    const libMacros = macrosByLib.get(script);
+    const macroBadge = libMacros
+      ? " " +
+        colors.magenta(`[ƒ macros: ${libMacros.map((m) => m.name).join(", ")}]`)
+      : "";
+    lines.push(`${prefix}${colors.bold(shortName(script))}${macroBadge}${triggerBadges(script)}${alsoOn}`);
     const childPrefix = prefix.replace(/├─ $/, "│  ").replace(/└─ $/, "   ");
+    const macroConsumers = [...(macroConsumersByLib.get(script) ?? [])].sort(
+      (a, b) => a.consumer.localeCompare(b.consumer),
+    );
+    macroConsumers.forEach(({ consumer, names }, i) => {
+      const branch = i === macroConsumers.length - 1 ? "└─ƒ " : "├─ƒ ";
+      lines.push(
+        `${childPrefix}${branch}${shortName(consumer)} ${colors.dim(`(uses ${names.join(", ")})`)}`,
+      );
+    });
     const writes = [...(writesByScript.get(script) ?? [])].sort();
     writes.forEach((uri, i) => {
       const lastAsset = i === writes.length - 1;
@@ -367,7 +403,10 @@ async function renderGraph(
 
 // Poll a launched job to a terminal state. Modest fixed cadence; capped so a
 // wedged job can't hang the CLI forever.
-async function waitJob(workspace: string, id: string): Promise<boolean> {
+async function waitJob(
+  workspace: string,
+  id: string,
+): Promise<{ ok: boolean; result?: unknown }> {
   const MAX_RETRIES = 6000; // ~10min at 100ms
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
@@ -379,7 +418,7 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
       // A completed job without an explicit `success: true` is a failure
       // (mirrors the frontend `waitJobTerminal`): the cascade only advances on
       // a confirmed success.
-      if (r.completed) return r.success === true;
+      if (r.completed) return { ok: r.success === true, result: r.result };
     } catch {
       // transient — retry
     }
@@ -388,13 +427,35 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
   throw new Error(`Timed out waiting for job ${id}`);
 }
 
-// Bounded-cascade run: start at a schedule / manual root, fan downstream, but
-// stop at the `--to` end node(s). Scripts run in topological order; each is
-// launched with `_wmill_skip_asset_dispatch` so the CLI owns the whole closure
-// (the backend dispatcher never double-fires the deployed part). With no
-// `--to`, runs the full read-aware downstream of `--from` (every descendant in
-// the lineage DAG, pure readers included — broader than the canvas cascade,
-// which dispatches subscribers only).
+// Render a failed job's `{error: {name, message}}` result for the terminal, so
+// the user sees WHY the cascade stopped without opening the UI. Result shapes
+// vary (structured data-test payloads, plain strings), so fall back to raw
+// JSON when the canonical error shape is absent.
+function formatJobFailure(result: unknown): string | undefined {
+  if (result == null) return undefined;
+  const err = (result as any)?.error;
+  if (err && typeof err === "object") {
+    const name = typeof err.name === "string" ? err.name : undefined;
+    const message = typeof err.message === "string" ? err.message : undefined;
+    if (message) return name ? `${name}: ${message}` : message;
+  }
+  if (typeof result === "string") return result;
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+// Bounded-cascade run: start at `--from` — a schedule/manual root OR any mid-DAG
+// model (asset subscriber / pure reader) — fan downstream, but stop at the
+// `--to` end node(s). A mid-DAG start runs that node plus its transitive
+// downstream and never re-runs upstream (dbt `--select model+`). Scripts run in
+// topological order; each is launched with `_wmill_skip_asset_dispatch` so the
+// CLI owns the whole closure (the backend dispatcher never double-fires the
+// deployed part). With no `--to`, runs the full read-aware downstream of
+// `--from` (every descendant in the lineage DAG, pure readers included — broader
+// than the canvas cascade, which dispatches subscribers only).
 // Resolve one `--upload` binding to the run-arg it injects: pick the target
 // S3Object parameter (explicit `:param`, else the script's sole S3Object arg)
 // and turn the source into an object key — an `s3://` source is used as-is, a
@@ -461,6 +522,34 @@ async function resolveUploadArgs(
   return args;
 }
 
+// Default partition value for a `// partitioned <kind>` script, from the
+// current UTC instant — mirrors the backend defaults (partition_ee.rs):
+// hourly `%Y-%m-%dT%H`, weekly `%G-W%V` (ISO week-year), monthly `%Y-%m`,
+// daily `%Y-%m-%d`. `dynamic` has no time default and returns undefined.
+export function defaultPartitionValue(kind: string, now: Date = new Date()): string | undefined {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const date = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+  switch (kind) {
+    case "hourly":
+      return `${date}T${pad(now.getUTCHours())}`;
+    case "weekly": {
+      // ISO 8601 week (chrono's `%G-W%V`): the week containing this date's
+      // nearest Thursday belongs to that Thursday's year.
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const dow = d.getUTCDay() || 7; // Mon=1 … Sun=7
+      d.setUTCDate(d.getUTCDate() + 4 - dow);
+      const week = Math.ceil(((d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
+      return `${d.getUTCFullYear()}-W${pad(week)}`;
+    }
+    case "monthly":
+      return date.slice(0, 7);
+    case "daily":
+      return date;
+    default:
+      return undefined;
+  }
+}
+
 async function run(
   opts: GlobalOptions & SyncOptions & {
     from?: string;
@@ -469,6 +558,8 @@ async function run(
     json?: boolean;
     local?: boolean;
     upload?: string[];
+    arg?: string[];
+    partition?: string;
     defaultTs?: "bun" | "deno";
   },
   folder: string,
@@ -500,19 +591,25 @@ async function run(
     // Resolve relative imports from local (not-yet-deployed) content so a script
     // that imports a sibling workspace lib previews against local edits. Same
     // trick as `wmill dev` / `wmill app dev`; degrades to undefined gracefully.
-    try {
-      const codebases = await listSyncCodebases(merged);
-      const { buildPreviewTempScriptRefs } = await import(
-        "../generate-metadata/generate-metadata.ts"
-      );
-      tempScriptRefs = await buildPreviewTempScriptRefs(
-        workspace,
-        merged,
-        codebases,
-        { kind: "all" },
-      );
-    } catch {
-      // best-effort: relative imports fall back to deployed versions
+    // Skipped for `--dry-run`: it locks/uploads scripts as a side effect (it
+    // regenerates `*.script.yaml` / `*.script.lock` / `wmill-lock.yaml`), and a
+    // plan preview must stay READ-ONLY — the refs are only consumed when a
+    // preview job actually runs below, which dry-run never reaches.
+    if (!opts.dryRun) {
+      try {
+        const codebases = await listSyncCodebases(merged);
+        const { buildPreviewTempScriptRefs } = await import(
+          "../generate-metadata/generate-metadata.ts"
+        );
+        tempScriptRefs = await buildPreviewTempScriptRefs(
+          workspace,
+          merged,
+          codebases,
+          { kind: "all" },
+        );
+      } catch {
+        // best-effort: relative imports fall back to deployed versions
+      }
     }
   } else {
     graph = await apiGet<BCGraph>(
@@ -524,6 +621,24 @@ async function run(
     await enrichDeployedNonAutorunTriggers(workspace.workspaceId, graph);
   }
 
+  // Resolve a `--upload`/`--arg` script token to its graph node, with an
+  // actionable error when the short name is ambiguous or matches nothing.
+  const resolveScriptTokenOrThrow = (tok: string, flag: string): string => {
+    const id = resolveToken(graph, tok);
+    if (!id || !id.startsWith("script:")) {
+      const matches = graph.runnables.filter(
+        (r) => r.usage_kind === "script" && (r.path.split("/").pop() ?? r.path) === tok,
+      );
+      if (matches.length > 1) {
+        throw new Error(
+          `${flag} '${tok}' matches multiple scripts (${matches.map((r) => r.path).sort().join(", ")}) — use the full path.`,
+        );
+      }
+      throw new Error(`${flag} '${tok}' matched no script in f/${f}.`);
+    }
+    return id;
+  };
+
   // `--upload <script>[:<param>]=<file|s3://key>` binds an object to a
   // data_upload/webhook entry point so it becomes a runnable start (and its
   // downstream is no longer cut) — the arg is injected at execution. Repeatable
@@ -532,26 +647,72 @@ async function run(
   const boundNodeIds = new Set<string>();
   for (const spec of opts.upload ?? []) {
     const binding = parseUploadBinding(spec);
-    const id = resolveToken(graph, binding.scriptTok);
-    if (!id || !id.startsWith("script:")) {
-      const matches = graph.runnables.filter(
-        (r) => r.usage_kind === "script" && (r.path.split("/").pop() ?? r.path) === binding.scriptTok,
-      );
-      if (matches.length > 1) {
-        throw new Error(
-          `--upload '${binding.scriptTok}' matches multiple scripts (${matches.map((r) => r.path).sort().join(", ")}) — use the full path.`,
-        );
-      }
-      throw new Error(`--upload '${binding.scriptTok}' matched no script in f/${f}.`);
-    }
+    const id = resolveScriptTokenOrThrow(binding.scriptTok, "--upload");
     const p = scriptPathOf(id);
     (boundBindingsByPath.get(p) ?? boundBindingsByPath.set(p, []).get(p)!).push(binding);
     boundNodeIds.add(id);
   }
 
-  // Resolve the start: explicit --from (must be a valid start) or the folder's
-  // sole valid start. `--upload`-bound scripts join the valid starts.
-  const starts = new Set([...validStarts(graph), ...boundNodeIds]);
+  // `--arg <script>:<param>=<value>` overlays a plain run arg on a script in
+  // the selection. Unlike `--upload` it does not make the script a runnable
+  // start — it only supplies a value if the script runs.
+  const plainArgsByPath = new Map<string, Record<string, unknown>>();
+  for (const spec of opts.arg ?? []) {
+    const b = parseArgBinding(spec);
+    const p = scriptPathOf(resolveScriptTokenOrThrow(b.scriptTok, "--arg"));
+    const merged = plainArgsByPath.get(p) ?? plainArgsByPath.set(p, {}).get(p)!;
+    // Object.hasOwn, not `in`: a param named like a prototype member
+    // (`toString`, `constructor`, …) must not trip the duplicate check.
+    if (Object.hasOwn(merged, b.param)) {
+      throw new Error(`--arg binds ${p}:${b.param} more than once.`);
+    }
+    merged[b.param] = b.value;
+  }
+
+  // `// macros` libraries are definition-only: their macros are injected into
+  // consuming DuckDB scripts at run time, so "running" one is a no-op preview.
+  // They are excluded from starts and from every selection below (they'd
+  // otherwise read as manual roots, since nothing triggers them).
+  const macroLibPaths = new Set(
+    graph.runnables
+      .filter((r) => r.usage_kind === "script" && (r.macros?.length ?? 0) > 0)
+      .map((r) => r.path),
+  );
+  // Non-runnable graph nodes: the macro libraries above, plus (under `--local`)
+  // any script node with no local file. The local graph surfaces macro-consumer
+  // nodes for lineage display — a DuckDB script that calls a macro but isn't a
+  // `// pipeline` member (so has no previewable content). They must never enter
+  // the run: as a manual root they'd be scheduled, and a preview would fail with
+  // no local content to send.
+  const notRunnablePaths = new Set<string>(macroLibPaths);
+  if (opts.local && localScripts) {
+    for (const r of graph.runnables) {
+      if (r.usage_kind === "script" && !localScripts.has(r.path)) {
+        notRunnablePaths.add(r.path);
+      }
+    }
+  }
+
+  // Resolve the start. Two eligibility sets:
+  //   `starts`       — schedule/manual roots (+ `--upload`-bound handlers). The
+  //                    fan-in candidates for an IMPLICIT start (`runAll`, or the
+  //                    folder's sole root).
+  //   `fromEligible` — every autorun-able script, roots AND mid-DAG models
+  //                    (asset subscribers, pure readers). An EXPLICIT `--from`
+  //                    may name any of these: `--from <mid-model>` runs that node
+  //                    plus its transitive downstream, without re-running upstream
+  //                    (dbt `--select model+`). Non-autorun handlers stay out
+  //                    unless `--upload`-bound.
+  const starts = new Set(
+    [...validStarts(graph), ...boundNodeIds].filter(
+      (id) => !notRunnablePaths.has(scriptPathOf(id)),
+    ),
+  );
+  const fromEligible = new Set(
+    [...validFromStarts(graph), ...boundNodeIds].filter(
+      (id) => !notRunnablePaths.has(scriptPathOf(id)),
+    ),
+  );
   // `runAll` = no `--from` on a multi-root pipeline (fan-in): run the whole
   // pipeline in topological order rather than forcing a single start, the way
   // `dbt run` (no `--select`) runs the entire project. `--to` still needs an
@@ -573,9 +734,27 @@ async function run(
       }
       throw new Error(`--from '${opts.from}' matched no script in f/${f}.`);
     }
-    if (!starts.has(resolved)) {
+    if (macroLibPaths.has(scriptPathOf(resolved))) {
       throw new Error(
-        `--from '${opts.from}' is not a valid bounded-run start. Starts must be schedule-triggered or manual roots; row-backed event triggers (kafka/mqtt/nats/postgres/sqs/gcp/email) fan out per-event and can't be bounded.`,
+        `--from '${opts.from}' is a \`// macros\` library — definition-only, injected into consuming scripts at run time, never a runnable step.`,
+      );
+    }
+    // A `--local` display-only node (a non-`// pipeline` DuckDB script surfaced
+    // only because it calls a macro) has no previewable content — reject it
+    // clearly rather than admitting it and silently producing an empty plan.
+    if (notRunnablePaths.has(scriptPathOf(resolved))) {
+      throw new Error(
+        `--from '${opts.from}' isn't a \`// pipeline\` script — it appears in the local graph only as a macro consumer (lineage). Mark it \`// pipeline\` to run it.`,
+      );
+    }
+    if (!resolved.startsWith("script:")) {
+      throw new Error(
+        `--from '${opts.from}' is an asset, not a runnable — start a run from a script (assets are produced, not run).`,
+      );
+    }
+    if (!fromEligible.has(resolved)) {
+      throw new Error(
+        `--from '${opts.from}' can't start a run: row-backed event triggers (kafka/mqtt/nats/postgres/sqs/gcp/email) and input-only entrypoints (webhook/data_upload) fan out per-event or need caller-supplied input — bind it with --upload to run it.`,
       );
     }
     start = resolved;
@@ -633,8 +812,12 @@ async function run(
   // barriers: a valid start (a schedule/manual root, or an `--upload`-bound
   // handler) runs with its own input even if it ALSO carries a non-autorun
   // trigger — cutting it would drop a legitimately-scheduled root and its chain.
+  // An explicit mid-DAG `--from` is likewise protected: the user named it as the
+  // start, so it runs even if it also carries a non-autorun trigger.
   const barriers = new Set(
-    [...nonAutorunTriggerScripts(graph)].filter((id) => !starts.has(id)),
+    [...nonAutorunTriggerScripts(graph)].filter(
+      (id) => !starts.has(id) && id !== start,
+    ),
   );
   let selectedScripts: Set<string>;
   let reachableEnds: string[] = [];
@@ -675,9 +858,44 @@ async function run(
     }
   }
 
+  // Selections can still pull a non-runnable node in via graph reachability (e.g.
+  // whole-pipeline mode collects every root's closure) — drop macro libraries and
+  // local-only display nodes before ordering so they never run.
+  for (const p of notRunnablePaths) selectedScripts.delete(p);
+
   const { order, cyclic } = topoOrder(graph, selectedScripts);
   if (cyclic.length > 0) {
     log.warn(`Skipping ${cyclic.length} script(s) on a dependency cycle: ${cyclic.sort().join(", ")}`);
+  }
+
+  // `// partitioned` scripts need a resolved `partition` arg. Deployed runs get
+  // it from backend run-start resolution, but previews (`--local`) never do —
+  // so resolve it client-side there: `--partition` wins; otherwise time kinds
+  // default to the current UTC period (mirroring the backend defaults; custom
+  // `tz=`/`format=`/`start=` opts are a backend concern — pass --partition
+  // explicitly to match them). `dynamic` has no default. For deployed runs the
+  // arg is only injected when `--partition` is given (an explicit backfill).
+  const partitionKindByPath = new Map(
+    graph.runnables
+      .filter((r) => r.usage_kind === "script" && r.partition_kind)
+      .map((r) => [r.path, r.partition_kind!]),
+  );
+  const partitionValueFor = (nodePath: string): string | undefined => {
+    const kind = partitionKindByPath.get(nodePath);
+    if (!kind) return undefined;
+    if (opts.partition) return opts.partition;
+    if (!opts.local) return undefined; // deployed: backend resolves at run start
+    return defaultPartitionValue(kind);
+  };
+  if (opts.local && !opts.partition) {
+    const unresolvable = order.filter(
+      (p) => partitionKindByPath.get(p) === "dynamic",
+    );
+    if (unresolvable.length > 0) {
+      throw new Error(
+        `dynamic \`// partitioned\` script(s) need an explicit partition for a local run: ${unresolvable.sort().join(", ")} — pass --partition <value>.`,
+      );
+    }
   }
 
   // A `--upload` whose script fell outside the selection is a no-op the user
@@ -686,6 +904,9 @@ async function run(
   const boundInOrder = [...boundBindingsByPath.keys()].filter((p) => orderSet.has(p)).sort();
   for (const p of boundBindingsByPath.keys()) {
     if (!orderSet.has(p)) log.warn(`--upload for ${p} is unused — it isn't in the run selection.`);
+  }
+  for (const p of plainArgsByPath.keys()) {
+    if (!orderSet.has(p)) log.warn(`--arg for ${p} is unused — it isn't in the run selection.`);
   }
 
   if (opts.json) {
@@ -716,9 +937,19 @@ async function run(
         colors.bold(`Bounded run plan — ${order.length} script${order.length === 1 ? "" : "s"}`) +
           colors.dim(runAll ? ` (whole pipeline)` : ` (from ${shortName(scriptPathOf(start!))})`),
       );
-      order.forEach((p, i) =>
-        log.info(`  ${i + 1}. ${p}${boundBindingsByPath.has(p) ? colors.dim(" (← --upload)") : ""}`),
-      );
+      order.forEach((p, i) => {
+        const pv = partitionValueFor(p);
+        const marks = [
+          boundBindingsByPath.has(p) ? " (← --upload)" : "",
+          plainArgsByPath.has(p) ? " (← --arg)" : "",
+          pv
+            ? ` (partition=${pv})`
+            : partitionKindByPath.has(p)
+              ? " (partition resolved by backend at run start)"
+              : "",
+        ].join("");
+        log.info(`  ${i + 1}. ${p}${marks ? colors.dim(marks) : ""}`);
+      });
     }
     return;
   }
@@ -743,9 +974,16 @@ async function run(
   // Execute in topological order, stopping on the first failure.
   for (const nodePath of order) {
     if (!opts.json) log.info(colors.gray(`▶ running ${nodePath}…`));
-    // Spread the internal dispatch guard LAST so an `--upload`-bound arg can't
+    // `--arg` spreads after `--upload` so an explicit value wins for the same
+    // param; the internal dispatch guard spreads LAST so neither binding can
     // re-enable backend dispatch (the CLI owns the whole closure here).
-    const nodeArgs = { ...(uploadArgs.get(nodePath) ?? {}), _wmill_skip_asset_dispatch: true };
+    const partitionValue = partitionValueFor(nodePath);
+    const nodeArgs = {
+      ...(partitionValue !== undefined ? { partition: partitionValue } : {}),
+      ...(uploadArgs.get(nodePath) ?? {}),
+      ...(plainArgsByPath.get(nodePath) ?? {}),
+      _wmill_skip_asset_dispatch: true,
+    };
     let id: string;
     if (opts.local) {
       const ls = localScripts!.get(nodePath);
@@ -773,9 +1011,15 @@ async function run(
         requestBody: nodeArgs,
       });
     }
-    const ok = await waitJob(workspace.workspaceId, id);
+    const { ok, result } = await waitJob(workspace.workspaceId, id);
     if (!ok) {
-      throw new Error(`Bounded run failed at ${nodePath} (job ${id}).`);
+      const detail = formatJobFailure(result);
+      const runUrl = `${workspace.remote}run/${id}?workspace=${workspace.workspaceId}`;
+      throw new Error(
+        `Bounded run failed at ${nodePath} (job ${id}).` +
+          (detail ? `\n${detail}` : "") +
+          `\nFull logs: ${runUrl}`,
+      );
     }
     if (!opts.json) log.info(colors.green(`  ✓ ${nodePath}`));
   }
@@ -804,12 +1048,12 @@ const command = new Command()
   .action(show as any)
   .command(
     "run",
-    "run a bounded cascade: from a schedule/manual root, fan downstream up to the --to end node(s)",
+    "run a cascade: from --from (a root OR any mid-DAG model), fan downstream up to the --to end node(s)",
   )
   .arguments("<folder:string>")
   .option(
     "--from <script:string>",
-    "Start script (short name or path). Defaults to the folder's sole schedule/manual root.",
+    "Start script (short name or path). May be any node, including a mid-DAG model — that node plus its transitive downstream runs, upstream is NOT re-run (dbt `--select model+`). Defaults to the folder's sole schedule/manual root.",
   )
   .option(
     "--to <node:string>",
@@ -826,6 +1070,15 @@ const command = new Command()
     "--upload <binding:string>",
     "Bind an object to a data_upload/webhook entry point so it runs in the cascade, as SCRIPT[:PARAM]=SOURCE (SOURCE is a local file or an s3://key). Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.",
     { collect: true },
+  )
+  .option(
+    "--arg <binding:string>",
+    "Pass a plain run arg to a script in the cascade, as SCRIPT:PARAM=VALUE (VALUE is parsed as JSON when possible, else taken as a string — e.g. daily_report:partition=2026-07-02). Repeatable.",
+    { collect: true },
+  )
+  .option(
+    "--partition <value:string>",
+    "Partition value for `// partitioned` scripts in the run (e.g. 2026-06-30) — use it to backfill a past slice. With --local, time kinds (daily/hourly/weekly/monthly) default to the current UTC period when omitted; `dynamic` always needs it. Deployed runs without it defer to backend run-start resolution.",
   )
   .action(run as any)
   .command(

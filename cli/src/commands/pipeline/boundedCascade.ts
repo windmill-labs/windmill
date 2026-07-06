@@ -13,7 +13,16 @@
 // pipeline.ts.
 
 export type BCGraph = {
-  runnables: { path: string; usage_kind: "script" | "flow" | "job" }[];
+  runnables: {
+    path: string;
+    usage_kind: "script" | "flow" | "job";
+    // `// partitioned <kind>` on the script (daily/hourly/weekly/monthly/dynamic).
+    // Emitted by both the deployed graph endpoint and the local builder.
+    partition_kind?: string;
+    // `// macros` library: non-empty on a workspace macro library (deployed
+    // graph only). Definition-only — never a runnable cascade step.
+    macros?: { name: string }[];
+  }[];
   assets: { kind: string; path: string }[];
   edges: {
     runnable_kind: string;
@@ -32,6 +41,18 @@ export type BCGraph = {
       }
     | { trigger_kind: string; runnable_kind: string; runnable_path: string }
   )[];
+  // `// data_test` ordering edges (HD-1): the referenced asset's producer must
+  // materialize before the tested script runs. Fed into the lineage DAG so a
+  // bounded/cold cascade orders the referenced dimension first. Optional — the
+  // deployed graph omits it when empty, and older local graphs never emit it.
+  test_edges?: {
+    producer_kind: string;
+    producer_path: string;
+    runnable_kind: string;
+    runnable_path: string;
+    asset_kind: string;
+    asset_path: string;
+  }[];
 };
 
 export const SCRIPT_PREFIX = "script:";
@@ -65,7 +86,12 @@ export function assetUriToNodeId(uri: string): string | undefined {
   if (!m) return undefined;
   const prefix = m[1].toLowerCase();
   const kind = prefix === "s3" ? "s3object" : prefix;
-  return `${kind}:${m[2]}`;
+  // Mirror Rust `parse_asset_syntax`: strip all leading slashes from S3 keys so a
+  // `--to s3:///exports/x` token resolves to the canonical graph node
+  // `s3object:exports/x` (default storage), same as `s3://exports/x`, and a
+  // canonical key never starts with `/`.
+  const path = kind === "s3object" ? m[2].replace(/^\/+/, "") : m[2];
+  return `${kind}:${path}`;
 }
 
 export type LineageDag = {
@@ -103,6 +129,14 @@ export function buildLineageDag(g: BCGraph): LineageDag {
     if (t.trigger_kind !== "asset" || t.runnable_kind !== "script") continue;
     const at = t as Extract<BCGraph["triggers"][number], { trigger_kind: "asset" }>;
     addEdge(dag, assetNodeId(at.asset_kind, at.asset_path), scriptNodeId(at.runnable_path));
+  }
+  // Data-test ordering edges: route through the referenced asset node so the
+  // existing producer → asset write edge extends into producer → asset → testing
+  // script (mirrors frontend boundedCascade.ts) — the tested script runs after
+  // the referenced dimension materializes.
+  for (const t of g.test_edges ?? []) {
+    if (t.runnable_kind !== "script") continue;
+    addEdge(dag, assetNodeId(t.asset_kind, t.asset_path), scriptNodeId(t.runnable_path));
   }
   return dag;
 }
@@ -202,6 +236,32 @@ export function validStarts(g: BCGraph): Set<string> {
     const p = r.path;
     if (scheduleScripts.has(p)) out.add(scriptNodeId(p));
     else if (!subscribers.has(p) && !nonAutorunScripts.has(p)) out.add(scriptNodeId(p));
+  }
+  return out;
+}
+
+/**
+ * Script node ids eligible as an EXPLICIT bounded-run start from *anywhere* in
+ * the DAG (dbt's `--select model+`): every script that can run with empty args —
+ * i.e. all scripts except non-autorun-trigger ones (kafka/mqtt/…/webhook/
+ * data_upload, which fan out per event or need caller-supplied input). Unlike
+ * `validStarts` (schedule/manual roots only), this INCLUDES mid-DAG asset
+ * subscribers and pure readers, so `--from <mid-model>` runs that node plus its
+ * transitive downstream WITHOUT re-running upstream. Roots stay a subset of this
+ * set. A non-autorun handler still qualifies once it's `--upload`-bound (handled
+ * by the caller, which unions in the bound node ids).
+ */
+export function validFromStarts(g: BCGraph): Set<string> {
+  const nonAutorun = nonAutorunTriggerScripts(g);
+  // Seed with the schedule/manual roots: `validStarts` lets a schedule identity
+  // win over a secondary non-autorun trigger (a `// on schedule` + `// on
+  // data_upload` script IS a scheduled root), so a root must stay `--from`-
+  // eligible even though it's also in `nonAutorunTriggerScripts`.
+  const out = new Set<string>(validStarts(g));
+  for (const r of g.runnables ?? []) {
+    if (r.usage_kind !== "script") continue;
+    const id = scriptNodeId(r.path);
+    if (!nonAutorun.has(id)) out.add(id);
   }
   return out;
 }

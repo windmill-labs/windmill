@@ -13,7 +13,19 @@ use windmill_common::{
     utils::escape_ilike_pattern,
 };
 
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{build_scope_path_predicate, ApiAuthed};
+
+// Partition-range backfill preview. The logic (producer resolution, range
+// enumeration, status join) is enterprise: the `private` build compiles the
+// EE module, the public build a stub that errors.
+#[cfg(feature = "private")]
+mod backfill_ee;
+#[cfg(feature = "private")]
+use backfill_ee as backfill;
+#[cfg(not(feature = "private"))]
+mod backfill_oss;
+#[cfg(not(feature = "private"))]
+use backfill_oss as backfill;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -23,8 +35,66 @@ pub fn workspaced_service() -> Router {
         .route("/graph", get(asset_graph))
         .route("/pipelines", get(list_pipeline_folders))
         .route("/partitions", get(list_partitions))
+        .route("/partitions_in_range", get(list_partitions_in_range))
         .route("/asset_schemas", get(list_asset_schemas))
         .route("/record_materialization", post(record_materialization))
+        .route("/macros", get(list_macros))
+}
+
+// One registry macro, with its full definition — drives the macro-explorer
+// drawer (body preview) and the DuckDB editor autocomplete (signatures).
+#[derive(Serialize)]
+struct MacroListItem {
+    name: String,
+    params: String,
+    body: String,
+    is_table: bool,
+    provider_path: String,
+}
+
+// Every workspace macro (`// macros` libraries), grouped client-side by
+// provider. Small by construction — one row per macro definition. The rows
+// copy script body text, so visibility must match reading the provider
+// script itself: the EXISTS join runs under the user_db transaction (script
+// RLS filters libraries the caller can't read) and the scope predicate
+// covers path-scoped tokens, mirroring `list_scripts`.
+async fn list_macros(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<MacroListItem>> {
+    let scope_allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"SELECT m.name AS "name!", m.params AS "params!", m.body AS "body!",
+                  m.is_table_macro AS "is_table_macro!", m.provider_path AS "provider_path!"
+           FROM macro_definition m
+           WHERE m.workspace_id = $1
+             AND EXISTS (
+                SELECT 1 FROM script s
+                WHERE s.workspace_id = m.workspace_id
+                  AND s.path = m.provider_path
+                  AND s.archived = false
+                  AND s.deleted = false
+             )
+           ORDER BY m.provider_path, m.name"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(
+        rows.into_iter()
+            .filter(|r| scope_allowed(&r.provider_path))
+            .map(|r| MacroListItem {
+                name: r.name,
+                params: r.params,
+                body: r.body,
+                is_table: r.is_table_macro,
+                provider_path: r.provider_path,
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -52,6 +122,55 @@ async fn list_partitions(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+// Only the EE `backfill` module reads the fields; the OSS stub errors without
+// touching them.
+#[cfg_attr(not(feature = "private"), allow(dead_code))]
+#[derive(Deserialize)]
+struct PartitionsInRangeQuery {
+    // The materialized ducklake asset path (`<ducklake>/<table>`).
+    path: String,
+    // Inclusive calendar-day range (YYYY-MM-DD), local to the producer's
+    // partition tz.
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+}
+
+#[derive(Serialize)]
+struct PartitionInRange {
+    partition: String,
+    // `missing` | `running` | `materialized` | `failed` — `missing` means no
+    // materialization was ever recorded for the slice.
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+struct PartitionsInRangeResponse {
+    // The pipeline script that materializes the asset (managed `// materialize`
+    // target, or a partitioned writer using the SDK helpers) — the runnable a
+    // backfill launches (with an explicit `partition` arg per slice).
+    producer_path: String,
+    partition_kind: String,
+    partitions: Vec<PartitionInRange>,
+}
+
+// Backfill range preview: every partition the producer's `// partitioned` spec
+// expects in `[from, to]`, joined with what `materialized_partition` records —
+// the missing/failed subset is the backfill worklist. The logic is in the
+// `backfill` module pair: EE resolves and enumerates, the OSS stub errors
+// (single-partition runs stay available everywhere; fanning out over a range
+// is enterprise).
+async fn list_partitions_in_range(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsInRangeQuery>,
+) -> JsonResult<PartitionsInRangeResponse> {
+    let mut tx = user_db.begin(&authed).await?;
+    let res = backfill::partitions_in_range(&mut tx, &w_id, &q).await?;
+    tx.commit().await?;
+    Ok(Json(res))
 }
 
 // Per-asset captured output schema versions for a ducklake asset (gap #2a) —
@@ -495,6 +614,21 @@ struct GraphQuery {
 struct GraphAssetNode {
     kind: AssetKind,
     path: String,
+    // Fork workspaces only: 'fork' when the fork has materialized this ducklake asset itself,
+    // 'deferred' when reads fall back to the parent workspace's current table (defer view).
+    // Absent outside forks, for non-ducklake assets, and for assets never materialized
+    // anywhere. Lockstep with TS `AssetGraphAssetNode.fork_materialization`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_materialization: Option<String>,
+    // The base dimension this asset is the SCD2 `<dim>_current` companion view
+    // of — set only on a `ducklake://…/<dim>_current` node whose producer
+    // declares `// materialize … history` on `<dim>`. The producer edge already
+    // links it to that script (both writes are registered at deploy); this lets
+    // the canvas render it as a derived "current view" of the base rather than an
+    // unrelated table. Absent for every other asset. Lockstep with TS
+    // `AssetGraphAssetNode.derived_from`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    derived_from: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -513,6 +647,14 @@ struct GraphRunnableNode {
     partition_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     freshness: Option<String>,
+    // Completion time of the most recently started successful run of this
+    // pipeline member. The canvas checks it against the `// freshness` window
+    // to color the badge fresh/stale. The badge itself is passive; on EE the
+    // freshness watchdog (windmill-queue) separately re-runs stale
+    // unpartitioned producers. Absent when no successful run is visible to
+    // the caller (job RLS applies).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    last_success_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -537,6 +679,39 @@ struct GraphRunnableNode {
     // `merge` / any partitioned write INSERTs into a fixed-schema table.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     materialize_strategy: Option<String>,
+    // `on_schema_change=ignore` on the managed materialize — the producer's
+    // opt-out from downstream schema-contract warnings. Threaded to the editor
+    // so its client-side contract mirror suppresses the same warnings the
+    // server check does. Only serialized when set to `ignore` (default `warn`
+    // is absent). Lockstep with TS `AssetGraphRunnableNode.materialize_on_schema_change`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    materialize_on_schema_change: Option<String>,
+    // Macros this script provides to the workspace registry (deployed
+    // `// macros` library). Drives the library node state + details-pane
+    // signature list. Lockstep with TS `AssetGraphRunnableNode.macros`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    macros: Vec<MacroInfo>,
+}
+
+// One macro of a `// macros` library, as surfaced on its graph node.
+#[derive(Serialize, Debug, Clone)]
+struct MacroInfo {
+    name: String,
+    // Verbatim parameter list, for the `name(params)` signature display.
+    params: String,
+    is_table: bool,
+}
+
+// A macro-library → consumer edge: the consumer calls `macro_names` of
+// `lib_path`'s macros (deploy-recorded detection), or pulls in the whole
+// library via `// use` (`via_use`, in which case `macro_names` lists all of
+// the library's macros).
+#[derive(Serialize, Debug)]
+struct MacroEdge {
+    lib_path: String,
+    consumer_path: String,
+    macro_names: Vec<String>,
+    via_use: bool,
 }
 
 // The output asset a producer's column lineage belongs to (the `// materialize`
@@ -631,18 +806,42 @@ enum TriggerEdge {
     },
 }
 
+// Ordering-only "must-run-after" edge: `runnable_path`'s data test reads
+// `asset` (a `// data_test relationships` ref, or a custom test whose body
+// reads a known pipeline asset), so the asset's in-pipeline producer must
+// materialize before `runnable_path` runs. NOT a data-consumption edge — the
+// tested script doesn't ingest the asset's rows, it only needs the table to
+// exist at test time. Rendered dashed (like macro edges) and fed into the
+// cascade topo-sort so a cold cascade orders the referenced dimension first.
+// Only emitted when the referenced asset has a producer in the graph; an
+// external table (no producer) adds no edge — the runtime error stands.
+#[derive(Serialize, Debug)]
+struct TestEdge {
+    producer_kind: AssetUsageKind,
+    producer_path: String,
+    runnable_kind: AssetUsageKind,
+    runnable_path: String,
+    asset_kind: AssetKind,
+    asset_path: String,
+}
+
 #[derive(Serialize, Debug)]
 struct AssetGraphResponse {
     assets: Vec<GraphAssetNode>,
     runnables: Vec<GraphRunnableNode>,
     edges: Vec<GraphEdge>,
     triggers: Vec<TriggerEdge>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    macro_edges: Vec<MacroEdge>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    test_edges: Vec<TestEdge>,
 }
 
 async fn asset_graph(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<windmill_common::DB>,
     Query(q): Query<GraphQuery>,
 ) -> JsonResult<AssetGraphResponse> {
     let mut tx = user_db.begin(&authed).await?;
@@ -773,6 +972,46 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
+    // Newest successful completed run per pipeline member, for the passive
+    // freshness status on the canvas. Correlated per-path lookup walks
+    // ix_job_root_job_index_by_path_2 newest-first until the first success,
+    // so cost is bounded by the member count, not run history. "Newest" is
+    // by created_at (the index order), not completed_at: with overlapping
+    // runs of one path this can pick an earlier completion, erring toward
+    // stale — never toward false-fresh. Inside the user tx so job-visibility
+    // RLS applies — a caller who can't see the runs gets no timestamp rather
+    // than leaked completion times.
+    let member_paths: Vec<String> = pipeline_member_paths
+        .iter()
+        .map(|r| r.path.clone())
+        .collect();
+    let last_success_rows = sqlx::query!(
+        r#"
+        SELECT p.path AS "path!",
+               (SELECT c.completed_at
+                  FROM v2_job j
+                  JOIN v2_job_completed c ON c.id = j.id
+                 WHERE j.workspace_id = $1
+                   AND j.runnable_path = p.path
+                   AND j.parent_job IS NULL
+                   -- No 'singlestepflow': flows may share a script's path, and
+                   -- a same-path flow run must not read as the script being
+                   -- fresh (false-fresh). Script retries land as native
+                   -- 'script' jobs; only the rare flow-wrapper fallback is
+                   -- missed, which errs stale. Kept in lockstep with the
+                   -- freshness watchdog's queries (freshness_watchdog_ee).
+                   AND j.kind IN ('script', 'preview')
+                   AND c.status = 'success'
+                 ORDER BY j.created_at DESC
+                 LIMIT 1) AS last_success_at
+          FROM unnest($2::text[]) AS p(path)
+        "#,
+        &w_id,
+        &member_paths,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     // Existing scripts / flows in the workspace. Used to filter out
     // orphan trigger rows whose `script_path` no longer resolves — those
     // would otherwise be added to `runnable_set` below and surface as
@@ -790,6 +1029,31 @@ async fn asset_graph(
     let existing_flow_paths = sqlx::query_scalar!(
         r#"SELECT path AS "path!" FROM flow WHERE workspace_id = $1 AND archived = false"#,
         &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Workspace macro registry + deploy-recorded call edges. Definitions are
+    // fetched unfiltered so an out-of-folder library still appears as the
+    // provider endpoint of in-scope consumers' edges; consumers honor the
+    // folder filter like every other runnable query.
+    let macro_def_rows = sqlx::query!(
+        r#"SELECT name AS "name!", provider_path AS "provider_path!",
+                  params AS "params!", is_table_macro AS "is_table_macro!"
+           FROM macro_definition
+           WHERE workspace_id = $1
+           ORDER BY provider_path, name"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let macro_usage_rows = sqlx::query!(
+        r#"SELECT consumer_path AS "consumer_path!", macro_name AS "macro_name!"
+           FROM macro_usage
+           WHERE workspace_id = $1
+             AND ($2::text IS NULL OR consumer_path LIKE $2)"#,
+        &w_id,
+        folder_filter.as_deref(),
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -838,6 +1102,11 @@ async fn asset_graph(
             (r.path.clone(), lineage)
         })
         .collect();
+    let last_success_by_path: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
+        last_success_rows
+            .into_iter()
+            .filter_map(|r| r.last_success_at.map(|t| (r.path, t)))
+            .collect();
     let pipeline_member_script_paths: std::collections::HashSet<String> =
         pipeline_member_paths.into_iter().map(|r| r.path).collect();
     let existing_script_paths: std::collections::HashSet<String> =
@@ -950,9 +1219,272 @@ async fn asset_graph(
         triggers.push(edge);
     }
 
+    // Macro libraries + lib→consumer edges. Group per-provider macro lists,
+    // resolve each usage row's name to its provider (names are
+    // workspace-unique), and merge `// use` whole-lib edges from the parsed
+    // member annotations. Both endpoints are forced into the runnable set so
+    // an out-of-folder library still renders as the edge's provider node.
+    let mut macros_by_provider: std::collections::HashMap<String, Vec<MacroInfo>> =
+        Default::default();
+    let mut provider_by_name: std::collections::HashMap<String, String> = Default::default();
+    for r in macro_def_rows {
+        provider_by_name.insert(r.name.clone(), r.provider_path.clone());
+        macros_by_provider
+            .entry(r.provider_path)
+            .or_default()
+            .push(MacroInfo { name: r.name, params: r.params, is_table: r.is_table_macro });
+    }
+    let mut macro_edge_map: std::collections::BTreeMap<
+        (String, String),
+        (std::collections::BTreeSet<String>, bool),
+    > = Default::default();
+    for u in macro_usage_rows {
+        // Same orphan filter as the other edge loops.
+        if !runnable_exists(AssetUsageKind::Script, &u.consumer_path) {
+            continue;
+        }
+        let Some(lib) = provider_by_name.get(&u.macro_name) else {
+            continue;
+        };
+        let e = macro_edge_map
+            .entry((lib.clone(), u.consumer_path))
+            .or_default();
+        e.0.insert(u.macro_name);
+    }
+    for (path, ann) in &annotations_by_path {
+        for lib in &ann.use_libs {
+            // An undeployed `// use` target has no registry rows — the live
+            // draft overlay is the only surface that can render it.
+            let Some(lib_macros) = macros_by_provider.get(lib) else {
+                continue;
+            };
+            let e = macro_edge_map
+                .entry((lib.clone(), path.clone()))
+                .or_default();
+            e.1 = true;
+            e.0.extend(lib_macros.iter().map(|m| m.name.clone()));
+        }
+    }
+    let macro_edges: Vec<MacroEdge> = macro_edge_map
+        .into_iter()
+        // Same orphan filter as the other edge families: a registry row whose
+        // provider script no longer exists must not synthesize a phantom
+        // library node (consumers were filtered above, but the `// use` pass
+        // re-adds them, so re-check both endpoints).
+        .filter(|((lib_path, consumer_path), _)| {
+            runnable_exists(AssetUsageKind::Script, lib_path)
+                && runnable_exists(AssetUsageKind::Script, consumer_path)
+        })
+        .map(|((lib_path, consumer_path), (names, via_use))| MacroEdge {
+            lib_path,
+            consumer_path,
+            macro_names: names.into_iter().collect(),
+            via_use,
+        })
+        .collect();
+    for e in &macro_edges {
+        runnable_set.insert((AssetUsageKind::Script, e.lib_path.clone()));
+        runnable_set.insert((AssetUsageKind::Script, e.consumer_path.clone()));
+    }
+
+    // Data-test ordering edges. A `// data_test relationships <col> -> <asset>`
+    // (and, best-effort, a custom `// data_test <script>` whose body reads a
+    // pipeline asset) needs the referenced asset materialized before the tested
+    // script runs — but that dependency is otherwise absent from the execution
+    // DAG, so a cold cascade can run the tested script first and hard-fail
+    // ("Catalog Error: Table … does not exist"). Resolve the referenced asset's
+    // producer(s) from the write edges built above and add an ordering-only
+    // edge producer → testing_script. No producer (external table) ⇒ no edge.
+    let mut producers_by_asset: std::collections::HashMap<
+        (AssetKind, String),
+        Vec<(AssetUsageKind, String)>,
+    > = Default::default();
+    for e in &edges {
+        if matches!(e.access_type.as_deref(), Some("w") | Some("rw")) {
+            producers_by_asset
+                .entry((e.asset_kind, e.asset_path.clone()))
+                .or_default()
+                .push((e.runnable_kind, e.runnable_path.clone()));
+        }
+    }
+    // Assets a runnable reads, keyed by (usage_kind, path) — used to order a
+    // custom-test *script*'s producers before whichever member declares
+    // `// data_test <path>`. Keyed on the kind too because a flow can share a
+    // script's path; `// data_test <path>` resolves a deployed script body, so
+    // the lookup below pins `Script` and never pulls a same-path flow's reads.
+    let mut reads_by_runnable: std::collections::HashMap<
+        (AssetUsageKind, String),
+        Vec<(AssetKind, String)>,
+    > = Default::default();
+    for e in &edges {
+        if matches!(e.access_type.as_deref(), None | Some("r") | Some("rw")) {
+            reads_by_runnable
+                .entry((e.runnable_kind, e.runnable_path.clone()))
+                .or_default()
+                .push((e.asset_kind, e.asset_path.clone()));
+        }
+    }
+    let mut test_edges: Vec<TestEdge> = Vec::new();
+    // Dedup on (producer, tested_script, asset) so several tests referencing the
+    // same asset, or a repeated producer, yield one edge.
+    let mut seen_test_edges: std::collections::HashSet<(String, String, AssetKind, String)> =
+        Default::default();
+    for (member_path, ann) in &annotations_by_path {
+        for dt in &ann.data_tests {
+            use windmill_common::assets::DataTest;
+            let referenced: Vec<(AssetKind, String)> = match dt {
+                DataTest::Relationships { to_kind, to_path, .. } => {
+                    vec![(
+                        windmill_common::assets::asset_kind_from_parser(*to_kind),
+                        to_path.clone(),
+                    )]
+                }
+                // Best-effort: the custom test *script*'s parsed reads. Reading
+                // the member's OWN output resolves to the member as producer and
+                // is dropped by the self-edge guard below.
+                DataTest::Custom { path } => reads_by_runnable
+                    .get(&(AssetUsageKind::Script, path.clone()))
+                    .cloned()
+                    .unwrap_or_default(),
+                _ => vec![],
+            };
+            for (asset_kind, asset_path) in referenced {
+                let Some(producers) = producers_by_asset.get(&(asset_kind, asset_path.clone()))
+                else {
+                    continue;
+                };
+                for (producer_kind, producer_path) in producers {
+                    // Skip a self-edge: the tested script produces the asset it
+                    // tests (a materialize + relationships/custom on its own output).
+                    if *producer_kind == AssetUsageKind::Script && producer_path == member_path {
+                        continue;
+                    }
+                    if seen_test_edges.insert((
+                        producer_path.clone(),
+                        member_path.clone(),
+                        asset_kind,
+                        asset_path.clone(),
+                    )) {
+                        test_edges.push(TestEdge {
+                            producer_kind: *producer_kind,
+                            producer_path: producer_path.clone(),
+                            runnable_kind: AssetUsageKind::Script,
+                            runnable_path: member_path.clone(),
+                            asset_kind,
+                            asset_path: asset_path.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    for e in &test_edges {
+        runnable_set.insert((e.producer_kind, e.producer_path.clone()));
+        runnable_set.insert((e.runnable_kind, e.runnable_path.clone()));
+    }
+
+    // Fork data-environment state per ducklake asset. The parent's rows are read on the plain
+    // pool: fork membership does not imply parent membership, and defer already exposes the
+    // parent's data to fork jobs — surfacing its materialization status is strictly less.
+    let fork_materialization_by_path: std::collections::HashMap<String, &'static str> = {
+        // The WHOLE ancestor chain, matching defer discovery: a grandchild fork whose direct
+        // parent only defers a table still reads it (from the grandparent), so it must show
+        // as deferred, not unmarked.
+        let ancestors = windmill_common::workspaces::fork_ancestor_chain(&db, &w_id).await?;
+        match ancestors {
+            // An orphaned `wm-fork-*` (parent deleted, chain empty) is still isolated — its
+            // own materializations must keep their 'fork' chips (nothing can be 'deferred').
+            a if a.is_empty() && !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) => {
+                std::collections::HashMap::new()
+            }
+            ancestors => {
+                // Lakes the fork chose to SHARE at creation have no fork namespace — their
+                // assets live in the parent's tables for real, so no chip applies.
+                let shared_lakes: std::collections::HashSet<String> = sqlx::query_scalar!(
+                    "SELECT ducklake->'ducklakes' FROM workspace_settings WHERE workspace_id = $1",
+                    &w_id,
+                )
+                .fetch_optional(&db)
+                .await?
+                .flatten()
+                .and_then(|v| v.as_object().cloned())
+                .map(|lakes| {
+                    lakes
+                        .into_iter()
+                        .filter(|(_, cfg)| {
+                            cfg.get("fork_behavior").and_then(|b| b.as_str()) == Some("shared")
+                        })
+                        .map(|(name, _)| name)
+                        .collect()
+                })
+                .unwrap_or_default();
+                sqlx::query!(
+                    r#"
+                    -- Fork rows also count when a snapshot ever committed (a failed run
+                    -- preserves it): the physical table exists, so reads hit the FORK's
+                    -- data — showing 'deferred' would misstate what a query returns.
+                    -- Ancestor rows still require a clean materialization.
+                    SELECT DISTINCT asset_path AS "asset_path!", workspace_id AS "workspace_id!"
+                    FROM materialized_partition
+                    WHERE (workspace_id = $1 OR workspace_id = ANY($2))
+                      AND asset_kind = 'ducklake'
+                      AND (status = 'materialized'
+                           OR (workspace_id = $1 AND snapshot_id IS NOT NULL))
+                    "#,
+                    &w_id,
+                    &ancestors,
+                )
+                .fetch_all(&db)
+                .await?
+                .into_iter()
+                .filter(|r| {
+                    !shared_lakes.contains(r.asset_path.split('/').next().unwrap_or_default())
+                })
+                .fold(std::collections::HashMap::new(), |mut m, r| {
+                    // A fork row wins over an inherited 'deferred' from any ancestor's row.
+                    if r.workspace_id == w_id {
+                        m.insert(r.asset_path, "fork");
+                    } else {
+                        m.entry(r.asset_path).or_insert("deferred");
+                    }
+                    m
+                })
+            }
+        }
+    };
+
+    // (kind, `<dim>_current` path) → base `<dim>` path, for every managed scd2
+    // producer in the graph. Reads of the companion view resolve to a node
+    // whose producer edge already exists (the deploy path registers both writes)
+    // — this map lets that node advertise which base dimension it derives from.
+    let scd2_current_base: std::collections::HashMap<(AssetKind, String), String> =
+        annotations_by_path
+            .values()
+            .filter_map(|a| a.materialize.as_ref())
+            .filter_map(|m| {
+                m.scd2_current_target().map(|(k, current)| {
+                    (
+                        (windmill_common::assets::asset_kind_from_parser(k), current),
+                        m.target_path.clone(),
+                    )
+                })
+            })
+            .collect();
+
     let mut assets: Vec<GraphAssetNode> = asset_set
         .into_iter()
-        .map(|(kind, path)| GraphAssetNode { kind, path })
+        .map(|(kind, path)| GraphAssetNode {
+            fork_materialization: (kind == AssetKind::Ducklake)
+                .then(|| {
+                    fork_materialization_by_path
+                        .get(&path)
+                        .map(|s| s.to_string())
+                })
+                .flatten(),
+            derived_from: scd2_current_base.get(&(kind, path.clone())).cloned(),
+            kind,
+            path,
+        })
         .collect();
     assets.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -975,6 +1507,10 @@ async fn asset_graph(
                 freshness: ann
                     .and_then(|a| a.freshness.as_ref())
                     .map(|f| f.duration.clone()),
+                last_success_at: (usage_kind == AssetUsageKind::Script)
+                    .then(|| last_success_by_path.get(&path))
+                    .flatten()
+                    .copied(),
                 tag: ann.and_then(|a| a.tag.clone()),
                 retry: ann.and_then(|a| a.retry.clone()),
                 data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),
@@ -992,8 +1528,12 @@ async fn asset_graph(
                     }
                 }),
                 materialize_strategy: ann.and_then(|a| a.materialize.as_ref()).and_then(|m| {
+                    // Precedence mirrors the runtime strategy derivation:
+                    // scd2 (`history`) > append > merge (`key=`) > replace.
                     if m.manual {
                         None
+                    } else if m.scd2 {
+                        Some("scd2".to_string())
                     } else if m.append {
                         Some("append".to_string())
                     } else if m.unique_key.is_some() {
@@ -1002,6 +1542,17 @@ async fn asset_graph(
                         Some("replace".to_string())
                     }
                 }),
+                materialize_on_schema_change: ann
+                    .and_then(|a| a.materialize.as_ref())
+                    .filter(|m| {
+                        m.on_schema_change == windmill_common::assets::OnSchemaChange::Ignore
+                    })
+                    .map(|_| "ignore".to_string()),
+                macros: (usage_kind == AssetUsageKind::Script)
+                    .then(|| macros_by_provider.get(&path))
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default(),
                 path,
                 usage_kind,
             }
@@ -1014,6 +1565,8 @@ async fn asset_graph(
         runnables,
         edges,
         triggers,
+        macro_edges,
+        test_edges,
     }))
 }
 

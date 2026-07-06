@@ -420,13 +420,15 @@ inspect asset-driven pipelines (scripts marked `// pipeline`, wired by `// on <s
 - `pipeline show <folder:string>` - render a pipeline folder's DAG (sources, lineage, subscriptions) in the terminal
   - `--json` - Output the raw asset graph as JSON
   - `--local` - Build the graph from local working-tree files (// pipeline scripts) instead of the deployed workspace — no deploy needed.
-- `pipeline run <folder:string>` - run a bounded cascade: from a schedule/manual root, fan downstream up to the --to end node(s)
-  - `--from <script:string>` - Start script (short name or path). Defaults to the folder's sole schedule/manual root.
+- `pipeline run <folder:string>` - run a cascade: from --from (a root OR any mid-DAG model), fan downstream up to the --to end node(s)
+  - `--from <script:string>` - Start script (short name or path). May be any node, including a mid-DAG model — that node plus its transitive downstream runs, upstream is NOT re-run (dbt `--select model+`). Defaults to the folder's sole schedule/manual root.
   - `--to <node:string>` - End node(s) to stop at — script names/paths or asset URIs (e.g. datatable://main/staged). Repeatable or comma-separated. Omit to run the full downstream.
   - `--dry-run` - Print the topological run plan without executing.
   - `--json` - Output the plan as JSON (for piping to jq).
   - `--local` - Run the local working-tree scripts via preview (no deploy) instead of the deployed versions; the graph is built from local files.
   - `--upload <binding:string>` - Bind an object to a data_upload/webhook entry point so it runs in the cascade, as SCRIPT[:PARAM]=SOURCE (SOURCE is a local file or an s3://key). Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.
+  - `--arg <binding:string>` - Pass a plain run arg to a script in the cascade, as SCRIPT:PARAM=VALUE (VALUE is parsed as JSON when possible, else taken as a string — e.g. daily_report:partition=2026-07-02). Repeatable.
+  - `--partition <value:string>` - Partition value for `// partitioned` scripts in the run (e.g. 2026-06-30) — use it to backfill a past slice. With --local, time kinds (daily/hourly/weekly/monthly) default to the current UTC period when omitted; `dynamic` always needs it. Deployed runs without it defer to backend run-start resolution.
 - `pipeline docs <folder:string>` - generate PIPELINE.md (+ AGENTS.md pointer) describing a folder's pipeline graph and datatable schemas, for an editor / agentic loop
   - `--local` - Build the graph from local working-tree files instead of the deployed workspace.
 - `pipeline dev [folder:string]` - Live-preview a data pipeline from local files: watch an `f/<folder>` of `// pipeline` scripts, push the working-tree graph to the dev page, and run the cascade via preview (no deploy).
@@ -764,7 +766,7 @@ workspace related commands
   - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
   - `--from-branch <branch:string>` - Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch `wmill workspace fork` offers this interactively; from a base branch it creates a fresh fork branch.
   - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.
-- `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
+- `workspace delete-fork <fork_name:string>` - Delete a forked workspace
   - `-y --yes` - Skip confirmation prompt
 - `workspace merge` - Compare and deploy changes between a fork and its parent workspace
   - `--direction <direction:string>` - Deploy direction: to-parent or to-fork

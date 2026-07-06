@@ -105,6 +105,11 @@
 	import { canHavePreprocessor } from '$lib/script_helpers'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import type { ColumnLineage } from './assets/AssetGraph/parsePipelineAnnotations'
+	import {
+		computeContractMarkers,
+		type ContractMarker,
+		type SchemaContractGraphContext
+	} from './assets/AssetGraph/schemaContracts'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 	import GitRepoViewer from './GitRepoViewer.svelte'
@@ -159,6 +164,11 @@
 		// succeeded.
 		requireValidAssets?: boolean
 		args: Record<string, any>
+		// Emitted with the test-form's full-schema validity whenever it changes, so
+		// a host (the pipeline editor) can gate a data-upload entry's readiness on
+		// whether every required field is filled, not just the S3 file. A callback
+		// rather than a bindable so we don't hit the `$bindable(default)` ban.
+		onIsValidChange?: (isValid: boolean) => void
 		// Custom timeout (in seconds) from the script settings. Forwarded to the
 		// preview run so "Test" honors the same timeout a deployed run would,
 		// instead of silently falling back to the instance default.
@@ -202,6 +212,11 @@
 		// regular /scripts/edit route keeps its current open-by-default UX;
 		// the session preview opts in to save vertical real estate.
 		initialTestPanelCollapsed?: boolean
+		// Producer-side facts for the live schema-contract diagnostics
+		// (`on_schema_change=ignore` suppression + scd2 `_current` fallback),
+		// built by the pipeline page from the resolved graph. Absent outside the
+		// pipeline editor — the check still runs, just without suppression.
+		schemaContractContext?: SchemaContractGraphContext
 	}
 
 	let {
@@ -225,6 +240,7 @@
 		customUi = undefined,
 		requireValidAssets = false,
 		args = $bindable(),
+		onIsValidChange,
 		timeout = undefined,
 		selectedTab = $bindable('main'),
 		hasPreprocessor = $bindable(false),
@@ -242,7 +258,8 @@
 		previewLayout = 'right',
 		onTestStateChange,
 		onTestJob,
-		initialTestPanelCollapsed = false
+		initialTestPanelCollapsed = false,
+		schemaContractContext = undefined
 	}: Props = $props()
 
 	$effect(() => {
@@ -614,6 +631,35 @@
 		}
 	)
 
+	// Live schema-contract diagnostics (pipelines gap #2b): diff the buffer's
+	// asset refs against the captured producer schemas and surface mismatches
+	// as Monaco warning squiggles — the as-you-type mirror of the authoritative
+	// save-time check. The result is a prop on Editor (not an imperative call)
+	// because this can resolve before Monaco initializes on mount. Sequenced so
+	// a slow schema fetch can't overwrite the markers of a newer keystroke.
+	let contractMarkers: ContractMarker[] = $state([])
+	let contractCheckSeq = 0
+	watch([() => inferAssetsRes.current, () => schemaContractContext], () => {
+		const res = inferAssetsRes.current
+		const workspace = $workspaceStore
+		const seq = ++contractCheckSeq
+		if (!workspace || !res || res.status === 'error') {
+			contractMarkers = []
+			return
+		}
+		const bufferCode = code
+		computeContractMarkers(
+			workspace,
+			bufferCode,
+			(res.assets ?? []) as AssetWithAltAccessType[],
+			schemaContractContext
+		)
+			.then((markers) => {
+				if (seq === contractCheckSeq) contractMarkers = markers
+			})
+			.catch((e) => console.error('schema-contract diagnostics failed', e))
+	})
+
 	watch([() => code, () => lang], () => {
 		if (lang !== 'ansible') return
 		inferAnsibleExecutionMode(code).then((v) => {
@@ -638,6 +684,10 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	let isValid: boolean = $state(true)
+	// Mirror the test-form validity out to an optional host callback.
+	$effect(() => {
+		onIsValidChange?.(isValid)
+	})
 	let scriptProgress = $state(undefined)
 
 	let logPanel: LogPanel | undefined = $state(undefined)
@@ -2602,6 +2652,7 @@
 			bind:code={editorCode}
 			bind:websocketAlive
 			bind:this={editor}
+			schemaContractMarkers={contractMarkers}
 			{yContent}
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {

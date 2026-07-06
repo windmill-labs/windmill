@@ -41,6 +41,7 @@
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
+	import { notifyContractWarnings } from './assets/AssetGraph/schemaContracts'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
@@ -56,6 +57,7 @@
 		Code,
 		DiffIcon,
 		EllipsisVertical,
+		Network,
 		Plus,
 		Rocket,
 		Settings,
@@ -63,6 +65,9 @@
 		Tag,
 		X
 	} from 'lucide-svelte'
+	import { base } from '$lib/base'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -313,6 +318,21 @@
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
+
+	// Languages the pipeline editor treats as warehouse/dataset transforms —
+	// the ones where a `-- pipeline` annotation is a natural next step.
+	const pipelineHintLangs = ['duckdb', 'postgresql', 'bigquery', 'snowflake', 'mysql', 'mssql']
+	const pipelineHintDismissed = useLocalStorageValue(
+		'pipelineScriptHintDismissed',
+		false,
+		'boolean'
+	)
+	let showPipelineHint = $derived(
+		!pipelineHintDismissed.val &&
+			(script.kind === 'script' || script.kind === undefined) &&
+			pipelineHintLangs.includes(script.language ?? '') &&
+			!parsePipelineAnnotations(script.content ?? '').inPipeline
+	)
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -634,6 +654,11 @@
 			// New/updated path now exists server-side — drop the autocomplete
 			// cache so it shows up immediately instead of after the 60s TTL.
 			invalidateWorkspacePaths($workspaceStore!)
+
+			// Authoritative save-time schema-contract check (pipelines gap #2b):
+			// warn-only, post-commit so a self-produced target resolves to the
+			// content just deployed. Fire-and-forget — must never gate the deploy.
+			notifyContractWarnings($workspaceStore!, script.language, script.content)
 
 			if (!initialPath) {
 				await CaptureService.moveCapturesAndConfigs({
@@ -1992,6 +2017,42 @@
 				/>
 			</div>
 		</div>
+
+		{#if showPipelineHint}
+			<div
+				class="flex items-center gap-2 px-4 py-1 border-y bg-surface-secondary text-xs text-secondary"
+			>
+				<Network size={14} class="shrink-0 text-tertiary" />
+				<span class="truncate">
+					This script can become a data pipeline step: annotate it with
+					<code class="font-mono text-2xs bg-surface px-1 py-0.5 rounded border">-- pipeline</code>
+					and
+					<code class="font-mono text-2xs bg-surface px-1 py-0.5 rounded border">
+						-- materialize
+					</code>
+					to materialize its result, or build it in the
+					<a href="{base}/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
+					<a
+						href="https://www.windmill.dev/docs/pipelines"
+						target="_blank"
+						rel="noreferrer"
+						class="text-blue-500 hover:underline"
+					>
+						Learn more
+					</a>
+				</span>
+				<div class="ml-auto shrink-0">
+					<Button
+						iconOnly
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: X }}
+						title="Dismiss pipelines hint"
+						onclick={() => (pipelineHintDismissed.val = true)}
+					/>
+				</div>
+			</div>
+		{/if}
 
 		<ScriptEditor
 			{disableAi}

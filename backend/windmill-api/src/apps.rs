@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 /*
  * Author: Ruben Fiszel
@@ -7,6 +7,11 @@ use std::{collections::HashMap, sync::Arc};
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+#[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+use crate::job_helpers_oss::{
+    bump_storage_usage, ce_upload_budget, reject_reserved_volume_key,
+    spawn_storage_usage_recount_floored,
+};
 use crate::{
     auth::{get_end_user_email, OptTokened},
     db::{ApiAuthed, DB},
@@ -1813,6 +1818,50 @@ fn custom_path_conflict_error(
     }
 }
 
+/// App values live in a `json` column, which — unlike `jsonb` — accepts the
+/// `\u0000` escape. Any later `json`→`jsonb` conversion (a workspace fork's
+/// `clone_apps`, search indexing, …) then aborts with "unsupported Unicode
+/// escape sequence". Strip genuine NULs so the value is jsonb-safe before it
+/// lands in the DB; the usual source is a binary file such as `.DS_Store`
+/// accidentally bundled into a raw app's file map. A real NUL is unstorable
+/// either way, and frontend code that needs the character writes it as the
+/// source escape `\u0000`, which JSON-encodes to `\\u0000` (an escaped
+/// backslash — the even-parity case below) and is left untouched.
+///
+/// Returns `Cow::Borrowed` (no allocation) when the value is already clean.
+fn strip_null_chars(raw: &str) -> Cow<'_, str> {
+    let bytes = raw.as_bytes();
+    let mut out: Option<String> = None;
+    let mut copied_to = 0;
+    let mut search_from = 0;
+    // A genuine NUL is `\u0000`: a `u0000` introduced by an *odd* run of
+    // backslashes. An even run (`\\u0000`) is an escaped backslash then the
+    // literal text "u0000" (common in minified JS regexes) and is preserved.
+    while let Some(rel) = raw[search_from..].find("u0000") {
+        let at = search_from + rel;
+        let mut backslashes = 0;
+        let mut j = at;
+        while j > 0 && bytes[j - 1] == b'\\' {
+            backslashes += 1;
+            j -= 1;
+        }
+        if backslashes % 2 == 1 {
+            // Drop the escaping backslash + `u0000` — the 6 chars in [at-1, at+5).
+            let out = out.get_or_insert_with(String::new);
+            out.push_str(&raw[copied_to..at - 1]);
+            copied_to = at + 5;
+        }
+        search_from = at + 5;
+    }
+    match out {
+        Some(mut out) => {
+            out.push_str(&raw[copied_to..]);
+            Cow::Owned(out)
+        }
+        None => Cow::Borrowed(raw),
+    }
+}
+
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -1956,13 +2005,18 @@ async fn create_app_internal<'a>(
     )
     .fetch_one(&mut *tx)
     .await?;
+    // `.get()` keeps the raw text (and thus key order); strip any NUL so the
+    // `json`→`jsonb` conversion downstream (fork, indexing) can't choke on it.
+    let value = strip_null_chars(app.value.0.get());
+    if matches!(value, Cow::Owned(_)) {
+        tracing::warn!(path = %app.path, "stripped NUL character(s) from app value on create");
+    }
     let v_id = sqlx::query_scalar!(
         "INSERT INTO app_version
             (app_id, value, created_by, raw_app)
             VALUES ($1, $2::text::json, $3, $4) RETURNING id",
         id,
-        //to preserve key orders
-        serde_json::to_string(&app.value).unwrap(),
+        value.as_ref(),
         authed.username,
         raw_app
     )
@@ -2536,13 +2590,18 @@ async fn update_app_internal<'a>(
         .fetch_one(&mut *tx)
         .await?;
 
+        // `.get()` keeps the raw text (and thus key order); strip any NUL so the
+        // `json`→`jsonb` conversion downstream (fork, indexing) can't choke on it.
+        let value = strip_null_chars(nvalue.0.get());
+        if matches!(value, Cow::Owned(_)) {
+            tracing::warn!(path = %npath, "stripped NUL character(s) from app value on update");
+        }
         let v_id = sqlx::query_scalar!(
             "INSERT INTO app_version
                 (app_id, value, created_by, raw_app)
                 VALUES ($1, $2::text::json, $3, $4) RETURNING id",
             app_id,
-            //to preserve key orders
-            serde_json::to_string(&nvalue).unwrap(),
+            value.as_ref(),
             authed.username,
             raw_app
         )
@@ -3544,7 +3603,49 @@ async fn upload_s3_file_from_app(
     ])
     .into();
 
-    let _put_result = upload_file_from_req(s3_client, &file_key, request, options).await?;
+    // Only workspace storage is quota-metered; a custom-resource upload lands in
+    // the user's own bucket and is neither capped nor counted. An overwrite of an
+    // existing key only spends the difference over its current size.
+    let _is_workspace_storage = query.s3_resource_path.is_none();
+    #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+    if _is_workspace_storage {
+        reject_reserved_volume_key(&file_key)?;
+    }
+    #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+    let (max_size, _existing_size) = if _is_workspace_storage {
+        let content_length = request
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.parse::<i64>().ok());
+        let budget = ce_upload_budget(&db, &w_id, &s3_client, &file_key, content_length).await?;
+        (Some(budget.max_size), budget.existing_size)
+    } else {
+        (None, 0)
+    };
+    #[cfg(any(not(feature = "parquet"), feature = "enterprise"))]
+    let max_size: Option<usize> = None;
+
+    match upload_file_from_req(s3_client, &file_key, request, options, max_size).await {
+        Ok((_, _size)) =>
+        {
+            #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+            if _is_workspace_storage {
+                bump_storage_usage(
+                    &db,
+                    &w_id,
+                    windmill_object_store::DEFAULT_STORAGE,
+                    _size as i64 - _existing_size,
+                )
+                .await;
+            }
+        }
+        Err(e) => {
+            #[cfg(all(feature = "parquet", not(feature = "enterprise")))]
+            spawn_storage_usage_recount_floored(&db, &w_id);
+            return Err(e);
+        }
+    }
 
     let delete_token = jwt::encode_with_internal_secret(S3DeleteTokenClaims {
         file_key: file_key.clone(),
@@ -4339,5 +4440,64 @@ mod embed_token_tests {
 
         // Invalid JSON still errors.
         assert!(parse_embed_policy("not json").is_err());
+    }
+}
+
+#[cfg(test)]
+mod strip_null_chars_tests {
+    use super::strip_null_chars;
+    use std::borrow::Cow;
+
+    // Build `{"k":"<n backslashes>u0000"}` without writing the escape literally
+    // (a real NUL can't live in Rust source). Odd n => the trailing `u0000` is a
+    // genuine NUL escape; even n => an escaped backslash then the text "u0000".
+    fn doc(backslashes: usize) -> String {
+        format!(r#"{{"k":"{}u0000"}}"#, "\\".repeat(backslashes))
+    }
+
+    #[test]
+    fn strips_genuine_null_escape() {
+        // 1 backslash: the NUL escape is dropped, the string value becomes "".
+        assert_eq!(strip_null_chars(&doc(1)).as_ref(), r#"{"k":""}"#);
+        // 3 backslashes: escaped backslash + NUL -> keep the escaped backslash.
+        let three = doc(3);
+        let out = strip_null_chars(&three);
+        assert_eq!(out.as_ref(), r#"{"k":"\\"}"#);
+        // Result is now valid, NUL-free JSON (i.e. jsonb-safe).
+        let v: serde_json::Value = serde_json::from_str(out.as_ref()).unwrap();
+        assert!(!v["k"].as_str().unwrap().as_bytes().contains(&0u8));
+    }
+
+    #[test]
+    fn preserves_escaped_backslash_then_literal_u0000() {
+        // Even runs are the literal text "u0000" (e.g. a minified JS regex char
+        // class) and must be returned untouched, with no allocation.
+        for n in [2usize, 4] {
+            let s = doc(n);
+            let out = strip_null_chars(&s);
+            assert_eq!(out.as_ref(), s.as_str());
+            assert!(matches!(out, Cow::Borrowed(_)), "n={n} should be borrowed");
+        }
+    }
+
+    #[test]
+    fn preserves_clean_values() {
+        // Plain value, and the bare token "u0000" with no preceding backslash.
+        for s in [r#"{"files":{"/index.tsx":"hello"}}"#, r#"{"k":"u0000"}"#] {
+            let out = strip_null_chars(s);
+            assert_eq!(out.as_ref(), s);
+            assert!(matches!(out, Cow::Borrowed(_)));
+        }
+        // The escape for a literal backslash char (`u005c`) then text "u0000":
+        // the only "u0000" match is preceded by `c` (0 backslashes) -> no NUL.
+        let s = format!(r#"{{"k":"{}u005cu0000"}}"#, "\\");
+        assert!(matches!(strip_null_chars(&s), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn strips_multiple_and_preserves_surrounding() {
+        // Mirrors the .DS_Store case: several NULs interleaved with real text.
+        let s = format!(r#"{{"a":"x{b}u0000{b}u0000y","b":"ok"}}"#, b = "\\");
+        assert_eq!(strip_null_chars(&s).as_ref(), r#"{"a":"xy","b":"ok"}"#);
     }
 }

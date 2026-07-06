@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, type Script } from '$lib/gen'
+	import { ScriptService, type Script, type ScriptLang } from '$lib/gen'
 	import { resource } from 'runed'
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -8,12 +8,15 @@
 	import { formatAssetKind, type AssetWithAltAccessType } from '$lib/components/assets/lib'
 	import {
 		AlertTriangle,
+		ArrowUpRight,
 		Code2,
 		ExternalLink,
 		GitBranch,
+		GitFork,
 		Loader2,
 		PanelRightClose,
 		Save,
+		SquareFunction,
 		Trash2,
 		X,
 		Pencil
@@ -31,11 +34,13 @@
 		type PipelineAnnotations
 	} from './parsePipelineAnnotations'
 	import ColumnLineageTrace from './ColumnLineageTrace.svelte'
+	import { extractDraftMacros } from './resolveGraph'
 	import { assetColumnNodes, type ColumnLineageGraph } from './columnLineageGraph'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
 	import DucklakeAssetPanel from './DucklakeAssetPanel.svelte'
+	import { notifyContractWarnings, type SchemaContractGraphContext } from './schemaContracts'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
@@ -144,6 +149,15 @@
 		// `replace` producer). Forwarded to the Schema tab: version history when
 		// true, a single fixed-schema view when false. Defaults to true (unknown).
 		schemaCanEvolve?: boolean
+		// Fork workspaces: data-environment state of the selected ducklake asset
+		// ('fork' = materialized here, 'deferred' = reads the parent's current
+		// data). Pulled from the graph node by the parent page, like
+		// `schemaCanEvolve`. Undefined outside forks.
+		selectionForkMaterialization?: 'fork' | 'deferred'
+		// Producer-side facts for the editor's live schema-contract diagnostics
+		// (ignore suppression + scd2 `_current` fallback), built by the page from
+		// the resolved graph and forwarded to ScriptEditor.
+		schemaContractContext?: SchemaContractGraphContext
 		// Bumped by the parent after dispatching a run so the runs panel
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
@@ -231,6 +245,14 @@
 		// preview only — the client orchestrates the chain). Unset on the deployed
 		// pane, whose single run already cascades via the backend dispatcher.
 		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Persisted run-form args for the open data-upload entry (its staged
+		// S3Object), so re-opening the node restores the picked file.
+		runFormInitialArgs?: Record<string, any>
+		// Emitted when the run form's args (or validity) change (read-only
+		// PipelineScriptView OR the edit-mode ScriptEditor test form), so the page
+		// can persist a data-upload entry's staged input (drives node readiness).
+		// `isValid` is the full-schema validity, not just "file present".
+		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
 	}
 	let {
 		selection,
@@ -252,6 +274,8 @@
 		selectionProducers = [],
 		selectionColumnGraph,
 		schemaCanEvolve = true,
+		selectionForkMaterialization = undefined,
+		schemaContractContext = undefined,
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
@@ -269,7 +293,9 @@
 		onRequestEdit,
 		canRunByPath = false,
 		onRunByPath,
-		onRunCascadeByPath
+		onRunCascadeByPath,
+		runFormInitialArgs,
+		onRunFormArgsChange
 	}: Props = $props()
 
 	let readOnly = $derived(mode !== 'edit')
@@ -447,6 +473,31 @@
 		script = undefined
 	})
 
+	// Data-upload capture (edit mode): the ScriptEditor test form binds `args`, so
+	// mirror it up to the page — that stages a data-upload entry's uploaded /
+	// entered input, driving the node's green "ready" state and seeding the
+	// whole-pipeline run. Reset per script in a pre-effect (before the keyed
+	// ScriptEditor remounts) so switching nodes never leaks one node's input into
+	// the next, seeding from the page's persisted staging so re-opening a node
+	// restores its input. Guarded on the path so a staging round-trip
+	// (emit → page → runFormInitialArgs) doesn't re-seed and loop. The read-only
+	// branch uses PipelineScriptView's own onArgsChange instead.
+	let argsSeedPath: string | undefined = undefined
+	$effect.pre(() => {
+		const p = script?.path
+		if (p === argsSeedPath) return
+		argsSeedPath = p
+		args = runFormInitialArgs ? structuredClone($state.snapshot(runFormInitialArgs)) : {}
+	})
+	// Bound out of ScriptEditor's test-form SchemaForm — full-schema validity of
+	// the edit-mode run form, so the page's readiness check sees whether every
+	// required field (not just the S3 file) is satisfied.
+	let runFormIsValid = $state(true)
+	$effect(() => {
+		if (readOnly || !script) return
+		onRunFormArgsChange?.(script.path, $state.snapshot(args), runFormIsValid)
+	})
+
 	// Persist draft edits back to the parent's drafts Map on transitions
 	// (selection change, pane close), not on every keystroke — a per-key
 	// sync triggered drafts → activeDraft → draftScript → re-clone → emit
@@ -583,8 +634,16 @@
 					triggerAssets: [],
 					nativeTriggers: [],
 					dataTests: [],
-					columnLineage: []
+					columnLineage: [],
+					macros: false,
+					useLibs: []
 				}
+	)
+	// `// macros` library: the defined signatures for the strip above the
+	// source. Regex-light extraction (display only; deploy runs the strict
+	// Rust parser).
+	let macroDefs = $derived(
+		script && liveAnnotations.macros ? extractDraftMacros(script.content ?? '') : []
 	)
 	$effect(() => {
 		// Live-overlay emits are an edit-mode concern: in read-only modes
@@ -654,6 +713,9 @@
 			// same parent").
 			if (typeof newHash === 'string' && newHash) script.hash = newHash
 			sendUserToast(`Saved ${script.path}`)
+			// Authoritative save-time schema-contract check (pipelines gap #2b):
+			// warn-only, post-commit. Fire-and-forget — must never gate the save.
+			notifyContractWarnings(workspace, script.language as ScriptLang, script.content)
 			if (isDraft) {
 				onDraftSaved?.(script.path)
 			} else {
@@ -1046,6 +1108,31 @@
 								     selected snapshot / tab instead of carrying state across. -->
 								{#key selection.path}
 									<div class="flex flex-col h-full overflow-auto">
+										{#if selectionForkMaterialization === 'deferred'}
+											<!-- Fork data environment: this asset has no fork copy yet;
+											     jobs here read the PARENT's live table through a defer
+											     view. Partition grid / history below reflect the (empty)
+											     fork namespace, hence the explicit callout. -->
+											<div
+												class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-300"
+											>
+												<ArrowUpRight size={12} class="shrink-0" />
+												<span class="truncate">
+													Deferred to parent workspace — reads its current data (not
+													snapshot-pinned). Materialize this node in the fork to iterate on it.
+												</span>
+											</div>
+										{:else if selectionForkMaterialization === 'fork'}
+											<div
+												class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300"
+											>
+												<GitFork size={12} class="shrink-0" />
+												<span class="truncate">
+													Materialized in this fork — reads and writes use the fork's isolated
+													namespace; the parent workspace's table is untouched.
+												</span>
+											</div>
+										{/if}
 										{#if selectionColumnGraph && assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path).length > 0}
 											<div class="border-b shrink-0">
 												<ColumnLineageTrace
@@ -1108,20 +1195,27 @@
 			     the legitimate data-upload run form when applicable, and the
 			     same runs panel as the asset branch. -->
 			{#key script.path}
-				<PipelineScriptView
-					{script}
-					{isDraft}
-					canRun={canRunByPath}
-					onRun={onRunByPath}
-					onRunCascade={onRunCascadeByPath}
-					downstreamCount={downstreamSubscribers}
-					{runsRefreshKey}
-					{runsPendingJobId}
-					onRunCompleted={() => {
-						previewRefreshKey += 1
-						onRunCompleted?.()
-					}}
-				/>
+				<div class="flex flex-col h-full">
+					{@render macroLibStrip()}
+					<div class="flex-1 min-h-0">
+						<PipelineScriptView
+							{script}
+							{isDraft}
+							canRun={canRunByPath}
+							onRun={onRunByPath}
+							onRunCascade={onRunCascadeByPath}
+							downstreamCount={downstreamSubscribers}
+							{runsRefreshKey}
+							{runsPendingJobId}
+							initialArgs={runFormInitialArgs}
+							onArgsChange={onRunFormArgsChange}
+							onRunCompleted={() => {
+								previewRefreshKey += 1
+								onRunCompleted?.()
+							}}
+						/>
+					</div>
+				</div>
 			{/key}
 		{:else if script}
 			<!-- Key on path alone, NOT hash: deploying a draft or re-saving turns
@@ -1132,53 +1226,79 @@
 			     remounts while a same-script save doesn't. History is disabled
 			     here, so there's no revert-to-old-hash case needing a reset. -->
 			{#key script.path}
-				<ScriptEditor
-					bind:this={scriptEditorRef}
-					showCaptures={false}
-					noSyncFromGithub
-					requireValidAssets
-					lang={script.language}
-					path={script.path}
-					tag={script.tag}
-					fixedOverflowWidgets={false}
-					previewLayout="bottom"
-					customUi={{
-						previewPanel: {
-							disableHistory: true,
-							disableTracing: true,
-							disableTriggerCaptures: true,
-							disableJsonView: true,
-							// Drop the full args column (most pipeline scripts take
-							// no inputs), render the LogPanel full-width with
-							// logs|result side by side, and float the Test/Cancel
-							// button onto the editor band above. But when the
-							// script *does* declare inputs (e.g. a partitioned
-							// script that needs a `partition` arg to run), show a
-							// compact SchemaForm between the Test button and the
-							// logs so the run can actually be parameterised.
-							hideArgs: true,
-							argsAboveLogs: true,
-							logsResultSideBySide: true,
-							downstreamSubscribers,
-							onBoundedRun: onStartBoundedRun,
-							// Selecting a script node should immediately show
-							// "what happened last time it ran" — pulling the
-							// latest top-level completed job into the preview
-							// pane is far more useful than an empty placeholder.
-							loadLastRunOnMount: true
-						}
-					}}
-					bind:code={script.content}
-					bind:schema={script.schema}
-					bind:assets={liveBodyAssets}
-					bind:inferredColumnLineage={liveColumnLineage}
-					{onTestStateChange}
-					{args}
-				/>
+				<div class="flex flex-col h-full">
+					{@render macroLibStrip()}
+					<div class="flex-1 min-h-0 relative">
+						<ScriptEditor
+							bind:this={scriptEditorRef}
+							showCaptures={false}
+							noSyncFromGithub
+							requireValidAssets
+							{schemaContractContext}
+							lang={script.language}
+							path={script.path}
+							tag={script.tag}
+							fixedOverflowWidgets={false}
+							previewLayout="bottom"
+							customUi={{
+								previewPanel: {
+									disableHistory: true,
+									disableTracing: true,
+									disableTriggerCaptures: true,
+									disableJsonView: true,
+									// Drop the full args column (most pipeline scripts take
+									// no inputs), render the LogPanel full-width with
+									// logs|result side by side, and float the Test/Cancel
+									// button onto the editor band above. But when the
+									// script *does* declare inputs (e.g. a partitioned
+									// script that needs a `partition` arg to run), show a
+									// compact SchemaForm between the Test button and the
+									// logs so the run can actually be parameterised.
+									hideArgs: true,
+									argsAboveLogs: true,
+									logsResultSideBySide: true,
+									downstreamSubscribers,
+									onBoundedRun: onStartBoundedRun,
+									// Selecting a script node should immediately show
+									// "what happened last time it ran" — pulling the
+									// latest top-level completed job into the preview
+									// pane is far more useful than an empty placeholder.
+									loadLastRunOnMount: true
+								}
+							}}
+							bind:code={script.content}
+							bind:schema={script.schema}
+							bind:assets={liveBodyAssets}
+							bind:inferredColumnLineage={liveColumnLineage}
+							{onTestStateChange}
+							bind:args
+							onIsValidChange={(v) => (runFormIsValid = v)}
+						/>
+					</div>
+				</div>
 			{/key}
 		{/if}
 	</div>
 </div>
+
+{#snippet macroLibStrip()}
+	{#if macroDefs.length > 0}
+		<!-- `// macros` library: the defined signatures, always visible above the
+		     source so consumers can see what the lib provides at a glance. -->
+		<div class="shrink-0 px-3 py-1.5 border-b bg-surface-secondary flex items-start gap-2">
+			<SquareFunction size={12} class="shrink-0 mt-0.5 text-violet-600 dark:text-violet-400" />
+			<div class="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs font-mono text-secondary min-w-0">
+				<!-- Index-keyed: a live buffer can transiently hold two defs with
+				     the same name mid-edit, which would crash a name-keyed each. -->
+				{#each macroDefs as m, i (i)}
+					<span class="truncate" title={m.is_table ? 'table macro' : 'scalar macro'}>
+						{m.name}({m.params}){m.is_table ? ' → table' : ''}
+					</span>
+				{/each}
+			</div>
+		</div>
+	{/if}
+{/snippet}
 
 {#if removeOpen}
 	<!-- Single combined modal. Archive is the always-available default;

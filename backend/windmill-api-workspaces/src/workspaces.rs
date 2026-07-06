@@ -184,6 +184,10 @@ pub fn workspaced_service() -> Router {
             post(crate::workspaces_extra::drop_forked_datatable_databases),
         )
         .route(
+            "/drop_forked_ducklake_namespaces",
+            post(crate::workspaces_extra::drop_forked_ducklake_namespaces),
+        )
+        .route(
             "/get_datatable_full_schema",
             post(get_datatable_full_schema),
         )
@@ -449,6 +453,11 @@ struct CreateWorkspaceFork {
     /// forked workspace's datatable config to point to the new database.
     #[serde(default)]
     forked_datatables: Vec<ForkedDatatableInfo>,
+    /// Lakes the user explicitly chose to SHARE with the parent (the fork then reads and
+    /// writes the parent's lake directly). Every lake not listed gets the default isolated
+    /// fork namespace + read-defer.
+    #[serde(default)]
+    shared_ducklakes: Vec<String>,
     /// Create the fork as a persistent dev workspace: the id is not required to carry the
     /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
     #[serde(default)]
@@ -629,11 +638,13 @@ async fn list_pending_invites(
 }
 
 async fn is_premium(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Path(_w_id): Path<String>,
 ) -> JsonResult<bool> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Any workspace member (not just admins) may read whether the workspace is on a paid plan: it's a
+    // single boolean, and the frontend needs it to decide whether to surface premium-gated affordances
+    // (e.g. forking) to non-admin developers too. The `_authed` extractor still enforces membership.
     #[cfg(feature = "cloud")]
     let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
         .await?
@@ -2312,6 +2323,17 @@ async fn edit_ducklake_config(
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
+    // Lake names end up interpolated in `ATTACH 'ducklake://<name>'`,
+    // generated maintenance SQL and the reserved maintenance schedule path
+    // (CHECK-constrained to [\w-]+ segments).
+    for name in new_config.settings.ducklakes.keys() {
+        if !windmill_common::workspaces::is_valid_ducklake_name(name) {
+            return Err(Error::BadRequest(format!(
+                "Invalid ducklake name '{name}': only letters, digits, '_' and '-' are allowed"
+            )));
+        }
+    }
+
     let mut tx = db.begin().await?;
 
     let args_for_audit = format!("{:?}", new_config.settings);
@@ -2326,21 +2348,22 @@ async fn edit_ducklake_config(
     )
     .await?;
 
+    let old_ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT ws.ducklake->'ducklakes' AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(serde_json::Value::Null);
+    let old_ducklakes: HashMap<String, Ducklake> =
+        serde_json::from_value(old_ducklakes).unwrap_or_default();
+
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_ducklakes = sqlx::query_scalar!(
-            r#"
-                SELECT ws.ducklake->'ducklakes' AS ducklake_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_ducklakes: HashMap<String, Ducklake> =
-            serde_json::from_value(old_ducklakes).unwrap_or_default();
         for (name, dl) in new_config.settings.ducklakes.iter() {
             if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
                 let old_dl = old_ducklakes.get(name);
@@ -2358,7 +2381,7 @@ async fn edit_ducklake_config(
         }
     }
 
-    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+    let config: serde_json::Value = serde_json::to_value(&new_config.settings)
         .map_err(|err| Error::internal_err(err.to_string()))?;
 
     sqlx::query!(
@@ -2367,6 +2390,19 @@ async fn edit_ducklake_config(
         &w_id
     )
     .execute(&mut *tx)
+    .await?;
+
+    // Same tx as the settings update: a failed schedule sync/push must fail
+    // the whole save — nothing reconciles a half-applied state later.
+    let tx = windmill_queue::ducklake_maintenance::sync_ducklake_maintenance_schedules(
+        &db,
+        tx,
+        &w_id,
+        &new_config.settings.ducklakes,
+        &old_ducklakes,
+        &username,
+        &email,
+    )
     .await?;
 
     tx.commit().await?;
@@ -3880,6 +3916,24 @@ lazy_static::lazy_static! {
         }
     };
 
+    // Cloud only: how many forks a premium workspace may have per paid (developer) seat.
+    pub static ref MAX_FORKS_PER_SEAT: i64 = std::env::var("MAX_FORKS_PER_SEAT")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|v| *v >= 0)
+        .unwrap_or(5);
+
+    // How deep a fork chain may nest (root = depth 0, a direct fork = depth 1). A general guardrail
+    // for all builds, independent of the cloud per-seat cap: deep fork chains are a footgun and no
+    // real use case needs them. Clamped to [1, 20] so it's always a real limit and can never exceed
+    // the fork-walk recursion backstop (20) that billing/count resolution uses (a chain deeper than
+    // the backstop would truncate and mis-resolve its root).
+    pub static ref MAX_FORK_DEPTH: i64 = std::env::var("MAX_FORK_DEPTH")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .map(|v| v.clamp(1, 20))
+        .unwrap_or(5);
+
 }
 
 async fn create_workspace_require_superadmin() -> String {
@@ -4100,6 +4154,8 @@ async fn clone_workspace_data(
 
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
+    clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
+    clone_asset_usages_and_triggers(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
@@ -4141,6 +4197,9 @@ async fn clone_triggers_and_schedules(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
+    // Managed ducklake-maintenance schedules are excluded: the fork starts
+    // with no ducklake config, so cloned rows could never resolve a lake and
+    // the schedule API refuses mutations under the reserved prefix.
     sqlx::query!(
         r#"INSERT INTO schedule (
             workspace_id, path, edited_by, edited_at, schedule, enabled, script_path,
@@ -4157,9 +4216,10 @@ async fn clone_triggers_and_schedules(
             on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
             summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
             cron_version, description, dynamic_skip, permissioned_as, labels
-        FROM schedule WHERE workspace_id = $2"#,
+        FROM schedule WHERE workspace_id = $2 AND NOT starts_with(path, $3)"#,
         target_workspace_id,
         source_workspace_id,
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
     )
     .execute(&mut **tx)
     .await?;
@@ -4675,6 +4735,68 @@ async fn clone_ci_test_references(
     Ok(())
 }
 
+// DuckDB macro registry + call-site edges are deploy-derived like
+// ci_test_reference: without cloning them, a forked consumer script fails at
+// run time until every macro library is manually redeployed in the fork.
+async fn clone_macro_registry(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO macro_definition (workspace_id, name, provider_path, params, body, is_table_macro)
+         SELECT $2, name, provider_path, params, body, is_table_macro
+         FROM macro_definition WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name)
+         SELECT $2, consumer_path, macro_name
+         FROM macro_usage WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// Asset usage rows and `// on` subscriber triggers are deploy-derived like
+// ci_test_reference / the macro registry: without cloning them the fork's
+// pipeline graph has no asset nodes or lineage edges, and — worse — the asset
+// dispatch cascade never fires in the fork (it reads `script_trigger`), so
+// materializing an upstream node can't trigger its consumers until every
+// script is manually redeployed. `job`-kind usage rows (runtime-detected,
+// ephemeral) are skipped like the graph does.
+async fn clone_asset_usages_and_triggers(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+         SELECT $2, path, kind, usage_access_type, usage_path, usage_kind, columns
+         FROM asset WHERE workspace_id = $1 AND usage_kind IN ('script', 'flow')",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script_trigger (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s)
+         SELECT $2, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s
+         FROM script_trigger WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn clone_flows(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -4779,9 +4901,18 @@ async fn clone_apps(
     .await?;
 
     let mut app_id_mapping: HashMap<i64, i64> = HashMap::new();
+    // Only a raw app's current (last) version has a bundle worth carrying into the fork: bundles exist
+    // only for raw apps, and older versions aren't viewable/runnable (the bundle secret is only ever
+    // minted for `versions.last()`). Copying a bundle for every version of every app is what makes
+    // forking a workspace with many app versions hang — a serial S3 round-trip per version, held inside
+    // the fork transaction. Collect each app's current version here; intersect with raw versions below.
+    let mut latest_version_ids: HashSet<i64> = HashSet::new();
 
     // Clone apps with new IDs
     for app in apps {
+        if let Some(&current_version) = app.versions.last() {
+            latest_version_ids.insert(current_version);
+        }
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -4801,6 +4932,7 @@ async fn clone_apps(
     }
 
     let mut version_id_mapping: HashMap<i64, i64> = HashMap::new();
+    let mut raw_version_ids: HashSet<i64> = HashSet::new();
 
     {
         // Clone app versions
@@ -4816,6 +4948,9 @@ async fn clone_apps(
 
         for version in app_versions {
             if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
+                if version.raw_app {
+                    raw_version_ids.insert(version.id);
+                }
                 let new_version_id = sqlx::query_scalar!(
                     "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
                  VALUES ($1, $2, $3, $4, $5) RETURNING id",
@@ -4833,9 +4968,16 @@ async fn clone_apps(
         }
     }
 
-    // Clone app bundles for raw apps
-    if !version_id_mapping.is_empty() {
-        let old_ids: Vec<i64> = version_id_mapping.keys().copied().collect();
+    // The bundles worth cloning: each raw app's current version (latest ∩ raw). Everything else either
+    // has no bundle (low-code apps) or an unreachable one (older versions), so we don't touch S3 for it.
+    let bundle_version_ids: HashSet<i64> = latest_version_ids
+        .intersection(&raw_version_ids)
+        .copied()
+        .collect();
+
+    // Clone app bundles — only the current version of each raw app (see bundle_version_ids).
+    if !bundle_version_ids.is_empty() {
+        let old_ids: Vec<i64> = bundle_version_ids.iter().copied().collect();
         let bundles = sqlx::query!(
             "SELECT app_version_id, file_type, data FROM app_bundles
              WHERE app_version_id = ANY($1) AND w_id = $2",
@@ -4871,40 +5013,31 @@ async fn clone_apps(
             let object_store = windmill_object_store::get_object_store().await;
             if let Some(os) = object_store {
                 for (&old_version_id, &new_version_id) in &version_id_mapping {
+                    if !bundle_version_ids.contains(&old_version_id) {
+                        continue;
+                    }
                     for file_type in &["js", "css"] {
                         if cloned_from_db.contains(&(old_version_id, file_type.to_string())) {
                             continue;
                         }
-                        let src_path = format!(
-                            "/app_bundles/{}/{}.{}",
-                            source_workspace_id, old_version_id, file_type
-                        );
-                        let get_result = os
-                            .get(&windmill_object_store::object_store_reexports::Path::from(
-                                src_path,
-                            ))
-                            .await;
-                        match get_result {
-                            Ok(result) => {
-                                let data = result.bytes().await.map_err(
-                                    windmill_object_store::object_store_error_to_error,
-                                )?;
-                                let dst_path = format!(
-                                    "/app_bundles/{}/{}.{}",
-                                    target_workspace_id, new_version_id, file_type
-                                );
-                                os.put(
-                                    &windmill_object_store::object_store_reexports::Path::from(
-                                        dst_path.clone(),
-                                    ),
-                                    data.into(),
-                                )
-                                .await
-                                .map_err(
-                                    windmill_object_store::object_store_error_to_error,
-                                )?;
+                        // Prefer a server-side copy (no bytes through the backend). A missing source —
+                        // e.g. a raw app with a js bundle but no css — surfaces as NotFound and is
+                        // skipped. Not every object-store provider supports server-side copy, so fall
+                        // back to download+upload on any other error.
+                        let src_path =
+                            windmill_object_store::object_store_reexports::Path::from(format!(
+                                "/app_bundles/{}/{}.{}",
+                                source_workspace_id, old_version_id, file_type
+                            ));
+                        let dst_path =
+                            windmill_object_store::object_store_reexports::Path::from(format!(
+                                "/app_bundles/{}/{}.{}",
+                                target_workspace_id, new_version_id, file_type
+                            ));
+                        match os.copy(&src_path, &dst_path).await {
+                            Ok(()) => {
                                 tracing::info!(
-                                    "Cloned app bundle from S3: {}.{} -> {}.{}",
+                                    "Cloned app bundle in object store: {}.{} -> {}.{}",
                                     old_version_id,
                                     file_type,
                                     new_version_id,
@@ -4912,12 +5045,39 @@ async fn clone_apps(
                                 );
                             }
                             Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
-                                // No bundle in S3 for this version/type, skip
+                                // No bundle in the object store for this version/type, skip
                             }
-                            Err(e) => {
-                                return Err(
-                                    windmill_object_store::object_store_error_to_error(e),
+                            Err(copy_err) => {
+                                // Provider may not support server-side copy — fall back to get+put.
+                                tracing::warn!(
+                                    "object store copy failed ({copy_err:#}), falling back to get+put for app bundle {}.{}",
+                                    old_version_id, file_type
                                 );
+                                match os.get(&src_path).await {
+                                    Ok(result) => {
+                                        let data = result.bytes().await.map_err(
+                                            windmill_object_store::object_store_error_to_error,
+                                        )?;
+                                        os.put(&dst_path, data.into()).await.map_err(
+                                            windmill_object_store::object_store_error_to_error,
+                                        )?;
+                                        tracing::info!(
+                                            "Cloned app bundle via get+put fallback: {}.{} -> {}.{}",
+                                            old_version_id,
+                                            file_type,
+                                            new_version_id,
+                                            file_type
+                                        );
+                                    }
+                                    Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
+                                        // No bundle for this version/type, skip
+                                    }
+                                    Err(e) => {
+                                        return Err(
+                                            windmill_object_store::object_store_error_to_error(e),
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -5091,10 +5251,12 @@ async fn create_workspace_fork_branch(
     Path(w_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> JsonResult<Vec<Uuid>> {
+    // Pre-check the fork guards before creating any git branch, so we don't leave orphaned branches
+    // behind when the follow-up create_workspace_fork would be rejected anyway.
+    enforce_fork_depth(&db, &w_id, 0).await?;
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on app.windmill.dev"
-        )));
+        enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
     if *DISABLE_WORKSPACE_FORK {
@@ -5266,16 +5428,83 @@ async fn apply_forked_datatable(
     Ok(())
 }
 
+/// Cloud: require the fork/dev's root (billing) workspace be premium; returns the resolved root id.
+#[cfg(feature = "cloud")]
+async fn require_cloud_fork_premium(db: &DB, parent_workspace_id: &str) -> Result<String> {
+    let root =
+        windmill_common::workspaces::get_billing_workspace_id(db, parent_workspace_id).await?;
+    if !windmill_common::workspaces::get_team_plan_status(db, &root)
+        .await?
+        .premium
+    {
+        return Err(Error::BadRequest(
+            "Creating a fork or dev workspace on the cloud requires a paid team plan. Upgrade the workspace first.".to_string(),
+        ));
+    }
+    Ok(root)
+}
+
+/// Cloud: reject if adding `incoming` fork/dev workspaces would push `root`'s family over its per-seat
+/// allotment. `incoming` is the number of workspaces the operation adds to the family — 1 for a plain
+/// create, but `1 + candidate_subtree` for an attach whose candidate already has child forks.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_count(db: &DB, root: &str, incoming: i64) -> Result<()> {
+    let seats = windmill_common::workspaces::count_paid_seats(db, root).await?;
+    let per_seat = *MAX_FORKS_PER_SEAT;
+    // Any premium workspace has at least one paid seat, so floor the seat count at 1.
+    let allowed = seats.max(1) * per_seat;
+
+    let existing = windmill_common::workspaces::count_workspace_forks(db, root).await?;
+    let projected = existing + incoming;
+    if projected > allowed {
+        return Err(Error::BadRequest(format!(
+            "Fork limit reached: this would bring the workspace family to {projected} fork(s), over the cap of {allowed} ({seats} paid seat(s) × {per_seat} per seat). Delete a fork or add seats."
+        )));
+    }
+
+    Ok(())
+}
+
+/// Cloud-only guard for creating a fork/dev workspace. Forks piggyback on the parent's plan (a fork
+/// inherits the root's premium and meters its usage into the root's bill), so forking is limited to
+/// premium workspaces and capped at `MAX_FORKS_PER_SEAT` per paid (developer) seat of the root.
+#[cfg(feature = "cloud")]
+async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()> {
+    let root = require_cloud_fork_premium(db, parent_workspace_id).await?;
+    enforce_cloud_fork_count(db, &root, 1).await
+}
+
+/// General guardrail (all builds): reject creating a fork/dev under `parent` when it would nest deeper
+/// than `MAX_FORK_DEPTH`. `added_subtree_height` is the height of the subtree grafted below the new
+/// node — 0 for a plain fork, or the candidate's own subtree height for an attach.
+async fn enforce_fork_depth(
+    db: &DB,
+    parent_workspace_id: &str,
+    added_subtree_height: i64,
+) -> Result<()> {
+    let parent_depth =
+        windmill_common::workspaces::fork_chain_depth(db, parent_workspace_id).await?;
+    // The new node sits one level below the parent; its deepest descendant adds the grafted height.
+    let resulting_depth = parent_depth + 1 + added_subtree_height;
+    if resulting_depth > *MAX_FORK_DEPTH {
+        return Err(Error::BadRequest(format!(
+            "Fork depth limit reached: forks can be nested at most {} level(s) deep, but this would create a fork at depth {}. Fork from a workspace closer to the root instead.",
+            *MAX_FORK_DEPTH, resulting_depth
+        )));
+    }
+    Ok(())
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
+    enforce_fork_depth(&db, &parent_workspace_id, 0).await?;
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(format!(
-            "Forking workspaces is not available on app.windmill.dev"
-        )));
+        enforce_cloud_fork_cap(&db, &parent_workspace_id).await?;
     }
 
     if nw.is_dev_workspace {
@@ -5289,6 +5518,42 @@ async fn create_workspace_fork(
     // conflict instead of a misleading "maximum number of workspaces" error.
     check_fork_w_id_conflict(&db, &nw.id).await?;
     purge_stale_fork_diff_state(&db, &nw.id).await?;
+    // A previously deleted fork with this id may have left ducklake namespaces behind if its
+    // physical cleanup failed after the delete committed (registry rows are the durable
+    // ledger — no FK, they outlive the workspace). Retry that cleanup now, and refuse to
+    // proceed while any metadata schema still can't be dropped: creating the fork anyway
+    // would silently reattach the deterministic namespace and its stale tables. Data-file
+    // leftovers alone don't block — once the schema is gone they are inert (a deleted fork's
+    // `$res:` storage resource is gone forever, so they may never resolve again), and the
+    // surviving registry row has the next successful same-prefix cleanup sweep them.
+    // `$res:` fallback = the workspace being forked: the deleted fork's resource clones came
+    // from a parent, so the new parent is the natural donor for the retry's credentials.
+    let leftover_issues = crate::workspaces_extra::drop_forked_ducklake_namespaces_impl(
+        &db,
+        &nw.id,
+        Some(&parent_workspace_id),
+    )
+    .await?;
+    let blocking: Vec<&str> = leftover_issues
+        .iter()
+        .filter(|i| i.blocking)
+        .map(|i| i.msg.as_str())
+        .collect();
+    if !blocking.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "a previously deleted workspace with id '{}' left ducklake namespaces that could \
+             not be cleaned up: {}; retry once the catalog is reachable again",
+            nw.id,
+            blocking.join("; ")
+        )));
+    }
+    for i in &leftover_issues {
+        tracing::warn!(
+            "creating fork {}: leftover ducklake cleanup: {}",
+            nw.id,
+            i.msg
+        );
+    }
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -5386,6 +5651,42 @@ async fn create_workspace_fork(
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
 
+    // The settings clone copies the source's ducklake config verbatim — including a parent
+    // fork's own `fork_behavior` stamps. Sharing is a per-fork-creation choice, never
+    // inherited: reset any cloned stamps first, then apply this fork's requested list.
+    sqlx::query!(
+        r#"UPDATE workspace_settings
+           SET ducklake = jsonb_set(ducklake, '{ducklakes}', (
+               SELECT COALESCE(jsonb_object_agg(key, value - 'fork_behavior'), '{}'::jsonb)
+               FROM jsonb_each(ducklake->'ducklakes')
+           ))
+           WHERE workspace_id = $1 AND jsonb_typeof(ducklake->'ducklakes') = 'object'"#,
+        &forked_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Stamp the per-lake ducklake fork choice into the fork's own settings. Only the `shared`
+    // opt-out needs stamping — absent `fork_behavior` already means isolated (the default),
+    // so unlisted lakes and API callers that omit the field stay safe.
+    for lake in &nw.shared_ducklakes {
+        let stamped = sqlx::query_scalar!(
+            r#"UPDATE workspace_settings
+               SET ducklake = jsonb_set(ducklake, ARRAY['ducklakes', $2, 'fork_behavior'], '"shared"')
+               WHERE workspace_id = $1 AND ducklake->'ducklakes' ? $2
+               RETURNING 1 AS "one!""#,
+            &forked_id,
+            lake,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if stamped.is_none() {
+            return Err(Error::BadRequest(format!(
+                "cannot mark ducklake `{lake}` as shared: no such lake in the workspace settings"
+            )));
+        }
+    }
+
     // Lock the parent ("prod") so edits are funneled through this dev workspace.
     let locked_prod = nw.is_dev_workspace && (nw.lock_prod_deploy || nw.lock_prod_forking);
     if locked_prod {
@@ -5409,6 +5710,10 @@ async fn create_workspace_fork(
     )
     .await?;
     tx.commit().await?;
+
+    // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
+    // would bypass ducklake fork isolation for the TTL.
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&forked_id);
 
     if locked_prod {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
@@ -5442,10 +5747,30 @@ async fn attach_dev_workspace(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // Attaching grafts the candidate (and its own fork subtree) under prod, so enforce the general
+    // depth limit on the deepest resulting node.
+    let candidate_height =
+        windmill_common::workspaces::fork_subtree_height(&db, &req.dev_workspace_id).await?;
+    enforce_fork_depth(&db, &prod_w_id, candidate_height).await?;
+
+    // Attaching reparents a workspace under prod (one dev per prod, admin-gated) and it then draws
+    // prod's plan, so hold it to the same premium requirement as creating a fork. Only enforce the
+    // per-seat count when the attach actually adds a new workspace to the family: re-designating a
+    // workspace already under this root as its dev doesn't increase the descendant count.
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        return Err(Error::BadRequest(
-            "Dev workspaces are not available on app.windmill.dev".to_string(),
-        ));
+        let root = require_cloud_fork_premium(&db, &prod_w_id).await?;
+        // Only count against the cap when this attach adds workspaces to the family (candidate not
+        // already under this root). The candidate may itself have child forks, so reserve slots for its
+        // whole incoming subtree (the candidate + its descendants), not just one.
+        if windmill_common::workspaces::get_billing_workspace_id(&db, &req.dev_workspace_id).await?
+            != root
+        {
+            let incoming =
+                1 + windmill_common::workspaces::count_workspace_forks(&db, &req.dev_workspace_id)
+                    .await?;
+            enforce_cloud_fork_count(&db, &root, incoming).await?;
+        }
     }
 
     let dev_w_id = req.dev_workspace_id;
@@ -5563,6 +5888,24 @@ async fn attach_dev_workspace(
     // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
     // so per-workspace job tags route to the prod family immediately rather than after the TTL.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    // Drop the cached ancestor chains too — the workspace existed BEFORE the attach, so a
+    // cached empty chain reads as "not a fork" and its ducklake jobs would write the shared
+    // lake until the TTL. Descendants' chains also gained the new root.
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&dev_w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+    }
+    // Same reparent invalidates the billing-workspace mapping so its usage meters to prod at once. The
+    // candidate can bring its own fork subtree, whose descendants had resolved their (now-stale) root
+    // to the candidate's old family; invalidate them too so they meter to prod without waiting out the
+    // 60s TTL. Their immediate fork->parent links don't move, so the tag-routing cache needs no change.
+    #[cfg(feature = "cloud")]
+    {
+        windmill_common::workspaces::invalidate_billing_workspace_cache(&dev_w_id);
+        for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+            windmill_common::workspaces::invalidate_billing_workspace_cache(&id);
+        }
+    }
 
     if req.lock_prod_deploy || req.lock_prod_forking {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
@@ -6510,6 +6853,17 @@ async fn change_workspace_color(
 }
 
 async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
+    // On cloud, a fork's executions meter against its billing root, so report the root's usage here too;
+    // otherwise the free-execs indicator would show the fork's own (often 0) count while enforcement
+    // applies the root's shared quota. Gated on `*CLOUD_HOSTED` (not just the `cloud` feature, which is
+    // compiled into all EE builds): self-hosted doesn't meter usage this way. Off-fork it resolves to
+    // `w_id` itself anyway.
+    #[cfg(feature = "cloud")]
+    let w_id = if *CLOUD_HOSTED {
+        windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?
+    } else {
+        w_id
+    };
     let usage = sqlx::query_scalar!(
         "
     SELECT usage.usage FROM usage
@@ -7043,6 +7397,27 @@ pub struct WorkspaceComparison {
     pub skipped_comparison: bool,
     pub diffs: Vec<WorkspaceDiffRow>,
     pub summary: CompareSummary,
+    /// Items that exist in the diff but were dropped from `diffs` because they
+    /// are not visible to the caller (excluded from the partial deploy). Split
+    /// by direction: `hidden_ahead` lives in the fork, `hidden_behind` in the
+    /// parent. `by_kind`/`total` are always populated (aggregate, no names);
+    /// `items` (kind+path) is only filled for a caller who is admin of that side
+    /// — never leak the paths of items the ACL is hiding from a regular user.
+    pub hidden_ahead: HiddenItemsSummary,
+    pub hidden_behind: HiddenItemsSummary,
+}
+
+#[derive(Serialize, Default)]
+pub struct HiddenItemsSummary {
+    pub total: usize,
+    pub by_kind: std::collections::BTreeMap<String, usize>,
+    pub items: Vec<HiddenItem>,
+}
+
+#[derive(Serialize)]
+pub struct HiddenItem {
+    pub kind: String,
+    pub path: String,
 }
 
 #[derive(Serialize, Default)]
@@ -7127,6 +7502,8 @@ async fn compare_workspaces(
             skipped_comparison,
             diffs: vec![],
             summary: Default::default(),
+            hidden_ahead: Default::default(),
+            hidden_behind: Default::default(),
         }));
     }
 
@@ -7388,22 +7765,62 @@ async fn compare_workspaces(
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
 
     // Blast-radius guard for the "changes not visible to your user" warning
-    // (which hides the deploy button entirely). The flag is a pure visibility
-    // guarantee — the actual deploy/update is separately authorized against the
-    // target workspace's create/update endpoints — so it must be forced true for
-    // anyone who, as a rule, sees every item on the relevant side (RLS is bypassed
-    // for admins); any diff the visibility filter dropped for them is provably a
-    // stale/phantom row, never a permission gap. Crucially the two sides live in
-    // different workspaces: ahead items are the fork's own changes (gated by the
-    // TARGET/fork admin), behind items physically live in the parent (gated by the
-    // SOURCE/parent admin). A target admin does NOT see the parent side, so it must
-    // not clear the behind flag, and vice versa. `target_admin` already folds in
-    // superadmin; `source_admin` (parent side) ORs it in explicitly.
+    // (which hides the deploy button). The flag is a pure visibility guarantee —
+    // the deploy re-authorizes each item against the target workspace's
+    // create/update endpoints — so it is safe to force true for a caller who sees
+    // every item on BOTH sides, for whom any diff the filter dropped is provably a
+    // stale/phantom row, never a permission gap.
+    //
+    // It must be BOTH sides, not per-side: `filter_visible_diffs` keeps a modified
+    // or conflict row (one that exists in the source AND the fork) only when the
+    // caller can see it on both sides, so an ahead/conflict diff can be dropped for
+    // a source-side visibility gap even when the caller is a fork admin. Gating the
+    // ahead flag on fork-admin alone would then wrongly report "all ahead visible"
+    // and let the UI deploy from an incomplete comparison. So require admin of the
+    // source AND the fork (superadmin satisfies both), which guarantees full
+    // visibility of every item on every side. `fork_authed.is_admin` already folds
+    // in superadmin; `authed.is_admin` (source side) does not, so OR it in.
     let is_super_admin = windmill_common::auth::is_super_admin_email(&db, &authed.email).await?;
-    let target_admin = fork_authed.is_admin;
-    let source_admin = is_super_admin || authed.is_admin;
-    let all_ahead_items_visible = all_ahead_items_visible || target_admin;
-    let all_behind_items_visible = all_behind_items_visible || source_admin;
+    let sees_all_items = is_super_admin || (authed.is_admin && fork_authed.is_admin);
+    let all_ahead_items_visible = all_ahead_items_visible || sees_all_items;
+    let all_behind_items_visible = all_behind_items_visible || sees_all_items;
+
+    // Items dropped by the visibility filter (in confirmed_diffs but not in the
+    // returned visible_diffs). Surface what the partial deploy excludes: aggregate
+    // counts by kind for everyone, but kind+path only to a caller who `sees_all_items`
+    // (superadmin, or admin of the source AND the fork). For them a dropped item is
+    // provably a phantom/stale row, not an ACL-hidden secret, so no path leaks —
+    // fork-admin alone is not enough (a fork-deleted ahead item lives only in the
+    // parent, whose path a non-parent-admin must not see).
+    let visible_keys: HashSet<(&str, &str)> = visible_diffs
+        .iter()
+        .map(|d| (d.kind.as_str(), d.path.as_str()))
+        .collect();
+    let mut hidden_ahead = HiddenItemsSummary::default();
+    let mut hidden_behind = HiddenItemsSummary::default();
+    for d in &confirmed_diffs {
+        if visible_keys.contains(&(d.kind.as_str(), d.path.as_str())) {
+            continue;
+        }
+        if d.ahead > 0 {
+            hidden_ahead.total += 1;
+            *hidden_ahead.by_kind.entry(d.kind.clone()).or_default() += 1;
+            if sees_all_items {
+                hidden_ahead
+                    .items
+                    .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
+            }
+        }
+        if d.behind > 0 {
+            hidden_behind.total += 1;
+            *hidden_behind.by_kind.entry(d.kind.clone()).or_default() += 1;
+            if sees_all_items {
+                hidden_behind
+                    .items
+                    .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
+            }
+        }
+    }
 
     return Ok(Json(WorkspaceComparison {
         all_ahead_items_visible,
@@ -7411,6 +7828,8 @@ async fn compare_workspaces(
         skipped_comparison: false,
         diffs: visible_diffs,
         summary,
+        hidden_ahead,
+        hidden_behind,
     }));
 }
 
@@ -8260,6 +8679,10 @@ struct CloudQuotas {
     apps: QuotaInfo,
     variables: QuotaInfo,
     resources: QuotaInfo,
+    /// Fork/dev workspaces under this workspace's billing root vs the per-seat cap. `limit` is 0 for a
+    /// non-premium root (forking is premium-only). Family-wide: resolves to the billing root, so it
+    /// reads the same whether viewed from the root or one of its forks.
+    forks: QuotaInfo,
 }
 
 async fn get_cloud_quotas(
@@ -8340,12 +8763,32 @@ async fn get_cloud_quotas(
     .await?
     .unwrap_or(0);
 
+    // Fork/dev workspaces vs the per-seat cap, resolved to the billing root. Non-premium roots can't
+    // fork, so their allowance is 0.
+    #[cfg(feature = "cloud")]
+    let forks = {
+        use windmill_common::workspaces::{
+            count_paid_seats, count_workspace_forks, get_billing_workspace_id, get_team_plan_status,
+        };
+        let root = get_billing_workspace_id(&db, &w_id).await?;
+        let used = count_workspace_forks(&db, &root).await?;
+        let limit = if get_team_plan_status(&db, &root).await?.premium {
+            count_paid_seats(&db, &root).await?.max(1) * *MAX_FORKS_PER_SEAT
+        } else {
+            0
+        };
+        QuotaInfo { used, limit, prunable: 0 }
+    };
+    #[cfg(not(feature = "cloud"))]
+    let forks = QuotaInfo { used: 0, limit: 0, prunable: 0 };
+
     Ok(Json(CloudQuotas {
         scripts: QuotaInfo { used: scripts_used, limit: 5000, prunable: scripts_prunable },
         flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
         apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
         variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
         resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+        forks,
     }))
 }
 

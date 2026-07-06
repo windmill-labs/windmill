@@ -574,24 +574,53 @@
 	// formats are produced by this repo's worker (see duckdb_executor.rs); the
 	// derivation is inert (undefined) for every other DisplayResult use.
 	let dataTests = $derived.by(() => {
+		// Both structured shapes carry `[{ test, violating, sample? }]`; the
+		// sample (bounded violating-row rows) may arrive as a JSON string (the
+		// worker keeps it string-typed through the summary row) and is optional
+		// by contract — anything malformed degrades to no sample, never to a
+		// dropped checklist.
+		const normalize = (
+			dt: any
+		): Array<{ test: string; violating: number; sample?: Record<string, any>[] }> | undefined => {
+			if (typeof dt === 'string') {
+				try {
+					dt = JSON.parse(dt)
+				} catch {
+					return undefined
+				}
+			}
+			if (
+				!Array.isArray(dt) ||
+				dt.length === 0 ||
+				!dt.every((x) => x && typeof x.test === 'string' && typeof x.violating === 'number')
+			) {
+				return undefined
+			}
+			return dt.map((x) => {
+				let sample = x.sample
+				if (typeof sample === 'string') {
+					try {
+						sample = JSON.parse(sample)
+					} catch {
+						sample = undefined
+					}
+				}
+				if (!Array.isArray(sample) || !sample.every((r) => r && typeof r === 'object')) {
+					sample = undefined
+				}
+				return { test: x.test, violating: x.violating, sample }
+			})
+		}
 		// Success: structured column on the summary row.
 		const row = Array.isArray(result) ? (result as any)?.[0] : (result as any)
-		let dt = row?.data_tests
-		if (typeof dt === 'string') {
-			try {
-				dt = JSON.parse(dt)
-			} catch {
-				dt = undefined
-			}
-		}
-		if (
-			Array.isArray(dt) &&
-			dt.length > 0 &&
-			dt.every((x) => x && typeof x.test === 'string' && typeof x.violating === 'number')
-		) {
-			return dt as Array<{ test: string; violating: number }>
-		}
-		// Failure: parse the worker's breakdown out of the error message.
+		const fromRow = normalize(row?.data_tests)
+		if (fromRow) return fromRow
+		// Failure: the worker attaches the same structured breakdown (plus
+		// per-failed-test samples) to the error payload.
+		const fromError = normalize((result as any)?.error?.data_tests)
+		if (fromError) return fromError
+		// Failure fallback for results predating the structured error payload:
+		// parse the worker's breakdown out of the error message.
 		const msg = (result as any)?.error?.message
 		if (typeof msg === 'string' && msg.includes('data tests failed on')) {
 			const out: Array<{ test: string; violating: number }> = []

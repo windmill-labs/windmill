@@ -1,4 +1,5 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
+import { usesAnthropicMessagesApi } from './modelConfig'
 
 /**
  * Reasoning effort is provider/model-specific. We never normalize a single
@@ -36,6 +37,20 @@ export function stripLegacyThinkingSuffix(model: string): string {
 function baseModelId(model: string): string {
 	const normalized = model.toLowerCase()
 	return normalized.split('/').pop() ?? normalized
+}
+
+/**
+ * Azure AI Foundry hosts multiple model families under one provider, so reasoning
+ * support follows the underlying model rather than the provider: Claude deployments
+ * reason like the native Anthropic provider (adaptive thinking + `output_config.effort`),
+ * everything else (gpt-5 / o-series) like OpenAI. Resolving to the owning family here
+ * lets the rest of the registry keep its per-family logic unchanged.
+ */
+function reasoningProviderFamily(provider: AIProvider, model: string): AIProvider {
+	if (provider === 'azure_foundry') {
+		return usesAnthropicMessagesApi(provider, model) ? 'anthropic' : 'openai'
+	}
+	return provider
 }
 
 /**
@@ -143,14 +158,16 @@ function anthropicReasoningLevels(model: string): ReasoningEffort[] {
 function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
 	const m = model.toLowerCase()
 	const base = baseModelId(model)
-	switch (provider) {
+	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
 		// Bedrock serves the same Claude models under prefixed ids
 		// (e.g. `us.anthropic.claude-opus-4-6-v1`), so match on the full string.
 		case 'aws_bedrock':
 			// 4.6+ only: Opus 4.5 rejects adaptive thinking (and, on Bedrock,
 			// the whole output_config surface) — live-verified hard 400.
-			return /claude-opus-4-(6|7|8)/.test(m) || /claude-sonnet-4-6/.test(m) || m.includes('fable')
+			return (
+				/claude-opus-4-(6|7|8)/.test(m) || /claude-sonnet-(4-6|5)/.test(m) || m.includes('fable')
+			)
 		case 'openai':
 		case 'azure_openai':
 			return base.startsWith('gpt-5') || /^o\d/.test(base)
@@ -204,16 +221,17 @@ export function getReasoningCapability(provider: AIProvider, model: string): Rea
 	if (!supported) {
 		return { supported: false, levels: [], canDisable: false }
 	}
+	const family = reasoningProviderFamily(provider, bareModel)
 	const levels =
-		provider === 'anthropic' || provider === 'aws_bedrock'
+		family === 'anthropic' || family === 'aws_bedrock'
 			? anthropicReasoningLevels(bareModel)
-			: provider === 'googleai'
+			: family === 'googleai'
 				? geminiReasoningLevels(bareModel)
-				: provider === 'openai' || provider === 'azure_openai'
+				: family === 'openai' || family === 'azure_openai'
 					? openaiReasoningLevels(bareModel)
-					: provider === 'openrouter'
+					: family === 'openrouter'
 						? openrouterReasoningLevels(bareModel)
-						: (PROVIDER_REASONING_LEVELS[provider] ?? ['low', 'medium', 'high'])
+						: (PROVIDER_REASONING_LEVELS[family] ?? ['low', 'medium', 'high'])
 	return { supported, levels, canDisable: canDisableReasoning(provider, bareModel) }
 }
 
@@ -226,7 +244,7 @@ export function getReasoningCapability(provider: AIProvider, model: string): Rea
 function canDisableReasoning(provider: AIProvider, model: string): boolean {
 	const m = model.toLowerCase()
 	const base = baseModelId(model)
-	switch (provider) {
+	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
 		case 'aws_bedrock':
 			// Claude 4.6+ only think when asked, so omission is a real off —
@@ -301,8 +319,8 @@ export const DEEPSEEK_OFF_SENTINEL: ReasoningEffort = 'none'
  * model that reasons *by default* — omitting the field would silently keep
  * the default-on behavior. Undefined means omission is the correct off.
  */
-function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
-	switch (provider) {
+export function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
+	switch (reasoningProviderFamily(provider, model)) {
 		case 'googleai':
 			// Gemini 2.5/3 think by default (dynamic budget / level). The backend
 			// proxy maps 'none' to off on Flash, or the floor on Pro (only

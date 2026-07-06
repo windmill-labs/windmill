@@ -67,6 +67,28 @@ export type FreshnessSpec = {
 	duration: string
 }
 
+// Mirrors backend `parse_duration_secs` (windmill-common assets.rs): a bare
+// integer means seconds, otherwise `<n>` with an `s`/`m`/`h`/`d` suffix
+// (e.g. `30s`, `5m`, `2h`, `1d`). Returns undefined for malformed or
+// non-positive input so a typo'd `// freshness` window fails safe (the chip
+// stays neutral instead of guessing a staleness verdict).
+export function parseDurationSecs(s: string): number | undefined {
+	const t = s.trim()
+	if (!t) return undefined
+	const last = t[t.length - 1]
+	const mult =
+		last === 's' ? 1 : last === 'm' ? 60 : last === 'h' ? 3600 : last === 'd' ? 86400 : undefined
+	const num = (mult !== undefined ? t.slice(0, -1) : t).trim()
+	// `+?`: Rust's i64 parsing accepts an explicit plus sign (`+5m`), so the
+	// mirror must too — divergence here would leave the chip neutral for a
+	// window the deploy path and watchdog honor.
+	if (mult === undefined && !/^\+?\d+$/.test(t)) return undefined
+	if (!/^\+?\d+$/.test(num)) return undefined
+	const secs = Number(num) * (mult ?? 1)
+	if (!Number.isSafeInteger(secs) || secs <= 0 || secs > 2147483647) return undefined
+	return secs
+}
+
 // `// retry <count> [<delay>]` — see backend RetrySpec. Delay is kept as the
 // raw duration string and resolved to seconds at deploy.
 export type RetrySpec = {
@@ -95,6 +117,20 @@ export type MaterializeSpec = {
 	track?: string[]
 	// SCD2 hard-delete-close (`deletes=close`): close absent keys; absent === false
 	closeDeleted?: boolean
+	// `on_schema_change=ignore` opts the produced asset out of downstream
+	// schema-contract warnings (save-time metadata only). Default `warn`;
+	// `fail` is deliberately unrecognized in v1 (saves never hard-block).
+	onSchemaChange?: 'warn' | 'ignore'
+}
+
+// The `<targetPath>_current` SCD2 companion view this managed materialize also
+// produces, or `undefined` when it isn't a managed scd2 target. Mirrors Rust
+// `MaterializeSpec::scd2_current_target`: managed scd2 creates the base table
+// *and* the `_current` view each run; `manual` mode owns its own DDL and creates
+// no companion. The graph surfaces register it as a second write of the producer
+// so a read of the view links back instead of orphaning.
+export function scd2CurrentTargetPath(m: MaterializeSpec): string | undefined {
+	return m.scd2 && !m.manual ? `${m.targetPath}_current` : undefined
 }
 
 // `// data_test <kind> …` — a data-quality assertion run against the
@@ -173,6 +209,12 @@ export type PipelineAnnotations = {
 	dataTests: DataTest[]
 	// `// column <out> <- <src>.<col>[, …]` — accumulating column lineage.
 	columnLineage: ColumnLineage[]
+	// Bare `// macros` (alone on the line, like `// pipeline`) — marks this
+	// DuckDB script as a workspace macro library.
+	macros: boolean
+	// `// use <lib_script_path>` — force-inject the named macro library into
+	// this script's jobs. Accumulating, declaration order, deduped.
+	useLibs: string[]
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -215,7 +257,18 @@ function parseKvOpts(s: string): Map<string, string> {
 function parseAssetSyntax(s: string): PipelineTriggerAsset | undefined {
 	for (const [prefix, kind] of ASSET_PREFIXES) {
 		if (s.startsWith(prefix)) {
-			return { kind, path: s.slice(prefix.length) }
+			let path = s.slice(prefix.length)
+			// Mirror the Rust `parse_asset_syntax` S3 canonicalization: strip all
+			// leading slashes so the SDK object form (`s3:///key`, default
+			// storage) and DuckDB / `// on s3://key` share one asset path, and a
+			// canonical key never starts with `/` (so ref reconstruction
+			// round-trips). Without this the live graph preview would show
+			// disconnected `/key` and `key` nodes. S3-only; leading slashes only,
+			// so Hive-partition keys are untouched.
+			if (kind === 's3object') {
+				path = path.replace(/^\/+/, '')
+			}
+			return { kind, path }
 		}
 	}
 	return undefined
@@ -236,7 +289,8 @@ function parseAssetSyntaxDefault(s: string): PipelineTriggerAsset | undefined {
 // managed mode; a leading `scd2` word is an alias for the `history` flag; the
 // next token is the target asset URI (default-syntax shorthands enabled); the
 // remainder are strategy options (`append` flag, `key=<col>`, `history` flag,
-// `track=<c1,c2,…>`, `deletes=close`). Missing/empty target → undefined (dropped).
+// `track=<c1,c2,…>`, `deletes=close`, `on_schema_change=ignore`). Missing/empty
+// target → undefined (dropped).
 function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 	// One optional leading mode keyword: `manual` (track-only) or `scd2` (an alias
 	// for the `history` flag below).
@@ -276,6 +330,9 @@ function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 	// `deletes=close` (scd2 only) opts into hard-delete-close; any other value
 	// (or absence) keeps the soft-delete default.
 	const closeDeleted = opts.get('deletes') === 'close'
+	// `on_schema_change=ignore` suppresses downstream contract warnings; any
+	// other value (or absence) keeps the `warn` default, fail-safe like `deletes=`.
+	const onSchemaChange = opts.get('on_schema_change') === 'ignore' ? 'ignore' : 'warn'
 	return {
 		targetKind: asset.kind,
 		targetPath: asset.path,
@@ -284,7 +341,8 @@ function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 		uniqueKey,
 		scd2,
 		track,
-		closeDeleted
+		closeDeleted,
+		onSchemaChange
 	}
 }
 
@@ -510,7 +568,9 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		triggerAssets: [],
 		nativeTriggers: [],
 		dataTests: [],
-		columnLineage: []
+		columnLineage: [],
+		macros: false,
+		useLibs: []
 	}
 
 	for (const rawLine of code.split('\n')) {
@@ -527,6 +587,26 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		if (afterPipeline !== undefined) {
 			// Strict — keyword must be alone on the line.
 			if (afterPipeline.trim() === '') out.inPipeline = true
+			continue
+		}
+
+		const afterMacros = consumeKeyword(inner, 'macros')
+		if (afterMacros !== undefined) {
+			// Strict like `pipeline`: keyword alone on the line, so prose such
+			// as `// macros are defined below` never false-positives.
+			if (afterMacros.trim() === '') out.macros = true
+			continue
+		}
+
+		// `// use <lib_script_path>` — accumulating. The argument must be a
+		// single whitespace-free token containing `/` (all script paths do),
+		// so prose like `// use this script to …` is dropped fail-safe.
+		const afterUse = consumeKeyword(inner, 'use')
+		if (afterUse !== undefined) {
+			const path = afterUse.trim()
+			if (path && !/\s/.test(path) && path.includes('/') && !out.useLibs.includes(path)) {
+				out.useLibs.push(path)
+			}
 			continue
 		}
 
