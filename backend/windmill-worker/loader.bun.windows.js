@@ -26,20 +26,21 @@ const p = {
     // Normalize path to forward slashes to match Bun's resolver output on Windows
     const cdirFwd = cdir.replace(/\\/g, "/");
     const cdirPosix = cdirFwd.replace(/^[a-zA-Z]:/, "");
-    // Match either an already-normalized `.ts` specifier OR a bare windmill
-    // relative/workspace import (`./`, `../`, `f/`, `/f/`, `u/`, `/u/`) that has
-    // no extension yet. The extensionless branch is essential on Windows: the
-    // `main.ts` onLoad that would rewrite `./mid` → `./mid.ts` only fires when
-    // its path filter matches bun's resolver output, and the 8.3 short-name
-    // (`RUNNER~1`) vs canonical-path mismatch makes that unreliable — so bare
-    // imports must be resolvable here directly rather than depending on the
-    // rewrite. Bare npm specifiers (no `./` prefix, not `f/`/`u/`) still fall
-    // through to bun's default resolver.
+    // Match either an already-normalized `.ts` specifier OR an *extensionless*
+    // windmill relative/workspace import (`./`, `../`, `f/`, `/f/`, `u/`, `/u/`).
+    // The extensionless branch is essential on Windows: the `main.ts` onLoad that
+    // would rewrite `./mid` → `./mid.ts` only fires when its path filter matches
+    // bun's resolver output, and the 8.3 short-name (`RUNNER~1`) vs canonical-path
+    // mismatch makes that unreliable — so bare imports must be resolvable here
+    // directly rather than depending on the rewrite. The `(?!.*\.[A-Za-z0-9]+$)`
+    // guard keeps extension-bearing relative imports (a package's internal
+    // `./foo.js`/`./x.json` requires) OUT of this resolver so they fall through
+    // to bun's default resolver — a windmill script import is always `.ts` or
+    // extensionless. Bare npm specifiers (no `./` prefix, not `f/`/`u/`) never
+    // match either branch.
     const filterResolve = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!\\.\/_wm_)(?!${cdirFwd}\/main\\.ts)(?!${cdirFwd}\/_wm_)(?!${cdirPosix}\/main\\.ts)(?!${cdirPosix}\/_wm_)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs)(?:.*\\.ts|(?:\\.\\.?\/|\/?f\/|\/?u\/).*)$`
+      `^(?!\\.\/main\\.ts)(?!\\.\/_wm_)(?!${cdirFwd}\/main\\.ts)(?!${cdirFwd}\/_wm_)(?!${cdirPosix}\/main\\.ts)(?!${cdirPosix}\/_wm_)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs)(?:.*\\.ts|(?:\\.\\.?\/|\/?f\/|\/?u\/)(?!.*\\.[A-Za-z0-9]+$).*)$`
     );
-
-    let cdirNodeModules = `${cdirFwd}/node_modules/`;
 
     // Match the entry main.ts against bun's forward-slash resolver output on
     // Windows — raw `cdir` carries backslashes that corrupt the regex, so the
@@ -130,7 +131,13 @@ const p = {
     // Resolve windmill script imports from the file namespace (e.g. from main.ts)
     build.onResolve({ filter: filterResolve }, (args) => {
       const importerFwd = args.importer?.replace(/\\/g, "/") ?? "";
-      if (importerFwd.startsWith(cdirNodeModules)) {
+      // Let bun natively resolve any import originating INSIDE a dependency, so a
+      // package's own relative requires (`./string.js`, extensionless `./foo`)
+      // are never sent to the windmill resolver. Match `/node_modules/` anywhere
+      // rather than a `cdir`-anchored prefix: on Windows `cdir` (canonical, e.g.
+      // `runneradmin`) and the importer path (8.3 short name, e.g. `RUNNER~1`)
+      // disagree, so a prefix check silently fails and dependency imports 404.
+      if (importerFwd.includes("/node_modules/")) {
         return undefined;
       }
       // Check if the import resolves to a local module file (written by
