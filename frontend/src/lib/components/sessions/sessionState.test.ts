@@ -314,10 +314,22 @@ describe('sessionInCurrentFamily', () => {
 		}
 	})
 
-	it('fails open when the session has no workspace or there is no active root', () => {
+	it('fails open only for unbound transient drafts, closed for unbound persisted sessions', () => {
 		const restore = withTwoFamilies('rootA')
 		try {
-			expect(sessionInCurrentFamily(session())).toBe(true)
+			// In-memory draft with no workspace picked yet — follows the user.
+			expect(sessionInCurrentFamily(session({ transient: true }))).toBe(true)
+			// Persisted session with no workspace binding (legacy data) must not
+			// surface in every family.
+			expect(sessionInCurrentFamily(session())).toBe(false)
+		} finally {
+			restore()
+		}
+	})
+
+	it('fails open when there is no active root', () => {
+		const restore = withTwoFamilies('rootA')
+		try {
 			workspaceStore.set(undefined)
 			expect(sessionInCurrentFamily(session({ workspace_id: 'rootB' }))).toBe(true)
 		} finally {

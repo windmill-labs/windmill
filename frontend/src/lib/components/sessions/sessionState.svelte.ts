@@ -224,14 +224,17 @@ function sessionRootId(s: Session): string | undefined {
 	)
 }
 
-// Whether a session belongs to the active workspace's family. Sessions whose
-// root can't be resolved (no workspace bound yet) count as in-family — scoping
-// is a display filter, not an access gate, so unknowns fail open.
+// Whether a session belongs to the active workspace's family. Only in-memory
+// drafts (transient) may lack a root and still count as in-family — they follow
+// the user until a workspace is picked. A persisted session with no workspace
+// binding must fail closed: counting it as in-family would surface it in every
+// family, including freshly created workspaces.
 export function sessionInCurrentFamily(s: Session): boolean {
 	const currentRoot = workspaceRootId(get(workspaceStore) ?? undefined, get(userWorkspaces))
 	if (!currentRoot) return true
 	const root = sessionRootId(s)
-	return root === undefined || root === currentRoot
+	if (root === undefined) return !!s.transient
+	return root === currentRoot
 }
 
 function ensureSessionRootId(s: Session): boolean {
