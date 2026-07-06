@@ -152,6 +152,9 @@
 	let stopSidebarResize: (() => void) | null = null
 
 	function startSidebarResize(e: PointerEvent) {
+		// One drag at a time: ignore a second concurrent pointer (multi-touch on the
+		// handle) so its window listeners can't outlive the first pointer's stop().
+		if (resizingSidebar) return
 		e.preventDefault()
 		const handle = e.currentTarget as HTMLElement
 		// Capture the pointer so events keep flowing to us even when the cursor
