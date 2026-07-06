@@ -219,6 +219,21 @@ fn build_materialized_query(
     for s in plan.setup.iter_mut() {
         *s = substitute(s);
     }
+    // Prepend the `wm_partition(ts)` helper macro for a time-partitioned
+    // materialize so the SELECT can filter to the active slice with
+    // `WHERE wm_partition(<ts_col>) = {partition}`. Runs first (setup precedes
+    // the wrapped SELECT and the write transaction), carries no `{partition}`
+    // token so it's inserted post-substitution, and reads its format from the
+    // same source the resolver stamped the identity with — so they can't drift.
+    if partitioned {
+        if let Some(macro_sql) = ann
+            .partition
+            .as_ref()
+            .and_then(windmill_parser::sql_materialize::wm_partition_macro)
+        {
+            plan.setup.insert(0, macro_sql);
+        }
+    }
     // Deploy (`create_script_internal`) already rejects the invalid SCD2 combos,
     // but preview/test runs reach the executor without a deploy — re-check so a
     // bad combo fails with the same clear message instead of a raw DuckDB error.

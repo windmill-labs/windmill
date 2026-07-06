@@ -187,18 +187,29 @@ Parquet files.
 > (`'2026-07-05T23'`, `'2026-W27'`, `'2026-07'`, `'2026-07-05'`). Only the daily
 > identity happens to be a valid DuckDB DATE/TIMESTAMP literal, so a naive
 > `WHERE ts = TIMESTAMP {partition}` works for daily but raises a `Conversion
-> Error` for hourly/weekly/monthly. The grain-agnostic idiom is
-> `WHERE strftime(ts, '<fmt>') = {partition}` with the same `<fmt>` the resolver
-> builds the identity from (hourly `%Y-%m-%dT%H`, weekly `%G-W%V`, monthly
-> `%Y-%m`, daily `%Y-%m-%d`; custom `format=` overrides these). By construction
+> Error` for hourly/weekly/monthly. Rather than make every author hand-write a
+> `strftime` format that must match the resolver's, the executor injects a
+> convenience macro as the first setup statement of a time-partitioned
+> materialize:
+>
+> ```sql
+> CREATE OR REPLACE TEMP MACRO wm_partition(ts) AS strftime(ts, '<fmt>');
+> ```
+>
+> so the filter is one grain-agnostic line: `WHERE wm_partition(<ts_col>) =
+> {partition}`. The `<fmt>` comes from **one source** —
+> `PartitionKind::default_time_format` in `windmill-parser` (respecting a custom
+> `format=` override) — which the EE resolver *also* reads to stamp the identity,
+> so the macro and `{partition}` can never drift (hourly `%Y-%m-%dT%H`, weekly
+> `%G-W%V`, monthly `%Y-%m`, daily `%Y-%m-%d`). By construction
 > `strftime(ts, fmt)` equals the identity for any row in the slice, so this both
-> parses and buckets the whole partition (not just the exact boundary instant a
-> timestamp cast would match). We deliberately do **not** decouple the
-> substituted text from the identity (e.g. emit `2026-07-05 23:00:00` for
-> hourly): that would silently break the `strftime` idiom, still under-match a
-> `= TIMESTAMP {partition}` comparison to the bucket-start instant, and have no
-> single correct answer for `weekly`/custom formats. The scaffold and the AI
-> pipeline prompt teach the `strftime` form.
+> parses and buckets the whole partition (not just the boundary instant a
+> timestamp cast would match). The macro is timezone-agnostic (it formats `ts` as
+> given, matching the raw-strftime idiom it replaces); when a non-UTC `tz=` is
+> set the author expresses `ts` in that zone. `dynamic` partitions get **no**
+> macro — their identity is a caller-supplied key, so the filter is
+> `WHERE <key_col> = {partition}` directly. The scaffold and the AI pipeline
+> prompt teach the `wm_partition` form.
 
 > Storage: DuckLake writes go to `s3://_default_/` through the windmill S3 proxy
 > (`/api/w/{ws}/s3_proxy`, gated behind the `parquet` + `private` features). The

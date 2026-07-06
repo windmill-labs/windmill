@@ -691,24 +691,16 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			// CREATE TABLE / INSERT, and the target is NOT attached here (the
 			// runtime attaches it).
 			//
-			// Partition-filter guidance: `{partition}` substitutes to the
-			// partition's IDENTITY string, not a timestamp literal. For anything
-			// finer/coarser than daily that string is NOT a valid DuckDB
-			// TIMESTAMP (`2026-07-05T23`, `2026-W27`, `2026-07`), so `= TIMESTAMP
-			// {partition}` errors — only daily happens to parse. Compare with
-			// `strftime` in the same format the runtime builds the identity from,
-			// which buckets correctly for every grain. Kept as a comment because
-			// we don't know the user's timestamp column name.
+			// Partitioned? `{partition}` is the slice's identity string. For a
+			// time grain the runtime injects a `wm_partition(ts)` macro that
+			// buckets a timestamp with that same identity format, so one
+			// grain-agnostic line filters the source to the active slice — no
+			// hand-written strftime format, no `= TIMESTAMP {partition}` cast
+			// (which errors for hourly/weekly/monthly). Kept as a comment because
+			// we don't know the user's timestamp column. See partitioning docs.
 			lines.push(
-				`-- Partitioned table? Filter the source to the active slice — {partition} is the`,
-				`-- identity string, so compare via strftime (works for every time grain; matches`,
-				`-- the whole bucket). Add \`-- partitioned <grain>\` in the header, then e.g.:`,
-				`--   daily    WHERE strftime(<ts_col>, '%Y-%m-%d')   = {partition}`,
-				`--   hourly   WHERE strftime(<ts_col>, '%Y-%m-%dT%H') = {partition}`,
-				`--   weekly   WHERE strftime(<ts_col>, '%G-W%V')      = {partition}`,
-				`--   monthly  WHERE strftime(<ts_col>, '%Y-%m')       = {partition}`,
-				`--   dynamic  WHERE <your_key_col> = {partition}   -- identity is your key, not a ts`,
-				`-- (\`= TIMESTAMP {partition}\` only parses for daily — avoid it.)`,
+				`-- Partitioned? Filter to the active slice (uncomment, set your timestamp column):`,
+				`--   WHERE wm_partition(<ts_col>) = {partition}   -- dynamic grain: WHERE <key_col> = {partition}`,
 				`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 			)
 			break

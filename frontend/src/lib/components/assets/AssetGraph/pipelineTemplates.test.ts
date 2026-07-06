@@ -59,13 +59,12 @@ describe('pipelineTemplates S3 seed/body parity', () => {
 	}
 })
 
-// The `{partition}` token substitutes to the partition IDENTITY string (e.g.
-// `2026-07-05T23`, `2026-W27`, `2026-07`), which is NOT a valid DuckDB
-// TIMESTAMP literal for any sub-day / non-daily grain — so a naive
-// `WHERE ts = TIMESTAMP {partition}` raises a Conversion Error for hourly/
-// weekly/monthly (only daily happens to parse). The scaffold must teach the
-// grain-agnostic `strftime(<ts_col>, '<fmt>') = {partition}` idiom instead, so
-// a user who adds `-- partitioned hourly` never hits that footgun.
+// `{partition}` substitutes to the partition IDENTITY string (e.g. `2026-07-05T23`,
+// `2026-W27`, `2026-07`), which is NOT a valid DuckDB TIMESTAMP literal for any
+// sub-day / non-daily grain — so a naive `WHERE ts = TIMESTAMP {partition}`
+// raises a Conversion Error for hourly/weekly/monthly. The runtime injects a
+// `wm_partition(ts)` macro (format from the same source that stamps the
+// identity), so the scaffold teaches the one grain-agnostic filter line.
 describe('pipelineTemplates materialize partition filter', () => {
 	const materializeBody = () =>
 		generatePipelineDraft({
@@ -76,30 +75,19 @@ describe('pipelineTemplates materialize partition filter', () => {
 			triggers: []
 		})
 
-	it('teaches the strftime idiom for the hourly grain', () => {
+	it('teaches the grain-agnostic wm_partition filter', () => {
 		const body = materializeBody()
-		// The exact hourly format the runtime builds the identity from — a
-		// `TIMESTAMP {partition}` cast on this string errors at runtime.
-		expect(body).toContain('strftime')
-		expect(body).toContain(`strftime(<ts_col>, '%Y-%m-%dT%H') = {partition}`)
+		expect(body).toContain(`WHERE wm_partition(<ts_col>) = {partition}`)
+		// dynamic grain has no timestamp bucket — steer to the raw key.
+		expect(body).toContain(`WHERE <key_col> = {partition}`)
 	})
 
-	it('covers weekly and monthly grains too', () => {
+	it('never scaffolds the naive `TIMESTAMP {partition}` cast, nor a raw strftime format', () => {
 		const body = materializeBody()
-		expect(body).toContain(`strftime(<ts_col>, '%G-W%V')`) // weekly
-		expect(body).toContain(`strftime(<ts_col>, '%Y-%m')`) // monthly
-		expect(body).toContain(`strftime(<ts_col>, '%Y-%m-%d')`) // daily
-	})
-
-	it('never scaffolds the naive `TIMESTAMP {partition}` cast as executable SQL', () => {
-		// The footgun only parses for daily and Conversion-Errors for every
-		// finer/coarser grain. It may appear in an "avoid it" comment, but must
-		// never be emitted as an actual (non-comment) SQL line.
-		const sqlLines = materializeBody()
-			.split('\n')
-			.filter((l) => !l.trimStart().startsWith('--'))
-		for (const line of sqlLines) {
-			expect(line).not.toMatch(/TIMESTAMP\s*\{partition\}/)
-		}
+		// The footgun cast must never appear (comment or SQL) now that the macro
+		// hides the format entirely.
+		expect(body).not.toMatch(/TIMESTAMP\s*\{partition\}/)
+		// No hand-written strftime format to drift from the resolver.
+		expect(body).not.toContain('strftime')
 	})
 })
