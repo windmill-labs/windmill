@@ -95,12 +95,14 @@ describe('pipelineTemplates materialize partition filter', () => {
 describe('pipelineTemplates: auto-derived reads drop the redundant // on', () => {
 	const draft = (
 		input: { kind: 'ducklake' | 's3object' | 'datatable'; path: string } | undefined,
-		triggers: Parameters<typeof generatePipelineDraft>[0]['triggers']
+		triggers: Parameters<typeof generatePipelineDraft>[0]['triggers'],
+		language: ScriptLang = 'duckdb',
+		outputKind: PipelineOutputKind = 'materialize'
 	) =>
 		generatePipelineDraft({
-			language: 'duckdb',
-			outputKind: 'materialize',
-			output: autoOutputAsset('materialize', 'demo', 'duckdb'),
+			language,
+			outputKind,
+			output: autoOutputAsset(outputKind, 'demo', language),
 			input,
 			triggers
 		})
@@ -134,5 +136,25 @@ describe('pipelineTemplates: auto-derived reads drop the redundant // on', () =>
 	it('keeps // on for a native trigger', () => {
 		const body = draft(undefined, [{ kind: 'schedule', path: undefined }])
 		expect(body).toContain('on schedule')
+	})
+
+	it('keeps // on when the body does not read the input (postgres, bash)', () => {
+		// postgres/bash bodies ignore `input`, so dropping `// on` would leave the
+		// script with neither an explicit trigger nor an inferred read → no cascade.
+		const pg = draft(
+			{ kind: 'ducklake', path: 'main/orders' },
+			[{ kind: 'asset', ref: 'ducklake://main/orders' }],
+			'postgresql',
+			'datatable'
+		)
+		expect(pg).toContain('on ducklake://main/orders')
+
+		const bash = draft(
+			{ kind: 's3object', path: 'raw/events.parquet' },
+			[{ kind: 'asset', ref: 's3://raw/events.parquet' }],
+			'bash',
+			's3_object'
+		)
+		expect(bash).toContain('on s3://raw/events.parquet')
 	})
 })

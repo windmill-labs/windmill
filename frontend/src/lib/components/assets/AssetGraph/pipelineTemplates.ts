@@ -346,16 +346,20 @@ function header(ctx: TemplateContext): string {
 		].join('\n')
 	}
 	// A ducklake/s3 read the body performs auto-wires its cascade edge from the
-	// FROM clause, so an explicit `// on` for that same asset is redundant now
-	// that auto-derivation is the default. Drop it for the input the body reads
-	// (a supported kind); keep `// on` for kinds inference can't derive
+	// FROM clause, so an explicit `// on` for that same asset would be redundant
+	// now that auto-derivation is the default. Only drop it when the generated
+	// body actually READS the input: bun/deno/python/duckdb emit an input load,
+	// but postgres/bash/generic bodies (and `data_upload`, which reads the picker
+	// `file` instead) do not — dropping there would leave the script with no
+	// cascade at all. Also keep `// on` for kinds inference can't derive
 	// (datatable/resource/…) and native triggers.
+	const bodyReadsInput = READS_INPUT_LANGS.has(language) && !isDataUpload(triggers)
 	const inputRef = input ? assetUri(input) : undefined
 	const inputAutoDerives = input?.kind === 'ducklake' || input?.kind === 's3object'
 	const lines = triggers.flatMap((t) => {
 		switch (t.kind) {
 			case 'asset':
-				if (inputAutoDerives && t.ref === inputRef) return []
+				if (bodyReadsInput && inputAutoDerives && t.ref === inputRef) return []
 				return [`${p} on ${t.ref}`]
 			default:
 				// Native triggers (incl. schedule): marker-only — the
@@ -412,6 +416,11 @@ function header(ctx: TemplateContext): string {
 function isDataUpload(triggers: DraftTriggerSource[]): boolean {
 	return triggers.some((t) => t.kind === 'data_upload')
 }
+
+// Languages whose generated body reads the `input` asset (an SDK load / SQL
+// FROM), so a ducklake/s3 input auto-derives its cascade and the explicit
+// `// on` can be dropped. postgres/bash/generic bodies ignore `input`.
+const READS_INPUT_LANGS: ReadonlySet<ScriptLang> = new Set(['bun', 'deno', 'python3', 'duckdb'])
 
 function bodyTs(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
