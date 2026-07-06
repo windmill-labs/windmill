@@ -365,7 +365,7 @@
 				No custom skills yet
 			</div>
 		{:else}
-			<div class="rounded-md border divide-y">
+			<div class="rounded-md border divide-y max-h-96 overflow-y-auto">
 				{#each skills as skill (skill.name)}
 					<div class="flex items-center justify-between gap-4 px-3 py-2">
 						<div class="min-w-0">
