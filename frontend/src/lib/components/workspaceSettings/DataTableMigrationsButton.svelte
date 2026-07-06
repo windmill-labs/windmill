@@ -31,11 +31,15 @@
 		workspace,
 		datatable,
 		disabled = false,
+		hideTrigger = false,
 		onSchemaChanged
 	}: {
 		workspace: string
 		datatable: string
 		disabled?: boolean
+		/** Mount the modals without the "Migrations" trigger button, so a caller can
+		 * drive them programmatically via `openMigration` (e.g. the DDL guard). */
+		hideTrigger?: boolean
 		/** Called after a migration run/revert actually changes the data table
 		 * schema, so an open viewer (e.g. the database manager) can refresh. */
 		onSchemaChanged?: () => void
@@ -97,6 +101,15 @@
 	function openList() {
 		listOpen = true
 		loadMigrations()
+	}
+
+	// Open the list modal and the detail view for a specific migration. Used to
+	// jump to a just-created migration from the "See migration" toast action.
+	export async function openMigration(timestamp: number) {
+		listOpen = true
+		await loadMigrations()
+		const m = migrations.find((x) => x.timestamp === timestamp)
+		if (m) openView(m)
 	}
 
 	async function runUpTo(upTo: number | undefined) {
@@ -332,9 +345,17 @@
 	}
 </script>
 
-<Button variant="default" size="sm" {disabled} endIcon={{ icon: ChevronDown }} on:click={openList}>
-	Migrations
-</Button>
+{#if !hideTrigger}
+	<Button
+		variant="default"
+		size="sm"
+		{disabled}
+		endIcon={{ icon: ChevronDown }}
+		on:click={openList}
+	>
+		Migrations
+	</Button>
+{/if}
 
 <Modal2
 	bind:isOpen={listOpen}
@@ -498,6 +519,7 @@
 	{datatable}
 	onCreated={loadMigrations}
 	onClose={() => (newMigrationOpen = false)}
+	onSeeMigration={(m) => openMigration(m.timestamp)}
 />
 
 <Modal2

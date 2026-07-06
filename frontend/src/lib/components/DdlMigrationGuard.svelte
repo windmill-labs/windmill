@@ -2,6 +2,7 @@
 	import { Button } from './common'
 	import Modal2 from './common/modal/Modal2.svelte'
 	import NewDataTableMigrationModal from './workspaceSettings/NewDataTableMigrationModal.svelte'
+	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import { splitSqlStatements, isDdlStatement } from './sqlDdl'
 
 	let { workspace, datatable }: { workspace: string; datatable: string } = $props()
@@ -16,6 +17,9 @@
 	// caller can refresh the schema afterwards.
 	let migrationRan = false
 	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
+	// Triggerless Migrations modal, opened programmatically from the "See migration"
+	// toast action after a migration is created here.
+	let migrationsModal = $state<DataTableMigrationsButton | undefined>(undefined)
 
 	function finishPrompt(choice: Choice) {
 		const r = resolvePrompt
@@ -130,4 +134,7 @@
 	{workspace}
 	{datatable}
 	onClose={handleMigrationClosed}
+	onSeeMigration={(m) => migrationsModal?.openMigration(m.timestamp)}
 />
+
+<DataTableMigrationsButton bind:this={migrationsModal} hideTrigger {workspace} {datatable} />

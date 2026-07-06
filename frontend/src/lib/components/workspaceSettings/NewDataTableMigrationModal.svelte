@@ -7,7 +7,7 @@
 	import Toggle from '../Toggle.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
-	import { WorkspaceService } from '$lib/gen'
+	import { WorkspaceService, type DatatableMigration } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { tick } from 'svelte'
 
@@ -15,7 +15,8 @@
 		workspace,
 		datatable,
 		onCreated,
-		onClose
+		onClose,
+		onSeeMigration
 	}: {
 		workspace: string
 		datatable: string
@@ -25,6 +26,9 @@
 		 * was due to a create (and whether that create was also run) vs a cancel —
 		 * computed synchronously so callers don't depend on onCreated/onClose order. */
 		onClose?: (result: { created: boolean; ran: boolean }) => void
+		/** When set, the success toast gets a "See migration" action that calls this
+		 * with the created migration so the caller can open it in the Migrations modal. */
+		onSeeMigration?: (migration: DatatableMigration) => void
 	} = $props()
 
 	let isOpen = $state(false)
@@ -122,7 +126,13 @@
 			}
 			closeResult = { created: true, ran: run }
 			onCreated?.(run)
-			sendUserToast(run ? 'Migration created and run' : 'Migration created')
+			sendUserToast(
+				run ? 'Migration created and run' : 'Migration created',
+				'success',
+				onSeeMigration
+					? [{ label: 'See migration', callback: () => onSeeMigration?.(created) }]
+					: []
+			)
 			isOpen = false
 		} catch (e: any) {
 			sendUserToast(`Failed to create migration: ${e?.body ?? e?.message ?? e}`, true)
