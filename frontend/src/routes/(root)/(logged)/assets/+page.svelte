@@ -26,7 +26,7 @@
 	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { AlertTriangle, Loader2, SettingsIcon, StarIcon } from 'lucide-svelte'
+	import { AlertTriangle, BookOpen, Loader2, SettingsIcon, StarIcon } from 'lucide-svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
 	import { resource, watch, type ResourceReturn } from 'runed'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
@@ -148,6 +148,11 @@
 			.filter((f) => f.kind === 'asset' && f.path.startsWith(kind))
 			.map((f) => parseFavoriteAsset(f.path))
 	}
+
+	// Per-card width (keyed by title) drives collapsing the header docs button to icon-only
+	// when a card is too narrow to fit the "See documentation" label alongside the gear.
+	let cardWidths = $state<Record<string, number>>({})
+	const CARD_COLLAPSE_WIDTH = 340
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.assets}
@@ -164,7 +169,7 @@
 		/>
 
 		<Section label="All workspace assets" class="mb-20">
-			<div class="flex gap-4">
+			<div class="flex flex-wrap gap-4">
 				{#snippet card(props: {
 					title: string
 					assetKind: AssetKind
@@ -174,20 +179,39 @@
 					favorites?: { table: string; schema?: string; assetName: string; path: string }[]
 					itemExtra?: import('svelte').Snippet<[{ label: string; value: string }]>
 				})}
-					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
-						<div class="flex justify-between border-b">
-							<h3 class="text-sm font-bold mb-4 pt-5 pl-6">{props.title}</h3>
-							<div class="flex items-center h-fit gap-2 mt-4 mr-4">
-								<Button
-									wrapperClasses="h-fit"
-									btnClasses="text-accent"
-									variant="subtle"
-									unifiedSize="sm"
-									href={props.docsHref}
-									target="_blank"
-								>
-									See documentation
-								</Button>
+					<div
+						class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md grow basis-[280px] min-w-0"
+						bind:clientWidth={cardWidths[props.title]}
+					>
+						<div class="flex justify-between border-b gap-2">
+							<h3 class="text-sm font-bold mb-4 pt-5 pl-6 min-w-0 truncate" title={props.title}
+								>{props.title}</h3
+							>
+							<div class="flex items-center h-fit gap-2 mt-4 mr-4 shrink-0">
+								{#if (cardWidths[props.title] ?? Infinity) < CARD_COLLAPSE_WIDTH}
+									<Button
+										wrapperClasses="h-fit"
+										btnClasses="text-accent"
+										variant="subtle"
+										unifiedSize="sm"
+										iconOnly
+										startIcon={{ icon: BookOpen }}
+										href={props.docsHref}
+										target="_blank"
+										title="See documentation"
+									/>
+								{:else}
+									<Button
+										wrapperClasses="h-fit"
+										btnClasses="text-accent"
+										variant="subtle"
+										unifiedSize="sm"
+										href={props.docsHref}
+										target="_blank"
+									>
+										See documentation
+									</Button>
+								{/if}
 								{#if !($userStore?.operator || (!$userStore?.is_admin && !$superadmin))}
 									<Button
 										wrapperClasses="h-fit"
@@ -204,9 +228,11 @@
 						{#if props.data.current?.length}
 							<div class="max-h-96 overflow-y-auto pb-1">
 								{#each props.data.current ?? [] as item}
-									<div class="text-xs py-2 text-primary flex justify-between items-center px-6">
-										{item.label}
-										<div class="flex items-center gap-2">
+									<div
+										class="text-xs py-2 text-primary flex justify-between items-center gap-2 px-6"
+									>
+										<span class="min-w-0 truncate" title={item.label}>{item.label}</span>
+										<div class="flex items-center gap-2 shrink-0">
 											{#if props.itemExtra}
 												{@render props.itemExtra(item)}
 											{/if}
@@ -306,7 +332,7 @@
 		</Section>
 		<Section label="Latest assets used">
 			{#snippet action()}
-				<div class="flex gap-2 grow justify-end">
+				<div class="flex gap-2 grow justify-end min-w-0">
 					<RefreshButton
 						variant="default"
 						onClick={() => assetsQuery.reset()}
