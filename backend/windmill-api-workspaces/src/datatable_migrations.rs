@@ -1054,6 +1054,39 @@ async fn upsert_datatable_migration(
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
+    // Guard against silently rewriting a migration that has already run in the
+    // data table's database: its `_wm_migrations` record would no longer match
+    // its SQL, so a later `migrate up` would skip it and a rollback would run a
+    // `down` that doesn't correspond to what was applied. Only an actual change
+    // to an already-applied migration is blocked; unchanged re-pushes (e.g.
+    // `wmill sync push`) and an unreachable data-table database proceed.
+    let existing = sqlx::query!(
+        "SELECT name, code_up, code_down FROM datatable_migrations \
+         WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+        &w_id,
+        &datatable_name,
+        payload.timestamp,
+    )
+    .fetch_optional(&db)
+    .await?;
+    if let Some(existing) = existing {
+        let unchanged = existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down == payload.code_down;
+        if !unchanged
+            && read_applied_datatable_versions(&db, &w_id, &datatable_name)
+                .await
+                .unwrap_or_default()
+                .contains(&payload.timestamp)
+        {
+            return Err(Error::BadRequest(format!(
+                "Migration {} on data table '{}' has already been applied and cannot be modified. \
+                 Revert it first, or add a new migration instead.",
+                payload.timestamp, datatable_name
+            )));
+        }
+    }
+
     sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
