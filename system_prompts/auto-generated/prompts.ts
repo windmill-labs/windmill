@@ -2756,10 +2756,10 @@ datatable related commands
 - \`datatable migrate\` - manage datatable migrations
   - \`datatable migrate new <name:string>\` - scaffold a new migration (.up.sql / .down.sql files)
     - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
-  - \`datatable migrate up\` - apply all pending migrations to every datatable (or one via --datatable)
-    - \`-d --datatable <datatable:string>\` - Target a specific datatable (default: all datatables in the workspace)
-  - \`datatable migrate down\` - roll back the most recent migration on every datatable (or one via --datatable)
-    - \`-d --datatable <datatable:string>\` - Target a specific datatable (default: all datatables in the workspace)
+  - \`datatable migrate up\` - apply all pending migrations to the main datatable (or one via --datatable)
+    - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
+  - \`datatable migrate down\` - roll back the most recent migration on the main datatable (or one via --datatable)
+    - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
 - \`datatable create [name:string]\` - register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>
   - \`--resource <resource:string>\` - Back the datatable with an existing postgresql resource path instead of the instance database
   - \`--force\` - Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)

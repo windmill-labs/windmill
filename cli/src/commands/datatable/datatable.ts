@@ -55,29 +55,14 @@ function migrateNew(
   createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name);
 }
 
-// Resolve the datatables to operate on: the one passed via --datatable, or every
-// datatable in the workspace when none is given.
-async function resolveDatatables(
-  workspaceId: string,
-  datatable?: string,
-): Promise<string[]> {
-  if (datatable) return [datatable];
-  const items = await wmill.listDataTables({ workspace: workspaceId });
-  return items.map((x) => x.name);
-}
-
 async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-  const targets = await resolveDatatables(workspace.workspaceId, opts.datatable);
-  if (targets.length === 0) {
-    log.info("No datatables in the workspace");
-    return;
-  }
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
   // Reject malformed local migrations (duplicate timestamps, orphan downs) before
   // pushing — the same check `wmill sync push` runs — so a duplicate timestamp
   // can't silently overwrite one migration on upsert.
-  const errors = validateLocalMigrations(new Set(targets));
+  const errors = validateLocalMigrations(new Set([dt]));
   if (errors.length > 0) {
     log.error(
       "Invalid datatable migrations, aborting:\n" +
@@ -85,25 +70,17 @@ async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
     );
     process.exit(1);
   }
-  for (const dt of targets) {
-    // Push any locally-created/edited migration files first (without running
-    // them), so `migrate up` works even before a `wmill sync push`.
-    await pushLocalMigrations(workspace.workspaceId, dt);
-    await runMigrations(workspace.workspaceId, dt);
-  }
+  // Push any locally-created/edited migration files first (without running
+  // them), so `migrate up` works even before a `wmill sync push`.
+  await pushLocalMigrations(workspace.workspaceId, dt);
+  await runMigrations(workspace.workspaceId, dt);
 }
 
 async function migrateDown(opts: GlobalOptions & { datatable?: string }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-  const targets = await resolveDatatables(workspace.workspaceId, opts.datatable);
-  if (targets.length === 0) {
-    log.info("No datatables in the workspace");
-    return;
-  }
-  for (const dt of targets) {
-    await rollbackMigrations(workspace.workspaceId, dt);
-  }
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
+  await rollbackMigrations(workspace.workspaceId, dt);
 }
 
 const migrateCommand = new Command()
@@ -117,20 +94,20 @@ const migrateCommand = new Command()
   .action(migrateNew as any)
   .command(
     "up",
-    "apply all pending migrations to every datatable (or one via --datatable)",
+    "apply all pending migrations to the main datatable (or one via --datatable)",
   )
   .option(
     "-d --datatable <datatable:string>",
-    "Target a specific datatable (default: all datatables in the workspace)",
+    "Target datatable (default: main)",
   )
   .action(migrateUp as any)
   .command(
     "down",
-    "roll back the most recent migration on every datatable (or one via --datatable)",
+    "roll back the most recent migration on the main datatable (or one via --datatable)",
   )
   .option(
     "-d --datatable <datatable:string>",
-    "Target a specific datatable (default: all datatables in the workspace)",
+    "Target datatable (default: main)",
   )
   .action(migrateDown as any);
 
