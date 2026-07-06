@@ -215,6 +215,14 @@ export type PipelineAnnotations = {
 	// `// use <lib_script_path>` — force-inject the named macro library into
 	// this script's jobs. Accumulating, declaration order, deduped.
 	useLibs: string[]
+	// `// mute <asset>` — suppress the auto-derived cascade edge for a read
+	// that would otherwise trigger this script (a lookup / SCD input). Only
+	// asset refs; native trigger kinds are never auto-derived. Accumulating,
+	// deduped.
+	muteAssets: PipelineTriggerAsset[]
+	// `// mute all` — opt out of auto-derivation entirely (explicit `// on`
+	// edges are unaffected).
+	muteAll: boolean
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -570,7 +578,9 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		dataTests: [],
 		columnLineage: [],
 		macros: false,
-		useLibs: []
+		useLibs: [],
+		muteAssets: [],
+		muteAll: false
 	}
 
 	for (const rawLine of code.split('\n')) {
@@ -654,6 +664,27 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 			if (!out.materialize) {
 				const spec = parseMaterializeSpec(afterMaterialize.trim())
 				if (spec) out.materialize = spec
+			}
+			continue
+		}
+
+		// `// mute all` opts out of auto-derived cascade edges entirely;
+		// `// mute <asset>` suppresses the one edge. Only asset refs are
+		// muteable — native trigger kinds are never auto-derived. A complete
+		// word, so prose like `// muted for now` never matches.
+		const afterMute = consumeKeyword(inner, 'mute')
+		if (afterMute !== undefined) {
+			const arg = afterMute.trim()
+			if (arg === 'all') {
+				out.muteAll = true
+			} else {
+				const spec = parseTriggerSpec(arg)
+				if (
+					spec?.kind === 'asset' &&
+					!out.muteAssets.some((a) => a.kind === spec.value.kind && a.path === spec.value.path)
+				) {
+					out.muteAssets.push(spec.value)
+				}
 			}
 			continue
 		}

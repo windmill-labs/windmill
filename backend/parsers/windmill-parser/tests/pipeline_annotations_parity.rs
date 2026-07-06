@@ -53,6 +53,13 @@ struct Expected {
     // `// use <lib_path>` accumulation, declaration order, deduped. Absent === [].
     #[serde(default)]
     use_libs: Vec<String>,
+    // `// mute <asset>` accumulation as `kind:path`, declaration order, deduped.
+    // Absent === [].
+    #[serde(default)]
+    mute: Vec<String>,
+    // `// mute all` marker. Absent === false.
+    #[serde(default)]
+    mute_all: bool,
 }
 
 #[derive(Deserialize)]
@@ -251,5 +258,18 @@ fn pipeline_annotation_fixtures_match() {
 
         assert_eq!(got.macros, f.expected.macros, "{ctx}: macros");
         assert_eq!(got.use_libs, f.expected.use_libs, "{ctx}: use_libs");
+
+        let mute: Vec<String> = got
+            .mute
+            .iter()
+            .filter_map(|t| match t {
+                TriggerSpec::Asset { asset_kind, path, .. } => {
+                    Some(format!("{}:{}", kind_str(*asset_kind), path))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(mute, f.expected.mute, "{ctx}: mute");
+        assert_eq!(got.mute_all, f.expected.mute_all, "{ctx}: mute_all");
     }
 }

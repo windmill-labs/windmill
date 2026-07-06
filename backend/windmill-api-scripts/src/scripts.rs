@@ -45,8 +45,9 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_script_trigger, parse_duration_secs, parse_pipeline_annotations,
-        replace_static_asset_usage, trigger_spec_to_row, AssetUsageKind, TriggerSpec,
+        derive_pipeline_asset_trigger_refs, insert_script_trigger, parse_duration_secs,
+        parse_pipeline_annotations, replace_static_asset_usage, trigger_spec_to_row,
+        AssetUsageKind, ScriptTriggerKind, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -2033,6 +2034,63 @@ async fn create_script_internal<'c>(
             retry_delay_s,
         )
         .await?;
+    }
+
+    // Auto-derived cascade edges: within a `// pipeline`, a read of a ducklake
+    // table or s3 object wires the cascade edge straight from the FROM clause,
+    // so `// on <asset>` is only needed for edges inference can't see (dynamic
+    // SQL) or to carry per-edge opts. `// mute <asset>` / `// mute all` opt out.
+    // Explicit `// on` asset edges (inserted just above) win the dedup — they
+    // carry the per-edge debounce, so a derived row must not shadow them.
+    if in_pipeline && !pipeline_annotations.mute_all {
+        let asset_ref = |spec: &TriggerSpec| {
+            trigger_spec_to_row(spec)
+                .filter(|(k, _)| *k == ScriptTriggerKind::Asset)
+                .map(|(_, r)| r)
+        };
+        let explicit_refs: std::collections::HashSet<String> =
+            pipeline_triggers.iter().filter_map(asset_ref).collect();
+        let muted_refs: std::collections::HashSet<String> = pipeline_annotations
+            .mute
+            .iter()
+            .filter_map(asset_ref)
+            .collect();
+        let derived = derive_pipeline_asset_trigger_refs(
+            effective_assets.as_deref().unwrap_or(&[]),
+            &explicit_refs,
+            &muted_refs,
+            pipeline_annotations.mute_all,
+        );
+        // Derived edges have no per-`// on` opts, so they take the script-level
+        // `// debounce` default and `// retry` policy — same as writing a bare
+        // `// on <asset>` would.
+        let derived_debounce_s = pipeline_debounce_default
+            .as_deref()
+            .and_then(parse_duration_secs);
+        let derived_retry_count = pipeline_annotations
+            .retry
+            .as_ref()
+            .map(|r| r.count.min(i16::MAX as u32) as i16);
+        let derived_retry_delay_s = pipeline_annotations
+            .retry
+            .as_ref()
+            .and_then(|r| r.delay.as_deref())
+            .and_then(parse_duration_secs);
+        for trigger_ref in derived {
+            insert_script_trigger(
+                &mut *tx,
+                &w_id,
+                AssetUsageKind::Script,
+                &ns.path,
+                ScriptTriggerKind::Asset,
+                &trigger_ref,
+                pipeline_join_all,
+                derived_debounce_s,
+                derived_retry_count,
+                derived_retry_delay_s,
+            )
+            .await?;
+        }
     }
 
     // Schedule annotations (`// on schedule`) are marker-only — the binding

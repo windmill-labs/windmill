@@ -12,6 +12,8 @@ const ann = (over: Partial<PipelineAnnotations> = {}): PipelineAnnotations => ({
 	columnLineage: [],
 	macros: false,
 	useLibs: [],
+	muteAssets: [],
+	muteAll: false,
 	...over
 })
 
@@ -36,6 +38,15 @@ const input = (over: Partial<ResolveGraphInput> = {}): ResolveGraphInput => ({
 
 const s3 = (path: string, access_type: 'r' | 'w' | 'rw'): AssetWithAltAccessType =>
 	({ kind: 's3object', path, access_type }) as AssetWithAltAccessType
+
+const duck = (path: string, access_type: 'r' | 'w' | 'rw'): AssetWithAltAccessType =>
+	({ kind: 'ducklake', path, access_type }) as AssetWithAltAccessType
+
+/** kind:path of the unsaved asset-trigger overlays for a runnable. */
+const assetTrigKeys = (r: AssetGraphResponse, path: string): string[] =>
+	r.triggers
+		.filter((t) => t.trigger_kind === 'asset' && t.runnable_path === path && (t as any).unsaved)
+		.map((t) => `${(t as any).asset_kind}:${(t as any).asset_path}`)
 
 describe('resolveGraph', () => {
 	it('passes an empty graph through unchanged', () => {
@@ -222,6 +233,69 @@ describe('resolveGraph', () => {
 		])
 		const r = resolveGraph(input({ drafts, inferredWritesByPath }))
 		expect(r.edges.find((e) => e.asset_path === '/should-not.json')).toBeUndefined()
+	})
+
+	it('open buffer: a ducklake/s3 read auto-derives an unsaved cascade trigger', () => {
+		const liveBodyAssets = {
+			scriptPath: 'f/x/open',
+			assets: [duck('main.orders', 'r'), s3('raw/events', 'r'), duck('main.out', 'w')]
+		}
+		const liveAnnotations = { scriptPath: 'f/x/open', annotations: ann({ inPipeline: true }) }
+		const r = resolveGraph(input({ liveBodyAssets, liveAnnotations }))
+		// The two reads derive edges; the write (main.out) does not (self-edge).
+		expect(assetTrigKeys(r, 'f/x/open').sort()).toEqual([
+			'ducklake:main.orders',
+			's3object:raw/events'
+		])
+	})
+
+	it('open buffer: a read that is also written (rw) does not self-trigger', () => {
+		const liveBodyAssets = { scriptPath: 'f/x/open', assets: [duck('main.self', 'rw')] }
+		const liveAnnotations = { scriptPath: 'f/x/open', annotations: ann({ inPipeline: true }) }
+		const r = resolveGraph(input({ liveBodyAssets, liveAnnotations }))
+		expect(assetTrigKeys(r, 'f/x/open')).toEqual([])
+	})
+
+	it('open buffer: // mute suppresses one derived edge, // mute all suppresses all', () => {
+		const liveBodyAssets = {
+			scriptPath: 'f/x/open',
+			assets: [duck('main.a', 'r'), duck('main.b', 'r')]
+		}
+		const muted = resolveGraph(
+			input({
+				liveBodyAssets,
+				liveAnnotations: {
+					scriptPath: 'f/x/open',
+					annotations: ann({ inPipeline: true, muteAssets: [{ kind: 'ducklake', path: 'main.a' }] })
+				}
+			})
+		)
+		expect(assetTrigKeys(muted, 'f/x/open')).toEqual(['ducklake:main.b'])
+
+		const all = resolveGraph(
+			input({
+				liveBodyAssets,
+				liveAnnotations: {
+					scriptPath: 'f/x/open',
+					annotations: ann({ inPipeline: true, muteAll: true })
+				}
+			})
+		)
+		expect(assetTrigKeys(all, 'f/x/open')).toEqual([])
+	})
+
+	it('open buffer: an explicit // on is not double-emitted as a derived edge', () => {
+		const liveBodyAssets = { scriptPath: 'f/x/open', assets: [duck('main.orders', 'r')] }
+		const liveAnnotations = {
+			scriptPath: 'f/x/open',
+			annotations: ann({
+				inPipeline: true,
+				triggerAssets: [{ kind: 'ducklake', path: 'main.orders' }]
+			})
+		}
+		const r = resolveGraph(input({ liveBodyAssets, liveAnnotations }))
+		// Exactly one overlay for the table, not one explicit + one derived.
+		expect(assetTrigKeys(r, 'f/x/open')).toEqual(['ducklake:main.orders'])
 	})
 
 	it('open-script live annotations add unsaved triggers, deduped vs persisted', () => {
