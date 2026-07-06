@@ -99,7 +99,7 @@
 		disableFocusTrap = false,
 		openFocus = undefined,
 		escapeBehavior = 'close',
-		enableFlyTransition = true,
+		enableFlyTransition = false,
 		onKeyDown = () => {},
 		onClose = () => {},
 		class: className = '',

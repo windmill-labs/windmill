@@ -172,7 +172,13 @@
 {#if menuItems?.length && !isCollapsed}
 	<div class="inline-flex items-stretch min-w-0 {className}">
 		{@render chipButton(true)}
-		<DropdownV2 items={menuItems} placement="bottom-end" fixedHeight={false} class="shrink-0 flex">
+		<DropdownV2
+			items={menuItems}
+			placement="bottom-end"
+			fixedHeight={false}
+			enableFlyTransition
+			class="shrink-0 flex"
+		>
 			{#snippet buttonReplacement()}
 				<span
 					style={accentStyle ?? ''}

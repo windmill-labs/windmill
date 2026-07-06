@@ -75,7 +75,7 @@
 		customWidth = undefined,
 		customMenu = false,
 		class: classNames = undefined,
-		enableFlyTransition = true,
+		enableFlyTransition = false,
 		size = 'md',
 		btnText = '',
 		btnId = undefined,

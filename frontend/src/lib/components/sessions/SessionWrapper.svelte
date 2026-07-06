@@ -397,6 +397,7 @@
 					<DropdownV2
 						fixedHeight={false}
 						placement="bottom-start"
+						enableFlyTransition
 						items={[
 							{
 								displayName: 'Rename',
@@ -472,6 +473,7 @@
 								placement="bottom-end"
 								usePointerDownOutside
 								disableFocusTrap
+								enableFlyTransition
 								class="inline-flex"
 							>
 								{#snippet trigger()}

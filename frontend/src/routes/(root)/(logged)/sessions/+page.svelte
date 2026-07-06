@@ -614,6 +614,7 @@
 												excludeSelectors=".drawer"
 												disableFocusTrap
 												closeOnOtherPopoverOpen
+												enableFlyTransition
 												bind:isOpen={activeTabPickerOpen}
 												openFocus="[data-workspace-picker-search]"
 												class="flex items-center gap-1.5 min-w-0 cursor-pointer"
@@ -662,6 +663,7 @@
 									disableFocusTrap
 									closeOnOtherPopoverOpen
 									bind:isOpen={newTabOpen}
+									enableFlyTransition
 									openFocus="[data-workspace-picker-search]"
 									class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
 								>
@@ -722,6 +724,7 @@
 											disableFocusTrap
 											closeOnOtherPopoverOpen
 											bind:isOpen={emptyStateNewTabOpen}
+											enableFlyTransition
 											openFocus="[data-workspace-picker-search]"
 										>
 											{#snippet trigger()}

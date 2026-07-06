@@ -716,6 +716,7 @@
 								<DropdownV2
 									fixedHeight={false}
 									placement="bottom-end"
+									enableFlyTransition
 									items={[
 										{
 											displayName: 'Rename',
