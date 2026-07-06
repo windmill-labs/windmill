@@ -33,6 +33,15 @@
 		runsRefreshKey?: any
 		runsPendingJobId?: string | undefined
 		onRunCompleted?: () => void
+		// Seed the run form with previously-staged args (e.g. a data-upload entry
+		// whose S3Object was picked earlier and persisted at the page level). Lets
+		// a re-opened node show the file it already has instead of a blank form.
+		initialArgs?: Record<string, any>
+		// Emitted whenever the run form's args (or validity) change, so the page can
+		// persist a data-upload entry's staged input — that drives the node's
+		// "green / ready" state and seeds the whole-pipeline run. `isValid` is the
+		// full-schema validity (all required fields, not just the S3 file).
+		onArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
 	}
 
 	let {
@@ -44,12 +53,25 @@
 		downstreamCount = 0,
 		runsRefreshKey,
 		runsPendingJobId,
-		onRunCompleted
+		onRunCompleted,
+		initialArgs,
+		onArgsChange
 	}: Props = $props()
 
-	let args = $state<Record<string, any>>({})
+	// Seed once from the persisted args (see initialArgs). Cloned so the run
+	// form mutates its own copy, not the page's stored snapshot.
+	// svelte-ignore state_referenced_locally
+	let args = $state<Record<string, any>>(
+		initialArgs ? structuredClone($state.snapshot(initialArgs)) : {}
+	)
 	let isValid = $state(true)
 	let running = $state(false)
+	// Push args + validity back up so the page can persist a staged data-upload
+	// entry. Reading the deep snapshot tracks nested changes (e.g. an S3Object's
+	// `s3` field, or items added to a required array).
+	$effect(() => {
+		onArgsChange?.(script.path, $state.snapshot(args), isValid)
+	})
 	// Offer "Run + downstream" only when a cascade dispatch is wired (dev preview)
 	// and the script actually has subscribers to fan out to.
 	let hasCascade = $derived(!!onRunCascade && downstreamCount > 0)

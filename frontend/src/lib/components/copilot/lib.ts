@@ -14,7 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { requiresMaxCompletionTokens } from './modelConfig'
+import { requiresMaxCompletionTokens, usesAnthropicMessagesApi } from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
@@ -466,15 +466,19 @@ export async function testKey({
 		throw new Error('Missing a model to test')
 	}
 
-	// Use Anthropic SDK for Anthropic provider
-	if (aiProvider === 'anthropic') {
+	// Providers served through the Anthropic Messages API (native Anthropic, and
+	// Claude deployments on Azure Foundry) must use the Anthropic SDK path rather
+	// than OpenAI chat completions. Mirrors the chat loop's routing so the test
+	// key exercises the same request shape the chat actually sends.
+	if (usesAnthropicMessagesApi(aiProvider, modelToTest)) {
 		await testAnthropicKey({
 			apiKey,
 			workspace,
 			resourcePath,
 			model: modelToTest,
 			abortController,
-			messages
+			messages,
+			aiProvider
 		})
 		return
 	}
@@ -496,7 +500,8 @@ async function testAnthropicKey({
 	resourcePath,
 	model,
 	abortController,
-	messages
+	messages,
+	aiProvider
 }: {
 	apiKey?: string
 	workspace?: string
@@ -504,11 +509,15 @@ async function testAnthropicKey({
 	model: string
 	abortController: AbortController
 	messages: ChatCompletionMessageParam[]
+	aiProvider: AIProvider
 }) {
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
+	// X-Provider must be the real provider (e.g. azure_foundry) so the backend
+	// resolves the right credentials and Anthropic URL; the SDK headers tell it to
+	// route through the Anthropic Messages API.
 	const headers: Record<string, string> = {
-		'X-Provider': 'anthropic',
+		'X-Provider': aiProvider,
 		'anthropic-version': '2023-06-01',
 		'X-Anthropic-SDK': 'true'
 	}

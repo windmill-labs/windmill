@@ -263,6 +263,56 @@ export async function getDraftDiffValues(
 }
 
 /**
+ * Whether a draft's base is stale: the deployed version the draft forked from
+ * no longer matches the current deployed head — a newer version was deployed
+ * after the draft began, so deploying the draft would silently revert it.
+ * Scripts compare the draft's `parent_hash` vs the deployed `hash`; flows the
+ * pinned `version_id` vs the deployed head `version_id`; apps (incl. raw) the
+ * pinned `parent_version` vs the head of `versions`. `r` is the item fetched
+ * with `get_draft=true`; only script/flow/app kinds carry a base pointer.
+ */
+export function draftBaseIsStale(draftKind: UserDraftItemKind, r: any): boolean {
+	const draft = r?.draft
+	if (!draft) return false
+	if (draftKind === 'script') {
+		return !!r.hash && !!draft.parent_hash && draft.parent_hash !== r.hash
+	}
+	if (draftKind === 'flow') {
+		return r.version_id != null && draft.version_id != null && draft.version_id !== r.version_id
+	}
+	const head = Array.isArray(r.versions) ? r.versions[r.versions.length - 1] : undefined
+	return head != null && draft.parent_version != null && draft.parent_version !== head
+}
+
+/** Fetch-and-test wrapper over `draftBaseIsStale` for one draft item. Returns
+ *  false for kinds without a base pointer and on fetch errors (warn, not block). */
+export async function fetchDraftBaseStale(
+	draftKind: UserDraftItemKind,
+	path: string,
+	workspace: string
+): Promise<boolean> {
+	try {
+		if (draftKind === 'script') {
+			const r = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
+			return draftBaseIsStale(draftKind, r)
+		}
+		if (draftKind === 'flow') {
+			const r = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
+			return draftBaseIsStale(draftKind, r)
+		}
+		if (draftKind === 'app' || draftKind === 'raw_app') {
+			// The apps endpoint auto-detects a raw app and overlays its draft.
+			const r = await AppService.getAppByPath({ workspace, path, getDraft: true })
+			return draftBaseIsStale(draftKind, r)
+		}
+		return false
+	} catch (e) {
+		console.error(`Stale-draft check failed for ${draftKind}:${path}`, e)
+		return false
+	}
+}
+
+/**
  * Deploy a script/flow draft's trigger changes the same way the editors do.
  * Scripts and flows can carry `draft_triggers`; the create/update call below
  * deletes the draft row, so without this the saved trigger edits would be

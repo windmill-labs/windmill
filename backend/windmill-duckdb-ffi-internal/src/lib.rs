@@ -148,6 +148,23 @@ fn is_setup_statement(query: &str) -> bool {
         || upper.starts_with("RESET")
         || upper.starts_with("CREATE OR REPLACE SECRET")
         || upper.starts_with("CREATE SECRET")
+        || is_create_temp_macro(&upper)
+}
+
+/// `CREATE [OR REPLACE] TEMP|TEMPORARY MACRO` — a connection-scoped definition
+/// that returns no result set and must be *executed* (not just prepared) during
+/// the prepare/diagnostics pass, so later blocks that call the macro bind
+/// against it instead of failing "function does not exist". Both the materialize
+/// runtime (`wm_partition`) and the workspace-macro splicer inject these ahead
+/// of the query that uses them, so — like ATTACH — they are connection setup,
+/// not user queries (they must not add a `PrepareQueryResult` entry either).
+/// Persistent `CREATE MACRO` (no TEMP) is a real user statement and is excluded.
+fn is_create_temp_macro(upper: &str) -> bool {
+    let norm = upper.split_whitespace().collect::<Vec<_>>().join(" ");
+    norm.starts_with("CREATE TEMP MACRO")
+        || norm.starts_with("CREATE TEMPORARY MACRO")
+        || norm.starts_with("CREATE OR REPLACE TEMP MACRO")
+        || norm.starts_with("CREATE OR REPLACE TEMPORARY MACRO")
 }
 
 /// Returns true if the query is expected to return a result set and can be wrapped with DESCRIBE.
@@ -942,6 +959,165 @@ mod temporal_json_tests {
         assert_eq!(row["st"], serde_json::json!({"a": 1, "b": "x"}));
         assert!(row.get("tstz").is_some());
         assert!(row.get("dec").is_some());
+    }
+}
+
+// Cross-engine parity for the `wm_partition` materialize macro. The macro is
+// `strftime(ts, '<fmt>')` where `<fmt>` is single-sourced in windmill-parser's
+// `PartitionKind::default_time_format` — the SAME format the EE resolver
+// (`partition_ee.rs`) uses (via chrono) to stamp the `{partition}` identity.
+// The macro only works if the *bundled* DuckDB engine renders that format
+// byte-for-byte identically to chrono. Weekly `%G-W%V` (ISO year/week) is the
+// one that can diverge at a year boundary, so it's exercised head-on here — a
+// gap a pure-Rust unit test can't reach.
+#[cfg(test)]
+mod wm_partition_parity_tests {
+    use super::*;
+
+    // Mirror of windmill-parser `PartitionKind::default_time_format`.
+    const FORMATS: &[&str] = &["%Y-%m-%d", "%Y-%m-%dT%H", "%G-W%V", "%Y-%m"];
+
+    fn scalar_str(conn: &duckdb::Connection, sql: &str) -> String {
+        let mut stmt = conn.prepare(sql).unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        row_string(rows.next().unwrap().unwrap())
+    }
+    fn row_string(row: &Row) -> String {
+        row.get::<usize, String>(0).unwrap()
+    }
+
+    #[test]
+    fn duckdb_strftime_matches_chrono_for_every_grain_format() {
+        use chrono::NaiveDate;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        // A normal instant, two same-hour instants, and ISO-week year boundaries
+        // where chrono's and DuckDB's ISO rules must agree: 2026-01-01 (Thu) is
+        // in 2026-W01 and makes 2026 a 53-week ISO year, so 2027-01-01 (Fri)
+        // belongs to 2026-W53; 2023-01-01 (Sun) → 2022-W52; 2021-01-03 (Sun) →
+        // 2020-W53.
+        let instants = [
+            (2026, 7, 5, 23, 10, 0),
+            (2026, 7, 5, 23, 55, 0),
+            (2026, 1, 1, 0, 0, 0),
+            (2027, 1, 1, 0, 0, 0),
+            (2023, 1, 1, 0, 0, 0),
+            (2021, 1, 3, 23, 59, 0),
+            (2020, 12, 31, 12, 0, 0),
+        ];
+        for (y, mo, d, h, mi, s) in instants {
+            let dt = NaiveDate::from_ymd_opt(y, mo, d)
+                .unwrap()
+                .and_hms_opt(h, mi, s)
+                .unwrap();
+            let ts_lit = dt.format("%Y-%m-%d %H:%M:%S").to_string();
+            for fmt in FORMATS {
+                let chrono_val = dt.format(fmt).to_string();
+                let duck = scalar_str(
+                    &conn,
+                    &format!("SELECT strftime(TIMESTAMP '{ts_lit}', '{fmt}')"),
+                );
+                assert_eq!(
+                    duck, chrono_val,
+                    "DuckDB strftime disagrees with chrono for {ts_lit} / {fmt}"
+                );
+            }
+        }
+        // Explicit year-boundary pin: guards against BOTH engines drifting the
+        // same way (2027-01-01 is ISO week 53 of 2026).
+        assert_eq!(
+            scalar_str(&conn, "SELECT strftime(TIMESTAMP '2027-01-01', '%G-W%V')"),
+            "2027-01-01"
+                .parse::<chrono::NaiveDate>()
+                .unwrap()
+                .format("%G-W%V")
+                .to_string()
+        );
+        assert_eq!(
+            scalar_str(&conn, "SELECT strftime(TIMESTAMP '2027-01-01', '%G-W%V')"),
+            "2026-W53"
+        );
+    }
+
+    #[test]
+    fn temp_macro_is_classified_as_setup() {
+        // The macro the executor injects, plus whitespace/keyword variants the
+        // workspace-macro splicer can emit.
+        assert!(is_setup_statement(
+            "CREATE OR REPLACE TEMP MACRO wm_partition(ts) AS strftime(ts, '%Y-%m-%dT%H')"
+        ));
+        assert!(is_setup_statement("  create temp macro foo(x) as x + 1"));
+        assert!(is_setup_statement("CREATE TEMPORARY MACRO foo(x) AS x"));
+        assert!(is_setup_statement(
+            "CREATE OR REPLACE\n  TEMPORARY MACRO foo(x) AS x"
+        ));
+        // Persistent (non-TEMP) macros are real user statements, not setup.
+        assert!(!is_setup_statement(
+            "CREATE OR REPLACE MACRO safe_div(a, b) AS a / b"
+        ));
+        assert!(!is_setup_statement("CREATE MACRO foo(x) AS x"));
+    }
+
+    #[test]
+    fn prepare_pass_binds_consumer_only_when_macro_runs_as_setup() {
+        // Mirror prepare_duckdb_internal's per-block contract: setup statements
+        // are EXECUTED, everything else is only prepared. A block that calls
+        // wm_partition binds at prepare time, so it resolves only if the macro
+        // block already ran as setup.
+        let consumer = "SELECT wm_partition(TIMESTAMP '2026-07-05 23:10:00') AS p";
+        let macro_stmt =
+            "CREATE OR REPLACE TEMP MACRO wm_partition(ts) AS strftime(ts, '%Y-%m-%dT%H')";
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        for block in [macro_stmt, consumer] {
+            if is_setup_statement(block) {
+                conn.execute_batch(block).unwrap();
+            } else {
+                conn.prepare(block)
+                    .expect("consumer must prepare once the macro ran as setup");
+            }
+        }
+
+        // Guard: if the macro were NOT setup (the bug), the consumer's prepare
+        // fails "function does not exist" — proving the classification matters.
+        let fresh = duckdb::Connection::open_in_memory().unwrap();
+        assert!(
+            fresh.prepare(consumer).is_err(),
+            "consumer must fail to prepare when wm_partition was never created"
+        );
+    }
+
+    #[test]
+    fn wm_partition_macro_buckets_whole_slice_and_naive_cast_errors() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        // Exactly the statement the executor injects for an hourly materialize.
+        conn.execute_batch(
+            "CREATE OR REPLACE TEMP MACRO wm_partition(ts) AS strftime(ts, '%Y-%m-%dT%H');",
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t(ts TIMESTAMP); INSERT INTO t VALUES \
+             (TIMESTAMP '2026-07-05 23:10:00'), (TIMESTAMP '2026-07-05 23:55:00'), \
+             (TIMESTAMP '2026-07-05 22:30:00'), (TIMESTAMP '2026-07-06 00:05:00');",
+        )
+        .unwrap();
+        // Filtering with the injected macro against the identity string selects
+        // the WHOLE hour bucket (both 23:10 and 23:55) — not just the boundary
+        // instant a `= TIMESTAMP {partition}` cast could ever match.
+        let n = scalar_str(
+            &conn,
+            "SELECT count(*)::VARCHAR FROM t WHERE wm_partition(ts) = '2026-07-05T23'",
+        );
+        assert_eq!(n, "2");
+        // The footgun the macro exists to avoid: the weekly/monthly identity
+        // strings are not valid TIMESTAMP literals, so the naive cast errors.
+        assert!(
+            conn.execute_batch("SELECT TIMESTAMP '2026-W27';").is_err(),
+            "expected `TIMESTAMP '2026-W27'` to be a Conversion Error"
+        );
+        assert!(
+            conn.execute_batch("SELECT TIMESTAMP '2026-07';").is_err(),
+            "expected `TIMESTAMP '2026-07'` to be a Conversion Error"
+        );
     }
 }
 

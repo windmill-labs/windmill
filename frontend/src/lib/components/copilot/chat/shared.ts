@@ -3,6 +3,7 @@ import type {
 	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
+import type { UserDraftItemKind } from '$lib/gen'
 
 /**
  * Special module IDs used throughout the flow system
@@ -759,6 +760,15 @@ export interface ToolCallbacks {
 		toolId: string,
 		question: UserQuestionDisplay
 	) => Promise<string | undefined>
+	/** Records a workspace item the tool call created/edited/deleted, by its
+	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
+	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */
+	onItemModified?: (itemKind: UserDraftItemKind, storagePath: string) => void
+	/** A tool deployed a draft: the mask entry moves from the draft's storage path
+	 * to the deployed path (they differ for synthetic draft-only storage keys). */
+	onItemDeployed?: (itemKind: UserDraftItemKind, storagePath: string, deployedPath: string) => void
+	/** A tool discarded a draft: the chat's touch on the item is undone. */
+	onItemDiscarded?: (itemKind: UserDraftItemKind, storagePath: string) => void
 }
 
 export function createToolDef(
