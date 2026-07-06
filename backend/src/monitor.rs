@@ -3141,11 +3141,17 @@ const AUTO_PULL_POLL_SLACK_S: i64 = 30;
 async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
     use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
 
+    // Join `workspace` and skip deleted/archived ones: their `workspace_settings`
+    // rows persist (archive is a soft delete, and change_workspace_id leaves the old
+    // id as an archived shell), so an auto-pull repo would otherwise keep polling and
+    // deploying into a dead workspace.
     let rows = sqlx::query!(
-        r#"SELECT workspace_id, git_sync
-           FROM workspace_settings
-           WHERE git_sync IS NOT NULL
-             AND git_sync->'repositories' @> '[{"auto_pull": {"enabled": true}}]'::jsonb"#
+        r#"SELECT ws.workspace_id, ws.git_sync
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id
+           WHERE NOT w.deleted
+             AND ws.git_sync IS NOT NULL
+             AND ws.git_sync->'repositories' @> '[{"auto_pull": {"enabled": true}}]'::jsonb"#
     )
     .fetch_all(db)
     .await?;
