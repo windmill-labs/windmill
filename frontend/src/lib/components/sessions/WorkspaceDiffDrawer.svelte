@@ -39,6 +39,7 @@
 	import { actionFor, badgeOf, type DeployItem } from './sessionDeployModel'
 	import { maskKey } from './modifiedItemsMask'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
+	import { SIDE_BY_SIDE_MIN_WIDTH } from '$lib/components/diffEditorTypes'
 
 	// The session "Edits" surface. Reads a unified item model (the session's
 	// drafts, scoped to what this session edited) and renders a folder tree
@@ -71,8 +72,20 @@
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let searchQuery = $state('')
+	// The user's explicit view choice. The *effective* view can still be inline
+	// when the column is too narrow — see `narrow`/`inlineDiff` below.
 	let diffStyle = $state<'sbs' | 'inline'>('sbs')
-	const inlineDiff = $derived(diffStyle === 'inline')
+
+	// Width of the diff column (the scrolling <main>). The editor sits inside it
+	// behind ~18px of chrome (main padding + card border), so subtract that to
+	// compare against the editor's own SIDE_BY_SIDE_MIN_WIDTH gate. Forcing inline
+	// here (rather than leaving it to each DiffEditor) keeps the toggle honest:
+	// the button shown always matches what renders.
+	const DIFF_COLUMN_CHROME = 18
+	let mainWidth = $state(0)
+	const narrow = $derived(mainWidth > 0 && mainWidth - DIFF_COLUMN_CHROME < SIDE_BY_SIDE_MIN_WIDTH)
+	const inlineDiff = $derived(diffStyle === 'inline' || narrow)
+	const effectiveStyle = $derived<'sbs' | 'inline'>(inlineDiff ? 'inline' : 'sbs')
 
 	// The sidebar's inner right padding must ADAPT to the reserved scrollbar
 	// gutter (platform-dependent: 0 for overlay scrollbars, ~15px classic) so
@@ -849,13 +862,26 @@
 		overflow_y={false}
 	>
 		{#snippet actions()}
-			<ToggleButtonGroup bind:selected={diffStyle} noWFull>
+			<!-- Controlled (not bind:selected): the shown button is the *effective*
+			     view, which is forced to unified when the column is too narrow.
+			     Clicks still record the user's preference in `diffStyle`. -->
+			<ToggleButtonGroup
+				selected={effectiveStyle}
+				onSelected={(v) => {
+					// Ignore the programmatic flip to 'inline' when `narrow` forces it —
+					// only a real click (when not narrow) should change the preference,
+					// so widening again restores the user's choice.
+					if (!narrow) diffStyle = v
+				}}
+				noWFull
+			>
 				{#snippet children({ item })}
 					<ToggleButton
 						value="sbs"
 						label="Side-by-side"
 						icon={SquareSplitHorizontal}
-						tooltip="Side-by-side diff"
+						tooltip={narrow ? 'Side-by-side needs a wider view' : 'Side-by-side diff'}
+						disabled={narrow}
 						iconOnly
 						{item}
 					/>
@@ -921,6 +947,7 @@
 				<main
 					bind:this={mainScrollEl}
 					bind:clientHeight={mainHeight}
+					bind:clientWidth={mainWidth}
 					class="flex-1 min-w-0 overflow-y-auto bg-surface"
 				>
 					<div class="pl-1 pr-3 pt-3 pb-4 flex flex-col gap-3">
