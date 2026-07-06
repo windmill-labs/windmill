@@ -58,3 +58,36 @@ describe('pipelineTemplates S3 seed/body parity', () => {
 		}
 	}
 })
+
+// `{partition}` substitutes to the partition IDENTITY string (e.g. `2026-07-05T23`,
+// `2026-W27`, `2026-07`), which is NOT a valid DuckDB TIMESTAMP literal for any
+// sub-day / non-daily grain — so a naive `WHERE ts = TIMESTAMP {partition}`
+// raises a Conversion Error for hourly/weekly/monthly. The runtime injects a
+// `wm_partition(ts)` macro (format from the same source that stamps the
+// identity), so the scaffold teaches the one grain-agnostic filter line.
+describe('pipelineTemplates materialize partition filter', () => {
+	const materializeBody = () =>
+		generatePipelineDraft({
+			language: 'duckdb',
+			outputKind: 'materialize',
+			output: autoOutputAsset('materialize', 'demo', 'duckdb'),
+			input: { kind: 'ducklake', path: 'main/orders' },
+			triggers: []
+		})
+
+	it('teaches the grain-agnostic wm_partition filter', () => {
+		const body = materializeBody()
+		expect(body).toContain(`WHERE wm_partition(<ts_col>) = {partition}`)
+		// dynamic grain has no timestamp bucket — steer to the raw key.
+		expect(body).toContain(`WHERE <key_col> = {partition}`)
+	})
+
+	it('never scaffolds the naive `TIMESTAMP {partition}` cast, nor a raw strftime format', () => {
+		const body = materializeBody()
+		// The footgun cast must never appear (comment or SQL) now that the macro
+		// hides the format entirely.
+		expect(body).not.toMatch(/TIMESTAMP\s*\{partition\}/)
+		// No hand-written strftime format to drift from the resolver.
+		expect(body).not.toContain('strftime')
+	})
+})

@@ -11,6 +11,7 @@ import type {
 	DataTableTables,
 	DataTableTableSchema,
 	GetDraftForUserResponse,
+	GetOwnDraftResponse,
 	ListDraftsResponse,
 	ScriptLang,
 	UpdateDraftResponse,
@@ -294,8 +295,8 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
 /**
  * In-memory stand-in for the per-user draft backend (`DraftService`). The global
  * AI chat now persists and reads drafts through the backend DB instead of an
- * in-tab `UserDraft` cell, so the eval mocks the three draft endpoints it
- * exercises (`updateDraft` / `getDraftForUser` / `listDrafts`) and keeps the
+ * in-tab `UserDraft` cell, so the eval mocks the draft endpoints it exercises
+ * (`updateDraft` / `getOwnDraft` / `getDraftForUser` / `listDrafts`) and keeps the
  * saved values here, keyed by workspace + draft kind + storage path. Mirrors the
  * semantics of the production unit test's mock in
  * `frontend/src/lib/components/copilot/chat/global/core.test.ts`.
@@ -375,6 +376,20 @@ export function getBenchmarkDraftForUser(input: {
 	const entry = benchmarkDrafts.get(benchmarkDraftKey(input.workspace, input.kind, input.path))
 	if (!entry) {
 		throw Object.assign(new Error(`no draft for "${input.path}"`), { status: 404 })
+	}
+	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
+}
+
+/** Mirror `DraftService.getOwnDraft`: `null` (200) when absent — unlike
+ * `getDraftForUser`, absence is not an error on this route. */
+export function getBenchmarkOwnDraft(input: {
+	workspace: string
+	kind: UserDraftItemKind
+	path: string
+}): GetOwnDraftResponse {
+	const entry = benchmarkDrafts.get(benchmarkDraftKey(input.workspace, input.kind, input.path))
+	if (!entry) {
+		return null
 	}
 	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
 }

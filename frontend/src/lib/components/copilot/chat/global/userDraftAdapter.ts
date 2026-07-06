@@ -1,7 +1,5 @@
 import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
 import { DraftService } from '$lib/gen'
-import { get } from 'svelte/store'
-import { userStore } from '$lib/stores'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
@@ -108,7 +106,7 @@ function clearEphemeralSecretVariableDraftValues(workspace: string): void {
 	secretVariableDraftValues.delete(workspace)
 }
 
-function itemKindFor(
+export function itemKindFor(
 	type: WorkspaceItemType,
 	triggerKind?: TriggerKind
 ): UserDraftItemKind | undefined {
@@ -336,29 +334,26 @@ function getGlobalDraftSlot(
 }
 
 // Current user's persisted draft value (+ records the sync baseline so a later
-// save detects external conflicts). undefined on 404 (no draft at that path).
+// save detects external conflicts). undefined when no draft exists at that path.
+// Uses `getOwnDraft` (not `getDraftForUser`): the latter rejects drawer kinds
+// (schedule/trigger/resource/variable drafts are private to their owner), which
+// would make those drafts write-only here — listed but never readable/deployable.
+// Errors (403/500/network) MUST propagate: swallowing one would make the write
+// merge fall through to the deployed item instead of the user's in-progress
+// draft, silently overwriting their draft-only changes.
 async function fetchBackendDraftValue(
 	workspace: string,
 	itemKind: UserDraftItemKind,
 	storagePath: string
 ): Promise<unknown | undefined> {
-	try {
-		const resp = await DraftService.getDraftForUser({
-			workspace,
-			kind: itemKind as any,
-			path: storagePath,
-			username: get(userStore)?.username
-		})
-		UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, resp.created_at)
-		return resp.value ?? undefined
-	} catch (e) {
-		// 404 = no draft for this owner at that path (the intended empty case).
-		// Anything else (403/500/network) MUST propagate: swallowing it would make
-		// the write merge fall through to the deployed item instead of the user's
-		// in-progress draft, silently overwriting their draft-only changes.
-		if ((e as { status?: number } | null | undefined)?.status === 404) return undefined
-		throw e
-	}
+	const resp = await DraftService.getOwnDraft({
+		workspace,
+		kind: itemKind,
+		path: storagePath
+	})
+	if (!resp) return undefined
+	UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, resp.created_at)
+	return resp.value ?? undefined
 }
 
 // Draft VALUE for a write merge: cell-if-present (the user's freshest in-tab
@@ -377,10 +372,25 @@ export async function readGlobalDraftValue<V>(
 	return (await fetchBackendDraftValue(workspace, itemKind, storagePath)) as V | undefined
 }
 
+// `itemKind` + `storagePath` are the canonical identity of the persisted draft
+// (NOT item.path, which is the friendly display path). Callers use them to record
+// the chat's modified-items mask.
 export type DraftPersistResult =
-	| { status: 'saved'; item: WorkspaceItem }
-	| { status: 'conflict'; item: WorkspaceItem; serverTimestamp?: string }
-	| { status: 'error'; item: WorkspaceItem; message: string }
+	| { status: 'saved'; item: WorkspaceItem; itemKind: UserDraftItemKind; storagePath: string }
+	| {
+			status: 'conflict'
+			item: WorkspaceItem
+			itemKind: UserDraftItemKind
+			storagePath: string
+			serverTimestamp?: string
+	  }
+	| {
+			status: 'error'
+			item: WorkspaceItem
+			itemKind: UserDraftItemKind
+			storagePath: string
+			message: string
+	  }
 
 // Persist a built draft value. `UserDraft.seed` reflects it into an open editor's
 // cell WITHOUT a double-POST (no-ops if no cell; its seedNextWrite suppresses the
@@ -417,14 +427,20 @@ export async function persistGlobalDraft(
 	// the chat "saved" while the DB-backed source of truth was never updated.
 	const saveState = UserDraftDbSyncer.getState({ workspace, itemKind, path: storagePath })
 	if (saveState.state === 'failed') {
-		return { status: 'error', item, message: saveState.failureMessage ?? 'Draft save failed' }
+		return {
+			status: 'error',
+			item,
+			itemKind,
+			storagePath,
+			message: saveState.failureMessage ?? 'Draft save failed'
+		}
 	}
 	const conflict = opts.force
 		? undefined
 		: UserDraftDbSyncer.getConflict({ workspace, itemKind, path: storagePath }).conflict
 	return conflict
-		? { status: 'conflict', item, serverTimestamp: conflict.serverTimestamp }
-		: { status: 'saved', item }
+		? { status: 'conflict', item, itemKind, storagePath, serverTimestamp: conflict.serverTimestamp }
+		: { status: 'saved', item, itemKind, storagePath }
 }
 
 export async function getGlobalDraft(

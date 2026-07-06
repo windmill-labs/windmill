@@ -94,6 +94,7 @@
 	import {
 		JobService,
 		OpenAPI,
+		ScheduleService,
 		ScriptService,
 		type AssetKind,
 		type Script,
@@ -1379,6 +1380,43 @@
 	// Run+downstream affordance against overlapping chains stomping each
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
+
+	// Script path → its schedule's configured args, so a manual "Run pipeline"
+	// launches a schedule-triggered script with the same payload a real tick
+	// would (rather than empty args). Schedule is the only trigger that stores a
+	// static args payload; every other trigger (webhook / http / event kinds /
+	// data_upload) receives its input from the live event or request at dispatch
+	// time — a message, an HTTP body, an uploaded file — which doesn't exist
+	// during a manual run, so there's nothing to default and those scripts run
+	// empty (data_upload being fed its staged file instead, see dataUploadArgs).
+	// Resolved on demand right before a run (schedule args aren't in the graph
+	// response); fail-safe — a schedule we can't fetch just contributes nothing.
+	let scheduleArgsByPath: Record<string, Record<string, any>> = {}
+	async function resolveScheduleArgs(scripts: string[]): Promise<void> {
+		scheduleArgsByPath = {}
+		const ws = $workspaceStore
+		if (!ws) return
+		const runSet = new Set(scripts)
+		// First schedule (with args) per in-run script; dedupe schedule fetches.
+		const wanted = new Map<string, string>() // script path → schedule path
+		for (const t of displayGraph.triggers) {
+			if (t.trigger_kind !== 'schedule' || t.runnable_kind !== 'script') continue
+			if (!runSet.has(t.runnable_path) || wanted.has(t.runnable_path)) continue
+			if ((t as any).path) wanted.set(t.runnable_path, (t as any).path)
+		}
+		await Promise.all(
+			[...wanted].map(async ([scriptPath, schedulePath]) => {
+				try {
+					const sched = await ScheduleService.getSchedule({ workspace: ws, path: schedulePath })
+					if (sched?.args && Object.keys(sched.args).length > 0) {
+						scheduleArgsByPath[scriptPath] = sched.args as Record<string, any>
+					}
+				} catch {
+					// schedule unreadable / deleted — leave its script on empty args
+				}
+			})
+		)
+	}
 	// Launch one pipeline script for the dev-run cascade. Always passes
 	// _wmill_skip_asset_dispatch — the orchestrator owns the whole closure,
 	// so the backend dispatcher must not double-fire the deployed part of a
@@ -1391,6 +1429,12 @@
 		// drafts (same condition as `displayGraph`). Otherwise — View mode with
 		// drafts hidden — a bounded run must execute the *deployed* scripts the
 		// user is looking at, not preview jobs from hidden local drafts.
+		// Default a script's run args to its schedule's stored payload (the only
+		// trigger with static args — see resolveScheduleArgs), then let a
+		// data-upload entry's staged file override. runWholePipeline already
+		// refused to start unless every data-upload entry is staged, so this is
+		// always the intended input.
+		const staged = { ...(scheduleArgsByPath[path] ?? {}), ...(dataUploadArgs[path]?.args ?? {}) }
 		const draft = mode === 'edit' || includeDrafts ? pe.drafts.get(path) : undefined
 		if (draft) {
 			if (!draft.script.content || !draft.script.language) {
@@ -1402,14 +1446,14 @@
 					content: draft.script.content,
 					language: draft.script.language,
 					path,
-					args: { _wmill_skip_asset_dispatch: true }
+					args: { ...staged, _wmill_skip_asset_dispatch: true }
 				}
 			})
 		}
 		return await JobService.runScriptByPath({
 			workspace: $workspaceStore,
 			path,
-			requestBody: { _wmill_skip_asset_dispatch: true }
+			requestBody: { ...staged, _wmill_skip_asset_dispatch: true }
 		})
 	}
 	// Poll a launched cascade job to a terminal state. Modest fixed cadence —
@@ -1456,9 +1500,13 @@
 				true
 			)
 		}
+		// Claim the running-guard BEFORE the first await so a rapid second click
+		// (which reads `cascadeRunningRoot`) can't slip through and double-launch.
 		cascadeRunningRoot = rootPath
 		let rootJobId: string | undefined
 		try {
+			// Seed schedule-triggered members with their configured payload.
+			await resolveScheduleArgs([rootPath, ...closure.nodes])
 			const res = await runCascade({
 				closure,
 				root: rootPath,
@@ -1637,9 +1685,13 @@
 			sendUserToast('No runnable scripts in this selection', true)
 			return
 		}
+		// Claim the running-guard BEFORE the first await so a rapid second click
+		// (which reads `cascadeRunningRoot`) can't slip through and double-launch.
 		cascadeRunningRoot = schedule.roots[0] ?? scripts[0]
 		let firstJobId: string | undefined
 		try {
+			// Seed schedule-triggered roots with their configured payload.
+			await resolveScheduleArgs(schedule.nodes)
 			const res = await runSelection({
 				schedule,
 				launch: async (path) => {
@@ -1679,6 +1731,71 @@
 		}
 	}
 
+	// Staged run-form input for data-upload entry scripts, keyed by path. Lifted
+	// out of the (transient, per-selection) run form so the uploaded/entered data
+	// persists across selection changes — it drives each entry node's green
+	// "ready" state and seeds the whole-pipeline run with that input. `valid` is
+	// the run form's full-schema validity (all required fields satisfied).
+	let dataUploadArgs = $state<Record<string, { args: Record<string, any>; valid: boolean }>>({})
+
+	// An S3Object-shaped value (the file picker writes `{ s3: '<path>' }`).
+	function isS3Object(v: any): boolean {
+		return !!v && typeof v === 'object' && !Array.isArray(v) && 's3' in v
+	}
+	// Whether a staged value carries actual data. Covers the two shapes a
+	// data-upload entry takes: an S3Object (file picker → `{ s3: '<path>' }`) and
+	// a plain required input (e.g. a JSON array pasted into the run form).
+	function hasMeaningfulValue(v: any): boolean {
+		if (v == null) return false
+		if (typeof v === 'string') return v.length > 0
+		if (Array.isArray(v)) return v.length > 0
+		if (typeof v === 'object')
+			return isS3Object(v) ? typeof v.s3 === 'string' && v.s3.length > 0 : Object.keys(v).length > 0
+		return true // numbers / booleans count as provided
+	}
+	// A data-upload entry is ready once the user actually provided its data, not
+	// just opened the form. Two guards: the form's own full-schema `valid` (every
+	// required field — including non-file ones — is satisfied), AND that any
+	// declared S3Object file field actually carries a file (the picker can leave
+	// an empty `{ s3: '' }` on a non-required file field, which `valid` alone
+	// wouldn't catch).
+	function dataUploadReady(path: string): boolean {
+		const staged = dataUploadArgs[path]
+		if (!staged || !staged.valid) return false
+		const values = Object.values(staged.args)
+		const s3s = values.filter(isS3Object)
+		if (s3s.length > 0) return s3s.every(hasMeaningfulValue)
+		return values.some(hasMeaningfulValue)
+	}
+	// Persist the run form's args + validity, but only for data-upload entries —
+	// other run forms (partitioned producers) run their own way and must not be
+	// mistaken for a staged upload. Idempotent: the run form re-emits on every
+	// keystroke/validation pass, so bail when the value is unchanged — otherwise
+	// each emit would reassign `dataUploadArgs`, giving `readyDataUploadPaths` a
+	// fresh Set identity that re-syncs the canvas and re-fires the form's emit
+	// effect (effect_update_depth_exceeded).
+	function stageRunFormArgs(path: string, args: Record<string, any>, valid: boolean) {
+		if (!dataUploadEntryPaths.has(path)) return
+		const prev = dataUploadArgs[path]
+		if (prev && prev.valid === valid && JSON.stringify(prev.args) === JSON.stringify(args)) return
+		dataUploadArgs = { ...dataUploadArgs, [path]: { args, valid } }
+	}
+	// Pipeline scripts that are data-upload entry points (a `data_upload` trigger
+	// in the displayed graph). They can't auto-run — they need an uploaded file
+	// before the pipeline can go (see runWholePipeline's gate + the node's green
+	// state).
+	let dataUploadEntryPaths = $derived(
+		new Set(
+			displayGraph.triggers
+				.filter((t) => t.trigger_kind === 'data_upload' && t.runnable_kind === 'script')
+				.map((t) => t.runnable_path)
+		)
+	)
+	// Of those, the ones with a staged file — drives the green node treatment.
+	let readyDataUploadPaths = $derived(
+		new Set([...dataUploadEntryPaths].filter((p) => dataUploadReady(p)))
+	)
+
 	// Every pipeline-member script, for the always-visible header "Run pipeline"
 	// control. Per-node runs are hover/select-gated on the canvas; this
 	// pipeline-level affordance runs the whole graph without hunting for a root
@@ -1695,6 +1812,21 @@
 	// downstream from every source at once. Reuses the same per-hop launch/poll
 	// and one-cascade-at-a-time guard as the node-level chain runs.
 	async function runWholePipeline() {
+		// Data-upload entries can't auto-run with empty args (they'd run against a
+		// missing S3Object). Require every one to be staged (green) first, and
+		// point the user at the first unready node instead of launching a doomed
+		// run.
+		const unready = allPipelineScripts.filter(
+			(p) => dataUploadEntryPaths.has(p) && !dataUploadReady(p)
+		)
+		if (unready.length > 0) {
+			sendUserToast(
+				`Upload data to ${unready.length} data-upload node${unready.length === 1 ? '' : 's'} first — they must be green before the pipeline can run`,
+				true
+			)
+			openDataUploadRun(unready[0])
+			return
+		}
 		await runBoundedCascade(allPipelineScripts)
 	}
 
@@ -2328,6 +2460,9 @@
 				onDeleteTrigger={mode === 'edit' ? deleteAttachedTrigger : undefined}
 				onOpenWebhook={openWebhookDrawer}
 				onOpenDataUpload={openDataUploadRun}
+				{readyDataUploadPaths}
+				runFormInitialArgs={openScriptPath ? dataUploadArgs[openScriptPath]?.args : undefined}
+				onRunFormArgsChange={stageRunFormArgs}
 				onSelect={handleCanvasSelect}
 				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
 				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
