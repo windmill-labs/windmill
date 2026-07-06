@@ -956,18 +956,21 @@
 											class="sticky top-0 z-30 bg-surface-tertiary rounded-t-md flex items-center gap-2 px-3 py-2 border-b border-transparent"
 										>
 											<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
-											<div class="min-w-0 flex-1">
+											<!-- flex+items-center so the path (a block div, or ExternalEditLink's
+											     inline-flex <a>) is centered by its box against the icon — an inline
+											     <a> would otherwise sit ~2px low on the line-box baseline. -->
+											<div class="min-w-0 flex-1 flex items-center">
 												{#if editUrl}
 													<ExternalEditLink
 														href={editUrl}
 														title={d.displayPath}
-														class="text-xs text-primary font-mono truncate"
+														class="min-w-0 text-xs text-primary font-mono truncate"
 													>
 														<span class="truncate">{d.displayPath}</span>
 													</ExternalEditLink>
 												{:else}
 													<div
-														class="text-xs text-primary font-mono truncate"
+														class="min-w-0 text-xs text-primary font-mono truncate"
 														title={d.displayPath}
 													>
 														{d.displayPath}
