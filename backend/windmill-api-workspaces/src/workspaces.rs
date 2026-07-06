@@ -2828,69 +2828,56 @@ async fn edit_git_sync_repository(
         git_sync_settings.repositories.push(new_config.repository);
     }
 
-    // Create or remove the repo's GitHub webhook to match its auto-pull config
-    // (phase 2). Best-effort: a failure falls back to polling and never fails the
-    // settings save. The hook id/secret it writes are persisted by the UPDATE
-    // below; if that save doesn't commit, the just-created hook is rolled back so a
-    // settings save can never leave an orphaned webhook.
+    // Clean up legacy workspace-level settings if all repos are migrated
+    cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
+
+    // Save the updated configuration first, then reconcile the GitHub webhook to
+    // match it *after* the commit is durable (phase 2). Reconciling before the
+    // commit could leave the DB pointing at a hook that no longer matches if the
+    // save then failed (e.g. a delete on disable); post-commit reconciliation
+    // cannot. The pre-edit webhook id/secret are carried over above, so the
+    // committed row stays consistent until the reconcile persists any change.
+    let serialized_config = serde_json::to_value(&git_sync_settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        serialized_config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    // Post-commit: create/remove the webhook to match the saved config and persist
+    // the resulting hook id/secret. Best-effort — a failure leaves polling on.
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    let created_webhook_id: Option<i64> = {
-        let mut created = None;
+    {
+        let mut webhook_changed = false;
         if let Some(repo) = git_sync_settings
             .repositories
             .iter_mut()
             .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
         {
-            let before = repo.auto_pull.as_ref().and_then(|a| a.webhook_id);
+            let before = serde_json::to_value(&repo.auto_pull).ok();
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
             }
-            // A hook that existed before wasn't created by this call, so don't roll it back.
-            if before.is_none() {
-                created = repo.auto_pull.as_ref().and_then(|a| a.webhook_id);
+            webhook_changed = serde_json::to_value(&repo.auto_pull).ok() != before;
+        }
+        // Only re-persist if the hook fields actually changed.
+        if webhook_changed {
+            if let Ok(updated) = serde_json::to_value(&git_sync_settings) {
+                let _ = sqlx::query!(
+                    "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+                    updated,
+                    &w_id
+                )
+                .execute(&db)
+                .await;
             }
         }
-        created
-    };
-
-    // Clean up legacy workspace-level settings if all repos are migrated
-    cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
-
-    // Save the updated configuration
-    let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
-        .map_err(|err| Error::internal_err(err.to_string()))?;
-
-    let save_result: std::result::Result<(), sqlx::Error> = async {
-        sqlx::query!(
-            "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
-            serialized_config,
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await
-    }
-    .await;
-
-    if let Err(e) = save_result {
-        // Settings never persisted — delete any webhook we just created so its
-        // id/secret (which were never saved) don't leave an orphan on GitHub.
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        if let Some(hook_id) = created_webhook_id {
-            if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
-                &db,
-                &w_id,
-                &new_config.git_repo_resource_path,
-            )
-            .await
-            {
-                let _ =
-                    windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id)
-                        .await;
-            }
-        }
-        return Err(e.into());
     }
 
     // Trigger git sync for individual repository update/add
