@@ -17,7 +17,8 @@
 		Github,
 		Newspaper,
 		Crown,
-		Gauge
+		Gauge,
+		Trash2
 	} from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
@@ -27,6 +28,8 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import DeleteForkedWorkspaceModal from './DeleteForkedWorkspaceModal.svelte'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import MenuLink from './MenuLink.svelte'
@@ -67,6 +70,8 @@
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
+	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
 	const settingsTargetWs = $derived(
 		workspaceSettingsTarget
@@ -75,6 +80,7 @@
 	)
 
 	let leaveWorkspaceModal = $state(false)
+	let deleteForkModal = $state<DeleteForkedWorkspaceModal>()
 
 	const { recent: recentChangelogs, hasNew } = readRecentChangelogs()
 	let hasNewChangelogs = $state(hasNew)
@@ -168,6 +174,18 @@
 					}
 				]
 			: []),
+		// Fork deletion is a global-sidebar action on the active workspace, so keep it
+		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
+		...(currentWsIsFork && !workspaceSettingsTarget
+			? [
+					{
+						displayName: 'Delete forked workspace',
+						icon: Trash2,
+						type: 'delete' as const,
+						action: () => deleteForkModal?.openModal()
+					}
+				]
+			: []),
 		{
 			displayName: 'Help',
 			icon: HelpCircle,
@@ -258,6 +276,7 @@
 			items={logsItems}
 			placement="top-start"
 			class="w-full"
+			enableFlyTransition
 			aiId="sidebar-menu-link-logs"
 			aiDescription="Button to open the logs menu (audit logs, service logs, critical alerts)"
 		>
@@ -303,7 +322,13 @@
 
 <!-- Changelogs count as seen once the menu closes (not on open), so the Help-row
      dot stays visible while the user is looking at the open menu. -->
-<DropdownV2 {items} placement="top-start" class="w-full" on:close={onChangelogsOpened}>
+<DropdownV2
+	{items}
+	placement="top-start"
+	class="w-full"
+	enableFlyTransition
+	on:close={onChangelogsOpened}
+>
 	{#snippet buttonReplacement()}
 		<span
 			class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
@@ -347,5 +372,7 @@
 		<span>Are you sure you want to leave this workspace?</span>
 	</div>
 </ConfirmationModal>
+
+<DeleteForkedWorkspaceModal bind:this={deleteForkModal} />
 
 <DarkModeObserver bind:darkMode />
