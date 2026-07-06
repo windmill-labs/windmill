@@ -689,9 +689,27 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			// the slice — the runtime wraps it into the idempotent write +
 			// snapshot (see the `// materialize` annotation in the header). No
 			// CREATE TABLE / INSERT, and the target is NOT attached here (the
-			// runtime attaches it). Add `// partitioned daily` + a `{partition}`
-			// filter for a partitioned table.
-			lines.push(`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`)
+			// runtime attaches it).
+			//
+			// Partition-filter guidance: `{partition}` substitutes to the
+			// partition's IDENTITY string, not a timestamp literal. For anything
+			// finer/coarser than daily that string is NOT a valid DuckDB
+			// TIMESTAMP (`2026-07-05T23`, `2026-W27`, `2026-07`), so `= TIMESTAMP
+			// {partition}` errors — only daily happens to parse. Compare with
+			// `strftime` in the same format the runtime builds the identity from,
+			// which buckets correctly for every grain. Kept as a comment because
+			// we don't know the user's timestamp column name.
+			lines.push(
+				`-- Partitioned table? Filter the source to the active slice — {partition} is the`,
+				`-- identity string, so compare via strftime (works for every grain; matches the`,
+				`-- whole bucket). Add \`-- partitioned <grain>\` in the header, then e.g.:`,
+				`--   daily    WHERE strftime(<ts_col>, '%Y-%m-%d')   = {partition}`,
+				`--   hourly   WHERE strftime(<ts_col>, '%Y-%m-%dT%H') = {partition}`,
+				`--   weekly   WHERE strftime(<ts_col>, '%G-W%V')      = {partition}`,
+				`--   monthly  WHERE strftime(<ts_col>, '%Y-%m')       = {partition}`,
+				`-- (\`= TIMESTAMP {partition}\` only parses for daily — avoid it.)`,
+				`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
+			)
 			break
 		case 'datatable':
 			if (output) {

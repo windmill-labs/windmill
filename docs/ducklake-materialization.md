@@ -181,6 +181,25 @@ first materialize Windmill runs `ALTER TABLE … SET PARTITIONED BY (_wm_partiti
 so DuckLake prunes on read and DELETE-by-partition rewrites only that partition's
 Parquet files.
 
+> **`{partition}` in the user SELECT is the identity string, not a timestamp.**
+> The token substitutes to the partition's *identity* — the same string stored in
+> `_wm_partition` and used for dedup/backfill/state — as an escaped SQL literal
+> (`'2026-07-05T23'`, `'2026-W27'`, `'2026-07'`, `'2026-07-05'`). Only the daily
+> identity happens to be a valid DuckDB DATE/TIMESTAMP literal, so a naive
+> `WHERE ts = TIMESTAMP {partition}` works for daily but raises a `Conversion
+> Error` for hourly/weekly/monthly. The grain-agnostic idiom is
+> `WHERE strftime(ts, '<fmt>') = {partition}` with the same `<fmt>` the resolver
+> builds the identity from (hourly `%Y-%m-%dT%H`, weekly `%G-W%V`, monthly
+> `%Y-%m`, daily `%Y-%m-%d`; custom `format=` overrides these). By construction
+> `strftime(ts, fmt)` equals the identity for any row in the slice, so this both
+> parses and buckets the whole partition (not just the exact boundary instant a
+> timestamp cast would match). We deliberately do **not** decouple the
+> substituted text from the identity (e.g. emit `2026-07-05 23:00:00` for
+> hourly): that would silently break the `strftime` idiom, still under-match a
+> `= TIMESTAMP {partition}` comparison to the bucket-start instant, and have no
+> single correct answer for `weekly`/custom formats. The scaffold and the AI
+> pipeline prompt teach the `strftime` form.
+
 > Storage: DuckLake writes go to `s3://_default_/` through the windmill S3 proxy
 > (`/api/w/{ws}/s3_proxy`, gated behind the `parquet` + `private` features). The
 > proxy must sign the SigV4 canonical URI with **single** percent-encoding — the
