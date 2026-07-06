@@ -25,6 +25,12 @@ interface ChatSchema extends IDBSchema {
 			// New writes store the plain reported token count; chats persisted by
 			// earlier versions may still hold the legacy anchor object.
 			contextUsage?: PersistedContextUsage
+			// Workspace items this chat modified via AI tool calls, as
+			// `${UserDraftItemKind}:${storagePath}` keys. Persisted out-of-band from
+			// the message arrays so it survives compaction. Absent (undefined) on
+			// chats predating this feature → consumers fall back to showing all
+			// workspace drafts; a defined array (even empty) means "tracked".
+			modifiedItems?: string[]
 		}
 	}
 }
@@ -80,6 +86,29 @@ export function __resetLegacyChatClaimForTesting(): void {
 	legacyChatClaim = undefined
 }
 
+// Read a chat's modified-items mask by chatId WITHOUT mounting an AIChatManager,
+// for the standalone /forks/compare route. Returns undefined for a legacy chat
+// (no field) so the page falls back to selecting all items; a defined array
+// (even empty) narrows the preselection. Opens a throwaway user-scoped handle;
+// the `get` is O(1) on the `id` keyPath.
+export async function readChatModifiedItems(chatId: string): Promise<string[] | undefined> {
+	const dbh = userScopedDb<ChatSchema>(DB_NAME, {
+		version: 1,
+		upgrade: createChatStore,
+		migrate: migrateLegacyChatDb
+	})
+	try {
+		const db = await dbh.whenReady()
+		const chat = await db?.get('chats', chatId)
+		return chat?.modifiedItems
+	} catch (err) {
+		console.error('Could not read chat modified items', err)
+		return undefined
+	} finally {
+		dbh.close()
+	}
+}
+
 export default class HistoryManager {
 	// Per-instance handle to the shared per-user DB lifecycle. There is one
 	// HistoryManager per AIChatManager (the singleton + one per session runtime),
@@ -100,6 +129,7 @@ export default class HistoryManager {
 			lastModified: number
 			sessionId?: string
 			contextUsage?: PersistedContextUsage
+			modifiedItems?: string[]
 		}
 	> = $state({})
 
@@ -173,10 +203,15 @@ export default class HistoryManager {
 		return Object.values(this.savedChats)
 	}
 
+	getModifiedItems(id: string): string[] | undefined {
+		return this.savedChats[id]?.modifiedItems
+	}
+
 	async saveChat(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
-		contextUsage?: number
+		contextUsage?: number,
+		modifiedItems?: string[]
 	) {
 		if (displayMessages.length > 0) {
 			// Compaction replaces the original first message with a summary boundary.
@@ -203,7 +238,18 @@ export default class HistoryManager {
 				id: this.currentChatId,
 				lastModified: Date.now(),
 				...(this.sessionId ? { sessionId: this.sessionId } : {}),
-				...(contextUsage !== undefined ? { contextUsage } : {})
+				...(contextUsage !== undefined ? { contextUsage } : {}),
+				// Only persist when the caller passes a defined array. Loaded legacy
+				// chats keep their accumulator undefined, so we never retroactively
+				// stamp them with [] (which would flip them to the filtered view).
+				// But since `put` replaces the whole record, a caller that omits the
+				// argument must not ERASE a tracked chat's stored mask — fall back to
+				// the previously saved field.
+				...(modifiedItems !== undefined
+					? { modifiedItems }
+					: this.savedChats[this.currentChatId]?.modifiedItems !== undefined
+						? { modifiedItems: this.savedChats[this.currentChatId].modifiedItems }
+						: {})
 			}
 			this.savedChats = {
 				...this.savedChats,
@@ -218,9 +264,10 @@ export default class HistoryManager {
 	async save(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
-		contextUsage?: number
+		contextUsage?: number,
+		modifiedItems?: string[]
 	) {
-		await this.saveChat(displayMessages, messages, contextUsage)
+		await this.saveChat(displayMessages, messages, contextUsage, modifiedItems)
 		this.currentChatId = createLongHash()
 	}
 

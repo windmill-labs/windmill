@@ -29,25 +29,30 @@
 		PipelineMode
 	} from '$lib/components/assets/AssetGraph/types'
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
+	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
 	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import {
 		buildColumnGraph,
 		type ColumnLineageGraph
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
 	import {
 		computeDownstreamClosure,
-		computeInducedSchedule
+		computeInducedSchedule,
+		assetProducers
 	} from '$lib/components/assets/AssetGraph/graphTraversal'
 	import { runCascade, runSelection } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
 	import {
 		boundedSet,
 		buildLineageDag,
 		buildLineageDownstreamMap,
-		descendants,
 		isScriptNode,
+		nonAutorunTriggerScripts,
+		reachableCutting,
 		scriptNodeId,
 		scriptsOf,
+		validFromStarts,
 		validStarts
 	} from '$lib/components/assets/AssetGraph/boundedCascade'
 	import {
@@ -82,6 +87,7 @@
 		Play,
 		RefreshCw,
 		Save,
+		SquareFunction,
 		Target,
 		Telescope
 	} from 'lucide-svelte'
@@ -217,6 +223,24 @@
 		}
 	}
 
+	// Workspace-macro explorer drawer (all `// macros` libraries + their
+	// signatures/bodies). "Open" on a group selects the lib node when it's on
+	// this canvas; a lib living in another folder opens its script page.
+	let macroDrawer: MacroExplorerDrawer | undefined = $state()
+	function openMacroLib(path: string) {
+		const onCanvas = displayGraph?.runnables?.some(
+			(r) => r.usage_kind === 'script' && r.path === path
+		)
+		if (onCanvas) {
+			pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+			pe.activeDraftPath = undefined
+			panelHidden = false
+			focusPipelineNode(`script:${path}`)
+		} else {
+			window.open(`${base}/scripts/get/${path}`, '_blank')
+		}
+	}
+
 	// Draft autosave (the data_pipeline DraftService bundle) lives inside
 	// PipelineGraphEditor now; the route just supplies its path to the indicator.
 	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
@@ -232,7 +256,9 @@
 			triggerAssets: [],
 			nativeTriggers: [],
 			dataTests: [],
-			columnLineage: []
+			columnLineage: [],
+			macros: false,
+			useLibs: []
 		}
 	}
 
@@ -1314,8 +1340,17 @@
 						? 'failure'
 						: 'success'
 			const cur = m.get(id)
-			if (cur) cur.runs += 1
-			else m.set(id, { status, runs: 1 })
+			// Freshness compares against completion; `at` (start) is the
+			// fallback lower bound for rows without a duration.
+			const successAt = e.status === 'success' ? (e.completedAt ?? e.at) : undefined
+			if (cur) {
+				cur.runs += 1
+				// Newest-first, so the first success per id is the latest one —
+				// it feeds the freshness chip between graph refetches.
+				if (successAt && !cur.lastSuccessAt) cur.lastSuccessAt = successAt
+			} else {
+				m.set(id, { status, runs: 1, lastSuccessAt: successAt })
+			}
 		}
 		return m
 	})
@@ -1447,6 +1482,14 @@
 			} else {
 				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
 				const skipped = [...res.statuses.values()].filter((s) => s.status === 'skipped').length
+				// Surface the failed node's error in the details pane. Clear the
+				// active draft too — it has pane priority over `selection`
+				// (openScriptPath), so a bare selection would stay masked while a
+				// draft is open.
+				if (failed.length > 0) {
+					pe.activeDraftPath = undefined
+					pe.selection = { kind: 'runnable', runnable_kind: 'script', path: failed[0][0] }
+				}
 				sendUserToast(
 					`Chain run failed at ${failed.map(([p]) => p).join(', ')}` +
 						(skipped > 0 ? ` — ${skipped} downstream skipped` : ''),
@@ -1469,7 +1512,11 @@
 	let boundPickEnds = $state<Set<string>>(new Set())
 
 	// Script paths eligible to start a bounded run, for the canvas menu gate.
-	let validStartPaths = $derived(new Set(scriptsOf(validStarts(displayGraph))))
+	// Any node with downstream — roots AND mid-DAG models — can be a "Run +
+	// downstream" start (dbt `model+`); only event-triggered scripts are excluded
+	// (see boundedCascade.validFromStarts). The canvas additionally requires the
+	// node to have lineage downstream before offering the entry.
+	let validStartPaths = $derived(new Set(scriptsOf(validFromStarts(displayGraph))))
 	// Scripts with read-aware downstream — the same gate the canvas applies
 	// (AssetGraphCanvas `hasLineageDownstream`). A valid start with no downstream
 	// has no end to pick, so the bounded-run entry is suppressed everywhere,
@@ -1478,15 +1525,45 @@
 
 	// Rebuilt only while a pick is active (cheap to skip otherwise).
 	let boundDag = $derived(boundPickStart ? buildLineageDag(displayGraph) : undefined)
-	let boundEligible = $derived(
-		boundDag && boundPickStart ? descendants(boundDag, boundPickStart) : new Set<string>()
-	)
 	let boundResult = $derived(
 		boundDag && boundPickStart
 			? boundedSet(boundDag, boundPickStart, [...boundPickEnds])
 			: undefined
 	)
-	let boundScripts = $derived(boundResult ? scriptsOf(boundResult.nodes) : [])
+	// Event handlers (kafka/mqtt/…) can't run with empty args, so they're cut from
+	// any cascade run — as is a consumer reachable only through one. But a
+	// scheduled/manual root is NEVER a barrier even if it also carries an event
+	// trigger: it runs on its own schedule/manual identity (schedule wins in
+	// validStarts), so it — and its downstream — stay reachable when running from
+	// an upstream start. The explicit start is likewise protected. Parity with the
+	// CLI `barriers` set (`nonAutorunTriggerScripts` minus `starts` minus start).
+	let boundReachable = $derived.by(() => {
+		if (!boundDag || !boundPickStart) return new Set<string>()
+		const roots = validStarts(displayGraph)
+		const barriers = new Set(
+			[...nonAutorunTriggerScripts(displayGraph)].filter(
+				(id) => !roots.has(id) && id !== boundPickStart
+			)
+		)
+		return reachableCutting(boundDag, [boundPickStart], barriers)
+	})
+	// Nodes pickable as end bounds: the barrier-cut downstream (excluding the
+	// start), NOT raw descendants — else an event handler or a node only reachable
+	// through one could be clicked as an end yet get silently dropped from the run.
+	let boundEligible = $derived(new Set([...boundReachable].filter((id) => id !== boundPickStart)))
+	// The actual run set (nodes, scripts + assets). No end picked → "Run +
+	// downstream" (dbt `model+`): the start plus its full transitive downstream.
+	// Picking end(s) narrows it to the path-between set. Either way, intersect with
+	// the barrier-cut closure so an event descendant is never launched empty. The
+	// canvas highlights exactly this set, so the ring matches what will run.
+	let boundRunNodes = $derived(
+		boundPickStart
+			? boundPickEnds.size === 0
+				? boundReachable
+				: new Set([...(boundResult?.nodes ?? [])].filter((n) => boundReachable.has(n)))
+			: new Set<string>()
+	)
+	let boundScripts = $derived(scriptsOf(boundRunNodes))
 
 	// Engine id → canvas id: scripts keep `script:path`; assets gain the
 	// canvas's `asset:` prefix (AssetGraphCanvas node ids).
@@ -1504,7 +1581,7 @@
 					start: boundPickStart,
 					eligible: new Set([...boundEligible].map(toCanvasId)),
 					ends: new Set([...boundPickEnds].map(toCanvasId)),
-					bounded: new Set([...(boundResult?.nodes ?? [])].map(toCanvasId))
+					bounded: new Set([...boundRunNodes].map(toCanvasId))
 				}
 			: undefined
 	)
@@ -1583,6 +1660,14 @@
 			} else {
 				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
 				const skipped = [...res.statuses.values()].filter((s) => s.status === 'skipped').length
+				// Surface the failed node's error in the details pane. Clear the
+				// active draft too — it has pane priority over `selection`
+				// (openScriptPath), so a bare selection would stay masked while a
+				// draft is open.
+				if (failed.length > 0) {
+					pe.activeDraftPath = undefined
+					pe.selection = { kind: 'runnable', runnable_kind: 'script', path: failed[0][0] }
+				}
 				sendUserToast(
 					`Bounded run failed at ${failed.map(([p]) => p).join(', ')}` +
 						(skipped > 0 ? ` — ${skipped} downstream skipped` : ''),
@@ -1592,6 +1677,25 @@
 		} finally {
 			cascadeRunningRoot = undefined
 		}
+	}
+
+	// Every pipeline-member script, for the always-visible header "Run pipeline"
+	// control. Per-node runs are hover/select-gated on the canvas; this
+	// pipeline-level affordance runs the whole graph without hunting for a root
+	// node to hover. Gated on `in_pipeline` so it never launches dependency-only
+	// endpoints the graph surfaces for context (macro libraries, custom
+	// data-test scripts, out-of-folder producers) — only actual pipeline steps.
+	let allPipelineScripts = $derived(
+		displayGraph.runnables
+			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
+			.map((r) => r.path)
+	)
+	// Run the whole pipeline: hand every script to the bounded-cascade engine,
+	// which topo-orders them (roots first) and fans downstream — i.e. run + all
+	// downstream from every source at once. Reuses the same per-hop launch/poll
+	// and one-cascade-at-a-time guard as the node-level chain runs.
+	async function runWholePipeline() {
+		await runBoundedCascade(allPipelineScripts)
 	}
 
 	// Counter bumped when the canvas Run button targets the currently-open
@@ -1620,20 +1724,7 @@
 	// runs panel can list jobs for the right scripts. We include drafts —
 	// running a draft via runScriptPreview creates a `preview`-kind job at
 	// the same path, which the panel's listing query picks up.
-	let selectionProducers = $derived.by(() => {
-		const sel = pe.selection
-		if (!sel || sel.kind !== 'asset') return []
-		return graphWithDraft.edges
-			.filter((e) => {
-				const access = e.access_type ?? 'r'
-				return (
-					(access === 'w' || access === 'rw') &&
-					e.asset_kind === sel.asset_kind &&
-					e.asset_path === sel.path
-				)
-			})
-			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
-	})
+	let selectionProducers = $derived(assetProducers(graphWithDraft, pe.selection))
 
 	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
 	// or a draft is actively edited) so the pane blanks out like the other
@@ -1656,6 +1747,12 @@
 			: EMPTY_COLUMN_GRAPH
 	)
 
+	// Producer-side facts for the editor's live schema-contract diagnostics:
+	// which assets are muted (`on_schema_change=ignore`) and which `_current`
+	// views map to an scd2 base table. Derived from the same resolved graph the
+	// canvas renders so the mirror suppresses exactly what the server check does.
+	let schemaContractContext = $derived(buildSchemaContractContext(graphWithDraft.runnables))
+
 	// Whether the selected ducklake asset's captured schema can *evolve* (drives
 	// the asset panel's Schema tab: version history vs. a single fixed schema).
 	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
@@ -1675,6 +1772,16 @@
 		const knownFixed = (r: (typeof producers)[number]) =>
 			!!r.materialize_strategy && !(r.materialize_strategy === 'replace' && !r.partition_kind)
 		return producers.length === 0 || !producers.every(knownFixed)
+	})
+
+	// Fork data-environment state of the selected ducklake asset (fork workspaces
+	// only): read off the graph node so the details pane can show the
+	// deferred-to-parent / fork-materialized banner matching the canvas chip.
+	let selectionForkMaterialization = $derived.by(() => {
+		const sel = pe.selection
+		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return undefined
+		return displayGraph.assets.find((a) => a.kind === 'ducklake' && a.path === sel.path)
+			?.fork_materialization
 	})
 
 	// Downstream subscriber count for the currently-edited script. Drives
@@ -1879,6 +1986,16 @@
 		}
 	)
 
+	// Folder whose graph is actually rendered. `graphRes.current` is stale-
+	// while-revalidate on an in-place folder switch, so keying the canvas's
+	// one-shot initial fit on the route param would fire the new folder's fit
+	// on the old graph and leave the fresh one unfitted. `folder` is read
+	// untracked: the key must move only when a graph lands.
+	let viewportFitFolder = $state('')
+	$effect(() => {
+		if (graphRes.current) untrack(() => (viewportFitFolder = folder))
+	})
+
 	// Body / inferred-assets prefetch sweep. Watches `g.runnables`; for any
 	// non-draft path we haven't fetched yet, fetches `getScriptByPath` and
 	// `inferAssets`, and stores both in their respective only-add caches.
@@ -1942,6 +2059,18 @@
 		return `${n} ${singular}${n === 1 ? '' : 's'}`
 	}
 
+	// Human noun per asset kind for the header summary. The raw `ducklake` kind
+	// counts materialized tables/views (including `_current` history views), so
+	// "N ducklakes" mis-reads as a count of lakes — surface "table" instead. Other
+	// kinds keep their own noun; unmapped kinds fall back to the raw kind.
+	const ASSET_KIND_NOUN: Record<string, string> = {
+		ducklake: 'table',
+		datatable: 'table',
+		s3object: 'file',
+		volume: 'volume',
+		resource: 'resource'
+	}
+
 	let summary = $derived.by<string[]>(() => {
 		const g = graphRes.current
 		if (!g) return []
@@ -1950,9 +2079,14 @@
 		const flows = g.runnables.filter((r) => r.usage_kind === 'flow').length
 		if (scripts) parts.push(pluralize(scripts, 'script'))
 		if (flows) parts.push(pluralize(flows, 'flow'))
-		const byKind = new Map<string, number>()
-		for (const a of g.assets) byKind.set(a.kind, (byKind.get(a.kind) ?? 0) + 1)
-		for (const [kind, n] of byKind) parts.push(pluralize(n, kind))
+		// Collapse kinds that share a noun (ducklake + datatable → "table") into a
+		// single tally so the summary reads "5 tables", not "3 tables · 2 tables".
+		const byNoun = new Map<string, number>()
+		for (const a of g.assets) {
+			const noun = ASSET_KIND_NOUN[a.kind] ?? a.kind
+			byNoun.set(noun, (byNoun.get(noun) ?? 0) + 1)
+		}
+		for (const [noun, n] of byNoun) parts.push(pluralize(n, noun))
 		return parts
 	})
 </script>
@@ -2036,6 +2170,30 @@
 			</div>
 		{/if}
 		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
+			{#if !isOperator && allPipelineScripts.length > 0}
+				<!-- Pipeline-level run: always visible in both View and Edit so a
+				     run never requires hunting for a specific node's play button
+				     (dbt `build` / Dagster "Materialize all"). Runs every script in
+				     dependency order (roots first, cascading downstream) over the
+				     displayed graph — deployed in View, draft-overlaid in Edit. -->
+				<Button
+					variant="accent-secondary"
+					unifiedSize="sm"
+					startIcon={{
+						icon: cascadeRunningRoot ? Loader2 : Play,
+						classes: cascadeRunningRoot ? 'animate-spin' : undefined
+					}}
+					onclick={runWholePipeline}
+					disabled={!!cascadeRunningRoot}
+					title={cascadeRunningRoot
+						? 'A pipeline run is already in progress'
+						: `Run all ${allPipelineScripts.length} script${
+								allPipelineScripts.length === 1 ? '' : 's'
+							} in dependency order (roots first, cascading downstream)`}
+				>
+					{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
+				</Button>
+			{/if}
 			{#if mode === 'edit' && saveErrors.size > 0}
 				<!-- Compact errors popover anchored next to Save all so users
 				     can see exactly which drafts failed and why without losing
@@ -2110,6 +2268,15 @@
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
+				startIcon={{ icon: SquareFunction }}
+				onclick={() => macroDrawer?.openDrawer()}
+				title="Browse the workspace's DuckDB macros (deployed // macros libraries)"
+			>
+				Macros
+			</Button>
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
 				startIcon={{ icon: RefreshCw }}
 				onclick={() => graphRes.refetch()}
 				disabled={graphRes.loading}
@@ -2133,6 +2300,7 @@
 			<PipelineGraphEditor
 				editor={pe}
 				{folder}
+				viewportFitKey={viewportFitFolder}
 				persistDrafts={true}
 				{displayGraph}
 				{mode}
@@ -2171,6 +2339,8 @@
 				{selectionProducers}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				{schemaCanEvolve}
+				{selectionForkMaterialization}
+				{schemaContractContext}
 				downstreamSubscribers={editedScriptDownstreamCount}
 				onStartBoundedRunForOpen={startBoundedRun}
 				canBoundedRunOpenScript={!!openScriptPath &&
@@ -2242,7 +2412,7 @@
 							<div class="flex flex-col leading-tight">
 								<span class="text-xs font-semibold text-emphasis">
 									{boundPickEnds.size === 0
-										? 'Click end node(s) to bound the run'
+										? `Run + all downstream · ${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} (click node(s) to bound)`
 										: `${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} up to ${boundPickEnds.size} end${boundPickEnds.size === 1 ? '' : 's'}`}
 								</span>
 								<span class="text-2xs text-tertiary">
@@ -2254,10 +2424,10 @@
 								variant="accent"
 								unifiedSize="sm"
 								startIcon={{ icon: Play }}
-								disabled={boundPickEnds.size === 0 || boundScripts.length === 0}
+								disabled={boundScripts.length === 0}
 								onclick={confirmBoundedRun}
 							>
-								Run selection
+								{boundPickEnds.size === 0 ? 'Run + downstream' : 'Run selection'}
 							</Button>
 						</div>
 					{/if}
@@ -2370,3 +2540,5 @@
 		</div>
 	</div>
 {/if}
+
+<MacroExplorerDrawer bind:this={macroDrawer} onOpenLib={openMacroLib} />

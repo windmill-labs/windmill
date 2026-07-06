@@ -10,6 +10,7 @@
 		Loader2,
 		Play,
 		RotateCw,
+		SquareFunction,
 		Tag,
 		Target,
 		Timer,
@@ -21,12 +22,13 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { GraphUsageKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
+	import { parseDurationSecs } from './parsePipelineAnnotations'
 	import { NODE } from '$lib/components/graph/util'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Item } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast, msToReadableTimeShort } from '$lib/utils'
 
 	interface Props {
 		data: {
@@ -35,8 +37,14 @@
 			in_pipeline?: boolean
 			partition_kind?: 'daily' | 'hourly' | 'weekly' | 'monthly' | 'dynamic'
 			freshness?: string
+			// Completion time (ISO) of the newest successful run visible to
+			// the caller. With `freshness`, drives the fresh/stale chip state.
+			last_success_at?: string
 			tag?: string
 			retry?: { count: number; delay?: string }
+			// Macros this script provides (deployed/drafted `// macros` library).
+			// Non-empty renders the ƒ chip marking the node as a macro library.
+			macros?: { name: string; params: string; is_table: boolean }[]
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
@@ -118,6 +126,44 @@
 		}
 	}
 
+	// Freshness verdict: newest successful run (server `last_success_at`,
+	// or a newer one the session poll observed) vs the `// freshness`
+	// window. No verdict (undefined) for drafts — no run history — and for
+	// unparseable windows; the chip then stays neutral like the other
+	// annotation chips.
+	let freshnessWindowS = $derived(data.freshness ? parseDurationSecs(data.freshness) : undefined)
+	// Ticks so a node crosses fresh→stale while the canvas stays open (the
+	// graph payload is static between refetches). Armed only when a verdict
+	// is rendered.
+	let nowMs = $state(Date.now())
+	$effect(() => {
+		if (freshnessWindowS === undefined || data.unsaved) return
+		const id = setInterval(() => (nowMs = Date.now()), 30_000)
+		return () => clearInterval(id)
+	})
+	let lastSuccessMs = $derived.by(() => {
+		const server = data.last_success_at ? new Date(data.last_success_at).getTime() : undefined
+		const polled = data.runState?.lastSuccessAt
+			? new Date(data.runState.lastSuccessAt).getTime()
+			: undefined
+		if (server === undefined) return polled
+		return polled === undefined ? server : Math.max(server, polled)
+	})
+	let freshnessState = $derived.by((): 'fresh' | 'stale' | undefined => {
+		if (freshnessWindowS === undefined || data.unsaved) return undefined
+		if (lastSuccessMs === undefined) return 'stale'
+		return nowMs - lastSuccessMs <= freshnessWindowS * 1000 ? 'fresh' : 'stale'
+	})
+	let freshnessTooltip = $derived.by(() => {
+		const base = `// freshness ${data.freshness}`
+		if (freshnessState === undefined) return base
+		if (lastSuccessMs === undefined) return `${base} — stale: no successful run yet`
+		const ago = msToReadableTimeShort(Math.max(0, nowMs - lastSuccessMs))
+		return freshnessState === 'fresh'
+			? `${base} — fresh: last successful run ${ago} ago`
+			: `${base} — stale: last successful run ${ago} ago`
+	})
+
 	// Cascade + bounded-run options live on the Run button's caret popover
 	// (whenever there's a cascade OR a bounded-run start — see `hasCaret`
 	// below), so the kebab menu stays focused on lifecycle actions only.
@@ -160,8 +206,8 @@
 		</span>
 		<!-- Annotation chips share one neutral treatment — the icon carries
 		     the meaning (colors are reserved for feedback, per the brand
-		     guidelines). Only the run-state chip below keeps semantic
-		     colors. -->
+		     guidelines). Only the freshness chip (when it has a verdict)
+		     and the run-state chip below use semantic colors. -->
 		{#if data.partition_kind}
 			<div
 				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
@@ -171,10 +217,22 @@
 				<span class="text-3xs leading-none">{data.partition_kind}</span>
 			</div>
 		{/if}
+		<!-- Freshness is the one annotation chip that carries feedback (a
+		     fresh/stale verdict against real run history), so like the
+		     run-state chip it uses semantic colors: emerald = within window,
+		     amber = stale. Neutral when there's no verdict (drafts, bad
+		     window value). -->
 		{#if data.freshness}
 			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// freshness ${data.freshness}`}
+				class={twMerge(
+					'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
+					freshnessState === 'fresh'
+						? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+						: freshnessState === 'stale'
+							? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+							: 'bg-surface-secondary text-secondary'
+				)}
+				title={freshnessTooltip}
 			>
 				<Timer size={10} />
 				<span class="text-3xs leading-none">{data.freshness}</span>
@@ -197,6 +255,17 @@
 			>
 				<RotateCw size={10} />
 				<span class="text-3xs leading-none">×{r.count}</span>
+			</div>
+		{/if}
+		{#if data.macros && data.macros.length > 0}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+				title={`// macros — defines ${data.macros.length} macro${data.macros.length > 1 ? 's' : ''}:\n${data.macros
+					.map((m) => `• ${m.name}(${m.params})${m.is_table ? ' → table' : ''}`)
+					.join('\n')}`}
+			>
+				<SquareFunction size={10} />
+				<span class="text-3xs leading-none">×{data.macros.length}</span>
 			</div>
 		{/if}
 		{#if data.runState}
@@ -341,10 +410,10 @@
 								>
 									<Target size={14} class="mt-0.5 shrink-0 text-secondary" />
 									<div class="flex flex-col min-w-0">
-										<span class="font-medium">Run downstream up to…</span>
+										<span class="font-medium">Run + downstream…</span>
 										<span class="text-2xs text-secondary">
-											Pick end node(s) on the graph, then run only the cascade between this script
-											and them.
+											Run this script and everything downstream. Or pick end node(s) on the graph to
+											bound the cascade between this script and them.
 										</span>
 									</div>
 								</button>

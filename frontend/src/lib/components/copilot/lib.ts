@@ -18,6 +18,7 @@ import { requiresMaxCompletionTokens } from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import { hasValidToolCallArguments } from './chat/toolCallArguments'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
 	getOpenAIResponsesCompletionStream
@@ -62,21 +63,9 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 		label: 'OpenAI',
 		defaultModels: OPENAI_MODELS
 	},
-	azure_openai: {
-		label: 'Azure OpenAI',
-		defaultModels: OPENAI_MODELS
-	},
 	anthropic: {
 		label: 'Anthropic',
 		defaultModels: ['claude-sonnet-4-6', 'claude-3-5-haiku-latest']
-	},
-	mistral: {
-		label: 'Mistral',
-		defaultModels: ['codestral-latest']
-	},
-	deepseek: {
-		label: 'DeepSeek',
-		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
 	},
 	googleai: {
 		label: 'Google AI',
@@ -88,6 +77,29 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 			'gemini-3.1-pro',
 			'gemini-3.1-flash-lite'
 		]
+	},
+	azure_openai: {
+		label: 'Azure OpenAI',
+		defaultModels: OPENAI_MODELS
+	},
+	azure_foundry: {
+		label: 'Azure AI Foundry',
+		defaultModels: [
+			'gpt-4o',
+			'gpt-4o-mini',
+			'DeepSeek-R1',
+			'Llama-3.3-70B-Instruct',
+			'Phi-4',
+			'Mistral-Large-2411'
+		]
+	},
+	mistral: {
+		label: 'Mistral',
+		defaultModels: ['codestral-latest']
+	},
+	deepseek: {
+		label: 'DeepSeek',
+		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
 	},
 	groq: {
 		label: 'Groq',
@@ -267,7 +279,10 @@ export async function fetchAvailableModels(
 export function getModelMaxTokens(provider: AIProvider, model: string) {
 	if (model.includes('gpt-5')) {
 		return 128000
-	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
+	} else if (
+		(provider === 'azure_openai' || provider === 'openai' || provider === 'azure_foundry') &&
+		model.startsWith('o')
+	) {
 		return 100000
 	} else if (
 		model.includes('claude-sonnet') ||
@@ -287,7 +302,6 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	return 8192
 }
 
-
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
@@ -302,7 +316,9 @@ function getModelSpecificConfig(
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
 	if (
-		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
+		(modelProvider.provider === 'openai' ||
+			modelProvider.provider === 'azure_openai' ||
+			modelProvider.provider === 'azure_foundry') &&
 		requiresMaxCompletionTokens(modelProvider.model)
 	) {
 		return {
@@ -352,6 +368,7 @@ const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
 	openai: DEFAULT_COMPLETION_CONFIG,
 	azure_openai: DEFAULT_COMPLETION_CONFIG,
+	azure_foundry: DEFAULT_COMPLETION_CONFIG,
 	groq: DEFAULT_COMPLETION_CONFIG,
 	openrouter: DEFAULT_COMPLETION_CONFIG,
 	togetherai: DEFAULT_COMPLETION_CONFIG,
@@ -906,7 +923,10 @@ export async function getCompletion(
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 	const completionConfig = applyReasoningToConfig(
-		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
+		(provider === 'openai' ||
+			provider === 'azure_openai' ||
+			provider === 'azure_foundry' ||
+			provider === 'googleai') &&
 			config.stream
 			? {
 					...config,
@@ -1094,11 +1114,14 @@ export async function parseOpenAICompletion(
 	}
 
 	if (toolCalls.length > 0) {
+		const invalidToolCallIds = new Set(
+			toolCalls.filter((t) => !hasValidToolCallArguments(t.function.arguments)).map((t) => t.id)
+		)
 		const normalizedToolCalls = toolCalls.map((t) => ({
 			...t,
 			function: {
 				...t.function,
-				arguments: t.function.arguments || '{}'
+				arguments: invalidToolCallIds.has(t.id) ? '{}' : t.function.arguments || '{}'
 			}
 		}))
 		const toAdd = buildAssistantToolCallMessage({
@@ -1113,6 +1136,22 @@ export async function parseOpenAICompletion(
 		messages.push(toAdd)
 		addedMessages.push(toAdd)
 		for (const toolCall of toolCalls) {
+			if (invalidToolCallIds.has(toolCall.id)) {
+				callbacks.setToolStatus(toolCall.id, {
+					isLoading: false,
+					isStreamingArguments: false,
+					error: 'Tool call arguments were invalid or truncated'
+				})
+				const messageToAdd = {
+					role: 'tool' as const,
+					tool_call_id: toolCall.id,
+					content:
+						'The tool call arguments were invalid or truncated JSON, so the tool was NOT executed. Retry the call; if the arguments were long, split the work into several smaller calls.'
+				}
+				messages.push(messageToAdd)
+				addedMessages.push(messageToAdd)
+				continue
+			}
 			const messageToAdd = await processToolCall({
 				tools,
 				toolCall,

@@ -83,18 +83,56 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     // Body-inferred column lineage, with `// column` annotations taking
     // precedence per output column (explicit declaration overrides inference).
     pipeline.column_lineage = merge_column_lineage(inferred, pipeline.column_lineage);
-    Ok(ParseAssetsOutput::new(
-        merge_assets(collector.assets),
-        Vec::new(),
-        pipeline,
-    ))
+    // A bare string literal in query position is only weak read evidence: a
+    // summary `SELECT 's3:///out.csv' AS target` after `COPY … TO
+    // 's3:///out.csv'` must not turn the write into rw (which draws a
+    // spurious read edge and an asset⇄script cycle in the pipeline graph).
+    // Surface weak reads only for assets with no other recorded usage, so a
+    // path that is *merely* mentioned still shows up linked to the script.
+    let mut assets = merge_assets(collector.assets);
+    for weak in merge_assets(collector.weak_string_reads) {
+        if !assets
+            .iter()
+            .any(|a| a.kind == weak.kind && a.path == weak.path)
+        {
+            assets.push(weak);
+        }
+    }
+    assets.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(ParseAssetsOutput::new(assets, Vec::new(), pipeline))
+}
+
+/// Provenance of the innermost access context. The access type alone can't
+/// tell a definitive read apart from a mere mention: a bare string literal in
+/// generic query position (`QueryRead`) is only *weak* read evidence — e.g. a
+/// summary `SELECT 's3:///out.csv' AS target` echoing a path — while the same
+/// literal as a read-function argument or a `COPY` target is definitive.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AccessCtx {
+    QueryRead,
+    ReadFn,
+    CopyWrite,
+}
+
+impl AccessCtx {
+    fn access_type(self) -> AssetUsageAccessType {
+        match self {
+            AccessCtx::QueryRead | AccessCtx::ReadFn => R,
+            AccessCtx::CopyWrite => W,
+        }
+    }
 }
 
 /// Visitor that collects S3 asset literals from SQL statements
 struct AssetCollector {
     assets: Vec<ParseAssetsResult>,
-    // e.g set to Read when we are inside a SELECT ... FROM ... statement
-    current_access_type_stack: Vec<AssetUsageAccessType>,
+    // Bare string literals seen in generic query position — weak read
+    // evidence, surfaced by `parse_assets` only when the script has no other
+    // recorded usage of the same asset (a real write must not gain a spurious
+    // read edge from a mention).
+    weak_string_reads: Vec<ParseAssetsResult>,
+    // e.g set to QueryRead when we are inside a SELECT ... FROM ... statement
+    current_access_type_stack: Vec<AccessCtx>,
     // e.g ATTACH 'ducklake://a' AS dl; => { "dl": (Ducklake, "a") }
     var_identifiers: BTreeMap<String, (AssetKind, String)>,
     // e.g USE dl;
@@ -119,6 +157,7 @@ impl AssetCollector {
     fn new() -> Self {
         Self {
             assets: Vec::new(),
+            weak_string_reads: Vec::new(),
             current_access_type_stack: Vec::with_capacity(8),
             var_identifiers: BTreeMap::new(),
             currently_used_asset: None,
@@ -162,7 +201,11 @@ impl AssetCollector {
         name: &ObjectName,
         access_type: Option<AssetUsageAccessType>,
     ) -> Option<ParseAssetsResult> {
-        let access_type = access_type.or_else(|| self.current_access_type_stack.last().copied());
+        let access_type = access_type.or_else(|| {
+            self.current_access_type_stack
+                .last()
+                .map(|c| c.access_type())
+        });
         if let Some((kind, path)) = &self.currently_used_asset {
             // We don't want to infer that any simple identifier refers to an asset if
             // we are not in a known R/W context
@@ -301,12 +344,18 @@ impl AssetCollector {
         // Check if the string matches our asset syntax patterns
         if let Some((kind, path)) = parse_asset_syntax(s, false) {
             if kind == AssetKind::S3Object {
-                self.assets.push(ParseAssetsResult {
+                let ctx = self.current_access_type_stack.last().copied();
+                let result = ParseAssetsResult {
                     kind,
                     path: path.to_string(),
-                    access_type: self.current_access_type_stack.last().copied(),
+                    access_type: ctx.map(AccessCtx::access_type),
                     columns: None,
-                });
+                };
+                if ctx == Some(AccessCtx::QueryRead) {
+                    self.weak_string_reads.push(result);
+                } else {
+                    self.assets.push(result);
+                }
             }
         }
     }
@@ -314,7 +363,7 @@ impl AssetCollector {
     fn handle_obj_name_pre(&mut self, name: &ObjectName) {
         if let Some(fname) = get_trivial_obj_name(name) {
             if is_read_fn(fname) {
-                self.current_access_type_stack.push(R);
+                self.current_access_type_stack.push(AccessCtx::ReadFn);
             }
         }
         if let Some(str_lit) = get_str_lit_from_obj_name(name) {
@@ -691,9 +740,20 @@ impl Visitor for AssetCollector {
         match table_factor {
             TableFactor::Table { name, args, .. } => {
                 if args.is_none() {
-                    // Avoid Table Functions
-                    self.handle_obj_name_pre(name);
+                    // FROM 's3:///…' is a definitive read — record it directly
+                    // so it isn't demoted to a weak in-query mention.
+                    if let Some(asset) = self.get_s3_asset_from_str_literal_table(table_factor) {
+                        self.assets.push(asset);
+                    }
                 }
+                // For a read-function table factor this pushes ReadFn, making
+                // every literal inside its arguments a definitive read — the
+                // direct form (read_csv('s3:///…')) but also list and named
+                // arguments (read_parquet(['s3:///…'])). Must run for BOTH the
+                // plain-table and table-function branches: post_visit_table_factor
+                // pops via handle_obj_name_post unconditionally, so skipping the
+                // push here would unbalance the stack.
+                self.handle_obj_name_pre(name);
             }
             _ => {}
         }
@@ -718,6 +778,13 @@ impl Visitor for AssetCollector {
             }
             Expr::Value(ValueWithSpan { value: Value::DoubleQuotedString(s), .. }) => {
                 self.handle_string_literal(s);
+            }
+            // Read-function call in expression position: its argument literals
+            // are definitive reads. Balances the pop in `post_visit_expr`.
+            Expr::Function(func) => {
+                if get_trivial_obj_name(&func.name).is_some_and(is_read_fn) {
+                    self.current_access_type_stack.push(AccessCtx::ReadFn);
+                }
             }
             _ => {}
         }
@@ -946,7 +1013,7 @@ impl Visitor for AssetCollector {
             }
 
             sqlparser::ast::Statement::Copy { target: CopyTarget::File { filename }, .. } => {
-                self.current_access_type_stack.push(W);
+                self.current_access_type_stack.push(AccessCtx::CopyWrite);
                 self.handle_string_literal(filename);
                 self.current_access_type_stack.pop();
             }
@@ -1013,7 +1080,7 @@ impl Visitor for AssetCollector {
         &mut self,
         query: &sqlparser::ast::Query,
     ) -> std::ops::ControlFlow<Self::Break> {
-        self.current_access_type_stack.push(R);
+        self.current_access_type_stack.push(AccessCtx::QueryRead);
         self.cte_name_stack.push(collect_cte_names(query));
         std::ops::ControlFlow::Continue(())
     }
@@ -1078,13 +1145,13 @@ mod tests {
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/a.parquet".to_string(),
+                    path: "a.parquet".to_string(),
                     access_type: Some(R),
                     columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/c.parquet".to_string(),
+                    path: "c.parquet".to_string(),
                     access_type: Some(W),
                     columns: None
                 },
@@ -1095,6 +1162,151 @@ mod tests {
                     columns: None
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn test_duckdb_read_key_matches_sdk_write_key() {
+        // Cross-language lineage: a TS `writeS3File({ s3: "exports/x" })` or
+        // Python `write_s3_file(S3Object(s3="exports/x"))` records the asset path
+        // `exports/x` (default storage). A DuckDB reader of the same object must
+        // resolve to the identical path so the graph connects the producer and
+        // consumer — both the bare `s3://exports/x` and the triple-slash
+        // `s3:///exports/x` default-storage form must yield `exports/x`.
+        for uri in ["s3://exports/x", "s3:///exports/x"] {
+            let input = format!("SELECT * FROM read_csv('{uri}');");
+            let assets = parse_assets(&input).expect("parse").assets;
+            assert_eq!(
+                assets,
+                vec![ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "exports/x".to_string(),
+                    access_type: Some(R),
+                    columns: None
+                }],
+                "DuckDB read of {uri} must resolve to the SDK write key"
+            );
+        }
+    }
+
+    #[test]
+    fn test_copy_target_echoed_in_select_stays_write_only() {
+        // The trailing summary SELECT merely mentions the COPY target — it
+        // must not add a read (rw would draw an asset⇄script cycle).
+        let input = r#"
+            COPY (SELECT 1 AS x) TO 's3:///out.csv';
+            SELECT 's3:///out.csv' AS target, 42 AS rows_written;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "out.csv".to_string(),
+                access_type: Some(W),
+                columns: None
+            }])
+        );
+    }
+
+    #[test]
+    fn test_bare_string_mention_without_other_usage_is_a_read() {
+        let input = r#"
+            SELECT 's3:///referenced.csv' AS path;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "referenced.csv".to_string(),
+                access_type: Some(R),
+                columns: None
+            }])
+        );
+    }
+
+    #[test]
+    fn test_self_refresh_read_fn_plus_copy_stays_rw() {
+        // A definitive read (read_csv) of the same file the script rewrites
+        // is a real rw — only *bare-literal* mentions are demoted.
+        let input = r#"
+            CREATE TABLE tmp AS SELECT * FROM read_csv('s3:///data.csv');
+            COPY (SELECT * FROM tmp) TO 's3:///data.csv';
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "data.csv".to_string(),
+                access_type: Some(RW),
+                columns: None
+            }])
+        );
+    }
+
+    #[test]
+    fn test_read_fn_list_arg_plus_copy_stays_rw() {
+        // read_parquet's list form is as definitive as the direct literal —
+        // it must not be demoted to a weak mention when the file is rewritten.
+        let input = r#"
+            CREATE TABLE tmp AS SELECT * FROM read_parquet(['s3:///data.parquet']);
+            COPY (SELECT * FROM tmp) TO 's3:///data.parquet';
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "data.parquet".to_string(),
+                access_type: Some(RW),
+                columns: None
+            }])
+        );
+    }
+
+    #[test]
+    fn test_read_fn_list_arg_multiple_files_are_reads() {
+        let input = r#"
+            SELECT * FROM read_parquet(['s3:///a.parquet', 's3:///b.parquet']);
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "a.parquet".to_string(),
+                    access_type: Some(R),
+                    columns: None
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "b.parquet".to_string(),
+                    access_type: Some(R),
+                    columns: None
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn test_from_string_literal_of_written_file_stays_rw() {
+        // FROM-position string literal is likewise a definitive read.
+        let input = r#"
+            CREATE TABLE tmp AS SELECT * FROM 's3:///data.parquet';
+            COPY (SELECT * FROM tmp) TO 's3:///data.parquet';
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "data.parquet".to_string(),
+                access_type: Some(RW),
+                columns: None
+            }])
         );
     }
 
@@ -1773,7 +1985,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "/example_file.parquet");
+        assert_eq!(result[0].path, "example_file.parquet");
         assert_eq!(result[0].access_type, Some(R));
 
         let columns = result[0].columns.as_ref().expect("Should have columns");
@@ -1804,7 +2016,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "/example_file.parquet");
+        assert_eq!(result[0].path, "example_file.parquet");
         assert!(result[0].columns.is_none());
     }
 
@@ -1817,7 +2029,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "/example_file.parquet");
+        assert_eq!(result[0].path, "example_file.parquet");
 
         let columns = result[0].columns.as_ref().expect("Should have columns");
         assert_eq!(columns.get("col1"), Some(&R));
@@ -1836,7 +2048,7 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         assert!(result.iter().any(|a| {
-            a.path == "/file1.parquet"
+            a.path == "file1.parquet"
                 && a.columns.as_ref().map_or(false, |c| c.contains_key("col1"))
         }));
         assert!(result.iter().any(|a| {
@@ -1869,7 +2081,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "/test.parquet");
+        assert_eq!(result[0].path, "test.parquet");
         assert_eq!(result[0].access_type, Some(R));
 
         let columns = result[0].columns.as_ref().expect("Should have columns");

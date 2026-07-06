@@ -15,6 +15,11 @@ import {
   scriptsOf,
   topoOrder,
   validStarts,
+  validFromStarts,
+  nonAutorunTriggerScripts,
+  reachableCutting,
+  isScriptNode,
+  scriptPathOf,
 } from "../src/commands/pipeline/boundedCascade.ts";
 
 type W = [script: string, asset: string];
@@ -101,24 +106,166 @@ test("boundedSet drops ends not downstream of start", () => {
   expect([...res.nodes]).toEqual([sn("c")]);
 });
 
-test("validStarts: schedule and manual roots, not events or subscribers", () => {
+test("validStarts: schedule and manual roots, not events/uploads/webhooks or subscribers", () => {
   const g = graph({
-    scripts: ["a", "sub", "sched", "kfk"],
+    scripts: ["a", "sub", "sched", "kfk", "upl", "hook"],
     writes: [["a", "x"]],
     subs: [["sub", "x"], ["sched", "x"]],
-    native: [["schedule", "sched"], ["kafka", "kfk"]],
+    native: [
+      ["schedule", "sched"],
+      ["kafka", "kfk"],
+      ["data_upload", "upl"],
+      ["webhook", "hook"],
+    ],
   });
   const starts = validStarts(g);
   expect(starts.has(sn("a"))).toBe(true); // manual root
   expect(starts.has(sn("sched"))).toBe(true); // schedule overrides subscriber
   expect(starts.has(sn("sub"))).toBe(false); // pure subscriber
   expect(starts.has(sn("kfk"))).toBe(false); // event-only
+  // data_upload / webhook need caller-supplied input → not auto-run roots
+  expect(starts.has(sn("upl"))).toBe(false);
+  expect(starts.has(sn("hook"))).toBe(false);
+});
+
+test("a scheduled root with a secondary data_upload trigger stays a start and isn't cut", () => {
+  // Regression: the barrier set must exclude valid starts, else a script with
+  // both `// on schedule` and `// on data_upload` resolves as the start yet is
+  // also a barrier, so reachableCutting skips it → empty run plan.
+  const g = graph({
+    scripts: ["sched_upload", "consumer"],
+    writes: [["sched_upload", "x"]],
+    subs: [["consumer", "x"]],
+    native: [
+      ["schedule", "sched_upload"],
+      ["data_upload", "sched_upload"],
+    ],
+  });
+  const starts = validStarts(g);
+  expect(starts.has(sn("sched_upload"))).toBe(true); // schedule wins over the upload trigger
+  // Mirror run()'s barrier set: nonAutorun handlers minus the valid starts.
+  const barriers = new Set([...nonAutorunTriggerScripts(g)].filter((id) => !starts.has(id)));
+  expect(barriers.has(sn("sched_upload"))).toBe(false); // the scheduled root is protected
+  const sel = new Set(
+    [...reachableCutting(buildLineageDag(g), starts, barriers)]
+      .filter(isScriptNode)
+      .map(scriptPathOf),
+  );
+  expect(sel.has("sched_upload")).toBe(true); // runs on its schedule path…
+  expect(sel.has("consumer")).toBe(true); // …and its downstream isn't cut off
+});
+
+test("validFromStarts: mid-DAG models are eligible starts, event/upload/webhook are not", () => {
+  // a(root) → x → sub → y → reader ; k=kafka, upl=data_upload, hook=webhook.
+  const g = graph({
+    scripts: ["a", "sub", "reader", "k", "upl", "hook"],
+    writes: [["a", "x"], ["sub", "y"]],
+    reads: [["reader", "y"]],
+    subs: [["sub", "x"]],
+    native: [["kafka", "k"], ["data_upload", "upl"], ["webhook", "hook"]],
+  });
+  const from = validFromStarts(g);
+  expect(from.has(sn("a"))).toBe(true); // root
+  expect(from.has(sn("sub"))).toBe(true); // mid-DAG subscriber — NOT a validStart
+  expect(from.has(sn("reader"))).toBe(true); // pure reader
+  expect(validStarts(g).has(sn("sub"))).toBe(false); // old root-only gate rejected it
+  // Non-autorun handlers stay out (they need caller input / fan out per event).
+  expect(from.has(sn("k"))).toBe(false);
+  expect(from.has(sn("upl"))).toBe(false);
+  expect(from.has(sn("hook"))).toBe(false);
+});
+
+test("validFromStarts keeps a scheduled root that also carries a non-autorun trigger", () => {
+  // Regression: `--from sched_upload` must be accepted just like the implicit
+  // start. `sched_upload` is a scheduled root AND a data_upload handler — schedule
+  // wins in validStarts, so it stays --from-eligible despite being a nonAutorun
+  // handler (else explicit --from throws where the implicit start succeeds).
+  const g = graph({
+    scripts: ["sched_upload", "consumer"],
+    writes: [["sched_upload", "x"]],
+    subs: [["consumer", "x"]],
+    native: [["schedule", "sched_upload"], ["data_upload", "sched_upload"]],
+  });
+  expect(validStarts(g).has(sn("sched_upload"))).toBe(true);
+  expect(nonAutorunTriggerScripts(g).has(sn("sched_upload"))).toBe(true);
+  expect(validFromStarts(g).has(sn("sched_upload"))).toBe(true); // union with roots
+});
+
+test("a mid-DAG start runs itself + downstream, never upstream", () => {
+  // Starting at `sub`, the unbounded downstream is {sub, reader}; `a`/`x` upstream
+  // are never pulled in (dbt `--select sub+`).
+  const g = graph({
+    scripts: ["a", "sub", "reader"],
+    writes: [["a", "x"], ["sub", "y"]],
+    reads: [["reader", "y"]],
+    subs: [["sub", "x"]],
+  });
+  const dag = buildLineageDag(g);
+  const downstream = new Set([sn("sub"), ...descendants(dag, sn("sub"))]);
+  expect(sorted(scriptsOf(downstream))).toEqual(["reader", "sub"]);
+  expect(downstream.has(sn("a"))).toBe(false);
+  expect(downstream.has("datatable:x")).toBe(false);
+});
+
+test("nonAutorunTriggerScripts: event + upload/webhook handlers, incl. subscribers (descendants)", () => {
+  const g = graph({
+    scripts: ["a", "evt", "upl"],
+    writes: [["a", "x"]],
+    subs: [["evt", "x"], ["upl", "x"]], // both are lineage descendants of a…
+    native: [["kafka", "evt"], ["data_upload", "upl"]], // …and input-requiring handlers
+  });
+  const ev = nonAutorunTriggerScripts(g);
+  // excluded from a whole-pipeline run despite being descendants
+  expect(ev.has(sn("evt"))).toBe(true);
+  expect(ev.has(sn("upl"))).toBe(true);
+  expect(ev.has(sn("a"))).toBe(false);
+});
+
+test("reachableCutting: drops barrier + its exclusive downstream, keeps alt-path nodes", () => {
+  // root_a → x → handler(kafka) → y → consumer ; root_b → z ; (variant: consumer also ← z)
+  const g = graph({
+    scripts: ["root_a", "root_b", "handler", "consumer"],
+    writes: [["root_a", "x"], ["root_b", "z"], ["handler", "y"]],
+    subs: [["handler", "x"], ["consumer", "y"]],
+    native: [["kafka", "handler"]],
+  });
+  const dag = buildLineageDag(g);
+  const scripts = (s: Set<string>) =>
+    new Set([...s].filter(isScriptNode).map(scriptPathOf));
+
+  // consumer only reachable via the event handler → both excluded
+  expect(scripts(reachableCutting(dag, validStarts(g), nonAutorunTriggerScripts(g)))).toEqual(
+    new Set(["root_a", "root_b"]),
+  );
+
+  // now consumer also reads z (a non-event path via root_b) → it stays
+  const g2 = graph({
+    scripts: ["root_a", "root_b", "handler", "consumer"],
+    writes: [["root_a", "x"], ["root_b", "z"], ["handler", "y"]],
+    subs: [["handler", "x"], ["consumer", "y"], ["consumer", "z"]],
+    native: [["kafka", "handler"]],
+  });
+  expect(
+    scripts(reachableCutting(buildLineageDag(g2), validStarts(g2), nonAutorunTriggerScripts(g2))),
+  ).toEqual(new Set(["root_a", "root_b", "consumer"]));
 });
 
 test("assetUriToNodeId maps s3 → s3object, others verbatim", () => {
   expect(assetUriToNodeId("s3://b/k")).toBe("s3object:b/k");
   expect(assetUriToNodeId("datatable://main/users")).toBe("datatable:main/users");
   expect(assetUriToNodeId("nope")).toBe(undefined);
+});
+
+test("assetUriToNodeId strips leading slashes from S3 keys (canonical node)", () => {
+  // Mirror of Rust `parse_asset_syntax`: `--to s3:///exports/x` must resolve to
+  // the same canonical node as the graph's `s3object:exports/x`.
+  expect(assetUriToNodeId("s3:///exports/x")).toBe("s3object:exports/x");
+  expect(assetUriToNodeId("s3:///exports/x")).toBe(assetUriToNodeId("s3://exports/x"));
+  // All leading slashes stripped so a canonical key never starts with `/`
+  // (the quad-slash `S3Object(s3="/x")` form collapses to `x`).
+  expect(assetUriToNodeId("s3:////x")).toBe("s3object:x");
+  // Hive-partition keys and non-S3 kinds are untouched.
+  expect(assetUriToNodeId("s3:///t/y=2024/f.parquet")).toBe("s3object:t/y=2024/f.parquet");
 });
 
 test("resolveToken: short name, full path, and asset URI", () => {

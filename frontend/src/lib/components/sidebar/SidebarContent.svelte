@@ -12,7 +12,7 @@
 		tutorialsToDo,
 		skippedAll
 	} from '$lib/stores'
-	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
+	import { findWorkspaceDescendants, workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -138,9 +138,28 @@
 			}
 		}
 
+		// Fork-scoped ducklake namespaces (metadata schemas + data files) — driven by the
+		// backend registry, so no per-lake selection is needed. Best-effort: a failure is
+		// surfaced but doesn't block the workspace delete (the registry rows survive a
+		// failed cleanup and re-creating the same fork id retries it — the toast tells the
+		// user something was left behind).
+		try {
+			const dlErrors = await WorkspaceService.dropForkedDucklakeNamespaces({ workspace })
+			for (const err of dlErrors) {
+				sendUserToast(err, true)
+			}
+		} catch (err) {
+			sendUserToast(`Failed to drop fork ducklake namespaces: ${err}`, true)
+		}
+
 		if (deleteForkedChildren && forkedDescendants.length > 0) {
 			for (const child of forkedDescendants) {
 				try {
+					await WorkspaceService.dropForkedDucklakeNamespaces({ workspace: child.id }).then(
+						(errs) => errs.forEach((e) => sendUserToast(e, true)),
+						(err) =>
+							sendUserToast(`Failed to drop fork ducklake namespaces of ${child.id}: ${err}`, true)
+					)
 					await WorkspaceService.deleteWorkspace({ workspace: child.id })
 				} catch (err) {
 					sendUserToast(`Failed to delete forked child ${child.id}: ${err}`, true)
@@ -187,6 +206,8 @@
 	const forkedDescendants = $derived(
 		$workspaceStore ? findWorkspaceDescendants($workspaceStore, $userWorkspaces ?? []) : []
 	)
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
+	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
 	let hasNewChangelogs = $state(false)
 	let recentChangelogs: Changelog[] = $state([])
@@ -550,7 +571,7 @@
 							}
 						]
 					: []),
-				...($workspaceStore?.startsWith('wm-fork-')
+				...(currentWsIsFork
 					? [
 							{
 								label: 'Delete Forked Workspace',
@@ -884,7 +905,7 @@
 	</div>
 </ConfirmationModal>
 
-{#if $workspaceStore?.startsWith('wm-fork-')}
+{#if currentWsIsFork}
 	<ConfirmationModal
 		open={deleteWorkspaceForkModal}
 		title="Delete forked workspace"

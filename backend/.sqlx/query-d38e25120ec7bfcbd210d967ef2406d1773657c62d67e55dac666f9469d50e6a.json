@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_storage_usage WHERE workspace_id = $1 AND storage != ALL($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d38e25120ec7bfcbd210d967ef2406d1773657c62d67e55dac666f9469d50e6a"
+}

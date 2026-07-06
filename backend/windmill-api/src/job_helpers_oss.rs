@@ -87,7 +87,8 @@ pub async fn upload_file_from_req(
     _file_key: &str,
     _req: axum::extract::Request,
     _options: PutMultipartOpts,
-) -> error::Result<PutResult> {
+    _max_size: Option<usize>,
+) -> error::Result<(PutResult, usize)> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
@@ -99,11 +100,76 @@ pub async fn upload_file_internal(
     _file_key: &str,
     _stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
     _options: PutMultipartOpts,
-) -> error::Result<()> {
+    _max_size: Option<usize>,
+) -> error::Result<(PutResult, usize)> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
+
+// These stubs stand in for the CE quota helpers in a pure-OSS build; their only
+// callers (apps.rs / args.rs uploads) are `not(enterprise)`, so gate them the
+// same way — an enterprise-without-private build compiles neither.
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
+pub async fn ce_storage_quota_remaining(
+    _db: &DB,
+    _w_id: &str,
+    _exclude_upload_id: Option<&str>,
+) -> error::Result<i64> {
+    Ok(i64::MAX)
+}
+
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
+pub fn reject_reserved_volume_key(_file_key: &str) -> error::Result<()> {
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
+pub struct CeUploadBudget {
+    pub max_size: usize,
+    pub existing_size: i64,
+}
+
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
+pub async fn ce_upload_budget(
+    _db: &DB,
+    _w_id: &str,
+    _s3_client: &Arc<dyn ObjectStore>,
+    _file_key: &str,
+    _content_length: Option<i64>,
+) -> error::Result<CeUploadBudget> {
+    Ok(CeUploadBudget { max_size: usize::MAX, existing_size: 0 })
+}
+
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
+pub async fn bump_storage_usage(_db: &DB, _w_id: &str, _storage: &str, _delta: i64) {}
+
+#[cfg(all(
+    feature = "parquet",
+    not(feature = "private"),
+    not(feature = "enterprise")
+))]
+pub fn spawn_storage_usage_recount_floored(_db: &DB, _w_id: &str) {}
 
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 pub async fn download_s3_file_internal(

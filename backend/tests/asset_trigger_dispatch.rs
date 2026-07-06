@@ -1044,3 +1044,132 @@ async fn reaper_clears_only_stale_join_slots(db: Pool<Postgres>) -> anyhow::Resu
 
     Ok(())
 }
+
+/// Seed one `materialized_partition` row (the state a managed `// materialize`
+/// write records) so dispatch has a snapshot to look up.
+async fn seed_materialization(
+    db: &Pool<Postgres>,
+    kind: &str,
+    asset_path: &str,
+    partition: &str,
+    status: &str,
+    snapshot_id: Option<i64>,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO materialized_partition
+             (workspace_id, asset_kind, asset_path, partition, status, snapshot_id)
+           VALUES ($1, $2::asset_kind, $3, $4, $5::materialization_status, $6)"#,
+    )
+    .bind(WS)
+    .bind(kind)
+    .bind(asset_path)
+    .bind(partition)
+    .bind(status)
+    .bind(snapshot_id)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Dispatch records, on the consumer's `trigger` arg, the latest captured
+/// materialization snapshot of each of its direct upstream assets
+/// (`upstream_snapshots`) — the forensic "what did this run see" record.
+/// Covered here:
+///   - latest = highest `snapshot_id` with status `materialized` (a stale
+///     partition and a failed/no-snapshot row are both passed over),
+///   - whole-table (sentinel '') upstreams omit `partition`,
+///   - upstreams with no captured snapshot produce no entry,
+///   - a consumer with no materialized upstream at all gets no
+///     `upstream_snapshots` key.
+#[sqlx::test(fixtures("base"))]
+async fn upstream_snapshots_recorded_on_dispatch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    seed_script(&db, SUB_S3, "echo lake consumer", "bash").await?;
+    seed_script(&db, SUB_RES, "echo raw consumer", "bash").await?;
+    seed_asset_write(&db, PRODUCER, "ducklake", "analytics/orders").await?;
+    seed_asset_write(&db, PRODUCER, "s3object", "f/raw").await?;
+
+    // SUB_S3's direct upstream set: the firing ducklake asset, a second
+    // materialized ducklake dimension (written by some other producer), and a
+    // plain s3 object that is never materialized.
+    seed_subscription(&db, SUB_S3, "script", "ducklake://analytics/orders").await?;
+    seed_subscription(&db, SUB_S3, "script", "ducklake://analytics/customers").await?;
+    seed_subscription(&db, SUB_S3, "script", "s3://f/raw").await?;
+    // SUB_RES subscribes only to the raw (non-materialized) asset.
+    seed_subscription(&db, SUB_RES, "script", "s3://f/raw").await?;
+
+    // orders: an older partition, the latest one, and a failed slice with no
+    // snapshot — only 2026-06-19 @ 42 must be recorded.
+    seed_materialization(
+        &db,
+        "ducklake",
+        "analytics/orders",
+        "2026-06-18",
+        "materialized",
+        Some(41),
+    )
+    .await?;
+    seed_materialization(
+        &db,
+        "ducklake",
+        "analytics/orders",
+        "2026-06-19",
+        "materialized",
+        Some(42),
+    )
+    .await?;
+    seed_materialization(
+        &db,
+        "ducklake",
+        "analytics/orders",
+        "2026-06-20",
+        "failed",
+        None,
+    )
+    .await?;
+    // customers: unpartitioned (sentinel '') → entry without `partition`.
+    seed_materialization(
+        &db,
+        "ducklake",
+        "analytics/customers",
+        "",
+        "materialized",
+        Some(7),
+    )
+    .await?;
+
+    let id = seed_producer_job(&db, json!({})).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
+    assert_eq!(
+        r.dispatched.len(),
+        3,
+        "SUB_S3 fired for both written assets, SUB_RES for the raw one"
+    );
+
+    let expected_snaps = json!([
+        { "asset": "ducklake://analytics/customers", "snapshot_id": 7 },
+        { "asset": "ducklake://analytics/orders", "snapshot_id": 42, "partition": "2026-06-19" },
+    ]);
+    for (path, _, args) in fetch_dispatched(&db).await? {
+        let trigger = args
+            .as_ref()
+            .and_then(|a| a.get("trigger"))
+            .cloned()
+            .expect("dispatched job carries a trigger arg");
+        match path.as_str() {
+            SUB_S3 => assert_eq!(
+                trigger.get("upstream_snapshots"),
+                Some(&expected_snaps),
+                "latest materialized snapshot per upstream, sorted by ref, raw asset absent"
+            ),
+            SUB_RES => assert!(
+                trigger.get("upstream_snapshots").is_none(),
+                "no materialized upstream → no upstream_snapshots key"
+            ),
+            other => panic!("unexpected dispatched path {other}"),
+        }
+    }
+
+    Ok(())
+}

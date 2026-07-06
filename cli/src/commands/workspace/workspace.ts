@@ -669,6 +669,26 @@ async function bind(
     }
     (config.workspaces as any)[wsName] = entry;
 
+    // Drop empty `{}` placeholder entries (older `wmill init` scaffolded one):
+    // they resolve to nothing (no baseUrl) yet count as configured workspaces,
+    // so leaving one beside the real binding makes every later command demand
+    // --workspace to disambiguate.
+    for (const [name, e] of Object.entries(
+      config.workspaces as Record<string, unknown>
+    )) {
+      if (
+        name !== wsName &&
+        !!e &&
+        typeof e === "object" &&
+        Object.keys(e).length === 0
+      ) {
+        delete (config.workspaces as any)[name];
+        log.info(
+          colors.gray(`Removed empty placeholder workspace entry '${name}'`)
+        );
+      }
+    }
+
     log.info(
       colors.green(
         `✓ Bound workspace '${wsName}'` +
@@ -819,7 +839,7 @@ const command = new Command()
   .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.")
   .action(createWorkspaceFork as any)
   .command("delete-fork")
-  .description("Delete a forked workspace and git branch")
+  .description("Delete a forked workspace")
   .arguments("<fork_name:string>")
   .option("-y --yes", "Skip confirmation prompt")
   .action(deleteWorkspaceFork as any)

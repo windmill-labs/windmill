@@ -14,3 +14,4 @@ export type DenoS3LightClientSettings = {
     secretKey?: string;
     pathStyle?: boolean;
 };
+export declare function parseS3Object(s3Object: S3Object): S3ObjectRecord;

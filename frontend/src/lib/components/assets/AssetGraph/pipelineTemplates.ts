@@ -17,8 +17,10 @@ export type PipelineOutputKind =
 	| 'datatable'
 	| 'ducklake'
 	| 'materialize'
+	| 'data_test'
 	| 's3_parquet'
 	| 's3_object'
+	| 'macros'
 
 export type PipelineOutputKindMeta = {
 	id: PipelineOutputKind
@@ -35,6 +37,11 @@ export const PIPELINE_OUTPUT_KINDS: PipelineOutputKindMeta[] = [
 		id: 'materialize',
 		label: 'Materialized table',
 		description: 'Managed DuckLake table — idempotent, versioned, tracked'
+	},
+	{
+		id: 'data_test',
+		label: 'Data test',
+		description: 'Custom assertion — a single SELECT returning offending rows (empty = pass)'
 	},
 	{
 		id: 'datatable',
@@ -57,6 +64,11 @@ export const PIPELINE_OUTPUT_KINDS: PipelineOutputKindMeta[] = [
 		description: 'Generic file (JSON/CSV/binary)'
 	},
 	{
+		id: 'macros',
+		label: 'Macro library',
+		description: 'Reusable DuckDB macros, callable from every script in the workspace'
+	},
+	{
 		id: 'none',
 		label: 'No output',
 		description: 'Side-effect only / fill in manually'
@@ -77,7 +89,16 @@ const LANG_COMPATIBILITY: Record<ScriptLang, PipelineOutputKind[]> = {
 	// single SELECT. The Python/TS `wmll.ducklake` helper currently takes a SQL
 	// SELECT (not in-memory rows), so a polyglot managed materialize is a
 	// separate follow-up — those langs keep the `ducklake` raw-write kind.
-	duckdb: ['materialize', 'datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
+	duckdb: [
+		'materialize',
+		'data_test',
+		'datatable',
+		'ducklake',
+		's3_parquet',
+		's3_object',
+		'macros',
+		'none'
+	],
 	postgresql: ['datatable', 'none'],
 	mysql: ['none'],
 	mssql: ['none'],
@@ -154,16 +175,16 @@ export function autoOutputAsset(
 		case 'ducklake':
 		case 'materialize':
 			return { kind: 'ducklake', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
-		// s3 paths carry the canonical leading slash of a default-storage
-		// object (`s3:///<key>` parses to path `/<key>`). The deploy-time
-		// parser stores writes in that form — a slashless seeded path would
-		// never match it, and the post-deploy drift check would report the
-		// output as lost (it isn't; the key differs by one '/'). Bodies that
-		// take a bare key (`{ s3: ... }`) strip the slash via `s3Key`.
+		// s3 outputs use the canonical slashless key. `parse_asset_syntax`
+		// normalizes `s3:///<key>` (default storage) and `s3://<key>` to the
+		// bare `<key>`, so the seeded draft asset must be slashless to match the
+		// deploy-time inferred identity — otherwise the post-deploy drift check
+		// would flag the output as a phantom `/`-prefixed node. The generated
+		// bodies still emit the `s3:///<key>` default-storage URI for runtime I/O.
 		case 's3_parquet':
 			return {
 				kind: 's3object',
-				path: `/pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
+				path: `pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
 			}
 		case 's3_object': {
 			// duckdb's natural output for a generic blob is CSV (one COPY TO
@@ -173,9 +194,14 @@ export function autoOutputAsset(
 			const ext = language === 'duckdb' ? 'csv' : 'json'
 			return {
 				kind: 's3object',
-				path: `/pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
+				path: `pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
 			}
 		}
+		// A macro library produces no asset — its "output" is the registry
+		// entries the deploy records. A custom data test produces no asset
+		// either — it asserts against an existing materialized target.
+		case 'macros':
+		case 'data_test':
 		case 'none':
 			return undefined
 	}
@@ -196,10 +222,11 @@ export function assetUri(asset: { kind: AssetKind; path: string }): string {
 	return `${ASSET_URI_PREFIX[asset.kind]}${asset.path}`
 }
 
-// Bare object key for the SDK's `{ s3: <key> }` forms: the canonical asset
-// path of a default-storage object has a leading slash, the key must not.
+// Bare object key for the SDK's `{ s3: <key> }` / `s3:///<key>` forms. Asset
+// paths are already canonical slashless keys; strip stray leading slashes
+// defensively so the emitted key never starts with '/'.
 function s3Key(path: string): string {
-	return path.replace(/^\//, '')
+	return path.replace(/^\/+/, '')
 }
 
 // Splits a datatable asset path (`<db>/<table>` or `<db>/<schema>.<table>`)
@@ -307,6 +334,17 @@ export type TemplateContext = {
 function header(ctx: TemplateContext): string {
 	const { language, triggers, output, outputKind } = ctx
 	const p = commentPrefix(language)
+	// A custom data test is a standalone script, not a graph node that produces
+	// an asset — so it gets no `// pipeline` / output annotation. Instead, tell
+	// the author how to wire it up (the `data_test` reference) and the two rules
+	// that aren't obvious: single SELECT, returning the offending rows.
+	if (outputKind === 'data_test') {
+		return [
+			`${p} Custom data test — reference it from a materialize script with \`${p} data_test <this-script-path>\`.`,
+			`${p} It must be a single SELECT returning the offending rows; the run fails if any row comes back.`,
+			''
+		].join('\n')
+	}
 	const lines = triggers.map((t) => {
 		switch (t.kind) {
 			case 'asset':
@@ -330,14 +368,24 @@ function header(ctx: TemplateContext): string {
 					`${p} Strategy: add key=<col> to merge (upsert), or append for insert-only; default replaces the partition`
 				]
 			: []
+	// Macro library: the `// macros` marker registers every CREATE MACRO below
+	// into the workspace registry at deploy. The hint must not start with a
+	// parser keyword — `Consumers` is safe.
+	const macrosLine =
+		outputKind === 'macros'
+			? [
+					`${p} macros`,
+					`${p} Consumers just call these by name; add \`${p} use <this-script-path>\` in a consumer to force-inject the whole library`
+				]
+			: []
 	// Discoverability hint — the three annotations users most often miss
 	// when authoring their first pipeline script. Single line, real
 	// example values (not placeholders) so users see the syntax. Docs
 	// link is the canonical reference once they want the details. A blank
 	// line separates it from the parsed annotations above (`// pipeline`,
 	// `// on …`) so the editor reads as "real annotations, then a hint".
-	const more = `${p} More: partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/pipelines/annotations`
-	return [`${p} pipeline`, ...lines, ...matLine, '', more, ''].join('\n')
+	const more = `${p} More: partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/core_concepts/pipelines`
+	return [`${p} pipeline`, ...lines, ...matLine, ...macrosLine, '', more, ''].join('\n')
 }
 
 // Bun / Deno bodies. These share the wmill SDK surface, so we treat them
@@ -372,8 +420,11 @@ function bodyTs(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
+				// `s3:///<key>` URI — one spelling shared with the `// on
+				// s3:///…` annotation form (the object literal `{ s3: <key> }`
+				// is equivalent).
 				return [
-					`  const buf = await wmill.loadS3File({ s3: ${JSON.stringify(s3Key(input.path))} })`,
+					`  const buf = await wmill.loadS3File(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
 					`  const rows = JSON.parse(new TextDecoder().decode(buf))`,
 					``
 				].join('\n')
@@ -399,9 +450,10 @@ function bodyTs(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
+				// `s3:///<key>` URI — see the loadS3File note above.
 				return [
 					`  const payload = new TextEncoder().encode(JSON.stringify(rows))`,
-					`  await wmill.writeS3File({ s3: ${JSON.stringify(s3Key(output.path))} }, payload)`
+					`  await wmill.writeS3File(${JSON.stringify(`s3:///${s3Key(output.path)}`)}, payload)`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
@@ -455,8 +507,11 @@ function bodyPython(ctx: TemplateContext): string {
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
+				// `s3:///<key>` URI — SDK string params must be s3:// URIs
+				// (bare keys are rejected), and this form matches the
+				// `# on s3:///…` annotation spelling.
 				return [
-					`    buf = wmill.load_s3_file(${JSON.stringify(s3Key(input.path))})`,
+					`    buf = wmill.load_s3_file(${JSON.stringify(`s3:///${s3Key(input.path)}`)})`,
 					`    import json; rows = json.loads(buf.decode("utf-8"))`
 				].join('\n')
 			case 'datatable':
@@ -479,9 +534,10 @@ function bodyPython(ctx: TemplateContext): string {
 		switch (outputKind) {
 			case 's3_parquet':
 			case 's3_object':
+				// `s3:///<key>` URI — see the load_s3_file note above.
 				return [
 					`    import json`,
-					`    wmill.write_s3_file(${JSON.stringify(s3Key(output.path))}, json.dumps(rows).encode("utf-8"))`
+					`    wmill.write_s3_file(${JSON.stringify(`s3:///${s3Key(output.path)}`)}, json.dumps(rows).encode("utf-8"))`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
@@ -517,6 +573,22 @@ function bodyPython(ctx: TemplateContext): string {
 function bodyDuckdb(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
 	const dataUpload = isDataUpload(ctx.triggers)
+	if (outputKind === 'data_test') {
+		// Standalone custom data test: it reads ONLY the freshly-materialized
+		// target, which the runtime attaches under the internal `_wm_target`
+		// schema — so it emits no ATTACH / input load of its own. When the test
+		// was created off a ducklake asset, seed its table name; otherwise a
+		// clear placeholder. This exact shape (single SELECT vs `_wm_target`) is
+		// what the backend's self-teaching errors ask for.
+		const testTable = input?.kind === 'ducklake' ? catalogTableRef(input.path) : 'your_table'
+		return [
+			'',
+			`-- Return the rows that VIOLATE your assertion; an empty result means the test passes.`,
+			`-- \`_wm_target\` is the freshly-materialized target, attached by the runtime.`,
+			`SELECT * FROM _wm_target.${testTable} WHERE your_condition;`,
+			''
+		].join('\n')
+	}
 	const lines: string[] = []
 	if (dataUpload) {
 		// `(s3object)` param declaration → the run form renders the S3 picker
@@ -565,7 +637,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 		if (!input) return null
 		switch (input.kind) {
 			case 's3object':
-				return `read_parquet('s3://${input.path}')`
+				return `read_parquet('s3:///${input.path}')`
 			case 'datatable':
 				// `pg` is the attached Postgres catalog (see ATTACH above).
 				// Use a 2-part `pg.<table>` ref so the asset parser maps it
@@ -588,7 +660,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`COPY (`,
 					`  SELECT *`,
 					`  FROM ${fromExpr}`,
-					`) TO 's3://${output.path}' (FORMAT 'parquet');`
+					`) TO 's3:///${output.path}' (FORMAT 'parquet');`
 				)
 			}
 			break
@@ -599,7 +671,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`COPY (`,
 					`  SELECT *`,
 					`  FROM ${fromExpr}`,
-					`) TO 's3://${output.path}' (FORMAT 'csv', HEADER);`
+					`) TO 's3:///${output.path}' (FORMAT 'csv', HEADER);`
 				)
 			}
 			break
@@ -635,6 +707,18 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 				)
 			}
+			break
+		case 'macros':
+			// Library body: only CREATE [OR REPLACE] MACRO statements (plus plain
+			// setup). One scalar + one table example; bodies may only call macros
+			// defined EARLIER in the file (DuckDB bind-checks at creation).
+			lines.push(
+				`CREATE OR REPLACE MACRO safe_div(a, b, fallback := 0) AS`,
+				`  CASE WHEN b = 0 THEN fallback ELSE a / b END;`,
+				``,
+				`CREATE OR REPLACE MACRO sample_rows(src, n) AS TABLE`,
+				`  SELECT * FROM query_table(src) LIMIT n;`
+			)
 			break
 		case 'none':
 		default:

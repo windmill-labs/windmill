@@ -18,10 +18,11 @@
 		NativeTriggerKind,
 		PipelineMode
 	} from './types'
-	import type { AssetKind, ScriptLang } from '$lib/gen'
+	import type { AssetKind, Script, ScriptLang } from '$lib/gen'
 	import type { RunnableRunState, PipelineEvent } from './activeRunnables.svelte'
 	import type { PipelineOutputKind } from './pipelineTemplates'
 	import type { PipelineEditorState } from './pipelineEditorState.svelte'
+	import type { SchemaContractGraphContext } from './schemaContracts'
 
 	type RunProducer = { kind: 'script' | 'flow'; path: string; unsaved?: boolean; cascade?: boolean }
 
@@ -31,6 +32,8 @@
 		mode,
 		workspace,
 		folder,
+		viewportFitKey = undefined,
+		stackBelow = 680,
 		persistDrafts = false,
 		pathPrefix,
 		defaultPathSuffix = 'new_pipeline_script',
@@ -65,9 +68,14 @@
 		onRequestEdit,
 		canRunByPath = false,
 		onRunByPath,
+		onRunCascadeByPath,
+		resolveLocalScript,
+		localScriptsVersion,
 		selectionProducers = [],
 		selectionColumnGraph,
 		schemaCanEvolve = true,
+		selectionForkMaterialization = undefined,
+		schemaContractContext = undefined,
 		downstreamSubscribers = 0,
 		onStartBoundedRunForOpen,
 		canBoundedRunOpenScript = false,
@@ -91,6 +99,17 @@
 		workspace: string | undefined
 		/** Folder the pipeline is scoped to — drives the autosave draft path. */
 		folder: string
+		/** Folder whose graph is actually *loaded* (not the route param). On an
+		 * in-place folder switch the stale graph stays rendered while the new
+		 * fetch is in flight, so keying the canvas's one-shot initial fit on
+		 * `folder` would consume the new folder's fit on the old graph. Pages
+		 * that stale-while-revalidate should pass the folder captured when the
+		 * fetch resolved; defaults to `folder`. */
+		viewportFitKey?: string
+		/** Below this container width (px) the graph/details split stacks
+		 * vertically instead of side-by-side — for narrow side panels / AI
+		 * session previews. Defaults to 680. */
+		stackBelow?: number
 		/** Persist drafts as a per-folder `data_pipeline` DraftService bundle (enabled
 		 * by both the route page and the in-session preview). FlowBuilder's autosave
 		 * analogue. */
@@ -140,10 +159,25 @@
 		onRequestEdit?: () => void
 		canRunByPath?: boolean
 		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Run the open script AND its downstream closure (dev preview only; the
+		// deployed pane leaves this unset — its single run cascades via the backend).
+		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
+		 * so the details pane skips the (nonexistent) deployed-script fetch. May
+		 * be async (to infer the args schema for the run form). */
+		resolveLocalScript?: (path: string) => Script | undefined | Promise<Script | undefined>
+		/** Bumped on each `pipeline dev` bundle so the open details pane re-resolves
+		 * the selected node's source on live-reload. */
+		localScriptsVersion?: unknown
 		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
 		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
 		schemaCanEvolve?: boolean
+		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
+		selectionForkMaterialization?: 'fork' | 'deferred'
+		/** Producer-side facts for the editor's live schema-contract diagnostics
+		 * (ignore suppression + scd2 `_current` fallback), from the route page. */
+		schemaContractContext?: SchemaContractGraphContext
 		downstreamSubscribers?: number
 		onStartBoundedRunForOpen?: (path: string) => void
 		canBoundedRunOpenScript?: boolean
@@ -164,7 +198,14 @@
 
 	let leftPaneSize = $state(60)
 	let rightPaneSize = $state(40)
-	let storedRightPaneSize = $state(40)
+	// 0 = "no user-chosen size yet" so the orientation-aware default (55% stacked /
+	// 40% side-by-side) applies on first open; a real drag overwrites it below.
+	let storedRightPaneSize = $state(0)
+
+	// Container width drives the split orientation: stack vertically (graph over
+	// details) when too narrow for a comfortable side-by-side split.
+	let containerWidth = $state(0)
+	let stacked = $derived(containerWidth > 0 && containerWidth < stackBelow)
 
 	let effectiveSelection = $derived<AssetGraphSelection | undefined>(
 		editor.activeDraftPath
@@ -189,11 +230,14 @@
 	// the effect tracks only `detailsPaneOpen` / `storedRightPaneSize` — without it,
 	// the Pane `bind:size` feedback loops the effect and pegs the main thread.
 	$effect(() => {
+		// Stacked (vertical) splits give the details pane more room — the run
+		// form + result need height more than the graph needs it.
+		const fallback = stacked ? 55 : 40
 		if (detailsPaneOpen) {
 			const restore = storedRightPaneSize
 			untrack(() => {
-				rightPaneSize = restore > 0 ? restore : 40
-				leftPaneSize = 100 - (restore > 0 ? restore : 40)
+				rightPaneSize = restore > 0 ? restore : fallback
+				leftPaneSize = 100 - (restore > 0 ? restore : fallback)
 			})
 		} else {
 			untrack(() => {
@@ -375,103 +419,116 @@
 	})
 </script>
 
-<Splitpanes class="!h-full">
-	<Pane bind:size={leftPaneSize}>
-		<div class="relative h-full">
-			<AssetGraphCanvas
-				graph={displayGraph}
-				selection={effectiveSelection}
-				{hoveredPaths}
-				{selectedRunPaths}
-				{activeRunnable}
-				{activeRunnableIds}
-				{runStates}
-				{pathPrefix}
-				{defaultPathSuffix}
-				{onCreateMissingTrigger}
-				{onEditTrigger}
-				{onDeleteTrigger}
-				{onOpenWebhook}
-				{onOpenDataUpload}
-				onselect={onSelect}
-				{onAddScriptForAsset}
-				{onAddPipelineScript}
-				{onRunnableMenuRemove}
-				{onRunProducer}
-				{validStartPaths}
-				{onStartBoundedRun}
-				{boundPick}
-				{onPickEnd}
-				{panToNodeId}
-			/>
-			{#if boundBar}{@render boundBar()}{/if}
-			{#if mode === 'edit'}
-				<PipelineEventLog events={eventLogEvents} />
-			{/if}
-			{#if prefetchingAssets}
-				<div
-					class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
-					title="Inferring assets for every script in this folder so the graph is complete"
-				>
-					<Loader2 size={11} class="animate-spin" />
-					Parsing assets…
-				</div>
-			{/if}
-			{#if onTogglePanelHidden && (mode !== 'edit' || editor.selection != undefined || editor.activeDraftPath != undefined)}
-				<div
-					class="absolute top-2 right-2 z-50 rounded-md bg-surface shadow-sm border border-gray-200 dark:border-gray-700"
-				>
-					<HideButton hidden={panelHidden} direction="right" on:click={onTogglePanelHidden} />
-				</div>
-			{/if}
-		</div></Pane
-	>
-	{#if detailsPaneOpen && workspace}
-		<Pane bind:size={rightPaneSize} minSize={25}>
-			{#if idleView && idlePane}
-				{@render idlePane()}
-			{:else}
-				<AssetGraphDetailsPane
-					{mode}
-					{onRequestEdit}
-					{canRunByPath}
-					{onRunByPath}
-					selection={activeDraft ? undefined : editor.selection}
-					selectionProducers={activeDraft ? [] : selectionProducers}
-					{selectionColumnGraph}
-					{schemaCanEvolve}
-					{runsRefreshKey}
-					{runsPendingJobId}
+<div class="h-full w-full" bind:clientWidth={containerWidth}>
+	<Splitpanes class="!h-full" horizontal={stacked}>
+		<Pane bind:size={leftPaneSize}>
+			<div class="relative h-full">
+				<AssetGraphCanvas
+					graph={displayGraph}
+					selection={effectiveSelection}
+					{hoveredPaths}
+					{selectedRunPaths}
 					{activeRunnable}
-					{downstreamSubscribers}
-					onStartBoundedRun={canBoundedRunOpenScript &&
-					editor.openScriptPath &&
-					onStartBoundedRunForOpen
-						? () => onStartBoundedRunForOpen?.(editor.openScriptPath!)
-						: undefined}
-					{onRunCompleted}
-					{onTestStateChange}
-					{requestRemoveSignal}
-					{requestRunSignal}
-					{requestRunCascadeSignal}
-					{focusUploadSignal}
-					draftScript={activeDraft?.script}
+					{activeRunnableIds}
+					{runStates}
 					{pathPrefix}
-					{onDraftPathChange}
-					{workspace}
-					onAnnotationsChange={editor.handleAnnotationsChange}
-					onAssetsChange={editor.handleAssetsChange}
-					onContentChange={editor.handleContentChange}
-					onDraftPersist={editor.handleDraftPersist}
-					onclose={onClose}
-					onHide={onTogglePanelHidden}
-					{onDiscard}
-					{onDraftSaved}
-					{onPersistedSaved}
-					{onScriptRenamed}
-					{onScriptRemoved}
+					{defaultPathSuffix}
+					{onCreateMissingTrigger}
+					{onEditTrigger}
+					{onDeleteTrigger}
+					{onOpenWebhook}
+					{onOpenDataUpload}
+					onselect={onSelect}
+					{onAddScriptForAsset}
+					{onAddPipelineScript}
+					{onRunnableMenuRemove}
+					{onRunProducer}
+					{validStartPaths}
+					{onStartBoundedRun}
+					{boundPick}
+					{onPickEnd}
+					{panToNodeId}
+					showMinimap={!stacked}
+					viewportFitKey={viewportFitKey ?? folder}
 				/>
-			{/if}
-		</Pane>
-	{/if}
-</Splitpanes>
+				{#if boundBar}{@render boundBar()}{/if}
+				{#if mode === 'edit'}
+					<PipelineEventLog events={eventLogEvents} />
+				{/if}
+				{#if prefetchingAssets}
+					<div
+						class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
+						title="Inferring assets for every script in this folder so the graph is complete"
+					>
+						<Loader2 size={11} class="animate-spin" />
+						Parsing assets…
+					</div>
+				{/if}
+				{#if onTogglePanelHidden && (mode !== 'edit' || editor.selection != undefined || editor.activeDraftPath != undefined)}
+					<div
+						class="absolute top-2 right-2 z-50 rounded-md bg-surface shadow-sm border border-gray-200 dark:border-gray-700"
+					>
+						<HideButton
+							hidden={panelHidden}
+							direction={stacked ? 'bottom' : 'right'}
+							on:click={onTogglePanelHidden}
+						/>
+					</div>
+				{/if}
+			</div></Pane
+		>
+		{#if detailsPaneOpen && workspace}
+			<Pane bind:size={rightPaneSize} minSize={25}>
+				{#if idleView && idlePane}
+					{@render idlePane()}
+				{:else}
+					<AssetGraphDetailsPane
+						{mode}
+						{onRequestEdit}
+						{canRunByPath}
+						{onRunByPath}
+						{onRunCascadeByPath}
+						{resolveLocalScript}
+						{localScriptsVersion}
+						selection={activeDraft ? undefined : editor.selection}
+						selectionProducers={activeDraft ? [] : selectionProducers}
+						{selectionColumnGraph}
+						{schemaCanEvolve}
+						{selectionForkMaterialization}
+						{schemaContractContext}
+						{runsRefreshKey}
+						{runsPendingJobId}
+						{activeRunnable}
+						{downstreamSubscribers}
+						onStartBoundedRun={canBoundedRunOpenScript &&
+						editor.openScriptPath &&
+						onStartBoundedRunForOpen
+							? () => onStartBoundedRunForOpen?.(editor.openScriptPath!)
+							: undefined}
+						{onRunCompleted}
+						{onTestStateChange}
+						{requestRemoveSignal}
+						{requestRunSignal}
+						{requestRunCascadeSignal}
+						{focusUploadSignal}
+						draftScript={activeDraft?.script}
+						{pathPrefix}
+						{onDraftPathChange}
+						{workspace}
+						onAnnotationsChange={editor.handleAnnotationsChange}
+						onAssetsChange={editor.handleAssetsChange}
+						onContentChange={editor.handleContentChange}
+						onDraftPersist={editor.handleDraftPersist}
+						onclose={onClose}
+						onHide={onTogglePanelHidden}
+						{onDiscard}
+						{onDraftSaved}
+						{onPersistedSaved}
+						{onScriptRenamed}
+						{onScriptRemoved}
+					/>
+				{/if}
+			</Pane>
+		{/if}
+	</Splitpanes>
+</div>

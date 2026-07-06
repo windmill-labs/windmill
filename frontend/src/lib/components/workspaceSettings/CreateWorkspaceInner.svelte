@@ -14,7 +14,9 @@
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
-	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import { resource } from 'runed'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -36,6 +38,7 @@
 	import { base } from '$lib/base'
 	import Label from '../Label.svelte'
 	import ForkDatatableSection from './ForkDatatableSection.svelte'
+	import ForkDucklakeSection from './ForkDucklakeSection.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -43,6 +46,41 @@
 	}
 
 	let { isFork = false, onFinish }: Props = $props()
+
+	// Dev-workspace mode: create the fork as a persistent, prefix-less dev workspace and (optionally)
+	// lock the parent ("prod") against direct edits.
+	let createAsDevWorkspace = $state(false)
+	let lockProdDeploy = $state(true)
+	let lockProdForking = $state(true)
+	// Bring the parent's members into the fork (a shared env). Defaults on for a
+	// dev workspace, off for a throwaway fork; flipping the dev toggle resets it.
+	let copyMembers = $state(false)
+	$effect(() => {
+		copyMembers = createAsDevWorkspace
+	})
+
+	// The dev-workspace option is only offered when forking a root workspace that doesn't already
+	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
+	let currentWorkspaceEntry = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+	// Require the current workspace to be loaded before treating it as a root: a missing entry must
+	// not read as root (it would offer invalid dev creation while the workspace list is still loading).
+	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
+	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
+	let currentIsRoot = $derived(
+		!!currentWorkspaceEntry && !workspaceIsFork($workspaceStore, $userWorkspaces)
+	)
+	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
+	// so the client workspace list can't see it and would offer an invalid "create dev" action.
+	const devWorkspaceResource = resource(
+		() => (currentIsRoot ? $workspaceStore : undefined),
+		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
+	)
+	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
+	// conservative (no offer) while the check is loading (current is undefined).
+	let canDesignateDevWorkspace = $derived(currentIsRoot && devWorkspaceResource.current === null)
+	let currentWorkspaceName = $derived(
+		currentWorkspaceEntry?.name ?? $workspaceStore ?? 'the root workspace'
+	)
 
 	let id = $state('')
 	let name = $state('')
@@ -55,6 +93,7 @@
 	let checking = $state(false)
 
 	let forkDatatableSection: ReturnType<typeof ForkDatatableSection> | undefined = $state(undefined)
+	let forkDucklakeSection: ReturnType<typeof ForkDucklakeSection> | undefined = $state(undefined)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -73,12 +112,13 @@
 		// For forks the actual workspace id is prefixed: checking the bare id
 		// would report the name as free even when `wm-fork-<id>` is taken
 		// (e.g. by an archived fork, which keeps its id reserved).
-		const effectiveId = isFork ? `${WM_FORK_PREFIX}${id}` : id
+		const effectiveId = isFork && !createAsDevWorkspace ? `${WM_FORK_PREFIX}${id}` : id
 		let exists =
 			id != '' && (await WorkspaceService.existsWorkspace({ requestBody: { id: effectiveId } }))
-		forkIdTaken = isFork && exists
+		// The "delete existing fork to reclaim the id" affordance is only for prefixed forks.
+		forkIdTaken = isFork && !createAsDevWorkspace && exists
 		if (exists) {
-			errorId = isFork
+			errorId = forkIdTaken
 				? `A workspace with id '${effectiveId}' already exists. It may be an archived fork: archiving keeps the id reserved.`
 				: 'ID already exists'
 		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
@@ -90,6 +130,9 @@
 	}
 
 	const WM_FORK_PREFIX = 'wm-fork-'
+
+	// A dev workspace keeps its bare id; an ordinary fork is prefixed with `wm-fork-`.
+	const effectiveForkId = $derived(createAsDevWorkspace ? id : `${WM_FORK_PREFIX}${id}`)
 
 	let forkIdTaken = $state(false)
 	let deleteExistingForkOpen = $state(false)
@@ -157,9 +200,8 @@
 	}
 
 	async function createOrForkWorkspace() {
-		const prefixed_id = `${WM_FORK_PREFIX}${id}`
 		if (isFork) {
-			await forkWorkspace(prefixed_id)
+			await forkWorkspace(effectiveForkId)
 		} else {
 			await createWorkspace()
 		}
@@ -188,14 +230,31 @@
 	}
 
 	async function completeFork(prefixed_id: string): Promise<void> {
-		let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
-			workspace: $workspaceStore!,
-			requestBody: {
-				id: prefixed_id,
-				name,
-				color: colorEnabled && workspaceColor ? workspaceColor : undefined
-			}
-		})
+		let gitSyncJobIds: string[]
+		try {
+			gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
+				workspace: $workspaceStore!,
+				requestBody: {
+					id: prefixed_id,
+					name,
+					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+					is_dev_workspace: createAsDevWorkspace,
+					// Send the lock intent in this first phase too so the backend can reject a non-admin's
+					// locked-dev request before any branch is created (avoids dangling branches).
+					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					copy_members: copyMembers
+				}
+			})
+		} catch (e) {
+			// The backend can reject here (fork cap, depth limit, premium, non-admin lock). Reset the
+			// loading state and surface the error rather than leaving the button spinning.
+			forkCreationError = `Failed to create fork '${prefixed_id}'`
+			errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+			forkCreationLoading = false
+			sendUserToast(`Could not create fork '${prefixed_id}' ${e?.body ?? e}`, true)
+			return
+		}
 
 		try {
 			await Promise.all(
@@ -246,7 +305,12 @@
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-					forked_datatables: forkedDatatables
+					forked_datatables: forkedDatatables,
+					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+					is_dev_workspace: createAsDevWorkspace,
+					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					copy_members: copyMembers
 				}
 			})
 		} catch (e) {
@@ -258,7 +322,11 @@
 		}
 
 		forkCreationLoading = false
-		sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
+		sendUserToast(
+			createAsDevWorkspace
+				? `Created dev workspace ${effectiveForkId} for ${$workspaceStore}`
+				: `Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`
+		)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		switchWorkspace(prefixed_id)
@@ -490,7 +558,7 @@
 					<span class="text-xs text-secondary">Slug to uniquely identify your workspace</span>
 				{/if}
 
-				{#if isFork}
+				{#if isFork && !createAsDevWorkspace}
 					<PrefixedInput
 						prefix={WM_FORK_PREFIX}
 						type="text"
@@ -521,6 +589,46 @@
 					{/if}
 				{/if}
 			</label>
+			{#if isFork && canDesignateDevWorkspace}
+				<Label label="Persistent dev workspace">
+					<span class="text-xs text-secondary">
+						Create a standing dev workspace (no <code>wm-fork-</code> prefix) paired with this workspace,
+						instead of a throwaway fork.
+					</span>
+					<div class="flex flex-col gap-2 pt-1">
+						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
+						{#if createAsDevWorkspace}
+							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
+								<div class="flex flex-col gap-0.5">
+									<span class="text-xs font-semibold text-emphasis"
+										>Protect {currentWorkspaceName}</span
+									>
+									<span class="text-2xs text-secondary">
+										Adds protection rules to this (root) workspace so changes are made in the new
+										dev workspace and promoted here.
+									</span>
+								</div>
+								<Toggle
+									bind:checked={lockProdDeploy}
+									options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+								/>
+								<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+							</div>
+						{/if}
+					</div>
+				</Label>
+			{/if}
+			{#if isFork && createAsDevWorkspace}
+				<Label label="Members">
+					<span class="text-xs text-secondary">
+						Copy this workspace's members (and their group memberships) into the dev workspace so
+						the team can work in it.
+					</span>
+					<div class="pt-1">
+						<Toggle bind:checked={copyMembers} options={{ right: 'Copy members' }} />
+					</div>
+				</Label>
+			{/if}
 			<Label label="Workspace color">
 				<span class="text-xs text-secondary">
 					Color to identify the current workspace in the list of workspaces
@@ -555,12 +663,13 @@
 				<ForkDatatableSection
 					bind:this={forkDatatableSection}
 					onAllDone={() => {
-						completeFork(`${WM_FORK_PREFIX}${id}`)
+						completeFork(effectiveForkId)
 					}}
 					onCanceled={() => {
 						forkCreationLoading = false
 					}}
 				/>
+				<ForkDucklakeSection bind:this={forkDucklakeSection} />
 			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">

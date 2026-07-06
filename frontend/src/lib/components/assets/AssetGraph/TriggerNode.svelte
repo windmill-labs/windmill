@@ -183,7 +183,7 @@
 		...(data.onStartBoundedRun
 			? [
 					{
-						displayName: 'Run downstream up to…',
+						displayName: 'Run + downstream…',
 						icon: Target,
 						action: () => data.onStartBoundedRun?.()
 					}

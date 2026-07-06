@@ -2,7 +2,10 @@
 
 Design sketch for "managed, versioned, incremental" assets built on the
 DuckLake substrate. This is a companion to [`pipelines-vs-dbt.md`](./pipelines-vs-dbt.md)
-and extends its **Path C (hybrid, partition-first)** recommendation. The new
+and extends its **Path C (hybrid, partition-first)** recommendation. For the
+extract-load side that feeds these materializations, see §"Ingestion (EL)"
+at the end of this doc (user-facing guide: windmilldocs
+`core_concepts/63_pipelines` → "Ingestion (EL)"). The new
 contribution here is leveraging DuckLake's snapshot/time-travel layer, which
 the earlier doc's incremental deep-dive did not use. The annotation grammar is
 reconciled with that doc — `// partitioned` + `// unique_key` + `// append`
@@ -45,9 +48,12 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
 
 ```
 // materialize ducklake://analytics/orders_daily              → managed, replace (default)
-// materialize ducklake://analytics/orders_daily key=order_id → managed, merge
+// materialize ducklake://analytics/orders_daily key=order_id → managed, merge (SCD type 1)
 // materialize ducklake://analytics/orders_daily append       → managed, append
+// materialize ducklake://analytics/dim_customer key=id history → managed, SCD type 2 history
 // materialize manual ducklake://analytics/orders_daily       → track-only escape hatch
+// materialize ducklake://analytics/raw_events on_schema_change=ignore
+//                                  → managed, downstream contract warnings muted
 ```
 
 - **managed (default)** — the script is *setup + one trailing `SELECT`*; Windmill
@@ -56,9 +62,63 @@ stays separate because it is cross-cutting (cascade + scheduling + materialize).
   error pointing to the `wmll.ducklake` helpers).
 - **`manual`** — escape hatch: the script writes its own DDL; Windmill only
   records state (no snapshot capture, no idempotency guarantee). Rare; explicit.
-- **`key=<col>`** → MERGE (dedup within slice); **`append`** → INSERT-only;
-  neither → DELETE-by-partition + INSERT (replace). `append` wins over `key` if
-  both are given (deploy warning).
+- **`key=<col>`** → MERGE (upsert-by-key within the slice, SCD type 1 —
+  overwrites history); **`append`** → INSERT-only; neither → DELETE-by-partition
+  + INSERT (replace). `append` wins over `key` if both are given (deploy warning).
+  - **Source must have unique keys.** The merge is delete-by-key + insert-all: it
+    reconciles the incoming rows against the *target* (rows whose key is in the
+    SELECT are replaced), but it does **not** deduplicate the *source*. Two
+    incoming rows sharing a key would therefore both land under that key, silently
+    breaking the "one row per key" contract. The managed write guards against this
+    — the run **fails** with a clear error when the SELECT returns more than one
+    row for a non-NULL key (`NULL` keys are exempt, matching the insert-only path).
+    Deduplicate in the SELECT (e.g. `QUALIFY row_number() OVER (PARTITION BY <key>
+    ORDER BY <recency-col> DESC) = 1`) or use `append` if duplicates are intended.
+- **`key=<col> history [track=<c1,c2,…>] [deletes=close]`** → upgrades the keyed
+  merge to managed SCD **type 2** history (the leading keyword `scd2` is an alias).
+  The SELECT is the *current snapshot* (one row per `key`), and the runtime adds
+  `valid_from`/`valid_to`/`is_current`; a change to any tracked column (`track=`,
+  default all non-key) closes the prior version and opens a new one, keeping full
+  history. Diff → close-old (`UPDATE`) → open-new (`INSERT`) in one transaction;
+  the effective timestamp is the transaction clock (`now()`), so a run is
+  self-consistent. v1 is **non-partitioned only** (`// partitioned` + history is
+  rejected **at deploy**), and it **requires `key=`** (also rejected at deploy).
+  Both misconfigurations fail fast at save with a clear message instead of on the
+  first run. Unlike `manual`, it is managed, so `// data_test` and schema capture
+  work.
+  - **Deletes.** By default a key that disappears from the snapshot stays current
+    (soft delete — dbt's `hard_deletes=ignore`). `deletes=close` opts into
+    hard-delete-close: the vanished key's current version is closed (`valid_to`
+    set, `is_current=false`) with no new version — dbt's `hard_deletes=close`. If
+    that key later reappears in the snapshot it opens a fresh version, leaving a
+    validity gap between the delete and the reactivation (correct SCD2).
+  - **Reserved names.** `valid_from`/`valid_to`/`is_current` are reserved column
+    names in this mode — a SELECT that already projects one fails at run time —
+    and the `<dim>_current` suffix is reserved for the companion view (below), so
+    don't separately materialize a table by that name in the same lake (the view
+    is created `IF NOT EXISTS` inside the write transaction, so such a collision
+    is skipped silently — the `_current` convenience is simply absent — rather
+    than erroring).
+  - **Key should be non-null.** A `NULL` natural key is ill-formed for a
+    dimension; the codegen matches keys null-safely so a `NULL`-key row is
+    materialized rather than silently dropped, but you should enforce it with
+    `// data_test not_null <key>`.
+  - **`track=` takes no spaces.** Like every `=`-option in the annotation grammar
+    (which is whitespace-tokenized), the `track=` value must be a bare
+    comma-separated list with no spaces: `track=name,tier`, not `track=name, tier`
+    (a space ends the value and the rest is silently ignored).
+  - **Schema is frozen at first run** (persist-and-mutate, like `merge`/`append`):
+    the history table is `CREATE TABLE IF NOT EXISTS`, so adding/removing a
+    projected column later fails the run — an append-only history can't retroactively
+    reshape closed versions. Changing the SELECT's columns needs a manual rebuild
+    (the `replace` strategy is the only one that re-derives schema each run).
+  - **Consumer convenience.** Each run (re)creates a `<dim>_current` view (`WHERE
+    is_current`) in the same catalog, so the common "latest version" read needs no
+    filter and downstream scripts can `// on ducklake://…/<dim>_current`. The
+    effective-dated payoff is a native DuckDB `ASOF JOIN` against the history
+    table: `… ASOF JOIN <dim> d ON fact.key = d.<key> AND fact.ts >= d.valid_from`
+    returns, for each fact, the dimension version that was current at `fact.ts` —
+    something neither `merge` nor DuckLake time-travel can do in one query.
 - **`// partitioned <kind>`** — unit of work + state + backfill (separate;
   cross-cutting). Polyglot / multi-statement writes use the `wmll.ducklake`
   helpers instead of `// materialize`.
@@ -224,9 +284,20 @@ without anyone asking. This is deliberately **not** built, for three reasons:
 If a workload ever shows the consistency race in practice, pinning can be layered
 on top — the capture and the snapshot surfacing built here are its foundation.
 
-It also means **we do not build SCD2 snapshots** (gap #4 in `pipelines-vs-dbt.md`):
-DuckLake time-travel is a strictly better answer for most of what dbt's
-`{% snapshot %}` is used for. One fewer engine to write.
+What **is** built is the forensic slice of that sketch: when the cascade
+dispatches a consumer, it records the latest captured snapshot of each of the
+consumer's direct upstream assets into the job's `trigger` arg
+(`upstream_snapshots`, rendered read-only on the run detail page with a
+copyable `AT (VERSION => n)` clause). "What did the failing run actually see"
+stays answerable after the fact, with zero read-path changes — reads are
+*not* pinned to the recorded versions.
+
+This is distinct from **SCD2 history** (`// materialize … key=… history`), which *is* built:
+DuckLake time-travel answers "what did the whole table look like at snapshot N?"
+but not "give me each entity's version history as queryable rows"
+(`valid_from`/`valid_to`/`is_current`) — the shape dbt's `{% snapshot %}` produces
+and downstream dimensional queries join against. The scd2 strategy generates and
+manages that history table (see the strategy bullet above).
 
 ## Data tests (`// data_test`) — and the extensible-annotation pattern
 
@@ -267,18 +338,73 @@ The reusable shape, in three layers, each a clean extension seam:
    match arm + its sub-parser; the `Custom` arm is the open fallback. A sibling
    family reuses this head-keyword dispatch rather than adding a parallel list.
 2. **Compile** (`sql_materialize.rs::build_data_test_checks`). Each test becomes
-   a **check**: `(name, violating-row-count query)`. Built-ins differ only in
-   their count query; `Custom` supplies its own (the user's SELECT of violating
-   rows). Referenced assets (relationships) emit an `ATTACH` resolved by the
-   same transform pass as the user's own.
+   a **check**: `(name, probe)`, where the probe is a one-row query counting
+   *and sampling* the test's violating rows in a single scan. Built-ins differ
+   only in their violating-rows query; `Custom` supplies its own (the user's
+   SELECT of violating rows). Referenced assets (relationships) emit an
+   `ATTACH` resolved by the same transform pass as the user's own.
 3. **Execute** (`duckdb_executor.rs`). The materialize summary query embeds
-   every check's count in one `data_tests` list-of-struct column (computed in a
-   CTE, since DuckDB rejects subqueries inside struct literals), so **all tests
-   run in a single pass** against the freshly-materialized slice — no
-   abort-on-first. The worker reads the breakdown from the result and decides
-   pass/fail: any violation **fails the run** (record `Failed`, propagate up the
-   cascade) with an error listing *every* test (✓/✗ + counts); a clean run
-   returns the per-test summary so the UI can render a checklist.
+   every check's outcome in one `data_tests` list-of-struct column (probes are
+   lifted into one-row CTEs and cross-joined, since DuckDB rejects subqueries
+   inside struct literals), so **all tests run in a single pass** against the
+   freshly-materialized slice — no abort-on-first. The worker reads the
+   breakdown from the result and decides pass/fail: any violation **fails the
+   run** (record `Failed`, propagate up the cascade) with an error listing
+   *every* test (✓/✗ + counts); a clean run returns the per-test summary so
+   the UI can render a checklist.
+
+### Violating-row samples
+
+Each check's probe also captures a bounded **sample of its violating rows**
+(≤20 rows, ≤50KB serialized per test — over-cap samples are *dropped*, never
+truncated, since truncated JSON fails parsing after paying the bytes). The
+sample is **optional by contract** at every layer: enforcement reads only the
+count; NULL / dropped / unparseable samples degrade to "no sample" and can
+never flip pass/fail. Where they surface:
+
+- **Failed run**: the worker returns a structured error payload
+  (`Error::ExecutionRawError`), so the failed job's result carries
+  `error.data_tests: [{test, violating, sample?}]` with samples on failed
+  tests only. The error *message* stays counts-only, plus a pointer at the
+  payload — so run descriptions and `materialized_partition.error` carry no
+  row data. The full payload is the job *result*, and follows every failed
+  job's result wherever that already goes: the worker's failed-job log line
+  (`add_completed_job_error`) and, on EE, the args of configured
+  global/workspace error handlers — the same pre-existing paths that carry
+  e.g. a failed process's own `result.json`. A handler that formats only
+  `error.message` (the common alert shape) stays counts-only; one that wants
+  the offending rows can read `error.data_tests`. The duckdb executor's
+  password-sanitize catch-all must special-case `ExecutionRawError` —
+  flattening it to a string would silently strip the payload.
+- **UI**: `DataTestsResult.svelte` renders a per-failed-test expandable
+  `AutoDataTable`; `DisplayResult.svelte` prefers the structured payload and
+  falls back to text-parsing the breakdown for results predating it.
+- **Enterprise (write-audit-publish)**: samples only exist on the
+  commit-then-test path. Under the EE in-transaction guard a violation aborts
+  pre-commit and the slice rolls back, so the violating rows cease to exist —
+  WAP failures are counts-only by construction (the guard's in-SQL ✓/✗
+  message), and the guard projects only the probe's count column
+  (`pipeline_advanced_ee.rs::data_test_guard_sql`).
+
+Sample mechanics worth knowing:
+
+- The sample rides as a **JSON string** (`to_json(...)::VARCHAR`) through the
+  summary row, deliberately: expanded rows would be visible to the executor's
+  key-recursive `extract_i64(result, "rows"/"snapshot_id")` scans, which a
+  user column of the same name could corrupt. It is parsed only inside
+  `extract_data_tests`.
+- No `ORDER BY` on the violating rows — *which* rows land in the sample is
+  nondeterministic (labelled "sample" in the UI for that reason).
+- `unique` samples `{value, count}` pairs at its count's grain (number of
+  duplicated *values*), so count and sample can't contradict each other.
+- On partitioned targets the synthetic `_wm_partition` column is `EXCLUDE`d
+  from samples (same rule as schema capture).
+- A custom body joining with `SELECT *` can yield duplicate column names —
+  duplicate JSON keys keep the last value; harmless but visible.
+- The probe shape is gated by in-memory tests against the bundled engine in
+  `windmill-duckdb-ffi-internal` (json extension availability, zero-row NULL
+  degrade, exotic types) — a sample-expr runtime error would fail the summary
+  read after the write committed, so keep those green when touching the shape.
 
 A new annotation family that produces post-materialize checks (or, for
 column-lineage, post-materialize *metadata reads*) plugs into the same three
@@ -286,16 +412,67 @@ seams: add a parsed variant, emit its check/reader SQL into the summary, read
 it back in the worker. Nothing about the closed set of *today's* keywords is
 load-bearing.
 
+### Cascade ordering (`test_edges`)
+
+A `relationships` test — and, best-effort, a custom test whose body reads a
+pipeline asset — needs the *referenced* asset to exist at test time, but it is
+**not** a data-consumption `// on`/read of that asset, so it contributes no
+lineage edge. Without an ordering constraint, a cold cascade can run the tested
+script before the referenced dimension is materialized and hard-fail
+(`Catalog Error: Table … does not exist`).
+
+`asset_graph` (`windmill-api-assets/src/lib.rs`) closes this by resolving the
+referenced asset's in-pipeline **producer** (from the write edges it already
+builds) and emitting an ordering-only `test_edges` entry
+`producer → testing_script`. It is:
+
+- **Only emitted when a producer exists in the graph.** An external table (no
+  in-pipeline producer) adds no edge — the missing dependency is real and the
+  runtime error is the correct signal. Self-edges (a script relationship-testing
+  its own output) are dropped.
+- **Rendered distinctly** — amber dashed "test needs" link on the canvas, apart
+  from lineage (blue/gray solid) and triggers (gray) — because the tested script
+  does not ingest the asset's rows.
+- **Fed into the cascade topo-sort** via `buildLineageDag`
+  (`AssetGraph/boundedCascade.ts`), routed *through* the referenced asset node
+  (`asset → testing_script`) so the existing `producer → asset` write edge
+  extends into `producer → asset → testing_script` and the two-hop
+  `buildLineageDownstreamMap` invariant holds. Bounded and full-pipeline runs
+  (`computeInducedSchedule`) then order the producer first.
+
+Scope caveat: this orders *within a single client-driven cascade* (dev run /
+bounded run / full-pipeline run). It does not change the production reactive
+asset-dispatch of two independently-scheduled roots — there, `relationships`
+targets on a disjoint root should still be co-scheduled or bound with an
+explicit `// on <dim>` if a hard ordering is required.
+
 ### Scoping decisions (v1)
 
 - **Partition scope.** When `// partitioned`, built-in checks are scoped to the
   slice just written (`WHERE _wm_partition = <value>`), so a rerun/backfill of
   one partition is independent of other partitions' (possibly pre-existing)
   data. Whole-table assertions are a follow-up.
-- **Commit-then-test.** Like dbt, the write commits before tests run; a failed
-  test fails the *run* (and records `Failed`, so downstream cascade stops) but
-  does not roll back the committed snapshot. Time-travel still lets you inspect
-  exactly what failed.
+- **SCD2 scope.** On a `key=… history` target, built-in checks assert the
+  *current snapshot* (`WHERE is_current`): the history table legitimately
+  repeats the natural key across closed versions, so an unscoped
+  `unique(<key>)` would fail the run on the second change of any key. Custom
+  tests see the raw history and scope themselves.
+- **Commit-then-test (public) / write-audit-publish (enterprise).** In the
+  public build, like dbt, the write commits before tests run; a failed test
+  fails the *run* (and records `Failed`, so downstream cascade stops) but does
+  not roll back the committed snapshot — time-travel still lets you inspect
+  exactly what failed. Enterprise upgrades this to write-audit-publish: the
+  same checks also run *inside* the write transaction as a guard statement
+  that raises on any violation, aborting the run before `COMMIT` — a failing
+  slice is never published, readers keep the previous version, and no snapshot
+  is created (even a *first* run of a new asset rolls back to "no table").
+  The whole mechanism lives in the enterprise repo:
+  `sql_materialize::build_wrap_blocks` produces a typed statement plan
+  (`MaterializePlan` — statements plus structural kinds and the compiled
+  checks), and `pipeline_advanced::finalize_materialize_query` assembles it —
+  verbatim on the public build, restructured into the guarded transaction on
+  EE. The public build thus carries only plan metadata, not the
+  write-audit-publish transform itself.
 - **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
   script's content (a single DuckDB `SELECT`/CTE returning the violating rows —
   it's embedded as a subquery, so a multi-statement body is rejected with a
@@ -305,6 +482,35 @@ load-bearing.
   language) are the natural follow-up and fit the same verifier seam.
 - **Managed only.** `// materialize manual` + `// data_test` is rejected with a
   clear error (we can't know the manual script's target alias / partition col).
+
+## Schema contracts (save-time, gap #2b)
+
+The captured schema (#2a) is read back as a *contract*: at save/deploy time,
+every consumer's asset references — body-read/written columns, `// column`
+lineage sources, `// data_test relationships` refs — are diffed against the
+latest `materialized_asset_schema` version of each referenced ducklake asset,
+and mismatches surface as **warnings** (deploy never blocks; dbt's
+`on_schema_change=fail` is deliberately absent in v1). The diff lives in
+`windmill_common::schema_contracts` (endpoint:
+`POST /w/{ws}/scripts/check_schema_contracts`, called by the UI right after a
+save) and is mirrored 1:1 by the editor (`schemaContracts.ts`): live Monaco
+warning squiggles from the WASM buffer parse, plus column-name completion for
+annotation refs fed by the same captured schemas.
+
+Comparison rules worth knowing: column names are case-insensitive (DuckDB
+unquoted-identifier semantics); `_wm_partition` is whitelisted (it's excluded
+from capture); `{partition}` tokens are stripped before lookup; a
+`<dim>_current` reference falls back to the scd2 base table's capture; a
+relationships join across two captured assets also flags a captured-type
+*difference* (the runtime probe coerces, so it's "differs", not "will fail").
+An asset with no capture (never materialized, `manual` mode, any
+`datatable://`) produces no warnings.
+
+The producer opts a deliberately unstable schema out with
+`// materialize … on_schema_change=ignore` — consumers then get a single
+informational "suppressed" note instead of per-column warnings. On `manual`
+materialize the option is inert (nothing is captured) and deploy logs a
+warning saying so.
 
 ## Scoping decision: DuckLake vs DataTable
 
@@ -362,3 +568,38 @@ forces"; DuckLake-specific:
    rejects anything else at deploy with a clear error pointing to
    `// materialize manual`. The classifier (`sql_materialize.rs`) is the single
    source of truth.
+
+## Ingestion (EL): the sanctioned entry-node shape
+
+Design constraints for how external data enters the lake — the user-facing
+how-to (extract-engine choice, cursor recipes, schema-drift handling, worked
+examples) lives in windmilldocs `core_concepts/63_pipelines` → "Ingestion
+(EL)"; this section records only what future feature work must not break.
+
+- **`// materialize` is DuckDB-only** (deploy-rejected elsewhere, managed and
+  `manual` alike — `windmill-api-scripts/src/scripts.rs`), and the SDK
+  materialize helpers (`upsert_partition` / `upsertPartition`) build their SQL
+  inside the SDK, so the asset parsers cannot see the write. A polyglot node
+  that "writes the lake directly" therefore deploys with **no output edge** —
+  breaking lineage, cascade scheduling, and the backfill UI's producer lookup.
+- **The sanctioned polyglot shape is two scripts**: an entry node that lands
+  the raw batch as an object in workspace storage (`write_s3_file` — a
+  parser-visible write), and a DuckDB loader (`-- on s3:///<key>` +
+  `-- materialize`) that the asset dispatcher re-runs per batch. The landing
+  object is the seam; splitting E from L also keeps row work vectorized and
+  gives the load the full engine treatment (strategies, snapshots, partition
+  grid, `// data_test`).
+- **One string spelling: `s3:///<key>`.** SDK string params are strictly
+  `s3://…` URIs with a non-empty key; anything else raises (clients >
+  1.746.0 — older clients silently upload such strings to an auto-generated
+  `windmill_uploads/…` name, so keep URIs in code that must run on them).
+  The same URI is what
+  `// on` annotations and DuckDB SQL take, and all forms (URI, `{s3}` object,
+  `S3Object(s3=…)`) canonicalize to path `/<key>`. The asset parsers record
+  **no asset** for a bare-string SDK argument (the call can only error at
+  run time) — keep `parse_s3_object` (py client), `parseS3Object`
+  (ts client, `s3Types.ts`) and both `s3_object_arg_path` parsers in lockstep
+  when touching any of them.
+- DuckDB workers load no ICU extension: bare `TIMESTAMPTZ - INTERVAL`
+  arithmetic binder-errors. Incremental-pull SQL casts both sides
+  (`updated_at::TIMESTAMP > now()::TIMESTAMP - INTERVAL 7 DAY`).

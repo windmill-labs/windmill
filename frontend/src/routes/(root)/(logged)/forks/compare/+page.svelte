@@ -19,6 +19,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$lib/navigation'
+	import { readChatModifiedItems } from '$lib/components/copilot/chat/HistoryManager.svelte'
 
 	type CompareMode = 'fork' | 'draft'
 
@@ -30,7 +31,8 @@
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
-	const isFork = $derived(!!parentWorkspaceId && currentWorkspaceId?.startsWith('wm-fork-'))
+	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id prefix.
+	const isFork = $derived(!!parentWorkspaceId)
 
 	// Mode is seeded from the URL (?mode=draft|fork). `draft` is valid for any
 	// workspace, so it resolves immediately. `fork` is only valid for an actual
@@ -46,6 +48,37 @@
 	// merged toggle (CompareModeToggle, rendered inside each card) reports its
 	// selection here; the page only swaps which comparison component is shown.
 	let forkDirection = $state<'deploy_to' | 'update'>('deploy_to')
+
+	// When reached via a session's Review button (`from_session=<chatId>`), preselect
+	// only the items that chat modified. The mask is the chat's stored
+	// `${UserDraftItemKind}:${storagePath}` set; undefined for a legacy chat (no
+	// stored mask) → the children fall back to selecting all deployable items.
+	// Derived from the live URL: an in-app navigation to this route with a
+	// different from_session must reload the mask, not keep the first one.
+	const fromChatId = $derived(page.url.searchParams.get('from_session'))
+	let chatMask = $state<Set<string> | undefined>(undefined)
+	// The mask loads asynchronously, while the resolved value can legitimately be
+	// undefined (legacy chat). The children must not run their select-all default
+	// until the mask is known, else they'd race it and select everything. Ready
+	// immediately when there's no session to read from.
+	let chatMaskReady = $state(!page.url.searchParams.get('from_session'))
+	$effect(() => {
+		const id = fromChatId
+		chatMask = undefined
+		chatMaskReady = !id
+		if (!id) return
+		untrack(() => {
+			void readChatModifiedItems(id)
+				.then((arr) => {
+					// A slower read for a superseded chat id must not win.
+					if (id !== untrack(() => fromChatId)) return
+					chatMask = arr ? new Set(arr) : undefined
+				})
+				.finally(() => {
+					if (id === untrack(() => fromChatId)) chatMaskReady = true
+				})
+		})
+	})
 
 	function selectMode(v: 'deploy_to' | 'update' | 'draft') {
 		if (v === 'draft') {
@@ -251,6 +284,8 @@
 			{deployCount}
 			{updateCount}
 			{draftCount}
+			{chatMask}
+			{chatMaskReady}
 			onModeSelected={selectMode}
 		/>
 	{:else if parentWorkspaceId}
@@ -263,6 +298,8 @@
 			{updateCount}
 			{draftCount}
 			{draftKeys}
+			{chatMask}
+			{chatMaskReady}
 			onChanged={refreshCounts}
 			onModeSelected={selectMode}
 		/>

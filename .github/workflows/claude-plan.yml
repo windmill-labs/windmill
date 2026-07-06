@@ -11,20 +11,18 @@ on:
     types: [submitted]
 
 jobs:
-  check-membership:
-    if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/plan')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/plan')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/plan')) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '/plan'))
-    uses: ./.github/workflows/check-org-membership.yml
-    secrets:
-      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
-
   claude-plan-action:
-    needs: check-membership
     if: |
-      needs.check-membership.outputs.is_member == 'true'
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/plan')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/plan')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/plan')) ||
+        (github.event_name == 'issues' && contains(github.event.issue.body, '/plan'))
+      ) &&
+      (
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association) ||
+        (github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login) == 'windmill-internal-app[bot]'
+      )
     runs-on: ubicloud-standard-4
     timeout-minutes: 20
     permissions:
