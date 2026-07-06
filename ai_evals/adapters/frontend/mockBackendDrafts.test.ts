@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
 	clearBenchmarkDrafts,
 	getBenchmarkDraftForUser,
+	getBenchmarkOwnDraft,
 	listBenchmarkDrafts,
 	resetBenchmarkMockBackend,
 	seedBenchmarkDraft,
@@ -53,6 +54,27 @@ describe('mockBackend drafts', () => {
 
 		expect(listBenchmarkDrafts(WORKSPACE)).toHaveLength(0)
 		expect(() => getBenchmarkDraftForUser({ workspace: WORKSPACE, kind: 'variable', path: 'f/evals/token' })).toThrow()
+	})
+
+	it('returns null from getOwnDraft when no draft exists', () => {
+		expect(
+			getBenchmarkOwnDraft({ workspace: WORKSPACE, kind: 'trigger_schedule', path: 'u/evals/missing' })
+		).toBeNull()
+	})
+
+	// The global chat hydrates drawer-kind drafts (schedule/trigger/resource/variable)
+	// through getOwnDraft — getDraftForUser rejects those kinds as private.
+	it('hydrates a saved drawer-kind draft through getOwnDraft', () => {
+		const value = { path: 'u/evals/nightly', schedule: '0 0 9 * * *' }
+		updateBenchmarkDraft({
+			workspace: WORKSPACE,
+			kind: 'trigger_schedule',
+			path: 'u/evals/nightly',
+			requestBody: { value }
+		})
+		expect(
+			getBenchmarkOwnDraft({ workspace: WORKSPACE, kind: 'trigger_schedule', path: 'u/evals/nightly' })?.value
+		).toEqual(value)
 	})
 
 	it('throws a 404-shaped error when no draft exists', () => {
