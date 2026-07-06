@@ -43,6 +43,7 @@ export interface UserWorkspace {
 	operator_settings?: OperatorSettings
 	parent_workspace_id?: string | null
 	is_dev_workspace?: boolean
+	dev_workspace_label?: string | null
 	disabled: boolean
 }
 

@@ -156,6 +156,7 @@ pub fn workspaced_service() -> Router {
         .route("/create_fork", post(create_workspace_fork))
         .route("/attach_dev_workspace", post(attach_dev_workspace))
         .route("/detach_dev_workspace", post(detach_dev_workspace))
+        .route("/set_dev_workspace_label", post(set_dev_workspace_label))
         .route("/get_dev_workspace", get(get_dev_workspace))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
@@ -472,6 +473,10 @@ struct CreateWorkspaceFork {
     /// the team can work in it. Defaults off; the dev-workspace UI defaults it on.
     #[serde(default)]
     copy_members: bool,
+    /// Cosmetic display label for the dev workspace: 'dev' | 'staging'. Purely visual (badge text +
+    /// wording); ignored for non-dev forks. None defaults to 'dev'.
+    #[serde(default)]
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -501,6 +506,7 @@ struct UserWorkspace {
     pub operator_settings: Option<Option<serde_json::Value>>,
     pub parent_workspace_id: Option<String>,
     pub is_dev_workspace: bool,
+    pub dev_workspace_label: Option<String>,
     pub disabled: bool,
 }
 
@@ -678,6 +684,20 @@ async fn exists_workspace(
 struct DevWorkspaceInfo {
     id: String,
     name: String,
+    dev_workspace_label: Option<String>,
+}
+
+/// Normalize/validate the cosmetic dev-workspace display label. None or 'dev' both render as "dev";
+/// 'staging' renders as "stg". Anything else is rejected. Stored explicitly ('dev'/'staging') so it
+/// round-trips, but a NULL column is treated as 'dev' on the read side too.
+fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>> {
+    match label.as_deref() {
+        None | Some("dev") => Ok(Some("dev".to_string())),
+        Some("staging") => Ok(Some("staging".to_string())),
+        Some(other) => Err(Error::BadRequest(format!(
+            "invalid dev workspace label '{other}' (expected 'dev' or 'staging')"
+        ))),
+    }
 }
 
 /// This workspace's active canonical dev workspace, if any. The create-fork UI and the dev-workspace
@@ -691,7 +711,7 @@ async fn get_dev_workspace(
 ) -> JsonResult<Option<DevWorkspaceInfo>> {
     let dev = sqlx::query_as!(
         DevWorkspaceInfo,
-        "SELECT id, name FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
+        "SELECT id, name, dev_workspace_label FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
         &w_id
     )
     .fetch_optional(&db)
@@ -3697,7 +3717,7 @@ async fn user_workspaces(
     let workspaces = sqlx::query_as!(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
-                workspace.is_dev_workspace,
+                workspace.is_dev_workspace, workspace.dev_workspace_label,
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
                 usr.disabled
          FROM workspace
@@ -5187,6 +5207,8 @@ async fn create_workspace_fork_branch(
     // that second call. Validating early lets a bad request fail before any branch is created.
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
+        // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
+        normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         ensure_dev_parent_is_root(&db, &w_id).await?;
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
@@ -5418,6 +5440,12 @@ async fn create_workspace_fork(
         validate_fork_workspace_id(&nw.id)?;
     }
     validate_workspace_name(&nw.name)?;
+    // Cosmetic label only applies to dev workspaces; a non-dev fork stores NULL.
+    let dev_workspace_label = if nw.is_dev_workspace {
+        normalize_dev_workspace_label(nw.dev_workspace_label.clone())?
+    } else {
+        None
+    };
     // Check the id conflict before the CE workspace-count limit so that
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.
@@ -5495,13 +5523,14 @@ async fn create_workspace_fork(
 
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, parent_workspace_id, is_dev_workspace)
-            VALUES ($1, $2, $3, $4, $5)",
+            (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label)
+            VALUES ($1, $2, $3, $4, $5, $6)",
         forked_id,
         nw.name,
         authed.email,
         parent_workspace_id,
         nw.is_dev_workspace,
+        dev_workspace_label,
     )
     .execute(&mut *tx)
     .await?;
@@ -5634,6 +5663,9 @@ struct AttachDevWorkspace {
     lock_prod_deploy: bool,
     #[serde(default)]
     lock_prod_forking: bool,
+    /// Cosmetic display label for the attached dev workspace: 'dev' | 'staging'. None defaults to 'dev'.
+    #[serde(default)]
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -5687,6 +5719,7 @@ async fn attach_dev_workspace(
 
     // The id is interpolated into a `wm-fork/<branch>/<id>` branch name like any fork.
     validate_dev_workspace_id(&dev_w_id)?;
+    let dev_workspace_label = normalize_dev_workspace_label(req.dev_workspace_label.clone())?;
 
     let dev = sqlx::query!(
         r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
@@ -5754,9 +5787,10 @@ async fn attach_dev_workspace(
 
     let mut tx = db.begin().await?;
     sqlx::query!(
-        "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true WHERE id = $2",
+        "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true, dev_workspace_label = $3 WHERE id = $2",
         &prod_w_id,
-        &dev_w_id
+        &dev_w_id,
+        dev_workspace_label,
     )
     .execute(&mut *tx)
     .await?;
@@ -5820,6 +5854,51 @@ async fn attach_dev_workspace(
         "Attached {} as dev workspace of {}",
         dev_w_id, prod_w_id
     ))
+}
+
+#[derive(Deserialize)]
+struct SetDevWorkspaceLabel {
+    #[serde(default)]
+    dev_workspace_label: Option<String>,
+}
+
+/// Change the cosmetic display label ('dev' | 'staging') of the current workspace, which must itself
+/// be a dev workspace. Purely visual (badge text + wording); requires admin of the dev workspace.
+async fn set_dev_workspace_label(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<SetDevWorkspaceLabel>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let label = normalize_dev_workspace_label(req.dev_workspace_label)?;
+
+    let mut tx = db.begin().await?;
+    let updated = sqlx::query_scalar!(
+        "UPDATE workspace SET dev_workspace_label = $1 WHERE id = $2 AND is_dev_workspace RETURNING id",
+        label,
+        &w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if updated.is_none() {
+        return Err(Error::BadRequest(format!(
+            "Workspace '{w_id}' is not a dev workspace"
+        )));
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.set_dev_workspace_label",
+        ActionKind::Update,
+        &w_id,
+        label.as_deref(),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Updated dev workspace label for {w_id}"))
 }
 
 /// Reverse [`attach_dev_workspace`] / clear the dev designation: unset the dev flag and remove the

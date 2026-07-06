@@ -58,6 +58,12 @@
 	$effect(() => {
 		copyMembers = createAsDevWorkspace
 	})
+	// Cosmetic display label for the new dev workspace: 'dev' | 'staging'. Purely visual (badge text +
+	// wording); reset when the dev toggle is turned off.
+	let devWorkspaceLabel = $state<'dev' | 'staging'>('dev')
+	$effect(() => {
+		if (!createAsDevWorkspace) devWorkspaceLabel = 'dev'
+	})
 
 	// The dev-workspace option is only offered when forking a root workspace that doesn't already
 	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
@@ -239,6 +245,7 @@
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 					is_dev_workspace: createAsDevWorkspace,
+					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
 					// locked-dev request before any branch is created (avoids dangling branches).
 					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
@@ -308,6 +315,7 @@
 					forked_datatables: forkedDatatables,
 					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
+					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
 					lock_prod_forking: createAsDevWorkspace && lockProdForking,
 					copy_members: copyMembers
@@ -324,7 +332,7 @@
 		forkCreationLoading = false
 		sendUserToast(
 			createAsDevWorkspace
-				? `Created dev workspace ${effectiveForkId} for ${$workspaceStore}`
+				? `Created ${devWorkspaceLabel === 'staging' ? 'staging' : 'dev'} workspace ${effectiveForkId} for ${$workspaceStore}`
 				: `Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`
 		)
 
@@ -465,7 +473,26 @@
 	let autoAdd = $state(true)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
 	run(() => {
-		id = name.toLowerCase().replace(/\s/gi, '-')
+		// In dev-workspace mode the id is owned by the auto-default effect below, so the suggested
+		// `<root>-dev` / `<root>-stg` id isn't clobbered by the name field.
+		if (!createAsDevWorkspace) id = name.toLowerCase().replace(/\s/gi, '-')
+	})
+	// Suggest a `<root>-dev` / `<root>-stg` id when creating a dev workspace and the id field is empty
+	// (or still holds a previous suggestion). A user-typed id is never overwritten, and flipping
+	// Dev<->Staging updates the suffix.
+	let lastAutoDevId = $state<string | undefined>(undefined)
+	$effect(() => {
+		if (!createAsDevWorkspace) {
+			lastAutoDevId = undefined
+			return
+		}
+		const target = $workspaceStore
+			? `${$workspaceStore}-${devWorkspaceLabel === 'staging' ? 'stg' : 'dev'}`
+			: ''
+		if (id === '' || id === lastAutoDevId) {
+			id = target
+			lastAutoDevId = target
+		}
 	})
 	run(() => {
 		validateName(id)
@@ -598,6 +625,19 @@
 					<div class="flex flex-col gap-2 pt-1">
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
+							<div class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Display label</span>
+								<span class="text-2xs text-secondary">
+									Cosmetic only: sets the badge text and wording (dev vs staging). Behavior is
+									identical either way.
+								</span>
+								<ToggleButtonGroup bind:selected={devWorkspaceLabel} class="w-56">
+									{#snippet children({ item })}
+										<ToggleButton value="dev" label="Dev" {item} />
+										<ToggleButton value="staging" label="Staging" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
 							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 								<div class="flex flex-col gap-0.5">
 									<span class="text-xs font-semibold text-emphasis"

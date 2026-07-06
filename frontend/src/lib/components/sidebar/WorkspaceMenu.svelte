@@ -29,6 +29,7 @@
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 	import { getContrastTextColor } from '$lib/utils'
+	import { devBadgeText, devLabelWord } from '$lib/utils/devWorkspaceLabel'
 
 	interface Props {
 		isCollapsed?: boolean
@@ -133,7 +134,7 @@
 				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
 				label={removePrefix($workspaceStore ?? '', 'wm-fork-')}
 				sublabel={parentWorkspace?.name
-					? `${forkedWorkspace.is_dev_workspace ? 'Dev workspace of' : 'Fork of'} ${parentWorkspace.name}`
+					? `${forkedWorkspace.is_dev_workspace ? `${devLabelWord(forkedWorkspace.dev_workspace_label)} workspace of` : 'Fork of'} ${parentWorkspace.name}`
 					: undefined}
 				{isCollapsed}
 				color={$workspaceColor}
@@ -177,6 +178,7 @@
 									workspaceColor={workspace.color}
 									{isForked}
 									isDevWorkspace={workspace.is_dev_workspace}
+									devWorkspaceLabel={workspace.dev_workspace_label}
 									{parentName}
 								/>
 								<div class="min-w-0 flex-1">
@@ -191,7 +193,7 @@
 											{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
 										</div>
 										{#if workspace.is_dev_workspace}
-											<Badge color="indigo">dev</Badge>
+											<Badge color="indigo">{devBadgeText(workspace.dev_workspace_label)}</Badge>
 										{/if}
 									</div>
 									<div
