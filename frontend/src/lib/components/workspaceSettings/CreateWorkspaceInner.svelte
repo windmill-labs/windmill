@@ -622,8 +622,7 @@
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
 							<div class="text-2xs text-secondary">
-								Cosmetic label, currently <span class="font-semibold text-emphasis"
-									>{devWorkspaceLabel}</span
+								Cosmetic label: <span class="font-semibold text-emphasis">{devWorkspaceLabel}</span
 								>.
 								<button
 									type="button"
@@ -631,7 +630,7 @@
 									onclick={() =>
 										(devWorkspaceLabel = devWorkspaceLabel === 'staging' ? 'dev' : 'staging')}
 								>
-									Show as {devWorkspaceLabel === 'staging' ? 'dev' : 'staging'}
+									Change to {devWorkspaceLabel === 'staging' ? 'dev' : 'staging'}
 								</button>
 							</div>
 							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">

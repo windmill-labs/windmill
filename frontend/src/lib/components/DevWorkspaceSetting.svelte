@@ -148,14 +148,14 @@
 			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
 		<div class="text-2xs text-secondary">
-			Cosmetic label, currently <span class="font-semibold text-emphasis">{currentLabel}</span>.
+			Cosmetic label: <span class="font-semibold text-emphasis">{currentLabel}</span>.
 			<button
 				type="button"
 				disabled={labelBusy}
 				class="text-secondary hover:text-primary hover:underline disabled:opacity-50"
 				onclick={() => setLabel(currentLabel === 'staging' ? 'dev' : 'staging')}
 			>
-				Show as {currentLabel === 'staging' ? 'dev' : 'staging'}
+				Change to {currentLabel === 'staging' ? 'dev' : 'staging'}
 			</button>
 		</div>
 		<div>
@@ -208,13 +208,13 @@
 			/>
 		</div>
 		<div class="text-2xs text-secondary">
-			Cosmetic label, currently <span class="font-semibold text-emphasis">{attachLabel}</span>.
+			Cosmetic label: <span class="font-semibold text-emphasis">{attachLabel}</span>.
 			<button
 				type="button"
 				class="text-secondary hover:text-primary hover:underline"
 				onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
 			>
-				Show as {attachLabel === 'staging' ? 'dev' : 'staging'}
+				Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
 			</button>
 		</div>
 		<Toggle
