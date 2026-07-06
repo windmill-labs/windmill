@@ -131,6 +131,13 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
+        // In no-auth mode there are no real tokens: resolve directly as the
+        // admin superadmin so direct cache callers (e.g. get_all_runnables,
+        // which re-validates the request token per workspace) don't reject the
+        // fabricated token.
+        if is_no_auth() {
+            return Some(OptJobAuthed { authed: no_auth_admin_authed(), job_id: None });
+        }
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
@@ -598,7 +605,7 @@ where
                 let tokened = Self { token };
                 parts.extensions.insert(tokened.clone());
                 Ok(tokened)
-            } else if cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH {
+            } else if is_no_auth() {
                 // In `--no-auth` mode requests carry no token, but handlers that
                 // also require Tokened (e.g. global_whoami) must still resolve.
                 let tokened = Self { token: "no_auth".to_string() };
@@ -683,6 +690,30 @@ fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     workspace_id
 }
 
+/// `--no-auth` mode: compiled-in `oss` builds, or the `NO_AUTH` runtime flag on
+/// any build (the runtime flag is force-disabled on CLOUD_HOSTED). When on,
+/// every request resolves as the admin superadmin so a fronting gateway can
+/// handle authentication instead.
+pub fn is_no_auth() -> bool {
+    cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH
+}
+
+/// The synthetic superadmin identity returned for every request in no-auth mode.
+fn no_auth_admin_authed() -> ApiAuthed {
+    ApiAuthed {
+        email: "admin@windmill.dev".to_string(),
+        username: "admin".to_string(),
+        is_admin: true,
+        is_operator: false,
+        groups: Vec::new(),
+        folders: Vec::new(),
+        scopes: None,
+        username_override: None,
+        token_prefix: None,
+        read_only: false,
+    }
+}
+
 /// Resolves OptJobAuthed from request parts.
 /// Takes ownership of Parts and returns them back.
 #[allow(unreachable_code, unused_mut)]
@@ -693,23 +724,11 @@ pub async fn resolve_opt_job_authed(
         return Ok((OptJobAuthed::default(), parts));
     };
 
-    // `--no-auth` mode (compiled-in `oss` builds, or the `NO_AUTH` runtime
-    // flag on any build): resolve every request as the admin superadmin so a
-    // fronting gateway can handle authentication instead.
-    if cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH {
-        let authed = ApiAuthed {
-            email: "admin@windmill.dev".to_string(),
-            username: "admin".to_string(),
-            is_admin: true,
-            is_operator: false,
-            groups: Vec::new(),
-            folders: Vec::new(),
-            scopes: None,
-            username_override: None,
-            token_prefix: None,
-            read_only: false,
-        };
-        return Ok((OptJobAuthed { authed, job_id: None }, parts));
+    if is_no_auth() {
+        return Ok((
+            OptJobAuthed { authed: no_auth_admin_authed(), job_id: None },
+            parts,
+        ));
     }
 
     let already_authed = parts.extensions.get::<OptJobAuthed>().cloned();

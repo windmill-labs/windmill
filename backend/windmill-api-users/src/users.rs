@@ -1945,7 +1945,7 @@ async fn login(
     // In `--no-auth` mode there is no real login; the frontend never needs a
     // session cookie because every request already resolves as the admin
     // superadmin (see resolve_opt_job_authed).
-    if cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH {
+    if windmill_api_auth::is_no_auth() {
         return Ok("no_auth".to_string());
     }
 
