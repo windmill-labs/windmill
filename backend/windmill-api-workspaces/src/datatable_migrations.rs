@@ -1058,8 +1058,8 @@ async fn upsert_datatable_migration(
     // data table's database: its `_wm_migrations` record would no longer match
     // its SQL, so a later `migrate up` would skip it and a rollback would run a
     // `down` that doesn't correspond to what was applied. Only an actual change
-    // to an already-applied migration is blocked; unchanged re-pushes (e.g.
-    // `wmill sync push`) and an unreachable data-table database proceed.
+    // to an existing migration is guarded; unchanged re-pushes (e.g.
+    // `wmill sync push`) always proceed.
     let existing = sqlx::query!(
         "SELECT name, code_up, code_down FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
@@ -1073,17 +1073,27 @@ async fn upsert_datatable_migration(
         let unchanged = existing.name == payload.name
             && existing.code_up == payload.code_up
             && existing.code_down == payload.code_down;
-        if !unchanged
-            && read_applied_datatable_versions(&db, &w_id, &datatable_name)
+        if !unchanged {
+            // Fail closed: if the applied set can't be read (e.g. the data-table
+            // database is temporarily unreachable), refuse the change rather than
+            // risk overwriting a migration that has already run.
+            let applied = read_applied_datatable_versions(&db, &w_id, &datatable_name)
                 .await
-                .unwrap_or_default()
-                .contains(&payload.timestamp)
-        {
-            return Err(Error::BadRequest(format!(
-                "Migration {} on data table '{}' has already been applied and cannot be modified. \
-                 Revert it first, or add a new migration instead.",
-                payload.timestamp, datatable_name
-            )));
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Cannot verify whether migration {} on data table '{}' has already been \
+                         applied (its database is unreachable: {}). Refusing to modify it; retry \
+                         once the database is reachable.",
+                        payload.timestamp, datatable_name, e
+                    ))
+                })?;
+            if applied.contains(&payload.timestamp) {
+                return Err(Error::BadRequest(format!(
+                    "Migration {} on data table '{}' has already been applied and cannot be modified. \
+                     Revert it first, or add a new migration instead.",
+                    payload.timestamp, datatable_name
+                )));
+            }
         }
     }
 
