@@ -1690,6 +1690,10 @@
 	// "ready" state and seeds the whole-pipeline run with that input.
 	let dataUploadArgs = $state<Record<string, Record<string, any>>>({})
 
+	// An S3Object-shaped value (the file picker writes `{ s3: '<path>' }`).
+	function isS3Object(v: any): boolean {
+		return !!v && typeof v === 'object' && !Array.isArray(v) && 's3' in v
+	}
 	// Whether a staged value carries actual data. Covers the two shapes a
 	// data-upload entry takes: an S3Object (file picker → `{ s3: '<path>' }`) and
 	// a plain required input (e.g. a JSON array pasted into the run form).
@@ -1698,15 +1702,22 @@
 		if (typeof v === 'string') return v.length > 0
 		if (Array.isArray(v)) return v.length > 0
 		if (typeof v === 'object')
-			return 's3' in v ? typeof v.s3 === 'string' && v.s3.length > 0 : Object.keys(v).length > 0
+			return isS3Object(v) ? typeof v.s3 === 'string' && v.s3.length > 0 : Object.keys(v).length > 0
 		return true // numbers / booleans count as provided
 	}
-	// A data-upload entry is ready once at least one staged input actually holds
-	// data — i.e. the user uploaded a file / entered the data, not just opened the
-	// form. (Required inputs empty ⇒ no meaningful value ⇒ not ready.)
+	// A data-upload entry is ready once the user actually provided its data, not
+	// just opened the form. When the form declares a file input, EVERY S3Object
+	// field must carry a file — otherwise a multi-input entry (S3 picker + another
+	// required field) would go green with an empty `{ s3: '' }` and the run would
+	// still fire against a missing file. With no file input (e.g. a JSON-array
+	// entry) readiness falls back to "some input holds data".
 	function dataUploadReady(path: string): boolean {
 		const staged = dataUploadArgs[path]
-		return !!staged && Object.values(staged).some(hasMeaningfulValue)
+		if (!staged) return false
+		const values = Object.values(staged)
+		const s3s = values.filter(isS3Object)
+		if (s3s.length > 0) return s3s.every(hasMeaningfulValue)
+		return values.some(hasMeaningfulValue)
 	}
 	// Persist the run form's args, but only for data-upload entries — other run
 	// forms (partitioned producers) run their own way and must not be mistaken
