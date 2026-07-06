@@ -330,16 +330,16 @@
 				})}
 			</div>
 		</Section>
-		<Section label="Latest assets used">
+		<Section label="Latest assets used" headerClass="whitespace-nowrap shrink-0">
 			{#snippet action()}
-				<div class="flex gap-2 grow justify-end min-w-0">
+				<div class="flex gap-2 grow justify-end min-w-0 ml-4">
 					<RefreshButton
 						variant="default"
 						onClick={() => assetsQuery.reset()}
 						loading={assetsQuery.isLoading}
 					/>
 					<FilterSearchbar
-						class="grow max-w-[26rem]"
+						class="grow max-w-[26rem] min-w-0"
 						schema={assetsFilterSchema}
 						bind:value={filterValues.val}
 						placeholder="Filter assets..."
