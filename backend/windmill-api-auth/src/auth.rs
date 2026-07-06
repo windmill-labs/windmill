@@ -598,6 +598,12 @@ where
                 let tokened = Self { token };
                 parts.extensions.insert(tokened.clone());
                 Ok(tokened)
+            } else if cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH {
+                // In `--no-auth` mode requests carry no token, but handlers that
+                // also require Tokened (e.g. global_whoami) must still resolve.
+                let tokened = Self { token: "no_auth".to_string() };
+                parts.extensions.insert(tokened.clone());
+                Ok(tokened)
             } else {
                 BRUTE_FORCE_COUNTER.increment().await;
                 Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
@@ -687,8 +693,10 @@ pub async fn resolve_opt_job_authed(
         return Ok((OptJobAuthed::default(), parts));
     };
 
-    #[cfg(feature = "no_auth")]
-    {
+    // `--no-auth` mode (compiled-in `oss` builds, or the `NO_AUTH` runtime
+    // flag on any build): resolve every request as the admin superadmin so a
+    // fronting gateway can handle authentication instead.
+    if cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH {
         let authed = ApiAuthed {
             email: "admin@windmill.dev".to_string(),
             username: "admin".to_string(),
