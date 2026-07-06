@@ -69,13 +69,24 @@
 		annotations.triggerAssets.map((a) => ({ kind: a.kind, path: a.path }))
 	)
 
-	// The run form appears for data-upload entry points (S3 picker) and for any
-	// partitioned producer — materializing a single partition is available in
-	// OSS, and the picker is where the user chooses which one.
-	let showRunForm = $derived(canRun || !!partitionSpec)
+	// Whether the script declares any inputs — a run then needs the SchemaForm
+	// to collect them, so the form must render even for a plain (non-upload,
+	// non-partitioned) script rather than firing with empty args.
+	let hasInputs = $derived(Object.keys(script.schema?.properties ?? {}).length > 0)
+	// The run form appears for data-upload entry points (S3 picker), for any
+	// partitioned producer (materialize a single partition — available in OSS,
+	// and the picker is where the user chooses which one), and whenever the
+	// script takes inputs the run needs.
+	let showRunForm = $derived(canRun || !!partitionSpec || hasInputs)
 	// A partitioned producer that isn't a data-upload entry is materializing a
 	// partition rather than uploading data — reflect that in the header.
 	let partitionOnly = $derived(!canRun && !!partitionSpec)
+	// `isValid` is only meaningful while a form is mounted to vouch for it; with
+	// no form the run fires with `{}`, which is always valid. Deriving this rather
+	// than reading `isValid` directly avoids a stuck-disabled Run button when a
+	// required-input form leaves `isValid=false` behind as it unmounts on a
+	// same-path re-resolve to an input-less script (we're keyed on script.path).
+	let runValid = $derived(showRunForm ? isValid : true)
 
 	// The details pane keys this component on script.path only, so a same-path
 	// re-resolve (in /pipeline_dev the selected node re-resolves on every WS
@@ -94,7 +105,9 @@
 		if (!dispatch || running) return
 		running = true
 		try {
-			await dispatch(script.path, $state.snapshot(args))
+			// No form rendered ⇒ no inputs to collect: run with {} rather than args a
+			// prior (input-carrying) resolve of this same path left behind unmounted.
+			await dispatch(script.path, showRunForm ? $state.snapshot(args) : {})
 		} finally {
 			running = false
 		}
@@ -112,47 +125,54 @@
 	<Splitpanes horizontal class="!h-full">
 		<Pane size={55} minSize={20}>
 			<div class="flex flex-col h-full overflow-auto">
-				{#if showRunForm}
-					<div class="shrink-0 flex flex-col gap-2 p-3 border-b" data-run-form>
-						<div class="flex items-center justify-between gap-2">
-							<span class="text-xs font-semibold text-emphasis inline-flex items-center gap-1.5">
-								{#if partitionOnly}
-									<CalendarClock size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
-									Materialize a partition
-								{:else}
-									<Upload size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
-									Run pipeline
-								{/if}
-							</span>
-							<div class="flex items-center gap-1.5">
-								{#if hasCascade}
-									<Button
-										variant="accent-secondary"
-										unifiedSize="sm"
-										startIcon={{ icon: running ? Loader2 : Zap }}
-										onclick={() => run(true)}
-										disabled={isDraft || running || !isValid}
-										title={`Run this script with these inputs, then run its ${downstreamCount} downstream pipeline script${downstreamCount === 1 ? '' : 's'} in order`}
-									>
-										Run + downstream
-									</Button>
-								{/if}
+				<!-- Run affordance is always the first thing in the node panel so
+				     it's discoverable the moment a script is selected — never
+				     buried below the source. The parameter form renders under it
+				     only when the run actually needs inputs (upload/partition/args). -->
+				<div class="shrink-0 flex flex-col gap-2 p-3 border-b" data-run-form>
+					<div class="flex items-center justify-between gap-2">
+						<span class="text-xs font-semibold text-emphasis inline-flex items-center gap-1.5">
+							{#if partitionOnly}
+								<CalendarClock size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
+								Materialize a partition
+							{:else if canRun}
+								<Upload size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
+								Run pipeline
+							{:else}
+								<Play size={13} class="text-fuchsia-600 dark:text-fuchsia-400" />
+								Run this step
+							{/if}
+						</span>
+						<div class="flex items-center gap-1.5">
+							{#if hasCascade}
 								<Button
-									variant="accent"
+									variant="accent-secondary"
 									unifiedSize="sm"
-									startIcon={{ icon: running ? Loader2 : Play }}
-									onclick={() => run(false)}
-									disabled={isDraft || running || !isValid || !onRun}
-									title={isDraft
-										? 'Deploy this draft to run it for real'
-										: hasCascade
-											? 'Run just this step — downstream scripts are not triggered'
-											: 'Run the deployed script — downstream pipeline scripts cascade for real'}
+									startIcon={{ icon: running ? Loader2 : Zap }}
+									onclick={() => run(true)}
+									disabled={isDraft || running || !runValid}
+									title={`Run this script with these inputs, then run its ${downstreamCount} downstream pipeline script${downstreamCount === 1 ? '' : 's'} in order`}
 								>
-									{running ? 'Starting…' : 'Run'}
+									Run + downstream
 								</Button>
-							</div>
+							{/if}
+							<Button
+								variant="accent"
+								unifiedSize="sm"
+								startIcon={{ icon: running ? Loader2 : Play }}
+								onclick={() => run(false)}
+								disabled={isDraft || running || !runValid || !onRun}
+								title={isDraft
+									? 'Deploy this draft to run it for real'
+									: hasCascade
+										? 'Run just this step — downstream scripts are not triggered'
+										: 'Run the deployed script — downstream pipeline scripts cascade for real'}
+							>
+								{running ? 'Starting…' : 'Run'}
+							</Button>
 						</div>
+					</div>
+					{#if showRunForm}
 						{#key schemaKey}
 							<PipelineRunForm
 								schema={script.schema}
@@ -164,8 +184,8 @@
 								{upstreamAssets}
 							/>
 						{/key}
-					</div>
-				{/if}
+					{/if}
+				</div>
 				<div class="flex-1 min-h-0 overflow-auto text-xs p-3">
 					<HighlightCode code={script.content ?? ''} language={script.language} />
 				</div>
