@@ -306,7 +306,7 @@
 	<textarea
 		bind:value={pasteContent}
 		placeholder={SAMPLE_SKILL_PLACEHOLDER}
-		class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary font-mono text-xs resize-y"
+		class="w-full min-h-24 p-2 border border-border-light rounded-md bg-surface text-primary font-mono text-xs resize-y"
 		rows="5"
 		use:autosize
 	></textarea>
@@ -345,7 +345,7 @@
 		{#if $addMenuOpen}
 			<div
 				use:melt={$addMenu}
-				class="z-[6000] flex flex-col gap-0.5 p-1 w-64 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+				class="z-[6000] flex flex-col gap-0.5 p-1 w-64 rounded-lg border border-border-light bg-surface shadow-xl focus:outline-none"
 			>
 				<button use:melt={$addMenuItem} class={menuItemClass} onclick={() => dirInput?.click()}>
 					<FolderUp size={16} class="shrink-0 text-tertiary" />
