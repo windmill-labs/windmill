@@ -318,6 +318,22 @@
 		selected = {}
 	}
 
+	// Escape leaves manage mode, mirroring the "Done" button — but only when no
+	// modal/menu is open, so it doesn't steal Escape from them.
+	function onWindowKeydown(e: KeyboardEvent) {
+		if (
+			e.key === 'Escape' &&
+			manageMode &&
+			!pasteModalOpen &&
+			!confirmBatchDelete &&
+			!$addMenuOpen &&
+			toDelete === undefined &&
+			pendingImport === undefined
+		) {
+			exitManage()
+		}
+	}
+
 	function toggleSelect(name: string) {
 		selected = { ...selected, [name]: !selected[name] }
 	}
@@ -357,6 +373,8 @@
 	})
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} />
+
 {#snippet pasteZone()}
 	<textarea
 		bind:value={pasteContent}
@@ -389,8 +407,8 @@
 		<div class="flex items-center gap-2">
 			{#if manageMode}
 				<Button
-					variant="default"
-					color="red"
+					variant="accent"
+					destructive
 					unifiedSize="sm"
 					startIcon={{ icon: Trash2 }}
 					disabled={selectedCount === 0 || uploading}
@@ -404,7 +422,7 @@
 			{:else}
 				{#if skills.length > 1}
 					<Button
-						variant="default"
+						variant="subtle"
 						unifiedSize="sm"
 						startIcon={{ icon: ListChecks }}
 						disabled={uploading}
