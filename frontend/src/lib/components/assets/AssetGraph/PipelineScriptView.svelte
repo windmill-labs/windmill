@@ -81,6 +81,12 @@
 	// A partitioned producer that isn't a data-upload entry is materializing a
 	// partition rather than uploading data — reflect that in the header.
 	let partitionOnly = $derived(!canRun && !!partitionSpec)
+	// `isValid` is only meaningful while a form is mounted to vouch for it; with
+	// no form the run fires with `{}`, which is always valid. Deriving this rather
+	// than reading `isValid` directly avoids a stuck-disabled Run button when a
+	// required-input form leaves `isValid=false` behind as it unmounts on a
+	// same-path re-resolve to an input-less script (we're keyed on script.path).
+	let runValid = $derived(showRunForm ? isValid : true)
 
 	// The details pane keys this component on script.path only, so a same-path
 	// re-resolve (in /pipeline_dev the selected node re-resolves on every WS
@@ -142,7 +148,7 @@
 									unifiedSize="sm"
 									startIcon={{ icon: running ? Loader2 : Zap }}
 									onclick={() => run(true)}
-									disabled={isDraft || running || !isValid}
+									disabled={isDraft || running || !runValid}
 									title={`Run this script with these inputs, then run its ${downstreamCount} downstream pipeline script${downstreamCount === 1 ? '' : 's'} in order`}
 								>
 									Run + downstream
@@ -153,7 +159,7 @@
 								unifiedSize="sm"
 								startIcon={{ icon: running ? Loader2 : Play }}
 								onclick={() => run(false)}
-								disabled={isDraft || running || !isValid || !onRun}
+								disabled={isDraft || running || !runValid || !onRun}
 								title={isDraft
 									? 'Deploy this draft to run it for real'
 									: hasCascade
