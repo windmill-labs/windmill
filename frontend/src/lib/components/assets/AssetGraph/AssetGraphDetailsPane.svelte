@@ -248,10 +248,11 @@
 		// Persisted run-form args for the open data-upload entry (its staged
 		// S3Object), so re-opening the node restores the picked file.
 		runFormInitialArgs?: Record<string, any>
-		// Emitted when the run form's args change (read-only PipelineScriptView OR
-		// the edit-mode ScriptEditor test form), so the page can persist a
-		// data-upload entry's staged input (drives node readiness).
-		onRunFormArgsChange?: (path: string, args: Record<string, any>) => void
+		// Emitted when the run form's args (or validity) change (read-only
+		// PipelineScriptView OR the edit-mode ScriptEditor test form), so the page
+		// can persist a data-upload entry's staged input (drives node readiness).
+		// `isValid` is the full-schema validity, not just "file present".
+		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
 	}
 	let {
 		selection,
@@ -488,9 +489,13 @@
 		argsSeedPath = p
 		args = runFormInitialArgs ? structuredClone($state.snapshot(runFormInitialArgs)) : {}
 	})
+	// Bound out of ScriptEditor's test-form SchemaForm — full-schema validity of
+	// the edit-mode run form, so the page's readiness check sees whether every
+	// required field (not just the S3 file) is satisfied.
+	let runFormIsValid = $state(true)
 	$effect(() => {
 		if (readOnly || !script) return
-		onRunFormArgsChange?.(script.path, $state.snapshot(args))
+		onRunFormArgsChange?.(script.path, $state.snapshot(args), runFormIsValid)
 	})
 
 	// Persist draft edits back to the parent's drafts Map on transitions
@@ -1267,6 +1272,7 @@
 							bind:inferredColumnLineage={liveColumnLineage}
 							{onTestStateChange}
 							bind:args
+							bind:isValid={runFormIsValid}
 						/>
 					</div>
 				</div>

@@ -1434,7 +1434,7 @@
 		// data-upload entry's staged file override. runWholePipeline already
 		// refused to start unless every data-upload entry is staged, so this is
 		// always the intended input.
-		const staged = { ...(scheduleArgsByPath[path] ?? {}), ...(dataUploadArgs[path] ?? {}) }
+		const staged = { ...(scheduleArgsByPath[path] ?? {}), ...(dataUploadArgs[path]?.args ?? {}) }
 		const draft = mode === 'edit' || includeDrafts ? pe.drafts.get(path) : undefined
 		if (draft) {
 			if (!draft.script.content || !draft.script.language) {
@@ -1500,11 +1500,13 @@
 				true
 			)
 		}
-		// Seed schedule-triggered members with their configured payload.
-		await resolveScheduleArgs([rootPath, ...closure.nodes])
+		// Claim the running-guard BEFORE the first await so a rapid second click
+		// (which reads `cascadeRunningRoot`) can't slip through and double-launch.
 		cascadeRunningRoot = rootPath
 		let rootJobId: string | undefined
 		try {
+			// Seed schedule-triggered members with their configured payload.
+			await resolveScheduleArgs([rootPath, ...closure.nodes])
 			const res = await runCascade({
 				closure,
 				root: rootPath,
@@ -1683,11 +1685,13 @@
 			sendUserToast('No runnable scripts in this selection', true)
 			return
 		}
-		// Seed schedule-triggered roots with their configured payload.
-		await resolveScheduleArgs(schedule.nodes)
+		// Claim the running-guard BEFORE the first await so a rapid second click
+		// (which reads `cascadeRunningRoot`) can't slip through and double-launch.
 		cascadeRunningRoot = schedule.roots[0] ?? scripts[0]
 		let firstJobId: string | undefined
 		try {
+			// Seed schedule-triggered roots with their configured payload.
+			await resolveScheduleArgs(schedule.nodes)
 			const res = await runSelection({
 				schedule,
 				launch: async (path) => {
@@ -1730,8 +1734,9 @@
 	// Staged run-form input for data-upload entry scripts, keyed by path. Lifted
 	// out of the (transient, per-selection) run form so the uploaded/entered data
 	// persists across selection changes — it drives each entry node's green
-	// "ready" state and seeds the whole-pipeline run with that input.
-	let dataUploadArgs = $state<Record<string, Record<string, any>>>({})
+	// "ready" state and seeds the whole-pipeline run with that input. `valid` is
+	// the run form's full-schema validity (all required fields satisfied).
+	let dataUploadArgs = $state<Record<string, { args: Record<string, any>; valid: boolean }>>({})
 
 	// An S3Object-shaped value (the file picker writes `{ s3: '<path>' }`).
 	function isS3Object(v: any): boolean {
@@ -1749,25 +1754,31 @@
 		return true // numbers / booleans count as provided
 	}
 	// A data-upload entry is ready once the user actually provided its data, not
-	// just opened the form. When the form declares a file input, EVERY S3Object
-	// field must carry a file — otherwise a multi-input entry (S3 picker + another
-	// required field) would go green with an empty `{ s3: '' }` and the run would
-	// still fire against a missing file. With no file input (e.g. a JSON-array
-	// entry) readiness falls back to "some input holds data".
+	// just opened the form. Two guards: the form's own full-schema `valid` (every
+	// required field — including non-file ones — is satisfied), AND that any
+	// declared S3Object file field actually carries a file (the picker can leave
+	// an empty `{ s3: '' }` on a non-required file field, which `valid` alone
+	// wouldn't catch).
 	function dataUploadReady(path: string): boolean {
 		const staged = dataUploadArgs[path]
-		if (!staged) return false
-		const values = Object.values(staged)
+		if (!staged || !staged.valid) return false
+		const values = Object.values(staged.args)
 		const s3s = values.filter(isS3Object)
 		if (s3s.length > 0) return s3s.every(hasMeaningfulValue)
 		return values.some(hasMeaningfulValue)
 	}
-	// Persist the run form's args, but only for data-upload entries — other run
-	// forms (partitioned producers) run their own way and must not be mistaken
-	// for a staged upload.
-	function stageRunFormArgs(path: string, args: Record<string, any>) {
+	// Persist the run form's args + validity, but only for data-upload entries —
+	// other run forms (partitioned producers) run their own way and must not be
+	// mistaken for a staged upload. Idempotent: the run form re-emits on every
+	// keystroke/validation pass, so bail when the value is unchanged — otherwise
+	// each emit would reassign `dataUploadArgs`, giving `readyDataUploadPaths` a
+	// fresh Set identity that re-syncs the canvas and re-fires the form's emit
+	// effect (effect_update_depth_exceeded).
+	function stageRunFormArgs(path: string, args: Record<string, any>, valid: boolean) {
 		if (!dataUploadEntryPaths.has(path)) return
-		dataUploadArgs = { ...dataUploadArgs, [path]: args }
+		const prev = dataUploadArgs[path]
+		if (prev && prev.valid === valid && JSON.stringify(prev.args) === JSON.stringify(args)) return
+		dataUploadArgs = { ...dataUploadArgs, [path]: { args, valid } }
 	}
 	// Pipeline scripts that are data-upload entry points (a `data_upload` trigger
 	// in the displayed graph). They can't auto-run — they need an uploaded file
@@ -2450,7 +2461,7 @@
 				onOpenWebhook={openWebhookDrawer}
 				onOpenDataUpload={openDataUploadRun}
 				{readyDataUploadPaths}
-				runFormInitialArgs={openScriptPath ? dataUploadArgs[openScriptPath] : undefined}
+				runFormInitialArgs={openScriptPath ? dataUploadArgs[openScriptPath]?.args : undefined}
 				onRunFormArgsChange={stageRunFormArgs}
 				onSelect={handleCanvasSelect}
 				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}

@@ -164,6 +164,10 @@
 		// succeeded.
 		requireValidAssets?: boolean
 		args: Record<string, any>
+		// Full-schema validity of the test-form args (bindable). Exposed so a host
+		// (the pipeline editor) can gate a data-upload entry's readiness on whether
+		// every required field is filled, not just the S3 file.
+		isValid?: boolean
 		// Custom timeout (in seconds) from the script settings. Forwarded to the
 		// preview run so "Test" honors the same timeout a deployed run would,
 		// instead of silently falling back to the instance default.
@@ -235,6 +239,7 @@
 		customUi = undefined,
 		requireValidAssets = false,
 		args = $bindable(),
+		isValid = $bindable(true),
 		timeout = undefined,
 		selectedTab = $bindable('main'),
 		hasPreprocessor = $bindable(false),
@@ -677,7 +682,6 @@
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 
-	let isValid: boolean = $state(true)
 	let scriptProgress = $state(undefined)
 
 	let logPanel: LogPanel | undefined = $state(undefined)

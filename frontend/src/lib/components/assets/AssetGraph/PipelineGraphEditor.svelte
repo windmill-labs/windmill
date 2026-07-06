@@ -168,7 +168,7 @@
 		// Persisted run-form args for the currently-open data-upload entry, and a
 		// callback to persist them as they change — see the page's dataUploadArgs.
 		runFormInitialArgs?: Record<string, any>
-		onRunFormArgsChange?: (path: string, args: Record<string, any>) => void
+		onRunFormArgsChange?: (path: string, args: Record<string, any>, isValid: boolean) => void
 		// Data-upload entry scripts whose staged upload is ready (green node).
 		readyDataUploadPaths?: Set<string>
 		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
