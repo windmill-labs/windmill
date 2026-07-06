@@ -33,12 +33,16 @@ jobs:
   pi-review:
     runs-on: ubicloud-standard-2
     timeout-minutes: 30
+    # A non-fork PR (head.repo.fork == false) can only be opened by someone with push
+    # access to this repo, so fork==false already enforces write access. Do NOT re-add
+    # an author_association gate: the pull_request webhook payload reports private org
+    # members as CONTRIBUTOR/NONE (only public members show as MEMBER), which silently
+    # skips auto-review for every private member.
     if: |
       github.event_name == 'workflow_call' ||
       (
         github.event.pull_request.draft == false &&
-        github.event.pull_request.head.repo.fork == false &&
-        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
+        github.event.pull_request.head.repo.fork == false
       )
     permissions:
       contents: read
