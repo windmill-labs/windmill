@@ -456,6 +456,20 @@ const config = {
 			]
 		},
 		extend: {
+			// Tailwind Typography hardcodes `pre` code blocks to a dark background
+			// (gray-800) in both light and dark mode, so they render dark-on-light in
+			// light mode. Point the pre/pre-code variables at theme-aware surface
+			// tokens (light and inverted) so code blocks track the active theme.
+			typography: {
+				DEFAULT: {
+					css: {
+						'--tw-prose-pre-bg': 'rgb(var(--color-surface-secondary))',
+						'--tw-prose-pre-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-pre-bg': 'rgb(var(--color-surface-secondary))',
+						'--tw-prose-invert-pre-code': 'rgb(var(--color-text-primary))'
+					}
+				}
+			},
 			border: {
 				color: 'red'
 			},
