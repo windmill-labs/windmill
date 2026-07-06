@@ -182,11 +182,16 @@ fn is_auto_trigger_kind(kind: AssetKind) -> bool {
 /// FROM clause alone wires the cascade edge (no redundant `// on <asset>`).
 ///
 /// Included: an input read read-*only* (`R`) of a supported kind
-/// ([`is_auto_trigger_kind`]). Excluded, each for a reason:
+/// ([`is_auto_trigger_kind`]). The effective access type is
+/// `access_type.or(alt_access_type)` — same precedence as the persisted
+/// `asset.usage_access_type` and the frontend mirror's `access_type ??
+/// alt_access_type`, so a manual read override on an ambiguous parse still
+/// derives an edge (and the live canvas and the deployed graph agree).
+/// Excluded, each for a reason:
 /// - `RW` / `W` — the script also writes the asset; an edge would be a
 ///   self-triggering loop.
-/// - `None` access — usage is ambiguous (poisoned merge); can't confirm a
-///   read, so fail safe and don't cascade.
+/// - `None` access — usage is ambiguous (poisoned merge) with no override;
+///   can't confirm a read, so fail safe and don't cascade.
 /// - already in `explicit_refs` — the author wrote `// on <asset>`, which
 ///   wins (it carries the per-edge debounce/opts).
 /// - in `muted_refs` — a `// mute <asset>` opt-out (lookup / SCD input).
@@ -206,7 +211,10 @@ pub fn derive_pipeline_asset_trigger_refs(
     let mut out = vec![];
     let mut seen = HashSet::new();
     for a in assets {
-        if a.access_type != Some(AssetUsageAccessType::R) || !is_auto_trigger_kind(a.kind) {
+        // Effective access mirrors the persisted `usage_access_type` and the
+        // frontend derivation: an explicit parse wins, else the manual override.
+        let access = a.access_type.or(a.alt_access_type);
+        if access != Some(AssetUsageAccessType::R) || !is_auto_trigger_kind(a.kind) {
             continue;
         }
         let Some(prefix) = a.kind.canonical_prefix() else {
@@ -488,6 +496,34 @@ mod derive_trigger_tests {
             asset(AssetKind::DataTable, "main.dt", Some(R)),    // out of scope
         ];
         assert!(derive(&a).is_empty());
+    }
+
+    #[test]
+    fn manual_read_override_on_ambiguous_parse_derives_an_edge() {
+        use AssetUsageAccessType::{R, W};
+        // Parser can't confirm access (`access_type: None`) but the user manually
+        // overrode it. Effective access = `access_type.or(alt_access_type)`, the
+        // same value persisted to `asset.usage_access_type` and used by the
+        // frontend canvas — so a read override derives an edge (parity, no
+        // silently-vanishing edge on deploy) and a write override does not.
+        let read_override = AssetWithAltAccessType {
+            path: "main.override_r".to_string(),
+            kind: AssetKind::Ducklake,
+            access_type: None,
+            alt_access_type: Some(R),
+            columns: None,
+        };
+        let write_override = AssetWithAltAccessType {
+            path: "main.override_w".to_string(),
+            kind: AssetKind::Ducklake,
+            access_type: None,
+            alt_access_type: Some(W),
+            columns: None,
+        };
+        assert_eq!(
+            derive(&[read_override, write_override]),
+            vec!["ducklake://main.override_r".to_string()]
+        );
     }
 
     #[test]
