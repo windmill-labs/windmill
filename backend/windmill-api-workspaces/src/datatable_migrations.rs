@@ -756,12 +756,16 @@ async fn disable_datatable_migrations(
         )));
     }
 
-    sqlx::query!(
-        "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2",
+    // Capture the deleted definitions so each removal is tallied as a deployed
+    // object (like single-migration deletion), keeping workspace comparison and
+    // git-sync callbacks in sync when a fork opts back out of migrations.
+    let deleted = sqlx::query!(
+        "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2 \
+         RETURNING timestamp, name",
         &w_id,
         &datatable_name,
     )
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     audit_log(
@@ -776,6 +780,18 @@ async fn disable_datatable_migrations(
     .await?;
 
     tx.commit().await?;
+
+    for m in deleted {
+        record_datatable_migration_deployment(
+            &authed,
+            &db,
+            &w_id,
+            &datatable_name,
+            m.timestamp,
+            &m.name,
+        )
+        .await?;
+    }
 
     Ok(format!(
         "Disabled migrations for data table {datatable_name} and deleted its migrations"
