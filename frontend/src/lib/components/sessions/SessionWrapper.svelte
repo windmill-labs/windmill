@@ -3,7 +3,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
-	import { Button, CopyButton } from '$lib/components/common'
+	import { Button, NameIdTooltip } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -100,7 +100,9 @@
 	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the chip's ellipsis menu targets.
 	const acting = $derived.by(() => {
 		const wsId = session ? getEffectiveWorkspaceId(session) : undefined
-		return wsId ? { targetId: wsId } : undefined
+		if (!wsId) return undefined
+		const name = $userWorkspaces.find((w) => w.id === wsId)?.name ?? wsId
+		return { targetId: wsId, name }
 	})
 
 	// Ellipsis menu on the "Acting on" chip. Both entries are real links (so
@@ -445,14 +447,19 @@
 					     the "Run in" picker (SessionWorkspaceBar) instead. -->
 						<div class="flex items-center gap-1 min-w-0 text-2xs text-tertiary">
 							<span class="shrink-0">Acting on</span>
-							<WorkspaceScopeTrigger
-								workspaceId={acting.targetId}
-								showChevron={false}
-								interactive={false}
-								class="max-w-[16rem]"
-								menuItems={actingMenu}
-							/>
-							<CopyButton value={acting.targetId} title={`Copy id: ${acting.targetId}`} />
+							<!-- Hover reveals the workspace name + id + copy button (shared
+							     NameIdTooltip, same as the sidebar family picker), so the chip
+							     carries the copy affordance without an inline button. -->
+							<NameIdTooltip name={acting.name} id={acting.targetId}>
+								<WorkspaceScopeTrigger
+									workspaceId={acting.targetId}
+									showChevron={false}
+									interactive={false}
+									disableTitle
+									class="max-w-[16rem]"
+									menuItems={actingMenu}
+								/>
+							</NameIdTooltip>
 						</div>
 					{/if}
 					{#if !hideEditor && !session.target && hasFirstUserMessage}

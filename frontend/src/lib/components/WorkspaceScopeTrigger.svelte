@@ -22,6 +22,7 @@
 		color = undefined,
 		interactive = true,
 		menuItems = undefined,
+		disableTitle = false,
 		class: className = ''
 	}: {
 		workspaceId?: string
@@ -50,6 +51,9 @@
 		// workspace-scoped actions without becoming clickable itself. Ignored
 		// in collapsed (icon-only) mode.
 		menuItems?: Item[]
+		// Suppress the chip's native `title` so it doesn't double-pop when a
+		// consumer wraps the chip in a richer hover tooltip (e.g. NameIdTooltip).
+		disableTitle?: boolean
 		class?: string
 	} = $props()
 
@@ -98,7 +102,7 @@
 	<Button
 		variant="subtle"
 		unifiedSize="xs"
-		title={showFork && shownParent ? `${shownParent} → ${name}` : name}
+		title={disableTitle ? undefined : showFork && shownParent ? `${shownParent} → ${name}` : name}
 		tabindex={interactive ? undefined : -1}
 		style={accentStyle ?? ''}
 		startIcon={isCollapsed
