@@ -181,8 +181,7 @@ export function createGitSyncContext(workspace: string) {
 			settings: repo.settings,
 			exclude_types_override: repo.exclude_types_override,
 			auto_pull: repo.auto_pull,
-			fork_open_prs: repo.fork_open_prs,
-			fork_pull_sync: repo.fork_pull_sync
+			fork_open_prs: repo.fork_open_prs
 		}
 	}
 
@@ -510,8 +509,7 @@ export function createGitSyncContext(workspace: string) {
 					settings: repoToSave.settings,
 					exclude_types_override: repoToSave.exclude_types_override,
 					auto_pull: repoToSave.auto_pull,
-					fork_open_prs: repoToSave.fork_open_prs,
-					fork_pull_sync: repoToSave.fork_pull_sync
+					fork_open_prs: repoToSave.fork_open_prs
 				}
 			}
 		})

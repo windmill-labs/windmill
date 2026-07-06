@@ -296,19 +296,13 @@ pub struct GitRepositorySettings {
     /// reverse direction is not automated (the historical behaviour).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_pull: Option<AutoPullSettings>,
-    /// Parent-level fork auto-sync (app-backed repos only). Set on the parent
+    /// Parent-level fork setting (app-backed repos only). Set on the parent
     /// workspace's repo; applies to all of its forks, mirroring how the
-    /// `*-to-forks` GitHub Actions are configured once at the repo.
-    ///
-    /// Open a PR when a fork deploys to a `wm-fork/**` branch on the shared repo
-    /// (`open-pr-on-fork-commit` parity). Off by default.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub fork_open_prs: bool,
-    /// Pull the tracked branch into every fork of this workspace when it updates,
-    /// cloning with the parent's installation (`push-on-merge-to-forks` parity).
+    /// `open-pr-on-fork-commit` GitHub Action is configured once at the repo.
+    /// Open a PR when a fork deploys to a `wm-fork/**` branch on the shared repo.
     /// Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
-    pub fork_pull_sync: bool,
+    pub fork_open_prs: bool,
 }
 
 impl GitRepositorySettings {

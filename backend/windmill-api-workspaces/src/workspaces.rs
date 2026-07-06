@@ -4553,13 +4553,11 @@ async fn update_workspace_settings(
         .map(|mut r| {
             // Auto-pull is parent-owned and must not be inherited: the fork would
             // otherwise carry the parent's webhook id (turning off auto-pull on the
-            // fork would delete the parent's webhook) and would self-pull on top of
-            // the parent's fork_pull_sync fan-out. A fork still inherits the
-            // push-direction config and the installation; the parent drives fork
-            // pulls. fork_* flags are parent-level, so clear them too.
+            // fork would delete the parent's webhook). A fork still inherits the
+            // push-direction config and the installation. fork_open_prs is a
+            // parent-level flag, so clear it too.
             r.auto_pull = None;
             r.fork_open_prs = false;
-            r.fork_pull_sync = false;
             r
         })
         .collect();

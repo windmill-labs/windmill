@@ -87,9 +87,6 @@
 	function setForkOpenPrs(v: boolean) {
 		if (repo) repo.fork_open_prs = v
 	}
-	function setForkPullSync(v: boolean) {
-		if (repo) repo.fork_pull_sync = v
-	}
 
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
 	let resourceInfo = $state<{ url?: string; error?: string } | null>(null)
@@ -641,9 +638,11 @@
 								</div>
 								{#if isGithubApp && !isFork}
 									<!-- Parent-level fork auto-sync (applies to all forks of this workspace) -->
-									<div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
+									<div
+										class="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
+									>
 										<div class="text-sm font-semibold text-emphasis">Forks of this workspace</div>
-										<div class="text-2xs text-secondary mb-2">
+										<div class="text-2xs text-secondary">
 											Applies to every fork of this workspace using this workspace's GitHub App
 											installation. Replaces the fork GitHub Actions.
 										</div>
@@ -655,15 +654,6 @@
 													'When a fork deploys, Windmill opens a pull request from its wm-fork/** branch to the tracked branch of the shared repository.'
 											}}
 											on:change={(e) => setForkOpenPrs(e.detail)}
-										/>
-										<Toggle
-											checked={repo.fork_pull_sync ?? false}
-											options={{
-												right: 'Keep forks in sync with the tracked branch',
-												rightTooltip:
-													"When the tracked branch updates, Windmill pulls the new content into every fork of this workspace, using the parent's installation."
-											}}
-											on:change={(e) => setForkPullSync(e.detail)}
 										/>
 									</div>
 								{/if}
