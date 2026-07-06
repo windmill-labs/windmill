@@ -19,6 +19,7 @@
 		}
 		values?: Record<string, any>
 		children: import('svelte').Snippet
+		headerAction?: import('svelte').Snippet
 		class?: string
 	}
 
@@ -31,6 +32,7 @@
 		actionButton,
 		values,
 		children,
+		headerAction,
 		class: clazz
 	}: Props = $props()
 </script>
@@ -54,7 +56,9 @@
 					<Tooltip>{tooltip}</Tooltip>
 				{/if}
 			</div>
-			{#if actionButton}
+			{#if headerAction}
+				{@render headerAction()}
+			{:else if actionButton}
 				<Button
 					disabled={ee_only != undefined && !$enterpriseLicense}
 					variant={actionButton.variant ?? 'default'}
