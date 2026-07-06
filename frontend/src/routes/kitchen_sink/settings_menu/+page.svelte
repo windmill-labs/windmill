@@ -2,7 +2,10 @@
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
+	import { markChangelogsOpened } from '$lib/components/sidebar/changelogs'
 	import {
 		userStore,
 		usersWorkspaceStore,
@@ -112,7 +115,7 @@
 		remountKey++
 	}
 	function markChangelogsSeen() {
-		localStorage.setItem('changelogsLastOpened', new Date().toISOString().split('T')[0])
+		markChangelogsOpened()
 		remountKey++
 	}
 
@@ -136,7 +139,7 @@
 		$devopsRole = hasDevopsRole ? 'jane.doe@windmill.dev' : false
 		$enterpriseLicense = hasEnterpriseLicense ? 'dev-license' : undefined
 		$isPremiumStore = isPremium
-		$usageStore = usage
+		$usageStore = Number(usage)
 		$workspaceStore = 'kitchen-sink'
 		$usersWorkspaceStore = {
 			email: 'jane.doe@windmill.dev',
@@ -153,8 +156,6 @@
 		}
 	})
 
-	const SIDEBAR_BG = '#F3F3F7'
-	const SIDEBAR_BG_DARK = '#1e232e'
 	let darkMode = $state(false)
 </script>
 
@@ -209,11 +210,21 @@
 			<Toggle bind:checked={collapsed} options={{ right: 'collapsed rail' }} size="xs" />
 			<label class="text-xs text-secondary flex items-center gap-2 pt-1">
 				critical alerts
-				<input type="number" min="0" class="!w-20 !text-xs" bind:value={criticalAlerts} />
+				<TextInput
+					bind:value={criticalAlerts}
+					size="xs"
+					class="w-20"
+					inputProps={{ type: 'number', min: 0 }}
+				/>
 			</label>
 			<label class="text-xs text-secondary flex items-center gap-2">
 				user execs (cloud)
-				<input type="number" min="0" class="!w-20 !text-xs" bind:value={usage} />
+				<TextInput
+					bind:value={usage}
+					size="xs"
+					class="w-20"
+					inputProps={{ type: 'number', min: 0 }}
+				/>
 			</label>
 			<div class="flex gap-1.5 pt-2">
 				<Button variant="default" unifiedSize="xs" on:click={simulateUnseenChangelogs}>
@@ -237,7 +248,7 @@
 						<SettingsMenu
 							isCollapsed={collapsed}
 							hideWorkspaceSettings={sessionMode}
-							numUnacknowledgedCriticalAlerts={criticalAlerts}
+							numUnacknowledgedCriticalAlerts={Number(criticalAlerts)}
 							{cloudHosted}
 						/>
 					</div>

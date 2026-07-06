@@ -90,6 +90,7 @@
 	variant="subtle"
 	unifiedSize="xs"
 	title={showFork && shownParent ? `${shownParent} → ${name}` : name}
+	tabindex={interactive ? undefined : -1}
 	style={accentStyle ?? ''}
 	startIcon={isCollapsed
 		? // Icon-only mode is the fork-picker affordance, whatever is selected.
@@ -110,7 +111,7 @@
 			// content set the height and breathe with vertical padding instead. The
 			// min height keeps the single-line variant from looking squashed next
 			// to the two-row one.
-			'h-auto py-1 min-h-7'
+			'h-auto py-1 min-h-6'
 		: ''} {inertClasses}"
 >
 	{#if !isCollapsed}

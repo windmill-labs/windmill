@@ -23,9 +23,7 @@
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
-	import { WorkspaceService } from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
-	import { clearStores } from '$lib/storeUtils'
+	import { leaveCurrentWorkspace } from './leaveWorkspace'
 	import { isCloudHosted } from '$lib/cloud'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -33,7 +31,7 @@
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import MenuLink from './MenuLink.svelte'
 	import SideBarNotification from './SideBarNotification.svelte'
-	import { type Changelog, changelogs } from './changelogs'
+	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
 	import {
 		userWorkspaces,
@@ -68,24 +66,11 @@
 	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
 
 	let leaveWorkspaceModal = $state(false)
-	async function leaveWorkspace() {
-		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
-		sendUserToast('You left the workspace')
-		clearStores()
-		goto('/user/workspaces')
-	}
 
-	const lastOpened = localStorage.getItem('changelogsLastOpened')
-	const recentChangelogs: Changelog[] = lastOpened
-		? changelogs.filter((changelog) => changelog.date > lastOpened)
-		: changelogs.slice(0, 3)
-	let hasNewChangelogs = $state(
-		lastOpened != null &&
-			recentChangelogs.length > 0 &&
-			lastOpened !== new Date().toISOString().split('T')[0]
-	)
-	function markChangelogsOpened() {
-		localStorage.setItem('changelogsLastOpened', new Date().toISOString().split('T')[0])
+	const { recent: recentChangelogs, hasNew } = readRecentChangelogs()
+	let hasNewChangelogs = $state(hasNew)
+	function onChangelogsOpened() {
+		markChangelogsOpened()
 		hasNewChangelogs = false
 	}
 
@@ -301,7 +286,7 @@
 
 <!-- Changelogs count as seen once the menu closes (not on open), so the Help-row
      dot stays visible while the user is looking at the open menu. -->
-<DropdownV2 {items} placement="top-start" class="w-full" on:close={markChangelogsOpened}>
+<DropdownV2 {items} placement="top-start" class="w-full" on:close={onChangelogsOpened}>
 	{#snippet buttonReplacement()}
 		<span
 			class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
@@ -338,7 +323,7 @@
 	}}
 	on:confirmed={() => {
 		leaveWorkspaceModal = false
-		leaveWorkspace()
+		void leaveCurrentWorkspace()
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">

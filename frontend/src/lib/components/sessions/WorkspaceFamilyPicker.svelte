@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, type Snippet } from 'svelte'
+	import type { Snippet } from 'svelte'
 	import {
 		enterpriseLicense,
 		isPremiumStore,
@@ -16,6 +16,7 @@
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { getUserExt } from '$lib/user'
+	import { WorkspaceService } from '$lib/gen'
 	import {
 		fetchProtectionRulesForWorkspace,
 		isRuleActiveInRulesets,
@@ -26,7 +27,7 @@
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import PrefixedInput from '$lib/components/PrefixedInput.svelte'
 	import { Badge, Button, CopyButton } from '$lib/components/common'
 	import Select from '../select/Select.svelte'
 	import { Building, Check, GitFork, Plus, Settings } from 'lucide-svelte'
@@ -185,7 +186,6 @@
 	// Bare fork id, without the wm-fork- prefix. Forks have no separate display
 	// name — the id is the name (it also becomes the git branch).
 	let newForkId = $state('')
-	let forkInput: TextInput | undefined = $state(undefined)
 	// The base ("target") a new fork will branch from. Defaults to the root; the user can pick any fork
 	// in the family (via the inline target selector) to create a fork of a fork.
 	let createForkBaseId = $state<string | undefined>(undefined)
@@ -246,25 +246,25 @@
 		await onPick(id)
 	}
 
-	async function enterCreateMode(initialId?: string, baseId?: string) {
+	function enterCreateMode(initialId?: string, baseId?: string) {
 		// Default the target to the root; the user can switch to any fork in the family (fork of a fork).
 		createForkBaseId = baseId ?? root?.id
 		creatingFork = true
 		newForkId = initialId ?? defaultForkId()
-		await tick()
-		forkInput?.focus()
-		forkInput?.select()
+		// Focus + select is handled by the input's own autofocus (it mounts with
+		// the create form).
 	}
 
 	function cancelCreate() {
 		creatingFork = false
 		newForkId = ''
+		serverIdError = undefined
 	}
 
 	// Mirror the backend's fork validation so a bad id is caught before the create call rather than
 	// failing mid-creation: with the `wm-fork-` prefix the id must stay within 50 chars (a hard
 	// DB/git-branch limit) and only contain slug characters.
-	const forkIdError = $derived.by<string | undefined>(() => {
+	const clientIdError = $derived.by<string | undefined>(() => {
 		const trimmed = newForkId.trim()
 		if (!trimmed) return undefined
 		if (!/^\w+(-\w+)*$/.test(trimmed))
@@ -276,11 +276,28 @@
 		if (taken.has(prefixed)) return 'A workspace with this ID already exists'
 		return undefined
 	})
+	// Server-reported reservation (e.g. an archived fork keeps its id, invisible
+	// to the client workspace list). Set at stage time, cleared on edit.
+	let serverIdError = $state<string | undefined>(undefined)
+	const forkIdError = $derived(clientIdError ?? serverIdError)
 
+	let staging = $state(false)
 	async function stageNewFork() {
 		const bareId = newForkId.trim()
-		if (!createForkBaseId || !bareId || forkIdError || !onCreateFork) return
+		if (!createForkBaseId || !bareId || clientIdError || staging || !onCreateFork) return
 		const prefixed = `${WM_FORK_PREFIX}${bareId}`
+		staging = true
+		try {
+			if (await WorkspaceService.existsWorkspace({ requestBody: { id: prefixed } })) {
+				serverIdError = `'${prefixed}' already exists — it may be an archived fork (archiving keeps the id reserved)`
+				return
+			}
+		} catch {
+			// Availability check failed (network/API): fall through — the create
+			// call re-checks server-side anyway.
+		} finally {
+			staging = false
+		}
 		// Close optimistically; consumer can re-open + toast on error.
 		creatingFork = false
 		newForkId = ''
@@ -350,7 +367,7 @@
 		{@const rowBase =
 			'px-3 py-1.5 text-xs font-normal text-primary flex flex-row gap-2 items-center text-left rounded-sm w-full'}
 		<div
-			class="bg-surface-tertiary dark:border w-64 origin-top-left rounded-lg shadow-lg focus:outline-none py-1 flex flex-col max-h-80"
+			class="bg-surface-tertiary dark:border w-64 origin-top-left rounded-lg shadow-lg focus:outline-none py-1 flex flex-col max-h-[min(50vh,26rem)]"
 		>
 			<!-- Scrollable rows; the create-fork section and settings footer below stay pinned. -->
 			<div class="flex flex-col overflow-y-auto min-h-0">
@@ -394,7 +411,7 @@
 					<div class="relative group shrink-0">
 						<button
 							type="button"
-							style={`${indentStyle(f.id) ?? ''}${accentStyle ? `; ${accentStyle}` : ''}`}
+							style={[indentStyle(f.id), accentStyle].filter(Boolean).join('; ')}
 							class={`${rowBase} pr-8 ${isSelected(f.id) ? 'bg-surface-selected' : ''} ${keyArrowPos === forkIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
 							onmouseenter={() => (keyArrowPos = forkIdx)}
 							onclick={() => void pick(f.id)}
@@ -444,35 +461,27 @@
 					<div class="flex flex-col gap-2 px-2.5 py-2">
 						<div class="flex flex-col gap-0.5">
 							<span class="text-2xs font-normal text-hint">Fork ID</span>
-							<div class="flex flex-row items-center gap-1 min-w-0">
-								<!-- text-tertiary: lighter than typed text but darker than the hint-colored
-								     placeholder, so the fixed prefix doesn't read as placeholder. -->
-								<span class="font-mono text-2xs text-tertiary shrink-0">{WM_FORK_PREFIX}</span>
-								<!-- svelte-ignore a11y_autofocus -->
-								<TextInput
-									bind:this={forkInput}
-									bind:value={newForkId}
-									size="sm"
-									error={forkIdError}
-									class="grow min-w-0"
-									inputProps={{
-										placeholder: 'my-fork',
-										autofocus: true,
-										'aria-invalid': forkIdError ? 'true' : undefined,
-										onkeydown: (e: KeyboardEvent) => {
-											if (e.key === 'Enter') {
-												e.preventDefault()
-												e.stopPropagation()
-												void stageNewFork()
-											} else if (e.key === 'Escape') {
-												e.preventDefault()
-												e.stopPropagation()
-												cancelCreate()
-											}
-										}
-									}}
-								/>
-							</div>
+							<PrefixedInput
+								prefix={WM_FORK_PREFIX}
+								bind:value={newForkId}
+								placeholder="my-fork"
+								autofocus
+								error={!!forkIdError}
+								class="min-h-7"
+								aria-invalid={forkIdError ? 'true' : undefined}
+								oninput={() => (serverIdError = undefined)}
+								onkeydown={(e: KeyboardEvent) => {
+									if (e.key === 'Enter') {
+										e.preventDefault()
+										e.stopPropagation()
+										void stageNewFork()
+									} else if (e.key === 'Escape') {
+										e.preventDefault()
+										e.stopPropagation()
+										cancelCreate()
+									}
+								}}
+							/>
 						</div>
 						<div class="flex flex-col gap-0.5">
 							<span class="text-2xs font-normal text-hint">Base workspace</span>
@@ -508,7 +517,7 @@
 								variant="accent"
 								unifiedSize="xs"
 								startIcon={{ icon: Check }}
-								disabled={!newForkId.trim() || !!forkIdError}
+								disabled={!newForkId.trim() || !!forkIdError || staging}
 								on:click={() => void stageNewFork()}
 							>
 								Set as target

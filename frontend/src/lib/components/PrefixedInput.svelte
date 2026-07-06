@@ -1,15 +1,28 @@
 <script lang="ts">
 	import { tick } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { HTMLInputAttributes } from 'svelte/elements'
 
 	let {
 		prefix = '',
-		value = $bindable(''),
+		value = $bindable(),
 		placeholder = '',
-		class: className = '',
+		error = false,
 		autofocus = false,
+		class: className = '',
 		...restProps
-	} = $props()
+	}: {
+		prefix?: string
+		value: string
+		placeholder?: string
+		// Red border, matching TextInput's error styling.
+		error?: boolean
+		autofocus?: boolean
+		class?: string
+	} & Omit<
+		HTMLInputAttributes,
+		'prefix' | 'value' | 'placeholder' | 'autofocus' | 'class'
+	> = $props()
 
 	let inputElement: HTMLInputElement | undefined = $state()
 
@@ -22,21 +35,27 @@
 			inputElement?.select()
 		})
 	})
+
+	const borderClasses = $derived(
+		error
+			? 'border !border-red-300 dark:!border-red-400/45 focus-within:!border-red-400 hover:!border-red-500 dark:hover:!border-red-400/75'
+			: 'border border-border-light hover:border-border-selected/50 focus-within:border-border-selected'
+	)
 </script>
 
-<!-- The prefix renders outside the <input> (faded, non-editable) while the wrapper
-     carries the input look, so the two read as a single field. The bound value is
-     only the editable part after the prefix. -->
+<!-- The prefix renders outside the <input> (non-editable) while the wrapper
+     carries the input look, so the two read as a single field. The bound value
+     is only the editable part after the prefix. The prefix is text-tertiary:
+     lighter than typed text but darker than the hint-colored placeholder, so
+     the fixed prefix doesn't read as placeholder. -->
 <div
 	class={twMerge(
 		'flex items-center w-full min-h-8 px-2 rounded-md text-xs font-normal cursor-text',
-		'bg-surface-input transition-colors border border-border-light',
-		'hover:border-border-selected/50 focus-within:border-border-selected',
+		'bg-surface-input transition-colors',
+		borderClasses,
 		className
 	)}
 >
-	<!-- text-tertiary: lighter than typed text (it's not editable) but darker than the
-	     hint-colored placeholder, so the fixed prefix doesn't read as placeholder. -->
 	<span class="text-tertiary select-none shrink-0" aria-hidden="true">{prefix}</span>
 	<input
 		bind:this={inputElement}

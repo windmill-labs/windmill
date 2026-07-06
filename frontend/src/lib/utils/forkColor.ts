@@ -1,12 +1,7 @@
-// Derives the fork-chip accent palette from a workspace color.
-//
-// The default (blue) chip uses four theme tokens — light bg #ebefff / text
-// #2652df, dark bg #33384e / text #c7cefc. A custom fork color re-creates that
-// profile at the color's hue: pale tinted background + readable saturated text
-// in light mode, desaturated dark background + pastel text in dark mode.
-// Lightness is fixed per role (not taken from the user color) so any picked
-// hue stays readable; saturation follows the user color within a safe band so
-// grayish picks yield grayish chips.
+// Derives the fork-chip accent palette from a workspace color: the default
+// blue's light/dark bg+text profile, re-hued. Lightness is fixed per role so
+// any picked hue stays readable; saturation follows the user color within a
+// safe band so grayish picks yield grayish chips.
 
 function hexToHsl(hex: string): { h: number; s: number; l: number } | undefined {
 	const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim())

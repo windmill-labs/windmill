@@ -16,6 +16,7 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
+	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
 	import {
@@ -125,9 +126,6 @@
 	// gate it on the flag too — otherwise it would ship the unfinished experience
 	// to prod. The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
-
-	const SIDEBAR_BG = '#F3F3F7'
-	const SIDEBAR_BG_DARK = '#1e232e'
 
 	if (page.status == 404) {
 		goto('/user/login')

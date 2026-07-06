@@ -619,7 +619,7 @@
 						bind:value={id}
 						placeholder="my-fork"
 						autofocus
-						class={errorId != '' ? 'input-error' : ''}
+						error={errorId != ''}
 					/>
 				{:else}
 					<TextInput bind:value={id} error={errorId} />

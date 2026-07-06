@@ -59,7 +59,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { onMount } from 'svelte'
 	import { base } from '$lib/base'
-	import { type Changelog, changelogs } from './changelogs'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
@@ -86,13 +85,8 @@
 		deleteSessionsForWorkspace,
 		reconcileAfterWorkspaceChange
 	} from '$lib/components/sessions/sessionState.svelte'
-
-	async function leaveWorkspace() {
-		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
-		sendUserToast('You left the workspace')
-		clearStores()
-		goto('/user/workspaces')
-	}
+	import { leaveCurrentWorkspace } from './leaveWorkspace'
+	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
 	type ForkedDatatable = {
 		name: string
@@ -210,9 +204,8 @@
 	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
 	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
-	let hasNewChangelogs = $state(false)
-	let recentChangelogs: Changelog[] = $state([])
-	let lastOpened = localStorage.getItem('changelogsLastOpened')
+	const { recent: recentChangelogs, hasNew } = readRecentChangelogs()
+	let hasNewChangelogs = $state(hasNew)
 	let availableNativeServices = $state<
 		Array<{ service: NativeServiceName; icon: any; config: any }>
 	>([])
@@ -243,21 +236,12 @@
 	)
 
 	onMount(async () => {
-		if (lastOpened) {
-			// @ts-ignore
-			recentChangelogs = changelogs.filter((changelog) => changelog.date > lastOpened)
-			hasNewChangelogs =
-				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
-		} else {
-			recentChangelogs = changelogs.slice(0, 3)
-		}
 		// Sync tutorial progress on mount
 		await syncTutorialsTodos()
 	})
 
 	function openChangelogs() {
-		const today = new Date().toISOString().split('T')[0]
-		localStorage.setItem('changelogsLastOpened', today)
+		markChangelogsOpened()
 		hasNewChangelogs = false
 	}
 
@@ -914,7 +898,7 @@
 		leaveWorkspaceModal = false
 	}}
 	on:confirmed={() => {
-		leaveWorkspace()
+		void leaveCurrentWorkspace()
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
