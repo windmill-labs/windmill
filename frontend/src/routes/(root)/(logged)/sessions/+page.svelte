@@ -299,32 +299,61 @@
 		}
 	}
 
-	// Reload every mounted preview tab so it reflects what a chat tool just wrote,
-	// deployed, or deleted. Mutating tools share a verb prefix; read/test/navigate
-	// tools (read_*, get_*, list_*, test_run_*, open_preview, …) don't match and
-	// so don't trigger a reload.
-	// Each mounted tab is hosted by a PreviewTabHost; reload() is uniform across
-	// kinds — the iframe fallback reloads the frame, a live editor no-ops (its
-	// shared runtime store already reflects the chat's edits).
+	// Reload mounted preview tabs affected by a mutating chat tool (write_/patch_/
+	// delete_/deploy_/…; read/test/navigate tools don't match). Scoped to the changed
+	// item so editing one item never blank-reboots an unrelated item's preview iframe
+	// (a full-page /apps_raw/edit reload is jarring).
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
 	const MUTATING_TOOL_RE = /^(write_|patch_|delete_|deploy_|discard_|set_|create_|update_|remove_)/
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	function reloadAllTabs() {
-		// All warm sessions' mounted tabs, not just the visible session's — a
-		// hidden preview would otherwise show pre-mutation content on return.
-		for (const key of mountedTabKeys) {
-			tabHosts[key]?.reload()
+	// Drained each flush: item paths touched since the last flush, and a flag for an
+	// unresolved mutation that forces a full reload (safe fallback).
+	let pendingReloadPaths = new Set<string>()
+	let pendingReloadAll = false
+
+	// Reload the batched-mutation tabs across all warm sessions' mounted tabs (a
+	// hidden preview would otherwise show pre-mutation content on return). `null`
+	// reloads all; otherwise an item-route iframe reloads only when its item was
+	// touched. Non-item pages always reload; a live-editor slot no-ops in reload().
+	function reloadTabs(paths: Set<string> | null) {
+		for (const s of warmSessions) {
+			const tabs = getRuntime(s.id)?.previewTabs?.tabs ?? []
+			for (const tab of tabs) {
+				const key = tabKey(s.id, tab.id)
+				if (!mountedTabKeys.has(key)) continue
+				if (paths) {
+					const route = parsePreviewItemRoute(tab.url)
+					if (route && !paths.has(route.itemPath)) continue
+				}
+				tabHosts[key]?.reload()
+			}
 		}
+	}
+	function flushReload() {
+		const paths = pendingReloadAll ? null : pendingReloadPaths
+		pendingReloadPaths = new Set()
+		pendingReloadAll = false
+		reloadTabs(paths)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
-		setToolCompletionListener((name) => {
+		setToolCompletionListener((name, args) => {
 			if (!MUTATING_TOOL_RE.test(name)) return
+			// A workspace item path scopes the reload to that item. The raw-app file
+			// tools (write_app_file, …) pass a leading-'/' frontend file path and edit
+			// the active session's target app, so scope to the target. Anything else is
+			// unresolved → reload everything (safe fallback).
+			const p = typeof args?.path === 'string' ? args.path : undefined
+			if (p && !p.startsWith('/')) pendingReloadPaths.add(p)
+			else if (p && activeSession?.target?.path) pendingReloadPaths.add(activeSession.target.path)
+			else pendingReloadAll = true
 			clearTimeout(reloadHandle)
-			reloadHandle = setTimeout(reloadAllTabs, 500)
+			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
+			pendingReloadPaths = new Set()
+			pendingReloadAll = false
 			setToolCompletionListener(undefined)
 		}
 	})
