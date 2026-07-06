@@ -6,6 +6,7 @@
 	import { getItemValue } from '$lib/utils_workspace_deploy'
 	import { userWorkspaces } from '$lib/stores'
 	import { editUrlFor as buildEditUrl } from './forkEditUrl'
+	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
 
 	// Thin wrapper: supplies the deployed-parent ↔ deployed-fork data source to
 	// the generic WorkspaceDiffDrawer. Display/behavior unchanged from before.
@@ -107,6 +108,9 @@
 		<div class="flex items-center gap-2 text-xs text-secondary">
 			<GitFork class="w-3.5 h-3.5 shrink-0" />
 			<span class="font-medium truncate">{forkWs?.name ?? forkWorkspaceId}</span>
+			{#if forkWs?.is_dev_workspace}
+				<Badge color="indigo" small>{devBadgeText(forkWs.dev_workspace_label)}</Badge>
+			{/if}
 			<ArrowRight class="w-3 h-3 shrink-0 text-tertiary" />
 			<span class="font-medium truncate">{parentWs?.name ?? parentWorkspaceId}</span>
 			{#if comparison}
