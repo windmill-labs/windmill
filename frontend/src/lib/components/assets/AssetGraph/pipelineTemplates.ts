@@ -689,9 +689,20 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			// the slice — the runtime wraps it into the idempotent write +
 			// snapshot (see the `// materialize` annotation in the header). No
 			// CREATE TABLE / INSERT, and the target is NOT attached here (the
-			// runtime attaches it). Add `// partitioned daily` + a `{partition}`
-			// filter for a partitioned table.
-			lines.push(`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`)
+			// runtime attaches it).
+			//
+			// Partitioned? `{partition}` is the slice's identity string. For a
+			// time grain the runtime injects a `wm_partition(ts)` macro that
+			// buckets a timestamp with that same identity format, so one
+			// grain-agnostic line filters the source to the active slice — no
+			// hand-written strftime format, no `= TIMESTAMP {partition}` cast
+			// (which errors for hourly/weekly/monthly). Kept as a comment because
+			// we don't know the user's timestamp column. See partitioning docs.
+			lines.push(
+				`-- Partitioned? Filter to the active slice (uncomment, set your timestamp column):`,
+				`--   WHERE wm_partition(<ts_col>) = {partition}   -- dynamic grain: WHERE <key_col> = {partition}`,
+				`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
+			)
 			break
 		case 'datatable':
 			if (output) {

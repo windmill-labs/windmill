@@ -1062,6 +1062,29 @@ pub fn materialize_result_sql(
 }
 
 // Ensure a statement ends with a single `;`.
+/// Convenience macro injected as the first setup statement of a partitioned
+/// materialize: `wm_partition(ts)` renders a timestamp with the SAME identity
+/// format the resolver used for `{partition}` (from
+/// [`PartitionSpec::time_strftime_format`]). It lets a partitioned SELECT
+/// filter to the active slice with a single grain-agnostic line —
+/// `WHERE wm_partition(<ts_col>) = {partition}` — so users never hand-write a
+/// `strftime` format that can drift, nor reach for `= TIMESTAMP {partition}`
+/// (which only parses for daily). `None` for `dynamic` (no wall-clock bucket).
+///
+/// Timezone-agnostic by construction: it formats `ts` as given, matching the
+/// prior documented `strftime(ts, fmt)` idiom. When a non-UTC `tz=` is set the
+/// caller is responsible for expressing `ts` in that zone (same caveat the raw
+/// idiom carried), so this doesn't silently reinterpret a column's instant.
+pub fn wm_partition_macro(spec: &crate::asset_parser::PartitionSpec) -> Option<String> {
+    let fmt = spec.time_strftime_format()?;
+    // fmt is a trusted per-grain constant or the author's `format=`; escape
+    // single quotes defensively so the emitted literal can't break out.
+    Some(format!(
+        "CREATE OR REPLACE TEMP MACRO wm_partition(ts) AS strftime(ts, '{}')",
+        fmt.replace('\'', "''")
+    ))
+}
+
 fn terminate(stmt: &str) -> String {
     let t = stmt.trim_end();
     if t.ends_with(';') {
@@ -1454,6 +1477,55 @@ mod tests {
     }
     fn err(sql: &str) -> WrapError {
         classify_wrap(sql).expect_err("expected wrap-ineligible")
+    }
+
+    use crate::asset_parser::{PartitionKind, PartitionSpec};
+
+    fn pspec(kind: PartitionKind, format: Option<&str>) -> PartitionSpec {
+        PartitionSpec { kind, tz: None, format: format.map(String::from), start: None }
+    }
+
+    #[test]
+    fn wm_partition_macro_uses_grain_identity_format() {
+        // Every time grain's macro must strftime with the exact format the
+        // resolver stamps the identity with — otherwise the equality filter
+        // silently returns no rows. This is the whole point of the shared source.
+        let cases = [
+            (PartitionKind::Daily, "%Y-%m-%d"),
+            (PartitionKind::Hourly, "%Y-%m-%dT%H"),
+            (PartitionKind::Weekly, "%G-W%V"),
+            (PartitionKind::Monthly, "%Y-%m"),
+        ];
+        for (kind, fmt) in cases {
+            assert_eq!(
+                wm_partition_macro(&pspec(kind.clone(), None)).as_deref(),
+                Some(
+                    format!(
+                        "CREATE OR REPLACE TEMP MACRO wm_partition(ts) AS strftime(ts, '{fmt}')"
+                    )
+                    .as_str()
+                ),
+                "wrong macro format for {kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn wm_partition_macro_honors_format_override_and_skips_dynamic() {
+        // Explicit `format=` wins over the grain default.
+        assert!(
+            wm_partition_macro(&pspec(PartitionKind::Hourly, Some("%Y/%m/%d %H")))
+                .unwrap()
+                .contains("strftime(ts, '%Y/%m/%d %H')")
+        );
+        // Dynamic has no wall-clock bucket → no macro (user filters on their key).
+        assert_eq!(
+            wm_partition_macro(&pspec(
+                PartitionKind::Dynamic { key: "$.tenant".into() },
+                None
+            )),
+            None
+        );
     }
 
     #[test]

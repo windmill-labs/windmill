@@ -218,6 +218,40 @@ pub struct PartitionSpec {
     pub start: Option<String>,
 }
 
+impl PartitionKind {
+    /// The `strftime`/chrono format that renders a time grain's identity
+    /// string. SINGLE SOURCE OF TRUTH: the partition resolver stamps the stored
+    /// identity with this, and the `wm_partition` materialize macro filters
+    /// against it — the two must never drift, so both read it from here.
+    /// `Dynamic` has no wall-clock identity; it falls back to a plain date only
+    /// where some format is unconditionally required (never for bucketing).
+    pub fn default_time_format(&self) -> &'static str {
+        match self {
+            PartitionKind::Hourly => "%Y-%m-%dT%H",
+            PartitionKind::Weekly => "%G-W%V",
+            PartitionKind::Monthly => "%Y-%m",
+            _ => "%Y-%m-%d",
+        }
+    }
+}
+
+impl PartitionSpec {
+    /// Effective identity format for a TIME partition: the explicit `format=`
+    /// override, else the per-grain default. `None` for `dynamic` — its
+    /// identity is a caller-supplied key, not a formatted instant, so there is
+    /// no `strftime` bucketing expression (and hence no `wm_partition` macro).
+    pub fn time_strftime_format(&self) -> Option<&str> {
+        match self.kind {
+            PartitionKind::Dynamic { .. } => None,
+            _ => Some(
+                self.format
+                    .as_deref()
+                    .unwrap_or_else(|| self.kind.default_time_format()),
+            ),
+        }
+    }
+}
+
 // Freshness SLA. The duration is kept as a raw string ("1h", "30m", "2d")
 // and validated downstream — the parser deliberately doesn't bind to a
 // specific duration crate so the annotation grammar stays parser-light.
