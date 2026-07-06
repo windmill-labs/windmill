@@ -297,6 +297,7 @@
 
 	<CriticalAlertModalInner
 		bind:workspaceContext
+		{muteSettings}
 		{numUnacknowledgedCriticalAlerts}
 		{updateHasUnacknowledgedCriticalAlerts}
 		{getCriticalAlerts}
