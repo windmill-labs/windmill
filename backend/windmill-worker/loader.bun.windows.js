@@ -26,8 +26,17 @@ const p = {
     // Normalize path to forward slashes to match Bun's resolver output on Windows
     const cdirFwd = cdir.replace(/\\/g, "/");
     const cdirPosix = cdirFwd.replace(/^[a-zA-Z]:/, "");
+    // Match either an already-normalized `.ts` specifier OR a bare windmill
+    // relative/workspace import (`./`, `../`, `f/`, `/f/`, `u/`, `/u/`) that has
+    // no extension yet. The extensionless branch is essential on Windows: the
+    // `main.ts` onLoad that would rewrite `./mid` → `./mid.ts` only fires when
+    // its path filter matches bun's resolver output, and the 8.3 short-name
+    // (`RUNNER~1`) vs canonical-path mismatch makes that unreliable — so bare
+    // imports must be resolvable here directly rather than depending on the
+    // rewrite. Bare npm specifiers (no `./` prefix, not `f/`/`u/`) still fall
+    // through to bun's default resolver.
     const filterResolve = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!\\.\/_wm_)(?!${cdirFwd}\/main\\.ts)(?!${cdirFwd}\/_wm_)(?!${cdirPosix}\/main\\.ts)(?!${cdirPosix}\/_wm_)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
+      `^(?!\\.\/main\\.ts)(?!\\.\/_wm_)(?!${cdirFwd}\/main\\.ts)(?!${cdirFwd}\/_wm_)(?!${cdirPosix}\/main\\.ts)(?!${cdirPosix}\/_wm_)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs)(?:.*\\.ts|(?:\\.\\.?\/|\/?f\/|\/?u\/).*)$`
     );
 
     let cdirNodeModules = `${cdirFwd}/node_modules/`;
@@ -124,13 +133,21 @@ const p = {
       if (importerFwd.startsWith(cdirNodeModules)) {
         return undefined;
       }
-      // Check if the import resolves to a local module file (written by write_module_files)
+      // Check if the import resolves to a local module file (written by
+      // write_module_files). Those are written with a `.ts` extension, so for a
+      // bare relative import try the extensionless path and the `.ts` variant
+      // before falling through to the remote windmill resolver.
       if (args.path.startsWith(".")) {
-        const cwdPath = resolve(cdir, args.path);
-        try {
-          readFileSync(cwdPath);
-          return { path: cwdPath };
-        } catch {}
+        const candidates = args.path.endsWith(".ts")
+          ? [args.path]
+          : [args.path, args.path + ".ts"];
+        for (const candidate of candidates) {
+          const cwdPath = resolve(cdir, candidate);
+          try {
+            readFileSync(cwdPath);
+            return { path: cwdPath };
+          } catch {}
+        }
       }
       const isMainTs =
         args.importer == "./main.ts" || importerFwd.endsWith("/main.ts");
