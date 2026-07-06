@@ -247,6 +247,12 @@ describe('resolveGraph', () => {
 			'ducklake:main.orders',
 			's3object:raw/events'
 		])
+		// Every auto-derived overlay carries `derived: true` so the canvas can
+		// mark it apart from an explicit `// on` edge.
+		const derivedTrigs = r.triggers.filter(
+			(t) => t.trigger_kind === 'asset' && t.runnable_path === 'f/x/open'
+		)
+		expect(derivedTrigs.every((t) => (t as any).derived === true)).toBe(true)
 	})
 
 	it('open buffer: a read that is also written (rw) does not self-trigger', () => {
@@ -296,6 +302,11 @@ describe('resolveGraph', () => {
 		const r = resolveGraph(input({ liveBodyAssets, liveAnnotations }))
 		// Exactly one overlay for the table, not one explicit + one derived.
 		expect(assetTrigKeys(r, 'f/x/open')).toEqual(['ducklake:main.orders'])
+		// The single overlay is the explicit `// on`, so it is not flagged derived.
+		const trig = r.triggers.find(
+			(t) => t.trigger_kind === 'asset' && t.runnable_path === 'f/x/open'
+		)
+		expect((trig as any)?.derived).toBeFalsy()
 	})
 
 	it('open-script live annotations add unsaved triggers, deduped vs persisted', () => {

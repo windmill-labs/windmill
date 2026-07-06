@@ -763,6 +763,11 @@ enum TriggerEdge {
         asset_path: String,
         runnable_kind: AssetUsageKind,
         runnable_path: String,
+        // Auto-wired from a ducklake/s3 read (no explicit `// on`); drives the
+        // canvas's "auto-derived" edge treatment. Omitted when false to keep
+        // the common explicit case's payload unchanged.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        derived: bool,
     },
     Schedule {
         path: String,
@@ -893,7 +898,8 @@ async fn asset_graph(
             runnable_kind AS "runnable_kind!: AssetUsageKind",
             runnable_path AS "runnable_path!",
             trigger_kind::text AS "trigger_kind!",
-            trigger_ref   AS "trigger_ref!"
+            trigger_ref   AS "trigger_ref!",
+            derived       AS "derived!"
         FROM script_trigger
         WHERE workspace_id = $1
           AND trigger_kind = 'asset'
@@ -1178,6 +1184,7 @@ async fn asset_graph(
                     asset_path,
                     runnable_kind: t.runnable_kind,
                     runnable_path: t.runnable_path,
+                    derived: t.derived,
                 });
             }
         }

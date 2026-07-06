@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/svelte'
 	import { NODE } from '$lib/components/graph/util'
-	import { FlaskConical, Columns3, SquareFunction } from 'lucide-svelte'
+	import { FlaskConical, Columns3, SquareFunction, Sparkles } from 'lucide-svelte'
 	import type { ColumnLineage, DataTest } from './parsePipelineAnnotations'
 
 	let {
@@ -75,6 +75,13 @@
 	// Stack the columns badge below the data-test badge when both are present so
 	// they don't overlap on the link (each badge is 18px tall; +18 clears it).
 	let columnsBadgeY = $derived(tests && tests.length > 0 ? labelY + 18 : labelY)
+
+	// Auto-derived asset-trigger edge: the cascade edge was wired straight from
+	// a ducklake/s3 read (no explicit `// on`). A sparkle badge marks it so the
+	// inference is visible on both the deployed graph and the live edit canvas.
+	let isDerived = $derived((data as { derived?: boolean } | undefined)?.derived ?? false)
+	const derivedBadgeTitle =
+		'Auto-wired from a ducklake/s3 read — no `// on` needed. Add `// mute <asset>` to suppress.'
 
 	// Macro-edge badge: which of the library's macros the consumer calls (all
 	// of them when the whole lib is pulled in via `// use`).
@@ -217,6 +224,27 @@
 			>
 				<SquareFunction size={10} />
 				<span>×{macroNames?.length ?? 0}</span>
+			</div>
+		</div>
+	</foreignObject>
+{/if}
+
+{#if isDerived}
+	<!-- Auto-derived asset-trigger badge, centered on the link. Sparkle = the
+	     edge was inferred from a read, not declared with `// on`. -->
+	<foreignObject x={labelX - 28} y={labelY - 9} width="56" height="18" class="overflow-visible">
+		<div
+			xmlns="http://www.w3.org/1999/xhtml"
+			class="w-full h-full flex items-center justify-center"
+			style="pointer-events: none;"
+		>
+			<div
+				class="flex items-center gap-0.5 px-1 py-0.5 rounded-sm border shadow-sm text-3xs leading-none font-mono cursor-default bg-surface border-gray-300 dark:border-gray-600 text-secondary"
+				style="pointer-events: all;"
+				title={derivedBadgeTitle}
+			>
+				<Sparkles size={10} />
+				<span>auto</span>
 			</div>
 		</div>
 	</foreignObject>

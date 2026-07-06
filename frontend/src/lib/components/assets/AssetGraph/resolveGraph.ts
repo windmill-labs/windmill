@@ -545,7 +545,8 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				asset_path: a.path,
 				runnable_kind: 'script',
 				runnable_path: path,
-				unsaved: true
+				unsaved: true,
+				derived: true
 			})
 			if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
 				assets.push({ kind: a.kind, path: a.path })
@@ -628,7 +629,8 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 				asset_path: a.path,
 				runnable_kind: 'script',
 				runnable_path: livePath,
-				unsaved: true
+				unsaved: true,
+				derived: true
 			})
 			if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
 				assets.push({ kind: a.kind, path: a.path })

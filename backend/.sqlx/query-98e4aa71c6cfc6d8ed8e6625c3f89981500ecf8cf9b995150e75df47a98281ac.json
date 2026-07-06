@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO script_trigger\n             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all,\n              debounce_s, retry_count, retry_delay_s)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+  "query": "INSERT INTO script_trigger\n             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all,\n              debounce_s, retry_count, retry_delay_s, derived)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
   "describe": {
     "columns": [],
     "parameters": {
@@ -42,10 +42,11 @@
         "Bool",
         "Int4",
         "Int2",
-        "Int4"
+        "Int4",
+        "Bool"
       ]
     },
     "nullable": []
   },
-  "hash": "f338943aa3595c2893a0d42e4a54e8dd1370fb59c0a5cfd2403c5fdaf2135cf2"
+  "hash": "98e4aa71c6cfc6d8ed8e6625c3f89981500ecf8cf9b995150e75df47a98281ac"
 }

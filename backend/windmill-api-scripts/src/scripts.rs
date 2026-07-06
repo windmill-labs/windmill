@@ -2032,6 +2032,7 @@ async fn create_script_internal<'c>(
             debounce_s,
             retry_count,
             retry_delay_s,
+            false, // explicit `// on <...>`
         )
         .await?;
     }
@@ -2088,6 +2089,7 @@ async fn create_script_internal<'c>(
                 derived_debounce_s,
                 derived_retry_count,
                 derived_retry_delay_s,
+                true, // auto-derived from a ducklake/s3 read
             )
             .await?;
         }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            runnable_kind AS \"runnable_kind!: AssetUsageKind\",\n            runnable_path AS \"runnable_path!\",\n            trigger_kind::text AS \"trigger_kind!\",\n            trigger_ref   AS \"trigger_ref!\"\n        FROM script_trigger\n        WHERE workspace_id = $1\n          AND trigger_kind = 'asset'\n          AND ($2::text IS NULL OR runnable_path LIKE $2)\n        ",
+  "query": "\n        SELECT\n            runnable_kind AS \"runnable_kind!: AssetUsageKind\",\n            runnable_path AS \"runnable_path!\",\n            trigger_kind::text AS \"trigger_kind!\",\n            trigger_ref   AS \"trigger_ref!\",\n            derived       AS \"derived!\"\n        FROM script_trigger\n        WHERE workspace_id = $1\n          AND trigger_kind = 'asset'\n          AND ($2::text IS NULL OR runnable_path LIKE $2)\n        ",
   "describe": {
     "columns": [
       {
@@ -33,6 +33,11 @@
         "ordinal": 3,
         "name": "trigger_ref!",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "derived!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -45,8 +50,9 @@
       false,
       false,
       null,
+      false,
       false
     ]
   },
-  "hash": "77424d40104cf271e5ee5118100a988159130fc3a8cde91d419a1787b6bb8a51"
+  "hash": "c6426299103613c043bebb62d3344a373a4aa30b5d10da0987a94a94ef6cbfdd"
 }

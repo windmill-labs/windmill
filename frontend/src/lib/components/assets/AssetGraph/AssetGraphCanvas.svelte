@@ -228,6 +228,9 @@
 			| 'macro'
 			| 'test-dependency'
 		unsaved?: boolean
+		// Asset-trigger edge auto-wired from a ducklake/s3 read (no explicit
+		// `// on`) — rendered with a sparkle badge so inference isn't invisible.
+		derived?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
 		// targets it; create one or remove the annotation".
@@ -641,7 +644,8 @@
 					source: assetId,
 					target: runnableId,
 					kind: 'trigger-asset',
-					unsaved: t.unsaved
+					unsaved: t.unsaved,
+					derived: t.derived
 				})
 				continue
 			}
@@ -1079,7 +1083,9 @@
 						// Macro-edge badge: which of the library's macros the consumer
 						// calls (all of them when pulled in via `// use`).
 						macro_names: e.macro_names,
-						via_use: e.via_use
+						via_use: e.via_use,
+						// Auto-derived asset-trigger edge — sparkle badge on the link.
+						derived: e.derived
 					},
 					animated,
 					label,
