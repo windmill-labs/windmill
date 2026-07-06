@@ -390,16 +390,13 @@ function header(ctx: TemplateContext): string {
 					`${p} Consumers just call these by name; add \`${p} use <this-script-path>\` in a consumer to force-inject the whole library`
 				]
 			: []
-	// Discoverability hint — the three annotations users most often miss
-	// when authoring their first pipeline script. Single line, real
-	// example values (not placeholders) so users see the syntax. Docs
-	// link is the canonical reference once they want the details. A blank
-	// line separates it from the parsed annotations above (`// pipeline`,
-	// `// on …`) so the editor reads as "real annotations, then a hint".
-	// Reads of a ducklake/s3 table auto-trigger this script when that table
-	// changes — `// mute <asset>` opts a read out of the cascade. The rest are
-	// the annotations users most often miss.
-	const more = `${p} More: mute <asset> to not cascade on a read, partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/core_concepts/pipelines`
+	// Discoverability hint — a single pointer to the docs rather than a dump of
+	// every optional annotation. New users found the old feature list
+	// (mute/partitioned/freshness/retry/tag on one line) overwhelming; the docs
+	// are the canonical reference once they want any of it. A blank line
+	// separates it from the parsed annotations above (`// pipeline`, `// on …`)
+	// so the editor reads as "real annotations, then a hint".
+	const more = `${p} Optional: partitioning, freshness, retries & cascade control — https://www.windmill.dev/docs/core_concepts/pipelines`
 	return [`${p} pipeline`, ...lines, ...matLine, ...macrosLine, '', more, ''].join('\n')
 }
 
@@ -638,14 +635,6 @@ function bodyDuckdb(ctx: TemplateContext): string {
 	}
 	if (ducklakeDb) {
 		lines.push(`ATTACH 'ducklake://${ducklakeDb}' AS lake;`)
-		if (input?.kind === 'ducklake') {
-			// Discoverability hint: every materialize records a DuckLake snapshot,
-			// so a consumer can pin its read to a past version. Snapshot ids live
-			// in the asset's History tab.
-			lines.push(
-				`-- time-travel: read a past snapshot with \`FROM ${`lake.${catalogTableRef(input.path)}`} AT (VERSION => 42)\``
-			)
-		}
 	}
 	if (datatableDb || ducklakeDb) lines.push('')
 
@@ -714,13 +703,12 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			// Partitioned? `{partition}` is the slice's identity string. For a
 			// time grain the runtime injects a `wm_partition(ts)` macro that
 			// buckets a timestamp with that same identity format, so one
-			// grain-agnostic line filters the source to the active slice — no
+			// grain-agnostic filter line targets the active slice — no
 			// hand-written strftime format, no `= TIMESTAMP {partition}` cast
-			// (which errors for hourly/weekly/monthly). Kept as a comment because
-			// we don't know the user's timestamp column. See partitioning docs.
+			// (which errors for hourly/weekly/monthly). One commented line keeps
+			// the scaffold light; docs cover dynamic-grain keys.
 			lines.push(
-				`-- Partitioned? Filter to the active slice (uncomment, set your timestamp column):`,
-				`--   WHERE wm_partition(<ts_col>) = {partition}   -- dynamic grain: WHERE <key_col> = {partition}`,
+				`-- Partitioned? Filter the source to the active slice: WHERE wm_partition(<ts_col>) = {partition}`,
 				`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 			)
 			break
