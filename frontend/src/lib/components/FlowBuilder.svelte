@@ -1099,14 +1099,16 @@
 				bind:clientWidth={topbarWidth}
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
-					<EditorHeader
-						bind:summary={flowStore.val.summary}
-						bind:path={$pathStore}
-						savedPath={initialPath}
-						onBehalfOfEmail={$savedOnBehalfOfEmail}
-						onNavigate={(item) => onNavigate?.(item)}
-					/>
+				<div class="flex flex-row items-center gap-2 min-w-0">
+					<div class="min-w-0 overflow-hidden">
+						<EditorHeader
+							bind:summary={flowStore.val.summary}
+							bind:path={$pathStore}
+							savedPath={initialPath}
+							onBehalfOfEmail={$savedOnBehalfOfEmail}
+							onNavigate={(item) => onNavigate?.(item)}
+						/>
+					</div>
 					{#if indicatorWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
 							workspace={indicatorWorkspace}
@@ -1120,7 +1122,7 @@
 						/>
 					{/if}
 				</div>
-				<div class="flex flex-row gap-2 items-center">
+				<div class="flex flex-row gap-2 items-center shrink-0">
 					{#if $enterpriseLicense && !newFlow}
 						<Awareness />
 					{/if}

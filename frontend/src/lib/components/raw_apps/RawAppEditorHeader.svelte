@@ -772,7 +772,11 @@
 	bind:clientWidth={topbarWidth}
 	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
-	<div class="flex flex-row gap-2 items-center min-w-[200px]">
+	<!-- Identity block: shrinks/truncates first so the cloud indicator and the
+	     action buttons stay visible. Without min-w-0 the breadcrumb + summary
+	     overflow this box on narrow widths and get overlapped by the (formerly
+	     un-pinned) action group, hiding the autosave cloud. -->
+	<div class="flex flex-row gap-2 items-center min-w-0">
 		{#if onToggleSidebar}
 			<Button
 				unifiedSize="sm"
@@ -783,14 +787,16 @@
 				on:click={() => onToggleSidebar?.()}
 			/>
 		{/if}
-		<EditorHeader
-			bind:summary
-			bind:path={newEditedPath}
-			savedPath={appPath || newPath || undefined}
-			kind="app"
-			raw_app
-			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
-		/>
+		<div class="min-w-0 overflow-hidden">
+			<EditorHeader
+				bind:summary
+				bind:path={newEditedPath}
+				savedPath={appPath || newPath || undefined}
+				kind="app"
+				raw_app
+				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
+			/>
+		</div>
 		{#if indicatorWorkspace && indicatorPath !== undefined}
 			<AutosaveIndicator
 				workspace={indicatorWorkspace}
@@ -806,9 +812,11 @@
 	</div>
 
 	{#if $enterpriseLicense && appPath != ''}
-		<Awareness />
+		<div class="shrink-0">
+			<Awareness />
+		</div>
 	{/if}
-	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
+	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
 		<DropdownV2 items={moreItems} class="h-auto">
 			{#snippet buttonReplacement()}
 				<Button
