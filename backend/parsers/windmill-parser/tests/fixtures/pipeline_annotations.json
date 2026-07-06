@@ -858,5 +858,20 @@
 			"retry": null,
 			"mute_all": true
 		}
+	},
+	{
+		"name": "on asset ref strips trailing key=value opts",
+		"code": "// pipeline\n// on ducklake://main.orders debounce=60s\nselect 1",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"ducklake:main.orders"
+			],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
 	}
 ]

@@ -262,6 +262,17 @@ function parseKvOpts(s: string): Map<string, string> {
 	return out
 }
 
+// Drop a `// on` right-hand side's trailing `key=value` opts (e.g.
+// `debounce=60s`), returning just the trigger ref. The opts start at the first
+// whitespace-delimited token shaped like `<ident>=…`; everything before is the
+// ref. Mirrors Rust `split_trailing_kv_opts` — asset refs never contain a space
+// followed by an `ident=` token, so without this `// on ducklake://t debounce=1s`
+// would keep the path as `t debounce=1s` and desync the live canvas from deploy.
+function stripTrailingKvOpts(s: string): string {
+	const m = s.match(/\s([A-Za-z_][A-Za-z0-9_]*)=/)
+	return (m?.index !== undefined ? s.slice(0, m.index) : s).trimEnd()
+}
+
 function parseAssetSyntax(s: string): PipelineTriggerAsset | undefined {
 	for (const [prefix, kind] of ASSET_PREFIXES) {
 		if (s.startsWith(prefix)) {
@@ -709,7 +720,10 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 
 		const afterOn = consumeKeyword(inner, 'on')
 		if (afterOn !== undefined) {
-			const specText = afterOn.trim()
+			// Strip trailing `key=value` opts (e.g. `debounce=60s`) so the ref
+			// matches body inference and the deploy path — otherwise the opts
+			// leak into the asset path and the explicit edge dedups wrong.
+			const specText = stripTrailingKvOpts(afterOn.trim())
 			if (!specText) continue
 			const spec = parseTriggerSpec(specText)
 			if (!spec) continue

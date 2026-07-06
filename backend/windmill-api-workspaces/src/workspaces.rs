@@ -4691,8 +4691,8 @@ async fn clone_asset_usages_and_triggers(
     .execute(&mut **tx)
     .await?;
     sqlx::query!(
-        "INSERT INTO script_trigger (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s, derived)
-         SELECT $2, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s, derived
+        "INSERT INTO script_trigger (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s)
+         SELECT $2, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all, debounce_s, retry_count, retry_delay_s
          FROM script_trigger WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,

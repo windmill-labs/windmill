@@ -75,6 +75,17 @@ function persistedNativeKinds(base: AssetGraphResponse, path: string): Set<strin
 // (windmill-common assets.rs) — ducklake tables and s3 objects only.
 const AUTO_TRIGGER_KINDS: ReadonlySet<AssetKind> = new Set(['ducklake', 's3object'])
 
+/** `kind:path` refs of a script's `// materialize` write target(s) (base +
+ *  the scd2 `<dim>_current` companion), which the body `SELECT` doesn't express. */
+function materializeWriteRefs(parsed: PipelineAnnotations): string[] {
+	const m = parsed.materialize
+	if (!m) return []
+	const refs = [`${m.targetKind}:${m.targetPath}`]
+	const current = scd2CurrentTargetPath(m)
+	if (current) refs.push(`${m.targetKind}:${current}`)
+	return refs
+}
+
 /**
  * Backend-mirror of `derive_pipeline_asset_trigger_refs` (windmill-common
  * assets.rs): a pipeline script's ducklake/s3 read auto-wires a cascade
@@ -94,6 +105,11 @@ function deriveAutoAssetTriggers(
 	if (!parsed.inPipeline || parsed.muteAll) return []
 	const skip = new Set<string>([
 		...writes.map((w) => `${w.kind}:${w.path}`),
+		// The `// materialize` target(s) are this script's own output — the body
+		// `SELECT` doesn't express the write, so an incremental model that reads
+		// its own target would otherwise auto-derive a self-cascade edge (backend
+		// parity: the deploy path upgrades the same read to `rw`).
+		...materializeWriteRefs(parsed),
 		...parsed.muteAssets.map((a) => `${a.kind}:${a.path}`),
 		...parsed.triggerAssets.map((a) => `${a.kind}:${a.path}`)
 	])
@@ -105,6 +121,46 @@ function deriveAutoAssetTriggers(
 		out.push({ kind: r.kind, path: r.path })
 	}
 	return out
+}
+
+/** Edge key matching a lineage/trigger edge's `(asset, runnable)` pair. */
+function edgeKey(a: {
+	asset_kind: string
+	asset_path: string
+	runnable_kind: string
+	runnable_path: string
+}): string {
+	return `${a.asset_kind}:${a.asset_path}->${a.runnable_kind}:${a.runnable_path}`
+}
+
+/**
+ * Keys of "muted read" edges: a ducklake/s3 asset a script reads read-*only*
+ * (`access_type === 'r'`) yet has NO cascade trigger for. Auto-derivation is the
+ * default, so a supported read with no trigger means the author opted it out
+ * with `// mute <asset>` / `// mute all` (or it's an explicit non-triggering
+ * read). The canvas badges these — the exception — instead of every derived
+ * edge. Self-reads are excluded: a script that also writes the asset carries
+ * `'rw'` on the deployed graph (one edge) or a separate `'w'` edge in the live
+ * overlay (a `// materialize` producer reading its own target), and neither
+ * should badge as muted — it's the script's own output, not a suppressed input.
+ */
+export function computeMutedReadKeys(
+	edges: AssetGraphResponse['edges'],
+	triggers: AssetGraphResponse['triggers']
+): Set<string> {
+	const cascaded = new Set(
+		triggers.filter((t) => t.trigger_kind === 'asset').map((t) => edgeKey(t))
+	)
+	const written = new Set(
+		edges.filter((e) => e.access_type === 'w' || e.access_type === 'rw').map((e) => edgeKey(e))
+	)
+	const muted = new Set<string>()
+	for (const e of edges) {
+		if (e.access_type !== 'r' || !AUTO_TRIGGER_KINDS.has(e.asset_kind)) continue
+		const key = edgeKey(e)
+		if (!cascaded.has(key) && !written.has(key)) muted.add(key)
+	}
+	return muted
 }
 
 /** `kind:path` keys of persisted asset (`// on <asset>`) triggers for `path`. */
@@ -545,8 +601,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				asset_path: a.path,
 				runnable_kind: 'script',
 				runnable_path: path,
-				unsaved: true,
-				derived: true
+				unsaved: true
 			})
 			if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
 				assets.push({ kind: a.kind, path: a.path })
@@ -629,8 +684,7 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 				asset_path: a.path,
 				runnable_kind: 'script',
 				runnable_path: livePath,
-				unsaved: true,
-				derived: true
+				unsaved: true
 			})
 			if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
 				assets.push({ kind: a.kind, path: a.path })

@@ -356,15 +356,12 @@ pub async fn insert_script_trigger<'e>(
     debounce_s: Option<i32>,
     retry_count: Option<i16>,
     retry_delay_s: Option<i32>,
-    // `true` only for edges auto-derived from a `// pipeline` ducklake/s3 read;
-    // explicit `// on <asset>` (and every native kind) is `false`.
-    derived: bool,
 ) -> error::Result<()> {
     sqlx::query!(
         r#"INSERT INTO script_trigger
              (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all,
-              debounce_s, retry_count, retry_delay_s, derived)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+              debounce_s, retry_count, retry_delay_s)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
         workspace_id,
         runnable_kind as AssetUsageKind,
         runnable_path,
@@ -374,7 +371,6 @@ pub async fn insert_script_trigger<'e>(
         debounce_s,
         retry_count,
         retry_delay_s,
-        derived,
     )
     .execute(executor)
     .await?;

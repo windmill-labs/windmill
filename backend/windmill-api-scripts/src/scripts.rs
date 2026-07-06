@@ -1458,11 +1458,22 @@ async fn create_script_internal<'c>(
         // fire and the view would be an orphan node in the lineage graph.
         for (target_kind, path) in m.write_targets() {
             let kind = windmill_common::assets::asset_kind_from_parser(target_kind);
-            if !a.iter().any(|x| x.kind == kind && x.path == path) {
+            use windmill_common::assets::AssetUsageAccessType;
+            if let Some(existing) = a.iter_mut().find(|x| x.kind == kind && x.path == path) {
+                // The body reads its own managed target (an incremental/merge
+                // model `SELECT`ing from the table it materializes). The runtime
+                // still generates the write, so the effective access is RW — mark
+                // it so, otherwise it stays a plain read and (a) auto-derives a
+                // self-cascade edge back to this producer and (b) shows as a muted
+                // read on the canvas. Both are wrong: it's the script's own output.
+                if existing.access_type != Some(AssetUsageAccessType::W) {
+                    existing.access_type = Some(AssetUsageAccessType::RW);
+                }
+            } else {
                 a.push(windmill_common::assets::AssetWithAltAccessType {
                     path,
                     kind,
-                    access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
+                    access_type: Some(AssetUsageAccessType::W),
                     alt_access_type: None,
                     columns: None,
                 });
@@ -2032,7 +2043,6 @@ async fn create_script_internal<'c>(
             debounce_s,
             retry_count,
             retry_delay_s,
-            false, // explicit `// on <...>`
         )
         .await?;
     }
@@ -2089,7 +2099,6 @@ async fn create_script_internal<'c>(
                 derived_debounce_s,
                 derived_retry_count,
                 derived_retry_delay_s,
-                true, // auto-derived from a ducklake/s3 read
             )
             .await?;
         }

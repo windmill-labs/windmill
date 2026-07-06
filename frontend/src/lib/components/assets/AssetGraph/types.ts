@@ -124,10 +124,6 @@ export type AssetGraphTrigger =
 			runnable_kind: GraphUsageKind
 			runnable_path: string
 			unsaved?: boolean
-			// Auto-wired from a ducklake/s3 read (no explicit `// on`) — backend
-			// parity with the persisted `script_trigger.derived` flag. Drives the
-			// canvas's "auto" edge badge so inference isn't invisible.
-			derived?: boolean
 	  }
 	| {
 			trigger_kind: NativeTriggerKind

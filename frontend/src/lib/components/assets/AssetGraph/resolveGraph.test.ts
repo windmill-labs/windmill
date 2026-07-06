@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveGraph, type ResolveGraphInput } from './resolveGraph'
+import { resolveGraph, computeMutedReadKeys, type ResolveGraphInput } from './resolveGraph'
 import type { PipelineAnnotations } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
 import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
@@ -247,12 +247,22 @@ describe('resolveGraph', () => {
 			'ducklake:main.orders',
 			's3object:raw/events'
 		])
-		// Every auto-derived overlay carries `derived: true` so the canvas can
-		// mark it apart from an explicit `// on` edge.
-		const derivedTrigs = r.triggers.filter(
-			(t) => t.trigger_kind === 'asset' && t.runnable_path === 'f/x/open'
-		)
-		expect(derivedTrigs.every((t) => (t as any).derived === true)).toBe(true)
+	})
+
+	it('open buffer: a materialize producer reading its own target does not self-cascade', () => {
+		// The body `SELECT`s from the table it materializes (incremental model).
+		// The write is annotation-declared, not in the body, so without excluding
+		// the materialize target the read would auto-derive a self-cascade edge.
+		const liveBodyAssets = { scriptPath: 'f/x/p', assets: [duck('main.orders', 'r')] }
+		const liveAnnotations = {
+			scriptPath: 'f/x/p',
+			annotations: ann({
+				inPipeline: true,
+				materialize: { targetKind: 'ducklake' as const, targetPath: 'main.orders' }
+			})
+		}
+		const r = resolveGraph(input({ liveBodyAssets, liveAnnotations }))
+		expect(assetTrigKeys(r, 'f/x/p')).toEqual([])
 	})
 
 	it('open buffer: a read that is also written (rw) does not self-trigger', () => {
@@ -302,11 +312,6 @@ describe('resolveGraph', () => {
 		const r = resolveGraph(input({ liveBodyAssets, liveAnnotations }))
 		// Exactly one overlay for the table, not one explicit + one derived.
 		expect(assetTrigKeys(r, 'f/x/open')).toEqual(['ducklake:main.orders'])
-		// The single overlay is the explicit `// on`, so it is not flagged derived.
-		const trig = r.triggers.find(
-			(t) => t.trigger_kind === 'asset' && t.runnable_path === 'f/x/open'
-		)
-		expect((trig as any)?.derived).toBeFalsy()
 	})
 
 	it('open-script live annotations add unsaved triggers, deduped vs persisted', () => {
@@ -713,5 +718,64 @@ describe('resolveGraph', () => {
 		const r = resolveGraph(input({ drafts }))
 		const lib = r.runnables.find((x) => x.path === 'f/lib/new')
 		expect(lib?.macros).toEqual([{ name: 'dbl', params: 'a', is_table: false }])
+	})
+})
+
+describe('computeMutedReadKeys', () => {
+	const readEdge = (asset_kind: any, asset_path: string, access: any = 'r') => ({
+		runnable_path: 'f/x/c',
+		runnable_kind: 'script' as const,
+		asset_kind,
+		asset_path,
+		access_type: access
+	})
+	const assetTrigger = (asset_kind: any, asset_path: string) => ({
+		trigger_kind: 'asset' as const,
+		asset_kind,
+		asset_path,
+		runnable_kind: 'script' as const,
+		runnable_path: 'f/x/c'
+	})
+
+	it('flags a ducklake/s3 read with no cascade trigger as muted', () => {
+		const muted = computeMutedReadKeys(
+			[readEdge('ducklake', 'main.orders'), readEdge('s3object', 'raw/events')],
+			[]
+		)
+		expect([...muted].sort()).toEqual([
+			'ducklake:main.orders->script:f/x/c',
+			's3object:raw/events->script:f/x/c'
+		])
+	})
+
+	it('does not flag a read that has a cascade trigger', () => {
+		const muted = computeMutedReadKeys(
+			[readEdge('ducklake', 'main.orders')],
+			[assetTrigger('ducklake', 'main.orders')]
+		)
+		expect(muted.size).toBe(0)
+	})
+
+	it('ignores rw self-reads and unsupported kinds', () => {
+		const muted = computeMutedReadKeys(
+			[
+				readEdge('ducklake', 'main.self', 'rw'), // self-read, not muted
+				readEdge('resource', 'f/db'), // out of scope
+				readEdge('datatable', 'main.dt') // out of scope
+			],
+			[]
+		)
+		expect(muted.size).toBe(0)
+	})
+
+	it('does not flag a read whose script also writes the asset', () => {
+		// Live-overlay shape of a `// materialize` producer reading its own target:
+		// a separate `'r'` read edge and `'w'` write edge for the same asset. It's
+		// the script's own output, not a suppressed input, so it is not muted.
+		const muted = computeMutedReadKeys(
+			[readEdge('ducklake', 'main.orders', 'r'), readEdge('ducklake', 'main.orders', 'w')],
+			[]
+		)
+		expect(muted.size).toBe(0)
 	})
 })
