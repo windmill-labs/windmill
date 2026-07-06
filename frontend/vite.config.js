@@ -36,71 +36,7 @@ let plugin = {
 			res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
 			next()
 		})
-	},
-	configurePreviewServer: (server) => {
-		server.middlewares.use((_req, res, next) => {
-			res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
-			res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
-			res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
-			next()
-		})
 	}
-}
-
-// Shared by the dev (`server`) and production-preview (`preview`) servers so a
-// `vite build` + `vite preview` demo talks to the same backend the dev server does.
-const proxy = {
-	'^/\\.well-known/.*': {
-		target: remoteUrl,
-		changeOrigin: true,
-		cookieDomainRewrite: cookieDomain
-	},
-	'^/api/w/[^/]+/s3_proxy/.*': {
-		target: remoteUrl,
-		changeOrigin: false, // Important for signature to be correct
-		cookieDomainRewrite: cookieDomain,
-		configure: (proxy, options) => {
-			proxy.on('proxyReq', (proxyReq, req, res) => {
-				// Prevent collapsing slashes during URL normalization
-				const originalPath = req.url
-
-				proxyReq.path = originalPath
-			})
-		}
-	},
-	'^/api/.*': {
-		target: remoteUrl,
-		changeOrigin: true,
-		cookieDomainRewrite: cookieDomain
-	},
-	'^/ws/.*': {
-		target: process.env.REMOTE_LSP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
-		changeOrigin: true,
-		ws: true
-	},
-	'^/ws_mp/.*': {
-		target: process.env.REMOTE_MP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
-		changeOrigin: true,
-		ws: true
-	},
-	'^/ws_debug/.*': {
-		target: process.env.REMOTE_DEBUG ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
-		changeOrigin: true,
-		ws: true
-	},
-	...(uiBuilderStaticPresent
-		? {}
-		: {
-				'^/ui_builder/.*': {
-					target: 'http://localhost:4000',
-					changeOrigin: true,
-					headers: {
-						'Cross-Origin-Opener-Policy': 'same-origin',
-						'Cross-Origin-Embedder-Policy': 'require-corp',
-						'Cross-Origin-Resource-Policy': 'cross-origin'
-					}
-				}
-			})
 }
 
 /** @type {import('vite').UserConfig} */
@@ -118,17 +54,61 @@ const config = {
 		],
 		port: parseInt(process.env.FRONTEND_PORT) || 3000,
 		cors: { origin: '*' },
-		proxy
+		proxy: {
+			'^/\\.well-known/.*': {
+				target: remoteUrl,
+				changeOrigin: true,
+				cookieDomainRewrite: cookieDomain
+			},
+			'^/api/w/[^/]+/s3_proxy/.*': {
+				target: remoteUrl,
+				changeOrigin: false, // Important for signature to be correct
+				cookieDomainRewrite: cookieDomain,
+				configure: (proxy, options) => {
+					proxy.on('proxyReq', (proxyReq, req, res) => {
+						// Prevent collapsing slashes during URL normalization
+						const originalPath = req.url
+
+						proxyReq.path = originalPath
+					})
+				}
+			},
+			'^/api/.*': {
+				target: remoteUrl,
+				changeOrigin: true,
+				cookieDomainRewrite: cookieDomain
+			},
+			'^/ws/.*': {
+				target: process.env.REMOTE_LSP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				ws: true
+			},
+			'^/ws_mp/.*': {
+				target: process.env.REMOTE_MP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				ws: true
+			},
+			'^/ws_debug/.*': {
+				target: process.env.REMOTE_DEBUG ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				ws: true
+			},
+			...(uiBuilderStaticPresent
+				? {}
+				: {
+						'^/ui_builder/.*': {
+							target: 'http://localhost:4000',
+							changeOrigin: true,
+							headers: {
+								'Cross-Origin-Opener-Policy': 'same-origin',
+								'Cross-Origin-Embedder-Policy': 'require-corp',
+								'Cross-Origin-Resource-Policy': 'cross-origin'
+							}
+						}
+					})
+		}
 	},
-	preview: {
-		port: parseInt(process.env.PREVIEW_PORT) || 3001,
-		host: '0.0.0.0',
-		cors: { origin: '*' },
-		// Demo is served on the same *.localhost host as dev (different port) so the
-		// existing login cookie applies; relax the host check for that subdomain.
-		allowedHosts: true,
-		proxy
-	},
+	preview: { port: 3001 },
 	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : []), plugin],
 	define: { __pkg__: version },
 	optimizeDeps: {
