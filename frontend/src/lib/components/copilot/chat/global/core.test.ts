@@ -140,7 +140,9 @@ vi.mock('$lib/gen', async () => {
 			existsHttpTrigger: vi.fn(async () => false),
 			getHttpTrigger: vi.fn(async () => {
 				throw new Error('getHttpTrigger mock not configured')
-			})
+			}),
+			createHttpTrigger: vi.fn(async () => 'created'),
+			updateHttpTrigger: vi.fn(async () => 'updated')
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
@@ -158,7 +160,9 @@ vi.mock('$lib/gen', async () => {
 			existsResource: vi.fn(async () => false),
 			getResource: vi.fn(async () => {
 				throw new Error('getResource mock not configured')
-			})
+			}),
+			createResource: vi.fn(async () => 'created'),
+			updateResource: vi.fn(async () => 'updated')
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false),
@@ -1219,6 +1223,87 @@ describe('global AI tools', () => {
 			getBackendDraft('trigger_schedule', 'u/admin/test_schedule_greet', {
 				workspace: WORKSPACE
 			})
+		).toBeUndefined()
+	})
+
+	// Same private-owner read path as schedules, for the trigger drawer kinds.
+	it('reads and deploys a trigger draft written by the chat', async () => {
+		await callGlobalTool('write_trigger', {
+			kind: 'http',
+			config: {
+				path: 'u/admin/fresh_route',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				route_path: 'api/fresh',
+				http_method: 'get',
+				authentication_method: 'none',
+				is_static_website: false
+			}
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'http',
+			path: 'u/admin/fresh_route'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'trigger',
+			triggerKind: 'http',
+			path: 'u/admin/fresh_route',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'trigger',
+			trigger_kind: 'http',
+			path: 'u/admin/fresh_route'
+		})
+		expect(HttpTriggerService.createHttpTrigger).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_route',
+				route_path: 'api/fresh',
+				script_path: 'f/scripts/handler'
+			})
+		})
+		expect(
+			getBackendDraft('trigger_http', 'u/admin/fresh_route', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// Same private-owner read path as schedules, for the resource drawer kind.
+	it('reads and deploys a resource draft written by the chat', async () => {
+		await callGlobalTool('write_resource', {
+			path: 'u/admin/fresh_db',
+			value: { host: 'db.example.com', port: 5432 },
+			resource_type: 'postgresql',
+			description: 'fresh database'
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'resource',
+			path: 'u/admin/fresh_db'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'resource',
+			path: 'u/admin/fresh_db',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'resource',
+			path: 'u/admin/fresh_db'
+		})
+		expect(ResourceService.createResource).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_db',
+				resource_type: 'postgresql',
+				value: { host: 'db.example.com', port: 5432 }
+			})
+		})
+		expect(
+			getBackendDraft('resource', 'u/admin/fresh_db', { workspace: WORKSPACE })
 		).toBeUndefined()
 	})
 
