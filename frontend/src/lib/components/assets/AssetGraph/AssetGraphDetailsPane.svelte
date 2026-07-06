@@ -1272,7 +1272,7 @@
 							bind:inferredColumnLineage={liveColumnLineage}
 							{onTestStateChange}
 							bind:args
-							bind:isValid={runFormIsValid}
+							onIsValidChange={(v) => (runFormIsValid = v)}
 						/>
 					</div>
 				</div>
