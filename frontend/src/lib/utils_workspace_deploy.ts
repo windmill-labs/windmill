@@ -14,10 +14,15 @@ import {
 	ScheduleService,
 	ScriptService,
 	SqsTriggerService,
+	UserService,
 	VariableService,
 	WebsocketTriggerService,
 	WorkspaceService
 } from '$lib/gen'
+import {
+	fetchProtectionRulesForWorkspace,
+	canUserBypassRuleKindInRulesets
+} from '$lib/workspaceProtectionRules.svelte'
 import {
 	existsTrigger,
 	getTriggersDeployData,
@@ -386,4 +391,43 @@ export async function getOnBehalfOf(
 		}
 	}
 	return sharedGetOnBehalfOf(makeProvider(), kind as DeployKind, path, workspace)
+}
+
+export type DeployPermission = { ok: boolean; reason?: string }
+
+/**
+ * Whether the current user may deploy into `workspace`. Mirrors the server-side
+ * deploy authorization (`check_user_against_rule` in windmill-common) so the UI
+ * can disable the action with a reason instead of letting the click 403:
+ *  - operators can never deploy;
+ *  - when the `RestrictDeployToDeployers` protection rule is active, only
+ *    admins, `wm_deployers` members (implicitly), and per-ruleset bypass
+ *    users/groups may deploy.
+ * Fails open on any error — the server still enforces on the actual deploy.
+ * Shared by the session dock and the compare page so both gate identically.
+ */
+export async function checkDeployPermission(workspace: string): Promise<DeployPermission> {
+	try {
+		const me = await UserService.whoami({ workspace })
+		if (me.operator) {
+			return { ok: false, reason: "You're an operator in this workspace — operators can't deploy" }
+		}
+		// Admins and wm_deployers members always satisfy RestrictDeployToDeployers
+		// (the backend allows wm_deployers implicitly, so check it before the
+		// per-ruleset bypass_users/bypass_groups fallback).
+		const isDeployer = me.is_admin || (me.groups ?? []).includes('wm_deployers')
+		if (!isDeployer) {
+			const rulesets = await fetchProtectionRulesForWorkspace(workspace)
+			const userInfo = { is_admin: !!me.is_admin, username: me.username, groups: me.groups ?? [] }
+			if (!canUserBypassRuleKindInRulesets(rulesets, 'RestrictDeployToDeployers', userInfo)) {
+				return {
+					ok: false,
+					reason: 'Only workspace admins and members of wm_deployers can deploy here'
+				}
+			}
+		}
+		return { ok: true }
+	} catch {
+		return { ok: true }
+	}
 }

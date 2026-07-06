@@ -84,14 +84,22 @@ makes the client own the whole cascade so the backend dispatcher never double-fi
 `inferScriptAssets` mirrors `frontend/src/lib/infer.ts:inferAssets`: ts (bun/deno/nativets),
 python3, and SQL dialects all get wasm inference (SQL dialects route to `parse_assets_sql`; its
 comment-header annotation scan is dialect-independent). `go`/`bash` have no wasm asset parser, so
-they fall back to a minimal `// pipeline` + `// on` scan (annotation-only). Note inferred asset
-**paths must match exactly** to connect nodes: DuckDB `read_csv('s3://x')` / `COPY ... TO 's3://x'`
-and `// on s3://x` all yield path `x` (no leading slash), whereas the SDK object forms — TS
-`writeS3File({s3:"x"})` and python `write_s3_file(S3Object(s3="x"))` (or the equivalent dict
-literal), both resolved as `s3://<storage>/<key>` with empty default storage — yield `/x`, matching
-the `// on s3:///x` (triple-slash) annotation form. So an all-DuckDB example connects cleanly, and
-SDK writes connect to `s3:///…` annotations; mixing SDK-write with the no-slash annotation form
-needs care.
+they fall back to a minimal `// pipeline` + `// on` scan (annotation-only). Inferred asset paths
+must match to connect nodes, and all S3 URI forms canonicalize to one key: `parse_asset_syntax`
+(shared by the native and wasm parsers) strips leading slashes from S3 paths, so the SDK
+object forms — TS `writeS3File({s3:"x"})` and python `write_s3_file(S3Object(s3="x"))`, which
+resolve to `s3:///x` (empty default storage) — the triple-slash annotation `// on s3:///x`, DuckDB
+`read_csv('s3://x')` / `COPY ... TO 's3://x'`, and `// on s3://x` all yield path `x`. A TS/Python
+writer and a DuckDB reader of the same object therefore connect regardless of which URI form each
+side uses. (Only leading slashes are stripped — so a canonical key never starts with `/`, which
+keeps the identity stable through `// on` trigger-ref reconstruction — while Hive-partition keys
+like `s3://bucket/y=2024/f.parquet` and the explicit-storage form `s3://storage/key` keep their
+`bucket/…` / `storage/key` paths.) Tradeoff of collapsing to one canonical key: the explicit-storage
+form `s3://storage/key` and the default-storage nested-key form `s3:///storage/key` now alias to
+the same node `storage/key`, even though they name different objects (a bucket `storage` vs. an
+object under the `storage/` prefix in default storage). This only collides when a storage config is
+named to match a default-storage prefix — unlikely, and acceptable for a best-effort lineage graph
+that already doesn't split the first segment as a storage name.
 
 ## How to test
 
@@ -151,11 +159,12 @@ http://localhost:3000/pipeline_dev?workspace=<WS>&wm_token=<TOK>&folder=demo_pip
    `startProxyServer` for embedders that need a localhost origin (e.g. Claude Code preview).
 5. **`pipeline dev` editing**: the dev page is view+run only (editing stays in the user's editor).
    If in-browser editing with file round-trip is wanted, mirror flow-dev's `handleFlowRoundTrip`.
-6. **Asset-path normalization**: partially done — the python parser now resolves the
+6. **Asset-path normalization**: done — the python parser resolves the
    `S3Object(s3=…, storage=…?)` constructor / dict-literal forms to the same canonical path as the
-   TS `{s3, storage}` object form (see Language coverage), so SDK writes and reads connect across
-   ts/python. Still open: the SDK-form leading-slash (`/x`) vs bare-URI no-slash (`x`, DuckDB and
-   `// on s3://x`) mismatch silently breaks lineage across those two conventions.
+   TS `{s3, storage}` object form, and `parse_asset_syntax` now strips leading slashes from
+   S3 keys so the SDK-form `s3:///x` (`/x`) and the bare-URI no-slash form (`x`, DuckDB and
+   `// on s3://x`) canonicalize to one key (see Language coverage). SDK writes and DuckDB reads of
+   the same object connect regardless of URI convention.
 
 ## Plan reference
 

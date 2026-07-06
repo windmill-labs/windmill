@@ -1145,13 +1145,13 @@ mod tests {
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/a.parquet".to_string(),
+                    path: "a.parquet".to_string(),
                     access_type: Some(R),
                     columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/c.parquet".to_string(),
+                    path: "c.parquet".to_string(),
                     access_type: Some(W),
                     columns: None
                 },
@@ -1163,6 +1163,30 @@ mod tests {
                 },
             ])
         );
+    }
+
+    #[test]
+    fn test_duckdb_read_key_matches_sdk_write_key() {
+        // Cross-language lineage: a TS `writeS3File({ s3: "exports/x" })` or
+        // Python `write_s3_file(S3Object(s3="exports/x"))` records the asset path
+        // `exports/x` (default storage). A DuckDB reader of the same object must
+        // resolve to the identical path so the graph connects the producer and
+        // consumer — both the bare `s3://exports/x` and the triple-slash
+        // `s3:///exports/x` default-storage form must yield `exports/x`.
+        for uri in ["s3://exports/x", "s3:///exports/x"] {
+            let input = format!("SELECT * FROM read_csv('{uri}');");
+            let assets = parse_assets(&input).expect("parse").assets;
+            assert_eq!(
+                assets,
+                vec![ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "exports/x".to_string(),
+                    access_type: Some(R),
+                    columns: None
+                }],
+                "DuckDB read of {uri} must resolve to the SDK write key"
+            );
+        }
     }
 
     #[test]
@@ -1178,7 +1202,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/out.csv".to_string(),
+                path: "out.csv".to_string(),
                 access_type: Some(W),
                 columns: None
             }])
@@ -1195,7 +1219,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/referenced.csv".to_string(),
+                path: "referenced.csv".to_string(),
                 access_type: Some(R),
                 columns: None
             }])
@@ -1215,7 +1239,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/data.csv".to_string(),
+                path: "data.csv".to_string(),
                 access_type: Some(RW),
                 columns: None
             }])
@@ -1235,7 +1259,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/data.parquet".to_string(),
+                path: "data.parquet".to_string(),
                 access_type: Some(RW),
                 columns: None
             }])
@@ -1253,13 +1277,13 @@ mod tests {
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/a.parquet".to_string(),
+                    path: "a.parquet".to_string(),
                     access_type: Some(R),
                     columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/b.parquet".to_string(),
+                    path: "b.parquet".to_string(),
                     access_type: Some(R),
                     columns: None
                 }
@@ -1279,7 +1303,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/data.parquet".to_string(),
+                path: "data.parquet".to_string(),
                 access_type: Some(RW),
                 columns: None
             }])
@@ -1961,7 +1985,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "/example_file.parquet");
+        assert_eq!(result[0].path, "example_file.parquet");
         assert_eq!(result[0].access_type, Some(R));
 
         let columns = result[0].columns.as_ref().expect("Should have columns");
@@ -1992,7 +2016,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "/example_file.parquet");
+        assert_eq!(result[0].path, "example_file.parquet");
         assert!(result[0].columns.is_none());
     }
 
@@ -2005,7 +2029,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "/example_file.parquet");
+        assert_eq!(result[0].path, "example_file.parquet");
 
         let columns = result[0].columns.as_ref().expect("Should have columns");
         assert_eq!(columns.get("col1"), Some(&R));
@@ -2024,7 +2048,7 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         assert!(result.iter().any(|a| {
-            a.path == "/file1.parquet"
+            a.path == "file1.parquet"
                 && a.columns.as_ref().map_or(false, |c| c.contains_key("col1"))
         }));
         assert!(result.iter().any(|a| {
@@ -2057,7 +2081,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "/test.parquet");
+        assert_eq!(result[0].path, "test.parquet");
         assert_eq!(result[0].access_type, Some(R));
 
         let columns = result[0].columns.as_ref().expect("Should have columns");

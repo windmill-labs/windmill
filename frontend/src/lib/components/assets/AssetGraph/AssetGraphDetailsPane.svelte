@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, type Script } from '$lib/gen'
+	import { ScriptService, type Script, type ScriptLang } from '$lib/gen'
 	import { resource } from 'runed'
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -8,9 +8,11 @@
 	import { formatAssetKind, type AssetWithAltAccessType } from '$lib/components/assets/lib'
 	import {
 		AlertTriangle,
+		ArrowUpRight,
 		Code2,
 		ExternalLink,
 		GitBranch,
+		GitFork,
 		Loader2,
 		PanelRightClose,
 		Save,
@@ -38,6 +40,7 @@
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
 	import DucklakeAssetPanel from './DucklakeAssetPanel.svelte'
+	import { notifyContractWarnings, type SchemaContractGraphContext } from './schemaContracts'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
@@ -146,6 +149,15 @@
 		// `replace` producer). Forwarded to the Schema tab: version history when
 		// true, a single fixed-schema view when false. Defaults to true (unknown).
 		schemaCanEvolve?: boolean
+		// Fork workspaces: data-environment state of the selected ducklake asset
+		// ('fork' = materialized here, 'deferred' = reads the parent's current
+		// data). Pulled from the graph node by the parent page, like
+		// `schemaCanEvolve`. Undefined outside forks.
+		selectionForkMaterialization?: 'fork' | 'deferred'
+		// Producer-side facts for the editor's live schema-contract diagnostics
+		// (ignore suppression + scd2 `_current` fallback), built by the page from
+		// the resolved graph and forwarded to ScriptEditor.
+		schemaContractContext?: SchemaContractGraphContext
 		// Bumped by the parent after dispatching a run so the runs panel
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
@@ -254,6 +266,8 @@
 		selectionProducers = [],
 		selectionColumnGraph,
 		schemaCanEvolve = true,
+		selectionForkMaterialization = undefined,
+		schemaContractContext = undefined,
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
@@ -664,6 +678,9 @@
 			// same parent").
 			if (typeof newHash === 'string' && newHash) script.hash = newHash
 			sendUserToast(`Saved ${script.path}`)
+			// Authoritative save-time schema-contract check (pipelines gap #2b):
+			// warn-only, post-commit. Fire-and-forget — must never gate the save.
+			notifyContractWarnings(workspace, script.language as ScriptLang, script.content)
 			if (isDraft) {
 				onDraftSaved?.(script.path)
 			} else {
@@ -1056,6 +1073,31 @@
 								     selected snapshot / tab instead of carrying state across. -->
 								{#key selection.path}
 									<div class="flex flex-col h-full overflow-auto">
+										{#if selectionForkMaterialization === 'deferred'}
+											<!-- Fork data environment: this asset has no fork copy yet;
+											     jobs here read the PARENT's live table through a defer
+											     view. Partition grid / history below reflect the (empty)
+											     fork namespace, hence the explicit callout. -->
+											<div
+												class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-300"
+											>
+												<ArrowUpRight size={12} class="shrink-0" />
+												<span class="truncate">
+													Deferred to parent workspace — reads its current data (not
+													snapshot-pinned). Materialize this node in the fork to iterate on it.
+												</span>
+											</div>
+										{:else if selectionForkMaterialization === 'fork'}
+											<div
+												class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300"
+											>
+												<GitFork size={12} class="shrink-0" />
+												<span class="truncate">
+													Materialized in this fork — reads and writes use the fork's isolated
+													namespace; the parent workspace's table is untouched.
+												</span>
+											</div>
+										{/if}
 										{#if selectionColumnGraph && assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path).length > 0}
 											<div class="border-b shrink-0">
 												<ColumnLineageTrace
@@ -1155,6 +1197,7 @@
 							showCaptures={false}
 							noSyncFromGithub
 							requireValidAssets
+							{schemaContractContext}
 							lang={script.language}
 							path={script.path}
 							tag={script.tag}

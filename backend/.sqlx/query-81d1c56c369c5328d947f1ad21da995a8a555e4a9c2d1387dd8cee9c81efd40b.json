@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM pipeline_freshness_state s\n        WHERE NOT EXISTS (\n            SELECT 1 FROM unnest($1::text[], $2::text[]) AS w(workspace_id, script_path)\n            WHERE w.workspace_id = s.workspace_id AND w.script_path = s.script_path\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "81d1c56c369c5328d947f1ad21da995a8a555e4a9c2d1387dd8cee9c81efd40b"
+}

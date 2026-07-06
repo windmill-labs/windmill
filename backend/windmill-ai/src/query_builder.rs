@@ -12,6 +12,9 @@ pub struct BuildRequestArgs<'a> {
     pub tools: Option<&'a [ToolDef]>,
     pub model: &'a str,
     pub temperature: Option<f32>,
+    /// Provider-native reasoning effort token (e.g. `low`, `high`, `none`).
+    /// Each `build_request` maps it onto the provider's thinking config.
+    pub reasoning_effort: Option<&'a str>,
     pub max_tokens: Option<u32>,
     pub output_schema: Option<&'a OpenAPISchema>,
     pub output_type: &'a OutputType,

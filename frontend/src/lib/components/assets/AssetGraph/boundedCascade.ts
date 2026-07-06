@@ -38,14 +38,16 @@ export function assetUriToNodeId(uri: string): string | undefined {
 	// `s3` is the URI prefix for the `s3object` asset kind (mirrors the CLI
 	// `assetUri` and the canvas). All other kinds use their name verbatim.
 	const kind = prefix === 's3' ? 's3object' : prefix
-	return `${kind}:${m[2]}`
+	// Mirror Rust `parse_asset_syntax`: strip all leading slashes from S3 keys so
+	// `s3:///key` (default storage) and `s3://key` resolve to the same node id
+	// and a canonical key never starts with `/`.
+	const path = kind === 's3object' ? m[2].replace(/^\/+/, '') : m[2]
+	return `${kind}:${path}`
 }
 
 // Native trigger kinds that fan out *per event*: a single event always flows
 // through the whole reactive downstream, so "run up to X now" is not a
 // meaningful gesture and these are never offered as bounded-run starts.
-// `webhook`/`data_upload` have no trigger row in `/assets/graph`, so a root
-// whose only entry is one of those reads as a *manual* root below.
 const EVENT_TRIGGER_KINDS: ReadonlySet<string> = new Set<NativeTriggerKind>([
 	'kafka',
 	'mqtt',
@@ -54,6 +56,20 @@ const EVENT_TRIGGER_KINDS: ReadonlySet<string> = new Set<NativeTriggerKind>([
 	'sqs',
 	'gcp',
 	'email'
+])
+
+// Trigger kinds a cascade must NOT auto-run: the per-event kinds above PLUS the
+// input-only entrypoints `webhook`/`data_upload`, which need caller-supplied
+// input (a request body / an uploaded S3Object) and would run the wrong thing
+// with empty args. Mirror of the CLI `NON_AUTORUN_TRIGGER_KINDS`. When the
+// deployed `/assets/graph` omits a `webhook`/`data_upload` row (it has none for
+// them), such a script simply reads as a manual root here — but whenever the
+// marker IS visible (editor overlay / draft), it's excluded from bounded-run
+// starts and cut as a barrier, exactly as the CLI does.
+const NON_AUTORUN_TRIGGER_KINDS: ReadonlySet<string> = new Set<string>([
+	...EVENT_TRIGGER_KINDS,
+	'webhook',
+	'data_upload'
 ])
 
 export type LineageDag = {
@@ -70,10 +86,17 @@ export type LineageDag = {
  *   - producer script → asset   (write / rw edges)
  *   - asset → reader script      (pure-read edges — a data dependency)
  *   - asset → subscriber script  (`// on <asset>` triggers)
+ *   - asset → testing script     (`// data_test` ordering edges)
  *
  * An `rw` edge is treated as production only (script → asset); emitting the
  * reverse asset → script too would make every upsert a 2-cycle through its own
  * asset.
+ *
+ * `test_edges` are modeled through the referenced asset (asset → testing
+ * script), NOT as a direct producer → testing-script hop: the producer already
+ * has a write edge to that asset, so this yields producer → asset → testing
+ * script and keeps the two-hop (script → asset → script) invariant that
+ * `buildLineageDownstreamMap` relies on.
  */
 export function buildLineageDag(g: AssetGraphResponse): LineageDag {
 	const down = new Map<string, Set<string>>()
@@ -107,6 +130,13 @@ export function buildLineageDag(g: AssetGraphResponse): LineageDag {
 		if (t.trigger_kind !== 'asset' || t.runnable_kind !== 'script') continue
 		addEdge(assetKey(t), scriptNodeId(t.runnable_path))
 	}
+	// Data-test ordering edges: the referenced asset must exist before the
+	// tested script runs. Routed through the asset node so the existing
+	// producer → asset write edge extends into producer → asset → testing script.
+	for (const t of g.test_edges ?? []) {
+		if (t.runnable_kind !== 'script') continue
+		addEdge(assetKey(t), scriptNodeId(t.runnable_path))
+	}
 
 	return { down, up, nodes }
 }
@@ -136,6 +166,37 @@ export function descendants(dag: LineageDag, n: string): Set<string> {
 /** Transitive upstream of `n` (excludes `n`). Cycle-safe. */
 export function ancestors(dag: LineageDag, n: string): Set<string> {
 	return closure(dag.up, n)
+}
+
+/**
+ * Nodes reachable from `starts` over the lineage DAG, treating `barriers` as cut
+ * points: a barrier node is neither included NOR traversed through, so a node
+ * reachable ONLY via a barrier is excluded while one also reachable via another
+ * path stays. Mirror of the CLI `reachableCutting`. Used to keep event handlers
+ * (and their event-only downstream) out of a cascade run — running such a
+ * consumer whose producer was skipped would feed it missing/stale inputs.
+ */
+export function reachableCutting(
+	dag: LineageDag,
+	starts: Iterable<string>,
+	barriers: Set<string>
+): Set<string> {
+	const seen = new Set<string>()
+	const queue: string[] = []
+	for (const s of starts) {
+		if (barriers.has(s) || seen.has(s)) continue
+		seen.add(s)
+		queue.push(s)
+	}
+	while (queue.length > 0) {
+		const n = queue.shift()!
+		for (const next of dag.down.get(n) ?? []) {
+			if (barriers.has(next) || seen.has(next)) continue
+			seen.add(next)
+			queue.push(next)
+		}
+	}
+	return seen
 }
 
 export type BoundedResult = {
@@ -197,6 +258,56 @@ export function validStarts(g: AssetGraphResponse): Set<string> {
 		const p = r.path
 		if (scheduleScripts.has(p)) out.add(scriptNodeId(p))
 		else if (!subscribers.has(p) && !eventScripts.has(p)) out.add(scriptNodeId(p))
+	}
+	return out
+}
+
+/**
+ * Script node ids eligible as an EXPLICIT bounded-run start from *anywhere* in
+ * the DAG (dbt's `--select model+`): every script that can run with empty args —
+ * i.e. all scripts except event-triggered ones (kafka/mqtt/nats/postgres/sqs/
+ * gcp/email fan out per event and have no "run now" gesture). Unlike
+ * `validStarts` (schedule/manual roots only), this INCLUDES mid-DAG asset
+ * subscribers and pure readers, so "Run + downstream" can begin at any model —
+ * that node plus its transitive downstream runs, upstream is never re-run.
+ * (`webhook`/`data_upload` have no trigger row here — same as `validStarts` they
+ * read as manual roots and are already included.)
+ */
+export function validFromStarts(g: AssetGraphResponse): Set<string> {
+	const nonAutorunScripts = new Set<string>()
+	for (const t of g.triggers ?? []) {
+		if (t.runnable_kind !== 'script') continue
+		if (NON_AUTORUN_TRIGGER_KINDS.has(t.trigger_kind)) nonAutorunScripts.add(t.runnable_path)
+	}
+	// Seed with schedule/manual roots: `validStarts` lets a schedule identity win
+	// over a secondary non-autorun trigger, so a scheduled root that also carries
+	// e.g. a `// on kafka` stays `--from`-eligible. The mid-DAG loop then adds only
+	// scripts that can run with empty args — a `webhook`/`data_upload` subscriber
+	// is NOT added (it needs caller-supplied input).
+	const out = new Set<string>(validStarts(g))
+	for (const r of g.runnables ?? []) {
+		if (r.usage_kind !== 'script') continue
+		if (!nonAutorunScripts.has(r.path)) out.add(scriptNodeId(r.path))
+	}
+	return out
+}
+
+/**
+ * Script node ids carrying a non-autorun trigger (event kinds kafka/mqtt/…/email
+ * PLUS input-only webhook/data_upload) — they fan out per event or need
+ * caller-supplied input, so a cascade must cut them (as `barriers` for
+ * `reachableCutting`) even when they're a lineage descendant of the start.
+ * Mirror of the CLI `nonAutorunTriggerScripts`. Only detects what the graph
+ * surfaces: the deployed `/assets/graph` omits `webhook`/`data_upload` rows, so
+ * such a handler is only cut when its marker is visible (editor overlay / draft)
+ * — the same limitation as `validStarts`; the CLI closes it via graph enrichment.
+ */
+export function nonAutorunTriggerScripts(g: AssetGraphResponse): Set<string> {
+	const out = new Set<string>()
+	for (const t of g.triggers ?? []) {
+		if (t.runnable_kind === 'script' && NON_AUTORUN_TRIGGER_KINDS.has(t.trigger_kind)) {
+			out.add(scriptNodeId(t.runnable_path))
+		}
 	}
 	return out
 }

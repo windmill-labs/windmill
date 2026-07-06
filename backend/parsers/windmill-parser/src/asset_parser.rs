@@ -77,10 +77,12 @@ pub struct ParseAssetsOutput {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partition: Option<PartitionSpec>,
     // `// freshness <duration>` — SLA stating outputs must be at most
-    // `duration` old. Active backstop: when no other trigger has fired the
-    // script within the window, a watchdog re-runs it. Distinct from
-    // schedule (which is producer cadence); freshness is consumer SLA and
-    // applies regardless of which trigger last fired.
+    // `duration` old. Drives passive monitoring in CE (the asset graph
+    // colors the node's badge fresh/stale against its last successful run)
+    // and the enterprise watchdog (windmill-queue `freshness_watchdog`),
+    // which re-runs a stale unpartitioned producer. Distinct from schedule
+    // (which is producer cadence); freshness is consumer SLA and applies
+    // regardless of which trigger last fired.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub freshness: Option<FreshnessSpec>,
     // `// trigger all` → AND join barrier; default (`any`) = OR (current
@@ -250,6 +252,8 @@ pub struct RetrySpec {
 // history (`valid_from`/`valid_to`/`is_current`). The leading keyword `scd2` is a
 // recognized alias for `history`. `deletes=close` (scd2 only) also closes a key
 // that disappears from the snapshot; default leaves absent keys current.
+// `on_schema_change=ignore` suppresses downstream schema-contract warnings for
+// the produced asset (save-time metadata only; default `warn`).
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct MaterializeSpec {
     pub target_kind: AssetKind,
@@ -274,6 +278,117 @@ pub struct MaterializeSpec {
     // `hard_deletes=close`). Default (false) leaves absent keys current.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub close_deleted: bool,
+    // `on_schema_change=warn|ignore|fail|sync` governs two orthogonal things:
+    //   • Save-time contract warnings (gap #2b): consumers referencing columns
+    //     the captured schema no longer has warn by default; only `ignore`
+    //     suppresses those warnings (`warn`/`fail`/`sync` all keep them).
+    //   • Run-time write guardrails for the persist-and-mutate strategies
+    //     (partitioned replace, merge, append), where the table schema is fixed
+    //     at first CREATE and the write is positional — a renamed/added/removed
+    //     SELECT column silently lands in the wrong column. `warn` logs the
+    //     drift and proceeds positionally; `fail` aborts before mutating; `sync`
+    //     ALTERs the table to match and writes by name. Whole-table replace and
+    //     scd2 are unaffected. See `sql_materialize.rs`.
+    #[serde(skip_serializing_if = "OnSchemaChange::is_warn", default)]
+    pub on_schema_change: OnSchemaChange,
+}
+
+impl MaterializeSpec {
+    /// The `<target>_current` SCD2 companion view this managed materialize also
+    /// produces, or `None` when it isn't a managed scd2 target. Managed scd2
+    /// creates the base table *and* a `<dim>_current` "latest row per key" view
+    /// each run (see `sql_materialize.rs`); `manual` mode owns its own DDL and
+    /// short-circuits before that codegen, so it produces no companion.
+    pub fn scd2_current_target(&self) -> Option<(AssetKind, String)> {
+        (self.scd2 && !self.manual)
+            .then(|| (self.target_kind, format!("{}_current", self.target_path)))
+    }
+
+    /// Every asset this managed materialize produces: the base table, plus — for
+    /// managed scd2 — the `<target>_current` companion view. The producer's
+    /// trailing `SELECT` doesn't express these writes (the runtime generates the
+    /// DDL), so this is the single source of truth every graph surface (deploy
+    /// asset rows, the CLI `--local` graph, and the frontend live graph) uses to
+    /// link reads of the base *and* the `_current` view back to this producer.
+    pub fn write_targets(&self) -> Vec<(AssetKind, String)> {
+        let mut targets = vec![(self.target_kind, self.target_path.clone())];
+        targets.extend(self.scd2_current_target());
+        targets
+    }
+}
+
+// dbt's `on_schema_change`, covering both the save-time contract check and the
+// run-time write guardrail for the positional persist-and-mutate strategies:
+//   • `warn` (default): surface consumer contract warnings; at write time, log
+//     the drift loudly and proceed with the positional write against the fixed
+//     table schema.
+//   • `ignore`: suppress consumer contract warnings; at write time, no guard
+//     (the pre-guardrail behaviour).
+//   • `fail`: keep contract warnings; at write time, abort the run before
+//     mutating when the SELECT's column *set* diverges from the table's.
+//   • `sync`: keep contract warnings; at write time, ALTER the table to match
+//     the SELECT (add/drop columns) and INSERT BY NAME.
+// `warn`/`fail` drift detection is name-set based (added/removed columns), which
+// is what the positional persist-and-mutate INSERT can misalign on. It does NOT
+// flag a pure *reorder* of same-named columns: `SELECT b, a` into a `(a, b)`
+// table has an identical column set, so `fail` does not abort and the positional
+// INSERT swaps the values. Reorder-safety is exactly what `sync` provides
+// (INSERT BY NAME maps by name), so a SELECT whose column order is not pinned to
+// the table's should use `sync`, not `fail`. (An ordered-list comparison would
+// close this, but a false positive there would abort a correctly-aligned write,
+// so the guard stays on the set difference.)
+// `fail`/`sync` only affect partitioned replace, merge and append; whole-table
+// replace already rebuilds each run, and scd2 has no positional write — for an
+// scd2 target `sync` degrades to `warn` (no write-time effect; deploy-time
+// rejection is out of scope here).
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OnSchemaChange {
+    #[default]
+    Warn,
+    Ignore,
+    Fail,
+    Sync,
+}
+
+impl OnSchemaChange {
+    pub fn is_warn(&self) -> bool {
+        matches!(self, OnSchemaChange::Warn)
+    }
+}
+
+impl MaterializeSpec {
+    /// Deploy-time validation of the option combination against the script's
+    /// partitioning, returning a human-facing error for combinations the
+    /// runtime cannot honor. Called at save (`create_script_internal`) so a
+    /// misconfigured script is rejected up front, and again in the DuckDB
+    /// executor as a safety net for preview/test runs that never deploy. Both
+    /// checks are SCD2-specific and inert for `manual` mode (which owns its DDL
+    /// and ignores the reconciliation strategy). `partitioned` is whether the
+    /// script declares `// partitioned`.
+    pub fn validate(&self, partitioned: bool) -> Result<(), String> {
+        if self.manual || !self.scd2 {
+            return Ok(());
+        }
+        // SCD2 needs a natural key to identify an entity across versions.
+        if self.unique_key.as_deref().map_or(true, str::is_empty) {
+            return Err(
+                "materialize scd2: requires a natural key — add `key=<col>` (e.g. \
+                 `// materialize ducklake://<name>/<table> key=id history`)"
+                    .to_string(),
+            );
+        }
+        // SCD2's diff/close/open shape has no partition-scoped form in v1.
+        if partitioned {
+            return Err(
+                "materialize scd2: `// partitioned` is not supported with scd2 in v1 — remove \
+                 `// partitioned`, or drop `history`/`scd2` to materialize the partition without \
+                 history"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
 }
 
 // `// data_test <kind> …` — a data-quality assertion run against the
@@ -522,6 +637,24 @@ pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(Asset
     for (prefix, kind) in ASSET_KINDS.iter() {
         if s.starts_with(prefix) {
             let path = &s[prefix.len()..];
+            // Canonicalize S3 keys to a single asset identity. The SDK object
+            // form (`{ s3: "key" }` / `S3Object(s3="key")`, default storage)
+            // resolves to `s3:///key`, whose path is `/key`, while DuckDB
+            // `s3://key` and `// on s3://key` yield the bare `key`. Strip every
+            // leading slash so the triple-slash default-storage form and the
+            // `s3://storage/key` form share one path — otherwise a TS/Python
+            // writer and a DuckDB reader of the same object become disconnected
+            // nodes in the pipeline graph. Stripping ALL leading slashes (not
+            // just one) keeps the identity stable through URI reconstruction:
+            // `trigger_spec_to_row` rebuilds `s3://<path>`, so a canonical path
+            // must never itself start with `/` or the rebuilt ref would parse
+            // back to a different key. Only leading slashes are touched, so
+            // Hive-partition keys (`s3://b/y=2024/f.parquet`) are untouched.
+            let path = if matches!(kind, AssetKind::S3Object) {
+                path.trim_start_matches('/')
+            } else {
+                path
+            };
             return Some((*kind, path));
         }
     }
@@ -637,7 +770,7 @@ fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
 //   - `on <trigger-spec>`        → asset / native trigger edge (including
 //                                  the marker-only `on schedule` form)
 //   - `partitioned <kind> [opts]` → partition declaration
-//   - `freshness <duration>`     → SLA / active backstop
+//   - `freshness <duration>`     → SLA window (badge + EE watchdog)
 //   - `tag <name>`               → worker-tag override (annotation wins
 //                                  over UI-set value at deploy)
 //   - `retry <count> [<delay>]`  → cascade-only retry policy
@@ -839,6 +972,39 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
     out
 }
 
+// Count `// data_test <…>` lines in the leading comment header whose right-hand
+// side fails to parse into a check. `parse_pipeline_annotations` drops these
+// fail-safe (a malformed line just yields no check), which is the wrong default
+// for a data-quality assertion: a typo silently disables the test. The deploy
+// path uses this count to warn. Same leading-block boundary as the parser (stop
+// at the first non-comment line) so a body comment can't be miscounted, and the
+// same `parse_data_test_spec` grammar so "malformed" means exactly what the
+// parser rejects — no second grammar to drift.
+pub fn count_malformed_data_tests(code: &str) -> usize {
+    let mut malformed = 0;
+    for raw_line in code.lines() {
+        let line = raw_line.trim_start();
+        if line.is_empty() {
+            continue;
+        }
+        let rest = if let Some(r) = line.strip_prefix("//") {
+            r
+        } else if let Some(r) = line.strip_prefix("--") {
+            r
+        } else if let Some(r) = line.strip_prefix('#') {
+            r
+        } else {
+            break;
+        };
+        if let Some(after_kw) = consume_keyword(rest.trim_start(), "data_test") {
+            if parse_data_test_spec(after_kw.trim()).is_none() {
+                malformed += 1;
+            }
+        }
+    }
+    malformed
+}
+
 // Parse a `// retry <count> [<delay>]` right-hand side. `<count>` is a
 // non-negative decimal; `<delay>` is an optional raw duration string left
 // for `parse_duration_secs` to validate at deploy. A bare zero count (or
@@ -915,6 +1081,15 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
     // `deletes=close` (scd2 only) opts into hard-delete-close; any other value
     // (or absence) keeps the soft-delete default.
     let close_deleted = opts.get("deletes").map(|v| v == "close").unwrap_or(false);
+    // `on_schema_change=ignore|fail|sync`; any other value (or absence) keeps
+    // the `warn` default, fail-safe like `deletes=` above (a typo must never
+    // silently disable the guardrail).
+    let on_schema_change = match opts.get("on_schema_change").map(String::as_str) {
+        Some("ignore") => OnSchemaChange::Ignore,
+        Some("fail") => OnSchemaChange::Fail,
+        Some("sync") => OnSchemaChange::Sync,
+        _ => OnSchemaChange::Warn,
+    };
     Some(MaterializeSpec {
         target_kind,
         target_path: path.to_string(),
@@ -924,6 +1099,7 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
         scd2,
         track,
         close_deleted,
+        on_schema_change,
     })
 }
 
@@ -1122,6 +1298,83 @@ fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
 #[cfg(test)]
 mod pipeline_annotation_tests {
     use super::*;
+
+    #[test]
+    fn s3_key_normalization_unifies_uri_forms() {
+        // A TS/Python SDK write of `{ s3: "exports/x" }` (default storage)
+        // resolves to the URI `s3:///exports/x`, while a DuckDB read of
+        // `s3://exports/x` and the `// on s3://exports/x` trigger form yield the
+        // bare `exports/x`. All three must canonicalize to one asset key so
+        // the writer and reader connect in the pipeline graph.
+        let sdk_write = parse_asset_syntax("s3:///exports/x", false);
+        let duckdb_read = parse_asset_syntax("s3://exports/x", false);
+        assert_eq!(sdk_write, Some((AssetKind::S3Object, "exports/x")));
+        assert_eq!(duckdb_read, Some((AssetKind::S3Object, "exports/x")));
+        assert_eq!(sdk_write, duckdb_read);
+
+        // The `// on` trigger annotation goes through the same function.
+        assert_eq!(
+            parse_asset_syntax("s3:///exports/x", true),
+            parse_asset_syntax("s3://exports/x", true)
+        );
+
+        // Explicit-storage form is unaffected (no leading slash to strip).
+        assert_eq!(
+            parse_asset_syntax("s3://mybucket/exports/x", false),
+            Some((AssetKind::S3Object, "mybucket/exports/x"))
+        );
+
+        // Hive-partition keys and nested paths under default storage are
+        // preserved verbatim (only leading slashes are stripped).
+        assert_eq!(
+            parse_asset_syntax("s3:///t/year=2024/month=01/f.parquet", false),
+            Some((AssetKind::S3Object, "t/year=2024/month=01/f.parquet"))
+        );
+
+        // Every leading slash is stripped so a canonical S3 path never starts
+        // with `/`. `S3Object(s3="/x")` resolves to the quad-slash URI
+        // `s3:////x`; the identity must be the bare `x` (not `/x`) so the ref
+        // that `trigger_spec_to_row` rebuilds round-trips back to it.
+        assert_eq!(
+            parse_asset_syntax("s3:////x", false),
+            Some((AssetKind::S3Object, "x"))
+        );
+        assert_eq!(
+            parse_asset_syntax("s3://///deep///", false),
+            Some((AssetKind::S3Object, "deep///"))
+        );
+
+        // Non-S3 kinds keep their leading slash (their paths are workspace-
+        // relative and the slash is significant).
+        assert_eq!(
+            parse_asset_syntax("res://f/foo", false),
+            Some((AssetKind::Resource, "f/foo"))
+        );
+        assert_eq!(
+            parse_asset_syntax("ducklake://analytics/orders", false),
+            Some((AssetKind::Ducklake, "analytics/orders"))
+        );
+    }
+
+    #[test]
+    fn s3_explicit_storage_aliases_default_storage_nested_key() {
+        // Accepted tradeoff of one canonical key: the explicit-storage form
+        // `s3://storage/key` and the default-storage nested-key form
+        // `s3:///storage/key` collapse to the same node `storage/key`, even
+        // though they name different objects. This is a best-effort lineage
+        // graph that does not split the first segment as a storage name; the
+        // collision only happens when a storage config is named to match a
+        // default-storage prefix. Pinned so the aliasing is intentional, not a
+        // latent surprise.
+        assert_eq!(
+            parse_asset_syntax("s3://mybucket/x", false),
+            parse_asset_syntax("s3:///mybucket/x", false)
+        );
+        assert_eq!(
+            parse_asset_syntax("s3://mybucket/x", false),
+            Some((AssetKind::S3Object, "mybucket/x"))
+        );
+    }
 
     #[test]
     fn bare_pipeline_marker() {
@@ -1607,6 +1860,62 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
+    fn materialize_scd2_write_targets_include_current_view() {
+        // A managed scd2 materialize produces the base table AND the
+        // `<dim>_current` companion view, so the producer must be recorded as
+        // writing both (reads of the view otherwise resolve to an orphan asset).
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://main/dim_customers key=id history",
+        );
+        let m = out.materialize.expect("materialize");
+        assert_eq!(
+            m.write_targets(),
+            vec![
+                (AssetKind::Ducklake, "main/dim_customers".to_string()),
+                (
+                    AssetKind::Ducklake,
+                    "main/dim_customers_current".to_string()
+                ),
+            ]
+        );
+        assert_eq!(
+            m.scd2_current_target(),
+            Some((
+                AssetKind::Ducklake,
+                "main/dim_customers_current".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn materialize_non_scd2_write_targets_are_base_only() {
+        // A plain merge (no `history`) creates no companion view — only the base.
+        let out = parse_pipeline_annotations("// materialize ducklake://main/dim_customers key=id");
+        let m = out.materialize.expect("materialize");
+        assert_eq!(
+            m.write_targets(),
+            vec![(AssetKind::Ducklake, "main/dim_customers".to_string())]
+        );
+        assert_eq!(m.scd2_current_target(), None);
+    }
+
+    #[test]
+    fn materialize_manual_scd2_has_no_companion_view() {
+        // `manual` mode owns its own DDL and never creates the `_current` view,
+        // so registering it would be a false producer edge.
+        let out = parse_pipeline_annotations(
+            "// materialize manual ducklake://main/dim_customers key=id history",
+        );
+        let m = out.materialize.expect("materialize");
+        assert!(m.manual && m.scd2);
+        assert_eq!(m.scd2_current_target(), None);
+        assert_eq!(
+            m.write_targets(),
+            vec![(AssetKind::Ducklake, "main/dim_customers".to_string())]
+        );
+    }
+
+    #[test]
     fn materialize_scd2_deletes_close_opt() {
         let out = parse_pipeline_annotations(
             "// materialize ducklake://a/dim key=id history deletes=close",
@@ -1619,6 +1928,93 @@ mod pipeline_annotation_tests {
             "// materialize ducklake://a/dim key=id history deletes=ignore",
         );
         assert!(!out.materialize.expect("materialize").close_deleted);
+    }
+
+    #[test]
+    fn materialize_validate_scd2_requires_key() {
+        // scd2 without `key=` is rejected at deploy (was a run-time error).
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim history")
+            .materialize
+            .expect("materialize");
+        assert!(m.scd2 && m.unique_key.is_none());
+        let err = m.validate(false).expect_err("scd2 without key must fail");
+        assert!(err.contains("requires a natural key"));
+        // with a key it validates
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim key=id history")
+            .materialize
+            .expect("materialize");
+        assert!(m.validate(false).is_ok());
+    }
+
+    #[test]
+    fn materialize_validate_scd2_rejects_partitioned() {
+        // scd2 + `// partitioned` has no v1 form — rejected at deploy.
+        let m = parse_pipeline_annotations("// materialize ducklake://a/dim key=id history")
+            .materialize
+            .expect("materialize");
+        let err = m.validate(true).expect_err("scd2 + partitioned must fail");
+        assert!(err.contains("`// partitioned` is not supported with scd2"));
+        // unpartitioned scd2 is fine
+        assert!(m.validate(false).is_ok());
+    }
+
+    #[test]
+    fn materialize_validate_non_scd2_and_manual_are_inert() {
+        // Non-scd2 strategies are unconstrained by these checks, partitioned or not.
+        let m = parse_pipeline_annotations("// materialize ducklake://a/orders key=id")
+            .materialize
+            .expect("materialize");
+        assert!(m.validate(true).is_ok());
+        assert!(m.validate(false).is_ok());
+        // `manual` owns its DDL and ignores the strategy — never rejected here,
+        // even with a partitioned scd2-looking combo.
+        let m = parse_pipeline_annotations("// materialize manual ducklake://a/dim history")
+            .materialize
+            .expect("materialize");
+        assert!(m.manual && m.scd2);
+        assert!(m.validate(true).is_ok());
+    }
+
+    #[test]
+    fn materialize_on_schema_change_opt() {
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/orders on_schema_change=ignore",
+        );
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.on_schema_change, OnSchemaChange::Ignore);
+        // default is warn
+        let out = parse_pipeline_annotations("// materialize ducklake://a/orders");
+        assert_eq!(
+            out.materialize.expect("materialize").on_schema_change,
+            OnSchemaChange::Warn
+        );
+        // fail + sync parse to their own variants
+        let out =
+            parse_pipeline_annotations("// materialize ducklake://a/orders on_schema_change=fail");
+        assert_eq!(
+            out.materialize.expect("materialize").on_schema_change,
+            OnSchemaChange::Fail
+        );
+        let out =
+            parse_pipeline_annotations("// materialize ducklake://a/orders on_schema_change=sync");
+        assert_eq!(
+            out.materialize.expect("materialize").on_schema_change,
+            OnSchemaChange::Sync
+        );
+        // unknown/junk value keeps the warn default (fail-safe, like `deletes=`)
+        let out =
+            parse_pipeline_annotations("// materialize ducklake://a/orders on_schema_change=bogus");
+        assert_eq!(
+            out.materialize.expect("materialize").on_schema_change,
+            OnSchemaChange::Warn
+        );
+        // composes with other opts
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/dim key=id history on_schema_change=ignore",
+        );
+        let m = out.materialize.expect("materialize");
+        assert!(m.scd2);
+        assert_eq!(m.on_schema_change, OnSchemaChange::Ignore);
     }
 
     #[test]
@@ -1949,5 +2345,24 @@ mod pipeline_annotation_tests {
             "// column\n",                               // bare keyword
         ));
         assert!(out.column_lineage.is_empty());
+    }
+
+    #[test]
+    fn count_malformed_data_tests_counts_only_broken_header_lines() {
+        let n = count_malformed_data_tests(concat!(
+            "-- data_test not_null id\n",                 // valid
+            "-- data_test unique id\n",                   // valid
+            "-- data_test accepted_values status paid\n", // malformed: missing `=`
+            "-- data_test relationships cust ducklake\n", // malformed: no `->`
+            "-- data_test\n",                             // malformed: bare keyword
+            "-- data_test f/tests/custom\n",              // valid: custom script path
+            "SELECT 1 -- data_test not_a_test\n",         // body line: not counted
+        ));
+        assert_eq!(n, 3);
+        // A clean header has zero.
+        assert_eq!(
+            count_malformed_data_tests("-- data_test unique id\nSELECT 1"),
+            0
+        );
     }
 }

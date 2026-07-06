@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.749.0](https://github.com/windmill-labs/windmill/compare/v1.748.0...v1.749.0) (2026-07-05)
+
+
+### Features
+
+* **pipelines:** mid-DAG selective execution (dbt `model+`) for pipeline runs ([#9945](https://github.com/windmill-labs/windmill/issues/9945)) ([2d3a773](https://github.com/windmill-labs/windmill/commit/2d3a77344104a587548f23f1b614ceffd52a5778))
+* **pipelines:** partition run-arg picker + first-run setup signpost ([#9943](https://github.com/windmill-labs/windmill/issues/9943)) ([475b072](https://github.com/windmill-labs/windmill/commit/475b072987b33d50111f5251a5f69f4245f930ae))
+* **pipelines:** self-teaching custom data_test errors + scaffold ([#9937](https://github.com/windmill-labs/windmill/issues/9937)) ([0ad174f](https://github.com/windmill-labs/windmill/commit/0ad174fa490e17eeb26280b5bdfd62956dfed9ff))
+
+
+### Bug Fixes
+
+* **cli:** macro-library parity in --local pipeline graph + read-only run --dry-run ([#9942](https://github.com/windmill-labs/windmill/issues/9942)) ([e3f4303](https://github.com/windmill-labs/windmill/commit/e3f43033cafcdb5df253aeb55ce93e599b2584d2))
+* **datatable:** self-teaching error for unresolved datatable:// references ([#9941](https://github.com/windmill-labs/windmill/issues/9941)) ([55451db](https://github.com/windmill-labs/windmill/commit/55451db009e3060c21948ece2c97e102a3c9b171))
+* **object-storage:** remove 20-file bucket-browser listing cap in CE ([#9935](https://github.com/windmill-labs/windmill/issues/9935)) ([22452ce](https://github.com/windmill-labs/windmill/commit/22452ce54034a9bea8f7d48946818fd148b938c0))
+* **pipelines:** dedup guard for keyed merge + deploy-time SCD2 validation ([#9936](https://github.com/windmill-labs/windmill/issues/9936)) ([52ce805](https://github.com/windmill-labs/windmill/commit/52ce805f619747af4f998cde7819a164c754205a))
+* **pipelines:** link SCD2 &lt;dim&gt;_current view to its producer across all graph surfaces ([#9933](https://github.com/windmill-labs/windmill/issues/9933)) ([574d3ac](https://github.com/windmill-labs/windmill/commit/574d3ac9ff5015b5d3f53040c9d4dfbfd161a076))
+* **pipelines:** order data_test relationships refs before the tested script in a cascade ([#9934](https://github.com/windmill-labs/windmill/issues/9934)) ([46be39d](https://github.com/windmill-labs/windmill/commit/46be39dfb7fbfb2b70e61819d6065b45810c41c9))
+* **pipelines:** pipeline-level run control, tables label, data-test rollback + fork badges ([#9944](https://github.com/windmill-labs/windmill/issues/9944)) ([6ae8dd3](https://github.com/windmill-labs/windmill/commit/6ae8dd37b1de930ab17344cebf7c28385c6cfdba))
+* rebuild windows bun loader main.ts filter from forward-slash cdir ([#9946](https://github.com/windmill-labs/windmill/issues/9946)) ([a582e04](https://github.com/windmill-labs/windmill/commit/a582e04bf40cf685f88bceaf88e3d24bde3d420a))
+
+## [1.748.0](https://github.com/windmill-labs/windmill/compare/v1.747.0...v1.748.0) (2026-07-05)
+
+
+### Features
+
+* **ai-agent:** support reasoning effort in AI agent workflow steps ([#9886](https://github.com/windmill-labs/windmill/issues/9886)) ([a368d49](https://github.com/windmill-labs/windmill/commit/a368d49bd8786a2dca6771f2051f1d44d1b2363d))
+* **ducklake:** scheduled lake maintenance (expiry, compaction, orphan cleanup) ([#9916](https://github.com/windmill-labs/windmill/issues/9916)) ([3352150](https://github.com/windmill-labs/windmill/commit/33521505dbc34f22b575d21fda1cc76d698a8840))
+* **pipelines:** asset freshness — fresh/stale badge (CE) + watchdog (EE) ([#9909](https://github.com/windmill-labs/windmill/issues/9909)) ([5d7fb6d](https://github.com/windmill-labs/windmill/commit/5d7fb6deca3e02e89d77e5d3856483beb8b8bfeb))
+* **pipelines:** capture violating-row samples for data tests ([#9919](https://github.com/windmill-labs/windmill/issues/9919)) ([d4b4374](https://github.com/windmill-labs/windmill/commit/d4b4374de8f8a7875b050c16d1236fcd0355812b))
+* **pipelines:** fork data environments for ducklake materialization (dev data) ([#9915](https://github.com/windmill-labs/windmill/issues/9915)) ([39eb9de](https://github.com/windmill-labs/windmill/commit/39eb9de1bce400109c130a081807e40e995ae068))
+* **pipelines:** on_schema_change write guardrails + data_test deploy validation ([#9930](https://github.com/windmill-labs/windmill/issues/9930)) ([377c02e](https://github.com/windmill-labs/windmill/commit/377c02ec47389e64b7ef5cbbae0de05df648266d))
+* **pipelines:** record upstream snapshot ids on cascade-dispatched jobs ([#9910](https://github.com/windmill-labs/windmill/issues/9910)) ([af36498](https://github.com/windmill-labs/windmill/commit/af36498432e643108308e1c03b5d986d0f0f8888))
+* **pipelines:** schema contracts — save-time consumer checks vs captured schemas ([#9917](https://github.com/windmill-labs/windmill/issues/9917)) ([42e11c6](https://github.com/windmill-labs/windmill/commit/42e11c6570b62ffaa86598438fa8ddf462c4035f))
+* **pipeline:** write-audit-publish for materialization data tests ([#9911](https://github.com/windmill-labs/windmill/issues/9911)) ([dce247c](https://github.com/windmill-labs/windmill/commit/dce247c6d2678a2c95bd728027e17ae3965638e2))
+* **sdk:** enforce s3:// URIs for string S3 params + ingestion (EL) docs ([#9912](https://github.com/windmill-labs/windmill/issues/9912)) ([5ad2de9](https://github.com/windmill-labs/windmill/commit/5ad2de91a26b312bf27124ceca16ef331621bde8))
+
+
+### Bug Fixes
+
+* **cli:** pipeline + workspace UX batch (init/bind stub, run errors, macro libs, lock-job report, upgrade errors) ([#9929](https://github.com/windmill-labs/windmill/issues/9929)) ([28a6b08](https://github.com/windmill-labs/windmill/commit/28a6b086c842105298f236baa0a61868f71a5eb1))
+* **cli:** publish all windmill-parser-wasm-* deps so local pipeline graph keeps write edges ([#9926](https://github.com/windmill-labs/windmill/issues/9926)) ([744a759](https://github.com/windmill-labs/windmill/commit/744a7597edaf3ca9a7fd2b21a34fb33457913a64))
+* **pipelines:** activity-axis label clarity + select failed node on cascade failure ([#9931](https://github.com/windmill-labs/windmill/issues/9931)) ([5769b60](https://github.com/windmill-labs/windmill/commit/5769b6036cf14b0cb424c5b3d9d878c600a5652e))
+
 ## [1.747.0](https://github.com/windmill-labs/windmill/compare/v1.746.0...v1.747.0) (2026-07-03)
 
 

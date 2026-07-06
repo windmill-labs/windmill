@@ -311,6 +311,43 @@
 		}
 	},
 	{
+		"name": "materialize on_schema_change=ignore opt",
+		"code": "// pipeline\n// materialize ducklake://analytics/orders on_schema_change=ignore\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders",
+				"on_schema_change": "ignore"
+			}
+		}
+	},
+	{
+		"name": "materialize on_schema_change unknown value keeps warn default (fail-safe)",
+		"code": "// materialize ducklake://analytics/orders key=id on_schema_change=bogus\nSELECT 1;",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders",
+				"unique_key": "id",
+				"on_schema_change": "warn"
+			}
+		}
+	},
+	{
 		"name": "materialize key without history is plain merge (SCD1, not scd2)",
 		"code": "// materialize ducklake://analytics/dim key=id\nSELECT 1;",
 		"expected": {
@@ -696,6 +733,36 @@
 		"expected": {
 			"in_pipeline": true,
 			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "s3 triple-slash default-storage trigger canonicalizes to bare key",
+		"code": "// pipeline\n// on s3:///exports/x\nexport function main() {}",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"s3object:exports/x"
+			],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "s3 quad-slash trigger strips all leading slashes to the bare key",
+		"code": "// pipeline\n// on s3:////x\nexport function main() {}",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"s3object:x"
+			],
 			"native_triggers": [],
 			"partition": null,
 			"freshness": null,

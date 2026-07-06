@@ -9,10 +9,10 @@
 use crate::{
     ai_bedrock::{
         bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
-        bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
-        bedrock_stream_event_to_tool_delta_with_block_index, bedrock_stream_event_to_tool_start,
-        bedrock_stream_event_to_tool_start_with_block_index, build_tool_config,
-        create_inference_config, format_bedrock_error, json_to_document,
+        bedrock_stream_event_to_reasoning_delta, bedrock_stream_event_to_text,
+        bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_delta_with_block_index,
+        bedrock_stream_event_to_tool_start, bedrock_stream_event_to_tool_start_with_block_index,
+        build_tool_config, create_inference_config, format_bedrock_error, json_to_document,
         openai_messages_to_bedrock, streaming_tool_calls_to_openai, BearerTokenProvider,
         BedrockClient, StreamingToolCall,
     },
@@ -641,57 +641,13 @@ fn bedrock_sse_chunks_for_event(
 
 /// Fold a `ReasoningContent` stream delta into the state's pending reasoning
 /// block. Returns the text delta (for a `reasoning_content` SSE chunk) when the
-/// event carried readable reasoning text.
+/// event carried readable reasoning text. Shares the worker path's folding so
+/// the two never drift.
 fn accumulate_reasoning_delta(
     event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
     state: &mut BedrockSseStreamState,
 ) -> Option<String> {
-    let aws_sdk_bedrockruntime::types::ConverseStreamOutput::ContentBlockDelta(delta_event) = event
-    else {
-        return None;
-    };
-    let aws_sdk_bedrockruntime::types::ContentBlockDelta::ReasoningContent(reasoning) =
-        delta_event.delta()?
-    else {
-        return None;
-    };
-
-    let entry = state.reasoning.get_or_insert_with(Default::default);
-    match reasoning {
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Text(text) => {
-            entry
-                .reasoning_text
-                .get_or_insert_with(String::new)
-                .push_str(text);
-            Some(text.clone())
-        }
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Signature(signature) => {
-            entry
-                .signature
-                .get_or_insert_with(String::new)
-                .push_str(signature);
-            None
-        }
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::RedactedContent(blob) => {
-            // Base64 of concatenated fragments != concatenated base64 fragments,
-            // so accumulate raw bytes and re-encode.
-            let mut bytes = entry
-                .redacted_content
-                .as_deref()
-                .and_then(|existing| {
-                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, existing)
-                        .ok()
-                })
-                .unwrap_or_default();
-            bytes.extend_from_slice(blob.as_ref());
-            entry.redacted_content = Some(base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                bytes,
-            ));
-            None
-        }
-        _ => None,
-    }
+    bedrock_stream_event_to_reasoning_delta(event, &mut state.reasoning)
 }
 
 async fn handle_bedrock_sdk_non_streaming(
@@ -942,6 +898,7 @@ impl BedrockQueryBuilder {
         tools: Option<&[ToolDef]>,
         model: &str,
         temperature: Option<f32>,
+        reasoning_effort: Option<&str>,
         max_tokens: Option<u32>,
         api_key: &str,
         region: &str,
@@ -977,6 +934,9 @@ impl BedrockQueryBuilder {
         let (bedrock_messages, system_prompts) =
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
+        // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
+        let temperature = reasoning_effort.is_none().then_some(temperature).flatten();
+
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
 
@@ -994,6 +954,7 @@ impl BedrockQueryBuilder {
             system_prompts,
             inference_config,
             tool_config,
+            reasoning_effort,
             stream_event_sink,
         )
         .await
@@ -1008,6 +969,7 @@ impl BedrockQueryBuilder {
         system_prompts: Vec<aws_sdk_bedrockruntime::types::SystemContentBlock>,
         inference_config: Option<aws_sdk_bedrockruntime::types::InferenceConfiguration>,
         tool_config: Option<aws_sdk_bedrockruntime::types::ToolConfiguration>,
+        reasoning_effort: Option<&str>,
         stream_event_sink: Option<Box<dyn StreamEventSink>>,
     ) -> Result<ParsedResponse, Error> {
         tracing::debug!(
@@ -1035,6 +997,11 @@ impl BedrockQueryBuilder {
             request_builder = request_builder.set_tool_config(Some(config));
         }
 
+        if let Some(effort) = reasoning_effort {
+            request_builder =
+                request_builder.additional_model_request_fields(bedrock_thinking_fields(effort));
+        }
+
         let mut stream = request_builder
             .send()
             .await
@@ -1053,11 +1020,32 @@ impl BedrockQueryBuilder {
         let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
         let mut current_tool_use_id: Option<String> = None;
         let mut usage: Option<TokenUsage> = None;
+        // Claude reasoning block for the turn (only populated when thinking is on),
+        // attached to the first tool call for replay before toolUse.
+        let mut reasoning: Option<crate::ai_types::BedrockExtraContent> = None;
 
         // Process stream events using shared parsing functions
         loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
+                    // Fold reasoning deltas into the turn's reasoning block (for
+                    // replay before toolUse, required by Claude when thinking is
+                    // on) and stream the readable summary as a thinking affordance.
+                    if let Some(reasoning_delta) =
+                        bedrock_stream_event_to_reasoning_delta(&event, &mut reasoning)
+                    {
+                        if let Some(processor) = stream_event_sink.as_ref() {
+                            processor
+                                .send(
+                                    StreamingEvent::ReasoningTokenDelta {
+                                        content: reasoning_delta,
+                                    },
+                                    &mut events_str,
+                                )
+                                .await?;
+                        }
+                    }
+
                     // Handle tool use start using shared parser
                     if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
                         current_tool_use_id = Some(tool_call.id.clone());
@@ -1143,8 +1131,10 @@ impl BedrockQueryBuilder {
             Some(accumulated_text)
         };
 
-        let tool_calls =
-            streaming_tool_calls_to_openai(accumulated_tool_calls.into_values().collect());
+        let tool_calls = streaming_tool_calls_to_openai(
+            accumulated_tool_calls.into_values().collect(),
+            reasoning,
+        );
 
         Ok(ParsedResponse::Text {
             content,

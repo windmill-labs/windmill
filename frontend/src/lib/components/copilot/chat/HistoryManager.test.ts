@@ -141,3 +141,30 @@ describe('HistoryManager title across compaction', () => {
 		expect(hm.getAllSavedChats().find((c) => c.id === id)?.title).toBe('original first question')
 	})
 })
+
+describe('HistoryManager modified-items mask persistence', () => {
+	const msgs = [{ role: 'user', content: 'hello', index: 0 }] as DisplayMessage[]
+
+	it('a save without the argument preserves a previously stored mask', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const id = hm.getCurrentChatId()
+
+		await hm.saveChat(msgs, [] as ChatCompletionMessageParam[], undefined, ['script:u/a/x'])
+		expect(hm.getModifiedItems(id)).toEqual(['script:u/a/x'])
+
+		// e.g. manual compaction re-saving the transcript: the whole record is
+		// rewritten, but the tracked mask must survive.
+		await hm.saveChat(msgs, [] as ChatCompletionMessageParam[])
+		expect(hm.getModifiedItems(id)).toEqual(['script:u/a/x'])
+	})
+
+	it('never retroactively stamps an untracked chat', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const id = hm.getCurrentChatId()
+
+		await hm.saveChat(msgs, [] as ChatCompletionMessageParam[])
+		expect(hm.getModifiedItems(id)).toBeUndefined()
+	})
+})
