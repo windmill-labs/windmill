@@ -51,17 +51,12 @@
 
 	// Touch the runtime for the active session so it gets created on first visit
 	// and the pane shows up. Subsequent renders find it via listRuntimes().
-	// Also refresh the fork diff count: deep-link / back-button navigation
-	// changes the URL but doesn't fire the picker.activate path nor the
-	// visibility-change signal, so this is the only hook that catches a
-	// user returning from another route in the same tab.
 	//
 	// Gate on session identity (id) rather than the full activeSession
 	// derived — sessionState.sessions mutates on every persisted change
 	// (including token-by-token last_message updates during AI streaming),
-	// so a value-trigger would re-fetch compareWorkspaces dozens of times
-	// per turn. We only want to refresh when the user actually arrives at
-	// a new session.
+	// so a value-trigger would re-run dozens of times per turn. We only
+	// want to react when the user actually arrives at a new session.
 	let lastArrivedSessionId: string | undefined
 	$effect(() => {
 		const session = activeSession
@@ -76,8 +71,7 @@
 			// (refresh hooks, picker selection) react to deep links the
 			// same way they react to picker clicks.
 			selectSession(session.id)
-			const rt = getOrCreateRuntime(session)
-			void rt.refreshForkComparison()
+			getOrCreateRuntime(session)
 		})
 	})
 

@@ -29,7 +29,14 @@ export type DiffTreeItem<T> = {
 
 /** Marks a folder as a raw app's root so the drawer renders its header as the
  * raw-app row instead of a plain folder. Keyed by the app's friendly path. */
-export type AppRootMeta = { summaryKey: string; summary?: string }
+export type AppRootMeta = {
+	summaryKey: string
+	summary?: string
+	hasDraft?: boolean
+	draftOnly?: boolean
+	draftUsers?: { username?: string | null }[]
+	draftItemKind?: import('$lib/gen').UserDraftItemKind
+}
 
 export type FolderNode<T> = {
 	type: 'folder'
@@ -57,7 +64,7 @@ export type DiffTreeModel<T> = {
 	firstChildKeyOf(folderKey: string): string | undefined
 }
 
-function folderKeyFor(fullPath: string): string {
+export function folderKeyFor(fullPath: string): string {
 	return `folder:${fullPath}`
 }
 
@@ -119,20 +126,27 @@ export function buildDiffTree<T>(
 		addFile(parent, rest[rest.length - 1], it)
 	}
 
+	// Tag the folder matching each raw app's friendly path as its app root.
+	// Must happen before sorting: app roots sort as items, not as folders.
+	for (const [fp, meta] of appMeta) {
+		const f = folderCache.get(fp)
+		if (f) f.app = meta
+	}
+
+	// Path folders group first; everything item-like — leaves AND app roots —
+	// sorts together by name, so a raw app keeps its position when expanding
+	// turns its leaf row into an app-root folder.
+	const isGrouping = (n: TreeNode<T>) => n.type === 'folder' && !n.app
 	const sortRec = (n: FolderNode<T>) => {
 		n.children.sort((a, b) => {
-			if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+			const ga = isGrouping(a) ? 0 : 1
+			const gb = isGrouping(b) ? 0 : 1
+			if (ga !== gb) return ga - gb
 			return a.name.localeCompare(b.name)
 		})
 		for (const c of n.children) if (c.type === 'folder') sortRec(c)
 	}
 	sortRec(root)
-
-	// Tag the folder matching each raw app's friendly path as its app root.
-	for (const [fp, meta] of appMeta) {
-		const f = folderCache.get(fp)
-		if (f) f.app = meta
-	}
 
 	return {
 		root,

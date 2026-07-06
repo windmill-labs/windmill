@@ -114,6 +114,7 @@ import {
 	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
+	itemKindFor,
 	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
@@ -2779,6 +2780,7 @@ function finishAppDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -2791,6 +2793,7 @@ function finishDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
@@ -3898,6 +3901,16 @@ async function discardLocalDraft(
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
 
+	// The chat's touch on the item is undone — drop it from the mask so a
+	// pre-existing deployed item doesn't keep reading as this chat's edit.
+	const discardedKind = itemKindFor(type, triggerKind)
+	if (discardedKind) {
+		toolCallbacks.onItemDiscarded?.(
+			discardedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded ${type} "${path}" draft`,
 		result: 'Draft discarded'
@@ -4237,6 +4250,9 @@ async function deployDraft(
 	})
 
 	let actions: ToolDisplayAction[] | undefined
+	// Where the deploy actually lands — the app branch can resolve a different
+	// target from the draft's own path fields; the mask rename below must track it.
+	let deployedPath = path
 
 	if (type === 'script' || type === 'flow') {
 		// Promote the full persisted draft via the shared deploy module — the same
@@ -4429,6 +4445,7 @@ async function deployDraft(
 						throw e
 					}
 				}
+				deployedPath = targetPath
 				if (await AppService.existsApp({ workspace, path: targetPath })) {
 					// Omit custom_path on update for now. The backend preserves it when absent, while
 					// sending it requires admin privileges; this chat deploy path does not yet mirror
@@ -4477,6 +4494,18 @@ async function deployDraft(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+
+	// Move the chat's mask entry to the deployed path: a draft-only item's
+	// synthetic storage key never exists deployed, so the entry would otherwise
+	// stop matching anything after the draft is gone.
+	const deployedKind = itemKindFor(type, triggerKind)
+	if (deployedKind) {
+		toolCallbacks.onItemDeployed?.(
+			deployedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
+			deployedPath
+		)
+	}
 
 	// Reload the session preview if it's open on the deployed item. Map the
 	// deploy type to the preview kind — a raw app deploys under 'app' but the
@@ -4547,6 +4576,17 @@ async function deleteWorkspaceItem(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
+	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
+	// by the same (itemKind, storagePath) as writes so it joins the draft/fork lists.
+	const deletedKind = itemKindFor(type, triggerKind)
+	if (deletedKind) {
+		toolCallbacks.onItemModified?.(
+			deletedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,
