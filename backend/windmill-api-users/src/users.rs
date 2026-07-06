@@ -1942,8 +1942,10 @@ async fn login(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
-    #[cfg(feature = "no_auth")]
-    {
+    // In `--no-auth` mode there is no real login; the frontend never needs a
+    // session cookie because every request already resolves as the admin
+    // superadmin (see resolve_opt_job_authed).
+    if windmill_api_auth::is_no_auth() {
         return Ok("no_auth".to_string());
     }
 

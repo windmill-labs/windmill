@@ -17,7 +17,8 @@
 	import { usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { resource } from 'runed'
-	import { Button } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
+	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
@@ -57,6 +58,12 @@
 	let copyMembers = $state(false)
 	$effect(() => {
 		copyMembers = createAsDevWorkspace
+	})
+	// Cosmetic display label for the new dev workspace: 'dev' | 'staging'. Purely visual (badge text +
+	// wording); reset when the dev toggle is turned off.
+	let devWorkspaceLabel = $state<'dev' | 'staging'>('dev')
+	$effect(() => {
+		if (!createAsDevWorkspace) devWorkspaceLabel = 'dev'
 	})
 
 	// The dev-workspace option is only offered when forking a root workspace that doesn't already
@@ -239,6 +246,7 @@
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 					is_dev_workspace: createAsDevWorkspace,
+					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
 					// locked-dev request before any branch is created (avoids dangling branches).
 					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
@@ -308,6 +316,7 @@
 					forked_datatables: forkedDatatables,
 					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
+					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
 					lock_prod_forking: createAsDevWorkspace && lockProdForking,
 					copy_members: copyMembers
@@ -324,7 +333,7 @@
 		forkCreationLoading = false
 		sendUserToast(
 			createAsDevWorkspace
-				? `Created dev workspace ${effectiveForkId} for ${$workspaceStore}`
+				? `Created ${devWorkspaceLabel === 'staging' ? 'staging' : 'dev'} workspace ${effectiveForkId} for ${$workspaceStore}`
 				: `Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`
 		)
 
@@ -467,6 +476,21 @@
 	run(() => {
 		id = name.toLowerCase().replace(/\s/gi, '-')
 	})
+	// When creating a dev workspace, prefill the fork name with `<root>-dev` / `<root>-stg` (the effect
+	// above slugifies it into the id). Only fill an empty field or one still holding a prior suggestion,
+	// so a user-typed name is never overwritten; flipping Dev<->Staging updates the suffix, and turning
+	// the dev toggle back off clears the suggestion.
+	let lastAutoDevName = $state<string | undefined>(undefined)
+	$effect(() => {
+		const target =
+			createAsDevWorkspace && $workspaceStore
+				? `${$workspaceStore}-${devWorkspaceLabel === 'staging' ? 'stg' : 'dev'}`
+				: ''
+		if (name === '' || name === lastAutoDevName) {
+			name = target
+			lastAutoDevName = target === '' ? undefined : target
+		}
+	})
 	run(() => {
 		validateName(id)
 	})
@@ -598,6 +622,18 @@
 					<div class="flex flex-col gap-2 pt-1">
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
+							<div class="text-2xs text-secondary">
+								Cosmetic label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge
+								>
+								<button
+									type="button"
+									class="text-secondary hover:text-primary hover:underline"
+									onclick={() =>
+										(devWorkspaceLabel = devWorkspaceLabel === 'staging' ? 'dev' : 'staging')}
+								>
+									Change to {devWorkspaceLabel === 'staging' ? 'dev' : 'staging'}
+								</button>
+							</div>
 							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 								<div class="flex flex-col gap-0.5">
 									<span class="text-xs font-semibold text-emphasis"
