@@ -85,6 +85,10 @@ const provider: DeployProvider = {
   createSchedule: wmill.createSchedule,
   updateSchedule: wmill.updateSchedule,
   deleteSchedule: wmill.deleteSchedule,
+  // Datatable migrations
+  listDatatableMigrations: wmill.listDatatableMigrations,
+  upsertDatatableMigration: wmill.upsertDatatableMigration,
+  deleteDatatableMigration: wmill.deleteDatatableMigration,
 };
 
 /**
