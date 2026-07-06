@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.751.0](https://github.com/windmill-labs/windmill/compare/v1.750.0...v1.751.0) (2026-07-06)
+
+
+### Features
+
+* add cosmetic dev/staging label for dev workspaces ([#9959](https://github.com/windmill-labs/windmill/issues/9959)) ([fd8e64d](https://github.com/windmill-labs/windmill/commit/fd8e64d11fea3ffdb7858100c67cb2e9ca841ed6))
+* **auth:** add runtime NO_AUTH mode for authentication bypass ([#9962](https://github.com/windmill-labs/windmill/issues/9962)) ([91e1b08](https://github.com/windmill-labs/windmill/commit/91e1b087a206efb7189824b4184e1f3f4cda7211))
+* **frontend:** custom skills — detail modal, batch manage, shared validation ([#9847](https://github.com/windmill-labs/windmill/issues/9847)) ([2e14302](https://github.com/windmill-labs/windmill/commit/2e14302e4abbad595584806bff12548d520fcb58))
+* **pipelines:** auto-derive cascade edges from ducklake/s3 reads (+ muted-read badge) ([#9963](https://github.com/windmill-labs/windmill/issues/9963)) ([3dcd394](https://github.com/windmill-labs/windmill/commit/3dcd3949a14199b106506994ea31ca3de7e636b3))
+
+
+### Bug Fixes
+
+* **ai:** centralize Anthropic Messages API routing across completion paths ([#9960](https://github.com/windmill-labs/windmill/issues/9960)) ([cc2f638](https://github.com/windmill-labs/windmill/commit/cc2f638de6cebeffb9fee1d4835a0cfd565af86c))
+* **assets:** responsive layout for small screens ([#9961](https://github.com/windmill-labs/windmill/issues/9961)) ([45946d1](https://github.com/windmill-labs/windmill/commit/45946d1185c0bd07948d4d8454880c2801571f9d))
+* **cli:** quote non-identifier property names in resource-type namespace ([#9964](https://github.com/windmill-labs/windmill/issues/9964)) ([dc6b997](https://github.com/windmill-labs/windmill/commit/dc6b99775b550e7433fee8a159c30eaf296500c5))
+* critical alerts modal mute toggles no longer close popover or fail to save ([#9969](https://github.com/windmill-labs/windmill/issues/9969)) ([6587019](https://github.com/windmill-labs/windmill/commit/6587019d263374ee5707d258f5d8eec7e73c690d))
+* **frontend:** theme-aware code block background in prose markdown ([#9968](https://github.com/windmill-labs/windmill/issues/9968)) ([9821596](https://github.com/windmill-labs/windmill/commit/9821596251cff698958ffbfbd11fffa6a7988c6c))
+
 ## [1.750.0](https://github.com/windmill-labs/windmill/compare/v1.749.0...v1.750.0) (2026-07-06)
 
 
