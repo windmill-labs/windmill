@@ -1307,6 +1307,45 @@ describe('global AI tools', () => {
 		).toBeUndefined()
 	})
 
+	// Same private-owner read path as schedules, for the variable drawer kind.
+	// Secret variables deploy through the ephemeral in-memory value instead
+	// (see the ephemeral-value tests above); this pins the plain-value cycle.
+	it('reads and deploys a non-secret variable draft written by the chat', async () => {
+		await callGlobalTool('write_variable', {
+			path: 'u/admin/fresh_config',
+			value: 'plain-value',
+			is_secret: false,
+			description: 'fresh config'
+		})
+
+		const readRaw = await callGlobalTool('read_workspace_item', {
+			type: 'variable',
+			path: 'u/admin/fresh_config'
+		})
+		expect(JSON.parse(readRaw)).toMatchObject({
+			type: 'variable',
+			path: 'u/admin/fresh_config',
+			isDraft: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'u/admin/fresh_config'
+		})
+		expect(VariableService.createVariable).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'u/admin/fresh_config',
+				value: 'plain-value',
+				is_secret: false,
+				description: 'fresh config'
+			})
+		})
+		expect(
+			getBackendDraft('variable', 'u/admin/fresh_config', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
 	it('requires trigger_kind when discarding a trigger draft', async () => {
 		await expect(
 			callGlobalTool('discard_local_draft', {
