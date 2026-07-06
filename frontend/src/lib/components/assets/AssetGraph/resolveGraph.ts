@@ -143,11 +143,19 @@ function edgeKey(a: {
  * `'rw'` on the deployed graph (one edge) or a separate `'w'` edge in the live
  * overlay (a `// materialize` producer reading its own target), and neither
  * should badge as muted — it's the script's own output, not a suppressed input.
+ *
+ * Only `// pipeline` scripts are considered: auto-derivation never applies to a
+ * plain script or a flow, so a non-pipeline runnable reading a ducklake/s3
+ * asset has no auto trigger to suppress and must render as ordinary lineage.
  */
 export function computeMutedReadKeys(
 	edges: AssetGraphResponse['edges'],
-	triggers: AssetGraphResponse['triggers']
+	triggers: AssetGraphResponse['triggers'],
+	runnables: AssetGraphResponse['runnables']
 ): Set<string> {
+	const pipelineScripts = new Set(
+		runnables.filter((r) => r.usage_kind === 'script' && r.in_pipeline).map((r) => r.path)
+	)
 	const cascaded = new Set(
 		triggers.filter((t) => t.trigger_kind === 'asset').map((t) => edgeKey(t))
 	)
@@ -157,6 +165,7 @@ export function computeMutedReadKeys(
 	const muted = new Set<string>()
 	for (const e of edges) {
 		if (e.access_type !== 'r' || !AUTO_TRIGGER_KINDS.has(e.asset_kind)) continue
+		if (e.runnable_kind !== 'script' || !pipelineScripts.has(e.runnable_path)) continue
 		const key = edgeKey(e)
 		if (!cascaded.has(key) && !written.has(key)) muted.add(key)
 	}

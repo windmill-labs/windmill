@@ -736,11 +736,14 @@ describe('computeMutedReadKeys', () => {
 		runnable_kind: 'script' as const,
 		runnable_path: 'f/x/c'
 	})
+	// `f/x/c` (the read consumer) is an in-pipeline script.
+	const pipelineRunnable = [{ path: 'f/x/c', usage_kind: 'script' as const, in_pipeline: true }]
 
 	it('flags a ducklake/s3 read with no cascade trigger as muted', () => {
 		const muted = computeMutedReadKeys(
 			[readEdge('ducklake', 'main.orders'), readEdge('s3object', 'raw/events')],
-			[]
+			[],
+			pipelineRunnable
 		)
 		expect([...muted].sort()).toEqual([
 			'ducklake:main.orders->script:f/x/c',
@@ -751,7 +754,8 @@ describe('computeMutedReadKeys', () => {
 	it('does not flag a read that has a cascade trigger', () => {
 		const muted = computeMutedReadKeys(
 			[readEdge('ducklake', 'main.orders')],
-			[assetTrigger('ducklake', 'main.orders')]
+			[assetTrigger('ducklake', 'main.orders')],
+			pipelineRunnable
 		)
 		expect(muted.size).toBe(0)
 	})
@@ -763,7 +767,8 @@ describe('computeMutedReadKeys', () => {
 				readEdge('resource', 'f/db'), // out of scope
 				readEdge('datatable', 'main.dt') // out of scope
 			],
-			[]
+			[],
+			pipelineRunnable
 		)
 		expect(muted.size).toBe(0)
 	})
@@ -774,8 +779,20 @@ describe('computeMutedReadKeys', () => {
 		// the script's own output, not a suppressed input, so it is not muted.
 		const muted = computeMutedReadKeys(
 			[readEdge('ducklake', 'main.orders', 'r'), readEdge('ducklake', 'main.orders', 'w')],
-			[]
+			[],
+			pipelineRunnable
 		)
 		expect(muted.size).toBe(0)
+	})
+
+	it('does not flag a read by a non-pipeline script (auto-derivation never applied)', () => {
+		// Same read, but the consumer is a plain script (or a flow), not a
+		// `// pipeline` member — no auto trigger was ever derived to suppress.
+		const plainScript = [{ path: 'f/x/c', usage_kind: 'script' as const, in_pipeline: false }]
+		expect(computeMutedReadKeys([readEdge('ducklake', 'main.orders')], [], plainScript).size).toBe(
+			0
+		)
+		const flow = [{ path: 'f/x/c', usage_kind: 'flow' as const, in_pipeline: true }]
+		expect(computeMutedReadKeys([readEdge('ducklake', 'main.orders')], [], flow).size).toBe(0)
 	})
 })

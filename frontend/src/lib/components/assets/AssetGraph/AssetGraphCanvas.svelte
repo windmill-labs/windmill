@@ -497,8 +497,9 @@
 		}
 
 		// Read edges of a ducklake/s3 asset with no cascade trigger = muted
-		// (`// mute` / `// mute all` opted the default auto trigger out).
-		const mutedReadKeys = computeMutedReadKeys(g.edges, g.triggers)
+		// (`// mute` / `// mute all` opted the default auto trigger out). Gated
+		// on pipeline scripts inside the helper (non-pipeline reads never derive).
+		const mutedReadKeys = computeMutedReadKeys(g.edges, g.triggers, g.runnables)
 		for (const e of g.edges) {
 			const runnableId = `${e.runnable_kind}:${e.runnable_path}`
 			const assetId = `asset:${e.asset_kind}:${e.asset_path}`

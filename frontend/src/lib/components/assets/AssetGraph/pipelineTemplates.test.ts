@@ -91,3 +91,48 @@ describe('pipelineTemplates materialize partition filter', () => {
 		expect(body).not.toContain('strftime')
 	})
 })
+
+describe('pipelineTemplates: auto-derived reads drop the redundant // on', () => {
+	const draft = (
+		input: { kind: 'ducklake' | 's3object' | 'datatable'; path: string } | undefined,
+		triggers: Parameters<typeof generatePipelineDraft>[0]['triggers']
+	) =>
+		generatePipelineDraft({
+			language: 'duckdb',
+			outputKind: 'materialize',
+			output: autoOutputAsset('materialize', 'demo', 'duckdb'),
+			input,
+			triggers
+		})
+
+	it('omits // on for a ducklake input the body reads (auto-derived)', () => {
+		const body = draft({ kind: 'ducklake', path: 'main/orders' }, [
+			{ kind: 'asset', ref: 'ducklake://main/orders' }
+		])
+		expect(body).not.toContain('on ducklake://main/orders')
+		// The body still attaches and reads the table (`ducklake://main` →
+		// `lake.orders`), which is what wires the cascade now that the explicit
+		// `// on` is gone.
+		expect(body).toContain(`ATTACH 'ducklake://main'`)
+		expect(body).toContain('lake.orders')
+	})
+
+	it('omits // on for an s3 input the body reads', () => {
+		const body = draft({ kind: 's3object', path: 'raw/events.parquet' }, [
+			{ kind: 'asset', ref: 's3://raw/events.parquet' }
+		])
+		expect(body).not.toContain('on s3://raw/events.parquet')
+	})
+
+	it('keeps // on for a datatable input (not auto-derived)', () => {
+		const body = draft({ kind: 'datatable', path: 'main/dt' }, [
+			{ kind: 'asset', ref: 'datatable://main/dt' }
+		])
+		expect(body).toContain('on datatable://main/dt')
+	})
+
+	it('keeps // on for a native trigger', () => {
+		const body = draft(undefined, [{ kind: 'schedule', path: undefined }])
+		expect(body).toContain('on schedule')
+	})
+})
