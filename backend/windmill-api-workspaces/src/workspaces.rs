@@ -2694,6 +2694,13 @@ async fn edit_git_sync_config(
     )
     .await?;
 
+    // The whole-config save only writes the DB below; the managed GitHub webhooks
+    // are reconciled after the commit is durable (like the per-repository endpoint):
+    // `post_commit` carries the saved repos to reconcile + the hooks of repos this
+    // save removed, to delete.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let post_commit: Option<(WorkspaceGitSyncSettings, Vec<(String, i64)>)>;
+
     if let Some(mut git_sync_settings) = new_config.git_sync_settings {
         // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
         // status) that the redacted GET response omits — otherwise a whole-config
@@ -2707,7 +2714,30 @@ async fn edit_git_sync_config(
         .await?
         .flatten()
         .and_then(|v| serde_json::from_value(v).ok());
-        if let Some(existing) = existing {
+        // Repos present before but absent from this save: their webhooks won't be
+        // reconciled below (no longer listed), so capture them for deletion.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        let removed_webhooks: Vec<(String, i64)> = existing
+            .as_ref()
+            .map(|e| {
+                e.repositories
+                    .iter()
+                    .filter(|old| {
+                        !git_sync_settings
+                            .repositories
+                            .iter()
+                            .any(|n| n.git_repo_resource_path == old.git_repo_resource_path)
+                    })
+                    .filter_map(|old| {
+                        old.auto_pull
+                            .as_ref()
+                            .and_then(|a| a.webhook_id)
+                            .map(|h| (old.git_repo_resource_path.clone(), h))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(existing) = &existing {
             for repo in git_sync_settings.repositories.iter_mut() {
                 if let (Some(new_ap), Some(old_ap)) = (
                     repo.auto_pull.as_mut(),
@@ -2728,7 +2758,7 @@ async fn edit_git_sync_config(
         // Clean up legacy workspace-level settings if all repos are migrated
         cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
-        let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+        let serialized_config = serde_json::to_value(&git_sync_settings)
             .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
@@ -2738,7 +2768,37 @@ async fn edit_git_sync_config(
         )
         .execute(&mut *tx)
         .await?;
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        {
+            post_commit = Some((git_sync_settings, removed_webhooks));
+        }
     } else {
+        // Clearing the whole config removes every repo — delete all their webhooks.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        {
+            let existing: Option<WorkspaceGitSyncSettings> = sqlx::query_scalar!(
+                "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten()
+            .and_then(|v| serde_json::from_value(v).ok());
+            let removed_webhooks: Vec<(String, i64)> = existing
+                .map(|e| {
+                    e.repositories
+                        .iter()
+                        .filter_map(|old| {
+                            old.auto_pull
+                                .as_ref()
+                                .and_then(|a| a.webhook_id)
+                                .map(|h| (old.git_repo_resource_path.clone(), h))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            post_commit = Some((WorkspaceGitSyncSettings::default(), removed_webhooks));
+        }
         sqlx::query!(
             "UPDATE workspace_settings SET git_sync = NULL WHERE workspace_id = $1",
             &w_id,
@@ -2748,6 +2808,43 @@ async fn edit_git_sync_config(
     }
 
     tx.commit().await?;
+
+    // Post-commit: reconcile each saved repo's managed webhook to match the config
+    // and delete the webhooks of repos this save removed. Best-effort — a failure
+    // leaves polling on.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some((mut settings, removed_webhooks)) = post_commit {
+        let mut webhook_changed = false;
+        for repo in settings.repositories.iter_mut() {
+            let before = serde_json::to_value(&repo.auto_pull).ok();
+            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
+            {
+                tracing::warn!("git auto-pull: webhook sync error: {}", e);
+            }
+            if serde_json::to_value(&repo.auto_pull).ok() != before {
+                webhook_changed = true;
+            }
+        }
+        if webhook_changed {
+            if let Ok(updated) = serde_json::to_value(&settings) {
+                let _ = sqlx::query!(
+                    "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+                    updated,
+                    &w_id
+                )
+                .execute(&db)
+                .await;
+            }
+        }
+        for (path, hook_id) in removed_webhooks {
+            if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &w_id, &path).await
+            {
+                let _ =
+                    windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id)
+                        .await;
+            }
+        }
+    }
 
     // Trigger git sync for git sync settings changes
     handle_deployment_metadata(
