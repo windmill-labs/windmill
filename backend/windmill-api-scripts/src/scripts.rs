@@ -141,6 +141,8 @@ pub fn workspaced_service() -> Router {
         // CI test results
         .route("/ci_test_results/{kind}/{*path}", get(get_ci_test_results))
         .route("/ci_test_results_batch", post(get_ci_test_results_batch))
+        // Save-time schema-contract check (pipelines gap #2b)
+        .route("/check_schema_contracts", post(check_schema_contracts))
 }
 
 #[derive(Serialize, FromRow)]
@@ -1252,16 +1254,6 @@ async fn create_script_internal<'c>(
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
     let pipeline_annotations = parse_pipeline_annotations(&ns.content);
-    // `// freshness` is parsed but enforcement is a not-yet-implemented
-    // enterprise feature (skeleton in windmill_common::pipeline_advanced).
-    // Surface a clear TODO at deploy rather than silently accepting an
-    // annotation that does nothing.
-    if pipeline_annotations.freshness.is_some() {
-        tracing::warn!(
-            "{}",
-            windmill_common::pipeline_advanced::freshness_enforcement_todo()
-        );
-    }
     // `// materialize` materializes a `ducklake://<name>/<table>` target from a
     // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
     // target would otherwise deploy, register a producer in the asset graph, then
@@ -1315,6 +1307,38 @@ async fn create_script_internal<'c>(
                 ns.path
             );
         }
+        // SCD2 (`key=<col> history` / `scd2`) option-combination checks the
+        // runtime cannot honor: reject at deploy with a clear message rather
+        // than letting the script deploy and fail on its first run. Mirrors the
+        // executor's safety-net `MaterializeSpec::validate` (duckdb_executor).
+        if let Err(e) = m.validate(pipeline_annotations.partition.is_some()) {
+            return Err(Error::BadRequest(e));
+        }
+        // `manual` materialize never captures a schema (no wrap codegen), so
+        // there is no contract for `on_schema_change` to mute downstream.
+        if m.manual && m.on_schema_change == windmill_parser::asset_parser::OnSchemaChange::Ignore {
+            tracing::warn!(
+                "script {}: `on_schema_change=ignore` on a `manual` materialize is inert — manual mode captures no schema, so consumers have no contract to check",
+                ns.path
+            );
+        }
+    }
+    // A `// data_test` line whose right-hand side doesn't parse into a known
+    // check is dropped silently by the parser (fail-safe). For a data-quality
+    // assertion that is a footgun — a typo disables the test with no signal —
+    // so warn at deploy. Warning, not rejection: it matches the other pipeline
+    // deploy checks above and can't false-positive a deploy on an edge the
+    // coarse count and the parser disagree on.
+    let malformed_data_tests =
+        windmill_parser::asset_parser::count_malformed_data_tests(&ns.content);
+    if malformed_data_tests > 0 {
+        tracing::warn!(
+            "script {}: {} `// data_test` line(s) are malformed and were dropped — the intended \
+             check(s) will not run. Fix the syntax (e.g. `data_test accepted_values <col> = a,b,c`, \
+             `data_test relationships <col> -> <asset>.<refcol>`).",
+            ns.path,
+            malformed_data_tests
+        );
     }
     // `// macros` — this script is a workspace macro library: its body is
     // CREATE [OR REPLACE] MACRO statements plus plain setup, registered into
@@ -1422,21 +1446,17 @@ async fn create_script_internal<'c>(
     // body's `SELECT` doesn't express the write (the runtime generates it), so
     // server-side inference wouldn't otherwise link it.
     let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
-        let kind = windmill_common::assets::asset_kind_from_parser(m.target_kind);
         let mut a = effective_assets.unwrap_or_default();
         // Produced assets: the managed table, plus — for managed scd2 — the
-        // `<dim>_current` companion view the runtime (re)creates each run.
-        // Registering the view as a write asset lets `// on
-        // ducklake://…/<dim>_current` subscribers be dispatched by the cascade
-        // (which fans out from these deploy-time asset rows); without it a
-        // subscriber on the view would silently never fire. Gated on `!manual`:
-        // manual mode owns its own DDL and short-circuits before the scd2 codegen
-        // (no view is created), so registering it there would be a false edge.
-        let mut targets = vec![m.target_path.clone()];
-        if m.scd2 && !m.manual {
-            targets.push(format!("{}_current", m.target_path));
-        }
-        for path in targets {
+        // `<dim>_current` companion view the runtime (re)creates each run
+        // (`MaterializeSpec::write_targets`). Registering the view as a write
+        // asset lets `// on ducklake://…/<dim>_current` subscribers be
+        // dispatched by the cascade (which fans out from these deploy-time asset
+        // rows) and connects a consumer that reads only the view back to this
+        // producer; without it a subscriber on the view would silently never
+        // fire and the view would be an orphan node in the lineage graph.
+        for (target_kind, path) in m.write_targets() {
+            let kind = windmill_common::assets::asset_kind_from_parser(target_kind);
             if !a.iter().any(|x| x.kind == kind && x.path == path) {
                 a.push(windmill_common::assets::AssetWithAltAccessType {
                     path,
@@ -3975,4 +3995,47 @@ async fn get_ci_test_results_batch(
     }
 
     Ok(Json(result_map))
+}
+
+#[derive(Deserialize)]
+struct CheckSchemaContractsRequest {
+    language: ScriptLang,
+    content: String,
+}
+
+#[derive(Serialize)]
+struct CheckSchemaContractsResponse {
+    warnings: Vec<windmill_common::schema_contracts::ContractWarning>,
+}
+
+// Save-time schema-contract check (pipelines gap #2b): validate the given
+// script content's asset references (body column reads, `// column` lineage,
+// `// data_test relationships`) against the latest captured producer schemas
+// and return WARNINGS — never errors, and deploy never blocks on this. The
+// frontend calls it right after a successful deploy (post-commit, so a
+// self-produced target resolves to the fresh content) and the editor mirrors
+// the same diff client-side; this endpoint is the authoritative check. Parsing
+// uses the same server path as deploy (`effective_script_assets` +
+// `parse_pipeline_annotations`) so the verdict matches what deployed.
+async fn check_schema_contracts(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<CheckSchemaContractsRequest>,
+) -> JsonResult<CheckSchemaContractsResponse> {
+    let assets = crate::asset_inference::effective_script_assets(&req.language, &req.content, None)
+        .unwrap_or_default();
+    let ann = parse_pipeline_annotations(&req.content);
+    let mut tx = user_db.begin(&authed).await?;
+    let warnings = windmill_common::schema_contracts::check_schema_contracts(
+        &mut tx,
+        &w_id,
+        &assets,
+        &ann.column_lineage,
+        &ann.data_tests,
+        ann.materialize.as_ref(),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(CheckSchemaContractsResponse { warnings }))
 }

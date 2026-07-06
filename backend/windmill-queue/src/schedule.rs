@@ -227,11 +227,30 @@ pub async fn push_scheduled_job<'c>(
         }
     }
 
+    // Managed ducklake maintenance schedule (enterprise): the runnable is a
+    // generated DuckDB script, not a deployed one — built in the EE module.
+    // None (CE build, or no enabled maintenance config for the path's lake)
+    // falls through to normal script resolution, so a user schedule that
+    // pre-dates the reserved prefix keeps running its script and a stale
+    // managed row fails resolution with NotFound (auto-disabling it with
+    // schedule.error recorded).
+    let maintenance_payload =
+        if windmill_common::workspaces::lake_from_ducklake_maintenance_path(&schedule.path)
+            .is_some()
+        {
+            crate::ducklake_maintenance::build_maintenance_schedule_payload(&mut tx, schedule)
+                .await?
+        } else {
+            None
+        };
+
     // If schedule handler is defined, wrap the scheduled job in a synthetic flow
     // with the handler as the first step (with stop_after_if to skip if handler returns false)
-    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(handler_path) =
-        &schedule.dynamic_skip
+    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(maintenance_payload) =
+        maintenance_payload
     {
+        maintenance_payload
+    } else if let Some(handler_path) = &schedule.dynamic_skip {
         // Build skip handler args
         let mut skip_handler_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
         skip_handler_args.insert(

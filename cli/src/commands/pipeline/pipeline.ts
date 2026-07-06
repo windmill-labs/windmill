@@ -20,6 +20,7 @@ import {
   scriptsOf,
   topoOrder,
   validStarts,
+  validFromStarts,
 } from "./boundedCascade.ts";
 import {
   type AssetGraph,
@@ -302,6 +303,26 @@ async function renderGraph(
     return out.length > 0 ? " " + out.join(" ") : "";
   }
 
+  // `// macros` libraries: badge the node with the macros it defines and list
+  // its consumers as ƒ edges. Populated on both the deployed graph and the local
+  // graph (localGraph.ts derives `macros`/`macro_edges` from the working tree,
+  // since the wasm asset parser emits neither).
+  const macrosByLib = new Map(
+    graph.runnables
+      .filter((r) => (r.macros?.length ?? 0) > 0)
+      .map((r) => [r.path, r.macros!]),
+  );
+  const macroConsumersByLib = new Map<
+    string,
+    { consumer: string; names: string[] }[]
+  >();
+  for (const me of graph.macro_edges ?? []) {
+    pushTo(macroConsumersByLib, me.lib_path, {
+      consumer: me.consumer_path,
+      names: me.macro_names,
+    });
+  }
+
   const printed = new Set<string>();
   const lines: string[] = [];
 
@@ -317,8 +338,22 @@ async function renderGraph(
       return;
     }
     printed.add(script);
-    lines.push(`${prefix}${colors.bold(shortName(script))}${triggerBadges(script)}${alsoOn}`);
+    const libMacros = macrosByLib.get(script);
+    const macroBadge = libMacros
+      ? " " +
+        colors.magenta(`[ƒ macros: ${libMacros.map((m) => m.name).join(", ")}]`)
+      : "";
+    lines.push(`${prefix}${colors.bold(shortName(script))}${macroBadge}${triggerBadges(script)}${alsoOn}`);
     const childPrefix = prefix.replace(/├─ $/, "│  ").replace(/└─ $/, "   ");
+    const macroConsumers = [...(macroConsumersByLib.get(script) ?? [])].sort(
+      (a, b) => a.consumer.localeCompare(b.consumer),
+    );
+    macroConsumers.forEach(({ consumer, names }, i) => {
+      const branch = i === macroConsumers.length - 1 ? "└─ƒ " : "├─ƒ ";
+      lines.push(
+        `${childPrefix}${branch}${shortName(consumer)} ${colors.dim(`(uses ${names.join(", ")})`)}`,
+      );
+    });
     const writes = [...(writesByScript.get(script) ?? [])].sort();
     writes.forEach((uri, i) => {
       const lastAsset = i === writes.length - 1;
@@ -368,7 +403,10 @@ async function renderGraph(
 
 // Poll a launched job to a terminal state. Modest fixed cadence; capped so a
 // wedged job can't hang the CLI forever.
-async function waitJob(workspace: string, id: string): Promise<boolean> {
+async function waitJob(
+  workspace: string,
+  id: string,
+): Promise<{ ok: boolean; result?: unknown }> {
   const MAX_RETRIES = 6000; // ~10min at 100ms
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
@@ -380,7 +418,7 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
       // A completed job without an explicit `success: true` is a failure
       // (mirrors the frontend `waitJobTerminal`): the cascade only advances on
       // a confirmed success.
-      if (r.completed) return r.success === true;
+      if (r.completed) return { ok: r.success === true, result: r.result };
     } catch {
       // transient — retry
     }
@@ -389,13 +427,35 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
   throw new Error(`Timed out waiting for job ${id}`);
 }
 
-// Bounded-cascade run: start at a schedule / manual root, fan downstream, but
-// stop at the `--to` end node(s). Scripts run in topological order; each is
-// launched with `_wmill_skip_asset_dispatch` so the CLI owns the whole closure
-// (the backend dispatcher never double-fires the deployed part). With no
-// `--to`, runs the full read-aware downstream of `--from` (every descendant in
-// the lineage DAG, pure readers included — broader than the canvas cascade,
-// which dispatches subscribers only).
+// Render a failed job's `{error: {name, message}}` result for the terminal, so
+// the user sees WHY the cascade stopped without opening the UI. Result shapes
+// vary (structured data-test payloads, plain strings), so fall back to raw
+// JSON when the canonical error shape is absent.
+function formatJobFailure(result: unknown): string | undefined {
+  if (result == null) return undefined;
+  const err = (result as any)?.error;
+  if (err && typeof err === "object") {
+    const name = typeof err.name === "string" ? err.name : undefined;
+    const message = typeof err.message === "string" ? err.message : undefined;
+    if (message) return name ? `${name}: ${message}` : message;
+  }
+  if (typeof result === "string") return result;
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+// Bounded-cascade run: start at `--from` — a schedule/manual root OR any mid-DAG
+// model (asset subscriber / pure reader) — fan downstream, but stop at the
+// `--to` end node(s). A mid-DAG start runs that node plus its transitive
+// downstream and never re-runs upstream (dbt `--select model+`). Scripts run in
+// topological order; each is launched with `_wmill_skip_asset_dispatch` so the
+// CLI owns the whole closure (the backend dispatcher never double-fires the
+// deployed part). With no `--to`, runs the full read-aware downstream of
+// `--from` (every descendant in the lineage DAG, pure readers included — broader
+// than the canvas cascade, which dispatches subscribers only).
 // Resolve one `--upload` binding to the run-arg it injects: pick the target
 // S3Object parameter (explicit `:param`, else the script's sole S3Object arg)
 // and turn the source into an object key — an `s3://` source is used as-is, a
@@ -531,19 +591,25 @@ async function run(
     // Resolve relative imports from local (not-yet-deployed) content so a script
     // that imports a sibling workspace lib previews against local edits. Same
     // trick as `wmill dev` / `wmill app dev`; degrades to undefined gracefully.
-    try {
-      const codebases = await listSyncCodebases(merged);
-      const { buildPreviewTempScriptRefs } = await import(
-        "../generate-metadata/generate-metadata.ts"
-      );
-      tempScriptRefs = await buildPreviewTempScriptRefs(
-        workspace,
-        merged,
-        codebases,
-        { kind: "all" },
-      );
-    } catch {
-      // best-effort: relative imports fall back to deployed versions
+    // Skipped for `--dry-run`: it locks/uploads scripts as a side effect (it
+    // regenerates `*.script.yaml` / `*.script.lock` / `wmill-lock.yaml`), and a
+    // plan preview must stay READ-ONLY — the refs are only consumed when a
+    // preview job actually runs below, which dry-run never reaches.
+    if (!opts.dryRun) {
+      try {
+        const codebases = await listSyncCodebases(merged);
+        const { buildPreviewTempScriptRefs } = await import(
+          "../generate-metadata/generate-metadata.ts"
+        );
+        tempScriptRefs = await buildPreviewTempScriptRefs(
+          workspace,
+          merged,
+          codebases,
+          { kind: "all" },
+        );
+      } catch {
+        // best-effort: relative imports fall back to deployed versions
+      }
     }
   } else {
     graph = await apiGet<BCGraph>(
@@ -603,9 +669,50 @@ async function run(
     merged[b.param] = b.value;
   }
 
-  // Resolve the start: explicit --from (must be a valid start) or the folder's
-  // sole valid start. `--upload`-bound scripts join the valid starts.
-  const starts = new Set([...validStarts(graph), ...boundNodeIds]);
+  // `// macros` libraries are definition-only: their macros are injected into
+  // consuming DuckDB scripts at run time, so "running" one is a no-op preview.
+  // They are excluded from starts and from every selection below (they'd
+  // otherwise read as manual roots, since nothing triggers them).
+  const macroLibPaths = new Set(
+    graph.runnables
+      .filter((r) => r.usage_kind === "script" && (r.macros?.length ?? 0) > 0)
+      .map((r) => r.path),
+  );
+  // Non-runnable graph nodes: the macro libraries above, plus (under `--local`)
+  // any script node with no local file. The local graph surfaces macro-consumer
+  // nodes for lineage display — a DuckDB script that calls a macro but isn't a
+  // `// pipeline` member (so has no previewable content). They must never enter
+  // the run: as a manual root they'd be scheduled, and a preview would fail with
+  // no local content to send.
+  const notRunnablePaths = new Set<string>(macroLibPaths);
+  if (opts.local && localScripts) {
+    for (const r of graph.runnables) {
+      if (r.usage_kind === "script" && !localScripts.has(r.path)) {
+        notRunnablePaths.add(r.path);
+      }
+    }
+  }
+
+  // Resolve the start. Two eligibility sets:
+  //   `starts`       — schedule/manual roots (+ `--upload`-bound handlers). The
+  //                    fan-in candidates for an IMPLICIT start (`runAll`, or the
+  //                    folder's sole root).
+  //   `fromEligible` — every autorun-able script, roots AND mid-DAG models
+  //                    (asset subscribers, pure readers). An EXPLICIT `--from`
+  //                    may name any of these: `--from <mid-model>` runs that node
+  //                    plus its transitive downstream, without re-running upstream
+  //                    (dbt `--select model+`). Non-autorun handlers stay out
+  //                    unless `--upload`-bound.
+  const starts = new Set(
+    [...validStarts(graph), ...boundNodeIds].filter(
+      (id) => !notRunnablePaths.has(scriptPathOf(id)),
+    ),
+  );
+  const fromEligible = new Set(
+    [...validFromStarts(graph), ...boundNodeIds].filter(
+      (id) => !notRunnablePaths.has(scriptPathOf(id)),
+    ),
+  );
   // `runAll` = no `--from` on a multi-root pipeline (fan-in): run the whole
   // pipeline in topological order rather than forcing a single start, the way
   // `dbt run` (no `--select`) runs the entire project. `--to` still needs an
@@ -627,9 +734,27 @@ async function run(
       }
       throw new Error(`--from '${opts.from}' matched no script in f/${f}.`);
     }
-    if (!starts.has(resolved)) {
+    if (macroLibPaths.has(scriptPathOf(resolved))) {
       throw new Error(
-        `--from '${opts.from}' is not a valid bounded-run start. Starts must be schedule-triggered or manual roots; row-backed event triggers (kafka/mqtt/nats/postgres/sqs/gcp/email) fan out per-event and can't be bounded.`,
+        `--from '${opts.from}' is a \`// macros\` library — definition-only, injected into consuming scripts at run time, never a runnable step.`,
+      );
+    }
+    // A `--local` display-only node (a non-`// pipeline` DuckDB script surfaced
+    // only because it calls a macro) has no previewable content — reject it
+    // clearly rather than admitting it and silently producing an empty plan.
+    if (notRunnablePaths.has(scriptPathOf(resolved))) {
+      throw new Error(
+        `--from '${opts.from}' isn't a \`// pipeline\` script — it appears in the local graph only as a macro consumer (lineage). Mark it \`// pipeline\` to run it.`,
+      );
+    }
+    if (!resolved.startsWith("script:")) {
+      throw new Error(
+        `--from '${opts.from}' is an asset, not a runnable — start a run from a script (assets are produced, not run).`,
+      );
+    }
+    if (!fromEligible.has(resolved)) {
+      throw new Error(
+        `--from '${opts.from}' can't start a run: row-backed event triggers (kafka/mqtt/nats/postgres/sqs/gcp/email) and input-only entrypoints (webhook/data_upload) fan out per-event or need caller-supplied input — bind it with --upload to run it.`,
       );
     }
     start = resolved;
@@ -687,8 +812,12 @@ async function run(
   // barriers: a valid start (a schedule/manual root, or an `--upload`-bound
   // handler) runs with its own input even if it ALSO carries a non-autorun
   // trigger — cutting it would drop a legitimately-scheduled root and its chain.
+  // An explicit mid-DAG `--from` is likewise protected: the user named it as the
+  // start, so it runs even if it also carries a non-autorun trigger.
   const barriers = new Set(
-    [...nonAutorunTriggerScripts(graph)].filter((id) => !starts.has(id)),
+    [...nonAutorunTriggerScripts(graph)].filter(
+      (id) => !starts.has(id) && id !== start,
+    ),
   );
   let selectedScripts: Set<string>;
   let reachableEnds: string[] = [];
@@ -728,6 +857,11 @@ async function run(
       }
     }
   }
+
+  // Selections can still pull a non-runnable node in via graph reachability (e.g.
+  // whole-pipeline mode collects every root's closure) — drop macro libraries and
+  // local-only display nodes before ordering so they never run.
+  for (const p of notRunnablePaths) selectedScripts.delete(p);
 
   const { order, cyclic } = topoOrder(graph, selectedScripts);
   if (cyclic.length > 0) {
@@ -877,9 +1011,15 @@ async function run(
         requestBody: nodeArgs,
       });
     }
-    const ok = await waitJob(workspace.workspaceId, id);
+    const { ok, result } = await waitJob(workspace.workspaceId, id);
     if (!ok) {
-      throw new Error(`Bounded run failed at ${nodePath} (job ${id}).`);
+      const detail = formatJobFailure(result);
+      const runUrl = `${workspace.remote}run/${id}?workspace=${workspace.workspaceId}`;
+      throw new Error(
+        `Bounded run failed at ${nodePath} (job ${id}).` +
+          (detail ? `\n${detail}` : "") +
+          `\nFull logs: ${runUrl}`,
+      );
     }
     if (!opts.json) log.info(colors.green(`  ✓ ${nodePath}`));
   }
@@ -908,12 +1048,12 @@ const command = new Command()
   .action(show as any)
   .command(
     "run",
-    "run a bounded cascade: from a schedule/manual root, fan downstream up to the --to end node(s)",
+    "run a cascade: from --from (a root OR any mid-DAG model), fan downstream up to the --to end node(s)",
   )
   .arguments("<folder:string>")
   .option(
     "--from <script:string>",
-    "Start script (short name or path). Defaults to the folder's sole schedule/manual root.",
+    "Start script (short name or path). May be any node, including a mid-DAG model — that node plus its transitive downstream runs, upstream is NOT re-run (dbt `--select model+`). Defaults to the folder's sole schedule/manual root.",
   )
   .option(
     "--to <node:string>",

@@ -70,6 +70,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { sanitizeToolCallArguments } from './toolCallArguments'
 import { normalizeContextUsage } from './tokenUsage'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import {
@@ -563,7 +564,10 @@ export class AIChatManager {
 		this.compacting = true
 		try {
 			const raw = await getNonStreamingCompletion(
-				[...prefix, { role: 'user', content: getCompactionSummaryPrompt() }],
+				[
+					...sanitizeToolCallArguments(prefix),
+					{ role: 'user', content: getCompactionSummaryPrompt() }
+				],
 				abortController
 			)
 			const formatted = formatCompactSummary(raw ?? '')
