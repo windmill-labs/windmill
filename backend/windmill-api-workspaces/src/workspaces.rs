@@ -754,6 +754,21 @@ fn redact_git_sync_webhook_secrets(git_sync: &mut serde_json::Value) {
     }
 }
 
+/// Zero the server-owned auto-pull fields (webhook id/secret/error, synced sha,
+/// last pull status) on a client-supplied `AutoPullSettings`. The client only
+/// controls `enabled` / `mode` / `poll_interval_s`; the rest is written by the
+/// server (webhook creation, poller) and must never be trusted from the request —
+/// otherwise a caller could inject a webhook id/secret or fake sync state.
+fn clear_client_supplied_auto_pull_state(
+    auto_pull: &mut windmill_common::workspaces::AutoPullSettings,
+) {
+    auto_pull.webhook_id = None;
+    auto_pull.webhook_secret = None;
+    auto_pull.webhook_error = None;
+    auto_pull.last_synced_sha = std::collections::HashMap::new();
+    auto_pull.last_pull_status = None;
+}
+
 async fn get_settings(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -2702,6 +2717,14 @@ async fn edit_git_sync_config(
     let post_commit: Option<(WorkspaceGitSyncSettings, Vec<(String, i64)>)>;
 
     if let Some(mut git_sync_settings) = new_config.git_sync_settings {
+        // Client-supplied server-owned auto-pull state is never trusted: strip it up
+        // front, then existing repos re-derive it from `existing` below and new repos
+        // stay clean.
+        for repo in git_sync_settings.repositories.iter_mut() {
+            if let Some(ap) = repo.auto_pull.as_mut() {
+                clear_client_supplied_auto_pull_state(ap);
+            }
+        }
         // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
         // status) that the redacted GET response omits — otherwise a whole-config
         // save from the UI would drop the webhook secret (breaking delivery) or
@@ -2870,13 +2893,21 @@ async fn edit_git_sync_repository(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(new_config): Json<EditGitSyncRepository>,
+    Json(mut new_config): Json<EditGitSyncRepository>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     check_git_sync_access(&db, &w_id).await?;
 
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
+
+    // Server-owned auto-pull state (webhook id/secret + sync status) is never
+    // accepted from the client — the webhook layer and poller own it. Strip it so an
+    // existing repo re-derives it from the DB (carried over below) and a new one
+    // starts clean.
+    if let Some(ap) = new_config.repository.auto_pull.as_mut() {
+        clear_client_supplied_auto_pull_state(ap);
+    }
 
     // Promotion mode: EE only
     #[cfg(not(feature = "enterprise"))]
