@@ -1383,9 +1383,12 @@
 
 	// Script path → its schedule's configured args, so a manual "Run pipeline"
 	// launches a schedule-triggered script with the same payload a real tick
-	// would (rather than empty args). Schedule is the only autorun trigger kind
-	// that carries args — every other trigger with a payload (webhook /
-	// data_upload / event kinds) is input-only and excluded from the cascade.
+	// would (rather than empty args). Schedule is the only trigger that stores a
+	// static args payload; every other trigger (webhook / http / event kinds /
+	// data_upload) receives its input from the live event or request at dispatch
+	// time — a message, an HTTP body, an uploaded file — which doesn't exist
+	// during a manual run, so there's nothing to default and those scripts run
+	// empty (data_upload being fed its staged file instead, see dataUploadArgs).
 	// Resolved on demand right before a run (schedule args aren't in the graph
 	// response); fail-safe — a schedule we can't fetch just contributes nothing.
 	let scheduleArgsByPath: Record<string, Record<string, any>> = {}
@@ -1426,11 +1429,11 @@
 		// drafts (same condition as `displayGraph`). Otherwise — View mode with
 		// drafts hidden — a bounded run must execute the *deployed* scripts the
 		// user is looking at, not preview jobs from hidden local drafts.
-		// Default a script's run args to whatever its trigger already configures
-		// (schedule payload — the only autorun trigger kind that carries args),
-		// then let a data-upload entry's staged file override. runWholePipeline
-		// already refused to start unless every data-upload entry is staged, so
-		// this is always the intended input.
+		// Default a script's run args to its schedule's stored payload (the only
+		// trigger with static args — see resolveScheduleArgs), then let a
+		// data-upload entry's staged file override. runWholePipeline already
+		// refused to start unless every data-upload entry is staged, so this is
+		// always the intended input.
 		const staged = { ...(scheduleArgsByPath[path] ?? {}), ...(dataUploadArgs[path] ?? {}) }
 		const draft = mode === 'edit' || includeDrafts ? pe.drafts.get(path) : undefined
 		if (draft) {
