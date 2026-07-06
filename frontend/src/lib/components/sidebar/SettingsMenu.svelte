@@ -47,23 +47,32 @@
 
 	let {
 		isCollapsed = false,
-		// Session mode drops the workspace-settings entry (the rail's global
-		// workspace context doesn't apply to a session's own forked workspace),
-		// but keeps the rest of the menu available.
-		hideWorkspaceSettings = false,
+		// Session mode: workspace the workspace-settings entry should target —
+		// the session's own (possibly forked) workspace, which can differ from
+		// the rail's active workspace, so the entry's href carries it as the
+		// `workspace` query param. Also hides "Leave workspace" (leaving a
+		// workspace from the session rail makes no sense). Unset = navigation
+		// mode, entry targets the active workspace.
+		workspaceSettingsTarget = undefined,
 		numUnacknowledgedCriticalAlerts = 0,
 		// Overridable so the kitchen-sink page can preview the cloud variant
 		// (isCloudHosted reads window.location, which a dev page can't change).
 		cloudHosted = isCloudHosted()
 	}: {
 		isCollapsed?: boolean
-		hideWorkspaceSettings?: boolean
+		workspaceSettingsTarget?: string
 		numUnacknowledgedCriticalAlerts?: number
 		cloudHosted?: boolean
 	} = $props()
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+
+	const settingsTargetWs = $derived(
+		workspaceSettingsTarget
+			? $userWorkspaces?.find((w) => w.id === workspaceSettingsTarget)
+			: undefined
+	)
 
 	let leaveWorkspaceModal = $state(false)
 
@@ -123,13 +132,21 @@
 	// the session rail and the global sidebar so both expose the same entry point.
 	// User sits just above Logout so the account-scoped entries read as one block.
 	const items = $derived<Item[]>([
-		...(canManageWorkspace && !hideWorkspaceSettings
+		...(canManageWorkspace
 			? [
-					{
-						displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
-						icon: Building,
-						href: `${base}/workspace_settings`
-					}
+					workspaceSettingsTarget
+						? {
+								displayName: `${settingsTargetWs?.name ?? workspaceSettingsTarget} settings`,
+								icon: Building,
+								// The `workspace` query param switches the app to the target
+								// workspace on arrival (full loads and client-side navs alike).
+								href: `${base}/workspace_settings?workspace=${workspaceSettingsTarget}`
+							}
+						: {
+								displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
+								icon: Building,
+								href: `${base}/workspace_settings`
+							}
 				]
 			: []),
 		...($superadmin
@@ -141,7 +158,7 @@
 					}
 				]
 			: []),
-		...(!canManageWorkspace && !hideWorkspaceSettings
+		...(!canManageWorkspace && !workspaceSettingsTarget
 			? [
 					{
 						displayName: 'Leave workspace',

@@ -18,11 +18,14 @@
 		ArchiveRestore,
 		ArrowUpRight,
 		EllipsisVertical,
+		ExternalLink,
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
+		Settings,
 		Trash2
 	} from 'lucide-svelte'
+	import { type Item } from '$lib/utils'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -52,6 +55,7 @@
 	} from './sessionState.svelte'
 	import { editorWarmIds, getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
+	import { base } from '$app/paths'
 	import { slide } from 'svelte/transition'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
@@ -93,19 +97,31 @@
 	const restoredDraftPrompt = peekTransientDraftPrompt(sessionId)
 
 	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
-	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the navigate button jumps to.
+	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the chip's ellipsis menu targets.
 	const acting = $derived.by(() => {
 		const wsId = session ? getEffectiveWorkspaceId(session) : undefined
 		return wsId ? { targetId: wsId } : undefined
 	})
 
-	// Navigate to the workspace the session acts on: switch into it and leave
-	// session mode for its home page.
-	function navigateToActingWorkspace() {
-		if (!acting) return
-		syncWorkspaceTo(acting.targetId)
-		void goto('/')
-	}
+	// Ellipsis menu on the "Acting on" chip. Both entries are real links (so
+	// modifier/middle clicks open a new tab); the `workspace` query param
+	// points the navigation at the acting workspace — the layout applies it on
+	// both full loads and client-side query changes. The trailing external-link
+	// glyphs make the leave-the-session navigation explicit.
+	const actingMenu = $derived<Item[]>([
+		{
+			displayName: 'Workspace settings',
+			icon: Settings,
+			href: `${base}/workspace_settings?workspace=${acting?.targetId ?? ''}`,
+			extra: externalLinkHint
+		},
+		{
+			displayName: 'Go to this workspace',
+			icon: ArrowUpRight,
+			href: `${base}/?workspace=${acting?.targetId ?? ''}`,
+			extra: externalLinkHint
+		}
+	])
 
 	$effect(() => {
 		if ($workspaceStore) {
@@ -295,6 +311,10 @@
 	}
 </script>
 
+{#snippet externalLinkHint()}
+	<ExternalLink size={12} class="shrink-0 text-tertiary" />
+{/snippet}
+
 {#if !session || !runtime}
 	<div class="p-8 text-secondary text-sm">Session not found</div>
 {:else}
@@ -430,17 +450,9 @@
 								showChevron={false}
 								interactive={false}
 								class="max-w-[16rem]"
+								menuItems={actingMenu}
 							/>
 							<CopyButton value={acting.targetId} title={`Copy id: ${acting.targetId}`} />
-							<button
-								type="button"
-								onclick={navigateToActingWorkspace}
-								title="Go to this workspace"
-								aria-label="Go to this workspace"
-								class="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-							>
-								<ArrowUpRight size={13} />
-							</button>
 						</div>
 					{/if}
 					{#if !hideEditor && !session.target && hasFirstUserMessage}

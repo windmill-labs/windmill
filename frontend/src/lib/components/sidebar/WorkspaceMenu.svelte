@@ -12,7 +12,7 @@
 		globalForkModal,
 		type UserWorkspace
 	} from '$lib/stores'
-	import { Building, Check, ChevronDown, ChevronRight, Plus } from 'lucide-svelte'
+	import { Building, Check, ChevronDown, ChevronRight, Plus, Settings } from 'lucide-svelte'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { Badge, CopyButton, NameIdTooltip } from '$lib/components/common'
@@ -163,6 +163,10 @@
 	// active workspace still surfaces its family name here (the fork itself is
 	// shown in the breadcrumb).
 	const currentFamily = $derived(findRoot($workspaceStore ?? undefined))
+
+	// The active workspace itself (fork included) — names the settings entry.
+	const activeWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
 
 	// font-normal is explicit: href-less MenuItems render as <button>, which the
 	// global stylesheet makes semibold, unlike the <a> the href entries get.
@@ -340,6 +344,18 @@
 							Workspace fork
 						</MenuItem>
 					{/if}
+				</div>
+			{/if}
+			{#if canManageWorkspace && !strictWorkspaceSelect}
+				<div class="py-1" role="none">
+					<MenuItem
+						href="{base}/workspace_settings?workspace={$workspaceStore}"
+						class={itemClass}
+						{item}
+					>
+						<Settings size={16} />
+						{activeWorkspace?.name ?? $workspaceStore} settings
+					</MenuItem>
 				</div>
 			{/if}
 			{#if !strictWorkspaceSelect}

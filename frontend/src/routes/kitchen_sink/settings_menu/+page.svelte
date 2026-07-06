@@ -102,7 +102,7 @@
 			isPremium = true
 			sessionMode = false
 		},
-		'Session mode (no workspace settings/leave)': () => {
+		'Session mode (settings target the session workspace)': () => {
 			sessionMode = true
 		}
 	}
@@ -151,6 +151,15 @@
 					color: '',
 					is_dev_workspace: false,
 					disabled: false
+				},
+				{
+					id: 'wm-fork-kitchen-sink',
+					name: 'Kitchen Sink fork',
+					username: 'jane',
+					color: '',
+					is_dev_workspace: false,
+					disabled: false,
+					parent_workspace_id: 'kitchen-sink'
 				}
 			]
 		}
@@ -204,7 +213,7 @@
 			<Toggle bind:checked={isPremium} options={{ right: 'premium (cloud)' }} size="xs" />
 			<Toggle
 				bind:checked={sessionMode}
-				options={{ right: 'session mode (hide workspace settings)' }}
+				options={{ right: 'session mode (settings target the session fork)' }}
 				size="xs"
 			/>
 			<Toggle bind:checked={collapsed} options={{ right: 'collapsed rail' }} size="xs" />
@@ -247,7 +256,7 @@
 					<div class="px-2 pb-2">
 						<SettingsMenu
 							isCollapsed={collapsed}
-							hideWorkspaceSettings={sessionMode}
+							workspaceSettingsTarget={sessionMode ? 'wm-fork-kitchen-sink' : undefined}
 							numUnacknowledgedCriticalAlerts={Number(criticalAlerts)}
 							{cloudHosted}
 						/>

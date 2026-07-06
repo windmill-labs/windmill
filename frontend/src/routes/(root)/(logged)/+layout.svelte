@@ -75,6 +75,8 @@
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { parsePreviewItemRoute } from '$lib/components/sessions/previewRouter'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
+	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
+	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
@@ -116,6 +118,14 @@
 	// /sessions page and the workspace navigation everywhere else. The switch
 	// (SessionModeSwitch) just navigates in and out of that route.
 	let sessionMode = $derived(page.url.pathname.startsWith(base + '/sessions'))
+	// Session mode points the bottom settings entry at the open session's own
+	// workspace. An unsent draft hasn't committed one yet, so it falls back to
+	// the family root.
+	let sessionSettingsWorkspace = $derived.by(() => {
+		if (!sessionMode) return undefined
+		const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
+		return current?.workspace_id ?? $currentWorkspaceRootId ?? $workspaceStore ?? undefined
+	})
 	// Inside a preview iframe the rail still renders (navigation mode), but the
 	// switch must not — entering session mode from within the preview would
 	// nest the whole experience. Hide it when embedded.
@@ -798,12 +808,12 @@
 										/>
 									{/if}
 
-									<!-- Settings dropdown stays across both modes; session mode just hides
-									     the workspace-settings entry. -->
+									<!-- Settings dropdown stays across both modes; session mode points
+									     the workspace-settings entry at the session's own workspace. -->
 									<div class="px-2 pb-2">
 										<SettingsMenu
 											isCollapsed={false}
-											hideWorkspaceSettings={sessionMode}
+											workspaceSettingsTarget={sessionSettingsWorkspace}
 											numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
 												? 0
 												: numUnacknowledgedCriticalAlerts}
@@ -913,12 +923,12 @@
 								/>
 							{/if}
 
-							<!-- Settings dropdown stays across both modes; session mode just hides
-							     the workspace-settings entry. -->
+							<!-- Settings dropdown stays across both modes; session mode points
+							     the workspace-settings entry at the session's own workspace. -->
 							<div class="px-2 pb-1">
 								<SettingsMenu
 									{isCollapsed}
-									hideWorkspaceSettings={sessionMode}
+									workspaceSettingsTarget={sessionSettingsWorkspace}
 									numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
 										? 0
 										: numUnacknowledgedCriticalAlerts}

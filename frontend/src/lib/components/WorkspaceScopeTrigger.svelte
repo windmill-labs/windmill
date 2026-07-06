@@ -3,7 +3,9 @@
 	import { findWorkspaceRoot } from '$lib/utils/workspaceHierarchy'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { Badge, Button } from '$lib/components/common'
-	import { Building, ChevronDown, GitFork } from 'lucide-svelte'
+	import { Building, ChevronDown, EllipsisVertical, GitFork } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { type Item } from '$lib/utils'
 
 	// Shared chip that displays the workspace a fork picker points at. A fork (or a staged pending fork)
 	// renders "<GitFork> <parent> → <fork>" with the fork accent-highlighted; a root renders
@@ -19,6 +21,7 @@
 		wrap = false,
 		color = undefined,
 		interactive = true,
+		menuItems = undefined,
 		class: className = ''
 	}: {
 		workspaceId?: string
@@ -42,6 +45,11 @@
 		// False for read-only displays (e.g. the session header): keeps the chip
 		// visually inert — no hover/press feedback suggesting a click action.
 		interactive?: boolean
+		// Actions menu rendered as an ellipsis segment fused to the end of the
+		// chip (same pill background, own hover). Lets an inert chip carry
+		// workspace-scoped actions without becoming clickable itself. Ignored
+		// in collapsed (icon-only) mode.
+		menuItems?: Item[]
 		class?: string
 	} = $props()
 
@@ -86,71 +94,94 @@
 	)
 </script>
 
-<Button
-	variant="subtle"
-	unifiedSize="xs"
-	title={showFork && shownParent ? `${shownParent} → ${name}` : name}
-	tabindex={interactive ? undefined : -1}
-	style={accentStyle ?? ''}
-	startIcon={isCollapsed
-		? // Icon-only mode is the fork-picker affordance, whatever is selected.
-			{ icon: GitFork }
-		: !showFork && rootLabel
-			? undefined
-			: showFork && shownParent
-				? // Fork-of-a-fork renders a fork icon inline before EACH name (the
-					// parent is a fork too) — a third leading icon would be noise.
-					undefined
-				: { icon: showFork ? GitFork : Building }}
-	endIcon={showChevron && !isCollapsed ? { icon: ChevronDown } : undefined}
-	wrapperClasses={className}
-	btnClasses="min-w-0 w-full rounded-md text-2xs {isCollapsed
-		? 'justify-center'
-		: 'justify-start'} {showFork ? forkAccentClasses : 'bg-surface-secondary'} {wrap
-		? // The unified size's fixed h-5 would clip the two-row layout — let the
-			// content set the height and breathe with vertical padding instead. The
-			// min height keeps the single-line variant from looking squashed next
-			// to the two-row one.
-			'h-auto py-1 min-h-6'
-		: ''} {inertClasses}"
->
-	{#if !isCollapsed}
-		{#if showFork && shownParent}
-			{#if wrap}
-				<!-- Hierarchy shown tree-style: the fork row indents under its parent. -->
-				<span class="min-w-0 flex-1 flex flex-col gap-0.5 text-left">
-					<span class="flex items-center gap-1 min-w-0 opacity-60 font-normal">
-						<GitFork size={12} class="shrink-0" />
-						<span class="truncate">{shownParent}</span>
+{#snippet chipButton(grouped: boolean)}
+	<Button
+		variant="subtle"
+		unifiedSize="xs"
+		title={showFork && shownParent ? `${shownParent} → ${name}` : name}
+		tabindex={interactive ? undefined : -1}
+		style={accentStyle ?? ''}
+		startIcon={isCollapsed
+			? // Icon-only mode is the fork-picker affordance, whatever is selected.
+				{ icon: GitFork }
+			: !showFork && rootLabel
+				? undefined
+				: showFork && shownParent
+					? // Fork-of-a-fork renders a fork icon inline before EACH name (the
+						// parent is a fork too) — a third leading icon would be noise.
+						undefined
+					: { icon: showFork ? GitFork : Building }}
+		endIcon={showChevron && !isCollapsed ? { icon: ChevronDown } : undefined}
+		wrapperClasses={grouped ? 'min-w-0 flex-1' : className}
+		btnClasses="min-w-0 w-full rounded-md text-2xs {isCollapsed
+			? 'justify-center'
+			: 'justify-start'} {showFork ? forkAccentClasses : 'bg-surface-secondary'} {wrap
+			? // The unified size's fixed h-5 would clip the two-row layout — let the
+				// content set the height and breathe with vertical padding instead. The
+				// min height keeps the single-line variant from looking squashed next
+				// to the two-row one.
+				'h-auto py-1 min-h-6'
+			: ''} {grouped ? 'rounded-r-none' : ''} {inertClasses}"
+	>
+		{#if !isCollapsed}
+			{#if showFork && shownParent}
+				{#if wrap}
+					<!-- Hierarchy shown tree-style: the fork row indents under its parent. -->
+					<span class="min-w-0 flex-1 flex flex-col gap-0.5 text-left">
+						<span class="flex items-center gap-1 min-w-0 opacity-60 font-normal">
+							<GitFork size={12} class="shrink-0" />
+							<span class="truncate">{shownParent}</span>
+						</span>
+						<span class="flex items-center gap-1 min-w-0 pl-3">
+							<GitFork size={12} class="shrink-0" />
+							<span class="truncate">{name}</span>
+						</span>
 					</span>
-					<span class="flex items-center gap-1 min-w-0 pl-3">
+				{:else}
+					<span class="min-w-0 flex-1 flex items-center gap-1 text-left">
+						<GitFork size={12} class="shrink-0 opacity-60" />
+						<span class="truncate opacity-60 font-normal">{shownParent}</span>
+						<span class="shrink-0 opacity-40 font-normal">→</span>
 						<GitFork size={12} class="shrink-0" />
 						<span class="truncate">{name}</span>
 					</span>
-				</span>
+				{/if}
 			{:else}
-				<span class="min-w-0 flex-1 flex items-center gap-1 text-left">
-					<GitFork size={12} class="shrink-0 opacity-60" />
-					<span class="truncate opacity-60 font-normal">{shownParent}</span>
-					<span class="shrink-0 opacity-40 font-normal">→</span>
-					<GitFork size={12} class="shrink-0" />
-					<span class="truncate">{name}</span>
+				<span class="truncate min-w-0 flex-1 text-left {!showFork && rootLabel ? 'text-hint' : ''}">
+					{showFork ? name : (rootLabel ?? name)}
 				</span>
 			{/if}
-		{:else}
-			<span class="truncate min-w-0 flex-1 text-left {!showFork && rootLabel ? 'text-hint' : ''}">
-				{showFork ? name : (rootLabel ?? name)}
-			</span>
+			{#if pendingFork}
+				<span class="shrink-0 opacity-70 font-normal">(new)</span>
+			{:else if currentWs?.is_dev_workspace}
+				<Badge
+					color="dark-blue"
+					small
+					class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+					>dev</Badge
+				>
+			{/if}
 		{/if}
-		{#if pendingFork}
-			<span class="shrink-0 opacity-70 font-normal">(new)</span>
-		{:else if currentWs?.is_dev_workspace}
-			<Badge
-				color="dark-blue"
-				small
-				class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-				>dev</Badge
-			>
-		{/if}
-	{/if}
-</Button>
+	</Button>
+{/snippet}
+
+{#if menuItems?.length && !isCollapsed}
+	<div class="inline-flex items-stretch min-w-0 {className}">
+		{@render chipButton(true)}
+		<DropdownV2 items={menuItems} placement="bottom-end" fixedHeight={false} class="shrink-0 flex">
+			{#snippet buttonReplacement()}
+				<span
+					style={accentStyle ?? ''}
+					title="Workspace actions"
+					class="h-full inline-flex items-center px-0.5 rounded-r-md {showFork
+						? forkAccentClasses
+						: 'bg-surface-secondary'} hover:brightness-95 dark:hover:brightness-110"
+				>
+					<EllipsisVertical size={12} />
+				</span>
+			{/snippet}
+		</DropdownV2>
+	</div>
+{:else}
+	{@render chipButton(false)}
+{/if}
