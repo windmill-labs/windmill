@@ -30,26 +30,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-membership:
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/check-org-membership.yml
-    with:
-      commenter: ${{ github.event.pull_request.user.login }}
-    secrets:
-      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
-
   auto-review:
-    needs: check-membership
     runs-on: ubuntu-latest
     if: |
-      always() &&
+      github.event_name == 'workflow_call' ||
       (
-        needs.check-membership.result == 'skipped' ||
-        (needs.check-membership.result == 'success' && needs.check-membership.outputs.is_member == 'true')
-      ) &&
-      (
-        github.event_name == 'workflow_call' ||
-        (github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true)
+        (github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true) &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
       )
     permissions:
       contents: read
