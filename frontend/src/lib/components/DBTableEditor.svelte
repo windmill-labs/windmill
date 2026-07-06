@@ -460,7 +460,7 @@
 							askingForConfirmation && (askingForConfirmation.loading = true)
 							await onConfirm({ values })
 						} catch (e) {
-							let msg: string | undefined = (e as Error)?.message
+							let msg: string | undefined = (e as any)?.body ?? (e as Error)?.message
 							if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
 							sendUserToast(msg, true)
 						}
@@ -472,7 +472,7 @@
 					...(preview && { codeContent: preview.sql, alert: preview.alert })
 				}
 			} catch (e) {
-				let msg: string | undefined = (e as Error)?.message
+				let msg: string | undefined = (e as any)?.body ?? (e as Error)?.message
 				if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
 				sendUserToast(msg, true)
 			} finally {

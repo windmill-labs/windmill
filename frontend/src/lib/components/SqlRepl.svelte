@@ -135,7 +135,10 @@
 				isRunning = false
 				return await run({ doPostgresRowToJsonFix: true })
 			}
-			sendUserToast('Error running query: ' + (e.message ?? e.error.message), true)
+			sendUserToast(
+				'Error running query: ' + (e?.body ?? e?.message ?? e?.error?.message ?? e),
+				true
+			)
 		} finally {
 			isRunning = false
 		}

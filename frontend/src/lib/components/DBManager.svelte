@@ -370,7 +370,7 @@
 											refresh?.()
 											sendUserToast(`Schema '${schemaKey}' deleted successfully`)
 										} catch (e) {
-											let msg: string | undefined = (e as Error).message
+											let msg: string | undefined = (e as any).body ?? (e as Error).message
 											if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
 											sendUserToast(msg ?? 'Action failed!', true)
 										}
@@ -436,7 +436,7 @@
 												refresh?.()
 												sendUserToast(`Table '${tableKey}' deleted successfully`)
 											} catch (e) {
-												let msg: string | undefined = (e as Error).message
+												let msg: string | undefined = (e as any).body ?? (e as Error).message
 												if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
 												sendUserToast(msg ?? 'Action failed!', true)
 											}
@@ -502,7 +502,7 @@
 													refresh?.()
 													sendUserToast(`Table '${tableKey}' deleted successfully`)
 												} catch (e) {
-													let msg: string | undefined = (e as Error).message
+													let msg: string | undefined = (e as any).body ?? (e as Error).message
 													if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
 													sendUserToast(msg ?? 'Action failed!', true)
 												}
