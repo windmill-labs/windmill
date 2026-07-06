@@ -94,6 +94,7 @@
 	import {
 		JobService,
 		OpenAPI,
+		ScheduleService,
 		ScriptService,
 		type AssetKind,
 		type Script,
@@ -1379,6 +1380,40 @@
 	// Run+downstream affordance against overlapping chains stomping each
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
+
+	// Script path → its schedule's configured args, so a manual "Run pipeline"
+	// launches a schedule-triggered script with the same payload a real tick
+	// would (rather than empty args). Schedule is the only autorun trigger kind
+	// that carries args — every other trigger with a payload (webhook /
+	// data_upload / event kinds) is input-only and excluded from the cascade.
+	// Resolved on demand right before a run (schedule args aren't in the graph
+	// response); fail-safe — a schedule we can't fetch just contributes nothing.
+	let scheduleArgsByPath: Record<string, Record<string, any>> = {}
+	async function resolveScheduleArgs(scripts: string[]): Promise<void> {
+		scheduleArgsByPath = {}
+		const ws = $workspaceStore
+		if (!ws) return
+		const runSet = new Set(scripts)
+		// First schedule (with args) per in-run script; dedupe schedule fetches.
+		const wanted = new Map<string, string>() // script path → schedule path
+		for (const t of displayGraph.triggers) {
+			if (t.trigger_kind !== 'schedule' || t.runnable_kind !== 'script') continue
+			if (!runSet.has(t.runnable_path) || wanted.has(t.runnable_path)) continue
+			if ((t as any).path) wanted.set(t.runnable_path, (t as any).path)
+		}
+		await Promise.all(
+			[...wanted].map(async ([scriptPath, schedulePath]) => {
+				try {
+					const sched = await ScheduleService.getSchedule({ workspace: ws, path: schedulePath })
+					if (sched?.args && Object.keys(sched.args).length > 0) {
+						scheduleArgsByPath[scriptPath] = sched.args as Record<string, any>
+					}
+				} catch {
+					// schedule unreadable / deleted — leave its script on empty args
+				}
+			})
+		)
+	}
 	// Launch one pipeline script for the dev-run cascade. Always passes
 	// _wmill_skip_asset_dispatch — the orchestrator owns the whole closure,
 	// so the backend dispatcher must not double-fire the deployed part of a
@@ -1391,11 +1426,12 @@
 		// drafts (same condition as `displayGraph`). Otherwise — View mode with
 		// drafts hidden — a bounded run must execute the *deployed* scripts the
 		// user is looking at, not preview jobs from hidden local drafts.
-		// Data-upload roots carry the file the user staged in the run form; every
-		// other script runs with empty args. runWholePipeline already refused to
-		// start unless every data-upload entry is staged, so this is always the
-		// intended input.
-		const staged = dataUploadArgs[path] ?? {}
+		// Default a script's run args to whatever its trigger already configures
+		// (schedule payload — the only autorun trigger kind that carries args),
+		// then let a data-upload entry's staged file override. runWholePipeline
+		// already refused to start unless every data-upload entry is staged, so
+		// this is always the intended input.
+		const staged = { ...(scheduleArgsByPath[path] ?? {}), ...(dataUploadArgs[path] ?? {}) }
 		const draft = mode === 'edit' || includeDrafts ? pe.drafts.get(path) : undefined
 		if (draft) {
 			if (!draft.script.content || !draft.script.language) {
@@ -1461,6 +1497,8 @@
 				true
 			)
 		}
+		// Seed schedule-triggered members with their configured payload.
+		await resolveScheduleArgs([rootPath, ...closure.nodes])
 		cascadeRunningRoot = rootPath
 		let rootJobId: string | undefined
 		try {
@@ -1642,6 +1680,8 @@
 			sendUserToast('No runnable scripts in this selection', true)
 			return
 		}
+		// Seed schedule-triggered roots with their configured payload.
+		await resolveScheduleArgs(schedule.nodes)
 		cascadeRunningRoot = schedule.roots[0] ?? scripts[0]
 		let firstJobId: string | undefined
 		try {
