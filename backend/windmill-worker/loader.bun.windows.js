@@ -10,7 +10,7 @@ const p = {
   name: "windmill-relative-resolver",
   async setup(build) {
     const { readFileSync } = await import("fs");
-    const { resolve } = await import("node:path");
+    const { resolve, dirname } = await import("node:path");
 
     const base_internal_url = "BASE_INTERNAL_URL".replace(
       "localhost",
@@ -134,15 +134,20 @@ const p = {
         return undefined;
       }
       // Check if the import resolves to a local module file (written by
-      // write_module_files). Those are written with a `.ts` extension, so for a
-      // bare relative import try the extensionless path and the `.ts` variant
-      // before falling through to the remote windmill resolver.
+      // write_module_files, which can nest files in subdirectories). Resolve
+      // candidates against the importer's own directory — not the job root — so
+      // a subdir module importing a sibling (`dir/a.ts` → `./b`) finds
+      // `dir/b.ts` rather than a phantom `job_dir/b.ts`. For imports from
+      // `main.ts` the importer dir IS the job root, so behavior is unchanged.
+      // Module files carry a `.ts` extension, so also try the `.ts` variant of
+      // a bare relative import before falling through to the remote resolver.
       if (args.path.startsWith(".")) {
+        const importerDir = args.importer ? dirname(args.importer) : cdir;
         const candidates = args.path.endsWith(".ts")
           ? [args.path]
           : [args.path, args.path + ".ts"];
         for (const candidate of candidates) {
-          const cwdPath = resolve(cdir, candidate);
+          const cwdPath = resolve(importerDir, candidate);
           try {
             readFileSync(cwdPath);
             return { path: cwdPath };
