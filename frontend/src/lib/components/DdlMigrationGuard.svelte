@@ -4,6 +4,7 @@
 	import NewDataTableMigrationModal from './workspaceSettings/NewDataTableMigrationModal.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import { splitSqlStatements, isDdlStatement } from './sqlDdl'
+	import { CornerDownLeft } from 'lucide-svelte'
 
 	let { workspace, datatable }: { workspace: string; datatable: string } = $props()
 
@@ -35,6 +36,17 @@
 			finishPrompt('cancel')
 		}
 	})
+
+	// Enter confirms the primary action ("Create a migration"). Ignore modified
+	// Enter so editor shortcuts (Cmd/Ctrl+Enter) keep working underneath.
+	function onKeyDown(event: KeyboardEvent) {
+		if (!promptOpen || event.metaKey || event.ctrlKey || event.altKey) return
+		if (event.key === 'Enter') {
+			event.stopPropagation()
+			event.preventDefault()
+			finishPrompt('migrate')
+		}
+	}
 
 	function promptDdl(statement: string): Promise<Choice> {
 		return new Promise((resolve) => {
@@ -104,6 +116,8 @@
 	}
 </script>
 
+<svelte:window onkeydown={onKeyDown} />
+
 <Modal2
 	title="Schema change detected"
 	fixedWidth="md"
@@ -122,7 +136,12 @@
 		>
 		<div class="flex justify-end gap-2 pt-2">
 			<Button variant="default" size="sm" on:click={() => finishPrompt('run')}>Run anyway</Button>
-			<Button variant="accent" size="sm" on:click={() => finishPrompt('migrate')}>
+			<Button
+				variant="accent"
+				size="sm"
+				shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}
+				on:click={() => finishPrompt('migrate')}
+			>
 				Create a migration
 			</Button>
 		</div>
