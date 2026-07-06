@@ -2955,28 +2955,17 @@ async fn delete_git_sync_repository(
         WorkspaceGitSyncSettings::default()
     };
 
-    // Tear down the repo's managed webhook before removing it. Disabling auto-pull
-    // goes through sync_repo_webhook, but deletion bypasses that lifecycle — without
-    // this, GitHub keeps delivering to an orphaned hook. Best-effort.
+    // Capture the repo's managed webhook id; the hook itself is deleted only after
+    // the DB removal commits (below), so a failed save can't leave the repo pointing
+    // at a hook that no longer exists. Deletion bypasses the sync_repo_webhook
+    // lifecycle, so GitHub would otherwise keep delivering to an orphaned hook.
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let Some(hook_id) = git_sync_settings
+    let webhook_to_delete: Option<i64> = git_sync_settings
         .repositories
         .iter()
         .find(|r| r.git_repo_resource_path == request.git_repo_resource_path)
         .and_then(|r| r.auto_pull.as_ref())
-        .and_then(|a| a.webhook_id)
-    {
-        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
-            &db,
-            &w_id,
-            &request.git_repo_resource_path,
-        )
-        .await
-        {
-            let _ =
-                windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id).await;
-        }
-    }
+        .and_then(|a| a.webhook_id);
 
     // Check if repository exists and remove it
     let original_count = git_sync_settings.repositories.len();
@@ -3019,6 +3008,21 @@ async fn delete_git_sync_repository(
     .await?;
 
     tx.commit().await?;
+
+    // Removal is durable now — best-effort delete the GitHub webhook.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some(hook_id) = webhook_to_delete {
+        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(
+            &db,
+            &w_id,
+            &request.git_repo_resource_path,
+        )
+        .await
+        {
+            let _ =
+                windmill_common::git_sync_ee::delete_repo_webhook(&db, &w_id, &url, hook_id).await;
+        }
+    }
 
     // Trigger git sync for repository deletion
     handle_deployment_metadata(
@@ -4533,9 +4537,9 @@ async fn update_workspace_settings(
             // Auto-pull is parent-owned and must not be inherited: the fork would
             // otherwise carry the parent's webhook id (turning off auto-pull on the
             // fork would delete the parent's webhook) and would self-pull on top of
-            // the parent's fork_pull_sync fan-out. The push-direction config and the
-            // installation are still inherited (unchanged behavior); the parent
-            // drives fork pulls. fork_* flags are parent-level, so clear them too.
+            // the parent's fork_pull_sync fan-out. A fork still inherits the
+            // push-direction config and the installation; the parent drives fork
+            // pulls. fork_* flags are parent-level, so clear them too.
             r.auto_pull = None;
             r.fork_open_prs = false;
             r.fork_pull_sync = false;
