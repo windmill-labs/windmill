@@ -6,6 +6,7 @@
 	import Modal2 from '../common/modal/Modal2.svelte'
 	import Toggle from '../Toggle.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
+	import Checkbox from '../common/checkbox/Checkbox.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -17,7 +18,16 @@
 	import { sendUserToast } from '$lib/toast'
 	import { WorkspaceService } from '$lib/gen'
 	import { buildSkillMd, parseAndValidateSkill, parseSkillMd, type SkillUpload } from './aiSkills'
-	import { ChevronDown, ClipboardPaste, Eye, FolderUp, Pencil, Plus, Trash2 } from 'lucide-svelte'
+	import {
+		ChevronDown,
+		ClipboardPaste,
+		Eye,
+		FolderUp,
+		ListChecks,
+		Pencil,
+		Plus,
+		Trash2
+	} from 'lucide-svelte'
 
 	type SkillListItem = { name: string; description: string }
 
@@ -50,9 +60,21 @@
 	// The skill detail modal opens in read mode with rendered markdown; a header
 	// toggle flips it to raw SKILL.md editing.
 	let detailMode: 'view' | 'edit' = $state('view')
+	// Multi-select "manage" mode: rows gain a checkbox for batch deletion.
+	let manageMode: boolean = $state(false)
+	let selected: Record<string, boolean> = $state({})
+	let confirmBatchDelete: boolean = $state(false)
 	let listRequestId = 0
 
 	let existingNames = $derived(new Set(skills.map((s) => s.name)))
+	let selectedCount = $derived(skills.filter((s) => selected[s.name]).length)
+	let allSelected = $derived(skills.length > 0 && selectedCount === skills.length)
+
+	// Leave manage mode automatically once a batch delete empties it below the
+	// two-skill threshold that surfaces the "Manage skills" button.
+	$effect(() => {
+		if (manageMode && skills.length <= 1) exitManage()
+	})
 	let pendingConflicts = $derived(
 		(pendingImport ?? ([] as SkillUpload[])).filter((s) => existingNames.has(s.name))
 	)
@@ -291,12 +313,45 @@
 		}
 	}
 
+	function exitManage() {
+		manageMode = false
+		selected = {}
+	}
+
+	function toggleSelect(name: string) {
+		selected = { ...selected, [name]: !selected[name] }
+	}
+
+	function toggleSelectAll() {
+		selected = allSelected ? {} : Object.fromEntries(skills.map((s) => [s.name, true]))
+	}
+
+	async function deleteSelected() {
+		const workspace = $workspaceStore
+		const names = skills.filter((s) => selected[s.name]).map((s) => s.name)
+		if (!workspace || names.length === 0) return
+		uploading = true
+		try {
+			for (const name of names) {
+				await WorkspaceService.deleteAiSkill({ workspace, name })
+			}
+			sendUserToast(`Deleted ${names.length} skill(s)`)
+			exitManage()
+		} catch (e) {
+			sendUserToast(`Failed to delete skills: ${e}`, true)
+		} finally {
+			uploading = false
+			await loadList(workspace)
+		}
+	}
+
 	onMount(() => {
 		return workspaceStore.subscribe((workspace) => {
 			toDelete = undefined
 			pendingImport = undefined
 			pendingSkipped = []
 			overwriteChoices = {}
+			exitManage()
 			void loadList(workspace)
 		})
 	})
@@ -331,17 +386,46 @@
 	description="Add your own skills to the AI Chat. The expected format is the same as Claude or Codex."
 >
 	{#snippet headerAction()}
-		<Button
-			bind:element={addTriggerEl}
-			{...$addMenuTrigger}
-			variant="default"
-			unifiedSize="sm"
-			startIcon={{ icon: Plus }}
-			endIcon={{ icon: ChevronDown }}
-			disabled={uploading}
-		>
-			Add skills
-		</Button>
+		<div class="flex items-center gap-2">
+			{#if manageMode}
+				<Button
+					variant="default"
+					color="red"
+					unifiedSize="sm"
+					startIcon={{ icon: Trash2 }}
+					disabled={selectedCount === 0 || uploading}
+					onclick={() => (confirmBatchDelete = true)}
+				>
+					Delete{selectedCount ? ` (${selectedCount})` : ''}
+				</Button>
+				<Button variant="default" unifiedSize="sm" disabled={uploading} onclick={exitManage}>
+					Done
+				</Button>
+			{:else}
+				{#if skills.length > 1}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: ListChecks }}
+						disabled={uploading}
+						onclick={() => (manageMode = true)}
+					>
+						Manage skills
+					</Button>
+				{/if}
+				<Button
+					bind:element={addTriggerEl}
+					{...$addMenuTrigger}
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: Plus }}
+					endIcon={{ icon: ChevronDown }}
+					disabled={uploading}
+				>
+					Add skills
+				</Button>
+			{/if}
+		</div>
 		{#if $addMenuOpen}
 			<div
 				use:melt={$addMenu}
@@ -366,38 +450,63 @@
 			</div>
 		{:else}
 			<div class="rounded-md border divide-y max-h-96 overflow-y-auto">
+				{#if manageMode}
+					<div class="sticky top-0 z-10 flex items-center gap-3 px-3 py-2 bg-surface-secondary">
+						<Checkbox
+							checked={allSelected}
+							indeterminate={selectedCount > 0 && !allSelected}
+							onChange={toggleSelectAll}
+						/>
+						<span class="text-2xs text-secondary">
+							{selectedCount ? `${selectedCount} selected` : 'Select all'}
+						</span>
+					</div>
+				{/if}
 				{#each skills as skill (skill.name)}
 					<div class="flex items-center justify-between gap-4 px-3 py-2">
-						<div class="min-w-0">
-							<div class="text-xs font-mono truncate">{skill.name}</div>
-							<div class="text-2xs text-secondary truncate">{skill.description}</div>
-							<Button
-								onclick={() => openSkill(skill.name, 'view')}
-								variant="subtle"
-								unifiedSize="2xs"
-								wrapperClasses="w-fit mt-0.5"
-								btnClasses="!px-0 text-2xs font-normal text-secondary hover:text-primary hover:!bg-transparent"
-							>
-								Show more
-							</Button>
-						</div>
-						<DropdownV2
-							size="sm"
-							items={[
-								{
-									displayName: 'Edit',
-									icon: Pencil,
-									disabled: uploading,
-									action: () => openSkill(skill.name, 'edit')
-								},
-								{
-									displayName: 'Delete',
-									icon: Trash2,
-									type: 'delete',
-									action: () => (toDelete = skill.name)
-								}
-							]}
-						/>
+						{#if manageMode}
+							<label class="flex items-center gap-3 min-w-0 grow cursor-pointer">
+								<Checkbox
+									checked={!!selected[skill.name]}
+									onChange={() => toggleSelect(skill.name)}
+								/>
+								<div class="min-w-0">
+									<div class="text-xs font-mono truncate">{skill.name}</div>
+									<div class="text-2xs text-secondary truncate">{skill.description}</div>
+								</div>
+							</label>
+						{:else}
+							<div class="min-w-0">
+								<div class="text-xs font-mono truncate">{skill.name}</div>
+								<div class="text-2xs text-secondary truncate">{skill.description}</div>
+								<Button
+									onclick={() => openSkill(skill.name, 'view')}
+									variant="subtle"
+									unifiedSize="2xs"
+									wrapperClasses="w-fit mt-0.5"
+									btnClasses="!px-0 text-2xs font-normal text-secondary hover:text-primary hover:!bg-transparent"
+								>
+									Show more
+								</Button>
+							</div>
+							<DropdownV2
+								size="sm"
+								items={[
+									{
+										displayName: 'Edit',
+										icon: Pencil,
+										disabled: uploading,
+										action: () => openSkill(skill.name, 'edit')
+									},
+									{
+										displayName: 'Delete',
+										icon: Trash2,
+										type: 'delete',
+										action: () => (toDelete = skill.name)
+									}
+								]}
+							/>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -517,5 +626,20 @@
 >
 	<span>
 		Delete the skill <code>{toDelete}</code>? The AI chat will no longer be able to use it.
+	</span>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={confirmBatchDelete}
+	title="Delete skills"
+	confirmationText="Delete"
+	onConfirmed={async () => {
+		confirmBatchDelete = false
+		await deleteSelected()
+	}}
+	onCanceled={() => (confirmBatchDelete = false)}
+>
+	<span>
+		Delete {selectedCount} selected skill(s)? The AI chat will no longer be able to use them.
 	</span>
 </ConfirmationModal>
