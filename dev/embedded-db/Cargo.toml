@@ -1,0 +1,25 @@
+# Standalone experiment crate (WIN-2130). Intentionally NOT a member of the
+# backend workspace: it pulls the heavy wasmer/wasix tree and pins alpha
+# versions, which must not leak into the main backend Cargo.lock.
+[package]
+name = "wm-embedded-db"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "wm-embedded-db"
+path = "src/main.rs"
+
+[[bin]]
+name = "schema-compat"
+path = "src/schema_compat.rs"
+
+[dependencies]
+pglite-oxide = "0.5"
+anyhow = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "migrate"] }
+
+# Detach from any parent workspace so this keeps its own isolated lockfile.
+[workspace]
