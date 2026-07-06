@@ -310,7 +310,7 @@
 		rows="5"
 		use:autosize
 	></textarea>
-	{#if pasteContent.trim()}
+	{#if editingOriginalName || pasteContent.trim()}
 		<div class="flex items-center justify-between gap-2 mt-2">
 			<span class="text-2xs text-red-500 min-w-0">{isDirty && pasteError ? pasteError : ''}</span>
 			<Button
@@ -371,12 +371,15 @@
 						<div class="min-w-0">
 							<div class="text-xs font-mono truncate">{skill.name}</div>
 							<div class="text-2xs text-secondary truncate">{skill.description}</div>
-							<button
-								class="text-2xs text-secondary hover:text-primary mt-0.5"
+							<Button
 								onclick={() => openSkill(skill.name, 'view')}
+								variant="subtle"
+								unifiedSize="2xs"
+								wrapperClasses="w-fit mt-0.5"
+								btnClasses="!px-0 text-2xs font-normal text-secondary hover:text-primary hover:!bg-transparent"
 							>
 								Show more
-							</button>
+							</Button>
 						</div>
 						<DropdownV2
 							size="sm"
