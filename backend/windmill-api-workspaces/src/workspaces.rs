@@ -2675,6 +2675,36 @@ async fn edit_git_sync_config(
     .await?;
 
     if let Some(mut git_sync_settings) = new_config.git_sync_settings {
+        // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
+        // status) that the redacted GET response omits — otherwise a whole-config
+        // save from the UI would drop the webhook secret (breaking delivery) or
+        // clobber what the poller/webhook layer wrote.
+        let existing: Option<WorkspaceGitSyncSettings> = sqlx::query_scalar!(
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .and_then(|v| serde_json::from_value(v).ok());
+        if let Some(existing) = existing {
+            for repo in git_sync_settings.repositories.iter_mut() {
+                if let (Some(new_ap), Some(old_ap)) = (
+                    repo.auto_pull.as_mut(),
+                    existing
+                        .repositories
+                        .iter()
+                        .find(|r| r.git_repo_resource_path == repo.git_repo_resource_path)
+                        .and_then(|r| r.auto_pull.as_ref()),
+                ) {
+                    new_ap.webhook_id = old_ap.webhook_id;
+                    new_ap.webhook_secret = old_ap.webhook_secret.clone();
+                    new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                    new_ap.last_pull_status = old_ap.last_pull_status.clone();
+                }
+            }
+        }
+
         // Clean up legacy workspace-level settings if all repos are migrated
         cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
