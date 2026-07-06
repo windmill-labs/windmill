@@ -829,6 +829,7 @@
 							kind="raw_app_file"
 							rawFile={sub as RawAppFileItem}
 							{inlineDiff}
+							disableAutoInline
 						/>
 					{:else}
 						{@const runnable = sub as RawAppRunnableItem}
@@ -837,6 +838,7 @@
 							originalRaw={runnable.originalRaw}
 							currentRaw={runnable.currentRaw}
 							{inlineDiff}
+							disableAutoInline
 						/>
 					{/if}
 				</div>
@@ -848,6 +850,7 @@
 			originalRaw={loaded.before}
 			currentRaw={loaded.after}
 			{inlineDiff}
+			disableAutoInline
 		/>
 	{/if}
 {/snippet}

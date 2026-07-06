@@ -28,6 +28,10 @@
 		buttons?: ButtonProp[]
 		modifiedModel?: meditor.ITextModel | meditor.IEditorModel
 		inlineDiff?: boolean
+		// Opt out of Monaco's auto-inline fallback (see useInlineViewWhenSpaceIsLimited
+		// below). Only set this when the consumer fully owns the inline/side-by-side
+		// decision; otherwise the default keeps Monaco's built-in narrow fallback.
+		disableAutoInline?: boolean
 	}
 
 	let {
@@ -42,7 +46,8 @@
 		readOnly = false,
 		buttons = [],
 		modifiedModel,
-		inlineDiff = false
+		inlineDiff = false,
+		disableAutoInline = false
 	}: Props = $props()
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
@@ -60,10 +65,12 @@
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
 			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
-			// Monaco otherwise forces the inline view below renderSideBySideInlineBreakpoint
-			// (900px), silently overriding both our SIDE_BY_SIDE_MIN_WIDTH gate and the
-			// explicit unified/side-by-side toggle in narrow containers (e.g. the diff drawer).
-			useInlineViewWhenSpaceIsLimited: false,
+			// Monaco forces the inline view below renderSideBySideInlineBreakpoint (900px),
+			// overriding our SIDE_BY_SIDE_MIN_WIDTH gate. Consumers that fully own the
+			// inline/side-by-side decision (e.g. the diff drawer's toggle) opt out via
+			// disableAutoInline; everyone else keeps Monaco's auto-inline fallback so
+			// narrow panels (inline scripts, flow modules) stay readable in unified view.
+			useInlineViewWhenSpaceIsLimited: !disableAutoInline,
 			originalEditable: false,
 			readOnly,
 			minimap: {
