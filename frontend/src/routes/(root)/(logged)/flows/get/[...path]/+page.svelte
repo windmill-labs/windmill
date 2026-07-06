@@ -18,7 +18,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -68,8 +68,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	let flow: Flow | undefined = $state()
@@ -281,10 +280,10 @@
 			flow &&
 			!$userStore?.operator &&
 			!isCloudHosted() &&
-			!isRuleActive('DisableWorkspaceForking')
+			editInForkAllowed($workspaceStore, $userWorkspaces)
 		) {
 			buttons.push({
-				label: 'Edit in fork',
+				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
 					unifiedSize: 'md',

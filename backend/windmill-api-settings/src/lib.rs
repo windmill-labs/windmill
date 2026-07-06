@@ -406,7 +406,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
             )
         }
         ObjectSettings::Gcs(gcs) => {
-            if gcs.service_account_key.is_empty() {
+            // Mirror `build_gcs_client`'s blank-key check (shared predicate): a blank/`{}` key falls
+            // back to the instance's ambient credentials there, so it must be rejected here too —
+            // otherwise an untrusted caller could probe with the server's identity (the very
+            // SSRF/credential-exfil this function guards against).
+            if windmill_object_store::gcs_service_account_key_is_blank(&gcs.service_account_key) {
                 return Err(error::Error::NotAuthorized(
                     "Testing GCS storage without a service account key requires a super admin"
                         .to_string(),
@@ -865,6 +869,37 @@ async fn run_setting_pre_write_hook(
                             err
                         ))
                     })?;
+            } else {
+                // Disabling is only allowed before any instance-wide username has been
+                // assigned. Once usernames exist they are globally unique and are baked
+                // into stored `u/<username>` identities (schedules, triggers, drafts,
+                // and non-member superadmin ownership). Disabling would drop back to
+                // workspace-local username uniqueness, letting a member reuse an
+                // existing instance username and silently take over those identities —
+                // so the setting is effectively one-way once derivation has taken
+                // effect. Re-saving `false` on an already-disabled instance is a no-op
+                // and stays allowed (guarded by the current-value check).
+                let currently_enabled = sqlx::query_scalar!(
+                    "SELECT value FROM global_settings WHERE name = $1",
+                    AUTOMATE_USERNAME_CREATION_SETTING
+                )
+                .fetch_optional(db)
+                .await?
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+                if currently_enabled {
+                    let usernames_exist = sqlx::query_scalar!(
+                        "SELECT EXISTS(SELECT 1 FROM password WHERE username IS NOT NULL)"
+                    )
+                    .fetch_one(db)
+                    .await?
+                    .unwrap_or(false);
+                    if usernames_exist {
+                        return Err(error::Error::BadRequest(
+                            "automate_username_creation cannot be disabled once instance-wide usernames have been assigned: existing u/<username> identities (schedules, triggers, drafts, superadmin ownership) rely on those usernames staying stable and globally unique.".to_string(),
+                        ));
+                    }
+                }
             }
         }
         CRITICAL_ALERT_MUTE_UI_SETTING => {
@@ -2185,6 +2220,26 @@ mod object_storage_test_hardening {
                 .await
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_gcs_blank_service_account_key() {
+        // A blank key makes build_gcs_client fall back to the instance's ambient credentials, so an
+        // untrusted caller must not be allowed to test with it. The `serviceAccountKey` field is
+        // serialized via serde's `as_string` (`to_string` of the JSON value), so the settings UI's
+        // "no key" empty object arrives as `"{}"` and a null as `"null"` — both must be rejected.
+        for key in [serde_json::json!({}), serde_json::json!(null)] {
+            let settings: ObjectSettings = serde_json::from_value(serde_json::json!({
+                "type": "Gcs",
+                "bucket": "b",
+                "serviceAccountKey": key
+            }))
+            .unwrap();
+            assert!(
+                validate_object_storage_test(&settings).await.is_err(),
+                "blank key {key:?} should be rejected"
+            );
+        }
     }
 
     fn ip(s: &str) -> IpAddr {

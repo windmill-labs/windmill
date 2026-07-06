@@ -94,7 +94,11 @@ pub async fn record_materialization<'e>(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
          ON CONFLICT (workspace_id, asset_kind, asset_path, partition)
          DO UPDATE SET status = EXCLUDED.status,
-                       snapshot_id = EXCLUDED.snapshot_id,
+                       -- A failed run records no snapshot, but must not erase the last
+                       -- committed one: a physical table from an earlier commit (or from a
+                       -- committed write whose data tests then failed) still exists, and
+                       -- fork defer/graph state keys on that evidence.
+                       snapshot_id = COALESCE(EXCLUDED.snapshot_id, materialized_partition.snapshot_id),
                        row_count = EXCLUDED.row_count,
                        job_id = EXCLUDED.job_id,
                        materialized_at = now(),
@@ -253,6 +257,98 @@ pub async fn record_asset_schema(
     .execute(&mut **tx)
     .await?;
     Ok(true)
+}
+
+/// One table a fork workspace should read from an ancestor through a defer view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForkDeferTable {
+    /// Lake-internal table name: the `asset_path` minus its `<lake>/` prefix (may itself be
+    /// `schema.table`).
+    pub table: String,
+    /// The owning ancestor's latest captured schema carries the SCD2 marker column
+    /// (`is_current`), so that lake also holds a managed `<table>_current` companion view
+    /// that consumers read — defer it alongside the table.
+    #[serde(default)]
+    pub with_current_view: bool,
+    /// Index into `DucklakeForkDefer.ancestors` (nearest-first) of the NEAREST ancestor that
+    /// materialized this table — the defer view must target that ancestor's namespace. In a
+    /// `fork → parent → root` chain where only root materialized a table, the parent has no
+    /// physical copy (it defers too), so a view over the parent would not bind. Defaults to 0
+    /// (the direct parent) for wire compatibility with agents that predate the field.
+    #[serde(default)]
+    pub ancestor_idx: u32,
+}
+
+/// Tables of lake `lake_name` materialized somewhere in the fork's ancestor chain
+/// (nearest-first) but not (yet) in the fork — the fork's read-defer set, each mapped to the
+/// nearest ancestor that owns a physical copy. Only `Materialized` rows count on every side: a
+/// deferred table must physically exist in the targeted ancestor (defer views bind at CREATE
+/// and would otherwise fail the whole job), and any successful fork materialization makes the
+/// fork's own table authoritative.
+///
+/// **Authorization:** performs no access control; trusted server-side callers only. It reads
+/// ancestor workspaces' rows on behalf of a fork — acceptable because defer itself exposes
+/// the ancestors' table contents to fork members.
+pub async fn list_fork_defer_tables<'e>(
+    executor: impl PgExecutor<'e>,
+    ancestor_workspace_ids: &[String],
+    fork_workspace_id: &str,
+    lake_name: &str,
+) -> Result<Vec<ForkDeferTable>> {
+    let rows = sqlx::query!(
+        r#"
+        WITH ancestor AS (
+            SELECT wid, ord FROM unnest($1::text[]) WITH ORDINALITY AS a(wid, ord)
+        ), anc_mat AS (
+            -- Per table, the nearest ancestor (lowest ord) that materialized it.
+            SELECT DISTINCT ON (mp.asset_path) mp.asset_path, a.wid, a.ord
+            FROM materialized_partition mp
+            JOIN ancestor a ON a.wid = mp.workspace_id
+            WHERE mp.asset_kind = 'ducklake' AND mp.status = 'materialized'
+              AND split_part(mp.asset_path, '/', 1) = $3 AND mp.asset_path LIKE '%/%'
+            ORDER BY mp.asset_path, a.ord
+        ), fork_mat AS (
+            -- Fork-OWNED assets: anything whose physical table exists in the fork
+            -- namespace, not just clean materializations. A committed write whose data
+            -- tests failed afterwards records status='failed' WITH a snapshot — its table
+            -- is real, and a defer view emitted over it would silently yield to it
+            -- (CREATE VIEW IF NOT EXISTS) while claiming the read defers to the parent.
+            SELECT DISTINCT asset_path FROM materialized_partition
+            WHERE workspace_id = $2 AND asset_kind = 'ducklake'
+              AND (status = 'materialized' OR snapshot_id IS NOT NULL)
+        ), latest_schema AS (
+            SELECT DISTINCT ON (workspace_id, asset_path) workspace_id, asset_path, columns
+            FROM materialized_asset_schema
+            WHERE workspace_id = ANY($1) AND asset_kind = 'ducklake'
+            ORDER BY workspace_id, asset_path, version DESC
+        )
+        SELECT am.asset_path AS "asset_path!",
+               am.ord AS "ord!",
+               COALESCE(EXISTS (
+                   SELECT 1 FROM jsonb_array_elements(ls.columns) e
+                   WHERE e->>'name' = 'is_current'
+               ), false) AS "has_current!"
+        FROM anc_mat am
+        LEFT JOIN latest_schema ls
+               ON ls.asset_path = am.asset_path AND ls.workspace_id = am.wid
+        WHERE am.asset_path NOT IN (SELECT asset_path FROM fork_mat)
+        ORDER BY am.asset_path
+        "#,
+        ancestor_workspace_ids,
+        fork_workspace_id,
+        lake_name,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ForkDeferTable {
+            table: r.asset_path[lake_name.len() + 1..].to_string(),
+            with_current_view: r.has_current,
+            // WITH ORDINALITY is 1-based; ancestors vec is 0-based.
+            ancestor_idx: (r.ord - 1).max(0) as u32,
+        })
+        .collect())
 }
 
 /// All captured schema versions for one asset, newest version first.

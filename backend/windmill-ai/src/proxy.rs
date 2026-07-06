@@ -51,6 +51,7 @@ pub fn supports_openai_compatible_proxy(provider: &AIProvider) -> bool {
         provider,
         AIProvider::OpenAI
             | AIProvider::AzureOpenAI
+            | AIProvider::AzureFoundry
             | AIProvider::Mistral
             | AIProvider::DeepSeek
             | AIProvider::Groq
@@ -64,6 +65,7 @@ pub fn proxy_execution_mode(provider: &AIProvider) -> ProxyExecutionMode {
     match provider {
         AIProvider::OpenAI
         | AIProvider::AzureOpenAI
+        | AIProvider::AzureFoundry
         | AIProvider::Anthropic
         | AIProvider::Mistral
         | AIProvider::DeepSeek
@@ -89,7 +91,7 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
     };
 
     let base_url = credentials.base_url.trim_end_matches('/');
-    let is_azure = credentials.provider.is_azure_openai(base_url);
+    let is_azure = credentials.provider.is_azure(base_url);
     let url = if is_azure {
         AIProvider::build_azure_openai_url(base_url, args.path)
     } else {
@@ -201,6 +203,7 @@ mod tests {
         let cases = [
             (AIProvider::OpenAI, ProxyExecutionMode::HttpForward),
             (AIProvider::AzureOpenAI, ProxyExecutionMode::HttpForward),
+            (AIProvider::AzureFoundry, ProxyExecutionMode::HttpForward),
             (AIProvider::Anthropic, ProxyExecutionMode::HttpForward),
             (AIProvider::Mistral, ProxyExecutionMode::HttpForward),
             (AIProvider::DeepSeek, ProxyExecutionMode::HttpForward),
@@ -254,6 +257,35 @@ mod tests {
     }
 
     #[test]
+    fn builds_azure_foundry_proxy_request() {
+        // Foundry's OpenAI-compatible endpoint uses the same Azure conventions
+        // (api-key header, /openai -> /openai/v1 path) as Azure OpenAI.
+        let credentials = credentials(
+            AIProvider::AzureFoundry,
+            "https://example.services.ai.azure.com/openai",
+        );
+        let method = Method::POST;
+        let headers = HeaderMap::new();
+
+        let request = build_openai_compatible_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "chat/completions",
+            headers: &headers,
+            body: br#"{"model":"gpt-4o","messages":[]}"#,
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        assert_eq!(
+            request.url,
+            "https://example.services.ai.azure.com/openai/v1/chat/completions"
+        );
+        assert!(request
+            .headers
+            .contains(&("api-key".to_string(), "api-key".to_string())));
+    }
+
+    #[test]
     fn injects_user_into_proxy_body() {
         let mut credentials = credentials(AIProvider::OpenAI, "https://api.openai.com/v1");
         credentials.user = Some("user-1".to_string());
@@ -272,5 +304,32 @@ mod tests {
 
         assert_eq!(body["user"], "user-1");
         assert_eq!(body["model"], "gpt-4o");
+    }
+
+    #[test]
+    fn foundry_routes_claude_to_anthropic_messages_api() {
+        use crate::providers::create_query_builder;
+        use crate::types::OutputType;
+
+        let creds = credentials(
+            AIProvider::AzureFoundry,
+            "https://wm-test-ai.services.ai.azure.com/openai/v1",
+        );
+
+        // Claude deployment -> Anthropic Messages API surface + x-api-key auth.
+        let claude = create_query_builder(&creds, "claude-sonnet-5");
+        assert_eq!(
+            claude.get_endpoint(&creds.base_url, "claude-sonnet-5", &OutputType::Text),
+            "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
+        );
+        let auth = claude.get_auth_headers("api-key", &creds.base_url, &OutputType::Text);
+        assert!(auth.contains(&("x-api-key", "api-key".to_string())));
+
+        // OpenAI-compatible deployment -> chat completions surface.
+        let gpt = create_query_builder(&creds, "gpt-4o");
+        assert_eq!(
+            gpt.get_endpoint(&creds.base_url, "gpt-4o", &OutputType::Text),
+            "https://wm-test-ai.services.ai.azure.com/openai/v1/chat/completions"
+        );
     }
 }

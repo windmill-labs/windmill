@@ -8,6 +8,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -27,9 +28,9 @@
 	import FlowEditorView from './FlowEditorView.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
+	import PipelineEditorView from './PipelineEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
-	import SessionForkBar from './SessionForkBar.svelte'
-	import SessionDraftBar from './SessionDraftBar.svelte'
+	import SessionChangesBar from './SessionChangesBar.svelte'
 	import {
 		createSession,
 		deleteSessionsForWorkspace,
@@ -91,10 +92,13 @@
 	// the fork lingers as an orphan whose only purpose was this session.
 	const sessionForkId = $derived.by(() => {
 		const wsId = session?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
-		// Don't offer the option if the fork is gone or not user-accessible.
-		if (!ws || !ws.parent_workspace_id) return undefined
+		// Don't offer the option if the fork is gone/not user-accessible or isn't a fork (prefix OR
+		// parent, so an orphaned wm-fork- fork still qualifies).
+		if (!ws || !workspaceIsFork(wsId, $userWorkspaces)) return undefined
+		// A persistent dev workspace is not an ephemeral session fork — never offer to delete it.
+		if (ws.is_dev_workspace) return undefined
 		return wsId
 	})
 
@@ -230,7 +234,7 @@
 
 	// True when the session committed to a workspace that's no longer in
 	// the user's list (deleted / archived / access revoked). The chat is
-	// disabled and SessionForkBar shows a move/discard banner.
+	// disabled and SessionChangesBar shows a move/discard banner.
 	const isUnavailable = $derived(
 		!!session?.workspace_id && !$userWorkspaces.find((w) => w.id === session!.workspace_id)
 	)
@@ -261,23 +265,24 @@
 	{@const hasTarget =
 		session.target?.kind === 'flow' ||
 		session.target?.kind === 'script' ||
-		session.target?.kind === 'raw_app'}
+		session.target?.kind === 'raw_app' ||
+		session.target?.kind === 'pipeline'}
 	{@const hasEditor = mountEditor && hasTarget && editorVisible}
 
 	{#snippet inputPreface()}
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
 		{/if}
-		<!-- gap-1 (4px) spaces the fork bar and draft bar when both are visible.
-		     Each bar renders a single in-flow root (or nothing); the draft drawer
-		     is position:fixed, so it doesn't count as a flex item — no stray gap
-		     when only one bar shows. -->
+		<!-- gap-1 (4px) spaces the archived banner and the changes bar when both
+		     are visible. Each renders a single in-flow root (or nothing); the diff
+		     drawer is position:fixed, so it doesn't count as a flex item — no stray
+		     gap when only one shows. -->
 		<div class="flex flex-col gap-1">
 			{#if session.archived && !isUnavailable}
 				<!-- Unarchive is only meaningful when the workspace is still live:
 				     putSession refuses to resurrect a session whose workspace is gone,
 				     and reconcile would re-archive a workspace-archived one anyway. When
-				     the workspace is unavailable the SessionForkBar below shows the
+				     the workspace is unavailable the SessionChangesBar below shows the
 				     move/discard banner instead (its actions are the real recovery path). -->
 				<div
 					class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
@@ -296,14 +301,13 @@
 					</Button>
 				</div>
 			{/if}
-			<SessionForkBar
+			<SessionChangesBar
 				{session}
 				onMove={(workspaceId) => moveAndActivate(workspaceId)}
 				onCreateForkAndMove={(fork) => createForkAndMove(fork)}
 				onArchive={() => archiveAndReset()}
 				onDelete={() => (deleteConfirmOpen = true)}
 			/>
-			<SessionDraftBar {session} />
 		</div>
 	{/snippet}
 
@@ -467,6 +471,13 @@
 							path={session.target.path}
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
+							isActiveSession={sessionState.currentSessionId === sessionId}
+						/>
+					{:else if session.target.kind === 'pipeline'}
+						<PipelineEditorView
+							{runtime}
+							path={session.target.path}
+							workspaceId={effectiveWorkspaceId}
 							isActiveSession={sessionState.currentSessionId === sessionId}
 						/>
 					{/if}

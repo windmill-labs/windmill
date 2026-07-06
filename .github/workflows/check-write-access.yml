@@ -1,0 +1,66 @@
+name: Check Write Access
+
+# Authorizes a user to trigger privileged command workflows (/review, /ai, /plan,
+# /updatesqlx, ...). The webhook author_association reports PRIVATE org members as
+# CONTRIBUTOR/NONE (only public members show as MEMBER), so command jobs can't gate on
+# it alone. This mints the internal GitHub App token — which can see private members —
+# and confirms the user is a member or has write access to the repo. The app token is
+# minted fresh per run, so unlike the old ORG_ACCESS_TOKEN PAT it never expires.
+
+on:
+  workflow_call:
+    inputs:
+      username:
+        required: true
+        type: string
+        description: 'The user whose access to verify'
+      trusted_bot:
+        required: false
+        type: string
+        default: 'windmill-internal-app[bot]'
+        description: 'A bot login that is always authorized'
+    outputs:
+      authorized:
+        description: 'true if the user is the trusted bot, an org member, or has repo write access'
+        value: ${{ jobs.check.outputs.authorized }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+    steps:
+      - name: Mint internal app token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.INTERNAL_APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Resolve authorization
+        id: check
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          USERNAME: ${{ inputs.username }}
+          TRUSTED_BOT: ${{ inputs.trusted_bot }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$USERNAME" = "$TRUSTED_BOT" ]; then
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ORG="${REPO%%/*}"
+          # Org membership resolves private members too (204 = member, 404 = not).
+          if gh api "orgs/$ORG/members/$USERNAME" --silent 2>/dev/null; then
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fallback: effective repo permission (also covers outside collaborators).
+          PERM=$(gh api "repos/$REPO/collaborators/$USERNAME/permission" --jq '.permission' 2>/dev/null || echo none)
+          if [ "$PERM" = "admin" ] || [ "$PERM" = "write" ]; then
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            echo "$USERNAME is neither the trusted bot, an org member, nor a repo writer."
+          fi

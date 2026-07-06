@@ -36,8 +36,12 @@
 		// History preload hit its page cap before the days cutoff.
 		truncated?: boolean
 		error?: string | undefined
-		days: number
-		onDaysChange: (days: number) => void
+		days?: number
+		onDaysChange?: (days: number) => void
+		// Live-only surfaces (local-dev preview) have no historical fetch: hide
+		// the day-range Select + histogram (both are history-window concepts) and
+		// show only the live run stream.
+		liveOnly?: boolean
 		// Hover a run row → emphasize its node(s) on the canvas; a group header
 		// passes the whole cascade's paths. `undefined` clears.
 		onHoverRun?: (paths: string[] | undefined) => void
@@ -51,8 +55,9 @@
 		loading = false,
 		truncated = false,
 		error,
-		days,
+		days = 30,
 		onDaysChange,
+		liveOnly = false,
 		onHoverRun,
 		onSelectRun
 	}: Props = $props()
@@ -99,7 +104,7 @@
 	// Quick reset: drop the brush and return to the default 30-day window.
 	function resetWindow() {
 		selectedRange = undefined
-		if (days !== 30) onDaysChange(30)
+		if (days !== 30) onDaysChange?.(30)
 	}
 	function fmtRange(r: { from: number; to: number }): string {
 		const opt: Intl.DateTimeFormatOptions = {
@@ -236,7 +241,9 @@
 		{ label: 'Last 30 days', value: 30 },
 		{ label: 'Last 90 days', value: 90 }
 	]
-	let windowLabel = $derived(DAY_OPTIONS.find((o) => o.value === days)?.label ?? `Last ${days} days`)
+	let windowLabel = $derived(
+		DAY_OPTIONS.find((o) => o.value === days)?.label ?? `Last ${days} days`
+	)
 
 	// Excludes future-scheduled queued jobs (a schedule's next planned run
 	// is not activity) — see isActiveEvent.
@@ -341,17 +348,19 @@
 				<Loader2 size={12} class="animate-spin text-tertiary" />
 			{/if}
 		</span>
-		<div class="w-36 shrink-0">
-			<Select
-				items={DAY_OPTIONS}
-				size="sm"
-				clearable={false}
-				bind:value={() => days, (v) => onDaysChange(v ?? 30)}
-			/>
-		</div>
+		{#if !liveOnly}
+			<div class="w-36 shrink-0">
+				<Select
+					items={DAY_OPTIONS}
+					size="sm"
+					clearable={false}
+					bind:value={() => days, (v) => onDaysChange?.(v ?? 30)}
+				/>
+			</div>
+		{/if}
 	</div>
 
-	{#if events.length > 0}
+	{#if events.length > 0 && !liveOnly}
 		<div class="border-b shrink-0">
 			<ActivityHistogram
 				{events}
@@ -390,8 +399,12 @@
 				</div>
 			{:else}
 				<div class="px-3 py-6 text-center text-xs text-tertiary">
-					No runs in this window ({windowLabel.toLowerCase()}) — executions of this pipeline will
-					appear here live.
+					{#if liveOnly}
+						No runs yet — executions of this pipeline will appear here live.
+					{:else}
+						No runs in this window ({windowLabel.toLowerCase()}) — executions of this pipeline will
+						appear here live.
+					{/if}
 				</div>
 			{/if}
 		{:else}
@@ -555,7 +568,8 @@
 								title={`Join fed by ${g.extraTriggers + 1} triggers`}>+{g.extraTriggers}</span
 							>
 						{/if}
-						<span class="shrink-0 text-3xs text-tertiary tabular-nums">{g.members.length} runs</span>
+						<span class="shrink-0 text-3xs text-tertiary tabular-nums">{g.members.length} runs</span
+						>
 						<span class="shrink-0 text-3xs text-tertiary tabular-nums w-14 text-right">
 							{ago(g.latestAt)}
 						</span>

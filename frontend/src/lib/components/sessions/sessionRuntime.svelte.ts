@@ -1,17 +1,16 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { get } from 'svelte/store'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
 	FlowService,
 	ScriptService,
-	WorkspaceService,
 	type Flow,
 	type NewScript,
 	type Script,
-	type UserDraftOverlay,
-	type WorkspaceComparison
+	type UserDraftOverlay
 } from '$lib/gen'
 
 // `get_draft=true` does NOT merge: the top-level fields stay the deployed
@@ -79,6 +78,9 @@ export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 export interface SessionRuntime {
 	readonly sessionId: string
 	readonly manager: AIChatManager
+	// Pipeline target state — persists across editor hide/show (the pane unmounts
+	// on hide, so this can't be component-local) and across session switches.
+	readonly pipelineEditorState: PipelineEditorState
 	// Kind-agnostic accessor over the per-kind load slots, for consumers (the
 	// editor-target gate) that only need load state and not the typed store.
 	slot(kind: SessionTargetKind): LoadSlot
@@ -137,37 +139,13 @@ export interface SessionRuntime {
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
-	// Discard the local draft + refresh the fork diff + force-reload the editor,
-	// so the preview matches the deployed version. Used by editor onDeploy + the
-	// chat deploy handler.
+	// Discard the local draft + force-reload the editor, so the preview matches
+	// the deployed version. Used by editor onDeploy + the chat deploy handler.
 	syncPreviewWithDeployed(
 		workspace: string,
 		kind: 'script' | 'flow' | 'raw_app',
 		path: string
 	): void
-	// Fork comparison cache: shared between SessionForkBar (count + dropdown)
-	// and any future consumer that needs the parent ↔ fork diff list. Keyed
-	// implicitly by the (parent, fork) pair last passed to ensureForkComparison;
-	// invalidateForkComparison() forces a refresh after a known-mutating action.
-	readonly forkComparison: { val: WorkspaceComparison | undefined }
-	readonly loadingForkComparison: boolean
-	ensureForkComparison(parent: string, fork: string): Promise<void>
-	invalidateForkComparison(): void
-	// Force-refresh against the last (parent, fork) pair the runtime
-	// fetched for. No-op if no comparison has ever been loaded. Useful
-	// for session-activation hooks that need a fresh count regardless of
-	// the dedupe key match.
-	refreshForkComparison(): Promise<void>
-	// Re-fetch the comparison shortly after a local mutation (e.g. an
-	// editor "Save draft"). The backend tally that registers the change
-	// lands asynchronously, so an immediate refresh races it — this
-	// schedules a couple of delayed refreshes so the fork-bar count
-	// updates without waiting for an AI turn or a tab refocus.
-	scheduleForkComparisonRefresh(): void
-	// Cancel pending fork-comparison refresh timers. Called by disposeRuntime so
-	// a torn-down (e.g. LRU-evicted, deleted) runtime can't fire a stray
-	// refreshForkComparisonNow / compareWorkspaces after it's gone.
-	dispose(): void
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
@@ -307,36 +285,14 @@ function createRuntime(session: Session): SessionRuntime {
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
 	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+
+	// Pipeline target state lives on the runtime (not the PipelineEditorView
+	// component) so the in-session drafts survive hide/show of the editor pane —
+	// the pane unmounts on hide, and a component-local store would be discarded.
+	const pipelineEditorState = new PipelineEditorState()
+
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
-
-	const forkComparison: { val: WorkspaceComparison | undefined } = $state({ val: undefined })
-	let loadingForkComparison = $state(false)
-	let forkComparisonKey: string | undefined = undefined
-	let forkRefreshTimers: ReturnType<typeof setTimeout>[] = []
-
-	// Stale-while-revalidate re-fetch against the last (parent, fork) pair.
-	// Shared by refreshForkComparison() and scheduleForkComparisonRefresh().
-	async function refreshForkComparisonNow() {
-		const key = forkComparisonKey
-		if (!key) return
-		const sep = key.indexOf('|')
-		if (sep < 0) return
-		const parent = key.slice(0, sep)
-		const fork = key.slice(sep + 1)
-		if (loadingForkComparison) return
-		loadingForkComparison = true
-		try {
-			forkComparison.val = await WorkspaceService.compareWorkspaces({
-				workspace: parent,
-				targetWorkspaceId: fork
-			})
-		} catch (e) {
-			console.error('SessionRuntime: forkComparison refresh failed', e)
-		} finally {
-			loadingForkComparison = false
-		}
-	}
 
 	return {
 		sessionId: session.id,
@@ -344,6 +300,7 @@ function createRuntime(session: Session): SessionRuntime {
 		slot(kind: SessionTargetKind): LoadSlot {
 			return kind === 'flow' ? flowSlot : kind === 'script' ? scriptSlot : rawAppSlot
 		},
+		pipelineEditorState,
 		flowStore,
 		flowStateStore,
 		savedFlow,
@@ -634,7 +591,6 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 
 		syncPreviewWithDeployed(workspace, kind, path) {
-			this.scheduleForkComparisonRefresh()
 			// After deploy the editor state equals the deployed value; the reload
 			// below re-seeds the cell from it, which must NOT POST as a fresh draft.
 			// The full-page editor guards this with discardDraftAfterDeploy, but the
@@ -660,63 +616,6 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 		getAppRuns() {
 			return appRunsProvider ? appRunsProvider() : undefined
-		},
-
-		forkComparison,
-		get loadingForkComparison() {
-			return loadingForkComparison
-		},
-
-		async ensureForkComparison(parent: string, fork: string) {
-			const key = `${parent}|${fork}`
-			if (forkComparisonKey === key && forkComparison.val) return
-			if (loadingForkComparison && forkComparisonKey === key) return
-			forkComparisonKey = key
-			loadingForkComparison = true
-			try {
-				forkComparison.val = await WorkspaceService.compareWorkspaces({
-					workspace: parent,
-					targetWorkspaceId: fork
-				})
-			} catch (e) {
-				console.error('SessionRuntime: forkComparison fetch failed', e)
-				forkComparison.val = undefined
-				// On error, clear the key so the next call retries.
-				if (forkComparisonKey === key) forkComparisonKey = undefined
-			} finally {
-				loadingForkComparison = false
-			}
-		},
-
-		invalidateForkComparison() {
-			forkComparisonKey = undefined
-			forkComparison.val = undefined
-		},
-
-		// Stale-while-revalidate: re-fetch in place so the cached status
-		// (driving the sidebar dot, fork bar, etc.) stays put until the new
-		// result lands. Clearing forkComparison.val here flickered the icon
-		// back to the neutral GitFork on every session-activate refresh.
-		refreshForkComparison() {
-			return refreshForkComparisonNow()
-		},
-
-		scheduleForkComparisonRefresh() {
-			// The backend fork tally registers a draft save (createScript
-			// draft_only / DraftService.createDraft) asynchronously — ~300ms
-			// after the API call returns — so an immediate refresh races it.
-			// Fetch once after the tally typically lands, then again as a
-			// backstop for slower backends. Coalesce rapid saves by clearing
-			// any still-pending timers first.
-			for (const t of forkRefreshTimers) clearTimeout(t)
-			forkRefreshTimers = [
-				setTimeout(() => void refreshForkComparisonNow(), 700),
-				setTimeout(() => void refreshForkComparisonNow(), 2200)
-			]
-		},
-		dispose() {
-			for (const t of forkRefreshTimers) clearTimeout(t)
-			forkRefreshTimers = []
 		}
 	}
 }
@@ -730,11 +629,21 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	await manager.attachedFiles.restore(session.id, !session.transient)
 	await ensureChatIdsSeeded(manager.historyManager)
 
+	// Keep the session record's chatId following the manager's active chat: a
+	// "/clear" rotation or a history switch would otherwise leave it pointing at
+	// the previous chat, and the compare-page handoff (`from_session`) would
+	// preselect the wrong chat's items.
+	manager.onChatRotated = (chatId) => setSessionChatId(session.id, chatId)
+
 	if (session.chatId) {
 		manager.historyManager.setCurrentChatId(session.chatId)
 		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
 		await manager.loadPastChat(session.chatId)
 	} else {
+		// Brand-new session chat: start tracking modified items now (empty mask)
+		// so the session bar filters to this chat's changes from the first turn.
+		// (loadPastChat handles seeding for the existing-chat branch above.)
+		manager.initModifiedItemsTracking()
 		setSessionChatId(session.id, manager.historyManager.getCurrentChatId())
 	}
 }
@@ -752,7 +661,6 @@ export function getOrCreateRuntime(session: Session): SessionRuntime {
 export function disposeRuntime(sessionId: string) {
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return
-	runtime.dispose()
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)

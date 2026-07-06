@@ -11,10 +11,14 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = ["windmill-common/enterprise"]
-private = ["windmill-common/private"]
+private = [
+    "windmill-common/private",
+    "windmill-queue/private",
+    "windmill-audit/private",
+]
 cloud = ["windmill-common/cloud"]
 no_auth = ["windmill-api-auth/no_auth"]
-parquet = ["windmill-object-store/parquet"]
+parquet = ["windmill-object-store/parquet", "dep:futures"]
 
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
@@ -31,6 +35,7 @@ windmill-store.workspace = true
 
 axum.workspace = true
 chrono.workspace = true
+futures = { workspace = true, optional = true }
 hex.workspace = true
 magic-crypt.workspace = true
 http.workspace = true

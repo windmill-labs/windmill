@@ -11,7 +11,7 @@
 	//   fixed-schema table, so the schema is pinned at first materialize; there's
 	//   only ever one version, shown as a single current-schema table.
 	import { resource } from 'runed'
-	import { OpenAPI } from '$lib/gen'
+	import { AssetService, type AssetSchemaVersion } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Loader2, RefreshCw, Lock } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -26,23 +26,12 @@
 	}
 	let { path, workspace, canEvolve = true }: Props = $props()
 
+	// One column of a captured schema version (the generated `columns` element).
 	type SchemaColumn = { name: string; type: string }
-	type AssetSchemaVersion = {
-		version: number
-		columns: SchemaColumn[]
-		snapshot_id?: number | null
-		job_id?: string | null
-		captured_at: string
-	}
 
-	let schemas = resource([() => workspace, () => path], async ([ws, p], _prev, { signal }) => {
+	let schemas = resource([() => workspace, () => path], async ([ws, p]) => {
 		if (!ws || !p) return [] as AssetSchemaVersion[]
-		const res = await fetch(
-			`${OpenAPI.BASE ?? ''}/w/${ws}/assets/asset_schemas?path=${encodeURIComponent(p)}`,
-			{ credentials: 'include', signal }
-		)
-		if (!res.ok) throw new Error(`GET /assets/asset_schemas → ${res.status}`)
-		return (await res.json()) as AssetSchemaVersion[]
+		return await AssetService.listAssetSchemas({ workspace: ws, path: p })
 	})
 
 	// The user's explicit pick (undefined until they click). Falls back to the

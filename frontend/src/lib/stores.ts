@@ -31,6 +31,8 @@ export interface UserExt {
 	folders_owners: string[]
 	is_service_account?: boolean
 	impersonating_email?: string
+	// true when the user is a superadmin viewing a workspace they are not a member of
+	non_member?: boolean
 }
 
 export interface UserWorkspace {
@@ -40,6 +42,7 @@ export interface UserWorkspace {
 	color?: string
 	operator_settings?: OperatorSettings
 	parent_workspace_id?: string | null
+	is_dev_workspace?: boolean
 	disabled: boolean
 }
 

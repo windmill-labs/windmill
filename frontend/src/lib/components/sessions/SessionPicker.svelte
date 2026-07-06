@@ -21,7 +21,6 @@
 	import { slide } from 'svelte/transition'
 	import {
 		createSession,
-		deriveForkStatus,
 		deleteSessionsForWorkspace,
 		isForkSession,
 		reconcileAfterWorkspaceChange,
@@ -48,18 +47,10 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
-
-	// Look up the cached fork comparison for a session through its runtime
-	// (if any). The deriveForkStatus helper handles the "no runtime yet"
-	// and "comparison not loaded" cases by returning undefined; we render
-	// a neutral fork icon in that interim, then upgrade to the proper
-	// status icon once the comparison lands.
-	function forkStatusFor(session: Session) {
-		return deriveForkStatus(session, $userWorkspaces, getRuntime(session.id)?.forkComparison.val)
-	}
 
 	function isForkFor(session: Session): boolean {
 		return isForkSession(session, $userWorkspaces)
@@ -123,8 +114,8 @@
 	}
 
 	// Flat list passing the archive + scope filters. Grouping for display happens
-	// in `sessionGroups`; this flat view drives the runtime / fork-comparison
-	// effects, the unread total, and keyboard navigation.
+	// in `sessionGroups`; this flat view drives the runtime effect, the unread
+	// total, and keyboard navigation.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
 			if (s.transient) return false
@@ -210,23 +201,6 @@
 		}
 	})
 
-	// Pre-fetch the fork comparison for every visible fork session so the
-	// sidebar icons reflect the right ahead/diverged state without
-	// requiring the user to click into each session. Cheap enough at
-	// typical session counts; falls back to a plain dot until the
-	// fetch lands.
-	$effect(() => {
-		if (sectionCollapsed.val) return
-		for (const session of visibleSessions) {
-			if (!session.workspace_id) continue
-			const ws = $userWorkspaces.find((w) => w.id === session.workspace_id)
-			if (!ws?.parent_workspace_id) continue
-			const rt = getRuntime(session.id)
-			if (!rt) continue
-			void rt.ensureForkComparison(ws.parent_workspace_id, session.workspace_id)
-		}
-	})
-
 	function isUnavailableFork(session: Session): boolean {
 		return !!session.workspace_id && !$userWorkspaces.find((w) => w.id === session.workspace_id)
 	}
@@ -240,10 +214,6 @@
 		if (!isUnavailableFork(session)) {
 			syncWorkspaceTo(session.workspace_id)
 		}
-		// Refresh the fork diff count — users typically click back into a
-		// session after editing items elsewhere in the SPA, where neither
-		// the visibility-change nor the AI-loading signal would fire.
-		void getRuntime(session.id)?.refreshForkComparison()
 		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button
@@ -287,9 +257,12 @@
 	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
 	const pendingDeleteForkId = $derived.by(() => {
 		const wsId = pendingDelete?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
-		if (!ws || !ws.parent_workspace_id) return undefined
+		// Fork = prefix OR parent (so an orphaned wm-fork- fork still qualifies); exclude persistent
+		// dev workspaces, which are not ephemeral session forks.
+		if (!ws || !workspaceIsFork(wsId, $userWorkspaces)) return undefined
+		if (ws.is_dev_workspace) return undefined
 		return wsId
 	})
 
@@ -432,7 +405,7 @@
 											<SessionStatusDot
 												{status}
 												isFork={isForkFor(session)}
-												forkStatus={forkStatusFor(session)}
+												unavailable={isUnavailableFork(session)}
 											/>
 											<span
 												class={twMerge(
@@ -583,7 +556,7 @@
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}
-										forkStatus={forkStatusFor(session)}
+										unavailable={isUnavailableFork(session)}
 									/>
 									<!-- svelte-ignore a11y_autofocus -->
 									<input
@@ -615,7 +588,7 @@
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}
-										forkStatus={forkStatusFor(session)}
+										unavailable={isUnavailableFork(session)}
 									/>
 									<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
 									{#if draft || unread > 0}

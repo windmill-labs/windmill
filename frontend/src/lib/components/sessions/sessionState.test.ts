@@ -3,7 +3,6 @@ import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
 	decideSessionLifecycle,
-	deriveForkStatus,
 	isForkSession,
 	renameSession,
 	setGeneratedSessionSummary,
@@ -16,7 +15,7 @@ import {
 	workspaceStore,
 	type UserWorkspace
 } from '$lib/stores'
-import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+import { WorkspaceService } from '$lib/gen'
 
 // Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
 // failure contract (the invariant the beforeSend abort fix relies on).
@@ -39,9 +38,6 @@ function session(over: Partial<Session> = {}): Session {
 }
 function ws(id: string, parent?: string): UserWorkspace {
 	return { id, name: id, parent_workspace_id: parent } as unknown as UserWorkspace
-}
-function comparison(total_ahead: number, total_behind: number): WorkspaceComparison {
-	return { summary: { total_ahead, total_behind } } as unknown as WorkspaceComparison
 }
 
 describe('isForkSession', () => {
@@ -69,60 +65,6 @@ describe('isForkSession', () => {
 		expect(isForkSession(session({ pending_workspace_id: 'fork' }), [ws('fork', 'root')])).toBe(
 			true
 		)
-	})
-})
-
-describe('deriveForkStatus', () => {
-	it('is undefined for a draft with no workspace', () => {
-		expect(deriveForkStatus(session(), [], undefined)).toBeUndefined()
-	})
-
-	it('is unavailable when a committed workspace is no longer in the list', () => {
-		expect(deriveForkStatus(session({ workspace_id: 'gone' }), [], comparison(0, 0))).toBe(
-			'unavailable'
-		)
-	})
-
-	it('is undefined when a draft pending workspace is missing (not yet committed)', () => {
-		expect(
-			deriveForkStatus(session({ pending_workspace_id: 'gone' }), [], undefined)
-		).toBeUndefined()
-	})
-
-	it('is undefined for a non-fork (root) workspace', () => {
-		expect(
-			deriveForkStatus(session({ workspace_id: 'root' }), [ws('root')], comparison(3, 3))
-		).toBeUndefined()
-	})
-
-	it('is undefined for a fork before the comparison has loaded', () => {
-		expect(
-			deriveForkStatus(session({ workspace_id: 'fork' }), [ws('fork', 'root')], undefined)
-		).toBeUndefined()
-	})
-
-	it('is diverged when the fork is both ahead and behind', () => {
-		expect(
-			deriveForkStatus(session({ workspace_id: 'fork' }), [ws('fork', 'root')], comparison(2, 1))
-		).toBe('diverged')
-	})
-
-	it('is ahead when the fork has unmerged changes and the parent has not moved', () => {
-		expect(
-			deriveForkStatus(session({ workspace_id: 'fork' }), [ws('fork', 'root')], comparison(2, 0))
-		).toBe('ahead')
-	})
-
-	it('is in_sync when neither side is ahead', () => {
-		expect(
-			deriveForkStatus(session({ workspace_id: 'fork' }), [ws('fork', 'root')], comparison(0, 0))
-		).toBe('in_sync')
-	})
-
-	it('is in_sync when only the parent moved (behind-only, fork has no local changes)', () => {
-		expect(
-			deriveForkStatus(session({ workspace_id: 'fork' }), [ws('fork', 'root')], comparison(0, 2))
-		).toBe('in_sync')
 	})
 })
 
@@ -351,9 +293,12 @@ describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
 	})
 
 	it('active workspace → unarchive only the ones WE archived (archivedByWorkspace)', () => {
-		expect(decideSessionLifecycle(mk({ archived: true, archivedByWorkspace: true }), 'active')).toEqual(
-			{ action: 'unarchive', patch: { archived: undefined, archivedByWorkspace: undefined } }
-		)
+		expect(
+			decideSessionLifecycle(mk({ archived: true, archivedByWorkspace: true }), 'active')
+		).toEqual({
+			action: 'unarchive',
+			patch: { archived: undefined, archivedByWorkspace: undefined }
+		})
 		// user-archived (no archivedByWorkspace flag) is left alone
 		expect(decideSessionLifecycle(mk({ archived: true }), 'active')).toEqual({ action: 'noop' })
 		expect(decideSessionLifecycle(mk(), 'active')).toEqual({ action: 'noop' })

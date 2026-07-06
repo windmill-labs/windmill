@@ -1,3 +1,17 @@
+import type { AIProvider } from '$lib/gen'
+
+// Azure AI Foundry fronts multiple model families under one resource. Claude
+// deployments are served only through the Anthropic Messages API, so the chat must
+// route them like the native Anthropic provider (Anthropic SDK, message format)
+// rather than the OpenAI-compatible surface used for the rest of Foundry's catalog.
+// Mirrors the backend `AIProvider::is_anthropic_model`.
+export function usesAnthropicMessagesApi(provider: AIProvider, model: string): boolean {
+	return (
+		provider === 'anthropic' ||
+		(provider === 'azure_foundry' && model.toLowerCase().startsWith('claude'))
+	)
+}
+
 // gpt-5+ and o-series reasoning models reject the legacy `max_tokens` field on
 // the OpenAI/Azure Chat Completions API and require `max_completion_tokens`
 // instead. The check strips any provider prefix (e.g. OpenRouter's "openai/o3")

@@ -38,6 +38,10 @@
 		/** Offer "Load" alongside "View Diff" on other users' rows. The deploy /
 		 * review page sets this false: loading into a fresh editor is moot there. */
 		allowFork?: boolean
+		/** Compact variant: render only the avatar circles (no "Draft" pill text),
+		 * slightly smaller — for tight spots like the diff-tree sidebar. The hover
+		 * popover is unchanged. */
+		iconOnly?: boolean
 	}
 
 	let {
@@ -49,7 +53,8 @@
 		itemKind = undefined,
 		path = undefined,
 		onMigrated = undefined,
-		allowFork = true
+		allowFork = true,
+		iconOnly = false
 	}: Props = $props()
 
 	// Authed user lands first; everyone else keeps the backend's ordering.
@@ -193,6 +198,30 @@
 	}
 </script>
 
+{#snippet circleStack()}
+	<!-- `-space-x-1` overlaps the circles; the indigo ring tint makes the overlap read intentional. -->
+	<span class="flex -space-x-1">
+		{#each visibleUsers as u, i (i)}
+			<span
+				class="inline-flex h-3 w-3 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
+					u
+				)}"
+				title={u.username === currentUsername ? `${fullLabel(u)} (you)` : fullLabel(u)}
+			>
+				{initials(u)}
+			</span>
+		{/each}
+		{#if overflowCount > 0}
+			<span
+				class="inline-flex h-3 w-3 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
+				title="{overflowCount} more"
+			>
+				+{overflowCount}
+			</span>
+		{/if}
+	</span>
+{/snippet}
+
 {#if showBadge}
 	<!-- inline-flex/items-center so the trigger button hugs the badge and lines up
 	     with sibling badges (a plain button is taller, dropping the pill ~2px). -->
@@ -204,32 +233,23 @@
 		bind:isOpen={popoverOpen}
 	>
 		{#snippet trigger()}
-			<Badge small color="indigo">
-				{#if orderedUsers.length > 0}
-					<!-- `-space-x-1` overlaps the circles; the indigo ring tint makes the overlap read intentional. -->
-					<span class="flex -space-x-1">
-						{#each visibleUsers as u, i (i)}
-							<span
-								class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
-									u
-								)}"
-								title={u.username === currentUsername ? `${fullLabel(u)} (you)` : fullLabel(u)}
-							>
-								{initials(u)}
-							</span>
-						{/each}
-						{#if overflowCount > 0}
-							<span
-								class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
-								title="{overflowCount} more"
-							>
-								+{overflowCount}
-							</span>
-						{/if}
-					</span>
-				{/if}
-				{draft_only ? 'Draft only' : 'Draft'}
-			</Badge>
+			{#if iconOnly}
+				<!-- Compact "has a draft" marker for tight spots like the diff-tree
+				     sidebar: a small indigo pencil + the author avatar(s). -->
+				<span class="inline-flex items-center gap-0.5" title={draft_only ? 'Draft only' : 'Draft'}>
+					<Pencil class="h-3 w-3 shrink-0 text-indigo-500 dark:text-indigo-400" />
+					{#if orderedUsers.length > 0}
+						{@render circleStack()}
+					{/if}
+				</span>
+			{:else}
+				<Badge small color="indigo" class="px-1 py-0 gap-0.5">
+					{#if orderedUsers.length > 0}
+						{@render circleStack()}
+					{/if}
+					{draft_only ? 'Draft only' : 'Draft'}
+				</Badge>
+			{/if}
 		{/snippet}
 		{#snippet content()}
 			<div class="flex flex-col gap-2 min-w-[16rem] text-xs p-4 pb-1">

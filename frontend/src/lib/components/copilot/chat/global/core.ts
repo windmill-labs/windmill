@@ -56,6 +56,7 @@ import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
+	getPipelinePrompt,
 	getRawAppPrompt,
 	getResourcePrompt,
 	getScriptPrompt
@@ -113,6 +114,7 @@ import {
 	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
+	itemKindFor,
 	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
@@ -138,7 +140,9 @@ const INSTRUCTION_SUBJECTS = [
 ] as const satisfies readonly WorkspaceItemType[]
 // `datatable` is not a workspace item type, but the model can request the
 // datatable SDK reference (the wmill.datatable() runnable API) the same way.
-const INSTRUCTION_SUBJECTS_EXTRA = ['datatable'] as const
+// `pipeline` likewise isn't an item type — a data pipeline is a set of
+// annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
+const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline'] as const
 const ALL_INSTRUCTION_SUBJECTS = [...INSTRUCTION_SUBJECTS, ...INSTRUCTION_SUBJECTS_EXTRA] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
@@ -171,7 +175,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app) or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -206,7 +210,9 @@ const updateUserInstructionsSchema = z.object({
 		.string()
 		.min(1)
 		.optional()
-		.describe("Required when operation is 'append': the instruction to add. Ignored for 'replace'."),
+		.describe(
+			"Required when operation is 'append': the instruction to add. Ignored for 'replace'."
+		),
 	old_string: z
 		.string()
 		.min(1)
@@ -678,11 +684,13 @@ const deleteAppRunnableSchema = z.object({
 
 const openPreviewSchema = z.object({
 	kind: z
-		.enum(['script', 'flow', 'raw_app'])
+		.enum(['script', 'flow', 'raw_app', 'pipeline'])
 		.describe(
-			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). Use "pipeline" to show the data-pipeline graph for a folder — here `path` is the folder name, not an item path. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
 		),
-	path: z.string().describe('Workspace path of the item to preview.')
+	path: z
+		.string()
+		.describe('Workspace path of the item to preview, or the folder name when kind is "pipeline".')
 })
 
 const getPreviewStatusSchema = z.object({})
@@ -825,6 +833,7 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
@@ -833,6 +842,7 @@ Rules:
 		previewTools
 			? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
 			: ''
@@ -1608,6 +1618,10 @@ Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore a
 ${getDatatableSdkReference(lang)}`
 }
 
+function getPipelineInstructions(): string {
+	return getPipelinePrompt()
+}
+
 function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
 	switch (subject) {
 		case 'script':
@@ -1620,6 +1634,8 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 			return getAppInstructions()
 		case 'datatable':
 			return getDatatableInstructions(language)
+		case 'pipeline':
+			return getPipelineInstructions()
 	}
 }
 
@@ -1672,7 +1688,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get authoring guidance for scripts, flows, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
+			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
@@ -2490,7 +2506,7 @@ function activeFlowTestFromCtx(
 
 export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
-	kind: 'script' | 'flow' | 'raw_app'
+	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
 	path: string
 }) => string
 
@@ -2501,7 +2517,7 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 }
 
 function openSessionPreview(
-	args: { kind: 'script' | 'flow' | 'raw_app'; path: string },
+	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string },
 	sessionId: string | undefined
 ) {
 	if (!openPreviewHandler) {
@@ -2764,6 +2780,7 @@ function finishAppDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -2776,6 +2793,7 @@ function finishDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
@@ -3883,6 +3901,16 @@ async function discardLocalDraft(
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
 
+	// The chat's touch on the item is undone — drop it from the mask so a
+	// pre-existing deployed item doesn't keep reading as this chat's edit.
+	const discardedKind = itemKindFor(type, triggerKind)
+	if (discardedKind) {
+		toolCallbacks.onItemDiscarded?.(
+			discardedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Discarded ${type} "${path}" draft`,
 		result: 'Draft discarded'
@@ -4222,6 +4250,9 @@ async function deployDraft(
 	})
 
 	let actions: ToolDisplayAction[] | undefined
+	// Where the deploy actually lands — the app branch can resolve a different
+	// target from the draft's own path fields; the mask rename below must track it.
+	let deployedPath = path
 
 	if (type === 'script' || type === 'flow') {
 		// Promote the full persisted draft via the shared deploy module — the same
@@ -4414,6 +4445,7 @@ async function deployDraft(
 						throw e
 					}
 				}
+				deployedPath = targetPath
 				if (await AppService.existsApp({ workspace, path: targetPath })) {
 					// Omit custom_path on update for now. The backend preserves it when absent, while
 					// sending it requires admin privileges; this chat deploy path does not yet mirror
@@ -4462,6 +4494,18 @@ async function deployDraft(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+
+	// Move the chat's mask entry to the deployed path: a draft-only item's
+	// synthetic storage key never exists deployed, so the entry would otherwise
+	// stop matching anything after the draft is gone.
+	const deployedKind = itemKindFor(type, triggerKind)
+	if (deployedKind) {
+		toolCallbacks.onItemDeployed?.(
+			deployedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind),
+			deployedPath
+		)
+	}
 
 	// Reload the session preview if it's open on the deployed item. Map the
 	// deploy type to the preview kind — a raw app deploys under 'app' but the
@@ -4532,6 +4576,17 @@ async function deleteWorkspaceItem(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
+	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
+	// by the same (itemKind, storagePath) as writes so it joins the draft/fork lists.
+	const deletedKind = itemKindFor(type, triggerKind)
+	if (deletedKind) {
+		toolCallbacks.onItemModified?.(
+			deletedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,

@@ -4,12 +4,19 @@ import { createLongHash } from '$lib/editorLangUtils'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
 	enterpriseLicense,
+	userStore,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
+import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+import {
+	isRuleActive,
+	canUserBypassRuleKind,
+	protectionRulesState
+} from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
@@ -25,39 +32,29 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 	if (workspaceId === get(workspaceStore)) return
 	switchWorkspace(workspaceId)
 }
-import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+import { WorkspaceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { onUserChange } from '$lib/userScopedStorage'
 
 // Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
-// intentionally not previewable — only code-based 'raw_app' apps are.
-export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app'; path: string }
+// intentionally not previewable — only code-based 'raw_app' apps are. A
+// 'pipeline' target's `path` is the folder name (not a workspace item path):
+// it hosts the data-pipeline graph editor for that folder, which uses its own
+// fetch/draft model rather than the single-item load slots the other kinds share.
+export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app' | 'pipeline'; path: string }
 
 // Useful for filtering dropdowns / pickers to "items the side panel can open".
 export const EDITOR_TARGET_KINDS: ReadonlySet<SessionTarget['kind']> = new Set([
 	'flow',
 	'script',
-	'raw_app'
+	'raw_app',
+	'pipeline'
 ])
 
-// Lifecycle status for a fork session. Git-parallel:
-//   in_sync     — fork is up to date with parent (or only behind — treated
-//                 the same since the user has no unmerged work either way).
-//   ahead       — fork has unmerged changes vs parent (branch ahead).
-//   diverged    — fork has unmerged changes AND parent has moved (branch
-//                 diverged from upstream — potential conflicts).
-//   unavailable — fork workspace is no longer in the user's list (deleted,
-//                 archived, or access revoked). Read-only fallback.
-//
-// `undefined` is the loading / not-applicable state (root session,
-// comparison not yet fetched).
-export type ForkStatus = 'in_sync' | 'ahead' | 'diverged' | 'unavailable'
-
 // Whether the session points at a workspace that is itself a fork (i.e.
-// has a parent). Independent of comparison-fetch state — used by the
-// sidebar to pick between a root (Building) icon and a fork-status icon
-// before the comparison has loaded.
+// has a parent). Used by the sidebar to pick between a root (Building)
+// icon and a fork icon.
 //
 // Sessions whose committed workspace is no longer in the user's list are
 // still treated as forks (the "unavailable" terminal state) so we don't
@@ -68,29 +65,6 @@ export function isForkSession(session: Session, allWorkspaces: UserWorkspace[]):
 	const ws = allWorkspaces.find((w) => w.id === wsId)
 	if (!ws) return !!session.workspace_id
 	return !!ws.parent_workspace_id
-}
-
-export function deriveForkStatus(
-	session: Session,
-	allWorkspaces: UserWorkspace[],
-	comparison: WorkspaceComparison | undefined
-): ForkStatus | undefined {
-	const wsId = session.workspace_id ?? session.pending_workspace_id
-	if (!wsId) return undefined
-	const ws = allWorkspaces.find((w) => w.id === wsId)
-	// Committed fork workspaces that disappear from the user's list
-	// (deleted, archived, or access lost) are flagged unavailable so
-	// the UI can render a terminal state without trying to switch into
-	// them. Drafts whose pending workspace also vanished get the same
-	// treatment.
-	if (!ws) return session.workspace_id ? 'unavailable' : undefined
-	if (!ws.parent_workspace_id) return undefined
-	if (!comparison) return undefined
-	const ahead = comparison.summary?.total_ahead ?? 0
-	const behind = comparison.summary?.total_behind ?? 0
-	if (ahead > 0 && behind > 0) return 'diverged'
-	if (ahead > 0) return 'ahead'
-	return 'in_sync'
 }
 
 export type PendingFork = {
@@ -548,15 +522,6 @@ export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
 }
 
-function defaultSessionWorkspaceId(
-	id: string | undefined,
-	all: UserWorkspace[]
-): string | undefined {
-	const root = workspaceRootId(id, all)
-	if (root && all.some((w) => w.id === root)) return root
-	return id
-}
-
 export function createSession(): Session {
 	// Reuse the existing transient session (if any) so the user can hit
 	// the "+" button repeatedly without piling drafts. The transient
@@ -570,12 +535,24 @@ export function createSession(): Session {
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
 	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
-	// Default to the root workspace rather than wherever the user happens
-	// to be — sessions usually start from "the canonical workspace" and
-	// the picker lets them switch to a fork later.
+	// Start in the workspace you're in. The one exception: a root you can't
+	// deploy to (locked, no bypass) steers to its dev, since a session there
+	// couldn't edit anything. The picker lets you switch.
 	const currentWs = get(workspaceStore)
-	const root = defaultSessionWorkspaceId(currentWs ?? undefined, get(userWorkspaces))
-	const pending = root ?? currentWs
+	const devOfCurrent = currentWs
+		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
+		: undefined
+	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
+	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
+	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
+	// editable) when one exists; the picker still lets the user switch back once rules resolve.
+	const rulesLoadedForCurrent =
+		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
+	const canDeployHere =
+		rulesLoadedForCurrent &&
+		(!isRuleActive('DisableDirectDeployment') ||
+			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
+	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).

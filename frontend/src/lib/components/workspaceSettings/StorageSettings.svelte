@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { emptyString, pick, sendUserToast } from '$lib/utils'
-	import { ChevronDown, Plus, Shield } from 'lucide-svelte'
+	import { displaySize, emptyString, pick, sendUserToast } from '$lib/utils'
+	import { ChevronDown, Plus, RefreshCw, Shield } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
@@ -15,7 +15,7 @@
 		type S3ResourceSettings,
 		type S3ResourceSettingsItem
 	} from '$lib/workspace_settings'
-	import { WorkspaceService } from '$lib/gen'
+	import { HelpersService, WorkspaceService, type GetStorageUsageResponse } from '$lib/gen'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import Portal from '../Portal.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
@@ -61,7 +61,51 @@
 		console.log('Large file storage settings changed', large_file_storage)
 		sendUserToast(`Large file storage settings changed`)
 		onSave?.()
+		loadStorageUsage(true)
 	}
+
+	let storageUsage: GetStorageUsageResponse | undefined = $state()
+	let storageUsageLoading = $state(false)
+	// Set on failure so the auto-load $effect below doesn't hammer a persistently
+	// failing endpoint; cleared only by an explicit user-triggered refresh.
+	let storageUsageErrored = $state(false)
+
+	async function loadStorageUsage(refresh: boolean = false): Promise<void> {
+		storageUsageLoading = true
+		if (refresh) storageUsageErrored = false
+		try {
+			storageUsage = await HelpersService.getStorageUsage({
+				workspace: $workspaceStore!,
+				refresh
+			})
+		} catch (e) {
+			storageUsageErrored = true
+			console.error('Failed to load storage usage', e)
+		} finally {
+			storageUsageLoading = false
+		}
+	}
+
+	$effect(() => {
+		if (
+			primaryStorageSaved &&
+			storageUsage === undefined &&
+			!storageUsageLoading &&
+			!storageUsageErrored
+		) {
+			loadStorageUsage()
+		}
+	})
+
+	let usedFraction: number | undefined = $derived(
+		storageUsage?.quota_bytes
+			? Math.min(storageUsage.total_bytes / storageUsage.quota_bytes, 1)
+			: undefined
+	)
+	let overQuota: boolean = $derived(
+		storageUsage?.quota_bytes !== undefined && storageUsage.total_bytes >= storageUsage.quota_bytes
+	)
+	let quotaDisplay: string = $derived(displaySize(storageUsage?.quota_bytes) ?? '10 GiB')
 	let tableHeadNames = ['Name', 'Storage resource', '', ''] as const
 	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
 		'Storage resource':
@@ -144,10 +188,9 @@
 	link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
 />
 {#if !$enterpriseLicense}
-	<Alert type="info" title="S3 storage is limited to 20 files in Windmill CE">
-		Windmill S3 bucket browser will not work for buckets containing more than 20 files and uploads
-		are limited to files {'<'} 50MB. Consider upgrading to Windmill EE to use this feature with large
-		buckets.
+	<Alert type="info" title="Workspace storage is limited to {quotaDisplay} in Windmill CE">
+		Total workspace storage is capped at {quotaDisplay} in the Community Edition: writes that would exceed
+		the quota are rejected. Consider upgrading to Windmill EE for unlimited workspace storage.
 	</Alert>
 {:else}
 	<Alert type="info" title="Logs storage is set at the instance level">
@@ -158,6 +201,67 @@
 			>Instance object storage</a
 		>, set by the superadmins in the instance settings UI.
 	</Alert>
+{/if}
+{#if primaryStorageSaved}
+	<div class="mt-4 flex flex-col gap-1.5 max-w-xl storage-usage-section">
+		<div class="flex items-center gap-2">
+			<span class="text-sm font-semibold">Storage usage</span>
+			<Button
+				variant="default"
+				size="xs2"
+				iconOnly
+				startIcon={{ icon: RefreshCw }}
+				loading={storageUsageLoading}
+				onclick={() => loadStorageUsage(true)}
+				title="Recount usage by listing the storage"
+			/>
+		</div>
+		{#if storageUsage}
+			{#if storageUsage.quota_bytes !== undefined && usedFraction !== undefined}
+				<div class="h-2 w-full rounded-full bg-surface-secondary overflow-hidden border">
+					<div
+						class="h-full rounded-full transition-all {overQuota
+							? 'bg-red-500'
+							: usedFraction >= 0.8
+								? 'bg-yellow-500'
+								: 'bg-accent'}"
+						style="width: {Math.max(usedFraction * 100, 1)}%"
+					></div>
+				</div>
+				<span class="text-xs text-secondary">
+					{displaySize(storageUsage.total_bytes)} of {quotaDisplay} used
+					{#if storageUsage.storages.length > 1}
+						({storageUsage.storages
+							.map(
+								(s) =>
+									`${s.storage === '_default_' ? 'primary' : s.storage}: ${displaySize(s.bytes)}`
+							)
+							.join(', ')})
+					{/if}
+				</span>
+				{#if overQuota}
+					<Alert type="error" title="Workspace storage quota exceeded">
+						Writes to workspace storage are rejected until usage drops below {quotaDisplay}. Delete
+						files from workspace storage or upgrade to Windmill EE for unlimited storage.
+					</Alert>
+				{/if}
+			{:else}
+				<span class="text-xs text-secondary">
+					{displaySize(storageUsage.total_bytes)} used
+					{#if storageUsage.storages.length > 1}
+						({storageUsage.storages
+							.map(
+								(s) =>
+									`${s.storage === '_default_' ? 'primary' : s.storage}: ${displaySize(s.bytes)}`
+							)
+							.join(', ')})
+					{/if}
+				</span>
+			{/if}
+		{:else if storageUsageLoading}
+			<span class="text-xs text-tertiary">Computing storage usage...</span>
+		{/if}
+	</div>
 {/if}
 {#if s3ResourceSettings}
 	<DataTable containerClass="storage-settings-table mt-4">
@@ -191,6 +295,9 @@
 						<div class="flex gap-2">
 							<div class="relative">
 								{#if tableRow[1].resourceType === 'filesystem'}
+									<!-- Filesystem storage is deliberately absent from the creatable
+									     types below: it is dev-only (set via the API), so the UI only
+									     renders it read-only when already configured. -->
 									<Select
 										items={[{ value: 'filesystem', label: 'Filesystem' }]}
 										value={'filesystem'}

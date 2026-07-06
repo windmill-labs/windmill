@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM pipeline_freshness_state WHERE workspace_id = $1 AND script_path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e22295e40bfc173d85f0a962d491f3afd87eeea5e4e8d935b1b86eb02f061e7"
+}

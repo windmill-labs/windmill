@@ -9,6 +9,9 @@ const ann = (over: Partial<PipelineAnnotations> = {}): PipelineAnnotations => ({
 	triggerAssets: [],
 	nativeTriggers: [],
 	dataTests: [],
+	columnLineage: [],
+	macros: false,
+	useLibs: [],
 	...over
 })
 
@@ -66,11 +69,14 @@ describe('resolveGraph', () => {
 		expect(resolveGraph(input({ base }))).toEqual(base)
 	})
 
-	it('draft: adds an unsaved runnable + write edge from the static outputAsset', () => {
+	it('draft: adds an unsaved runnable + write edge from outputAssets', () => {
 		const drafts = new Map([
 			[
 				'f/x/d',
-				{ script: { content: '' }, outputAsset: { kind: 's3object' as const, path: '/out.json' } }
+				{
+					script: { content: '' },
+					outputAssets: [{ kind: 's3object' as const, path: '/out.json' }]
+				}
 			]
 		])
 		const r = resolveGraph(input({ drafts }))
@@ -93,20 +99,48 @@ describe('resolveGraph', () => {
 		})
 	})
 
-	it('draft: outputAssets snapshot wins over the static outputAsset', () => {
+	it('scd2 materialize draft: writes both the base dim and its _current companion view', () => {
 		const drafts = new Map([
 			[
-				'f/x/d',
+				'f/x/dim',
 				{
-					script: { content: '' },
-					outputAsset: { kind: 's3object' as const, path: '/old.json' },
-					outputAssets: [{ kind: 's3object' as const, path: '/new.json' }]
+					script: {
+						content: '-- materialize ducklake://main/dim_customers key=id history\nselect 1'
+					}
 				}
 			]
 		])
 		const r = resolveGraph(input({ drafts }))
-		expect(r.edges.map((e) => e.asset_path)).toContain('/new.json')
-		expect(r.edges.map((e) => e.asset_path)).not.toContain('/old.json')
+		// Base dimension: a plain write output node.
+		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/dim_customers' })
+		// Companion `_current` view: same producer, marked derived from the base.
+		expect(r.assets).toContainEqual({
+			kind: 'ducklake',
+			path: 'main/dim_customers_current',
+			derived_from: 'main/dim_customers'
+		})
+		for (const path of ['main/dim_customers', 'main/dim_customers_current']) {
+			expect(r.edges).toContainEqual({
+				runnable_path: 'f/x/dim',
+				runnable_kind: 'script',
+				asset_kind: 'ducklake',
+				asset_path: path,
+				access_type: 'w',
+				unsaved: true
+			})
+		}
+	})
+
+	it('non-scd2 materialize draft: writes only the base dim, no _current companion', () => {
+		const drafts = new Map([
+			[
+				'f/x/dim',
+				{ script: { content: '-- materialize ducklake://main/dim_customers key=id\nselect 1' } }
+			]
+		])
+		const r = resolveGraph(input({ drafts }))
+		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/dim_customers' })
+		expect(r.assets.some((a) => a.path === 'main/dim_customers_current')).toBe(false)
 	})
 
 	it('active draft: live body writes are authoritative over the snapshot', () => {
@@ -351,6 +385,55 @@ describe('resolveGraph', () => {
 		expect(r.edges.some((e) => e.asset_path === 'main/out' && e.access_type === 'w')).toBe(true)
 	})
 
+	it('editing a saved scd2 producer keeps both the base and _current persisted write edges', () => {
+		// Deploy persists a write to both `main/dim` and `main/dim_current`.
+		// Opening the producer for editing must not judge the companion `_current`
+		// write stale — otherwise a consumer of only the view orphans mid-edit.
+		const base = baseGraph({
+			runnables: [{ path: 'f/x/dim', usage_kind: 'script' }],
+			edges: [
+				{
+					runnable_path: 'f/x/dim',
+					runnable_kind: 'script',
+					asset_kind: 'ducklake',
+					asset_path: 'main/dim_customers',
+					access_type: 'w'
+				},
+				{
+					runnable_path: 'f/x/dim',
+					runnable_kind: 'script',
+					asset_kind: 'ducklake',
+					asset_path: 'main/dim_customers_current',
+					access_type: 'w'
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: {
+					scriptPath: 'f/x/dim',
+					annotations: ann({
+						materialize: {
+							targetKind: 'ducklake',
+							targetPath: 'main/dim_customers',
+							uniqueKey: 'id',
+							scd2: true
+						}
+					})
+				},
+				liveBodyAssets: { scriptPath: 'f/x/dim', assets: [] }
+			})
+		)
+		for (const path of ['main/dim_customers', 'main/dim_customers_current']) {
+			expect(
+				r.edges.some(
+					(e) => e.runnable_path === 'f/x/dim' && e.asset_path === path && e.access_type === 'w'
+				)
+			).toBe(true)
+		}
+	})
+
 	it('selecting a saved script unchanged drops nothing (no stale removal)', () => {
 		const base = baseGraph({
 			runnables: [{ path: 'f/x/prod', usage_kind: 'script' }],
@@ -464,5 +547,86 @@ describe('resolveGraph', () => {
 			unsaved: true,
 			missing: true
 		})
+	})
+
+	it('macro edges: base passes through; live `// use` adds an unsaved via_use edge', () => {
+		const base = baseGraph({
+			runnables: [
+				{
+					path: 'f/lib/stats',
+					usage_kind: 'script',
+					macros: [{ name: 'safe_div', params: 'a, b', is_table: false }]
+				},
+				{ path: 'f/x/cons', usage_kind: 'script' }
+			],
+			macro_edges: [
+				{
+					lib_path: 'f/lib/stats',
+					consumer_path: 'f/x/cons',
+					macro_names: ['safe_div'],
+					via_use: false
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: {
+					scriptPath: 'f/x/other',
+					annotations: ann({ useLibs: ['f/lib/stats'] })
+				}
+			})
+		)
+		// Detection edge preserved untouched.
+		expect(r.macro_edges).toContainEqual({
+			lib_path: 'f/lib/stats',
+			consumer_path: 'f/x/cons',
+			macro_names: ['safe_div'],
+			via_use: false
+		})
+		// Live `// use` synthesizes an unsaved whole-lib edge with the lib's names.
+		expect(r.macro_edges).toContainEqual({
+			lib_path: 'f/lib/stats',
+			consumer_path: 'f/x/other',
+			macro_names: ['safe_div'],
+			via_use: true,
+			unsaved: true
+		})
+	})
+
+	it('macro edges: removing the `// use` line of an overlaid consumer retires its via_use edge', () => {
+		const base = baseGraph({
+			macro_edges: [
+				{
+					lib_path: 'f/lib/stats',
+					consumer_path: 'f/x/cons',
+					macro_names: ['safe_div'],
+					via_use: true
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: { scriptPath: 'f/x/cons', annotations: ann() }
+			})
+		)
+		expect(r.macro_edges).toEqual([])
+	})
+
+	it('macro edges: draft `// macros` library gets the ƒ badge data from its body', () => {
+		const drafts = new Map([
+			[
+				'f/lib/new',
+				{
+					script: {
+						content: '// macros\nCREATE OR REPLACE MACRO dbl(a) AS a * 2;'
+					}
+				}
+			]
+		])
+		const r = resolveGraph(input({ drafts }))
+		const lib = r.runnables.find((x) => x.path === 'f/lib/new')
+		expect(lib?.macros).toEqual([{ name: 'dbl', params: 'a', is_table: false }])
 	})
 })

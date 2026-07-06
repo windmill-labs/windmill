@@ -1,4 +1,14 @@
-import { Webhook, Mail, Calendar, Route, Unplug, Database, Terminal } from 'lucide-svelte'
+import {
+	Webhook,
+	Mail,
+	Calendar,
+	Route,
+	Unplug,
+	Database,
+	Terminal,
+	Timer,
+	Zap
+} from 'lucide-svelte'
 import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
@@ -82,7 +92,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'azure',
 	'google',
 	'github',
-	'asset'
+	'asset',
+	'freshness'
 ]
 
 export type Trigger = {
@@ -118,7 +129,12 @@ export const triggerIconMap = {
 	cli: Terminal,
 	nextcloud: NextcloudIcon,
 	google: GoogleIcon,
-	github: GithubIcon
+	github: GithubIcon,
+	// Job-attribution-only kinds (no trigger CRUD page): the pipeline asset
+	// cascade and the freshness watchdog. Needed so the Runs filter and job
+	// detail render these trigger kinds instead of a blank label / no icon.
+	asset: Zap,
+	freshness: Timer
 }
 
 export const triggerDisplayNamesMap = {
@@ -139,8 +155,12 @@ export const triggerDisplayNamesMap = {
 	cli: 'CLI',
 	nextcloud: 'Nextcloud',
 	google: 'Google',
-	github: 'GitHub'
-} as const satisfies Record<TriggerType, string>
+	github: 'GitHub',
+	asset: 'Asset cascade',
+	freshness: 'Freshness'
+	// `asset` / `freshness` are job-attribution-only (JobTriggerKind, not
+	// TriggerType) — hence the union in the satisfies below.
+} as const satisfies Record<TriggerType | 'asset' | 'freshness', string>
 
 /**
  * Converts a TriggerType to a CaptureTriggerKind when a mapping exists
