@@ -53,6 +53,10 @@ pub const INDEXER_SETTING: &str = "indexer_settings";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
+// When set to true, the frontend stops showing the NO_AUTH warning banner for
+// every user. Only ever written by dismissing the banner itself (not exposed in
+// instance settings), so it can only be toggled from inside a NO_AUTH instance.
+pub const NO_AUTH_BANNER_DISMISSED_SETTING: &str = "no_auth_banner_dismissed";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";
 pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";

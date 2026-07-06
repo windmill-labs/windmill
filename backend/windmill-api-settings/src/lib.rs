@@ -111,6 +111,7 @@ pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
         .route("/envs", get(get_local_settings))
+        .route("/no_auth_banner", get(get_no_auth_banner))
         .route(
             "/global/{key}",
             post(set_global_setting).get(get_global_setting),
@@ -718,6 +719,28 @@ pub async fn get_local_settings(
         }
     }
     Ok(Json(serde_json::Value::Object(settings)))
+}
+
+/// Whether the frontend should show the NO_AUTH warning banner: true only when
+/// the instance actually runs in NO_AUTH mode and the banner has not been
+/// permanently dismissed. Any authed user can read it (in NO_AUTH mode every
+/// request already resolves as the admin superadmin).
+pub async fn get_no_auth_banner(
+    Extension(db): Extension<DB>,
+    _authed: ApiAuthed,
+) -> error::JsonResult<bool> {
+    if !*windmill_common::worker::NO_AUTH {
+        return Ok(Json(false));
+    }
+    let dismissed = sqlx::query!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        windmill_common::global_settings::NO_AUTH_BANNER_DISMISSED_SETTING
+    )
+    .fetch_optional(&db)
+    .await?
+    .and_then(|x| x.value.as_bool())
+    .unwrap_or(false);
+    Ok(Json(!dismissed))
 }
 
 #[derive(serde::Deserialize)]

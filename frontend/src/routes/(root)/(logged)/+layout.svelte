@@ -36,6 +36,7 @@
 		globalForkModal
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import NoAuthBanner from '$lib/components/NoAuthBanner.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -523,6 +524,7 @@
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
 	<div class="h-screen flex flex-col">
+		<NoAuthBanner />
 		{#if !menuHidden}
 			{#if !$userStore?.operator}
 				{#if innerWidth < 768}

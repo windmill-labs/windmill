@@ -281,12 +281,6 @@ lazy_static::lazy_static! {
     pub static ref NO_AUTH: bool = !*CLOUD_HOSTED
         && std::env::var("NO_AUTH").ok().is_some_and(|x| x == "1" || x == "true");
 
-    /// Suppress the loud startup banner that `NO_AUTH` mode prints. Useful once
-    /// the operator has intentionally deployed behind their own gateway and no
-    /// longer wants the warning in their logs.
-    pub static ref HIDE_NO_AUTH_BANNER: bool =
-        std::env::var("HIDE_NO_AUTH_BANNER").ok().is_some_and(|x| x == "1" || x == "true");
-
     pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();

@@ -579,9 +579,6 @@ fn print_help() {
     println!("  METRICS_ADDR = None                    (EE only) Prometheus metrics addr at /metrics; set \"true\" to use :8001");
     println!("  SUPERADMIN_SECRET = None               Virtual superadmin token (server)");
     println!("  NO_AUTH = false                        Bypass all auth; every request acts as the admin@windmill.dev superadmin (only behind a trusted gateway; ignored when CLOUD_HOSTED)");
-    println!(
-        "  HIDE_NO_AUTH_BANNER = false             Silence the NO_AUTH startup warning banner"
-    );
     println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
     println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
     println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
@@ -645,13 +642,12 @@ async fn windmill_main() -> anyhow::Result<()> {
         println!("Running in MCP mode");
     }
 
-    if *windmill_common::worker::NO_AUTH && !*windmill_common::worker::HIDE_NO_AUTH_BANNER {
+    if *windmill_common::worker::NO_AUTH {
         println!("############################################################");
         println!("# NO_AUTH mode is ENABLED: authentication is fully         #");
         println!("# bypassed and every request is treated as the             #");
         println!("# admin@windmill.dev superadmin. Only run this behind a     #");
         println!("# trusted authenticating gateway on a private network.      #");
-        println!("# Set HIDE_NO_AUTH_BANNER=true to silence this warning.     #");
         println!("############################################################");
     }
 
