@@ -11,18 +11,24 @@ on:
     types: [submitted]
 
 jobs:
-  claude-plan-action:
+  # author_association misses private org members; check-access resolves them via the
+  # internal app token. Both are OR'd below so public members still pass instantly.
+  check-access:
     if: |
-      (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/plan')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/plan')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/plan')) ||
-        (github.event_name == 'issues' && contains(github.event.issue.body, '/plan'))
-      ) &&
-      (
-        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association) ||
-        (github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login) == 'windmill-internal-app[bot]'
-      )
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/plan')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/plan')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/plan')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '/plan'))
+    uses: ./.github/workflows/check-write-access.yml
+    with:
+      username: ${{ github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login }}
+    secrets: inherit
+
+  claude-plan-action:
+    needs: [check-access]
+    if: |
+      needs.check-access.outputs.authorized == 'true' ||
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association)
     runs-on: ubicloud-standard-4
     timeout-minutes: 20
     permissions:
