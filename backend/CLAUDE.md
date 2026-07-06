@@ -11,6 +11,10 @@
   cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh
   ```
   Re-run after clean builds or when `target/debug/libwindmill_duckdb_ffi_internal.*` is missing.
+  The bundled DuckDB compile (~2min) is cached in a per-user dir shared across
+  worktrees (keyed by the crate's `Cargo.lock`), so a fresh worktree reuses it and
+  the build is near-instant — you don't pay the full compile per worktree. Editing
+  the FFI crate's own source falls back to an isolated per-worktree `./target`.
 - **Running data pipelines (DuckLake) from source**: see the section below — a plain build
   advertises the `duckdb` tag but cannot execute DuckDB scripts and has no working S3 proxy.
 
