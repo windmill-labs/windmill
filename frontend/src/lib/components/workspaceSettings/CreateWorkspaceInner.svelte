@@ -17,7 +17,8 @@
 	import { usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { resource } from 'runed'
-	import { Button } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
+	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
@@ -622,8 +623,8 @@
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
 							<div class="text-2xs text-secondary">
-								Cosmetic label: <span class="font-semibold text-emphasis">{devWorkspaceLabel}</span
-								>.
+								Cosmetic label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge
+								>
 								<button
 									type="button"
 									class="text-secondary hover:text-primary hover:underline"

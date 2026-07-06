@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces, usersWorkspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
-	import { Button } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -9,7 +9,7 @@
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
-	import { devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
+	import { devBadgeText, devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink } from 'lucide-svelte'
 	import { resource } from 'runed'
@@ -148,7 +148,7 @@
 			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
 		<div class="text-2xs text-secondary">
-			Cosmetic label: <span class="font-semibold text-emphasis">{currentLabel}</span>.
+			Cosmetic label: <Badge color="indigo" small>{devBadgeText(currentLabel)}</Badge>
 			<button
 				type="button"
 				disabled={labelBusy}
@@ -208,7 +208,7 @@
 			/>
 		</div>
 		<div class="text-2xs text-secondary">
-			Cosmetic label: <span class="font-semibold text-emphasis">{attachLabel}</span>.
+			Cosmetic label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
 			<button
 				type="button"
 				class="text-secondary hover:text-primary hover:underline"
