@@ -332,7 +332,7 @@ export type TemplateContext = {
 // Output asset is NOT declared here — it's reconstructed from the body's
 // SDK calls / SQL by the asset parser, same as production scripts.
 function header(ctx: TemplateContext): string {
-	const { language, triggers, output, outputKind } = ctx
+	const { language, triggers, output, outputKind, input } = ctx
 	const p = commentPrefix(language)
 	// A custom data test is a standalone script, not a graph node that produces
 	// an asset — so it gets no `// pipeline` / output annotation. Instead, tell
@@ -345,14 +345,26 @@ function header(ctx: TemplateContext): string {
 			''
 		].join('\n')
 	}
-	const lines = triggers.map((t) => {
+	// A ducklake/s3 read the body performs auto-wires its cascade edge from the
+	// FROM clause, so an explicit `// on` for that same asset would be redundant
+	// now that auto-derivation is the default. Only drop it when the generated
+	// body actually READS the input: bun/deno/python/duckdb emit an input load,
+	// but postgres/bash/generic bodies (and `data_upload`, which reads the picker
+	// `file` instead) do not — dropping there would leave the script with no
+	// cascade at all. Also keep `// on` for kinds inference can't derive
+	// (datatable/resource/…) and native triggers.
+	const bodyReadsInput = READS_INPUT_LANGS.has(language) && !isDataUpload(triggers)
+	const inputRef = input ? assetUri(input) : undefined
+	const inputAutoDerives = input?.kind === 'ducklake' || input?.kind === 's3object'
+	const lines = triggers.flatMap((t) => {
 		switch (t.kind) {
 			case 'asset':
-				return `${p} on ${t.ref}`
+				if (bodyReadsInput && inputAutoDerives && t.ref === inputRef) return []
+				return [`${p} on ${t.ref}`]
 			default:
 				// Native triggers (incl. schedule): marker-only — the
 				// binding lives on the trigger row's own `script_path`.
-				return `${p} on ${t.kind}`
+				return [`${p} on ${t.kind}`]
 		}
 	})
 	// Managed materialization is the one kind that declares its output
@@ -384,7 +396,10 @@ function header(ctx: TemplateContext): string {
 	// link is the canonical reference once they want the details. A blank
 	// line separates it from the parsed annotations above (`// pipeline`,
 	// `// on …`) so the editor reads as "real annotations, then a hint".
-	const more = `${p} More: partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/core_concepts/pipelines`
+	// Reads of a ducklake/s3 table auto-trigger this script when that table
+	// changes — `// mute <asset>` opts a read out of the cascade. The rest are
+	// the annotations users most often miss.
+	const more = `${p} More: mute <asset> to not cascade on a read, partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/core_concepts/pipelines`
 	return [`${p} pipeline`, ...lines, ...matLine, ...macrosLine, '', more, ''].join('\n')
 }
 
@@ -401,6 +416,11 @@ function header(ctx: TemplateContext): string {
 function isDataUpload(triggers: DraftTriggerSource[]): boolean {
 	return triggers.some((t) => t.kind === 'data_upload')
 }
+
+// Languages whose generated body reads the `input` asset (an SDK load / SQL
+// FROM), so a ducklake/s3 input auto-derives its cascade and the explicit
+// `// on` can be dropped. postgres/bash/generic bodies ignore `input`.
+const READS_INPUT_LANGS: ReadonlySet<ScriptLang> = new Set(['bun', 'deno', 'python3', 'duckdb'])
 
 function bodyTs(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx

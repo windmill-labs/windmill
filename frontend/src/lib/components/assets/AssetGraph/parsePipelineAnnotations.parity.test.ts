@@ -22,7 +22,9 @@ const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
 	dataTests: true,
 	columnLineage: true,
 	macros: true,
-	useLibs: true
+	useLibs: true,
+	muteAssets: true,
+	muteAll: true
 }
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
@@ -86,6 +88,11 @@ type Fixture = {
 		macros?: boolean
 		// `// use <lib_path>` accumulation, declaration order, deduped. Absent === [].
 		use_libs?: string[]
+		// `// mute <asset>` accumulation as `kind:path`, declaration order, deduped.
+		// Absent === [].
+		mute?: string[]
+		// `// mute all` marker. Absent === false.
+		mute_all?: boolean
 	}
 }
 
@@ -194,6 +201,13 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 			expect(got.macros, 'macros').toBe(f.expected.macros ?? false)
 
 			expect(got.useLibs, 'use_libs').toEqual(f.expected.use_libs ?? [])
+
+			expect(
+				got.muteAssets.map((a) => `${a.kind}:${a.path}`),
+				'mute'
+			).toEqual(f.expected.mute ?? [])
+
+			expect(got.muteAll, 'mute_all').toBe(f.expected.mute_all ?? false)
 		})
 	}
 })
