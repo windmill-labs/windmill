@@ -8035,16 +8035,43 @@ async fn query_visible_items<'c>(
                 .await?
             }
             "datatable_migration" => {
-                sqlx::query_scalar!(
-                    r#"SELECT datatable || '/' || timestamp || '_' || name AS "path!"
-                   FROM datatable_migrations
-                   WHERE workspace_id = $1
-                     AND datatable || '/' || timestamp || '_' || name = ANY($2)"#,
-                    workspace_id,
-                    &paths_vec
-                )
-                .fetch_all(&mut **tx)
-                .await?
+                // Match by (datatable, timestamp), not the full path: a migration
+                // keeps its identity across a rename, so the candidate path's
+                // `name` segment can differ from the stored one. Parse each
+                // `<datatable>/<timestamp>_<name>` candidate, probe existence by
+                // (datatable, timestamp), and return the *original* candidate path
+                // so the visibility set stays keyed by the diff's path.
+                let parsed: Vec<(String, i64, String)> = paths_vec
+                    .iter()
+                    .filter_map(|p| {
+                        let (dt, rest) = p.split_once('/')?;
+                        let ts = rest.split_once('_')?.0.parse::<i64>().ok()?;
+                        Some((dt.to_string(), ts, p.clone()))
+                    })
+                    .collect();
+                if parsed.is_empty() {
+                    vec![]
+                } else {
+                    let dts: Vec<String> = parsed.iter().map(|(d, _, _)| d.clone()).collect();
+                    let tss: Vec<i64> = parsed.iter().map(|(_, t, _)| *t).collect();
+                    let existing: HashSet<(String, i64)> = sqlx::query!(
+                        "SELECT datatable, timestamp FROM datatable_migrations \
+                         WHERE workspace_id = $1 AND datatable = ANY($2) AND timestamp = ANY($3)",
+                        workspace_id,
+                        &dts,
+                        &tss,
+                    )
+                    .fetch_all(&mut **tx)
+                    .await?
+                    .into_iter()
+                    .map(|r| (r.datatable, r.timestamp))
+                    .collect();
+                    parsed
+                        .into_iter()
+                        .filter(|(d, t, _)| existing.contains(&(d.clone(), *t)))
+                        .map(|(_, _, p)| p)
+                        .collect()
+                }
             }
             k if TRIGGER_OR_SCHEDULE_TABLES.contains(&k) => {
                 // SAFETY: `kind` comes from a hardcoded allowlist
