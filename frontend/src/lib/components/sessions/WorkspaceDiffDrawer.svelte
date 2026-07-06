@@ -839,7 +839,7 @@
 	{/if}
 {/snippet}
 
-<Drawer bind:this={drawer} size="1200px">
+<Drawer bind:this={drawer} size="1500px">
 	<DrawerContent
 		{title}
 		{titleExtra}

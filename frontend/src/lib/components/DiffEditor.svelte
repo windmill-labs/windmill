@@ -62,6 +62,10 @@
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
 			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
+			// Monaco otherwise forces the inline view below renderSideBySideInlineBreakpoint
+			// (900px), silently overriding both our SIDE_BY_SIDE_MIN_WIDTH gate and the
+			// explicit unified/side-by-side toggle in narrow containers (e.g. the diff drawer).
+			useInlineViewWhenSpaceIsLimited: false,
 			originalEditable: false,
 			readOnly,
 			minimap: {
