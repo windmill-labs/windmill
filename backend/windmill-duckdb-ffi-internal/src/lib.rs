@@ -148,6 +148,23 @@ fn is_setup_statement(query: &str) -> bool {
         || upper.starts_with("RESET")
         || upper.starts_with("CREATE OR REPLACE SECRET")
         || upper.starts_with("CREATE SECRET")
+        || is_create_temp_macro(&upper)
+}
+
+/// `CREATE [OR REPLACE] TEMP|TEMPORARY MACRO` — a connection-scoped definition
+/// that returns no result set and must be *executed* (not just prepared) during
+/// the prepare/diagnostics pass, so later blocks that call the macro bind
+/// against it instead of failing "function does not exist". Both the materialize
+/// runtime (`wm_partition`) and the workspace-macro splicer inject these ahead
+/// of the query that uses them, so — like ATTACH — they are connection setup,
+/// not user queries (they must not add a `PrepareQueryResult` entry either).
+/// Persistent `CREATE MACRO` (no TEMP) is a real user statement and is excluded.
+fn is_create_temp_macro(upper: &str) -> bool {
+    let norm = upper.split_whitespace().collect::<Vec<_>>().join(" ");
+    norm.starts_with("CREATE TEMP MACRO")
+        || norm.starts_with("CREATE TEMPORARY MACRO")
+        || norm.starts_with("CREATE OR REPLACE TEMP MACRO")
+        || norm.starts_with("CREATE OR REPLACE TEMPORARY MACRO")
 }
 
 /// Returns true if the query is expected to return a result set and can be wrapped with DESCRIBE.
@@ -1018,6 +1035,54 @@ mod wm_partition_parity_tests {
         assert_eq!(
             scalar_str(&conn, "SELECT strftime(TIMESTAMP '2027-01-01', '%G-W%V')"),
             "2026-W53"
+        );
+    }
+
+    #[test]
+    fn temp_macro_is_classified_as_setup() {
+        // The macro the executor injects, plus whitespace/keyword variants the
+        // workspace-macro splicer can emit.
+        assert!(is_setup_statement(
+            "CREATE OR REPLACE TEMP MACRO wm_partition(ts) AS strftime(ts, '%Y-%m-%dT%H')"
+        ));
+        assert!(is_setup_statement("  create temp macro foo(x) as x + 1"));
+        assert!(is_setup_statement("CREATE TEMPORARY MACRO foo(x) AS x"));
+        assert!(is_setup_statement(
+            "CREATE OR REPLACE\n  TEMPORARY MACRO foo(x) AS x"
+        ));
+        // Persistent (non-TEMP) macros are real user statements, not setup.
+        assert!(!is_setup_statement(
+            "CREATE OR REPLACE MACRO safe_div(a, b) AS a / b"
+        ));
+        assert!(!is_setup_statement("CREATE MACRO foo(x) AS x"));
+    }
+
+    #[test]
+    fn prepare_pass_binds_consumer_only_when_macro_runs_as_setup() {
+        // Mirror prepare_duckdb_internal's per-block contract: setup statements
+        // are EXECUTED, everything else is only prepared. A block that calls
+        // wm_partition binds at prepare time, so it resolves only if the macro
+        // block already ran as setup.
+        let consumer = "SELECT wm_partition(TIMESTAMP '2026-07-05 23:10:00') AS p";
+        let macro_stmt =
+            "CREATE OR REPLACE TEMP MACRO wm_partition(ts) AS strftime(ts, '%Y-%m-%dT%H')";
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        for block in [macro_stmt, consumer] {
+            if is_setup_statement(block) {
+                conn.execute_batch(block).unwrap();
+            } else {
+                conn.prepare(block)
+                    .expect("consumer must prepare once the macro ran as setup");
+            }
+        }
+
+        // Guard: if the macro were NOT setup (the bug), the consumer's prepare
+        // fails "function does not exist" — proving the classification matters.
+        let fresh = duckdb::Connection::open_in_memory().unwrap();
+        assert!(
+            fresh.prepare(consumer).is_err(),
+            "consumer must fail to prepare when wm_partition was never created"
         );
     }
 
