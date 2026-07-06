@@ -302,10 +302,10 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	return 8192
 }
 
-function getModelSpecificConfig(
-	modelProvider: AIProviderModel,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-) {
+// Resolves the completion token cap for a model: the workspace's per-model
+// override when set, otherwise the built-in default. Shared by the OpenAI and
+// Anthropic request paths so both honor the same limit.
+function resolveMaxTokens(modelProvider: AIProviderModel): number {
 	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	let customMaxTokensStore: Record<string, number> | undefined
@@ -314,7 +314,14 @@ function getModelSpecificConfig(
 	} catch {
 		// copilotInfo store may not be initialized in vitest
 	}
-	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	return customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+}
+
+function getModelSpecificConfig(
+	modelProvider: AIProviderModel,
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+) {
+	const maxTokens = resolveMaxTokens(modelProvider)
 	if (
 		(modelProvider.provider === 'openai' ||
 			modelProvider.provider === 'azure_openai' ||
@@ -466,23 +473,10 @@ export async function testKey({
 		throw new Error('Missing a model to test')
 	}
 
-	// Providers served through the Anthropic Messages API (native Anthropic, and
-	// Claude deployments on Azure Foundry) must use the Anthropic SDK path rather
-	// than OpenAI chat completions. Mirrors the chat loop's routing so the test
-	// key exercises the same request shape the chat actually sends.
-	if (usesAnthropicMessagesApi(aiProvider, modelToTest)) {
-		await testAnthropicKey({
-			apiKey,
-			workspace,
-			resourcePath,
-			model: modelToTest,
-			abortController,
-			messages,
-			aiProvider
-		})
-		return
-	}
-
+	// getNonStreamingCompletion routes Anthropic-Messages-API models (native
+	// Anthropic and Claude on Azure Foundry) through the Anthropic SDK and
+	// everything else through OpenAI chat completions, so the test exercises the
+	// same request shape the feature actually sends.
 	await getNonStreamingCompletion(messages, abortController, {
 		apiKey,
 		workspace,
@@ -494,30 +488,35 @@ export async function testKey({
 	})
 }
 
-async function testAnthropicKey({
-	apiKey,
-	workspace,
-	resourcePath,
-	model,
-	abortController,
-	messages,
-	aiProvider
-}: {
+// Providers served through the Anthropic Messages API (native Anthropic, and
+// Claude deployments on Azure Foundry) require the Anthropic SDK request shape:
+// OpenAI chat-completions requests fail against them because the proxy forwards
+// the body verbatim and, for Foundry, rewrites the URL to the /anthropic/v1
+// surface that only serves /messages. This centralizes the client/header/message
+// setup so every completion entry point routes them the same way the chat does.
+interface AnthropicCompletionParams {
+	messages: ChatCompletionMessageParam[]
+	modelProvider: AIProviderModel
+	abortController: AbortController
 	apiKey?: string
 	workspace?: string
 	resourcePath?: string
-	model: string
-	abortController: AbortController
-	messages: ChatCompletionMessageParam[]
-	aiProvider: AIProvider
-}) {
+}
+
+function buildAnthropicProxyRequest({
+	messages,
+	modelProvider,
+	apiKey,
+	workspace,
+	resourcePath
+}: Omit<AnthropicCompletionParams, 'abortController'>) {
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
 	// X-Provider must be the real provider (e.g. azure_foundry) so the backend
 	// resolves the right credentials and Anthropic URL; the SDK headers tell it to
 	// route through the Anthropic Messages API.
 	const headers: Record<string, string> = {
-		'X-Provider': aiProvider,
+		'X-Provider': modelProvider.provider,
 		'anthropic-version': '2023-06-01',
 		'X-Anthropic-SDK': 'true'
 	}
@@ -528,24 +527,65 @@ async function testAnthropicKey({
 		headers['X-API-Key'] = apiKey
 	}
 
-	const anthropicClient = apiKey
+	const client = apiKey
 		? createAnthropicProxyClient(getAiProxyBaseURL())
 		: workspace
 			? workspaceAIClients.createAnthropicClient(workspace)
 			: workspaceAIClients.getAnthropicClient()
 
-	await anthropicClient.messages.create(
-		{
-			model,
-			max_tokens: 100,
-			messages: anthropicMessages,
-			...(system && { system })
-		},
-		{
-			signal: abortController.signal,
-			headers
+	const body = {
+		model: modelProvider.model,
+		max_tokens: resolveMaxTokens(modelProvider),
+		messages: anthropicMessages,
+		...(system && { system })
+	}
+
+	return { client, headers, body }
+}
+
+async function getAnthropicNonStreamingCompletion({
+	abortController,
+	...params
+}: AnthropicCompletionParams): Promise<string> {
+	const { client, headers, body } = buildAnthropicProxyRequest(params)
+
+	const message = await client.messages.create(body, {
+		signal: abortController.signal,
+		headers
+	})
+
+	return message.content.map((block) => (block.type === 'text' ? block.text : '')).join('')
+}
+
+// Adapts an Anthropic Messages stream into the OpenAI ChatCompletionChunk shape
+// the completion consumers already iterate, so they need no Anthropic-specific
+// handling. Only text deltas are surfaced (these paths don't use tool calls).
+function getAnthropicStreamingCompletion({
+	abortController,
+	...params
+}: AnthropicCompletionParams): Stream<ChatCompletionChunk> {
+	const { client, headers, body } = buildAnthropicProxyRequest(params)
+
+	const stream = client.messages.stream(body, {
+		signal: abortController.signal,
+		headers
+	})
+
+	async function* toOpenAIChunks(): AsyncGenerator<ChatCompletionChunk> {
+		for await (const event of stream) {
+			if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+				yield {
+					id: '',
+					object: 'chat.completion.chunk',
+					created: 0,
+					model: params.modelProvider.model,
+					choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }]
+				}
+			}
 		}
-	)
+	}
+
+	return toOpenAIChunks() as unknown as Stream<ChatCompletionChunk>
 }
 
 interface BaseOptions {
@@ -773,6 +813,19 @@ export async function getNonStreamingCompletion(
 		forceModelProvider?: AIProviderModel
 	}
 ) {
+	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
+
+	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
+		return getAnthropicNonStreamingCompletion({
+			messages,
+			modelProvider,
+			abortController,
+			apiKey: options?.apiKey,
+			workspace: options?.workspace,
+			resourcePath: options?.resourcePath
+		})
+	}
+
 	let response: string | undefined = ''
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
@@ -846,6 +899,14 @@ export async function getFimCompletion(
 	providerModel: AIProviderModel,
 	abortController: AbortController
 ): Promise<string | undefined> {
+	// The Anthropic Messages API has no fill-in-the-middle endpoint, and Foundry
+	// Claude deployments don't expose the OpenAI-compatible completions surface the
+	// FIM proxy targets. Skip autocomplete for these models rather than issuing a
+	// request that can't succeed.
+	if (usesAnthropicMessagesApi(providerModel.provider, providerModel.model)) {
+		return undefined
+	}
+
 	const fetchOptions: {
 		signal: AbortSignal
 		headers: Record<string, string>
@@ -908,6 +969,12 @@ export async function getCompletion(
 		reasoningEffort?: string
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
+	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
+
+	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
+		return getAnthropicStreamingCompletion({ messages, modelProvider, abortController })
+	}
+
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: true,
