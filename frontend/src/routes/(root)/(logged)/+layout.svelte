@@ -16,6 +16,7 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
+	import SidebarScrollArea from '$lib/components/sidebar/SidebarScrollArea.svelte'
 	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
@@ -733,6 +734,21 @@
 	</div>
 {/snippet}
 
+<!-- Settings / instance section. Shared by both sidebar surfaces and both modes
+     (in nav mode it's the last section inside the unified scroll area; in session
+     mode it stays pinned under the session list). -->
+{#snippet settingsMenu(collapsed: boolean)}
+	<div class="px-2 pb-1">
+		<SettingsMenu
+			isCollapsed={collapsed}
+			workspaceSettingsTarget={sessionSettingsWorkspace}
+			numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+				? 0
+				: numUnacknowledgedCriticalAlerts}
+		/>
+	</div>
+{/snippet}
+
 <UserSettings bind:this={userSettings} showMcpMode={true} />
 <DraftMigrationErrorModal />
 {#if page.status == 404}
@@ -848,63 +864,62 @@
 										<div class="px-2 py-2 w-52">
 											<SessionPicker isCollapsed={false} embedded collapsible={false} />
 										</div>
+										{@render settingsMenu(false)}
 									{:else}
-										<!-- Navigation mode: the classic workspace navigation. -->
-										<!-- Workspace-scoped region: Home/Runs + Favorites + Search + workspace items. -->
-										<div class="px-2 pt-1 pb-2 w-52 flex flex-col gap-1">
-											{@render quickLinks(false)}
-											<Menubar>
-												{#snippet children({ createMenu })}
-													<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-												{/snippet}
-											</Menubar>
-											<MenuButton
-												stopPropagationOnClick={true}
-												on:click={() => openSearchModal()}
-												isCollapsed={false}
-												icon={Search}
-												label="Search"
-												class="!text-xs"
-												shortcut={`${getModifierKey()}k`}
-											/>
-											{#if !globalAiEnabled}
-												<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-												     replaced by SessionModeSwitch, so it only shows in prod. -->
+										<!-- Navigation mode: Home → Settings scroll as ONE block with an
+										     overflow fade hint (same treatment as the desktop rail). -->
+										<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
+											<!-- Section 1: Home/Runs + Favorites + Search -->
+											<div class="px-2 pt-1 w-52 flex flex-col gap-1">
+												{@render quickLinks(false)}
+												<Menubar>
+													{#snippet children({ createMenu })}
+														<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
+													{/snippet}
+												</Menubar>
 												<MenuButton
 													stopPropagationOnClick={true}
-													on:click={() => aiChatManager.toggleOpen()}
+													on:click={() => openSearchModal()}
 													isCollapsed={false}
-													icon={WandSparkles}
-													iconProps={{ forceDarkMode: true }}
-													label="Ask AI"
+													icon={Search}
+													label="Search"
 													class="!text-xs"
-													iconClasses="!text-ai"
-													shortcut={`${getModifierKey()}L`}
+													shortcut={`${getModifierKey()}k`}
 												/>
-											{/if}
-										</div>
+												{#if !globalAiEnabled}
+													<!-- Global Ask-AI pane. When the sessions dev flag is on it is
+													     replaced by SessionModeSwitch, so it only shows in prod. -->
+													<MenuButton
+														stopPropagationOnClick={true}
+														on:click={() => aiChatManager.toggleOpen()}
+														isCollapsed={false}
+														icon={WandSparkles}
+														iconProps={{ forceDarkMode: true }}
+														label="Ask AI"
+														class="!text-xs"
+														iconClasses="!text-ai"
+														shortcut={`${getModifierKey()}L`}
+													/>
+												{/if}
+											</div>
 
-										<SidebarContent
-											isCollapsed={false}
-											showSecondary={false}
-											excludeMainLabels={['Home', 'Runs']}
-											numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-												? 0
-												: numUnacknowledgedCriticalAlerts}
-										/>
+											<!-- Section 2: workspace items -->
+											<SidebarContent
+												isCollapsed={false}
+												showSecondary={false}
+												excludeMainLabels={['Home', 'Runs']}
+												numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+													? 0
+													: numUnacknowledgedCriticalAlerts}
+											/>
+
+											<!-- Section 3: instance settings — mt-auto drops it to the bottom
+											     when there is spare room (see the desktop rail for the rationale). -->
+											<div class="mt-auto">
+												{@render settingsMenu(false)}
+											</div>
+										</SidebarScrollArea>
 									{/if}
-
-									<!-- Settings dropdown stays across both modes; session mode points
-									     the workspace-settings entry at the session's own workspace. -->
-									<div class="px-2 pb-2">
-										<SettingsMenu
-											isCollapsed={false}
-											workspaceSettingsTarget={sessionSettingsWorkspace}
-											numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-												? 0
-												: numUnacknowledgedCriticalAlerts}
-										/>
-									</div>
 
 									<div class="px-4 pt-3 pb-3.5 w-52">
 										{@render brandMark(false)}
@@ -976,67 +991,69 @@
 								<div class="px-2 py-2 flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
 									<SessionPicker {isCollapsed} embedded collapsible={false} />
 								</div>
+								{@render settingsMenu(isCollapsed)}
 							{:else}
-								<!-- Navigation mode: the classic workspace navigation. -->
-								<!-- Workspace-scoped region: Home/Runs + Favorites + Search + workspace items. -->
-								<div class="px-2 pt-1 pb-2 flex flex-col gap-1">
-									{@render quickLinks(isCollapsed)}
-									<Menubar class="flex flex-col gap-1">
-										{#snippet children({ createMenu })}
-											<FavoriteMenu
-												{createMenu}
-												favoriteLinks={favoriteManager.current}
-												{isCollapsed}
-											/>
-										{/snippet}
-									</Menubar>
-									<MenuButton
-										stopPropagationOnClick={true}
-										on:click={() => openSearchModal()}
-										{isCollapsed}
-										icon={Search}
-										label="Search"
-										class="!text-xs"
-										shortcut={`${getModifierKey()}k`}
-									/>
-									{#if !globalAiEnabled}
-										<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-										     replaced by SessionModeSwitch, so it only shows in prod. -->
+								<!-- Navigation mode: Home → Settings scroll as ONE block with an
+								     overflow fade hint. The three sections (Home/Runs + Favorites +
+								     Search / workspace items / instance settings) are spaced by the
+								     scroll area's gap rather than each scrolling on its own. -->
+								<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
+									<!-- Section 1: Home/Runs + Favorites + Search -->
+									<div class="px-2 pt-1 flex flex-col gap-1">
+										{@render quickLinks(isCollapsed)}
+										<Menubar class="flex flex-col gap-1">
+											{#snippet children({ createMenu })}
+												<FavoriteMenu
+													{createMenu}
+													favoriteLinks={favoriteManager.current}
+													{isCollapsed}
+												/>
+											{/snippet}
+										</Menubar>
 										<MenuButton
 											stopPropagationOnClick={true}
-											on:click={() => aiChatManager.toggleOpen()}
+											on:click={() => openSearchModal()}
 											{isCollapsed}
-											icon={WandSparkles}
-											iconProps={{ forceDarkMode: true }}
-											label="Ask AI"
+											icon={Search}
+											label="Search"
 											class="!text-xs"
-											iconClasses="!text-ai"
-											shortcut={`${getModifierKey()}L`}
+											shortcut={`${getModifierKey()}k`}
 										/>
-									{/if}
-								</div>
+										{#if !globalAiEnabled}
+											<!-- Global Ask-AI pane. When the sessions dev flag is on it is
+											     replaced by SessionModeSwitch, so it only shows in prod. -->
+											<MenuButton
+												stopPropagationOnClick={true}
+												on:click={() => aiChatManager.toggleOpen()}
+												{isCollapsed}
+												icon={WandSparkles}
+												iconProps={{ forceDarkMode: true }}
+												label="Ask AI"
+												class="!text-xs"
+												iconClasses="!text-ai"
+												shortcut={`${getModifierKey()}L`}
+											/>
+										{/if}
+									</div>
 
-								<SidebarContent
-									{isCollapsed}
-									showSecondary={false}
-									excludeMainLabels={['Home', 'Runs']}
-									numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-										? 0
-										: numUnacknowledgedCriticalAlerts}
-								/>
+									<!-- Section 2: workspace items -->
+									<SidebarContent
+										{isCollapsed}
+										showSecondary={false}
+										excludeMainLabels={['Home', 'Runs']}
+										numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+											? 0
+											: numUnacknowledgedCriticalAlerts}
+									/>
+
+									<!-- Section 3: instance settings — mt-auto drops it to the bottom
+									     when the column has spare room, and collapses back to the normal
+									     inter-section gap once the content overflows and scrolls. -->
+									<div class="mt-auto">
+										{@render settingsMenu(isCollapsed)}
+									</div>
+								</SidebarScrollArea>
 							{/if}
-
-							<!-- Settings dropdown stays across both modes; session mode points
-							     the workspace-settings entry at the session's own workspace. -->
-							<div class="px-2 pb-1">
-								<SettingsMenu
-									{isCollapsed}
-									workspaceSettingsTarget={sessionSettingsWorkspace}
-									numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-										? 0
-										: numUnacknowledgedCriticalAlerts}
-								/>
-							</div>
 
 							<div
 								class="flex-shrink-0 flex pt-3 pb-3.5 {isCollapsed

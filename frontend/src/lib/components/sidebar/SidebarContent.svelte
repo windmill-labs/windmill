@@ -522,12 +522,8 @@
 	])
 </script>
 
-<nav
-	class={twMerge(
-		'grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 justify-between gap-2'
-	)}
->
-	<div class={twMerge('pt-4 flex flex-col grow')}>
+<nav class={twMerge('flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 gap-2')}>
+	<div class={twMerge('flex flex-col')}>
 		{#if showMain}
 			<div class="space-y-1">
 				{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
