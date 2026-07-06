@@ -129,6 +129,9 @@
 		// form (with the auto-generated S3 picker) for the given script.
 		// data_upload has no trigger row; it's a UI-first entry point.
 		onOpenDataUpload?: (scriptPath: string) => void
+		// Data-upload entry scripts whose file has been staged in the run form —
+		// their source node renders green (ready) instead of the neutral prompt.
+		readyDataUploadPaths?: ReadonlySet<string>
 		// Script paths the cursor is over in the Activity panel — a thin neutral
 		// ring each. One entry for a single run row; the whole cascade's runs
 		// when hovering a group header. Distinct from `selectedRunPaths`.
@@ -186,6 +189,7 @@
 		onDeleteTrigger,
 		onOpenWebhook,
 		onOpenDataUpload,
+		readyDataUploadPaths,
 		hoveredPaths,
 		selectedRunPaths,
 		panToNodeId,
@@ -702,6 +706,11 @@
 					runnable_path: info.runnable_path,
 					runnable_unsaved: info.runnable_path
 						? unsavedRunnablePaths.has(info.runnable_path)
+						: false,
+					// data_upload nodes go green once a file is staged for their
+					// target script (see readyDataUploadPaths / page dataUploadArgs).
+					ready: info.runnable_path
+						? (readyDataUploadPaths?.has(info.runnable_path) ?? false)
 						: false,
 					onCreateMissingTrigger,
 					onEditTrigger,

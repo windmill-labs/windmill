@@ -245,6 +245,13 @@
 		// preview only — the client orchestrates the chain). Unset on the deployed
 		// pane, whose single run already cascades via the backend dispatcher.
 		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Persisted run-form args for the open data-upload entry (its staged
+		// S3Object), so re-opening the node restores the picked file.
+		runFormInitialArgs?: Record<string, any>
+		// Emitted when the run form's args change (read-only PipelineScriptView OR
+		// the edit-mode ScriptEditor test form), so the page can persist a
+		// data-upload entry's staged input (drives node readiness).
+		onRunFormArgsChange?: (path: string, args: Record<string, any>) => void
 	}
 	let {
 		selection,
@@ -285,7 +292,9 @@
 		onRequestEdit,
 		canRunByPath = false,
 		onRunByPath,
-		onRunCascadeByPath
+		onRunCascadeByPath,
+		runFormInitialArgs,
+		onRunFormArgsChange
 	}: Props = $props()
 
 	let readOnly = $derived(mode !== 'edit')
@@ -461,6 +470,27 @@
 				: undefined
 		if (script && selPath && script.path === selPath) return
 		script = undefined
+	})
+
+	// Data-upload capture (edit mode): the ScriptEditor test form binds `args`, so
+	// mirror it up to the page — that stages a data-upload entry's uploaded /
+	// entered input, driving the node's green "ready" state and seeding the
+	// whole-pipeline run. Reset per script in a pre-effect (before the keyed
+	// ScriptEditor remounts) so switching nodes never leaks one node's input into
+	// the next, seeding from the page's persisted staging so re-opening a node
+	// restores its input. Guarded on the path so a staging round-trip
+	// (emit → page → runFormInitialArgs) doesn't re-seed and loop. The read-only
+	// branch uses PipelineScriptView's own onArgsChange instead.
+	let argsSeedPath: string | undefined = undefined
+	$effect.pre(() => {
+		const p = script?.path
+		if (p === argsSeedPath) return
+		argsSeedPath = p
+		args = runFormInitialArgs ? structuredClone($state.snapshot(runFormInitialArgs)) : {}
+	})
+	$effect(() => {
+		if (readOnly || !script) return
+		onRunFormArgsChange?.(script.path, $state.snapshot(args))
 	})
 
 	// Persist draft edits back to the parent's drafts Map on transitions
@@ -1172,6 +1202,8 @@
 							downstreamCount={downstreamSubscribers}
 							{runsRefreshKey}
 							{runsPendingJobId}
+							initialArgs={runFormInitialArgs}
+							onArgsChange={onRunFormArgsChange}
 							onRunCompleted={() => {
 								previewRefreshKey += 1
 								onRunCompleted?.()
@@ -1234,7 +1266,7 @@
 							bind:assets={liveBodyAssets}
 							bind:inferredColumnLineage={liveColumnLineage}
 							{onTestStateChange}
-							{args}
+							bind:args
 						/>
 					</div>
 				</div>

@@ -69,6 +69,9 @@
 		canRunByPath = false,
 		onRunByPath,
 		onRunCascadeByPath,
+		runFormInitialArgs,
+		onRunFormArgsChange,
+		readyDataUploadPaths,
 		resolveLocalScript,
 		localScriptsVersion,
 		selectionProducers = [],
@@ -162,6 +165,12 @@
 		// Run the open script AND its downstream closure (dev preview only; the
 		// deployed pane leaves this unset — its single run cascades via the backend).
 		onRunCascadeByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
+		// Persisted run-form args for the currently-open data-upload entry, and a
+		// callback to persist them as they change — see the page's dataUploadArgs.
+		runFormInitialArgs?: Record<string, any>
+		onRunFormArgsChange?: (path: string, args: Record<string, any>) => void
+		// Data-upload entry scripts whose staged upload is ready (green node).
+		readyDataUploadPaths?: Set<string>
 		/** Local-dev (`/pipeline_dev`): resolve a node to its working-tree content
 		 * so the details pane skips the (nonexistent) deployed-script fetch. May
 		 * be async (to infer the args schema for the run form). */
@@ -438,6 +447,7 @@
 					{onDeleteTrigger}
 					{onOpenWebhook}
 					{onOpenDataUpload}
+					{readyDataUploadPaths}
 					onselect={onSelect}
 					{onAddScriptForAsset}
 					{onAddPipelineScript}
@@ -488,6 +498,8 @@
 						{canRunByPath}
 						{onRunByPath}
 						{onRunCascadeByPath}
+						{runFormInitialArgs}
+						{onRunFormArgsChange}
 						{resolveLocalScript}
 						{localScriptsVersion}
 						selection={activeDraft ? undefined : editor.selection}
