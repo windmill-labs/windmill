@@ -29,7 +29,14 @@
 <!-- openDelay keeps the tooltip from popping on casual pointer passes; closeDelay
      lets the pointer travel from the trigger into the tooltip to reach the copy
      button without the tooltip vanishing en route. -->
-<Tooltip {placement} {disablePopup} openDelay={700} closeDelay={200} class={className}>
+<Tooltip
+	{placement}
+	{disablePopup}
+	anchor="cursor"
+	openDelay={700}
+	closeDelay={200}
+	class={className}
+>
 	{@render children?.()}
 	{#snippet text()}
 		<div class="flex flex-col gap-0.5 min-w-0">
