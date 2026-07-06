@@ -201,6 +201,12 @@
 	import YAML from 'yaml'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from './common/confirmationModal/asyncConfirmationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import {
+		pendingMigrations,
+		outOfOrderRunMessage
+	} from './workspaceSettings/datatableMigrationUtils'
 	import Alert from './common/alert/Alert.svelte'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 
@@ -229,6 +235,7 @@
 	let migrationSql = $state('')
 	let migrationRunning = $state(false)
 	let confirmDeployOpen = $state(false)
+	const outOfOrderModal = createAsyncConfirmationModal()
 
 	async function loadDiffs() {
 		loading = true
@@ -360,14 +367,27 @@
 			// prevents. Let the error propagate (fail closed, handled by the outer
 			// catch); only fall back to raw apply when the API explicitly returns
 			// enabled === false.
-			const targetUsesMigrations = (
-				await WorkspaceService.getDatatableMigrationsStatus({
-					workspace: targetWorkspace,
-					datatableName: dtName
-				})
-			).enabled
+			const status = await WorkspaceService.getDatatableMigrationsStatus({
+				workspace: targetWorkspace,
+				datatableName: dtName
+			})
 
-			if (targetUsesMigrations) {
+			if (status.enabled) {
+				// The merge migration gets the highest timestamp, so any still-pending
+				// migration on the target is earlier: running only the merge applies it
+				// out of order. Warn like the row-level Run action does.
+				const pending = pendingMigrations(status.migrations)
+				if (pending.length > 0) {
+					const confirmed = await outOfOrderModal.ask({
+						title: 'Run migration out of order',
+						confirmationText: 'Run anyway',
+						children: outOfOrderRunMessage(pending.length)
+					})
+					if (!confirmed) {
+						migrationRunning = false
+						return
+					}
+				}
 				const forkName =
 					$userWorkspaces.find((w) => w.id === currentWorkspaceId)?.name || currentWorkspaceId
 				const migName = `merge_${forkName}`.replace(/[^a-zA-Z0-9_-]+/g, '_')
@@ -635,3 +655,7 @@
 		>{migrationSql}</pre
 	>
 </ConfirmationModal>
+
+<Portal>
+	<ConfirmationModal {...outOfOrderModal.props} />
+</Portal>

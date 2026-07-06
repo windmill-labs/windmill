@@ -10,6 +10,10 @@
 	import { WorkspaceService, type DatatableMigration } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { tick } from 'svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { fetchPendingMigrations, outOfOrderRunMessage } from './datatableMigrationUtils'
 
 	let {
 		workspace,
@@ -54,6 +58,8 @@
 	let codeDown = $state('')
 	let creating = $state(false)
 
+	const confirmationModal = createAsyncConfirmationModal()
+
 	// Frame the migration body in an explicit transaction so it applies atomically.
 	function wrapInTransaction(body: string): string {
 		return `BEGIN;\n\n${body}\n\nEND;`
@@ -90,6 +96,24 @@
 		if (!MIGRATION_NAME_RE.test(name.trim())) {
 			sendUserToast("Invalid migration name: use only letters, digits, '_' and '-'", true)
 			return
+		}
+		if (run) {
+			// A new migration gets the highest timestamp, so any still-pending
+			// migration is earlier: running only this one applies it out of order.
+			// Warn just like the row-level Run action does. Best-effort: if the
+			// status can't be fetched, fall through and let the run/rollback handle it.
+			let pending: Awaited<ReturnType<typeof fetchPendingMigrations>> = []
+			try {
+				pending = await fetchPendingMigrations(workspace, datatable)
+			} catch {}
+			if (pending.length > 0) {
+				const confirmed = await confirmationModal.ask({
+					title: 'Run migration out of order',
+					confirmationText: 'Run anyway',
+					children: outOfOrderRunMessage(pending.length)
+				})
+				if (!confirmed) return
+			}
 		}
 		creating = true
 		try {
@@ -200,3 +224,7 @@
 		</div>
 	</div>
 </Modal2>
+
+<Portal>
+	<ConfirmationModal {...confirmationModal.props} />
+</Portal>

@@ -10,6 +10,7 @@ import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { assert } from '$lib/utils'
 import { WorkspaceService } from '$lib/gen'
+import { pendingMigrations } from './workspaceSettings/datatableMigrationUtils'
 import {
 	buildTableEditorValues,
 	type TableEditorValues
@@ -243,12 +244,25 @@ export type IDbSchemaOps = {
 	}) => Promise<TableEditorValues>
 }
 
+/** Thrown by a schema op when the user declines the out-of-order run warning.
+ * Callers should treat it as a silent cancel (no error toast). */
+export class MigrationRunCancelled extends Error {
+	constructor() {
+		super('Migration run cancelled')
+		this.name = 'MigrationRunCancelled'
+	}
+}
+
 export function dbSchemaOpsWithPreviewScripts({
 	workspace,
-	input
+	input,
+	confirmRunOutOfOrder
 }: {
 	workspace: string
 	input: DbInput
+	/** Asked before running a just-created migration ahead of `pendingCount`
+	 * still-pending earlier ones. Return false to abort (throws MigrationRunCancelled). */
+	confirmRunOutOfOrder?: (pendingCount: number) => Promise<boolean>
 }): IDbSchemaOps {
 	const dbType = getDbType(input)
 	const dbArg = getDatabaseArg(input)
@@ -322,12 +336,21 @@ export function dbSchemaOpsWithPreviewScripts({
 		// that would run the change untracked (schema drift) — exactly what this
 		// feature prevents. Let the error propagate (fail closed); only fall back to
 		// ad-hoc when there's no data table, or `enabled === false` is returned.
-		const migrationsEnabled = datatableName
-			? (await WorkspaceService.getDatatableMigrationsStatus({ workspace, datatableName })).enabled
-			: false
-		if (!datatableName || !migrationsEnabled) {
+		const status = datatableName
+			? await WorkspaceService.getDatatableMigrationsStatus({ workspace, datatableName })
+			: undefined
+		if (!datatableName || !status?.enabled) {
 			await runScriptAndPollResult({ workspace, requestBody: { args: dbArg, content, language } })
 			return
+		}
+		// The new migration gets the highest timestamp, so any still-pending
+		// migration is earlier: running only this one applies it out of order.
+		// Warn like the row-level Run action does (skipped if no confirm hook).
+		if (confirmRunOutOfOrder) {
+			const pending = pendingMigrations(status.migrations).length
+			if (pending > 0 && !(await confirmRunOutOfOrder(pending))) {
+				throw new MigrationRunCancelled()
+			}
 		}
 		const codeUp = wrapMigration(await expandMarker(workspace, language, content))
 		// Down migrations are only generated for Postgres for now.
