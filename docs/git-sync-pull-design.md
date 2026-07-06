@@ -87,7 +87,7 @@ flowchart LR
     R[Repo] -- "push event" --> W[repo webhook<br/>created via API]
   end
   subgraph Instance
-    W -- "HMAC-verified POST" --> E["/api/w/:ws/github_app/push_webhook"]
+    W -- "HMAC-verified POST" --> E["/api/w/:ws/github_app/webhook"]
     P[poller<br/>git ls-remote / schedule] --> REC
     E --> REC[reconcile:<br/>ref match? sha moved?<br/>debounce]
     REC --> J[pull job<br/>existing hub script, pull:true]
@@ -116,8 +116,8 @@ Flow when a repo is connected (or auto-pull is enabled on an existing repo):
 1. Instance generates a per-repo secret, stored in the repo's git-sync settings.
 2. Instance creates the webhook via API: events `["push"]` (later
    `"pull_request"`, §11), URL
-   `{base_url}/api/w/{workspace}/github_app/push_webhook/{repo_settings_id}`,
-   secret set.
+   `{base_url}/api/w/{workspace}/github_app/webhook` (host-aware, so managed and
+   self-managed/GHES apps use the same per-workspace receiver), secret set.
 3. GitHub immediately delivers a `ping` event. If the ping is not received
    within ~10 s, the instance deletes the hook and falls back to polling,
    surfacing "instance not reachable from GitHub — using polling (interval Xm)"
@@ -139,9 +139,9 @@ the instance — no repo hooks needed, one webhook covers all installed repos:
 
 - `GhesAppSettings` gains a "Webhook secret" field; the setup checklist changes
   from "Uncheck Active under Webhook" to "set webhook URL to
-  `{base_url}/api/github_app/webhook` (instance-global endpoint), subscribe to
-  Push events, paste this generated secret".
-- The instance-global endpoint verifies HMAC with the instance-level secret and
+  `{base_url}/api/w/{workspace}/github_app/webhook` (the per-workspace receiver),
+  subscribe to Push events, paste this generated secret".
+- That per-workspace endpoint verifies HMAC with the configured secret and
   routes by repo full name + installation to matching workspaces (the routing
   data is in `workspace_settings`).
 - GHES typically shares a network with the instance, so this works **air-gapped**
@@ -237,10 +237,8 @@ workspace + repo path — decide at implementation review).
 
 New instance endpoints (EE):
 
-- `POST /api/w/{workspace}/github_app/push_webhook/{repo_settings_id}` —
-  per-repo hook receiver (managed app), HMAC-verified, returns 202.
-- `POST /api/github_app/webhook` — instance-global receiver (self-managed app),
-  HMAC-verified, routes internally.
+- `POST /api/w/{workspace}/github_app/webhook` — per-workspace hook receiver for
+  managed and self-managed apps (host-aware), HMAC-verified, returns 202.
 - Both are unauthenticated-but-verified endpoints; rate-limited; bodies are
   treated as hints only (§4).
 
@@ -420,9 +418,9 @@ now too, to avoid a second nag for phases 3–4). Update permission-purpose copy
 
 Backend (EE):
 
-- Receiver endpoints (§8): `POST /api/w/{workspace}/github_app/push_webhook/{id}`
-  (managed) and `POST /api/github_app/webhook` (instance-global, GHES), both
-  HMAC-verified — reuse `X-Hub-Signature-256` validation from
+- Receiver endpoint (§8): `POST /api/w/{workspace}/github_app/webhook`
+  (per-workspace, managed and self-managed), HMAC-verified — reuse
+  `X-Hub-Signature-256` validation from
   `windmill-trigger-http/src/http_trigger_auth.rs`; routes added to
   `git_sync_ee.rs` `workspaced_service` / `global_service`.
 - Webhook create/delete via installation token — reuse the REST pattern from
