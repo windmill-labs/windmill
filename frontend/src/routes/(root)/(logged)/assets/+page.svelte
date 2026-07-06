@@ -175,7 +175,7 @@
 					itemExtra?: import('svelte').Snippet<[{ label: string; value: string }]>
 				})}
 					<div
-						class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md grow basis-[280px] min-w-0"
+						class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md grow basis-[340px] min-w-0"
 					>
 						<div class="flex flex-wrap justify-between items-center gap-2 border-b pt-5 px-6 pb-4">
 							<h3 class="text-sm font-bold min-w-0 truncate" title={props.title}>{props.title}</h3>
