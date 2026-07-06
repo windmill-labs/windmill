@@ -583,6 +583,7 @@
 <ConfirmationModal
 	open={pendingImport !== undefined}
 	title="Import skills"
+	type="info"
 	confirmationText="Import"
 	onConfirmed={async () => {
 		const toImport = [...pendingNew, ...pendingConflicts.filter((s) => overwriteChoices[s.name])]
