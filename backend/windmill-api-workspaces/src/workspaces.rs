@@ -769,6 +769,53 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.last_pull_status = None;
 }
 
+/// Persist only the reconciled webhook fields (id/secret/error) for `changed` repos.
+/// The webhook reconcile runs after the main save has committed, so writing the whole
+/// pre-reconcile snapshot back would clobber a git-sync edit or poller status write
+/// that landed in the gap. Re-read the current row and merge just the fields the
+/// reconcile owns.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn persist_reconciled_webhook_fields(
+    db: &DB,
+    w_id: &str,
+    changed: &[(String, windmill_common::workspaces::AutoPullSettings)],
+) -> Result<()> {
+    if changed.is_empty() {
+        return Ok(());
+    }
+    let Some(mut current) = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok()) else {
+        return Ok(());
+    };
+    for (path, new_ap) in changed {
+        if let Some(cur_ap) = current
+            .repositories
+            .iter_mut()
+            .find(|c| &c.git_repo_resource_path == path)
+            .and_then(|c| c.auto_pull.as_mut())
+        {
+            cur_ap.webhook_id = new_ap.webhook_id;
+            cur_ap.webhook_secret = new_ap.webhook_secret.clone();
+            cur_ap.webhook_error = new_ap.webhook_error.clone();
+        }
+    }
+    let updated = serde_json::to_value(&current).map_err(|e| Error::internal_err(e.to_string()))?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        updated,
+        w_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 async fn get_settings(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -2840,7 +2887,7 @@ async fn edit_git_sync_config(
     // leaves polling on.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some((mut settings, removed_webhooks)) = post_commit {
-        let mut webhook_changed = false;
+        let mut changed: Vec<(String, windmill_common::workspaces::AutoPullSettings)> = Vec::new();
         for repo in settings.repositories.iter_mut() {
             let before = serde_json::to_value(&repo.auto_pull).ok();
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
@@ -2848,19 +2895,13 @@ async fn edit_git_sync_config(
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
             }
             if serde_json::to_value(&repo.auto_pull).ok() != before {
-                webhook_changed = true;
+                if let Some(ap) = repo.auto_pull.as_ref() {
+                    changed.push((repo.git_repo_resource_path.clone(), ap.clone()));
+                }
             }
         }
-        if webhook_changed {
-            if let Ok(updated) = serde_json::to_value(&settings) {
-                let _ = sqlx::query!(
-                    "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
-                    updated,
-                    &w_id
-                )
-                .execute(&db)
-                .await;
-            }
+        if let Err(e) = persist_reconciled_webhook_fields(&db, &w_id, &changed).await {
+            tracing::warn!("git auto-pull: webhook field persist error: {}", e);
         }
         for (path, hook_id) in removed_webhooks {
             if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &w_id, &path).await
@@ -3034,7 +3075,7 @@ async fn edit_git_sync_repository(
     // the resulting hook id/secret. Best-effort — a failure leaves polling on.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     {
-        let mut webhook_changed = false;
+        let mut changed: Vec<(String, windmill_common::workspaces::AutoPullSettings)> = Vec::new();
         if let Some(repo) = git_sync_settings
             .repositories
             .iter_mut()
@@ -3045,19 +3086,14 @@ async fn edit_git_sync_repository(
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
             }
-            webhook_changed = serde_json::to_value(&repo.auto_pull).ok() != before;
-        }
-        // Only re-persist if the hook fields actually changed.
-        if webhook_changed {
-            if let Ok(updated) = serde_json::to_value(&git_sync_settings) {
-                let _ = sqlx::query!(
-                    "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
-                    updated,
-                    &w_id
-                )
-                .execute(&db)
-                .await;
+            if serde_json::to_value(&repo.auto_pull).ok() != before {
+                if let Some(ap) = repo.auto_pull.as_ref() {
+                    changed.push((repo.git_repo_resource_path.clone(), ap.clone()));
+                }
             }
+        }
+        if let Err(e) = persist_reconciled_webhook_fields(&db, &w_id, &changed).await {
+            tracing::warn!("git auto-pull: webhook field persist error: {}", e);
         }
     }
 
