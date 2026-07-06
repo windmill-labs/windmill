@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/state'
 	import {
 		userWorkspaces,
 		workspaceStore,
@@ -8,7 +7,7 @@
 		superadmin
 	} from '$lib/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { goto } from '$lib/navigation'
+	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
 	import { base } from '$lib/base'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
@@ -40,22 +39,7 @@
 		if ($workspaceStore === id) return
 		workspaceAIClients.init(id)
 		switchWorkspace(id)
-		// Item-scoped pages would show a wrong-workspace (or missing) item after
-		// a workspace change — go home instead, mirroring the workspace picker.
-		const editPages = [
-			'/scripts/edit/',
-			'/flows/edit/',
-			'/apps/edit/',
-			'/scripts/get/',
-			'/flows/get/',
-			'/apps/get/'
-		]
-		const isOnEditPage = editPages.some((p) => page.route.id?.includes(p) ?? false)
-		if (isOnEditPage) {
-			void goto('/')
-		} else if (page.url.searchParams.get('workspace')) {
-			page.url.searchParams.set('workspace', id)
-		}
+		void fixupUrlAfterWorkspaceSwitch(id)
 	}
 
 	function openForkModal() {

@@ -1,4 +1,6 @@
+import { get } from 'svelte/store'
 import { goto } from '$lib/navigation'
+import { workspaceStore } from '$lib/stores'
 import {
 	createSession,
 	selectSession,
@@ -50,7 +52,18 @@ export async function enterSessionMode(opts?: { replace?: boolean }): Promise<vo
 
 // Exit session mode: back to the last navigation route (home as a fallback).
 export async function exitSessionMode(): Promise<void> {
-	await goto(lastNavRoute || '/')
+	let target = lastNavRoute || '/'
+	// The remembered route can carry a stale `?workspace=` — the layout's
+	// onQueryChange re-applies that param, so restoring the route would
+	// silently check the app back out to a workspace the user has since
+	// left. The rest of the route is scoped to that stale workspace too,
+	// so fall back to home rather than rewriting the param.
+	const wsParam = /[?&]workspace=([^&]*)/.exec(target)?.[1]
+	const ws = get(workspaceStore)
+	if (ws && wsParam && decodeURIComponent(wsParam) !== ws) {
+		target = '/'
+	}
+	await goto(target)
 }
 
 // Open a fresh AI session pre-targeted at an editor (flow/script/raw_app), then

@@ -15,10 +15,11 @@
 	import { Building, Check, ChevronDown, ChevronRight, Plus } from 'lucide-svelte'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { SvelteSet } from 'svelte/reactivity'
-	import { Badge, NameIdTooltip } from '$lib/components/common'
+	import { Badge, CopyButton, NameIdTooltip } from '$lib/components/common'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
+	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
@@ -48,25 +49,11 @@
 			return
 		}
 		workspaceAIClients.init(id)
-		const editPages = [
-			'/scripts/edit/',
-			'/flows/edit/',
-			'/apps/edit/',
-			'/scripts/get/',
-			'/flows/get/',
-			'/apps/get/'
-		]
-		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
-
 		switchWorkspace(id)
 		// The sessions page needs no navigation here: the item's link navigation
 		// (workspaceHref) keeps the route, and the page's family reconcile swaps
 		// out a chat that doesn't belong to the new workspace's family.
-		if (isOnEditPage) {
-			await goto('/')
-		} else if (page.url.searchParams.get('workspace')) {
-			page.url.searchParams.set('workspace', id)
-		}
+		await fixupUrlAfterWorkspaceSwitch(id)
 	}
 
 	// Href for the item's navigation (including modifier/middle clicks opening a
@@ -253,7 +240,7 @@
 					<div
 						data-workspace-id={workspace.id}
 						class={twMerge(
-							'flex items-center min-w-0 w-full',
+							'group flex items-center min-w-0 w-full',
 							workspace.disabled
 								? ''
 								: 'hover:bg-surface-hover [&:has([data-highlighted])]:bg-surface-hover'
@@ -261,7 +248,7 @@
 					>
 						<MenuItem
 							class={twMerge(
-								'text-xs min-w-0 flex-1 overflow-hidden flex flex-col py-2 px-3',
+								'text-xs min-w-0 flex-1 overflow-hidden flex flex-col py-1.5 px-3',
 								workspace.disabled && 'opacity-50 cursor-not-allowed',
 								isActive ? 'cursor-default' : workspace.disabled ? '' : 'cursor-pointer'
 							)}
@@ -276,6 +263,7 @@
 										{isForked}
 										isDevWorkspace={workspace.is_dev_workspace}
 										{parentName}
+										padding="p-1"
 									/>
 									<div class="min-w-0 flex-1">
 										<div class="flex items-center gap-1 min-w-0">
@@ -304,6 +292,14 @@
 								{/if}
 							</div>
 						</MenuItem>
+						<!-- Hover-revealed like the fork picker's rows; a flex sibling of the melt
+						     item (nested buttons are invalid HTML) that always occupies its slot so
+						     nothing shifts on hover. -->
+						<div
+							class="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+						>
+							<CopyButton value={workspace.id} title={`Copy id: ${workspace.id}`} />
+						</div>
 						{#if expandable}
 							{@const expanded = expandedFamilies.has(workspace.id)}
 							<button
