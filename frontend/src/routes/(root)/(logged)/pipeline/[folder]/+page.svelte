@@ -2237,10 +2237,12 @@
 			</div>
 		{/if}
 		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
-			{#if mode === 'edit' && !isOperator && allPipelineScripts.length > 0}
-				<!-- Pipeline-level run: always visible so a run doesn't require
-				     hovering a specific node's play button. Runs every script in
-				     dependency order (roots first, cascading downstream). -->
+			{#if !isOperator && allPipelineScripts.length > 0}
+				<!-- Pipeline-level run: always visible in both View and Edit so a
+				     run never requires hunting for a specific node's play button
+				     (dbt `build` / Dagster "Materialize all"). Runs every script in
+				     dependency order (roots first, cascading downstream) over the
+				     displayed graph — deployed in View, draft-overlaid in Edit. -->
 				<Button
 					variant="accent-secondary"
 					unifiedSize="sm"
