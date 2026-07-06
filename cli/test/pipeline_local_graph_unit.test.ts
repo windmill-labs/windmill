@@ -3,10 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  buildLocalPipelineGraph,
-  inferScriptAssets,
-} from "../src/commands/pipeline/localGraph.ts";
+import { buildLocalPipelineGraph } from "../src/commands/pipeline/localGraph.ts";
 
 // Build a throwaway workspace tree with `f/<folder>/<file>` scripts and a
 // wmill.yaml at the root, then assert the graph the wasm-backed builder derives.
@@ -239,18 +236,12 @@ test("HD-1: a custom `// data_test <script>` whose body reads an in-pipeline ass
   );
 });
 
-// The scd2 `<dim>_current` companion-view write edge (HD-2) can't be driven by
-// the pinned `windmill-parser-wasm-asset` (1.740.0), which predates the `scd2`
-// materialize flag, so we inject a parser that re-adds `scd2` for a `history`
-// materialize — exactly what a republished wasm will emit (cf. #9926) — and let
-// the real (already-shipped) companion-write branch assemble the graph.
-async function inferWithScd2(content: string, language: string) {
-  const out = await inferScriptAssets(content, language);
-  if (out.materialize && /\bhistory\b/.test(content)) out.materialize.scd2 = true;
-  return out;
-}
-
 test("HD-2: an scd2 `history` producer writes both `<dim>` and `<dim>_current` so a `_current` reader resolves to it", async () => {
+  // Managed `// materialize … history` (scd2) also produces a `<dim>_current`
+  // companion view (backend `MaterializeSpec::write_targets`). The wasm asset
+  // parser emits the `scd2` flag; the local builder must add the second write
+  // edge and mark the view `derived_from` its base dimension so a consumer
+  // reading only the view links back to the producer instead of orphaning.
   await withFolder(
     {
       "dim.duckdb.sql":
@@ -264,7 +255,6 @@ test("HD-2: an scd2 `history` producer writes both `<dim>` and `<dim>_current` s
         root,
         folder,
         defaultTs: "bun",
-        infer: inferWithScd2,
       });
 
       // the producer carries BOTH write edges (base dim + `_current` companion)

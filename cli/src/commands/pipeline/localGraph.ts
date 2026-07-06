@@ -388,10 +388,11 @@ function parseVolumeAnnotations(
 }
 
 // Infer a single script's assets + pipeline annotations. Returns the raw
-// `ParseAssetsOutput` (incl. `materialize`, which the wasm asset parser emits as
-// of windmill-parser-wasm-asset 1.740.0 — kept in lockstep with the frontend's
-// pin so the local graph mirrors the deployed one), plus `volume:` annotation
-// assets the wasm doesn't surface (merged in below, like the frontend/backend).
+// `ParseAssetsOutput` (incl. `materialize` with its `scd2` flag, which the wasm
+// asset parser emits as of windmill-parser-wasm-asset 1.749.0 — kept in lockstep
+// with the frontend's pin so the local graph mirrors the deployed one), plus
+// `volume:` annotation assets the wasm doesn't surface (merged in below, like
+// the frontend/backend).
 // wasm parse errors degrade to the annotation fallback so a syntactically-broken
 // script still shows as a pipeline node if it's annotated.
 export async function inferScriptAssets(
@@ -497,13 +498,7 @@ export async function buildLocalPipelineGraph(args: {
   root: string;
   folder: string;
   defaultTs?: "bun" | "deno";
-  // Injectable asset inferrer (defaults to the wasm-backed `inferScriptAssets`).
-  // The pinned `windmill-parser-wasm-asset` (1.740.0) predates the `scd2`
-  // materialize flag, so tests inject a parser to exercise the scd2 `<dim>_current`
-  // companion-write branch until a wasm carrying `scd2` is republished (cf. #9926).
-  infer?: (content: string, language: string) => Promise<ParseAssetsRaw>;
 }): Promise<{ graph: AssetGraph; scripts: LocalScript[] }> {
-  const infer = args.infer ?? inferScriptAssets;
   const folderClean = args.folder.replace(/^f\//, "").replace(/\/$/, "");
   const folderDir = path.join(args.root, "f", folderClean);
   const all = await collectScripts(folderDir, args.root, args.defaultTs);
@@ -532,7 +527,7 @@ export async function buildLocalPipelineGraph(args: {
   const readsByRunnable = new Map<string, { kind: string; path: string }[]>();
 
   for (const s of all) {
-    const out = await infer(s.content, s.language);
+    const out = await inferScriptAssets(s.content, s.language);
     const reads = (out.assets ?? [])
       .filter(
         (a) =>
