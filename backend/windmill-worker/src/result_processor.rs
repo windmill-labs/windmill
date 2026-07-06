@@ -830,6 +830,54 @@ mod git_sync_check_tests {
     }
 }
 
+/// When an auto-pull job (carrying `__git_sync_auto_pull`) fails, roll the
+/// optimistic `last_synced_sha` advance back to the pre-pull value so the commit
+/// is retried instead of being silently treated as synced, and record the failure.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_reconcile_git_sync_auto_pull(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    workspace_id: &str,
+    success: bool,
+) {
+    if success {
+        return; // the optimistic synced state is already correct
+    }
+    let marker: Option<serde_json::Value> = match sqlx::query_scalar!(
+        "SELECT args->'__git_sync_auto_pull' FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(v) => v.flatten(),
+        Err(e) => {
+            tracing::error!("git auto-pull: failed to read job args: {e:#}");
+            return;
+        }
+    };
+    let Some(marker) = marker else {
+        return;
+    };
+    #[derive(serde::Deserialize)]
+    struct AutoPullMarker {
+        repo_resource_path: String,
+        #[serde(default)]
+        prev_synced: std::collections::HashMap<String, String>,
+    }
+    let Ok(m) = serde_json::from_value::<AutoPullMarker>(marker) else {
+        return;
+    };
+    windmill_git_sync::record_auto_pull_failure(
+        db,
+        workspace_id,
+        &m.repo_resource_path,
+        &m.prev_synced,
+        "auto-pull job failed".to_string(),
+    )
+    .await;
+}
+
 /// When a git-sync pull job carrying a check marker completes, post the outcome
 /// to its GitHub check run: the PR diff preview (`__git_sync_pr_check`, phase 4)
 /// or the live deploy status (`__git_sync_deploy_check`, phase 6).
@@ -1165,6 +1213,7 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job.id, &job.workspace_id, false, result.get()).await;
+            maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false).await;
         }
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {
