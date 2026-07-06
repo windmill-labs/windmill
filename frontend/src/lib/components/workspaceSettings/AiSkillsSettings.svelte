@@ -1,24 +1,25 @@
 <script lang="ts">
 	import { onMount } from 'svelte'
-	import YAML from 'yaml'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import Button from '../common/button/Button.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import Modal2 from '../common/modal/Modal2.svelte'
-	import FileInput from '../common/fileInput/FileInput.svelte'
+	import Toggle from '../Toggle.svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
+	import Markdown from 'svelte-exmarkdown'
+	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
 	import autosize from '$lib/autosize'
 	import { conditionalMelt } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { WorkspaceService } from '$lib/gen'
-	import { ChevronDown, ClipboardPaste, FolderUp, Plus, Trash2 } from 'lucide-svelte'
+	import { buildSkillMd, parseAndValidateSkill, parseSkillMd, type SkillUpload } from './aiSkills'
+	import { ChevronDown, ClipboardPaste, Eye, FolderUp, Pencil, Plus, Trash2 } from 'lucide-svelte'
 
 	type SkillListItem = { name: string; description: string }
-	type SkillUpload = { name: string; description: string; instructions: string }
-	// `webkitRelativePath` (folder picker) and `path` (drag-and-drop, set by
-	// FileInput's tree traversal) both carry the file's location in the folder.
-	type FileWithPath = File & { path?: string }
 
 	// `<root>/<skill>/SKILL.md` is 3 path segments; SKILL.md files nested deeper
 	// are likely vendored/incidental and are skipped so importing a parent dir
@@ -26,14 +27,6 @@
 	const MAX_SKILL_DEPTH = 3
 	const MAX_SKILLS_PER_IMPORT = 50
 	const MAX_SKILLS_PER_WORKSPACE = 100
-	// `name` + `description` mirror the Claude SKILL.md spec (counted in
-	// characters); the body is a byte-bounded payload. Keep these in sync with
-	// backend `validate_skill`.
-	const MAX_SKILL_NAME_LENGTH = 64
-	const MAX_SKILL_DESCRIPTION_LENGTH = 1_024
-	const MAX_SKILL_INSTRUCTIONS_LENGTH = 64 * 1024
-	const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/
-	const textEncoder = new TextEncoder()
 	const SAMPLE_SKILL_PLACEHOLDER =
 		'---\nname: my-skill\ndescription: what this skill helps with\n---\n\n# My skill\n\nInstructions for the assistant…'
 	const menuItemClass =
@@ -42,21 +35,42 @@
 	let skills: SkillListItem[] = $state([])
 	let uploading: boolean = $state(false)
 	let pasteContent: string = $state('')
+	// The content the modal opened with, so Save can be gated on unsaved changes.
+	let originalContent: string = $state('')
 	let pasteModalOpen: boolean = $state(false)
+	// Set while the paste modal is editing an existing skill; holds the skill's
+	// name before edits so a rename can delete the old entry after save.
+	let editingOriginalName: string | undefined = $state(undefined)
 	let dirInput: HTMLInputElement | undefined = $state(undefined)
-	let folderInput: FileInput | undefined = $state(undefined)
 	let toDelete: string | undefined = $state(undefined)
 	let pendingImport: SkillUpload[] | undefined = $state(undefined)
 	let pendingSkipped: string[] = $state([])
+	// Per-conflict overwrite choice for a folder import, keyed by skill name.
+	let overwriteChoices: Record<string, boolean> = $state({})
+	// The skill detail modal opens in read mode with rendered markdown; a header
+	// toggle flips it to raw SKILL.md editing.
+	let detailMode: 'view' | 'edit' = $state('view')
 	let listRequestId = 0
 
-	let pendingNamesPreview = $derived.by(() => {
-		const p = pendingImport ?? []
-		const shown = p
-			.slice(0, 12)
-			.map((s) => s.name)
-			.join(', ')
-		return p.length > 12 ? `${shown}, … (+${p.length - 12} more)` : shown
+	let existingNames = $derived(new Set(skills.map((s) => s.name)))
+	let pendingConflicts = $derived(
+		(pendingImport ?? ([] as SkillUpload[])).filter((s) => existingNames.has(s.name))
+	)
+	let pendingNew = $derived(
+		(pendingImport ?? ([] as SkillUpload[])).filter((s) => !existingNames.has(s.name))
+	)
+	// Parsed view of the modal's raw content, for rendering the skill in read mode.
+	let viewParsed = $derived(parseSkillMd(pasteContent))
+	let isDirty = $derived(pasteContent !== originalContent)
+	// Validate through the shared schema; surfaced inline so Save can be gated
+	// without a toast.
+	let pasteResult = $derived(parseAndValidateSkill(pasteContent))
+	let pasteError = $derived('error' in pasteResult ? pasteResult.error : undefined)
+
+	// Reset edit mode whenever the paste modal closes so a later "Paste a skill"
+	// opens a blank creation form.
+	$effect(() => {
+		if (!pasteModalOpen) editingOriginalName = undefined
 	})
 
 	// melt dropdown for the "+ Add skills" button: arrow-key nav, outside/escape
@@ -98,45 +112,6 @@
 		}
 	}
 
-	/** Split a SKILL.md into its frontmatter `name`/`description` and the markdown body. */
-	function parseSkillMd(raw: string): {
-		name: string | undefined
-		description: string | undefined
-		instructions: string
-	} {
-		const text = raw.replace(/^﻿/, '')
-		const fm = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/.exec(text)
-		if (!fm) {
-			return { name: undefined, description: undefined, instructions: text.trim() }
-		}
-		let name: string | undefined
-		let description: string | undefined
-		try {
-			const data = YAML.parse(fm[1]) ?? {}
-			if (typeof data?.name === 'string') name = data.name.trim()
-			if (typeof data?.description === 'string') description = data.description.trim()
-		} catch {
-			// Malformed frontmatter — fall through so the skill is reported as
-			// invalid rather than silently dropped.
-		}
-		return { name, description, instructions: text.slice(fm[0].length).trim() }
-	}
-
-	function validateParsedSkill(skill: SkillUpload): string | undefined {
-		if ([...skill.name].length > MAX_SKILL_NAME_LENGTH) {
-			return `name is longer than ${MAX_SKILL_NAME_LENGTH} characters`
-		}
-		if (!SKILL_NAME_PATTERN.test(skill.name)) {
-			return `name ${JSON.stringify(skill.name)} must only contain lowercase letters, digits or '-'`
-		}
-		if ([...skill.description].length > MAX_SKILL_DESCRIPTION_LENGTH) {
-			return `description is longer than ${MAX_SKILL_DESCRIPTION_LENGTH} characters`
-		}
-		if (textEncoder.encode(skill.instructions).byteLength > MAX_SKILL_INSTRUCTIONS_LENGTH) {
-			return `body is longer than ${MAX_SKILL_INSTRUCTIONS_LENGTH} bytes`
-		}
-	}
-
 	/**
 	 * Turn a map of `relativePath -> content` (from an imported folder) into skills.
 	 * A skill is any `SKILL.md`; its id is the name of the folder holding it.
@@ -150,22 +125,12 @@
 		for (const [path, content] of Object.entries(files)) {
 			const segments = path.split('/')
 			if (segments[segments.length - 1]?.toLowerCase() !== 'skill.md') continue
-			const name = segments.length >= 2 ? segments[segments.length - 2] : ''
-			const { description, instructions } = parseSkillMd(content)
-			if (!name) {
-				skipped.push(`${path} (SKILL.md must live in a named folder)`)
-			} else if (!description) {
-				skipped.push(`${name} (missing frontmatter description)`)
-			} else if (!instructions) {
-				skipped.push(`${name} (empty body)`)
+			const folderName = segments.length >= 2 ? segments[segments.length - 2] : ''
+			const result = parseAndValidateSkill(content, folderName)
+			if ('error' in result) {
+				skipped.push(`${folderName || path} (${result.error})`)
 			} else {
-				const parsed = { name, description, instructions }
-				const validationError = validateParsedSkill(parsed)
-				if (validationError) {
-					skipped.push(`${name} (${validationError})`)
-				} else {
-					collected.push(parsed)
-				}
+				collected.push(result.skill)
 			}
 		}
 		return { skills: collected, skipped }
@@ -185,7 +150,6 @@
 			return false
 		}
 		// Uploads upsert, so only names not already stored count toward the cap.
-		const existingNames = new Set(skills.map((s) => s.name))
 		const newCount = parsed.filter((s) => !existingNames.has(s.name)).length
 		if (skills.length + newCount > MAX_SKILLS_PER_WORKSPACE) {
 			sendUserToast(`This workspace can store at most ${MAX_SKILLS_PER_WORKSPACE} skills.`, true)
@@ -210,27 +174,39 @@
 		}
 	}
 
-	async function addPastedSkill() {
-		const { name, description, instructions } = parseSkillMd(pasteContent)
-		if (!name) {
-			sendUserToast('The pasted SKILL.md needs a `name` in its frontmatter.', true)
-			return
+	function openPaste() {
+		editingOriginalName = undefined
+		pasteContent = ''
+		originalContent = ''
+		detailMode = 'edit'
+		pasteModalOpen = true
+	}
+
+	async function openSkill(name: string, mode: 'view' | 'edit') {
+		const workspace = $workspaceStore
+		if (!workspace) return
+		try {
+			const skill = await WorkspaceService.getAiSkill({ workspace, name })
+			pasteContent = buildSkillMd(skill)
+			originalContent = pasteContent
+			editingOriginalName = name
+			detailMode = mode
+			pasteModalOpen = true
+		} catch (e) {
+			sendUserToast(`Failed to load skill: ${e}`, true)
 		}
-		if (!description) {
-			sendUserToast('The pasted SKILL.md needs a `description` in its frontmatter.', true)
-			return
-		}
-		if (!instructions) {
-			sendUserToast('The pasted SKILL.md has an empty body.', true)
-			return
-		}
-		const parsed = { name, description, instructions }
-		const validationError = validateParsedSkill(parsed)
-		if (validationError) {
-			sendUserToast(`The pasted SKILL.md ${validationError}.`, true)
-			return
-		}
+	}
+
+	async function submitPastedSkill() {
+		// Guarded by `pasteError` disabling the button; bail defensively if reached.
+		if (!('skill' in pasteResult)) return
+		const parsed = pasteResult.skill
+		const renamedFrom = editingOriginalName
 		if (await uploadSkills([parsed])) {
+			// A rename saves under the new name; drop the old entry so it doesn't linger.
+			if (renamedFrom && renamedFrom !== parsed.name) {
+				await deleteSkill(renamedFrom, { silent: true })
+			}
 			pasteContent = ''
 			pasteModalOpen = false
 		}
@@ -238,16 +214,15 @@
 
 	/**
 	 * Filter a folder's files down to in-depth SKILL.md, read them, and stage the
-	 * result for confirmation. Shared by the folder picker (populated state) and
-	 * the drag-and-drop zone (empty state).
+	 * result for confirmation.
 	 */
-	async function processFolderFiles(files: FileWithPath[]) {
+	async function processFolderFiles(files: File[]) {
 		// Pick SKILL.md files within the depth limit BEFORE reading any content,
 		// so a huge tree never gets read in full.
 		const skipped: string[] = []
-		const eligible: FileWithPath[] = []
+		const eligible: File[] = []
 		for (const f of files) {
-			const path = f.path || f.webkitRelativePath || f.name
+			const path = f.webkitRelativePath || f.name
 			const segments = path.split('/')
 			if (segments[segments.length - 1]?.toLowerCase() !== 'skill.md') continue
 			if (segments.length > MAX_SKILL_DEPTH) {
@@ -276,7 +251,7 @@
 
 		const map: Record<string, string> = {}
 		for (const f of eligible) {
-			map[f.path || f.webkitRelativePath || f.name] = await f.text()
+			map[f.webkitRelativePath || f.name] = await f.text()
 		}
 		const { skills: parsed, skipped: parseSkipped } = collectSkills(map)
 		const allSkipped = [...skipped, ...parseSkipped]
@@ -287,36 +262,29 @@
 			)
 			return
 		}
-		// Confirm before writing — the import can pull in several skills at once.
+		// Confirm before writing — the import can pull in several skills at once,
+		// and any that collide with existing skills default to overwrite.
 		pendingSkipped = allSkipped
+		overwriteChoices = Object.fromEntries(
+			parsed.filter((s) => existingNames.has(s.name)).map((s) => [s.name, true])
+		)
 		pendingImport = parsed
 	}
 
 	async function onDirSelected(event: Event) {
 		const target = event.target as HTMLInputElement
-		const files = Array.from(target.files ?? []) as FileWithPath[]
+		const files = Array.from(target.files ?? [])
 		// Reset early so re-selecting the same folder re-fires `change`.
 		if (dirInput) dirInput.value = ''
 		await processFolderFiles(files)
 	}
 
-	async function onFolderDropped(files: FileWithPath[] | undefined) {
-		// `clearFiles()` below re-dispatches `change` with no files; ignoring that
-		// echo here is what stops it from re-entering and recursing forever.
-		if (!files?.length) return
-		const captured = files
-		// Keep the zone a dropzone rather than letting FileInput render the
-		// selected-files list; the ConfirmationModal is the real confirmation step.
-		folderInput?.clearFiles()
-		await processFolderFiles(captured)
-	}
-
-	async function deleteSkill(name: string) {
+	async function deleteSkill(name: string, opts: { silent?: boolean } = {}) {
 		const workspace = $workspaceStore
 		if (!workspace) return
 		try {
 			await WorkspaceService.deleteAiSkill({ workspace, name })
-			sendUserToast(`Deleted skill ${name}`)
+			if (!opts.silent) sendUserToast(`Deleted skill ${name}`)
 			await loadList(workspace)
 		} catch (e) {
 			sendUserToast(`Failed to delete skill: ${e}`, true)
@@ -328,6 +296,7 @@
 			toDelete = undefined
 			pendingImport = undefined
 			pendingSkipped = []
+			overwriteChoices = {}
 			void loadList(workspace)
 		})
 	})
@@ -342,15 +311,16 @@
 		use:autosize
 	></textarea>
 	{#if pasteContent.trim()}
-		<div class="flex justify-end mt-2">
+		<div class="flex items-center justify-between gap-2 mt-2">
+			<span class="text-2xs text-red-500 min-w-0">{isDirty && pasteError ? pasteError : ''}</span>
 			<Button
-				onclick={addPastedSkill}
-				variant="default"
+				onclick={submitPastedSkill}
+				variant="accent"
 				unifiedSize="sm"
-				startIcon={{ icon: Plus }}
-				disabled={uploading}
+				startIcon={{ icon: editingOriginalName ? Pencil : Plus }}
+				disabled={uploading || !isDirty || !!pasteError}
 			>
-				Add skill
+				{editingOriginalName ? 'Save skill' : 'Add skill'}
 			</Button>
 		</div>
 	{/if}
@@ -360,77 +330,70 @@
 	label="Custom skills"
 	description="Add your own skills to the AI Chat. The expected format is the same as Claude or Codex."
 >
+	{#snippet headerAction()}
+		<Button
+			bind:element={addTriggerEl}
+			{...$addMenuTrigger}
+			variant="default"
+			unifiedSize="sm"
+			startIcon={{ icon: Plus }}
+			endIcon={{ icon: ChevronDown }}
+			disabled={uploading}
+		>
+			Add skills
+		</Button>
+		{#if $addMenuOpen}
+			<div
+				use:melt={$addMenu}
+				class="z-[6000] flex flex-col gap-0.5 p-1 w-64 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
+			>
+				<button use:melt={$addMenuItem} class={menuItemClass} onclick={() => dirInput?.click()}>
+					<FolderUp size={16} class="shrink-0 text-tertiary" />
+					<span class="text-xs font-medium text-primary">Import a folder of skills</span>
+				</button>
+				<button use:melt={$addMenuItem} class={menuItemClass} onclick={openPaste}>
+					<ClipboardPaste size={16} class="shrink-0 text-tertiary" />
+					<span class="text-xs font-medium text-primary">Paste a skill</span>
+				</button>
+			</div>
+		{/if}
+	{/snippet}
+
 	<div class="flex flex-col gap-3 pt-1">
 		{#if skills.length === 0}
-			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
-				<div class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-secondary">Import a folder of skills</span>
-					<FileInput
-						bind:this={folderInput}
-						folderOnly
-						multiple
-						hideIcon
-						disabled={uploading}
-						class="h-full"
-						on:change={(e) => onFolderDropped(e.detail)}
-					>
-						<FolderUp size={20} class="text-tertiary" />
-						<span>Drag a folder here, or click to pick</span>
-					</FileInput>
-				</div>
-				<div class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-secondary">Paste a skill</span>
-					{@render pasteZone()}
-				</div>
+			<div class="rounded-md border border-dashed px-3 py-6 text-center text-xs text-secondary">
+				No custom skills yet
 			</div>
 		{:else}
-			<div class="flex justify-end">
-				<Button
-					bind:element={addTriggerEl}
-					{...$addMenuTrigger}
-					variant="default"
-					unifiedSize="sm"
-					startIcon={{ icon: Plus }}
-					endIcon={{ icon: ChevronDown }}
-					disabled={uploading}
-				>
-					Add skills
-				</Button>
-				{#if $addMenuOpen}
-					<div
-						use:melt={$addMenu}
-						class="z-[6000] flex flex-col gap-0.5 p-1 w-64 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none"
-					>
-						<button use:melt={$addMenuItem} class={menuItemClass} onclick={() => dirInput?.click()}>
-							<FolderUp size={16} class="shrink-0 text-tertiary" />
-							<span class="text-xs font-medium text-primary">Import a folder of skills</span>
-						</button>
-						<button
-							use:melt={$addMenuItem}
-							class={menuItemClass}
-							onclick={() => (pasteModalOpen = true)}
-						>
-							<ClipboardPaste size={16} class="shrink-0 text-tertiary" />
-							<span class="text-xs font-medium text-primary">Paste a skill</span>
-						</button>
-					</div>
-				{/if}
-			</div>
-
 			<div class="rounded-md border divide-y">
 				{#each skills as skill (skill.name)}
 					<div class="flex items-center justify-between gap-4 px-3 py-2">
 						<div class="min-w-0">
-							<div class="text-xs font-semibold font-mono truncate">{skill.name}</div>
+							<div class="text-xs font-mono truncate">{skill.name}</div>
 							<div class="text-2xs text-secondary truncate">{skill.description}</div>
+							<button
+								class="text-2xs text-secondary hover:text-primary mt-0.5"
+								onclick={() => openSkill(skill.name, 'view')}
+							>
+								Show more
+							</button>
 						</div>
-						<Button
-							onclick={() => (toDelete = skill.name)}
-							variant="default"
-							color="red"
-							unifiedSize="sm"
-							startIcon={{ icon: Trash2 }}
-							iconOnly
+						<DropdownV2
+							size="sm"
+							items={[
+								{
+									displayName: 'Edit',
+									icon: Pencil,
+									disabled: uploading,
+									action: () => openSkill(skill.name, 'edit')
+								},
+								{
+									displayName: 'Delete',
+									icon: Trash2,
+									type: 'delete',
+									action: () => (toDelete = skill.name)
+								}
+							]}
 						/>
 					</div>
 				{/each}
@@ -448,9 +411,42 @@
 	{...{ webkitdirectory: true, directory: true }}
 />
 
-<Modal2 title="Paste a skill" bind:isOpen={pasteModalOpen} fixedWidth="sm" fixedHeight="adaptive">
+<Modal2
+	title={editingOriginalName ?? 'Paste a skill'}
+	bind:isOpen={pasteModalOpen}
+	fixedWidth="md"
+	fixedHeight="adaptive"
+>
+	{#snippet headerRight()}
+		{#if editingOriginalName}
+			<ToggleButtonGroup bind:selected={detailMode}>
+				{#snippet children({ item })}
+					<ToggleButton value="view" label="View" icon={Eye} {item} small />
+					<ToggleButton value="edit" label="Edit" icon={Pencil} {item} small />
+				{/snippet}
+			</ToggleButtonGroup>
+		{/if}
+	{/snippet}
 	<div class="w-full flex flex-col">
-		{@render pasteZone()}
+		{#if detailMode === 'view'}
+			<div class="w-full flex flex-col gap-3">
+				{#if viewParsed.description}
+					<p class="text-xs text-secondary">{viewParsed.description}</p>
+				{/if}
+				<div
+					class="border rounded-md p-3 overflow-auto max-h-[60vh] prose prose-sm dark:prose-invert max-w-full leading-snug space-y-2 prose-ul:!pl-6
+						prose-p:text-xs prose-li:text-xs prose-code:text-xs prose-pre:text-xs
+						prose-code:break-words prose-a:break-words
+						prose-headings:font-medium prose-headings:text-emphasis prose-headings:mt-3 prose-headings:mb-1
+						prose-h1:text-sm prose-h2:text-xs prose-h3:text-xs prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs
+						prose-table:block prose-table:max-w-full prose-table:overflow-x-auto prose-table:text-xs"
+				>
+					<Markdown md={viewParsed.instructions} plugins={[gfmPlugin()]} />
+				</div>
+			</div>
+		{:else}
+			{@render pasteZone()}
+		{/if}
 	</div>
 </Modal2>
 
@@ -459,26 +455,50 @@
 	title="Import skills"
 	confirmationText="Import"
 	onConfirmed={async () => {
-		const toImport = pendingImport
+		const toImport = [...pendingNew, ...pendingConflicts.filter((s) => overwriteChoices[s.name])]
 		const skipped = pendingSkipped
 		pendingImport = undefined
 		pendingSkipped = []
-		if (toImport) await uploadSkills(toImport, skipped)
+		overwriteChoices = {}
+		if (toImport.length) await uploadSkills(toImport, skipped)
+		else sendUserToast('No skills imported.')
 	}}
 	onCanceled={() => {
 		pendingImport = undefined
 		pendingSkipped = []
+		overwriteChoices = {}
 	}}
 >
-	<span>
-		Add {pendingImport?.length} skill(s) to the AI chat?
-		<span class="font-mono text-xs">{pendingNamesPreview}</span>
-		{#if pendingSkipped.length}
-			<br /><span class="text-xs text-secondary"
-				>{pendingSkipped.length} file(s) will be skipped.</span
-			>
+	<div class="flex flex-col gap-3 text-xs">
+		{#if pendingNew.length}
+			<div>
+				<span class="font-medium text-primary">Add {pendingNew.length} new skill(s):</span>
+				<span class="font-mono text-secondary">{pendingNew.map((s) => s.name).join(', ')}</span>
+			</div>
 		{/if}
-	</span>
+		{#if pendingConflicts.length}
+			<div class="flex flex-col gap-1.5">
+				<span class="font-medium text-primary">
+					{pendingConflicts.length} skill(s) already exist — choose which to overwrite:
+				</span>
+				<div class="rounded-md border divide-y">
+					{#each pendingConflicts as conflict (conflict.name)}
+						<div class="flex items-center justify-between gap-4 px-3 py-2">
+							<span class="font-mono truncate">{conflict.name}</span>
+							<Toggle
+								bind:checked={overwriteChoices[conflict.name]}
+								size="xs"
+								options={{ right: 'Overwrite' }}
+							/>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
+		{#if pendingSkipped.length}
+			<span class="text-secondary">{pendingSkipped.length} file(s) will be skipped.</span>
+		{/if}
+	</div>
 </ConfirmationModal>
 
 <ConfirmationModal
