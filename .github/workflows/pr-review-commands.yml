@@ -42,16 +42,11 @@ jobs:
               ;;
           esac
 
-  check-membership:
-    needs: parse
-    if: needs.parse.outputs.command != ''
-    uses: ./.github/workflows/check-org-membership.yml
-    secrets:
-      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
-
   acknowledge:
-    needs: [parse, check-membership]
-    if: needs.parse.outputs.command != '' && needs.check-membership.outputs.is_member == 'true'
+    needs: [parse]
+    if: |
+      needs.parse.outputs.command != '' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -68,9 +63,9 @@ jobs:
             -f content=eyes >/dev/null
 
   claude:
-    needs: [parse, check-membership]
+    needs: [parse]
     if: |
-      needs.check-membership.outputs.is_member == 'true' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
       (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'claude')
     permissions:
       contents: read
@@ -86,9 +81,9 @@ jobs:
       WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
   codex:
-    needs: [parse, check-membership]
+    needs: [parse]
     if: |
-      needs.check-membership.outputs.is_member == 'true' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
       (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'codex')
     permissions:
       contents: read
@@ -105,9 +100,9 @@ jobs:
       WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
   pi:
-    needs: [parse, check-membership]
+    needs: [parse]
     if: |
-      needs.check-membership.outputs.is_member == 'true' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
       (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'pi')
     permissions:
       contents: read
