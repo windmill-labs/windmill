@@ -18,7 +18,8 @@ export function markSessionSeen(sessionId: string, count: number) {
 }
 
 // Number of unread messages for a session. Undefined / unloaded runtime
-// returns 0 — until messages are hydrated we don't know what's new.
+// returns 0 — a cold (evicted / not-yet-warmed) session has no live message
+// count to compare against, so its badge only appears once it's warmed.
 export function unreadCountFor(sessionId: string, runtime: SessionRuntime | undefined): number {
 	if (!runtime) return 0
 	const seen = sessionState.sessions.find((x) => x.id === sessionId)?.lastSeenCount ?? 0

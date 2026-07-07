@@ -36,7 +36,6 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
-		getOrCreateRuntime,
 		getRuntime,
 		getSessionChatStatus,
 		removeSession,
@@ -80,7 +79,9 @@
 	// read manager.instructions directly (not the derived chat status)
 	// so the draft cue still shows during streaming/needs-confirmation —
 	// those override the icon slot but shouldn't hide the fact that the
-	// user has unsent text in this session.
+	// user has unsent text in this session. A cold (evicted) session has
+	// no live runtime, so no cue — but a session with an unsent draft is
+	// kept warm (see evictColdRuntimes), so this stays accurate.
 	function hasDraft(session: Session): boolean {
 		const rt = getRuntime(session.id)
 		return !!rt && rt.manager.instructions.trim().length > 0
@@ -269,17 +270,12 @@
 		}
 	})
 
-	// Eagerly create a runtime per VISIBLE session so the status dot reflects
-	// the persisted chat (last message, pending confirmation, etc.) without
-	// requiring the user to open the session first. Sessions outside the
-	// current workspace scope are left cold to avoid opening IDB connections
-	// for unrelated work.
-	$effect(() => {
-		for (const session of visibleSessions) {
-			getOrCreateRuntime(session)
-		}
-	})
-
+	// The picker no longer eagerly warms a runtime per visible session — that made
+	// mounted weight grow unbounded with the family size. Runtimes are created on
+	// activation and MRU-capped (see sessionRuntime), so a cold session shows the
+	// neutral status dot and no unread badge until it's opened; sessions with
+	// volatile state (pending confirmation / unsent draft / streaming) are kept
+	// warm so their live dot stays correct.
 	function isUnavailableFork(session: Session): boolean {
 		return !!session.workspace_id && !$userWorkspaces.find((w) => w.id === session.workspace_id)
 	}

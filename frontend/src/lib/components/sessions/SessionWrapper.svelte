@@ -53,7 +53,12 @@
 		syncWorkspaceTo,
 		type SessionTarget
 	} from './sessionState.svelte'
-	import { editorWarmIds, getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
+	import {
+		editorWarmIds,
+		getOrCreateRuntime,
+		removeSession,
+		setSessionDraftFlag
+	} from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$app/paths'
 	import { slide } from 'svelte/transition'
@@ -533,7 +538,13 @@
 						hideModeSelector
 						wideLayout
 						initialInstructions={restoredDraftPrompt}
-						onDraftChange={(text) => queueTransientDraftPrompt(sessionId, text)}
+						onDraftChange={(text) => {
+							queueTransientDraftPrompt(sessionId, text)
+							// Keep the runtime warm while the composer holds unsent text — the
+							// draft is local to AIChatInput and isn't persisted, so eviction
+							// would lose it (see setSessionDraftFlag).
+							setSessionDraftFlag(sessionId, text.trim().length > 0)
+						}}
 						forceDisabled={isUnavailable || !!session.archived}
 						forceDisabledMessage={isUnavailable
 							? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'

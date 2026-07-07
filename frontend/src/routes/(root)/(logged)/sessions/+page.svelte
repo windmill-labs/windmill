@@ -36,10 +36,12 @@
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
+		evictColdRuntimes,
 		getOrCreateRuntime,
 		getRuntime,
 		listRuntimes,
-		promoteEditorWarm
+		promoteEditorWarm,
+		promoteRuntimeWarm
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
@@ -119,18 +121,31 @@
 			// deep links the same way they react to picker clicks.
 			selectSession(session.id)
 			getOrCreateRuntime(session)
+			// Mark this session most-recently-used so the eviction pass keeps it (and
+			// the last few) warm while disposing the rest.
+			promoteRuntimeWarm(session.id)
 		})
 	})
 
-	// Warm = sessions with a live runtime. The picker eagerly creates runtimes
-	// for its visible sessions, so this tracks whatever it shows. Keeping warm
-	// chats mounted (stacked, visibility-toggled) preserves their scroll/draft
-	// state across switches.
+	// Warm = sessions with a live runtime (active + MRU + any mid-stream session —
+	// see the eviction effect). Keeping warm chats mounted (stacked, visibility-
+	// toggled) preserves their scroll/draft state across switches, and capping the
+	// set bounds the page's mounted weight regardless of family size.
 	const warmSessions = $derived(
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
 	)
+
+	// Dispose runtimes that fell out of the warm set. Re-runs when the active
+	// session changes, and — by reading each runtime's `loading` — when a
+	// background stream finishes, so a session kept warm only because it was
+	// streaming gets evicted once it settles (unless it's back in the MRU).
+	$effect(() => {
+		const activeId = activeSession?.id
+		for (const rt of listRuntimes()) void rt.manager.loading
+		untrack(() => evictColdRuntimes(activeId))
+	})
 
 	// Promote the active session in the LRU. Mutations untracked so the effect
 	// only re-runs when activeSession changes, not on its own writes.
