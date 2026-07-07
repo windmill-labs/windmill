@@ -285,9 +285,12 @@ export class AIChatManager {
 	// by a single background poller. See registerJob / #pollBackgroundJobs.
 	backgroundJobs = $state<ChatJob[]>([])
 	// Completion notes for finished background jobs awaiting delivery to the model.
-	// Notify-only (Stage 1): drained into the next user turn, never a turn of their
-	// own. Ephemeral like queuedMessage — not persisted.
+	// Drained as a preamble into the next turn — either the user's next message, or,
+	// when the chat is idle, an auto-resume turn started for them (see
+	// #maybeAutoResumeFromJobs). Ephemeral like queuedMessage — not persisted.
 	pendingJobNotes = $state<string[]>([])
+	// Guards #maybeAutoResumeFromJobs against re-entering while its own turn spins up.
+	#autoResuming = false
 	#jobPollTimer: ReturnType<typeof setTimeout> | undefined = undefined
 	#jobPollDelay = 2000
 	// Consecutive getJob failures per background job, so a vanished/404 job can be
@@ -596,6 +599,11 @@ export class AIChatManager {
 			this.#jobPollDelay = Math.min(this.#jobPollDelay + 1000, 5000)
 			this.#scheduleJobPoll()
 		}
+
+		// Something finished this cycle — if the chat is idle, react to it now
+		// instead of waiting for the user's next message. Fire-and-forget so the
+		// poller loop above isn't blocked by the turn.
+		if (anyTerminal) void this.#maybeAutoResumeFromJobs()
 	}
 
 	#onBackgroundJobComplete(job: ChatJob, completed: CompletedJob) {
@@ -607,11 +615,47 @@ export class AIChatManager {
 		})
 		// Fill the tool card that launched it (we run outside a turn here).
 		this.applyToolStatus(job.toolCallId, completedJobToolStatus(completed))
-		// Queue a completion note for the model's next turn (notify-only).
+		// Queue a completion note for the model. Delivered on the next turn —
+		// either the user's next message or an idle auto-resume (fired by the poller).
 		this.pendingJobNotes = [
 			...this.pendingJobNotes,
 			backgroundJobCompletionNote(job.jobId, job.label, completed)
 		]
+	}
+
+	/**
+	 * Stage 2 wake: when a background job finishes and the chat is otherwise idle,
+	 * start a turn on the user's behalf so the model reacts to the result (reports
+	 * it, continues the plan) instead of waiting for the next manual message. The
+	 * rich completion note reaches the model via the pendingJobNotes preamble in
+	 * sendRequest; the visible bubble is just a short, clearly-automated line.
+	 *
+	 * Bounded so it can't run away: fires only when idle (no in-flight turn) and
+	 * only when notes exist — and sendRequest drains the notes, so a turn that
+	 * doesn't spawn a new job leaves nothing to re-trigger on. A turn that DOES
+	 * spawn another job resumes again when that one finishes, which is the point.
+	 */
+	async #maybeAutoResumeFromJobs() {
+		if (this.#autoResuming) return
+		// Global/sessions chat only (the only mode with a jobs tray + preamble).
+		if (this.mode !== AIMode.GLOBAL) return
+		// Mid-turn: the notes will ride that turn's preamble, so don't start another.
+		if (this.loading) return
+		if (this.pendingJobNotes.length === 0) return
+		// Nothing to continue (empty chat), or the user is mid-compose — don't
+		// clobber their draft or auto-send it. Their eventual send carries the notes.
+		if (this.messages.length === 0 || this.instructions.trim()) return
+		this.#autoResuming = true
+		try {
+			const count = this.pendingJobNotes.length
+			this.instructions =
+				count === 1 ? 'A background job just finished.' : `${count} background jobs just finished.`
+			await this.sendRequest()
+		} catch (e) {
+			console.error('Auto-resume after background job failed', e)
+		} finally {
+			this.#autoResuming = false
+		}
 	}
 
 	// Serialized snapshot-at-write persistence, mirroring #persistModifiedItems.
@@ -2258,6 +2302,11 @@ export class AIChatManager {
 				this.queuedMessage = next
 			}
 		}
+		// A background job may have finished mid-turn: its note missed this turn's
+		// preamble (captured at the start) and the poller skipped auto-resume while
+		// we were loading. Now that we're idle, deliver it via an auto-resume. Skips
+		// itself if the queued-message flush above already carried the notes.
+		void this.#maybeAutoResumeFromJobs()
 		return true
 	}
 
