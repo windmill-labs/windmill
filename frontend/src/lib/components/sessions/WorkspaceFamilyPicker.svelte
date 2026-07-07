@@ -232,10 +232,10 @@
 		const taken = new Set($userWorkspaces.map((w) => w.id))
 		if (pendingFork) taken.add(pendingFork.id)
 		for (let i = 0; i < 50; i++) {
-			const candidate = `${random_adj()}-fork`
+			const candidate = random_adj()
 			if (!taken.has(`${WM_FORK_PREFIX}${candidate}`)) return candidate
 		}
-		const base = `${random_adj()}-fork`
+		const base = random_adj()
 		let n = 1
 		while (taken.has(`${WM_FORK_PREFIX}${base}-${n}`)) n++
 		return `${base}-${n}`

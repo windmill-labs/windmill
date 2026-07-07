@@ -65,6 +65,7 @@ import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
+import { TypewriterReveal } from './typewriterReveal'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
@@ -108,6 +109,11 @@ import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userSco
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
+
+// SSR and users who prefer reduced motion get no typewriter pacing.
+function prefersInstantReveal(): boolean {
+	return !BROWSER || (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
+}
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -308,6 +314,19 @@ export class AIChatManager {
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
+	// Smooths the provider's bursty delivery into continuous typing by revealing
+	// buffered text a slice per frame. The reply and the reasoning/thinking stream
+	// each get their own reveal (independent buffers, both append to their own
+	// $state). Reduced-motion (sampled once — the pref never changes mid-session)
+	// and SSR fall back to instant.
+	private replyReveal = new TypewriterReveal({
+		onReveal: (chunk) => (this.currentReply += chunk),
+		instant: prefersInstantReveal()
+	})
+	private reasoningReveal = new TypewriterReveal({
+		onReveal: (chunk) => (this.currentReasoning += chunk),
+		instant: prefersInstantReveal()
+	})
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
 	/** Provider-reported context size of the last committed turn (prompt +
@@ -2077,6 +2096,8 @@ export class AIChatManager {
 				this.modifiedItems ? [...this.modifiedItems] : undefined
 			)
 
+			this.replyReveal.reset()
+			this.reasoningReveal.reset()
 			this.currentReply = ''
 			this.currentReasoning = ''
 			this.currentReasoningActive = false
@@ -2137,10 +2158,16 @@ export class AIChatManager {
 				messages: [...this.messages],
 				abortController: this.abortController,
 				callbacks: {
-					onNewToken: (token) => (this.currentReply += token),
-					onReasoningDelta: (token) => (this.currentReasoning += token),
+					onNewToken: (token) => this.replyReveal.push(token),
+					onReasoningDelta: (token) => this.reasoningReveal.push(token),
 					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
+						// Drain any un-revealed backlog into currentReply first, so the reads
+						// below see the full text. This funnel covers clean completion, tool
+						// boundaries, and abort/error — flush-before-read is the invariant that
+						// keeps text from being lost or duplicated on any exit path.
+						this.replyReveal.flush()
+						this.reasoningReveal.flush()
 						// Keep the streamed text for the abort/error paths. Non-empty only:
 						// parsers flush (and reset) when a tool call starts after text, and
 						// the catch's later empty call would wipe it — stale keeps are
@@ -2329,6 +2356,11 @@ export class AIChatManager {
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
+			// Turn teardown: cancel any in-flight reveal frame and drop leftover
+			// backlog. onMessageEnd already flushed on every outcome, so this only
+			// releases the loop; it never discards uncommitted text.
+			this.replyReveal.reset()
+			this.reasoningReveal.reset()
 		}
 		// Flush the queued message. Send it after a cleanly committed turn OR a
 		// deliberate user cancel (Esc / Stop) — in both cases the user is ready

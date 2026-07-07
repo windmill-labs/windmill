@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ScriptService, type Script, type ScriptLang } from '$lib/gen'
+	import { untrack } from 'svelte'
 	import { resource } from 'runed'
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -53,6 +54,11 @@
 		// `selection` when present. Used by the pipeline + menu so a new
 		// pipeline script opens inline instead of navigating to /scripts/add.
 		draftScript?: Script | undefined
+		// The draft entry's captured lineage — the teardown skip compares against
+		// these, since access overrides change lineage without a text edit and an
+		// uncaptured entry (inputAssets undefined) must still emit once.
+		draftOutputAssets?: Array<{ kind: AssetWithAltAccessType['kind']; path: string }>
+		draftInputAssets?: Array<{ kind: AssetWithAltAccessType['kind']; path: string }>
 		// Local-dev preview (`/pipeline_dev`): resolve a selected node to its
 		// working-tree content instead of fetching the deployed script (there is
 		// none — the pipeline is local-only). Returns a read-only `Script` so the
@@ -119,6 +125,9 @@
 			snapshot: {
 				content: string
 				writes: { kind: AssetWithAltAccessType['kind']; path: string }[]
+				// Body-inferred reads, so the parent's draft keeps its input
+				// lineage while inactive (no live inference runs for it).
+				reads: { kind: AssetWithAltAccessType['kind']; path: string }[]
 				// Full edited script — set when the source is a persisted
 				// script (needed to seed a brand-new draft entry).
 				script?: Script
@@ -257,6 +266,8 @@
 	let {
 		selection,
 		draftScript,
+		draftOutputAssets,
+		draftInputAssets,
 		resolveLocalScript,
 		localScriptsVersion,
 		workspace,
@@ -482,6 +493,7 @@
 	// restores its input. Guarded on the path so a staging round-trip
 	// (emit → page → runFormInitialArgs) doesn't re-seed and loop. The read-only
 	// branch uses PipelineScriptView's own onArgsChange instead.
+	let args = $state<Record<string, any>>({})
 	let argsSeedPath: string | undefined = undefined
 	$effect.pre(() => {
 		const p = script?.path
@@ -520,7 +532,41 @@
 		const origAtRegister = isDraftRun ? undefined : scriptRes.current
 		if (!isDraftRun && !origAtRegister) return
 		const captured = script
+		// Untracked — tracked reads here would re-run (and emit) per keystroke.
+		// Snapshotted at registration so the cleanup compares against ITS entry
+		// (at cleanup time the props may already point at the next draft).
+		const contentAtRegister = untrack(() => captured.content ?? '')
+		const writesAtRegister = untrack(() => draftOutputAssets)
+		const readsAtRegister = untrack(() => draftInputAssets)
+		const refsEq = (
+			a: Array<{ kind: string; path: string }>,
+			b: Array<{ kind: string; path: string }>
+		) => a.length === b.length && a.every((x, i) => x.kind === b[i]?.kind && x.path === b[i]?.path)
 		return () => {
+			const writes = (liveBodyAssets ?? [])
+				.filter((a) => {
+					const t = a.access_type ?? a.alt_access_type
+					return t === 'w' || t === 'rw'
+				})
+				.map((a) => ({ kind: a.kind, path: a.path }))
+			const reads = (liveBodyAssets ?? [])
+				.filter((a) => {
+					const t = a.access_type ?? a.alt_access_type
+					return t === 'r' || t === 'rw'
+				})
+				.map((a) => ({ kind: a.kind, path: a.path }))
+			// Draft runs: emit only when content or lineage changed in THIS clone.
+			// An unconditional emit ping-pongs forever when the entry is rewritten
+			// externally while the pane stays mounted (rename rekey, AI edit):
+			// stale-generation emit → entry rewrite → re-clone → emit, pinning the tab.
+			if (
+				isDraftRun &&
+				(captured.content ?? '') === contentAtRegister &&
+				refsEq(writesAtRegister ?? [], writes) &&
+				readsAtRegister != undefined &&
+				refsEq(readsAtRegister, reads)
+			)
+				return
 			if (!isDraftRun) {
 				// Prefer the freshest fetch when it's still this script
 				// (cleanup reads are untracked): after the pane's own Save +
@@ -532,23 +578,31 @@
 				const orig = latest && latest.path === captured.path ? latest : origAtRegister
 				if (!orig || orig.path !== captured.path) return
 				if ((captured.content ?? '') === (orig.content ?? '')) return
+				// The effect can re-run mid-save — after createScript resolved
+				// but before the refetch lands — with `orig` still holding the
+				// pre-deploy version. The buffer isn't "unsaved edits" then, it
+				// IS the new deployed head; emitting would resurrect it as a
+				// phantom draft identical to what was just deployed.
+				if (
+					deployedFromPane?.path === captured.path &&
+					(captured.content ?? '') === deployedFromPane.content
+				)
+					return
 			}
-			const writes = (liveBodyAssets ?? [])
-				.filter((a) => {
-					const t = a.access_type ?? a.alt_access_type
-					return t === 'w' || t === 'rw'
-				})
-				.map((a) => ({ kind: a.kind, path: a.path }))
 			onDraftPersist?.(captured.path, {
 				content: captured.content ?? '',
 				writes,
+				reads,
 				script: isDraftRun ? undefined : (structuredClone($state.snapshot(captured)) as Script)
 			})
 		}
 	})
 
-	let args = $state<Record<string, any>>({})
 	let saving = $state(false)
+	// What this pane last deployed, so the persist-back cleanup can tell "the
+	// buffer equals the new deployed head" from real unsaved edits (plain
+	// variable: only read inside the untracked cleanup).
+	let deployedFromPane: { path: string; content: string } | undefined = undefined
 	let isDraft = $derived(draftScript != undefined)
 
 	// Single trash-bin button opens one modal that exposes both Archive
@@ -676,10 +730,17 @@
 			} catch {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
+			// Pin the exact content this deploy ships: the editor stays live during
+			// the network round-trip, so `script.content` can advance past what was
+			// sent — `deployedFromPane` must record the shipped version, not the
+			// buffer at response time, or mid-deploy keystrokes match the guard and
+			// are never promoted to a draft.
+			const contentAtDeploy = script.content ?? ''
 			const newHash = await ScriptService.createScript({
 				workspace,
 				requestBody: {
 					...script,
+					content: contentAtDeploy,
 					language: script.language,
 					description: script.description ?? '',
 					// Brand-new drafts have no prior hash (buildDraft seeds ''
@@ -714,6 +775,7 @@
 			// backend rejects as a lineage fork ("no 2 scripts can have the
 			// same parent").
 			if (typeof newHash === 'string' && newHash) script.hash = newHash
+			deployedFromPane = { path: script.path, content: contentAtDeploy }
 			sendUserToast(`Saved ${script.path}`)
 			// Authoritative save-time schema-contract check (pipelines gap #2b):
 			// warn-only, post-commit. Fire-and-forget — must never gate the save.

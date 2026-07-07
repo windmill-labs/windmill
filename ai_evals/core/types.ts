@@ -47,7 +47,7 @@ export interface FlowValidationSpec {
   }>;
   topLevelStepTypes?: Array<{
     id: string;
-    type: string;
+    type: string | string[];
   }>;
   moduleRules?: Array<{
     id: string;

@@ -210,11 +210,13 @@
 	}
 	// Mount the active session's active tab whenever either changes. Background
 	// sessions' activeId changes (a chat tool opening a tab) don't mount — their
-	// tabs boot lazily on first visible activation.
+	// tabs boot lazily on first visible activation. A collapsed preview mounts
+	// nothing: the pane is zero-width, so booting a full Windmill app the user
+	// can't see is wasted — it mounts on expand, when previewCollapsed flips.
 	$effect(() => {
 		const sid = activeRuntime?.sessionId
 		const activeId = owner?.activeId
-		if (!sid || !activeId) return
+		if (!sid || !activeId || previewCollapsed) return
 		untrack(() => mountTab(tabKey(sid, activeId)))
 	})
 	// A disposed runtime unmounts its hosts; drop its keys too, else a later

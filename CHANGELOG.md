@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.752.0](https://github.com/windmill-labs/windmill/compare/v1.751.0...v1.752.0) (2026-07-07)
+
+
+### Features
+
+* add fork_parent_workspace claim to OIDC tokens for fork workspaces ([#9987](https://github.com/windmill-labs/windmill/issues/9987)) ([7efeae2](https://github.com/windmill-labs/windmill/commit/7efeae26d821b10667b6e3edd220468f6ae48936))
+* add SQL migrations for data tables ([#9693](https://github.com/windmill-labs/windmill/issues/9693)) ([e47aeda](https://github.com/windmill-labs/windmill/commit/e47aedac0a4af40dd697d5fc4d54dd3c8efe9ab8))
+* **cli:** clarify fork-branch workspace auto-targeting in output ([#9988](https://github.com/windmill-labs/windmill/issues/9988)) ([88c2d0e](https://github.com/windmill-labs/windmill/commit/88c2d0e8e32c218787c01daed80ef41efc39dd11))
+* open runs/schedules pages from AI chat in session preview tabs ([#9976](https://github.com/windmill-labs/windmill/issues/9976)) ([4bb82ad](https://github.com/windmill-labs/windmill/commit/4bb82ad6cdb62eae7b69b1054714333e54558632))
+* **raw-apps:** runtime-error overlay + AI import-React instruction ([#9966](https://github.com/windmill-labs/windmill/issues/9966)) ([8df613b](https://github.com/windmill-labs/windmill/commit/8df613b4d2f88765f49cc988a894ca323c4ec4f7))
+* **sessions:** v2 unified sidebar with family/fork scoping and preview router ([#9816](https://github.com/windmill-labs/windmill/issues/9816)) ([9503190](https://github.com/windmill-labs/windmill/commit/95031903ebe223dc03b49a6bcd3e4ee67cefc4bb))
+* smooth bursty AI chat streaming with a typewriter reveal ([#9991](https://github.com/windmill-labs/windmill/issues/9991)) ([a6276b5](https://github.com/windmill-labs/windmill/commit/a6276b590082d06480434a8ea002c335ea1cfb59))
+* update base image to debian 13 (trixie) ([#9973](https://github.com/windmill-labs/windmill/issues/9973)) ([c5c1ead](https://github.com/windmill-labs/windmill/commit/c5c1eadeb18e509a98d1e787206c0438417683fc))
+
+
+### Bug Fixes
+
+* **ai-agent:** align agent_actions_success with agent_actions for mcp and websearch ([#9983](https://github.com/windmill-labs/windmill/issues/9983)) ([87f8d46](https://github.com/windmill-labs/windmill/commit/87f8d46aafffd5e88a336192c51e0c95ff2e6f18))
+* **ai:** flow writer builds approval steps as scripts, not identity ([#9985](https://github.com/windmill-labs/windmill/issues/9985)) ([6b01caa](https://github.com/windmill-labs/windmill/commit/6b01caaf26a4f0a08f643db4e22a70e27d0dc554))
+* clear old path asset usage when renaming a script ([#9979](https://github.com/windmill-labs/windmill/issues/9979)) ([927b8d0](https://github.com/windmill-labs/windmill/commit/927b8d064f693384978184992b8f8a1cd708e711))
+* **cli:** auto-derive cascade triggers in --local pipeline graph ([#9978](https://github.com/windmill-labs/windmill/issues/9978)) ([edfe7b4](https://github.com/windmill-labs/windmill/commit/edfe7b415af6670c5855b7a0b52db4c1f7781964))
+* **pipelines:** live materialize/dataset editing — stale graph, phantom drafts, stale Save-all deploys ([#9990](https://github.com/windmill-labs/windmill/issues/9990)) ([f7efb64](https://github.com/windmill-labs/windmill/commit/f7efb646bf1f2e132d1e3ff031b142383ae01c5e))
+* **sessions:** auto-rename regression + preview-panel and fork nits ([#9993](https://github.com/windmill-labs/windmill/issues/9993)) ([804178f](https://github.com/windmill-labs/windmill/commit/804178f5e1c904c3f8e35e2b660f33c78964c6eb))
+* **sessions:** scope fork session Edits to session-edited items only ([#9989](https://github.com/windmill-labs/windmill/issues/9989)) ([7046dc6](https://github.com/windmill-labs/windmill/commit/7046dc6dfb474ef49313377855bb2bd60294e25a))
+
 ## [1.751.0](https://github.com/windmill-labs/windmill/compare/v1.750.0...v1.751.0) (2026-07-06)
 
 

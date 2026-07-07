@@ -132,7 +132,14 @@ export class PipelineEditorState {
 	 * entry). Verbatim port of the route page's `handleDraftPersist`. */
 	handleDraftPersist = (
 		p: string,
-		snapshot: { content: string; writes: { kind: AssetKind; path: string }[]; script?: Script }
+		snapshot: {
+			content: string
+			writes: { kind: AssetKind; path: string }[]
+			// Optional: undefined = reads not captured by this caller — keep
+			// whatever the draft already carries.
+			reads?: { kind: AssetKind; path: string }[]
+			script?: Script
+		}
 	) => {
 		queueMicrotask(() => {
 			const d = this.drafts.get(p)
@@ -142,7 +149,8 @@ export class PipelineEditorState {
 				next.set(p, {
 					localId: this.newDraftLocalId(),
 					script: snapshot.script,
-					outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
+					outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined,
+					inputAssets: snapshot.reads
 				})
 				this.drafts = next
 				return
@@ -153,17 +161,26 @@ export class PipelineEditorState {
 			// every persist re-writes the drafts Map with an equivalent object,
 			// re-triggering the pane's emit → graph re-derive → persist, an infinite
 			// microtask loop (hangs the tab without an effect-depth throw).
-			const writesEqual =
-				(d.outputAssets?.length ?? 0) === snapshot.writes.length &&
-				(d.outputAssets ?? []).every(
-					(a, i) => a.kind === snapshot.writes[i]?.kind && a.path === snapshot.writes[i]?.path
-				)
-			if (d.script.content === snapshot.content && writesEqual) return
+			const refsEqual = (
+				a: Array<{ kind: AssetKind; path: string }>,
+				b: Array<{ kind: AssetKind; path: string }>
+			) =>
+				a.length === b.length && a.every((x, i) => x.kind === b[i]?.kind && x.path === b[i]?.path)
+			const writesEqual = refsEqual(d.outputAssets ?? [], snapshot.writes)
+			// An uncaptured entry (`inputAssets` undefined) is never "equal" to an
+			// incoming capture — even `reads: []` must be recorded, or the entry
+			// stays on the legacy fallback (session cache) and can keep stale read
+			// edges after the pane closes.
+			const readsEqual =
+				snapshot.reads == undefined ||
+				(d.inputAssets != undefined && refsEqual(d.inputAssets, snapshot.reads))
+			if (d.script.content === snapshot.content && writesEqual && readsEqual) return
 			const next = new Map(this.drafts)
 			next.set(p, {
 				...d,
 				script: { ...d.script, content: snapshot.content },
-				outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
+				outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined,
+				inputAssets: snapshot.reads ?? d.inputAssets
 			})
 			this.drafts = next
 		})
