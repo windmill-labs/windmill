@@ -28,6 +28,7 @@ import {
 	ScriptService,
 	FlowService,
 	JobService,
+	type Job,
 	type CompletedJob,
 	type FlowValue,
 	type FlowModule,
@@ -37,6 +38,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
+import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
 import { type editor as meditor } from 'monaco-editor'
@@ -760,9 +762,87 @@ export interface Tool<T> {
 	showFade?: boolean
 }
 
+/** Status of a job the chat started and tracks in the jobs tray. Mirrors the
+ * runs page: `suspended` = a flow step waiting for approval, `scheduled` = a run
+ * scheduled for later. Kept in lockstep with `ChatJob.job` (see below). */
+export type ChatJobStatus =
+	| 'queued'
+	| 'running'
+	| 'suspended'
+	| 'scheduled'
+	| 'success'
+	| 'failure'
+	| 'canceled'
+
+/** A job the chat started and is tracking. Rendered in the jobs tray, persisted
+ * with the chat, and advanced by a single background poller on the manager. */
+export type ChatJob = {
+	jobId: string
+	/** Pairs with the ToolDisplayMessage card that launched it. */
+	toolCallId: string
+	kind: 'script' | 'flow'
+	/** Path or step label shown in the tray row. */
+	label: string
+	workspace: string
+	createdAt: number
+	status: ChatJobStatus
+	durationMs?: number
+	/** True once it left the inline wait and is polled in the background. */
+	detached: boolean
+	/** Notify-only: whether its completion has been surfaced to the model yet. */
+	reported: boolean
+	/** Trimmed snapshot of the last fetched Job (heavy fields stripped, see
+	 * `trimJob`), fed to `<JobStatusIcon>` so the tray badge matches the runs page
+	 * exactly. Always written together with `status` from the SAME job so the two
+	 * can't drift. Undefined only before the first fetch. */
+	job?: Job
+}
+
+/** Derive the tray status from a fetched Job. Deliberately mirrors the branch
+ * order of JobStatusIcon.svelte so the scalar status and the badge never
+ * disagree. */
+export function deriveChatJobStatus(job: Job): ChatJobStatus {
+	if ('success' in job) {
+		return job.canceled ? 'canceled' : job.success ? 'success' : 'failure'
+	}
+	// QueuedJob
+	if (job.running && job.suspend) return 'suspended'
+	if (job.running) return 'running'
+	if (job.scheduled_for && forLater(job.scheduled_for)) return 'scheduled'
+	return 'queued'
+}
+
+/** Strip the heavy fields from a fetched Job before storing it on a ChatJob (the
+ * tray only needs the status-discriminant scalars JobStatusIcon reads).
+ *
+ * MUST clone + delete — never rebuild as an object literal. JobStatusIcon
+ * discriminates with the `in` operator (`'success' in job`), which tests KEY
+ * PRESENCE, not truthiness. A literal that always carries a `success` key would
+ * make every running/queued job misrender as a completed (failed) job. */
+export function trimJob(job: Job): Job {
+	const trimmed = { ...job } as Record<string, unknown>
+	delete trimmed.logs
+	delete trimmed.args
+	delete trimmed.result
+	delete trimmed.raw_code
+	delete trimmed.raw_flow
+	delete trimmed.flow_status
+	return trimmed as unknown as Job
+}
+
+/** The subset supplied when a job first starts; the manager fills in the rest. */
+export type ChatJobInit = Pick<ChatJob, 'jobId' | 'toolCallId' | 'kind' | 'label' | 'workspace'>
+
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
+	/** Job-tracking hooks, wired only by the global/sessions chat (mode === GLOBAL).
+	 * Their presence is what enables detach-into-background in executeTestRun; when
+	 * absent (in-editor script/flow/pipeline chats), test runs keep blocking the
+	 * loop with the legacy 60s cap. */
+	onJobStarted?: (job: ChatJobInit) => void
+	onJobStatus?: (jobId: string, update: Partial<ChatJob>) => void
+	onJobDetached?: (jobId: string) => void
 	/** Streamed reasoning/thinking deltas, rendered as a collapsible block in the chat. */
 	onReasoningDelta?: (token: string) => void
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
@@ -1003,6 +1083,11 @@ const MAX_RESULT_LENGTH = 12000
 const MAX_LOG_LENGTH = 4000
 export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
+/** How long a test run is awaited inline before it detaches into the background
+ * (global/sessions chat only). Quick runs finish well inside this; slow ones are
+ * handed to the background poller so the chat loop is freed. */
+export const DETACH_AFTER_MS = 15000
+
 export interface TestRunConfig {
 	jobStarter: () => Promise<string>
 	workspace: string
@@ -1010,17 +1095,30 @@ export interface TestRunConfig {
 	toolId: string
 	startMessage?: string
 	contextName: 'script' | 'flow'
+	/** Detach immediately instead of waiting the inline budget (the model's opt-in). */
+	background?: boolean
+	/** Human label for the jobs tray row (path / step id). Defaults to the job id. */
+	label?: string
 }
 
-// Common job polling function
+// Common job polling function.
+//
+// Two modes, selected by whether `detachAfterMs` is provided:
+//  - Legacy (undefined): poll up to 60×1s, then set a timeout error and throw.
+//    Used by in-editor chats, which have no jobs tray to hand off to.
+//  - Detach (a number): poll only for that inline budget; if the job is still
+//    running when it elapses, resolve `'detached'` instead of throwing so the
+//    caller can background the job. `0` detaches without polling at all.
 export async function pollJobCompletion(
 	jobId: string,
 	workspace: string,
 	toolId: string,
-	toolCallbacks: ToolCallbacks
-): Promise<CompletedJob> {
+	toolCallbacks: ToolCallbacks,
+	options?: { detachAfterMs?: number }
+): Promise<CompletedJob | 'detached'> {
+	const detachEnabled = options?.detachAfterMs !== undefined
+	const maxAttempts = detachEnabled ? Math.ceil((options?.detachAfterMs ?? 0) / 1000) : 60
 	let attempts = 0
-	const maxAttempts = 60
 	let job: CompletedJob | null = null
 
 	while (attempts < maxAttempts) {
@@ -1039,14 +1137,22 @@ export async function pollJobCompletion(
 				job = fetchedJob
 				break
 			}
+			// Keep the tray's status + Job snapshot fresh during the inline wait.
+			toolCallbacks.onJobStatus?.(jobId, {
+				status: deriveChatJobStatus(fetchedJob),
+				job: trimJob(fetchedJob)
+			})
 		} catch (error) {
-			if (attempts >= maxAttempts) {
+			if (!detachEnabled && attempts >= maxAttempts) {
 				throw error
 			}
 		}
 	}
 
 	if (!job) {
+		if (detachEnabled) {
+			return 'detached'
+		}
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Test timed out',
 			error: 'Execution timed out or failed to complete'
@@ -1128,8 +1234,52 @@ export async function buildTestRunArgs(
 	return parsedArgs
 }
 
+// The string handed back to the model when a job is backgrounded. It carries the
+// job id so the model can pull status/logs on demand (get_job_logs / list_runs),
+// and tells it the completion will be reported later (notify-only wake).
+function backgroundedSummary(jobId: string, label: string): string {
+	return (
+		`Job ${jobId} for "${label}" is taking a while and is now running in the background — ` +
+		`the chat is free to continue and you'll be told when it finishes. ` +
+		`To inspect it now, call get_job_logs with id="${jobId}" (or list_runs); ` +
+		`to stop it, call cancel_job with id="${jobId}".`
+	)
+}
+
+// Tool-card status patch for a completed background job. Mirrors the inline
+// terminal branch of executeTestRun so a job that finished in the background
+// fills its card the same way one that finished inline does.
+export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMessage> {
+	return {
+		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
+		result: formatResult(job.result),
+		logs: formatLogs(job.logs),
+		...(job.success ? {} : { error: getErrorMessage(job.result) })
+	}
+}
+
+// Short completion note handed to the model on its next turn (notify-only wake).
+// Carries the id so the model can pull full logs via get_job_logs on demand.
+export function backgroundJobCompletionNote(
+	jobId: string,
+	label: string,
+	job: CompletedJob
+): string {
+	const status = job.success ? 'succeeded' : 'FAILED'
+	const resultHead = formatResult(job.result).slice(0, 2000)
+	return (
+		`Background job ${jobId} for "${label}" ${status}.\n` +
+		`Result: ${resultHead}\n` +
+		`(For full logs call get_job_logs with id="${jobId}".)`
+	)
+}
+
 // Main execution function for test runs
 export async function executeTestRun(config: TestRunConfig): Promise<string> {
+	// Detach-into-background is enabled only when the host wired the job hooks
+	// (global/sessions chat). Otherwise this stays a blocking call.
+	const detachEnabled = !!config.toolCallbacks.onJobStarted
+	const label = config.label ?? config.contextName
 	try {
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: config.startMessage || `Starting ${config.contextName} test...`
@@ -1139,17 +1289,41 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
 
+		// Register the job so the tray shows it from the moment it is queued.
+		config.toolCallbacks.onJobStarted?.({
+			jobId,
+			toolCallId: config.toolId,
+			kind: config.contextName,
+			label,
+			workspace: config.workspace
+		})
+
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: `${contextName} test started, waiting for completion...`
 		})
 
-		const job = await pollJobCompletion(
+		const outcome = await pollJobCompletion(
 			jobId,
 			config.workspace,
 			config.toolId,
-			config.toolCallbacks
+			config.toolCallbacks,
+			detachEnabled ? { detachAfterMs: config.background ? 0 : DETACH_AFTER_MS } : undefined
 		)
 
+		if (outcome === 'detached') {
+			config.toolCallbacks.onJobDetached?.(jobId)
+			config.toolCallbacks.setToolStatus(config.toolId, {
+				content: `${contextName} test running in background (job ${jobId})`
+			})
+			return backgroundedSummary(jobId, label)
+		}
+
+		const job = outcome
+		config.toolCallbacks.onJobStatus?.(jobId, {
+			status: deriveChatJobStatus(job),
+			durationMs: job.duration_ms,
+			job: trimJob(job)
+		})
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: `${contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),
@@ -1182,6 +1356,7 @@ export type FlowStepTestRunConfig = {
 	workspace: string
 	toolCallbacks: ToolCallbacks
 	toolId: string
+	background?: boolean
 	loadScript?: FlowStepScriptLoader
 	loadFlowPreviewValue?: FlowStepPreviewLoader
 }
@@ -1223,6 +1398,7 @@ export async function executeFlowStepTestRun({
 	workspace,
 	toolCallbacks,
 	toolId,
+	background,
 	loadScript = loadDeployedScriptForFlowStep,
 	loadFlowPreviewValue
 }: FlowStepTestRunConfig): Promise<string> {
@@ -1256,7 +1432,9 @@ export async function executeFlowStepTestRun({
 			toolCallbacks,
 			toolId,
 			startMessage: `Starting test run of step "${stepId}"...`,
-			contextName: 'script'
+			contextName: 'script',
+			label: `step ${stepId}`,
+			background
 		})
 	}
 
@@ -1277,7 +1455,9 @@ export async function executeFlowStepTestRun({
 			toolCallbacks,
 			toolId,
 			startMessage: `Starting test run of script step "${stepId}"...`,
-			contextName: 'script'
+			contextName: 'script',
+			label: `step ${stepId}`,
+			background
 		})
 	}
 
@@ -1298,7 +1478,9 @@ export async function executeFlowStepTestRun({
 				toolCallbacks,
 				toolId,
 				startMessage: `Starting test run of draft flow step "${stepId}"...`,
-				contextName: 'flow'
+				contextName: 'flow',
+				label: `step ${stepId}`,
+				background
 			})
 		}
 
@@ -1313,7 +1495,9 @@ export async function executeFlowStepTestRun({
 			toolCallbacks,
 			toolId,
 			startMessage: `Starting test run of flow step "${stepId}"...`,
-			contextName: 'flow'
+			contextName: 'flow',
+			label: `step ${stepId}`,
+			background
 		})
 	}
 

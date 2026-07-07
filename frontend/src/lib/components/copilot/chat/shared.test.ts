@@ -17,7 +17,7 @@ vi.mock('$lib/components/flows/flowTree', () => ({
 vi.mock('$lib/gen', () => ({
 	ScriptService: {},
 	FlowService: {},
-	JobService: {},
+	JobService: { getJob: vi.fn() },
 	ScheduleService: {
 		previewSchedule: vi.fn(),
 		createSchedule: vi.fn()
@@ -687,5 +687,97 @@ describe('isActiveUserQuestion', () => {
 		expect(isActiveUserQuestion(undefined)).toBe(false)
 		expect(isActiveUserQuestion(userMessage)).toBe(false)
 		expect(isActiveUserQuestion(assistantMessage)).toBe(false)
+	})
+})
+
+describe('pollJobCompletion detach', () => {
+	function makeCallbacks() {
+		return {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			onJobStatus: vi.fn()
+		}
+	}
+
+	it('detaches immediately (no polling) when detachAfterMs is 0', async () => {
+		const { pollJobCompletion } = await import('./shared')
+		const { JobService } = await import('$lib/gen')
+		const getJob = vi.mocked(JobService.getJob)
+		getJob.mockReset()
+		const cbs = makeCallbacks()
+
+		const outcome = await pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 0 })
+
+		expect(outcome).toBe('detached')
+		expect(getJob).not.toHaveBeenCalled()
+	})
+
+	it('detaches after the inline budget when the job is still running', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const cbs = makeCallbacks()
+
+			// detachAfterMs 2000 → 2 polls at 1s each, then detach.
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 2000 })
+			await vi.advanceTimersByTimeAsync(2000)
+
+			expect(await promise).toBe('detached')
+			// Status is reported as running during the wait (alongside the trimmed
+			// Job snapshot that feeds JobStatusIcon).
+			expect(cbs.onJobStatus).toHaveBeenCalledWith(
+				'job1',
+				expect.objectContaining({ status: 'running' })
+			)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('returns the completed job when it finishes within the inline budget', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			const completed = { type: 'CompletedJob', success: true, result: 42 }
+			getJob.mockResolvedValue(completed as any)
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
+			await vi.advanceTimersByTimeAsync(1000)
+
+			expect(await promise).toBe(completed)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('legacy mode (no detach) throws a timeout error when the job never completes', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any)
+			const assertion = expect(promise).rejects.toThrow('timed out')
+			await vi.advanceTimersByTimeAsync(60000)
+			await assertion
+			expect(cbs.setToolStatus).toHaveBeenCalledWith(
+				'tool1',
+				expect.objectContaining({ error: expect.any(String) })
+			)
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 })

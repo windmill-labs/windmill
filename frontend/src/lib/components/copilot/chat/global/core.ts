@@ -419,6 +419,10 @@ const getJobLogsSchema = z.object({
 	id: z.string().describe('The UUID of the job to fetch logs for.')
 })
 
+const cancelJobSchema = z.object({
+	id: z.string().describe('The UUID of the job to cancel.')
+})
+
 const listRunsSchema = z.object({
 	path: z.string().optional().describe('Filter to runs of this exact script or flow path.'),
 	created_by: z.string().optional().describe('Filter by the username that started the run.'),
@@ -513,9 +517,17 @@ const testRunArgsSchema = z
 	.optional()
 	.describe('Arguments to pass to the runnable. Omit or pass null when no arguments are needed.')
 
+const backgroundArgSchema = z
+	.boolean()
+	.optional()
+	.describe(
+		'Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.'
+	)
+
 const testRunScriptSchema = z.object({
 	path: z.string().describe('Workspace path of the script to test.'),
-	args: testRunArgsSchema
+	args: testRunArgsSchema,
+	background: backgroundArgSchema
 })
 
 const testRunScriptToolDef = createToolDef(
@@ -527,7 +539,8 @@ const testRunScriptToolDef = createToolDef(
 
 const testRunFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow to test.'),
-	args: testRunArgsSchema
+	args: testRunArgsSchema,
+	background: backgroundArgSchema
 })
 
 const testRunFlowToolDef = createToolDef(
@@ -540,7 +553,8 @@ const testRunFlowToolDef = createToolDef(
 const testRunStepSchema = z.object({
 	path: z.string().describe('Workspace path of the flow containing the step to test.'),
 	stepId: z.string().describe('The id of the step/module to test.'),
-	args: testRunArgsSchema
+	args: testRunArgsSchema,
+	background: backgroundArgSchema
 })
 
 const testRunStepToolDef = createToolDef(
@@ -2131,6 +2145,33 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			cancelJobSchema,
+			'cancel_job',
+			'Cancel a running or queued job by its id (e.g. a background test run you started that is no longer needed).'
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = cancelJobSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: `Canceling job ${parsed.id}...` })
+			try {
+				await JobService.cancelQueuedJob({ workspace, id: parsed.id, requestBody: {} })
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : 'Unknown error'
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Could not cancel job ${parsed.id}`,
+					error: msg
+				})
+				return `Failed to cancel job ${parsed.id}: ${msg}. It may have already finished.`
+			}
+			// The tray's background poller will pick up the canceled state (updating
+			// its status + Job snapshot together); a bare status patch here would leave
+			// the badge stale and stop the poller. Just report to the model.
+			toolCallbacks.setToolStatus(toolId, { content: `Canceled job ${parsed.id}` })
+			return `Job ${parsed.id} was canceled.`
+		}
+	},
+	{
+		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
 			'Deploy a draft to the workspace. Mutates the workspace.',
@@ -3239,7 +3280,9 @@ async function testRunScriptByPath(
 		toolCallbacks,
 		toolId,
 		startMessage: `Running test for script "${args.path}"...`,
-		contextName: 'script'
+		contextName: 'script',
+		background: args.background,
+		label: args.path
 	})
 }
 
@@ -3273,7 +3316,9 @@ async function testRunFlowByPath(
 			toolCallbacks,
 			toolId,
 			startMessage: `Starting flow test run for "${args.path}"...`,
-			contextName: 'flow'
+			contextName: 'flow',
+			background: args.background,
+			label: args.path
 		})
 	}
 
@@ -3293,7 +3338,9 @@ async function testRunFlowByPath(
 		toolCallbacks,
 		toolId,
 		startMessage: `Starting flow test run for "${args.path}"...`,
-		contextName: 'flow'
+		contextName: 'flow',
+		background: args.background,
+		label: args.path
 	})
 }
 
@@ -3313,6 +3360,7 @@ async function testRunFlowStepByPath(
 		workspace,
 		toolCallbacks,
 		toolId,
+		background: args.background,
 		loadScript: loadScriptForFlowStep,
 		loadFlowPreviewValue: loadDraftFlowPreviewValue
 	})
