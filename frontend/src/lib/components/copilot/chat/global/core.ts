@@ -103,7 +103,13 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
-import { userStore, superadmin, enterpriseLicense } from '$lib/stores'
+import {
+	userStore,
+	superadmin,
+	enterpriseLicense,
+	userWorkspaces,
+	workspaceStore
+} from '$lib/stores'
 import { get } from 'svelte/store'
 import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -867,7 +873,7 @@ Rules:
 - A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
-- Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. In a session it opens as a tab in the side-panel preview next to the chat; it is the ONLY way to show these pages there (open_preview handles only editable items). Changing filters on a page that's already open updates that same tab — only pass new_tab when the user explicitly asks for a separate tab. Don't use it as a substitute for list_runs when you just need the data yourself.
+- Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -876,7 +882,8 @@ Rules:
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
-- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
+- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
+- open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.`
 			: ''
 	}
 
@@ -1748,24 +1755,35 @@ function allowedTriggerKinds(): PageTriggerKind[] {
 	return (Object.keys(TRIGGER_PAGES) as PageTriggerKind[]).filter((k) => ee || !TRIGGER_PAGES[k].ee)
 }
 
-// Which pages the current user can actually reach — mirrors the sidebar's gating
-// (operators are restricted to runs/assets by default; workspace settings is
-// admin/superadmin only). The tool only ever advertises, and only ever acts on, pages
-// in this set.
+// Which pages the current user can actually reach — mirrors the sidebar's gating.
+// Operators see exactly the pages enabled in this workspace's operator_settings (the
+// same source OperatorMenu gates on); a missing/false flag means no access, and
+// operators are never admins so workspace_settings is always excluded. Non-operators
+// get every page except workspace_settings, which is admin/superadmin only. The tool
+// only ever advertises, and only ever acts on, pages in this set.
 function allowedOpenPages(): OpenPageName[] {
 	const u = get(userStore)
-	const isOperator = !!u?.operator
 	const isAdmin = !!u?.is_admin || !!get(superadmin)
-	const allowed = new Set<OpenPageName>(['runs', 'assets']) // available to everyone
-	if (!isOperator) {
-		allowed.add('schedules')
-		allowed.add('variables')
-		allowed.add('resources')
-		allowed.add('audit_logs')
-		allowed.add('folders')
-		allowed.add('groups')
-		allowed.add('triggers')
+	if (u?.operator) {
+		const settings = get(userWorkspaces).find(
+			(w) => w.id === get(workspaceStore)
+		)?.operator_settings
+		return OPEN_PAGE_NAMES.filter(
+			(p) =>
+				p !== 'workspace_settings' && settings?.[p as keyof NonNullable<typeof settings>] === true
+		)
 	}
+	const allowed = new Set<OpenPageName>([
+		'runs',
+		'assets',
+		'schedules',
+		'variables',
+		'resources',
+		'audit_logs',
+		'folders',
+		'groups',
+		'triggers'
+	])
 	if (isAdmin) allowed.add('workspace_settings')
 	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
 }
@@ -1878,8 +1896,13 @@ function buildOpenPageDefSchema(
 	triggerKinds: readonly PageTriggerKind[]
 ): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
+	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
+	// with every operator_settings flag off) yields exactly that. Fall back to a plain
+	// string so schema-building can't throw; the handler still fails closed on every page.
 	const shape: Record<string, z.ZodTypeAny> = {
-		page: z.enum([...pages] as [OpenPageName, ...OpenPageName[]]).describe('Which page to open')
+		page: pages.length
+			? z.enum([...pages] as [OpenPageName, ...OpenPageName[]]).describe('Which page to open')
+			: z.string().describe('No pages are available to you in this workspace')
 	}
 	for (const [field, fieldPages] of Object.entries(OPEN_PAGE_FIELD_PAGES)) {
 		if (!fieldPages.some((p) => pages.includes(p))) continue
