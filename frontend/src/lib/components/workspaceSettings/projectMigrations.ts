@@ -112,6 +112,53 @@ function resolveTable(
 	return undefined
 }
 
+type ResolvedTable = { schemaName: string; tableName: string }
+
+const tableKey = (t: ResolvedTable) => `${t.schemaName}.${t.tableName}`
+
+// Grow the set of tables to create so it's closed under foreign keys: a used
+// table's FK targets (and their FK targets, transitively) are pulled in, so the
+// generated CREATE TABLEs never reference a table that isn't also created. FK
+// targets that don't resolve in this schema are left out (their FK is pruned by
+// pruneSchemaForTables).
+function expandFkClosure(schema: DatabaseSchema, seed: ResolvedTable[]): ResolvedTable[] {
+	const inSet = new Map(seed.map((t) => [tableKey(t), t]))
+	const queue = [...seed]
+	while (queue.length > 0) {
+		const t = queue.shift()!
+		const fks = schema[t.schemaName]?.[t.tableName]?.foreignKeys ?? []
+		for (const fk of fks) {
+			const target = resolveTable(schema, fk.targetTable ?? '')
+			if (target && !inSet.has(tableKey(target))) {
+				inSet.set(tableKey(target), target)
+				queue.push(target)
+			}
+		}
+	}
+	return [...inSet.values()]
+}
+
+// A copy of the schema restricted to `tables`, with each table's foreign keys
+// filtered to targets that are also in `tables`. generateMigrationSql emits every
+// FK it finds on a table, so pruning here keeps a stray FK (to a table outside the
+// migration) from making the generated SQL fail.
+function pruneSchemaForTables(schema: DatabaseSchema, tables: ResolvedTable[]): DatabaseSchema {
+	const inSet = new Set(tables.map(tableKey))
+	const pruned: DatabaseSchema = {}
+	for (const t of tables) {
+		const orig = schema[t.schemaName]?.[t.tableName]
+		if (!orig) continue
+		;(pruned[t.schemaName] ??= {})[t.tableName] = {
+			...orig,
+			foreignKeys: (orig.foreignKeys ?? []).filter((fk) => {
+				const target = resolveTable(schema, fk.targetTable ?? '')
+				return target != null && inSet.has(tableKey(target))
+			})
+		}
+	}
+	return pruned
+}
+
 // Order tables so a table is created after the in-set tables it references via a
 // foreign key. Falls back to input order on a cycle so generation never hangs.
 function orderByFkDependency(
@@ -158,10 +205,11 @@ function unwrapTransaction(sql: string): string {
 /**
  * Generate one best-effort migration per used data table. A migration whose
  * tables were resolved from the live schema is a single transaction creating
- * every referenced table (in FK-dependency order) and is enabled by default. A
- * data table used with no resolvable table (referenced as a whole, dropped
- * table, or schema fetch failure) yields an empty, disabled entry so the
- * publisher still sees it and can fill it in.
+ * every referenced table plus the tables they depend on via foreign key (in
+ * FK-dependency order) and is enabled by default. A data table used with no
+ * resolvable table (referenced as a whole, dropped table, or schema fetch
+ * failure) yields an empty, disabled entry so the publisher still sees it and
+ * can fill it in.
  */
 export async function generateDatatableMigrations(
 	workspace: string,
@@ -183,14 +231,19 @@ export async function generateDatatableMigrations(
 		}
 		const resolved = [...tableRefs]
 			.map((ref) => resolveTable(schema, ref))
-			.filter((t): t is { schemaName: string; tableName: string } => t != null)
-		const ordered = orderByFkDependency(schema, resolved)
+			.filter((t): t is ResolvedTable => t != null)
+		// Pull in the tables the referenced ones depend on via FK, then generate
+		// against a schema whose FKs are restricted to this set, so the migration
+		// creates everything it references and never emits a dangling FK.
+		const closure = expandFkClosure(schema, resolved)
+		const ordered = orderByFkDependency(schema, closure)
+		const prunedSchema = pruneSchemaForTables(schema, ordered)
 		const statements = ordered
 			.map((t) =>
 				unwrapTransaction(
 					generateMigrationSql(
 						{ schemaName: t.schemaName, tableName: t.tableName, kind: 'added' },
-						schema
+						prunedSchema
 					)
 				)
 			)

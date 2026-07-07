@@ -129,6 +129,46 @@ describe('generateDatatableMigrations', () => {
 		expect(migrations[0].sql).toContain('"public"."customers"')
 	})
 
+	it('transitively pulls in FK-referenced tables not directly used', async () => {
+		getDatatableFullSchemaMock.mockResolvedValue(schema)
+		// Only `orders` is referenced; `customers` (its FK target) must still be
+		// created, and before `orders`.
+		const usage = new Map([['main', new Set(['orders'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		const m = migrations[0]
+		expect(m.enabled).toBe(true)
+		expect(m.sql).toContain('"public"."customers"')
+		expect(m.sql).toContain('"public"."orders"')
+		expect(m.sql.indexOf('"public"."customers"')).toBeLessThan(m.sql.indexOf('"public"."orders"'))
+	})
+
+	it('drops a foreign key whose target is not in the schema', async () => {
+		// `orders` references a `warehouses` table that no longer exists in the
+		// schema: the FK must be pruned so the migration still runs.
+		const schemaWithDanglingFk = {
+			public: {
+				orders: {
+					name: 'orders',
+					columns: [{ name: 'id', datatype: 'integer', primary_key: true, nullable: false }],
+					foreign_keys: [
+						{
+							target_table: 'public.warehouses',
+							columns: [{ source_column: 'id', target_column: 'id' }],
+							on_delete: 'NO ACTION',
+							on_update: 'NO ACTION'
+						}
+					]
+				}
+			}
+		}
+		getDatatableFullSchemaMock.mockResolvedValue(schemaWithDanglingFk)
+		const usage = new Map([['main', new Set(['orders'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		expect(migrations[0].enabled).toBe(true)
+		expect(migrations[0].sql).toContain('"public"."orders"')
+		expect(migrations[0].sql).not.toContain('warehouses')
+	})
+
 	it('emits an empty, disabled entry when no table resolves', async () => {
 		getDatatableFullSchemaMock.mockResolvedValue(schema)
 		const usage = new Map([['main', new Set(['nonexistent'])]])
