@@ -1333,7 +1333,7 @@ async fn lock_modules(
             }
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
-                if skip_creating_new_lock(&language, &content)
+                if skip_creating_new_lock(&language, &content, lock.as_deref().unwrap_or_default())
                     && (MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                 {
@@ -1759,7 +1759,7 @@ async fn reduce_app(
     Ok(())
 }
 
-fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
+fn skip_creating_new_lock(language: &ScriptLang, content: &str, lock: &str) -> bool {
     if language == &ScriptLang::Bun || language == &ScriptLang::Bunnative {
         let anns = windmill_common::worker::TypeScriptAnnotations::parse(&content);
         if anns.native && language == &ScriptLang::Bun {
@@ -1767,6 +1767,11 @@ fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
         } else if !anns.native && language == &ScriptLang::Bunnative {
             return false;
         };
+    }
+    // A lock left over from the step's previous language (e.g. a package.json after a
+    // TypeScript -> Go switch) is unusable as a go.mod — relock instead of keeping it.
+    if language == &ScriptLang::Go && !crate::go_executor::is_go_mod_lock(lock) {
+        return false;
     }
     true
 }
@@ -1864,9 +1869,12 @@ async fn lock_modules_app(
                                 .get("lock")
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
-                                if skip_creating_new_lock(&language, &content)
-                                    && (MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
-                                        || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
+                                if skip_creating_new_lock(
+                                    &language,
+                                    &content,
+                                    v.get("lock").and_then(|x| x.as_str()).unwrap_or_default(),
+                                ) && (MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
+                                    || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                                 {
                                     dependency_map
                                         .patch(

@@ -15,6 +15,7 @@ use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
     worker::{write_file, Connection, GoAnnotations},
+    workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -76,6 +77,15 @@ fn set_windows_env_vars(cmd: &mut Command) {
 }
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
+
+/// A usable go lock always embeds a go.mod, which requires a `module` directive.
+/// Locks that fail this check (e.g. a package.json left over from a step that was
+/// switched from TypeScript to Go) would be written verbatim into go.mod and make
+/// `go mod tidy` fail with "unknown directive".
+pub(crate) fn is_go_mod_lock(lock: &str) -> bool {
+    lock.lines()
+        .any(|l| l.split_whitespace().next() == Some("module"))
+}
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
 
 lazy_static::lazy_static! {
@@ -107,6 +117,30 @@ pub async fn handle_go_job(
         .recursive(true)
         .create(&job_dir)
         .expect("could not create go job dir");
+
+    let maybe_lock = match maybe_lock {
+        MaybeLock::Resolved { ref lock } if !is_go_mod_lock(lock) => {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                "\nstored lockfile is not a go.mod (likely generated for another language), ignoring it and resolving dependencies from imports\n",
+                conn,
+            )
+            .await;
+            MaybeLock::Unresolved {
+                workspace_dependencies: WorkspaceDependenciesPrefetched::extract(
+                    inner_content,
+                    ScriptLang::Go,
+                    &job.workspace_id,
+                    &None,
+                    job.runnable_path(),
+                    conn.clone(),
+                )
+                .await?,
+            }
+        }
+        _ => maybe_lock,
+    };
 
     let hash = calculate_hash(&format!("{}{:?}v2", inner_content, &maybe_lock));
     let bin_path = format!("{}/{hash}", *GO_BIN_CACHE_DIR);
@@ -699,6 +733,24 @@ pub async fn install_go_dependencies(
         return Ok(String::new());
     } else {
         Ok(req_content)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_go_mod_lock;
+
+    #[test]
+    fn test_is_go_mod_lock() {
+        assert!(is_go_mod_lock("module mymod\n\ngo 1.26.3\n//go.sum\n"));
+        assert!(is_go_mod_lock(
+            "module mymod\n\ngo 1.22\n\nrequire rsc.io/quote v1.5.2\n//go.sum\nrsc.io/quote v1.5.2 h1:...\n"
+        ));
+        // package.json left over from a step that was TypeScript before
+        assert!(!is_go_mod_lock("{\n  \"dependencies\": {}\n}"));
+        assert!(!is_go_mod_lock(""));
+        // "module" as a substring of another token or inside a JSON string is not a directive
+        assert!(!is_go_mod_lock("{\n  \"module\": \"esnext\"\n}"));
     }
 }
 
