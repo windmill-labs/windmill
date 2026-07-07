@@ -229,5 +229,7 @@
 {/if}
 
 <Portal>
-	<ConfirmationModal {...outOfOrderModal.props} />
+	<!-- Stacks above the DB table editor's own preview confirmation (z-[9999]),
+		which is still open when applyDdl asks for out-of-order confirmation. -->
+	<ConfirmationModal {...outOfOrderModal.props} zIndexClass="z-[10000]" />
 </Portal>
