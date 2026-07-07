@@ -182,8 +182,15 @@
 	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
+	// The shared `workerTags` store caches tags for the navigation workspace. A
+	// session editor deploys to `opWorkspace` (a fork), so it keeps a local list to
+	// gate/populate the tag picker without reading or clobbering the shared cache.
+	const usesLocalTags = $derived(opWorkspace != undefined && opWorkspace !== $workspaceStore)
+	let localWorkerTags = $state<string[] | undefined>(undefined)
+	const scriptWorkerTags = $derived(usesLocalTags ? localWorkerTags : $workerTags)
+
 	function getCompactMenuItems(): Item[] {
-		const hasTags = ($workerTags?.length ?? 0) > 0
+		const hasTags = (scriptWorkerTags?.length ?? 0) > 0
 		return [
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
@@ -992,7 +999,11 @@
 
 	loadWorkerTags()
 	async function loadWorkerTags() {
-		if (!$workerTags) {
+		if (usesLocalTags) {
+			if (!localWorkerTags) {
+				localWorkerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: opWorkspace! })
+			}
+		} else if (!$workerTags) {
 			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: opWorkspace! })
 		}
 	}
@@ -1997,13 +2008,14 @@
 				{:else}
 					{@render diffButton()}
 					{#if customUi?.topBar?.tagEdit != false}
-						{#if $workerTags}
-							{#if $workerTags?.length ?? 0 > 0}
+						{#if scriptWorkerTags}
+							{#if scriptWorkerTags?.length ?? 0 > 0}
 								<div class="max-w-[200px]">
 									<WorkerTagSelect
 										nullTag={script.language}
 										placeholder={customUi?.tagSelectPlaceholder}
 										bind:tag={script.tag}
+										workspaceId={opWorkspace}
 									/>
 								</div>
 							{/if}

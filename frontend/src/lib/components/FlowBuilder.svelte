@@ -564,7 +564,8 @@
 		modulesTestStates,
 		outputPickerOpenFns,
 		preserveOnBehalfOf,
-		savedOnBehalfOfEmail
+		savedOnBehalfOfEmail,
+		opWorkspace: () => opWorkspace
 	})
 
 	// Set up NoteEditor context for note editing capabilities

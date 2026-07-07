@@ -45,7 +45,8 @@
 		pathStore,
 		customUi,
 		preserveOnBehalfOf,
-		savedOnBehalfOfEmail
+		savedOnBehalfOfEmail,
+		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
@@ -205,7 +206,11 @@
 
 						{#if displayWorkerTagPicker}
 							<div transition:slide={{ duration: 120 }} class="mt-2">
-								<WorkerTagPicker bind:tag={flowStore.val.tag} popupPlacement="top-end" />
+								<WorkerTagPicker
+									bind:tag={flowStore.val.tag}
+									popupPlacement="top-end"
+									workspaceId={opWorkspace?.()}
+								/>
 							</div>
 							{#if flowStore.val.tag}
 								<div
