@@ -1756,18 +1756,18 @@ function allowedTriggerKinds(): PageTriggerKind[] {
 }
 
 // Which pages the current user can actually reach — mirrors the sidebar's gating.
-// Operators see exactly the pages enabled in this workspace's operator_settings (the
-// same source OperatorMenu gates on); a missing/false flag means no access, and
+// Operators see exactly the pages enabled in the operating workspace's operator_settings
+// (the same source OperatorMenu gates on); a missing/false flag means no access, and
 // operators are never admins so workspace_settings is always excluded. Non-operators
-// get every page except workspace_settings, which is admin/superadmin only. The tool
-// only ever advertises, and only ever acts on, pages in this set.
-function allowedOpenPages(): OpenPageName[] {
+// get every page except workspace_settings, which is admin/superadmin only. `workspaceId`
+// is the chat's operating workspace (a session targets its own, possibly forked workspace);
+// it defaults to the navigation workspace for the global side-panel chat. The tool only
+// ever advertises, and only ever acts on, pages in this set.
+function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore)): OpenPageName[] {
 	const u = get(userStore)
 	const isAdmin = !!u?.is_admin || !!get(superadmin)
 	if (u?.operator) {
-		const settings = get(userWorkspaces).find(
-			(w) => w.id === get(workspaceStore)
-		)?.operator_settings
+		const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings
 		return OPEN_PAGE_NAMES.filter(
 			(p) =>
 				p !== 'workspace_settings' && settings?.[p as keyof NonNullable<typeof settings>] === true
@@ -1984,10 +1984,14 @@ export const openPageTool: Tool<{}> = {
 	showDetails: true,
 	autoCollapseDetails: false,
 	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
-	// the model never sees (or suggests) a page the user can't reach.
-	setSchema: async function () {
+	// the model never sees (or suggests) a page the user can't reach. Gates on the chat's
+	// operating workspace (the session's, when different from the navigation workspace).
+	setSchema: async function (helpers) {
 		this.def = createToolDef(
-			buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds()),
+			buildOpenPageDefSchema(
+				allowedOpenPages(operatingWorkspaceFromHelpers(helpers)),
+				allowedTriggerKinds()
+			),
 			'open_page',
 			OPEN_PAGE_DESCRIPTION
 		)
@@ -1996,9 +2000,10 @@ export const openPageTool: Tool<{}> = {
 		const { args, toolId, toolCallbacks } = ctx
 		const parsed = openPageFullSchema.parse(args)
 		const page = parsed.page as OpenPageName
+		const workspaceId = operatingWorkspaceFromHelpers(ctx.helpers)
 		// Defense in depth: never act on a page the user can't reach, even if the model
 		// requests one outside the advertised enum.
-		if (!allowedOpenPages().includes(page)) {
+		if (!allowedOpenPages(workspaceId).includes(page)) {
 			return `You don't have access to the ${OPEN_PAGE_LABELS[page] ?? page} page in this workspace.`
 		}
 		// Same fail-closed check for trigger_kind, which is narrowed to license-available
@@ -2856,10 +2861,18 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// iteration. Backed by the update_user_instructions tool.
 	getUserInstructions?: () => string
 	setUserInstructions?: (instructions: string) => void
+	// The workspace this chat actually operates on — a session chat targets its own
+	// (possibly forked) workspace while $workspaceStore stays on the navigation workspace,
+	// so permission gating (open_page) must read this, not the global store.
+	operatingWorkspace?: string
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
 	return (ctx.helpers as GlobalToolHelpers | undefined)?.sessionId
+}
+
+function operatingWorkspaceFromHelpers(helpers: unknown): string | undefined {
+	return (helpers as GlobalToolHelpers | undefined)?.operatingWorkspace
 }
 
 function activeFlowTestFromCtx(

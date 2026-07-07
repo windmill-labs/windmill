@@ -1073,7 +1073,12 @@ export class AIChatManager {
 			skills: this.globalSkills
 		})
 		const baseHelpers: GlobalToolHelpers = {
-			...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
+			// A session targets its own fixed (possibly forked) workspace, so capture it for
+			// permission gating. The global side-panel chat follows the live navigation
+			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
+			...(this.isSessionChat
+				? { sessionId: this.sessionId, operatingWorkspace: this.operatingWorkspace }
+				: {}),
 			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
