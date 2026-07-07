@@ -273,6 +273,14 @@ lazy_static::lazy_static! {
     /// production `app.windmill.dev` cluster, not on staging or self-hosted.
     pub static ref CLOUD_PRODUCTION_HOST: &'static str = "app.windmill.dev";
 
+    /// `--no-auth` mode: when set, every API request is treated as
+    /// authenticated as the `admin@windmill.dev` superadmin and no login is
+    /// ever required. Meant for self-hosted deployments that front Windmill
+    /// with their own authenticating gateway. Never honored on the managed
+    /// cloud (`CLOUD_HOSTED`), which must always enforce real authentication.
+    pub static ref NO_AUTH: bool = !*CLOUD_HOSTED
+        && std::env::var("NO_AUTH").ok().is_some_and(|x| x == "1" || x == "true");
+
     pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();

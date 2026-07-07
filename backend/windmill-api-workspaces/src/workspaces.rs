@@ -132,6 +132,7 @@ pub fn workspaced_service() -> Router {
             get(get_datatable_table_schema),
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -156,6 +157,7 @@ pub fn workspaced_service() -> Router {
         .route("/create_fork", post(create_workspace_fork))
         .route("/attach_dev_workspace", post(attach_dev_workspace))
         .route("/detach_dev_workspace", post(detach_dev_workspace))
+        .route("/set_dev_workspace_label", post(set_dev_workspace_label))
         .route("/get_dev_workspace", get(get_dev_workspace))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
@@ -429,6 +431,12 @@ pub struct DucklakeSettings {
 #[derive(Deserialize, Debug)]
 struct EditDataTableConfig {
     settings: DataTableSettings,
+    // Data table renames (old -> new) and deletions, tracked client-side by a
+    // stable id, so we can cascade or drop each data table's migrations.
+    #[serde(default)]
+    renames: Vec<crate::datatable_migrations::DatatableRename>,
+    #[serde(default)]
+    deleted_datatables: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -472,6 +480,10 @@ struct CreateWorkspaceFork {
     /// the team can work in it. Defaults off; the dev-workspace UI defaults it on.
     #[serde(default)]
     copy_members: bool,
+    /// Cosmetic display label for the dev workspace: 'dev' | 'staging'. Purely visual (badge text +
+    /// wording); ignored for non-dev forks. None defaults to 'dev'.
+    #[serde(default)]
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -501,6 +513,7 @@ struct UserWorkspace {
     pub operator_settings: Option<Option<serde_json::Value>>,
     pub parent_workspace_id: Option<String>,
     pub is_dev_workspace: bool,
+    pub dev_workspace_label: Option<String>,
     pub disabled: bool,
 }
 
@@ -678,6 +691,20 @@ async fn exists_workspace(
 struct DevWorkspaceInfo {
     id: String,
     name: String,
+    dev_workspace_label: Option<String>,
+}
+
+/// Normalize/validate the cosmetic dev-workspace display label. None or 'dev' both render as "dev";
+/// 'staging' renders as "stg". Anything else is rejected. Stored explicitly ('dev'/'staging') so it
+/// round-trips, but a NULL column is treated as 'dev' on the read side too.
+fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>> {
+    match label.as_deref() {
+        None | Some("dev") => Ok(Some("dev".to_string())),
+        Some("staging") => Ok(Some("staging".to_string())),
+        Some(other) => Err(Error::BadRequest(format!(
+            "invalid dev workspace label '{other}' (expected 'dev' or 'staging')"
+        ))),
+    }
 }
 
 /// This workspace's active canonical dev workspace, if any. The create-fork UI and the dev-workspace
@@ -691,7 +718,7 @@ async fn get_dev_workspace(
 ) -> JsonResult<Option<DevWorkspaceInfo>> {
     let dev = sqlx::query_as!(
         DevWorkspaceInfo,
-        "SELECT id, name FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
+        "SELECT id, name, dev_workspace_label FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
         &w_id
     )
     .fetch_optional(&db)
@@ -1953,8 +1980,8 @@ pub(crate) async fn resolve_pg_source_checked(
 }
 
 /// A temporary file for pg_dump output that is automatically deleted when dropped.
-struct DumpFile {
-    path: std::path::PathBuf,
+pub(crate) struct DumpFile {
+    pub(crate) path: std::path::PathBuf,
 }
 
 impl DumpFile {
@@ -2001,7 +2028,11 @@ impl Drop for DumpFile {
 
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
-async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpFile> {
+pub(crate) async fn pg_dump_database(
+    pg_db: &PgDatabase,
+    schema_only: bool,
+    exclude_tables: &[&str],
+) -> Result<DumpFile> {
     let dump_file = DumpFile::new()?;
 
     let host = &pg_db.host;
@@ -2013,6 +2044,9 @@ async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpF
     cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
     if schema_only {
         cmd.arg("--schema-only");
+    }
+    for table in exclude_tables {
+        cmd.arg(format!("--exclude-table={table}"));
     }
     cmd.arg("--host")
         .arg(host)
@@ -2237,7 +2271,7 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    let dump_file = pg_dump_database(&source_pg, schema_only).await?;
+    let dump_file = pg_dump_database(&source_pg, schema_only, &[]).await?;
     pg_import_dump(&target_pg, &dump_file).await?;
 
     Ok(format!(
@@ -2259,7 +2293,7 @@ async fn export_pg_schema(
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let dump_file = pg_dump_database(&pg, true).await?;
+    let dump_file = pg_dump_database(&pg, true, &[]).await?;
     tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
@@ -2396,12 +2430,56 @@ async fn edit_datatable_config(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
-    Json(new_config): Json<EditDataTableConfig>,
+    Json(mut new_config): Json<EditDataTableConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
     let mut tx = db.begin().await?;
+
+    let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
+        sqlx::query_scalar!(
+            "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(serde_json::Value::Null),
+    )
+    .unwrap_or_default();
+
+    // Validate every persisted data table name and rename segment before
+    // touching anything, since they become directory segments in migration
+    // storage/export keys (`migrations/datatable/<name>/...`).
+    for name in new_config.settings.datatables.keys() {
+        crate::datatable_migrations::validate_datatable_path_segment(name)?;
+    }
+    for r in &new_config.renames {
+        crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
+        crate::datatable_migrations::validate_datatable_path_segment(&r.to)?;
+    }
+
+    // Map new name -> old name so a renamed data table inherits the previous
+    // flag instead of being treated as brand new.
+    let rename_src: HashMap<&str, &str> = new_config
+        .renames
+        .iter()
+        .map(|r| (r.to.as_str(), r.from.as_str()))
+        .collect();
+
+    // Migrations opt-in is owned by the enable/disable endpoints, not this config
+    // form: preserve each existing data table's flag, and default brand-new data
+    // tables to enabled.
+    for (name, dt) in new_config.settings.datatables.iter_mut() {
+        let lookup = rename_src
+            .get(name.as_str())
+            .copied()
+            .unwrap_or(name.as_str());
+        dt.migrations_enabled = match old_datatables.get(lookup) {
+            Some(old) => old.migrations_enabled,
+            None => Some(true),
+        };
+    }
 
     let args_for_audit = format!("{:?}", new_config.settings);
     audit_log(
@@ -2417,19 +2495,6 @@ async fn edit_datatable_config(
 
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_datatables = sqlx::query_scalar!(
-            r#"
-                SELECT ws.datatable->'datatables' AS datatable_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_datatables: HashMap<String, DataTable> =
-            serde_json::from_value(old_datatables).unwrap_or_default();
         for (name, dt) in new_config.settings.datatables.iter() {
             if dt.database.resource_type == DataTableCatalogResourceType::Instance {
                 let old_dt = old_datatables.get(name);
@@ -2456,6 +2521,15 @@ async fn edit_datatable_config(
         &w_id
     )
     .execute(&mut *tx)
+    .await?;
+
+    crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
+        &db,
+        &mut tx,
+        &w_id,
+        &new_config.renames,
+        &new_config.deleted_datatables,
+    )
     .await?;
 
     tx.commit().await?;
@@ -3697,7 +3771,7 @@ async fn user_workspaces(
     let workspaces = sqlx::query_as!(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
-                workspace.is_dev_workspace,
+                workspace.is_dev_workspace, workspace.dev_workspace_label,
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
                 usr.disabled
          FROM workspace
@@ -4047,6 +4121,15 @@ async fn clone_workspace_data(
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone data table migration definitions (the settings above carry the data
+    // table config; this carries their migration history).
+    crate::datatable_migrations::clone_datatable_migrations(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
 
     // Clone workspace environment variables
     clone_workspace_env(tx, source_workspace_id, target_workspace_id).await?;
@@ -5187,6 +5270,8 @@ async fn create_workspace_fork_branch(
     // that second call. Validating early lets a bad request fail before any branch is created.
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
+        // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
+        normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         ensure_dev_parent_is_root(&db, &w_id).await?;
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
@@ -5418,6 +5503,12 @@ async fn create_workspace_fork(
         validate_fork_workspace_id(&nw.id)?;
     }
     validate_workspace_name(&nw.name)?;
+    // Cosmetic label only applies to dev workspaces; a non-dev fork stores NULL.
+    let dev_workspace_label = if nw.is_dev_workspace {
+        normalize_dev_workspace_label(nw.dev_workspace_label.clone())?
+    } else {
+        None
+    };
     // Check the id conflict before the CE workspace-count limit so that
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.
@@ -5495,13 +5586,14 @@ async fn create_workspace_fork(
 
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, parent_workspace_id, is_dev_workspace)
-            VALUES ($1, $2, $3, $4, $5)",
+            (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label)
+            VALUES ($1, $2, $3, $4, $5, $6)",
         forked_id,
         nw.name,
         authed.email,
         parent_workspace_id,
         nw.is_dev_workspace,
+        dev_workspace_label,
     )
     .execute(&mut *tx)
     .await?;
@@ -5634,6 +5726,9 @@ struct AttachDevWorkspace {
     lock_prod_deploy: bool,
     #[serde(default)]
     lock_prod_forking: bool,
+    /// Cosmetic display label for the attached dev workspace: 'dev' | 'staging'. None defaults to 'dev'.
+    #[serde(default)]
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -5687,6 +5782,7 @@ async fn attach_dev_workspace(
 
     // The id is interpolated into a `wm-fork/<branch>/<id>` branch name like any fork.
     validate_dev_workspace_id(&dev_w_id)?;
+    let dev_workspace_label = normalize_dev_workspace_label(req.dev_workspace_label.clone())?;
 
     let dev = sqlx::query!(
         r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
@@ -5754,9 +5850,10 @@ async fn attach_dev_workspace(
 
     let mut tx = db.begin().await?;
     sqlx::query!(
-        "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true WHERE id = $2",
+        "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true, dev_workspace_label = $3 WHERE id = $2",
         &prod_w_id,
-        &dev_w_id
+        &dev_w_id,
+        dev_workspace_label,
     )
     .execute(&mut *tx)
     .await?;
@@ -5820,6 +5917,51 @@ async fn attach_dev_workspace(
         "Attached {} as dev workspace of {}",
         dev_w_id, prod_w_id
     ))
+}
+
+#[derive(Deserialize)]
+struct SetDevWorkspaceLabel {
+    #[serde(default)]
+    dev_workspace_label: Option<String>,
+}
+
+/// Change the cosmetic display label ('dev' | 'staging') of the current workspace, which must itself
+/// be a dev workspace. Purely visual (badge text + wording); requires admin of the dev workspace.
+async fn set_dev_workspace_label(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<SetDevWorkspaceLabel>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let label = normalize_dev_workspace_label(req.dev_workspace_label)?;
+
+    let mut tx = db.begin().await?;
+    let updated = sqlx::query_scalar!(
+        "UPDATE workspace SET dev_workspace_label = $1 WHERE id = $2 AND is_dev_workspace RETURNING id",
+        label,
+        &w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if updated.is_none() {
+        return Err(Error::BadRequest(format!(
+            "Workspace '{w_id}' is not a dev workspace"
+        )));
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.set_dev_workspace_label",
+        ActionKind::Update,
+        &w_id,
+        label.as_deref(),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Updated dev workspace label for {w_id}"))
 }
 
 /// Reverse [`attach_dev_workspace`] / clear the dev designation: unset the dev flag and remove the
@@ -7339,6 +7481,7 @@ pub struct CompareSummary {
     pub folders_changed: usize,
     pub schedules_changed: usize,
     pub triggers_changed: usize,
+    pub datatable_migrations_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -7530,6 +7673,15 @@ async fn compare_workspaces(
                 compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            "datatable_migration" => Some(
+                crate::datatable_migrations::compare_two_datatable_migration(
+                    &db,
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
+            ),
             // Triggers and schedules are diffed against a hardcoded ignore list
             // (mode/enabled/server_id/last_server_ping/edited_at/by/error/extra_perms/permissioned_as/email)
             // so that fork-clones — which differ from the parent only in the runtime
@@ -7651,6 +7803,10 @@ async fn compare_workspaces(
         triggers_changed: visible_diffs
             .iter()
             .filter(|s| s.kind.ends_with("_trigger"))
+            .count(),
+        datatable_migrations_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "datatable_migration")
             .count(),
         conflicts: visible_diffs
             .iter()
@@ -7957,6 +8113,45 @@ async fn query_visible_items<'c>(
                 .fetch_all(&mut **tx)
                 .await?
             }
+            "datatable_migration" => {
+                // Match by (datatable, timestamp), not the full path: a migration
+                // keeps its identity across a rename, so the candidate path's
+                // `name` segment can differ from the stored one. Parse each
+                // `<datatable>/<timestamp>_<name>` candidate, probe existence by
+                // (datatable, timestamp), and return the *original* candidate path
+                // so the visibility set stays keyed by the diff's path.
+                let parsed: Vec<(String, i64, String)> = paths_vec
+                    .iter()
+                    .filter_map(|p| {
+                        let (dt, rest) = p.split_once('/')?;
+                        let ts = rest.split_once('_')?.0.parse::<i64>().ok()?;
+                        Some((dt.to_string(), ts, p.clone()))
+                    })
+                    .collect();
+                if parsed.is_empty() {
+                    vec![]
+                } else {
+                    let dts: Vec<String> = parsed.iter().map(|(d, _, _)| d.clone()).collect();
+                    let tss: Vec<i64> = parsed.iter().map(|(_, t, _)| *t).collect();
+                    let existing: HashSet<(String, i64)> = sqlx::query!(
+                        "SELECT datatable, timestamp FROM datatable_migrations \
+                         WHERE workspace_id = $1 AND datatable = ANY($2) AND timestamp = ANY($3)",
+                        workspace_id,
+                        &dts,
+                        &tss,
+                    )
+                    .fetch_all(&mut **tx)
+                    .await?
+                    .into_iter()
+                    .map(|r| (r.datatable, r.timestamp))
+                    .collect();
+                    parsed
+                        .into_iter()
+                        .filter(|(d, t, _)| existing.contains(&(d.clone(), *t)))
+                        .map(|(_, _, p)| p)
+                        .collect()
+                }
+            }
             k if TRIGGER_OR_SCHEDULE_TABLES.contains(&k) => {
                 // SAFETY: `kind` comes from a hardcoded allowlist
                 // TRIGGER_OR_SCHEDULE_TABLES, not user input.
@@ -8024,10 +8219,10 @@ async fn existing_runnables(
 }
 
 #[derive(Debug)]
-struct ItemComparison {
-    has_changes: bool,
-    exists_in_source: bool,
-    exists_in_fork: bool,
+pub(crate) struct ItemComparison {
+    pub(crate) has_changes: bool,
+    pub(crate) exists_in_source: bool,
+    pub(crate) exists_in_fork: bool,
 }
 
 async fn compare_two_scripts(

@@ -18,6 +18,7 @@
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
+	import { computeMutedReadKeys } from './resolveGraph'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
@@ -228,6 +229,11 @@
 			| 'macro'
 			| 'test-dependency'
 		unsaved?: boolean
+		// Muted read edge: a ducklake/s3 input read every run whose (default)
+		// auto cascade trigger is suppressed by `// mute` / `// mute all`.
+		// Rendered with a bell-off badge — auto-wiring is the norm, so we mark
+		// the read that deliberately does NOT cascade, not every derived edge.
+		muted?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
 		// targets it; create one or remove the annotation".
@@ -490,6 +496,10 @@
 			})
 		}
 
+		// Read edges of a ducklake/s3 asset with no cascade trigger = muted
+		// (`// mute` / `// mute all` opted the default auto trigger out). Gated
+		// on pipeline scripts inside the helper (non-pipeline reads never derive).
+		const mutedReadKeys = computeMutedReadKeys(g.edges, g.triggers, g.runnables)
 		for (const e of g.edges) {
 			const runnableId = `${e.runnable_kind}:${e.runnable_path}`
 			const assetId = `asset:${e.asset_kind}:${e.asset_path}`
@@ -542,7 +552,13 @@
 					source: assetId,
 					target: runnableId,
 					kind: 'lineage-read',
-					unsaved: e.unsaved
+					unsaved: e.unsaved,
+					// Only a pure `'r'` read can be muted; `'rw'` is a self-read.
+					muted:
+						access === 'r' &&
+						mutedReadKeys.has(
+							`${e.asset_kind}:${e.asset_path}->${e.runnable_kind}:${e.runnable_path}`
+						)
 				})
 			}
 		}
@@ -1079,7 +1095,9 @@
 						// Macro-edge badge: which of the library's macros the consumer
 						// calls (all of them when pulled in via `// use`).
 						macro_names: e.macro_names,
-						via_use: e.via_use
+						via_use: e.via_use,
+						// Muted read edge — bell-off badge on the read link.
+						muted: e.muted
 					},
 					animated,
 					label,

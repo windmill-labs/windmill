@@ -1546,6 +1546,34 @@ pub(crate) async fn tarball_workspace(
             .await?;
     }
 
+    {
+        // Data table migrations live in the `datatable_migrations` table; surface
+        // them in the export as `migrations/datatable/<datatable>/<version>_<name>`
+        // .up.sql (and .down.sql when present) so `wmill sync` treats them like any
+        // other workspace item.
+        let migrations = sqlx::query!(
+            "SELECT datatable, timestamp, name, code_up, code_down FROM datatable_migrations \
+             WHERE workspace_id = $1 ORDER BY datatable, timestamp",
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for m in migrations {
+            let base = format!(
+                "migrations/datatable/{}/{}_{}",
+                m.datatable, m.timestamp, m.name
+            );
+            archive
+                .write_to_archive(&m.code_up, &format!("{base}.up.sql"))
+                .await?;
+            if let Some(code_down) = m.code_down {
+                archive
+                    .write_to_archive(&code_down, &format!("{base}.down.sql"))
+                    .await?;
+            }
+        }
+    }
+
     archive.finish().await?;
 
     let file = tokio::fs::File::open(&file_path).await?;

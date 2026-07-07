@@ -332,7 +332,7 @@ export type TemplateContext = {
 // Output asset is NOT declared here — it's reconstructed from the body's
 // SDK calls / SQL by the asset parser, same as production scripts.
 function header(ctx: TemplateContext): string {
-	const { language, triggers, output, outputKind } = ctx
+	const { language, triggers, output, outputKind, input } = ctx
 	const p = commentPrefix(language)
 	// A custom data test is a standalone script, not a graph node that produces
 	// an asset — so it gets no `// pipeline` / output annotation. Instead, tell
@@ -345,14 +345,26 @@ function header(ctx: TemplateContext): string {
 			''
 		].join('\n')
 	}
-	const lines = triggers.map((t) => {
+	// A ducklake/s3 read the body performs auto-wires its cascade edge from the
+	// FROM clause, so an explicit `// on` for that same asset would be redundant
+	// now that auto-derivation is the default. Only drop it when the generated
+	// body actually READS the input: bun/deno/python/duckdb emit an input load,
+	// but postgres/bash/generic bodies (and `data_upload`, which reads the picker
+	// `file` instead) do not — dropping there would leave the script with no
+	// cascade at all. Also keep `// on` for kinds inference can't derive
+	// (datatable/resource/…) and native triggers.
+	const bodyReadsInput = READS_INPUT_LANGS.has(language) && !isDataUpload(triggers)
+	const inputRef = input ? assetUri(input) : undefined
+	const inputAutoDerives = input?.kind === 'ducklake' || input?.kind === 's3object'
+	const lines = triggers.flatMap((t) => {
 		switch (t.kind) {
 			case 'asset':
-				return `${p} on ${t.ref}`
+				if (bodyReadsInput && inputAutoDerives && t.ref === inputRef) return []
+				return [`${p} on ${t.ref}`]
 			default:
 				// Native triggers (incl. schedule): marker-only — the
 				// binding lives on the trigger row's own `script_path`.
-				return `${p} on ${t.kind}`
+				return [`${p} on ${t.kind}`]
 		}
 	})
 	// Managed materialization is the one kind that declares its output
@@ -378,13 +390,13 @@ function header(ctx: TemplateContext): string {
 					`${p} Consumers just call these by name; add \`${p} use <this-script-path>\` in a consumer to force-inject the whole library`
 				]
 			: []
-	// Discoverability hint — the three annotations users most often miss
-	// when authoring their first pipeline script. Single line, real
-	// example values (not placeholders) so users see the syntax. Docs
-	// link is the canonical reference once they want the details. A blank
-	// line separates it from the parsed annotations above (`// pipeline`,
-	// `// on …`) so the editor reads as "real annotations, then a hint".
-	const more = `${p} More: partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/core_concepts/pipelines`
+	// Discoverability hint — a single pointer to the docs rather than a dump of
+	// every optional annotation. New users found the old feature list
+	// (mute/partitioned/freshness/retry/tag on one line) overwhelming; the docs
+	// are the canonical reference once they want any of it. A blank line
+	// separates it from the parsed annotations above (`// pipeline`, `// on …`)
+	// so the editor reads as "real annotations, then a hint".
+	const more = `${p} Optional: partitioning, freshness, retries & cascade control — https://www.windmill.dev/docs/core_concepts/pipelines`
 	return [`${p} pipeline`, ...lines, ...matLine, ...macrosLine, '', more, ''].join('\n')
 }
 
@@ -401,6 +413,11 @@ function header(ctx: TemplateContext): string {
 function isDataUpload(triggers: DraftTriggerSource[]): boolean {
 	return triggers.some((t) => t.kind === 'data_upload')
 }
+
+// Languages whose generated body reads the `input` asset (an SDK load / SQL
+// FROM), so a ducklake/s3 input auto-derives its cascade and the explicit
+// `// on` can be dropped. postgres/bash/generic bodies ignore `input`.
+const READS_INPUT_LANGS: ReadonlySet<ScriptLang> = new Set(['bun', 'deno', 'python3', 'duckdb'])
 
 function bodyTs(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
@@ -618,14 +635,6 @@ function bodyDuckdb(ctx: TemplateContext): string {
 	}
 	if (ducklakeDb) {
 		lines.push(`ATTACH 'ducklake://${ducklakeDb}' AS lake;`)
-		if (input?.kind === 'ducklake') {
-			// Discoverability hint: every materialize records a DuckLake snapshot,
-			// so a consumer can pin its read to a past version. Snapshot ids live
-			// in the asset's History tab.
-			lines.push(
-				`-- time-travel: read a past snapshot with \`FROM ${`lake.${catalogTableRef(input.path)}`} AT (VERSION => 42)\``
-			)
-		}
 	}
 	if (datatableDb || ducklakeDb) lines.push('')
 
@@ -694,13 +703,12 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			// Partitioned? `{partition}` is the slice's identity string. For a
 			// time grain the runtime injects a `wm_partition(ts)` macro that
 			// buckets a timestamp with that same identity format, so one
-			// grain-agnostic line filters the source to the active slice — no
+			// grain-agnostic filter line targets the active slice — no
 			// hand-written strftime format, no `= TIMESTAMP {partition}` cast
-			// (which errors for hourly/weekly/monthly). Kept as a comment because
-			// we don't know the user's timestamp column. See partitioning docs.
+			// (which errors for hourly/weekly/monthly). One commented line keeps
+			// the scaffold light; docs cover dynamic-grain keys.
 			lines.push(
-				`-- Partitioned? Filter to the active slice (uncomment, set your timestamp column):`,
-				`--   WHERE wm_partition(<ts_col>) = {partition}   -- dynamic grain: WHERE <key_col> = {partition}`,
+				`-- Partitioned? Filter the source to the active slice: WHERE wm_partition(<ts_col>) = {partition}`,
 				`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 			)
 			break
