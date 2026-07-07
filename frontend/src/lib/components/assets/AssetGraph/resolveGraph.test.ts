@@ -948,3 +948,49 @@ describe('live buffer overlays (open script)', () => {
 		).toEqual([])
 	})
 })
+
+describe('inactive draft input lineage', () => {
+	it('keeps read edges + derived cascade for a deselected draft via inputAssets', () => {
+		const drafts = new Map([
+			[
+				'f/x/cons',
+				{
+					script: { content: '-- pipeline\n-- materialize ducklake://main/agg\nselect 1' },
+					outputAssets: [{ kind: 'ducklake' as const, path: 'main/agg' }],
+					inputAssets: [{ kind: 'ducklake' as const, path: 'main/src' }]
+				}
+			]
+		])
+		// No live overlay: the draft is NOT the open script.
+		const r = resolveGraph(input({ drafts }))
+		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/src' })
+		expect(r.edges).toContainEqual({
+			runnable_path: 'f/x/cons',
+			runnable_kind: 'script',
+			asset_kind: 'ducklake',
+			asset_path: 'main/src',
+			access_type: 'r',
+			unsaved: true
+		})
+		// Auto-derived cascade trigger from the captured read.
+		expect(assetTrigKeys(r, 'f/x/cons')).toContain('ducklake:main/src')
+	})
+
+	it('an empty inputAssets array is authoritative — no session-cache fallback', () => {
+		const drafts = new Map([
+			[
+				'f/x/cons',
+				{
+					script: { content: '-- pipeline\nselect 1' },
+					inputAssets: [] as Array<{ kind: 'ducklake'; path: string }>
+				}
+			]
+		])
+		const inferredReadsByPath = new Map([
+			['f/x/cons', [{ kind: 'ducklake' as const, path: 'main/stale' }]]
+		])
+		const r = resolveGraph(input({ drafts, inferredReadsByPath }))
+		expect(r.assets).not.toContainEqual({ kind: 'ducklake', path: 'main/stale' })
+		expect(r.edges.filter((e) => e.asset_path === 'main/stale')).toEqual([])
+	})
+})

@@ -786,7 +786,13 @@
 		// position so the canvas / lists don't reshuffle on rename.
 		for (const [k, v] of pe.drafts) {
 			if (k === oldPath) {
-				const updatedScript = { ...v.script, path: newPath }
+				// Fold the open pane's live buffer in: the drafts Map only syncs
+				// on pane teardown, and the rename both re-clones the pane from
+				// this entry AND auto-deploys it — a stale snapshot here wipes
+				// the user's unsaved keystrokes and ships pre-edit content.
+				const content =
+					pe.liveContent.scriptPath === oldPath ? pe.liveContent.content : v.script.content
+				const updatedScript = { ...v.script, path: newPath, content }
 				next.set(newPath, { ...v, script: updatedScript })
 			} else {
 				next.set(k, v)

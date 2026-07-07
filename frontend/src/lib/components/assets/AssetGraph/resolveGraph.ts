@@ -17,6 +17,9 @@ import {
 export type GraphDraft = {
 	script: { content: string }
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
+	/** Reads captured on pane teardown. `undefined` = not captured (legacy
+	 * bundle) → fall back to the session cache; `[]` = authoritative none. */
+	inputAssets?: Array<{ kind: AssetKind; path: string }>
 }
 
 export type ResolveGraphInput = {
@@ -592,15 +595,15 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		for (const out of writeOuts) {
 			pushWriteOut(acc, path, out)
 		}
-		// Live read lineage for the active draft (body reads like loadS3File /
-		// SELECT). Only the open draft has live-inferred assets; inactive drafts
-		// fall back to their `// on <asset>` annotations below for inputs. Without
-		// this, dropping the persisted base edges above would lose the input
-		// edges of a saved script the moment the user starts editing it.
-		if (liveForThisDraft) {
-			for (const inp of extractReads(liveBodyAssets.assets)) {
-				pushReadIn(acc, path, inp)
-			}
+		// Read lineage: live inference for the open draft, the captured
+		// `inputAssets` snapshot for inactive ones (with the session cache as a
+		// legacy fallback). Without the inactive tier, merely selecting another
+		// node would drop this draft's input edges from the canvas.
+		const draftReads = liveForThisDraft
+			? extractReads(liveBodyAssets.assets)
+			: (d.inputAssets ?? inferredReadsByPath.get(path) ?? [])
+		for (const inp of draftReads) {
+			pushReadIn(acc, path, inp)
 		}
 		// Seed trigger edges from the draft's template so the graph stays
 		// stable when the user clicks off this draft. Live annotations
@@ -623,17 +626,14 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 			if (!hasTriggerAsset) assets.push({ kind: a.kind, path: a.path })
 		}
 		// Auto-derived cascade edges (backend parity): a ducklake/s3 read wires
-		// the edge from the body alone. Reads/writes come from the active draft's
-		// live inference, else the sticky session cache. The open buffer's derived
-		// edges are re-computed authoritatively in applyLiveBufferOverlay (which
-		// strips this path's seeded triggers first), same as the explicit `// on`
-		// triggers above.
-		const draftReads = liveForThisDraft
-			? extractReads(liveBodyAssets.assets)
-			: (inferredReadsByPath.get(path) ?? [])
+		// the edge from the body alone. Reads reuse the tier above; writes come
+		// from the active draft's live inference, else the captured snapshot /
+		// session cache. The open buffer's derived edges are re-computed
+		// authoritatively in applyLiveBufferOverlay (which strips this path's
+		// seeded triggers first), same as the explicit `// on` triggers above.
 		const draftWrites = liveForThisDraft
 			? extractWrites(liveBodyAssets.assets)
-			: (inferredWritesByPath.get(path) ?? [])
+			: (d.outputAssets ?? inferredWritesByPath.get(path) ?? [])
 		for (const a of deriveAutoAssetTriggers(draftReads, draftWrites, parsed)) {
 			extraTriggers.push({
 				trigger_kind: 'asset',

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ScriptService, type Script, type ScriptLang } from '$lib/gen'
+	import { untrack } from 'svelte'
 	import { resource } from 'runed'
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -119,6 +120,9 @@
 			snapshot: {
 				content: string
 				writes: { kind: AssetWithAltAccessType['kind']; path: string }[]
+				// Body-inferred reads, so the parent's draft keeps its input
+				// lineage while inactive (no live inference runs for it).
+				reads: { kind: AssetWithAltAccessType['kind']; path: string }[]
 				// Full edited script — set when the source is a persisted
 				// script (needed to seed a brand-new draft entry).
 				script?: Script
@@ -521,7 +525,19 @@
 		const origAtRegister = isDraftRun ? undefined : scriptRes.current
 		if (!isDraftRun && !origAtRegister) return
 		const captured = script
+		// Untracked — reading `.content` in the effect body would re-run (and
+		// emit) on every keystroke, the exact per-key loop the header comment
+		// forbids.
+		const contentAtRegister = untrack(() => captured.content ?? '')
 		return () => {
+			// Draft runs: only emit when the user actually typed into THIS clone.
+			// When the drafts entry is rewritten externally while the pane stays
+			// mounted (rename rekey, AI edit), the pane re-clones and this cleanup
+			// fires with a captured generation the user never touched — emitting
+			// it would push the PREVIOUS generation's content back into the entry,
+			// which re-clones and re-emits forever (a microtask ping-pong that
+			// pins the tab and spams the draft autosave endpoint).
+			if (isDraftRun && (captured.content ?? '') === contentAtRegister) return
 			if (!isDraftRun) {
 				// Prefer the freshest fetch when it's still this script
 				// (cleanup reads are untracked): after the pane's own Save +
@@ -550,9 +566,16 @@
 					return t === 'w' || t === 'rw'
 				})
 				.map((a) => ({ kind: a.kind, path: a.path }))
+			const reads = (liveBodyAssets ?? [])
+				.filter((a) => {
+					const t = a.access_type ?? a.alt_access_type
+					return t === 'r' || t === 'rw'
+				})
+				.map((a) => ({ kind: a.kind, path: a.path }))
 			onDraftPersist?.(captured.path, {
 				content: captured.content ?? '',
 				writes,
+				reads,
 				script: isDraftRun ? undefined : (structuredClone($state.snapshot(captured)) as Script)
 			})
 		}
