@@ -531,7 +531,8 @@
 						{requestRunCascadeSignal}
 						{focusUploadSignal}
 						draftScript={activeDraft?.script}
-						draftInputsCaptured={activeDraft?.inputAssets != undefined}
+						draftOutputAssets={activeDraft?.outputAssets}
+						draftInputAssets={activeDraft?.inputAssets}
 						{pathPrefix}
 						{onDraftPathChange}
 						{workspace}

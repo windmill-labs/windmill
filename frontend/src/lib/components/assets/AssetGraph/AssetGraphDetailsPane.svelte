@@ -54,10 +54,14 @@
 		// `selection` when present. Used by the pipeline + menu so a new
 		// pipeline script opens inline instead of navigating to /scripts/add.
 		draftScript?: Script | undefined
-		// Whether the draft entry behind `draftScript` has captured its read
-		// lineage (`inputAssets != undefined`). Gates the teardown skip below: a
-		// just-seeded draft must still emit once even with an untouched buffer.
-		draftInputsCaptured?: boolean
+		// The draft entry's captured lineage (outputAssets / inputAssets), so the
+		// teardown skip below can tell "nothing to persist" from a lineage-only
+		// change: asset access can move without a text edit (a manual `?` →
+		// read/write override via AssetsDropdownButton), and a just-seeded draft
+		// (inputAssets undefined) must still emit once even with an untouched
+		// buffer.
+		draftOutputAssets?: Array<{ kind: AssetWithAltAccessType['kind']; path: string }>
+		draftInputAssets?: Array<{ kind: AssetWithAltAccessType['kind']; path: string }>
 		// Local-dev preview (`/pipeline_dev`): resolve a selected node to its
 		// working-tree content instead of fetching the deployed script (there is
 		// none — the pipeline is local-only). Returns a read-only `Script` so the
@@ -265,7 +269,8 @@
 	let {
 		selection,
 		draftScript,
-		draftInputsCaptured = false,
+		draftOutputAssets,
+		draftInputAssets,
 		resolveLocalScript,
 		localScriptsVersion,
 		workspace,
@@ -532,25 +537,49 @@
 		const captured = script
 		// Untracked — reading `.content` (or the draft entry's fields) in the
 		// effect body would re-run (and emit) on every keystroke, the exact
-		// per-key loop the header comment forbids.
+		// per-key loop the header comment forbids. The lineage snapshots pair
+		// this registration with ITS entry — at cleanup time the props may
+		// already point at the next selected draft.
 		const contentAtRegister = untrack(() => captured.content ?? '')
-		// Whether the entry this registration rendered had already captured its
-		// read lineage. A just-seeded draft hasn't (inputAssets undefined): its
-		// first teardown must emit even with an untouched buffer, or the
-		// now-inactive draft has no reads to render.
-		const capturedHadReads = untrack(() => draftInputsCaptured)
+		const writesAtRegister = untrack(() => draftOutputAssets)
+		const readsAtRegister = untrack(() => draftInputAssets)
+		const refsEq = (
+			a: Array<{ kind: string; path: string }>,
+			b: Array<{ kind: string; path: string }>
+		) => a.length === b.length && a.every((x, i) => x.kind === b[i]?.kind && x.path === b[i]?.path)
 		return () => {
-			// Draft runs: only emit when the user actually typed into THIS clone
-			// (and its reads were already captured once). When the drafts entry is
+			const writes = (liveBodyAssets ?? [])
+				.filter((a) => {
+					const t = a.access_type ?? a.alt_access_type
+					return t === 'w' || t === 'rw'
+				})
+				.map((a) => ({ kind: a.kind, path: a.path }))
+			const reads = (liveBodyAssets ?? [])
+				.filter((a) => {
+					const t = a.access_type ?? a.alt_access_type
+					return t === 'r' || t === 'rw'
+				})
+				.map((a) => ({ kind: a.kind, path: a.path }))
+			// Draft runs: only emit when something the user did in THIS clone needs
+			// persisting — text edits, or a lineage change without text (a manual
+			// `?` → read/write access override; a just-seeded entry whose reads
+			// were never captured, inputAssets undefined). When the drafts entry is
 			// rewritten externally while the pane stays mounted (rename rekey, AI
 			// edit), the pane re-clones and this cleanup fires with a captured
 			// generation the user never touched — emitting it would push the
 			// PREVIOUS generation's content back into the entry, which re-clones
 			// and re-emits forever (a microtask ping-pong that pins the tab and
-			// spams the draft autosave endpoint). Each emit records inputAssets,
-			// so the ping-pong still converges after one bounce for entries that
+			// spams the draft autosave endpoint). Each emit records the lineage, so
+			// the ping-pong converges after at most one bounce for entries that
 			// predate the capture.
-			if (isDraftRun && capturedHadReads && (captured.content ?? '') === contentAtRegister) return
+			if (
+				isDraftRun &&
+				(captured.content ?? '') === contentAtRegister &&
+				refsEq(writesAtRegister ?? [], writes) &&
+				readsAtRegister != undefined &&
+				refsEq(readsAtRegister, reads)
+			)
+				return
 			if (!isDraftRun) {
 				// Prefer the freshest fetch when it's still this script
 				// (cleanup reads are untracked): after the pane's own Save +
@@ -573,18 +602,6 @@
 				)
 					return
 			}
-			const writes = (liveBodyAssets ?? [])
-				.filter((a) => {
-					const t = a.access_type ?? a.alt_access_type
-					return t === 'w' || t === 'rw'
-				})
-				.map((a) => ({ kind: a.kind, path: a.path }))
-			const reads = (liveBodyAssets ?? [])
-				.filter((a) => {
-					const t = a.access_type ?? a.alt_access_type
-					return t === 'r' || t === 'rw'
-				})
-				.map((a) => ({ kind: a.kind, path: a.path }))
 			onDraftPersist?.(captured.path, {
 				content: captured.content ?? '',
 				writes,
