@@ -468,7 +468,13 @@
 									app: {
 										path: a.path,
 										summary: a.summary ?? '',
-										value: { files, runnables: parsed.runnables ?? {} },
+										value: {
+											files,
+											runnables: parsed.runnables ?? {},
+											// Keep the full-code app's explicit data table declaration.
+											...(parsed.data !== undefined ? { data: parsed.data } : {}),
+											...(parsed.datatables !== undefined ? { datatables: parsed.datatables } : {})
+										},
 										policy: defaultPolicy
 									},
 									js,

@@ -808,7 +808,11 @@
 							const v: any = a.value ?? {}
 							const content = JSON.stringify({
 								files: { ...(v.files ?? {}), '/bundle.js': js, '/bundle.css': css },
-								runnables: v.runnables ?? {}
+								runnables: v.runnables ?? {},
+								// Preserve the full-code app's explicit data table declaration so it
+								// survives publish/import and feeds migration detection.
+								...(v.data !== undefined ? { data: v.data } : {}),
+								...(v.datatables !== undefined ? { datatables: v.datatables } : {})
 							})
 							return { kind: 'raw_app', path: ref.path, summary: a.summary, content }
 						}

@@ -12,6 +12,7 @@ import { inferAssets } from '$lib/infer'
 import type { SupportedLanguage } from '$lib/common'
 import { getAllModules } from '$lib/components/flows/flowExplorer'
 import { getFlowModuleAssets } from '$lib/components/assets/lib'
+import { extractDataConfig, parseDataTableRef } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	apiSchemaToEditorSchema,
 	generateMigrationSql,
@@ -42,20 +43,29 @@ function parseDatatableAssetPath(path: string): { datatable: string; table?: str
 	return { datatable, table: table || undefined }
 }
 
-function addUsage(map: Map<string, Set<string>>, path: string): void {
-	const { datatable, table } = parseDatatableAssetPath(path)
+function addDatatableTable(
+	map: Map<string, Set<string>>,
+	datatable: string,
+	table: string | undefined
+): void {
 	if (!datatable) return
 	const set = map.get(datatable) ?? new Set<string>()
 	if (table) set.add(table)
 	map.set(datatable, set)
 }
 
+function addUsage(map: Map<string, Set<string>>, path: string): void {
+	const { datatable, table } = parseDatatableAssetPath(path)
+	addDatatableTable(map, datatable, table)
+}
+
 /**
- * Scan a project's fetched items for `datatable` assets and return
+ * Scan a project's fetched items for data table usage and return
  * `datatable -> set of table refs` (a table ref is `table` or `schema.table`).
  *  - scripts: re-parse the code with the asset parser (`inferAssets`)
  *  - flows: read each module's stored `assets`
- *  - raw apps: read `runnables[key].inlineScript.assets` from the app JSON
+ *  - full-code (raw) apps: read the explicit `data.tables` declaration; fall back
+ *    to `runnables[key].inlineScript.assets` for older apps
  */
 export async function detectDatatableTables(
 	items: FetchedItem[]
@@ -83,6 +93,22 @@ export async function detectDatatableTables(
 			} catch {
 				continue
 			}
+			// Full-code apps explicitly declare the data tables/tables they use
+			// (`data.tables`, refs like `main/customers` or `main/schema:table`), so
+			// read that rather than parsing assets.
+			const config = extractDataConfig(parsed)
+			if (config) {
+				for (const ref of config.tables) {
+					const r = parseDataTableRef(ref)
+					const table = r.table
+						? r.schema && r.schema !== 'public'
+							? `${r.schema}.${r.table}`
+							: r.table
+						: undefined
+					addDatatableTable(map, r.datatable, table)
+				}
+			}
+			// Older raw apps instead carry datatable usage as inline-script assets.
 			const runnables = parsed?.runnables ?? {}
 			for (const key of Object.keys(runnables)) {
 				const assets = runnables[key]?.inlineScript?.assets

@@ -72,6 +72,26 @@ describe('detectDatatableTables', () => {
 		expect(usage.has('main')).toBe(true)
 		expect(usage.get('main')?.size).toBe(0)
 	})
+
+	it('reads a full-code app’s explicit data.tables declaration', async () => {
+		const items: FetchedItem[] = [
+			{
+				kind: 'raw_app',
+				path: 'f/p/app',
+				content: JSON.stringify({
+					runnables: {},
+					data: {
+						datatable: 'main',
+						schema: 'app1',
+						tables: ['main/customers', 'main/app1:orders']
+					}
+				})
+			}
+		]
+		const usage = await detectDatatableTables(items)
+		// public-schema ref keeps the bare name; non-public keeps schema.table.
+		expect([...(usage.get('main') ?? [])].sort()).toEqual(['app1.orders', 'customers'])
+	})
 })
 
 describe('generateDatatableMigrations', () => {
