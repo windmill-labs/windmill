@@ -442,7 +442,10 @@
 	// wrapper, so they open in the standalone editor instead.
 	function navigateEditorTo(item: WorkspaceItem) {
 		if (item.kind === 'app' && !item.raw_app) {
-			goto(`${base}/apps/edit/${item.path}`)
+			// Leaving the preview for the standalone editor — carry the session
+			// workspace so the app opens in the fork the session acts on, not the
+			// navigation workspace.
+			goto(withWorkspaceParam(`${base}/apps/edit/${item.path}`, previewWorkspace))
 			return
 		}
 		owner?.navigate({ type: 'item', item })
