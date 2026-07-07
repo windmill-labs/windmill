@@ -7,6 +7,7 @@
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { devLabelWord } from '$lib/utils/devWorkspaceLabel'
 
 	let loading = $state(false)
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
@@ -170,7 +171,9 @@
 					<GitFork class="w-4 h-4 text-accent" />
 					<div class="text-sm">
 						<span class="font-medium text-blue-900 dark:text-blue-100">
-							{isDevWorkspace ? 'Dev workspace of' : 'Fork of'}
+							{isDevWorkspace
+								? `${devLabelWord(currentWorkspaceData?.dev_workspace_label)} workspace of`
+								: 'Fork of'}
 							<b>{parentWorkspaceData?.name}</b> ({parentWorkspaceId})
 						</span>
 					</div>

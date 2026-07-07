@@ -275,6 +275,8 @@
 
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
+	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
+	let runtimeError = $state<string | undefined>(undefined)
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
@@ -1034,10 +1036,7 @@
 		// the preview iframe so it renders the new app.
 		if (fromUiBuilder && e.data.type === 'preview') {
 			lastBuild = { css: e.data.css, js: e.data.js }
-			previewIframe?.contentWindow?.postMessage(
-				{ type: 'preview', css: e.data.css, js: e.data.js },
-				'*'
-			)
+			feedPreviewIframe(lastBuild)
 			syncExternalPreview()
 			return
 		}
@@ -1064,6 +1063,16 @@
 
 		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
 			resolvePendingRuntimeLogRequest(e.data.requestId, normalizeRawAppRuntimeLogs(e.data.logs))
+			return
+		}
+
+		// Uncaught error/rejection from the rendered app — surfaced in the preview
+		// overlay so a runtime crash isn't a silent blank error.
+		if (fromPreview && e.data.type === 'runtimeError') {
+			runtimeError =
+				typeof e.data.message === 'string' && e.data.message
+					? e.data.message
+					: 'Unknown runtime error'
 			return
 		}
 
@@ -1154,6 +1163,17 @@
 		if (lastBuild) {
 			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
 		}
+	}
+
+	// Feed a build into the inline preview iframe. Clears any prior runtime-error
+	// overlay first: a fresh render supersedes the old crash, and if the new
+	// render throws again app-preview.html re-posts `runtimeError`.
+	function feedPreviewIframe(build: { css: string; js: string }) {
+		runtimeError = undefined
+		previewIframe?.contentWindow?.postMessage(
+			{ type: 'preview', css: build.css, js: build.js },
+			'*'
+		)
 	}
 
 	// Full (re)feed of the detached window: theme first, then the build. Used
@@ -1300,10 +1320,7 @@
 			// Replay the last build so the preview repopulates without
 			// waiting for the user to trigger another bundle.
 			if (lastBuild) {
-				previewIframe?.contentWindow?.postMessage(
-					{ type: 'preview', css: lastBuild.css, js: lastBuild.js },
-					'*'
-				)
+				feedPreviewIframe(lastBuild)
 			}
 			// Escape inside the preview exits inspect mode — the keydown fires in
 			// the iframe's document, so the parent window listener can't see it.
@@ -1854,14 +1871,7 @@
 												aria-label="Rebuild"
 												onclick={() => {
 													if (lastBuild) {
-														previewIframe?.contentWindow?.postMessage(
-															{
-																type: 'preview',
-																css: lastBuild.css,
-																js: lastBuild.js
-															},
-															'*'
-														)
+														feedPreviewIframe(lastBuild)
 													}
 												}}
 											>
@@ -1908,6 +1918,18 @@
 										>
 											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
 												>{buildError}</pre
+											>
+										</Alert>
+									</div>
+								{:else if runtimeError}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="error"
+											title="Runtime error"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
+												>{runtimeError}</pre
 											>
 										</Alert>
 									</div>

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.749.0
+  version: 1.751.0
   title: Windmill API
 
   contact:
@@ -1205,6 +1205,9 @@ paths:
                   type: boolean
                 lock_prod_forking:
                   type: boolean
+                dev_workspace_label:
+                  type: string
+                  enum: [dev, staging]
               required:
                 - dev_workspace_id
       responses:
@@ -1263,9 +1266,39 @@ paths:
                     type: string
                   name:
                     type: string
+                  dev_workspace_label:
+                    type: string
+                    nullable: true
+                    description: "Cosmetic display label ('dev' | 'staging'); null defaults to 'dev'"
                 required:
                   - id
                   - name
+
+  /w/{workspace}/workspaces/set_dev_workspace_label:
+    post:
+      summary: set the cosmetic display label (dev/staging) of this dev workspace
+      operationId: setDevWorkspaceLabel
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_label:
+                  type: string
+                  enum: [dev, staging]
+      responses:
+        "200":
+          description: dev workspace label updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /workspaces/exists:
     post:
@@ -28497,6 +28530,10 @@ components:
                 nullable: true
               is_dev_workspace:
                 type: boolean
+              dev_workspace_label:
+                type: string
+                nullable: true
+                description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
               created_by:
                 type: string
                 nullable: true
@@ -28566,6 +28603,10 @@ components:
         copy_members:
           type: boolean
           description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
+        dev_workspace_label:
+          type: string
+          enum: [dev, staging]
+          description: "Cosmetic display label for the dev workspace (badge text + wording only); ignored for non-dev forks"
       required:
         - id
         - name

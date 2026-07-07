@@ -456,6 +456,49 @@ const config = {
 			]
 		},
 		extend: {
+			// Tailwind Typography hardcodes every `prose` color (body, headings,
+			// borders, code, ...) to fixed gray shades. Our `.prose` usages mostly
+			// render without `dark:prose-invert`, so in dark mode those light-mode
+			// grays stay put and text/borders/code render near-black on a dark
+			// surface. Point the whole palette at our theme tokens — which already
+			// flip with the active theme — for BOTH the default and inverted sets, so
+			// bare `.prose` and `dark:prose-invert` usages both track the theme.
+			typography: {
+				DEFAULT: {
+					css: {
+						'--tw-prose-body': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-headings': 'rgb(var(--color-text-primary))',
+						'--tw-prose-lead': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-bold': 'rgb(var(--color-text-primary))',
+						'--tw-prose-counters': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-bullets': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-hr': 'rgb(var(--color-border-light))',
+						'--tw-prose-quotes': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-quote-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-captions': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-pre-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-pre-bg': 'rgb(var(--color-surface-secondary))',
+						'--tw-prose-th-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-td-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-invert-body': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-invert-headings': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-lead': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-invert-bold': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-counters': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-invert-bullets': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-invert-hr': 'rgb(var(--color-border-light))',
+						'--tw-prose-invert-quotes': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-invert-quote-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-invert-captions': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-invert-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-pre-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-pre-bg': 'rgb(var(--color-surface-secondary))',
+						'--tw-prose-invert-th-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-invert-td-borders': 'rgb(var(--color-border-light))'
+					}
+				}
+			},
 			border: {
 				color: 'red'
 			},

@@ -26,6 +26,7 @@
 	import InputError from '$lib/components/InputError.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Badge } from '$lib/components/common'
+	import { devBadgeText, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import { Building, Check, GitFork, Plus } from 'lucide-svelte'
 
 	type PendingFork = { parent_workspace_id: string; id: string; name: string }
@@ -414,7 +415,7 @@
 					disabled={rootDisabled}
 					title={rootDisabled
 						? devOfRoot
-							? `${root.name} is locked. Run in its dev workspace instead.`
+							? `${root.name} is locked. Run in its ${devLabelNoun(devOfRoot.dev_workspace_label)} instead.`
 							: `${root.name} is locked for direct deploys.`
 						: undefined}
 					class={`${rowBase} ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
@@ -440,7 +441,7 @@
 					<GitFork size={14} class="shrink-0 text-tertiary" />
 					<span class="truncate">{f.name}</span>
 					{#if f.is_dev_workspace}
-						<Badge color="indigo" small>dev</Badge>
+						<Badge color="indigo" small>{devBadgeText(f.dev_workspace_label)}</Badge>
 					{/if}
 				</button>
 			{/each}

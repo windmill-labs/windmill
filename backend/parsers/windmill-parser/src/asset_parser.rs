@@ -528,6 +528,16 @@ pub struct PipelineAnnotations {
     pub column_lineage: Vec<ColumnLineage>,
     pub macros: bool,
     pub use_libs: Vec<String>,
+    // `// mute <asset>` — suppress the auto-derived cascade edge for a read
+    // that would otherwise trigger this script (a lookup / slowly-changing
+    // dimension you read every run but don't want to re-run on). Only Asset
+    // specs are stored; native trigger kinds are never auto-derived, so
+    // muting them is meaningless.
+    pub mute: Vec<TriggerSpec>,
+    // `// mute all` — opt out of auto-derivation entirely for this script.
+    // Falls back to explicit-`// on`-only semantics. Explicit `// on` edges
+    // are unaffected.
+    pub mute_all: bool,
 }
 
 impl ParseAssetsOutput {
@@ -951,6 +961,23 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             if out.materialize.is_none() {
                 if let Some(spec) = parse_materialize_spec(after_kw.trim()) {
                     out.materialize = Some(spec);
+                }
+            }
+            continue;
+        }
+
+        // `// mute all` opts out of auto-derived cascade edges entirely;
+        // `// mute <asset>` suppresses the one edge. Only asset refs are
+        // muteable — native trigger kinds are never auto-derived. Checked
+        // before the generic `on`/asset shorthand (a complete word, so
+        // prose like `// muted for now` never matches).
+        if let Some(after_kw) = consume_keyword(rest, "mute") {
+            let arg = after_kw.trim();
+            if arg == "all" {
+                out.mute_all = true;
+            } else if let Some(spec @ TriggerSpec::Asset { .. }) = parse_trigger_spec(arg) {
+                if !out.mute.contains(&spec) {
+                    out.mute.push(spec);
                 }
             }
             continue;

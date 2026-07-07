@@ -587,6 +587,8 @@ A raw app has three logical parts:
 
 \`index.tsx\` is the bundling entrypoint. It typically renders a top-level \`App\` component. The bundler is esbuild.
 
+**Always begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`.** esbuild uses the classic JSX transform, so \`React\` must be in scope wherever JSX appears — a missing import compiles fine but throws \`React is not defined\` at runtime, leaving a blank screen.
+
 ### Generated bindings (\`wmill.d.ts\` / \`wmill.ts\`)
 
 The frontend imports a generated module that mirrors the backend runnables. **Never write to it directly** — it gets regenerated whenever backend runnables change. Modifying it by hand will be overwritten.

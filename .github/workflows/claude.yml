@@ -11,18 +11,24 @@ on:
     types: [submitted]
 
 jobs:
-  claude-code-action:
+  # author_association misses private org members; check-access resolves them via the
+  # internal app token. Both are OR'd below so public members still pass instantly.
+  check-access:
     if: |
-      (
-        (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/ai') && !startsWith(github.event.comment.body, '/ai-fast')) ||
-        (github.event_name == 'pull_request_review_comment' && startsWith(github.event.comment.body, '/ai') && !startsWith(github.event.comment.body, '/ai-fast')) ||
-        (github.event_name == 'pull_request_review' && startsWith(github.event.review.body, '/ai') && !startsWith(github.event.review.body, '/ai-fast')) ||
-        (github.event_name == 'issues' && startsWith(github.event.issue.body, '/ai') && !startsWith(github.event.issue.body, '/ai-fast'))
-      ) &&
-      (
-        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association) ||
-        (github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login) == 'windmill-internal-app[bot]'
-      )
+      (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/ai') && !startsWith(github.event.comment.body, '/ai-fast')) ||
+      (github.event_name == 'pull_request_review_comment' && startsWith(github.event.comment.body, '/ai') && !startsWith(github.event.comment.body, '/ai-fast')) ||
+      (github.event_name == 'pull_request_review' && startsWith(github.event.review.body, '/ai') && !startsWith(github.event.review.body, '/ai-fast')) ||
+      (github.event_name == 'issues' && startsWith(github.event.issue.body, '/ai') && !startsWith(github.event.issue.body, '/ai-fast'))
+    uses: ./.github/workflows/check-write-access.yml
+    with:
+      username: ${{ github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login }}
+    secrets: inherit
+
+  claude-code-action:
+    needs: [check-access]
+    if: |
+      needs.check-access.outputs.authorized == 'true' ||
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association)
     runs-on: ubicloud-standard-8
     permissions:
       contents: write

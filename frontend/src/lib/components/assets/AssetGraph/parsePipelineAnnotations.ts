@@ -215,6 +215,14 @@ export type PipelineAnnotations = {
 	// `// use <lib_script_path>` — force-inject the named macro library into
 	// this script's jobs. Accumulating, declaration order, deduped.
 	useLibs: string[]
+	// `// mute <asset>` — suppress the auto-derived cascade edge for a read
+	// that would otherwise trigger this script (a lookup / SCD input). Only
+	// asset refs; native trigger kinds are never auto-derived. Accumulating,
+	// deduped.
+	muteAssets: PipelineTriggerAsset[]
+	// `// mute all` — opt out of auto-derivation entirely (explicit `// on`
+	// edges are unaffected).
+	muteAll: boolean
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -252,6 +260,17 @@ function parseKvOpts(s: string): Map<string, string> {
 		out.set(key, value)
 	}
 	return out
+}
+
+// Drop a `// on` right-hand side's trailing `key=value` opts (e.g.
+// `debounce=60s`), returning just the trigger ref. The opts start at the first
+// whitespace-delimited token shaped like `<ident>=…`; everything before is the
+// ref. Mirrors Rust `split_trailing_kv_opts` — asset refs never contain a space
+// followed by an `ident=` token, so without this `// on ducklake://t debounce=1s`
+// would keep the path as `t debounce=1s` and desync the live canvas from deploy.
+function stripTrailingKvOpts(s: string): string {
+	const m = s.match(/\s([A-Za-z_][A-Za-z0-9_]*)=/)
+	return (m?.index !== undefined ? s.slice(0, m.index) : s).trimEnd()
 }
 
 function parseAssetSyntax(s: string): PipelineTriggerAsset | undefined {
@@ -570,7 +589,9 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		dataTests: [],
 		columnLineage: [],
 		macros: false,
-		useLibs: []
+		useLibs: [],
+		muteAssets: [],
+		muteAll: false
 	}
 
 	for (const rawLine of code.split('\n')) {
@@ -658,6 +679,27 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 			continue
 		}
 
+		// `// mute all` opts out of auto-derived cascade edges entirely;
+		// `// mute <asset>` suppresses the one edge. Only asset refs are
+		// muteable — native trigger kinds are never auto-derived. A complete
+		// word, so prose like `// muted for now` never matches.
+		const afterMute = consumeKeyword(inner, 'mute')
+		if (afterMute !== undefined) {
+			const arg = afterMute.trim()
+			if (arg === 'all') {
+				out.muteAll = true
+			} else {
+				const spec = parseTriggerSpec(arg)
+				if (
+					spec?.kind === 'asset' &&
+					!out.muteAssets.some((a) => a.kind === spec.value.kind && a.path === spec.value.path)
+				) {
+					out.muteAssets.push(spec.value)
+				}
+			}
+			continue
+		}
+
 		// `data_test` is a complete word (so it never collides with the `// test:`
 		// CI annotation, which has no whitespace after `test`). Accumulates.
 		const afterDataTest = consumeKeyword(inner, 'data_test')
@@ -678,7 +720,10 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 
 		const afterOn = consumeKeyword(inner, 'on')
 		if (afterOn !== undefined) {
-			const specText = afterOn.trim()
+			// Strip trailing `key=value` opts (e.g. `debounce=60s`) so the ref
+			// matches body inference and the deploy path — otherwise the opts
+			// leak into the asset path and the explicit edge dedups wrong.
+			const specText = stripTrailingKvOpts(afterOn.trim())
 			if (!specText) continue
 			const spec = parseTriggerSpec(specText)
 			if (!spec) continue

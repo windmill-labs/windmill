@@ -5,10 +5,21 @@ on:
     types: [created]
 
 jobs:
+  # /command comments can come from anyone; author_association misses private org
+  # members, so check-access resolves them via the internal app token. Runs once and is
+  # OR'd into each job's guard (public members still pass on author_association alone).
+  check-access:
+    if: github.event.issue.pull_request != null && startsWith(github.event.comment.body, '/')
+    uses: ./.github/workflows/check-write-access.yml
+    with:
+      username: ${{ github.event.comment.user.login }}
+    secrets: inherit
+
   update-sqlx:
+    needs: [check-access]
     if: >-
       github.event.issue.pull_request &&
-      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || github.event.comment.user.login == 'windmill-internal-app[bot]') &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || needs.check-access.outputs.authorized == 'true') &&
       startsWith(github.event.comment.body, '/updatesqlx')
     runs-on: ubicloud-standard-8
     permissions:
@@ -137,9 +148,10 @@ jobs:
             })
 
   demo:
+    needs: [check-access]
     if: >-
       github.event.issue.pull_request &&
-      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || github.event.comment.user.login == 'windmill-internal-app[bot]') &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || needs.check-access.outputs.authorized == 'true') &&
       startsWith(github.event.comment.body, '/demo')
     runs-on: ubicloud-standard-2
     permissions:
@@ -219,9 +231,10 @@ jobs:
           fi
 
   update-ee-ref:
+    needs: [check-access]
     if: >-
       github.event.issue.pull_request &&
-      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || github.event.comment.user.login == 'windmill-internal-app[bot]') &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || needs.check-access.outputs.authorized == 'true') &&
       startsWith(github.event.comment.body, '/eeref')
     runs-on: ubicloud-standard-2
     permissions:
@@ -307,9 +320,10 @@ jobs:
             })
 
   update-docs:
+    needs: [check-access]
     if: >-
       github.event.issue.pull_request &&
-      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || github.event.comment.user.login == 'windmill-internal-app[bot]') &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || needs.check-access.outputs.authorized == 'true') &&
       startsWith(github.event.comment.body, '/docs')
     runs-on: ubicloud-standard-2
     permissions:

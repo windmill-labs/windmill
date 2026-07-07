@@ -927,6 +927,7 @@ export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSy
 - The frontend is bundled using esbuild with entrypoint \`index.tsx\`
 - Frontend files are managed separately from backend runnables
 - The \`wmill.d.ts\` file is generated automatically from the backend runnables shape
+- Begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`. Raw apps bundle with the classic JSX transform, so \`React\` must be in scope wherever JSX is used — a missing import compiles fine but throws \`React is not defined\` at runtime.
 
 ### Backend
 Backend runnables can be of different types:

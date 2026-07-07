@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.751.0](https://github.com/windmill-labs/windmill/compare/v1.750.0...v1.751.0) (2026-07-06)
+
+
+### Features
+
+* add cosmetic dev/staging label for dev workspaces ([#9959](https://github.com/windmill-labs/windmill/issues/9959)) ([fd8e64d](https://github.com/windmill-labs/windmill/commit/fd8e64d11fea3ffdb7858100c67cb2e9ca841ed6))
+* **auth:** add runtime NO_AUTH mode for authentication bypass ([#9962](https://github.com/windmill-labs/windmill/issues/9962)) ([91e1b08](https://github.com/windmill-labs/windmill/commit/91e1b087a206efb7189824b4184e1f3f4cda7211))
+* **frontend:** custom skills — detail modal, batch manage, shared validation ([#9847](https://github.com/windmill-labs/windmill/issues/9847)) ([2e14302](https://github.com/windmill-labs/windmill/commit/2e14302e4abbad595584806bff12548d520fcb58))
+* **pipelines:** auto-derive cascade edges from ducklake/s3 reads (+ muted-read badge) ([#9963](https://github.com/windmill-labs/windmill/issues/9963)) ([3dcd394](https://github.com/windmill-labs/windmill/commit/3dcd3949a14199b106506994ea31ca3de7e636b3))
+
+
+### Bug Fixes
+
+* **ai:** centralize Anthropic Messages API routing across completion paths ([#9960](https://github.com/windmill-labs/windmill/issues/9960)) ([cc2f638](https://github.com/windmill-labs/windmill/commit/cc2f638de6cebeffb9fee1d4835a0cfd565af86c))
+* **assets:** responsive layout for small screens ([#9961](https://github.com/windmill-labs/windmill/issues/9961)) ([45946d1](https://github.com/windmill-labs/windmill/commit/45946d1185c0bd07948d4d8454880c2801571f9d))
+* **cli:** quote non-identifier property names in resource-type namespace ([#9964](https://github.com/windmill-labs/windmill/issues/9964)) ([dc6b997](https://github.com/windmill-labs/windmill/commit/dc6b99775b550e7433fee8a159c30eaf296500c5))
+* critical alerts modal mute toggles no longer close popover or fail to save ([#9969](https://github.com/windmill-labs/windmill/issues/9969)) ([6587019](https://github.com/windmill-labs/windmill/commit/6587019d263374ee5707d258f5d8eec7e73c690d))
+* **frontend:** theme-aware code block background in prose markdown ([#9968](https://github.com/windmill-labs/windmill/issues/9968)) ([9821596](https://github.com/windmill-labs/windmill/commit/9821596251cff698958ffbfbd11fffa6a7988c6c))
+
+## [1.750.0](https://github.com/windmill-labs/windmill/compare/v1.749.0...v1.750.0) (2026-07-06)
+
+
+### Features
+
+* chat-scoped session changes bar + unified diff drawer ([#9762](https://github.com/windmill-labs/windmill/issues/9762)) ([a6c0b37](https://github.com/windmill-labs/windmill/commit/a6c0b3756be78ca3fadc7bad6bae98c0887fd538))
+* **pipelines:** require data uploads before running a pipeline ([#9953](https://github.com/windmill-labs/windmill/issues/9953)) ([a1c5b7a](https://github.com/windmill-labs/windmill/commit/a1c5b7aa3ed2841f09f4f148ded5c5b5ef10fd3d))
+* **pipelines:** wm_partition macro for grain-agnostic partition filters ([#9950](https://github.com/windmill-labs/windmill/issues/9950)) ([43044c2](https://github.com/windmill-labs/windmill/commit/43044c2e28139b1dbde6844c781a821f8de68f58))
+
+
+### Bug Fixes
+
+* **ai:** test key routes Azure Foundry Claude models via Anthropic Messages API ([#9956](https://github.com/windmill-labs/windmill/issues/9956)) ([ea19cc9](https://github.com/windmill-labs/windmill/commit/ea19cc9dc459bd259e27f7fcc29601a010c5f8f0))
+* **cli:** HD-1 test_edges + HD-2 scd2 _current write in --local pipeline graph ([#9947](https://github.com/windmill-labs/windmill/issues/9947)) ([ad6f23d](https://github.com/windmill-labs/windmill/commit/ad6f23d6bfcf1056bcb6d8c6b552114e88177328))
+* **pipelines:** make node & pipeline-level run affordances always visible ([#9948](https://github.com/windmill-labs/windmill/issues/9948)) ([6eabb96](https://github.com/windmill-labs/windmill/commit/6eabb96ae78fb966f9916f907bb693d569b04c0b))
+* read chat drafts via own-draft route so drawer-kind drafts deploy ([#9913](https://github.com/windmill-labs/windmill/issues/9913)) ([056ebdb](https://github.com/windmill-labs/windmill/commit/056ebdb03543a93094c80ca354c117236cd8d6c8))
+* resolve extensionless bun relative imports on windows loader ([#9949](https://github.com/windmill-labs/windmill/issues/9949)) ([bf96621](https://github.com/windmill-labs/windmill/commit/bf9662172ad7e0ff53d39adc338fd7886672c8f9))
+
 ## [1.749.0](https://github.com/windmill-labs/windmill/compare/v1.748.0...v1.749.0) (2026-07-05)
 
 
