@@ -166,6 +166,11 @@
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
+	// Workspace this editor operates on: the session's acting workspace when
+	// embedded in a session preview (autosaveWorkspace), else the navigation
+	// workspace. Deploy/save/background-runner must target it, not $workspaceStore.
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let dataTableWhitelist = $derived(buildDataTableWhitelist(dataTableRefsObjects))
@@ -618,10 +623,10 @@
 	let sharedUiLoaded = $state(false)
 
 	async function loadSharedUi() {
-		if (!$workspaceStore) return
+		if (!opWorkspace) return
 		try {
 			const res = (await WorkspaceService.getSharedUi({
-				workspace: $workspaceStore
+				workspace: opWorkspace
 			})) as { files?: Record<string, string>; version?: number }
 			sharedUiFiles = res.files ?? {}
 			sharedUiVersion = res.version ?? 0
@@ -905,12 +910,12 @@
 				handleHistorySelect(id)
 			},
 			listDatatableTables: async (): Promise<AppDatatableMetadata[]> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return []
 				}
 
 				const tables = await WorkspaceService.listDataTableTables({
-					workspace: $workspaceStore
+					workspace: opWorkspace
 				})
 				return filterDatatableTables(tables)
 			},
@@ -919,7 +924,7 @@
 				schemaName: string,
 				tableName: string
 			): Promise<Record<string, string>> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return {}
 				}
 
@@ -933,7 +938,7 @@
 				}
 
 				const schema = await WorkspaceService.getDataTableTableSchema({
-					workspace: $workspaceStore,
+					workspace: opWorkspace,
 					datatableName,
 					schemaName,
 					tableName
@@ -949,13 +954,13 @@
 				sql: string,
 				newTable?: { schema: string; name: string }
 			): Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return { success: false, error: 'Workspace not available' }
 				}
 
 				try {
 					const result = await runScriptAndPollResult({
-						workspace: $workspaceStore,
+						workspace: opWorkspace,
 						requestBody: {
 							language: 'postgresql',
 							content: sql,
@@ -1541,9 +1546,9 @@
 	// Force an immediate flush. No toast — the AutosaveIndicator narrates the
 	// result, and `flush` never rejects (postSave routes errors to the failures map).
 	function flushDraft() {
-		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		if (!opWorkspace || !liveEditorDraftStoragePath) return
 		void UserDraftDbSyncer.flush({
-			workspace: $workspaceStore,
+			workspace: opWorkspace,
 			itemKind: 'raw_app',
 			path: liveEditorDraftStoragePath
 		})
@@ -1611,7 +1616,7 @@
 <DarkModeObserver bind:darkMode />
 
 <RawAppBackgroundRunner
-	workspace={$workspaceStore ?? ''}
+	workspace={opWorkspace ?? ''}
 	editor
 	iframe={previewIframe}
 	bind:jobs

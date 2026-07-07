@@ -139,10 +139,13 @@
 		onTestJob
 	}: FlowBuilderProps = $props()
 
-	// Key the AutosaveIndicator watches. Falls back to this component's own
-	// draft key, so the full-page editor is unchanged; the sessions preview
-	// overrides both to the (forked) workspace + path its autosave saves under.
-	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	// The workspace this editor operates on: deploy, save-draft, trigger loading
+	// and the AutosaveIndicator all target it. Falls back to the global store, so
+	// the full-page editor is unchanged; the sessions preview overrides it to the
+	// session's (forked) workspace, so an embedded editor acts on the session's
+	// fork rather than the navigation workspace ($workspaceStore, which stays put).
+	// indicatorPath is the matching draft path.
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)
@@ -237,7 +240,7 @@
 		try {
 			if (initialPath && initialPath != '') {
 				const flowVersion = await FlowService.getFlowLatestVersion({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: initialPath
 				})
 
@@ -289,9 +292,9 @@
 	// failure: `flush` never rejects (postSave catches and routes errors
 	// to the failures map), so the success branch fired regardless.
 	export async function saveDraft(): Promise<void> {
-		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		if (!opWorkspace || !liveEditorDraftStoragePath) return
 		await UserDraftDbSyncer.flush({
-			workspace: $workspaceStore,
+			workspace: opWorkspace,
 			itemKind: 'flow',
 			path: liveEditorDraftStoragePath
 		})
@@ -339,7 +342,7 @@
 	}
 	async function syncWithDeployed() {
 		const flow = await FlowService.getFlowByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath,
 			withStarredInfo: true
 		})
@@ -396,7 +399,7 @@
 
 			if (newFlow) {
 				await FlowService.createFlow({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					requestBody: {
 						path: $pathStore,
 						summary: flow.summary ?? '',
@@ -414,7 +417,7 @@
 					}
 				})
 				await CaptureService.moveCapturesAndConfigs({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: fakeInitialPath,
 					requestBody: {
 						new_path: $pathStore
@@ -424,7 +427,7 @@
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,
-						$workspaceStore,
+						opWorkspace,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 						usedTriggerKinds,
 						$pathStore,
@@ -435,7 +438,7 @@
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,
-						$workspaceStore,
+						opWorkspace,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 						usedTriggerKinds,
 						initialPath
@@ -443,7 +446,7 @@
 				}
 
 				await FlowService.updateFlow({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: initialPath,
 					requestBody: {
 						path: $pathStore,
@@ -465,7 +468,7 @@
 
 			// New/updated path now exists server-side — drop the autocomplete
 			// cache so it shows up immediately instead of after the 60s TTL.
-			invalidateWorkspacePaths($workspaceStore!)
+			invalidateWorkspacePaths(opWorkspace!)
 
 			const { draft_triggers: _, ...newSavedFlow } = flowStore.val as OpenFlow & {
 				draft_triggers: Trigger[]
@@ -505,8 +508,8 @@
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 
 	$effect(() => {
-		if (liveEditorDraftStoragePath === undefined || !$workspaceStore) return
-		const workspace = $workspaceStore
+		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
+		const workspace = opWorkspace
 		UserDraft.setLiveEditorDraft({
 			workspace,
 			itemKind: 'flow',
@@ -606,14 +609,14 @@
 	export async function loadTriggers() {
 		if (initialPath == '') return
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath
 		})
 
 		// Initialize triggers using utility function
 		await triggersState.fetchTriggers(
 			triggersCount,
-			$workspaceStore,
+			opWorkspace,
 			initialPath,
 			true,
 			$primaryScheduleStore,
@@ -740,10 +743,10 @@
 		if (
 			!untrack(() => newFlow) &&
 			!isCloudHosted() &&
-			editInForkAllowed($workspaceStore, $userWorkspaces)
+			editInForkAllowed(opWorkspace, $userWorkspaces)
 		) {
 			dropdownItems.push({
-				label: editInForkLabel($workspaceStore, $userWorkspaces),
+				label: editInForkLabel(opWorkspace, $userWorkspaces),
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
 			})
 		}
@@ -980,7 +983,7 @@
 		selectedId && untrack(() => select(selectedId))
 	})
 	$effect.pre(() => {
-		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
+		initialPath && initialPath != '' && opWorkspace && untrack(() => loadTriggers())
 	})
 	$effect.pre(() => {
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
@@ -991,7 +994,7 @@
 		await stepHistoryLoader.loadIndividualStepsStates(
 			flowStore.val as Flow,
 			flowStateStore,
-			$workspaceStore!,
+			opWorkspace!,
 			$initialPathStore,
 			$pathStore
 		)
@@ -1110,9 +1113,9 @@
 							onNavigate={(item) => onNavigate?.(item)}
 						/>
 					</div>
-					{#if indicatorWorkspace && indicatorPath !== undefined}
+					{#if opWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
-							workspace={indicatorWorkspace}
+							workspace={opWorkspace}
 							itemKind="flow"
 							path={indicatorPath}
 							draftOnly={newFlow}
@@ -1246,7 +1249,7 @@
 					sessionOpen={$pathStore
 						? {
 								target: { kind: 'flow', path: $pathStore },
-								workspaceId: $workspaceStore ?? undefined,
+								workspaceId: opWorkspace ?? undefined,
 								// Persist unsaved edits so the session preview
 								// (/flows/edit/<path>) opens the flow exactly as it is in the
 								// editor right now.
