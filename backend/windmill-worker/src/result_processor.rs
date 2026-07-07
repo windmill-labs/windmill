@@ -947,6 +947,7 @@ async fn maybe_open_git_sync_deploy_pr(db: &DB, job_id: &uuid::Uuid, workspace_i
             args->>'repo_url_resource_path' as "repo_path",
             args->>'parent_workspace_id' as "parent_workspace_id",
             args->>'dev_workspace_label' as "dev_workspace_label",
+            args->>'parent_dev_workspace_label' as "parent_dev_workspace_label",
             COALESCE((args->'use_individual_branch')::bool, false) as "use_individual_branch!",
             COALESCE((args->'group_by_folder')::bool, false) as "group_by_folder!",
             COALESCE(args->'items'->0->>'path', args->>'path', '') as "item_path!",
@@ -1017,17 +1018,20 @@ async fn maybe_open_git_sync_deploy_pr(db: &DB, job_id: &uuid::Uuid, workspace_i
                 return;
             }
         };
+    // A fork of a dev workspace diverged from the dev's label branch, so its PR
+    // merges back there; everything else targets the tracked branch.
+    let pr_base = row.parent_dev_workspace_label.as_deref().unwrap_or(&base);
     if let Err(e) = windmill_common::git_sync_ee::ensure_pull_request(
         db,
         workspace_id,
         &repo_url,
         &head,
-        &base,
+        pr_base,
         &row.commit_msg,
     )
     .await
     {
-        tracing::warn!("git sync PR: failed to open PR {head} -> {base} for {repo_path}: {e:#}");
+        tracing::warn!("git sync PR: failed to open PR {head} -> {pr_base} for {repo_path}: {e:#}");
     }
 }
 
@@ -1804,7 +1808,10 @@ mod git_sync_pr_tests {
     fn fork_branch_wins_and_strips_the_id_prefix() {
         // Generated fork id: branch suffix drops the wm-fork- prefix.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("wm-fork-abc", Some("prod"), None,
+            git_sync_deploy_pr_head_branch(
+                "wm-fork-abc",
+                Some("prod"),
+                None,
                 "main",
                 false,
                 false,
@@ -1816,7 +1823,10 @@ mod git_sync_pr_tests {
         );
         // Dev workspace (prefix-less id, detected via parent): verbatim suffix.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("staging", Some("prod"), None,
+            git_sync_deploy_pr_head_branch(
+                "staging",
+                Some("prod"),
+                None,
                 "main",
                 false,
                 false,
@@ -1828,7 +1838,10 @@ mod git_sync_pr_tests {
         );
         // Orphaned fork (parent deleted): the id prefix still identifies it.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("wm-fork-abc", None, None,
+            git_sync_deploy_pr_head_branch(
+                "wm-fork-abc",
+                None,
+                None,
                 "main",
                 true,
                 false,
@@ -1844,7 +1857,10 @@ mod git_sync_pr_tests {
     fn promotion_branch_matches_the_hub_script_formula() {
         // Per-item form: wm_deploy/<ws>/<path_type>/<path with / -> __>.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, None,
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                None,
+                None,
                 "main",
                 true,
                 false,
@@ -1856,7 +1872,10 @@ mod git_sync_pr_tests {
         );
         // Grouped-by-folder form: first two path segments joined by __.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, None,
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                None,
+                None,
                 "main",
                 true,
                 true,
@@ -1868,7 +1887,10 @@ mod git_sync_pr_tests {
         );
         // Renamed object: falls back to the parent path.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, None,
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                None,
+                None,
                 "main",
                 true,
                 false,
@@ -1884,7 +1906,8 @@ mod git_sync_pr_tests {
     fn no_branch_when_deploy_stays_on_base() {
         // Workspace-wide mode commits straight to the tracked branch.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, None, "main", false, false, "f/x/y", "", "script"
+            git_sync_deploy_pr_head_branch(
+                "dev", None, None, "main", false, false, "f/x/y", "", "script"
             ),
             None
         );
@@ -1899,12 +1922,32 @@ mod git_sync_pr_tests {
     fn dev_workspace_label_branch_wins() {
         // Dev workspaces deploy to their environment-label branch verbatim.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("staging-ws", Some("prod"), Some("staging"), "main", false, false, "", "", ""),
+            git_sync_deploy_pr_head_branch(
+                "staging-ws",
+                Some("prod"),
+                Some("staging"),
+                "main",
+                false,
+                false,
+                "",
+                "",
+                ""
+            ),
             Some("staging".to_string())
         );
         // Label present even on a wm-fork-prefixed id: label still wins.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("wm-fork-x", Some("prod"), Some("dev"), "main", false, false, "", "", ""),
+            git_sync_deploy_pr_head_branch(
+                "wm-fork-x",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                false,
+                false,
+                "",
+                "",
+                ""
+            ),
             Some("dev".to_string())
         );
     }

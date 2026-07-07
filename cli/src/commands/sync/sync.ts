@@ -2761,6 +2761,7 @@ export async function pull(
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
       devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
     },
@@ -2841,20 +2842,23 @@ export async function pull(
       : !!opts.useIndividualBranch;
     const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
 
-    // Fork-of-a-fork: only when the parent workspace is itself a fork, root
-    // the new branch on the parent's fork branch (mirrors the hub script's
-    // `parent_workspace_id?.startsWith(FORKED_…)` gate).
-    if (opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)) {
-      const parentBranch = computeGitSyncDeployBranch({
-        workspaceId: opts.parentWorkspaceId,
-        items: deployItems,
-        useIndividualBranch,
-        groupByFolder,
-        clonedBranchName,
-      });
-      if (parentBranch && parentBranch !== clonedBranchName) {
-        checkoutGitSyncDeployBranch(parentBranch);
-      }
+    // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
+    // branch on the parent's fork branch (the content this fork diverged from).
+    // A dev-workspace parent has a prefix-less id the prefix check can't see, so
+    // the backend passes its environment label; its branch is the label verbatim.
+    const parentBranch = opts.parentDevWorkspaceLabel
+      ? opts.parentDevWorkspaceLabel
+      : opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)
+        ? computeGitSyncDeployBranch({
+            workspaceId: opts.parentWorkspaceId,
+            items: deployItems,
+            useIndividualBranch,
+            groupByFolder,
+            clonedBranchName,
+          })
+        : null;
+    if (parentBranch && parentBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(parentBranch);
     }
 
     const deployBranch = computeGitSyncDeployBranch({
@@ -3389,6 +3393,7 @@ export async function gitDeploy(
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
       devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       skipSecrets?: boolean;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
@@ -5237,6 +5242,10 @@ const command = new Command()
   .option(
     "--dev-workspace-label <label:string>",
     "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
+  )
+  .option(
+    "--parent-dev-workspace-label <label:string>",
+    "Environment label of the parent dev workspace; roots a fork-of-dev branch on it",
   )
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option(

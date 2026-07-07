@@ -509,14 +509,19 @@ label branch equals the checked-out tracked branch (which would otherwise
 commit fork content straight to it).
 
 `reconcile_fork_branch_pull` (windmill-git-sync EE) is the shared routing core:
-resolve the branch to a **live child of this parent** (`parent_workspace_id`
-match + `NOT deleted`, so a crafted branch name can't route a pull into an
-unrelated workspace) — the `wm-fork/<base>/<suffix>` form via
-`parse_fork_branch` (windmill-common), or an environment-label branch via a
-dev-workspace label lookup — then load the fork's own repo entry and run the
+resolve the branch to a **live descendant of this workspace** (recursive
+`parent_workspace_id` walk + `NOT deleted`, so a crafted branch name can't
+route a pull into an unrelated workspace) — the `wm-fork/<base>/<suffix>` form
+via `parse_fork_branch` (windmill-common), or an environment-label branch via
+a dev-workspace label lookup — then load the fork's own repo entry and run the
 shared `reconcile_and_enqueue_pull` with the fork's per-ref dedup state and a
 `clone_ref` override so the pull job clones the fork branch instead of the
-resource's tracked branch.
+resource's tracked branch. Descendants (not just direct children) because
+**forks of a dev workspace** also sync through the root's webhook/poller —
+only the root can hold auto-pull config. A fork-of-dev roots its `wm-fork/**`
+branch on the dev's label branch and its PR merges back into it (the backend
+passes `parent_dev_workspace_label` with the deploy; `fork_open_prs` is
+resolved at the root ancestor).
 
 State lives with the fork: its repo entry carries a server-written status-only
 `auto_pull` blob (`last_synced_sha` keyed by the fork branch, `last_pull_status`;
