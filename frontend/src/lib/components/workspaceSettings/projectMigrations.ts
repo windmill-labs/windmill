@@ -300,15 +300,22 @@ export async function generateDatatableMigrations(
 		const parts: string[] = []
 		if (comments.length > 0) parts.push(comments.join('\n'))
 		if (statements.length > 0) parts.push(`BEGIN;\n${statements.join('\n\n')}\nCOMMIT;`)
-		// Best-effort down migration generated once from the same table set (reverse
-		// order so children drop before parents). Editable by the publisher afterwards.
+		// Best-effort down migration: the DROP TABLE statements are commented out
+		// because the FK closure pulls in shared parent tables that may have
+		// pre-existed in the target (dropping them would lose data the project never
+		// created). The publisher uncomments the tables this migration should drop.
 		const drops = [...ordered]
 			.reverse()
-			.map((t) => `DROP TABLE IF EXISTS "${t.schemaName}"."${t.tableName}";`)
+			.map((t) => `-- DROP TABLE IF EXISTS "${t.schemaName}"."${t.tableName}";`)
+		const sqlDown =
+			drops.length > 0
+				? `-- Rollback: uncomment the tables this migration should drop (leave shared\n` +
+					`-- tables that already existed in the workspace commented out).\nBEGIN;\n${drops.join('\n')}\nCOMMIT;`
+				: ''
 		out.push({
 			datatable_name: datatable,
 			sql: parts.join('\n\n'),
-			sql_down: drops.length > 0 ? `BEGIN;\n${drops.join('\n')}\nCOMMIT;` : '',
+			sql_down: sqlDown,
 			enabled: statements.length > 0
 		})
 	}

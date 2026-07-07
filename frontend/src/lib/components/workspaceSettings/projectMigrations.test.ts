@@ -121,9 +121,12 @@ describe('generateDatatableMigrations', () => {
 		expect(m.sql.match(/BEGIN;/g)?.length).toBe(1)
 		// Idempotent: won't abort if a pulled-in parent already exists in the target.
 		expect(m.sql).toContain('CREATE TABLE IF NOT EXISTS "public"."customers"')
-		// Down migration drops in reverse order: orders (child) before customers (parent).
-		expect(m.sql_down).toContain('DROP TABLE IF EXISTS "public"."orders";')
-		expect(m.sql_down).toContain('DROP TABLE IF EXISTS "public"."customers";')
+		// Down migration lists drops commented out (nothing dropped by default),
+		// in reverse order: orders (child) before customers (parent).
+		expect(m.sql_down).toContain('-- DROP TABLE IF EXISTS "public"."orders";')
+		expect(m.sql_down).toContain('-- DROP TABLE IF EXISTS "public"."customers";')
+		// No uncommented DROP TABLE anywhere.
+		expect(/^\s*DROP TABLE/m.test(m.sql_down)).toBe(false)
 		expect(m.sql_down.indexOf('"public"."orders"')).toBeLessThan(
 			m.sql_down.indexOf('"public"."customers"')
 		)
