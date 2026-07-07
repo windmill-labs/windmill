@@ -41,7 +41,7 @@
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
-	import { goto, setChatNavigateHandler } from '$lib/navigation'
+	import { goto } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
@@ -195,17 +195,13 @@
 
 	onDestroy(() => stopSidebarResize?.())
 
-	// Give router-free callers (AI chat tools) a way to navigate: a direct-nav slot
-	// for in-context moves and the 'navigate' display-action for cross-page link chips.
+	// Let AI chat's 'navigate' link chips route through the app router without the
+	// tool layer importing $app/navigation.
 	$effect(() => {
-		setChatNavigateHandler((path) => goto(path))
 		const unregisterNavigate = registerToolDisplayActionHandler('navigate', (action) => {
 			if (action.type === 'navigate') goto(action.url)
 		})
-		return () => {
-			setChatNavigateHandler(undefined)
-			unregisterNavigate()
-		}
+		return unregisterNavigate
 	})
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()

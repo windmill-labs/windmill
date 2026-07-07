@@ -36,34 +36,6 @@ export function buildFilterUrl(
 	return qs ? `${pathname}?${qs}${hash}` : `${pathname}${hash}`
 }
 
-/** Current in-app pathname with the SvelteKit base stripped. */
-function currentAppPathname(): string {
-	const p = window.location.pathname
-	return svelteBase && p.startsWith(svelteBase) ? p.slice(svelteBase.length) : p
-}
-
-/** True when the user is already on `appPath` (base-agnostic prefix match). */
-export function isCurrentPage(appPath: string): boolean {
-	return currentAppPathname().startsWith(appPath)
-}
-
-// Module-global navigation slot, mirroring the copilot handler-registration seams
-// (e.g. setOpenPreviewHandler). A top-level logged-in layout registers the actual
-// `goto`-based navigator at mount so callers that must stay router-free — notably AI
-// chat tools — can trigger navigation without importing $app/navigation.
-let chatNavigateHandler: ((appPath: string) => void) | undefined
-
-export function setChatNavigateHandler(fn: ((appPath: string) => void) | undefined): void {
-	chatNavigateHandler = fn
-}
-
-/** Navigate to an in-app path via the registered handler. Returns false if none is registered. */
-export function chatNavigate(appPath: string): boolean {
-	if (!chatNavigateHandler) return false
-	chatNavigateHandler(appPath)
-	return true
-}
-
 export async function setQuery(
 	url: URL,
 	key: string,

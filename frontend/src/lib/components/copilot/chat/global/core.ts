@@ -108,8 +108,7 @@ import { get } from 'svelte/store'
 import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
-import { chatNavigate, isCurrentPage } from '$lib/navigation'
-import { buildRunsUrl, buildSchedulesUrl, RUNS_PATH, SCHEDULES_PATH } from './pageNavigation'
+import { buildRunsUrl, buildSchedulesUrl } from './pageNavigation'
 import { pageHref } from '$lib/components/sessions/previewRouter'
 import {
 	clearEphemeralSecretVariableDraftValue,
@@ -1763,19 +1762,16 @@ export const openPageTool: Tool<{}> = {
 		const { args, toolId, toolCallbacks } = ctx
 		const parsed = openPageSchema.parse(args)
 		let url: string
-		let appPath: string
 		let page: 'runs' | 'schedules'
 		let summary: string
 		if (parsed.page === 'runs') {
 			const { page: _p, open: _o, summary: _s, new_tab: _n, ...filters } = parsed
 			url = buildRunsUrl(filters)
-			appPath = RUNS_PATH
 			page = 'runs'
 			summary = summarizeRunsFilters(parsed)
 		} else {
 			const { page: _p, open, new_tab: _n, ...filters } = parsed
 			url = buildSchedulesUrl({ open, filters })
-			appPath = SCHEDULES_PATH
 			page = 'schedules'
 			summary = summarizeSchedulesTarget(parsed)
 		}
@@ -1784,7 +1780,7 @@ export const openPageTool: Tool<{}> = {
 		// In a session, show the page as a preview tab alongside the chat (the primary
 		// UX). By default a filter change reuses the tab already showing this page;
 		// new_tab forces a separate tab. openPagePreview returns undefined when there
-		// is no active session, in which case we fall through to browser navigation.
+		// is no active session, in which case we offer a link chip instead.
 		const previewResult = openPagePreview({
 			sessionId: sessionIdFromCtx(ctx),
 			href: pageHref(url),
@@ -1796,14 +1792,9 @@ export const openPageTool: Tool<{}> = {
 			return previewResult
 		}
 
-		// Hybrid delivery outside a session: in-context filter change navigates
-		// directly; a cross-page jump offers a link chip so the user is never yanked
-		// out of context. If no navigator is registered, fall back to the chip.
-		if (isCurrentPage(appPath) && chatNavigate(url)) {
-			toolCallbacks.setToolStatus(toolId, { content: `Opened ${page}: ${summary}` })
-			return `Applied the ${page} filters in place (${summary}).`
-		}
-
+		// Outside a session there is no preview panel — offer a clickable link the user
+		// controls. (We deliberately don't navigate in place: a same-route goto would
+		// not re-sync the page's URL-driven filter state, so the change wouldn't land.)
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Prepared a link to ${page}: ${summary}`,
 			actions: [{ id: `open-page:${page}:${url}`, type: 'navigate', label: summary, url, page }]
