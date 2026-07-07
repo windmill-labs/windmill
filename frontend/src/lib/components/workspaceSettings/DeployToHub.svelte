@@ -993,6 +993,11 @@
 
 	let bundlePreview = $state<ProjectBundle | undefined>(undefined)
 	let detectingResources = $state(false)
+	// Data tables (→ tables) the current selection reads/writes, detected off the
+	// same bundle preview. Drives the predeploy "Data table dependencies" summary;
+	// the editable migration itself is generated in the bundle drawer.
+	let datatableUsage = $state<Map<string, Set<string>>>(new Map())
+	let detectingDatatables = $state(false)
 
 	// `hasHardcoded` = pinned via $res: path (relocated as a stub); else input-only.
 	type DependencyUsage =
@@ -1091,10 +1096,12 @@
 		selectedItemKeys
 		if (!workspace || phase !== 'predeploy') {
 			bundlePreview = undefined
+			datatableUsage = new Map()
 			return
 		}
 		let cancelled = false
 		detectingResources = true
+		detectingDatatables = true
 		const slug = hubSlug
 		const seed: ItemRef[] = selectedItems
 			.filter((i) => i.kind !== 'resource')
@@ -1106,7 +1113,16 @@
 		const timer = setTimeout(() => {
 			buildProjectBundle(seed, slug, cachedBundleDeps(workspace), triggerResources)
 				.then((b) => {
-					if (!cancelled) bundlePreview = b
+					if (cancelled) return
+					bundlePreview = b
+					// Detect data table usage off the same fetched items.
+					detectDatatableTables(b.items)
+						.then((usage) => {
+							if (!cancelled) datatableUsage = usage
+						})
+						.finally(() => {
+							if (!cancelled) detectingDatatables = false
+						})
 				})
 				.finally(() => {
 					if (!cancelled) detectingResources = false
@@ -1790,6 +1806,37 @@
 							>
 								View details
 							</Button>
+						{/if}
+					</div>
+					<div class="flex flex-wrap items-center gap-2 text-xs">
+						<span class="font-semibold text-primary shrink-0">
+							Data table dependencies
+							{#if detectingDatatables}
+								<Loader2 size={11} class="inline animate-spin text-hint" />
+							{:else}
+								<span class="text-hint font-normal">({datatableUsage.size})</span>
+							{/if}
+							<Tooltip>
+								Data tables the selected items read or write. A best-effort CREATE TABLE migration
+								for these is generated in the bundle step and shipped with the project, so a fork
+								can recreate the tables it needs.
+							</Tooltip>
+						</span>
+						{#if datatableUsage.size === 0}
+							<span class="text-[11px] text-hint">
+								No data table usage detected in the current selection.
+							</span>
+						{:else}
+							{#each [...datatableUsage] as [dt, tables] (dt)}
+								<span
+									class="inline-flex items-center gap-1 rounded border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-secondary"
+								>
+									{dt}
+									{#if tables.size > 0}
+										<span class="text-hint">×{tables.size}</span>
+									{/if}
+								</span>
+							{/each}
 						{/if}
 					</div>
 				{/if}
