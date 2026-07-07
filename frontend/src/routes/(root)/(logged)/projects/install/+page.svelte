@@ -266,14 +266,14 @@
 	}
 
 	// Decide which data table migrations to run. Migrations are keyed by data table
-	// name and applied only to a target data table of the same name; a missing one
-	// is surfaced (import proceeds without it). The runnable ones are shown in a
-	// review drawer to preview/edit before running. Returns the migrations to run
-	// (with any edits the user made), empty if skipped.
+	// name and applied only to a target data table of the same name. Returns the
+	// migrations to run (with any edits the user made), an empty array when there's
+	// nothing to run, or `null` when the user backs out of the whole import at the
+	// missing-data-table warning.
 	async function planMigrations(
 		workspace: string,
 		migrations: ProjectMigration[]
-	): Promise<ProjectMigration[]> {
+	): Promise<ProjectMigration[] | null> {
 		const enabled = migrations.filter((m) => m.enabled && (m.sql ?? '').trim() !== '')
 		if (enabled.length === 0) return []
 
@@ -290,6 +290,20 @@
 			...new Set(enabled.filter((m) => !present.has(m.datatable_name)).map((m) => m.datatable_name))
 		]
 
+		// Warn about missing data tables first: confirming imports without their
+		// migrations, cancelling backs out of the whole import so the user can create
+		// the data table(s) and re-run.
+		if (missingNames.length > 0) {
+			const proceed = await missingDatatableModal.ask({
+				title: 'Some data tables are missing',
+				confirmationText: 'Import without them',
+				children: `This project uses data table(s) "${missingNames.join(
+					'", "'
+				)}" that don't exist in this workspace, so their migrations will be skipped. To apply them, cancel, create the data table(s) with the same name in Workspace settings → Data tables, then re-run this import.`
+			})
+			if (!proceed) return null
+		}
+
 		let toRun: ProjectMigration[] = []
 		if (runnable.length > 0) {
 			const run = await openMigrationReview(runnable)
@@ -303,15 +317,6 @@
 						enabled: true
 					}))
 			}
-		}
-		if (missingNames.length > 0) {
-			await missingDatatableModal.ask({
-				title: 'Some data tables are missing',
-				confirmationText: 'Import without them',
-				children: `This project uses data table(s) "${missingNames.join(
-					'", "'
-				)}" that don't exist in this workspace, so their migrations will be skipped. To apply them, create the data table(s) with the same name in Workspace settings → Data tables, then re-run this import.`
-			})
 		}
 		return toRun
 	}
@@ -375,12 +380,14 @@
 		// Review data table migrations first (before the import spinner), so the user
 		// previews/edits and decides, then the whole import runs uninterrupted.
 		planningMigrations = true
-		let migrationsToRun: ProjectMigration[]
+		let migrationsToRun: ProjectMigration[] | null
 		try {
 			migrationsToRun = await planMigrations(workspace, exportData.migrations ?? [])
 		} finally {
 			planningMigrations = false
 		}
+		// User backed out at the missing-data-table warning — abort the whole import.
+		if (migrationsToRun === null) return
 
 		installing = true
 		results = []
