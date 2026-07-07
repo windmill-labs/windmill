@@ -54,6 +54,10 @@
 		// `selection` when present. Used by the pipeline + menu so a new
 		// pipeline script opens inline instead of navigating to /scripts/add.
 		draftScript?: Script | undefined
+		// Whether the draft entry behind `draftScript` has captured its read
+		// lineage (`inputAssets != undefined`). Gates the teardown skip below: a
+		// just-seeded draft must still emit once even with an untouched buffer.
+		draftInputsCaptured?: boolean
 		// Local-dev preview (`/pipeline_dev`): resolve a selected node to its
 		// working-tree content instead of fetching the deployed script (there is
 		// none — the pipeline is local-only). Returns a read-only `Script` so the
@@ -261,6 +265,7 @@
 	let {
 		selection,
 		draftScript,
+		draftInputsCaptured = false,
 		resolveLocalScript,
 		localScriptsVersion,
 		workspace,
@@ -525,19 +530,27 @@
 		const origAtRegister = isDraftRun ? undefined : scriptRes.current
 		if (!isDraftRun && !origAtRegister) return
 		const captured = script
-		// Untracked — reading `.content` in the effect body would re-run (and
-		// emit) on every keystroke, the exact per-key loop the header comment
-		// forbids.
+		// Untracked — reading `.content` (or the draft entry's fields) in the
+		// effect body would re-run (and emit) on every keystroke, the exact
+		// per-key loop the header comment forbids.
 		const contentAtRegister = untrack(() => captured.content ?? '')
+		// Whether the entry this registration rendered had already captured its
+		// read lineage. A just-seeded draft hasn't (inputAssets undefined): its
+		// first teardown must emit even with an untouched buffer, or the
+		// now-inactive draft has no reads to render.
+		const capturedHadReads = untrack(() => draftInputsCaptured)
 		return () => {
-			// Draft runs: only emit when the user actually typed into THIS clone.
-			// When the drafts entry is rewritten externally while the pane stays
-			// mounted (rename rekey, AI edit), the pane re-clones and this cleanup
-			// fires with a captured generation the user never touched — emitting
-			// it would push the PREVIOUS generation's content back into the entry,
-			// which re-clones and re-emits forever (a microtask ping-pong that
-			// pins the tab and spams the draft autosave endpoint).
-			if (isDraftRun && (captured.content ?? '') === contentAtRegister) return
+			// Draft runs: only emit when the user actually typed into THIS clone
+			// (and its reads were already captured once). When the drafts entry is
+			// rewritten externally while the pane stays mounted (rename rekey, AI
+			// edit), the pane re-clones and this cleanup fires with a captured
+			// generation the user never touched — emitting it would push the
+			// PREVIOUS generation's content back into the entry, which re-clones
+			// and re-emits forever (a microtask ping-pong that pins the tab and
+			// spams the draft autosave endpoint). Each emit records inputAssets,
+			// so the ping-pong still converges after one bounce for entries that
+			// predate the capture.
+			if (isDraftRun && capturedHadReads && (captured.content ?? '') === contentAtRegister) return
 			if (!isDraftRun) {
 				// Prefer the freshest fetch when it's still this script
 				// (cleanup reads are untracked): after the pane's own Save +

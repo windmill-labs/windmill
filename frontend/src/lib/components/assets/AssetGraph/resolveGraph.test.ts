@@ -994,3 +994,33 @@ describe('inactive draft input lineage', () => {
 		expect(r.edges.filter((e) => e.asset_path === 'main/stale')).toEqual([])
 	})
 })
+
+describe('open saved script: live overlay vs inferred-lineage maps', () => {
+	it('does not duplicate edges when the same live ref reaches both paths', () => {
+		// The route page mirrors the open pane's liveBodyAssets into
+		// inferredReads/WritesByPath, so the same refs arrive twice.
+		const base = baseGraph({
+			runnables: [{ path: 'f/x/cons', usage_kind: 'script', in_pipeline: true }]
+		})
+		const live = [duck('main/src', 'r'), s3('/out.parquet', 'w')]
+		const r = resolveGraph(
+			input({
+				base,
+				liveBodyAssets: { scriptPath: 'f/x/cons', assets: live },
+				liveAnnotations: { scriptPath: 'f/x/cons', annotations: ann({ inPipeline: true }) },
+				inferredReadsByPath: new Map([
+					['f/x/cons', [{ kind: 'ducklake' as const, path: 'main/src' }]]
+				]),
+				inferredWritesByPath: new Map([
+					['f/x/cons', [{ kind: 's3object' as const, path: '/out.parquet' }]]
+				])
+			})
+		)
+		expect(
+			r.edges.filter((e) => e.asset_path === 'main/src' && e.runnable_path === 'f/x/cons')
+		).toHaveLength(1)
+		expect(
+			r.edges.filter((e) => e.asset_path === '/out.parquet' && e.runnable_path === 'f/x/cons')
+		).toHaveLength(1)
+	})
+})

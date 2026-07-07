@@ -798,7 +798,7 @@ function crossCheckSweptScripts(acc: Accumulator, input: ResolveGraphInput) {
  * changes — not just while selected.
  */
 function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
-	const { base, drafts, inferredWritesByPath, inferredReadsByPath } = input
+	const { drafts, inferredWritesByPath, inferredReadsByPath } = input
 	const { assets, edges } = acc
 
 	const overlayLineage = (
@@ -807,19 +807,21 @@ function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
 	) => {
 		for (const [scriptPath, refs] of byPath) {
 			if (drafts.has(scriptPath)) continue
-			const persisted = new Set(
-				base.edges
-					.filter(
-						(e) =>
-							e.runnable_path === scriptPath &&
-							e.runnable_kind === 'script' &&
-							(e.access_type === access || e.access_type === 'rw')
-					)
-					.map((e) => `${e.asset_kind}:${e.asset_path}`)
-			)
 			for (const a of refs) {
-				const key = `${a.kind}:${a.path}`
-				if (persisted.has(key)) continue
+				// Dedup against the ACCUMULATED edges, not just base: for the open
+				// script these same refs may already be overlaid by
+				// applyLiveBufferOverlay (which feeds the maps on the route page),
+				// and a duplicate would collide on the canvas's endpoint-derived
+				// edge ids.
+				const hasEdge = edges.some(
+					(e) =>
+						e.runnable_path === scriptPath &&
+						e.runnable_kind === 'script' &&
+						e.asset_kind === a.kind &&
+						e.asset_path === a.path &&
+						(e.access_type === access || e.access_type === 'rw')
+				)
+				if (hasEdge) continue
 				if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
 					assets.push({ kind: a.kind, path: a.path })
 				}
