@@ -1050,6 +1050,29 @@
     - opens the Kafka triggers page
     - does not write, deploy, or delete anything
 
+- id: global-closepage1-close-runs-tab
+  prompt: |-
+    You just opened the runs page for me in the side panel. Close that tab, I'm done looking at it.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - close_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: close_page
+        field: match
+        stringIncludesAnyOf:
+          - runs
+  skipJudge: true
+  judgeChecklist:
+    - closes the runs preview tab in the side panel
+    - does not write, deploy, or delete anything
+
 # --- Documentation search (search_docs) ---
 # Pure product-knowledge questions: the assistant should consult the docs via
 # search_docs and answer conversationally, not draft or mutate anything. No

@@ -4,6 +4,7 @@ import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker
 import {
 	matchPreviewPage,
 	parsePreviewItemRoute,
+	previewLocationLabel,
 	resolvePreviewTab,
 	stripBase,
 	type PreviewTarget
@@ -292,6 +293,26 @@ export class SessionPreviewTabs {
 			collapsed: this.#collapsed
 		})
 	}
+}
+
+// Which tabs the `close_page` AI tool should close: every tab when `all`, else
+// those whose page label or stripped path contains `match` (case-insensitive).
+// Pure over a tab snapshot so the runtime handler can close by id and this stays
+// unit-testable. An empty/whitespace match closes nothing (the handler reports it).
+export function selectPreviewTabsToClose(
+	tabs: SessionPreviewTab[],
+	opts: { all: boolean; match: string | undefined }
+): SessionPreviewTab[] {
+	if (opts.all) return tabs.slice()
+	const needle = opts.match?.trim().toLowerCase()
+	if (!needle) return []
+	return tabs.filter((t) => {
+		const where = t.loc || t.url
+		return (
+			previewLocationLabel(where).toLowerCase().includes(needle) ||
+			where.toLowerCase().includes(needle)
+		)
+	})
 }
 
 // Human-readable summary of a session's open preview tabs, for the

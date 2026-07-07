@@ -48,9 +48,8 @@
 	import {
 		matchPreviewPage,
 		pageKey,
-		stripBase,
 		parsePreviewItemRoute,
-		triggerLabelForPath,
+		previewLocationLabel,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
@@ -430,15 +429,7 @@
 	// Short tab label: a known page's name, else a run detail, else the item's leaf
 	// name, else path.
 	function tabLabel(url: string): string {
-		const page = matchPreviewPage(url)
-		if (page) return page.label
-		const trigger = triggerLabelForPath(url)
-		if (trigger) return trigger
-		const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
-		if (run) return `Run ${decodeURIComponent(run[1]).slice(0, 8)}`
-		const parsed = parsePreviewItemRoute(url)
-		if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
-		return stripBase(url)
+		return previewLocationLabel(url)
 	}
 
 	// A link click inside a live editor (e.g. a subflow reference) re-points the

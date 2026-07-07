@@ -713,6 +713,19 @@ const openPreviewSchema = z.object({
 
 const getPreviewStatusSchema = z.object({})
 
+const closePageSchema = z.object({
+	all: z
+		.boolean()
+		.optional()
+		.describe('Close every open preview tab, clearing the side panel. Ignores `match` when true.'),
+	match: z
+		.string()
+		.optional()
+		.describe(
+			'Close the preview tab(s) whose page name or item path contains this text (case-insensitive), e.g. "runs", "schedules", or a script path. Call get_preview_status first if unsure what is open.'
+		)
+})
+
 type SessionToolResult = {
 	aiResult: string
 	uiMessage: string
@@ -2709,6 +2722,17 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			closePageSchema,
+			'close_page',
+			'Close one or more preview tabs in the side panel of this AI session. Pass `match` to close the tab(s) whose page name or item path contains that text, or `all: true` to clear the panel. Use this when the user asks to close/dismiss a tab they no longer need. Only works inside a session.'
+		),
+		fn: async (ctx) => {
+			const parsed = closePageSchema.parse(ctx.args)
+			return closeSessionPreviewTabs(parsed, sessionIdFromCtx(ctx))
+		}
+	},
+	{
+		def: createToolDef(
 			getRuntimeLogsSchema,
 			'get_app_runtime_logs',
 			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session.'
@@ -2756,6 +2780,7 @@ export const globalTools: Tool<{}>[] = [
 export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'open_preview',
 	'get_preview_status',
+	'close_page',
 	'get_app_runtime_logs',
 	'list_app_runs'
 ])
@@ -2885,6 +2910,35 @@ function getSessionPreviewStatus(sessionId: string | undefined): string {
 		return 'Error: get_preview_status is only available inside an AI session.'
 	}
 	return getPreviewStatusHandler(sessionId)
+}
+
+// Closes preview tabs in the calling session's side panel. Registered by the
+// session runtime, which owns the tab model. Returns a status string the model
+// relays to the user. `all` clears the panel; otherwise `match` is a
+// case-insensitive substring tested against each tab's page label / item path.
+export type ClosePreviewTabsHandler = (req: {
+	sessionId: string | undefined
+	all: boolean
+	match: string | undefined
+}) => string
+
+let closePreviewTabsHandler: ClosePreviewTabsHandler | undefined
+
+export function setClosePreviewTabsHandler(handler: ClosePreviewTabsHandler | undefined): void {
+	closePreviewTabsHandler = handler
+}
+
+function closeSessionPreviewTabs(
+	args: { all?: boolean; match?: string },
+	sessionId: string | undefined
+): string {
+	if (!closePreviewTabsHandler) {
+		return 'Error: close_page is only available inside an AI session.'
+	}
+	if (!args.all && !args.match?.trim()) {
+		return 'Nothing to close: pass `match` with the tab to close, or `all: true` to close every tab.'
+	}
+	return closePreviewTabsHandler({ sessionId, all: args.all ?? false, match: args.match })
 }
 
 export type GetRuntimeLogsHandler = (req: {

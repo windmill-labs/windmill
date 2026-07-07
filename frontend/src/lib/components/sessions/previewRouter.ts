@@ -94,6 +94,21 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
 	return PREVIEW_PAGES.find((p) => p.path === clean)
 }
 
+/** Human label for a preview tab's location — the workspace page name, trigger
+ * page, run detail, or item path. Shared by the sessions tab strip and the
+ * close_page matcher so both name a tab the same way. */
+export function previewLocationLabel(url: string): string {
+	const page = matchPreviewPage(url)
+	if (page) return page.label
+	const trigger = triggerLabelForPath(url)
+	if (trigger) return trigger
+	const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
+	if (run) return `Run ${decodeURIComponent(run[1]).slice(0, 8)}`
+	const parsed = parsePreviewItemRoute(url)
+	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
+	return stripBase(url)
+}
+
 export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
 
 // Parse a preview URL/pathname into the workspace item it edits, or null for a
