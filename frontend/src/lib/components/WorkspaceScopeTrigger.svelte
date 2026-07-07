@@ -78,7 +78,14 @@
 	// profile) into CSS vars consumed by the accent classes below. Muted
 	// segments (parent, arrow, "(new)") use opacity so they follow whichever
 	// accent is active.
-	const accentStyle = $derived(showFork ? forkAccentStyle(color ?? currentWs?.color) : undefined)
+	// A staged pending fork has no color of its own yet, and its `workspaceId`
+	// resolves to the parent (pending_workspace_id = parent), so reading
+	// `currentWs.color` here would paint it in the parent's hue. Use the default
+	// fork accent instead — unless the creation form passes an explicit `color`
+	// preview.
+	const accentStyle = $derived(
+		showFork ? forkAccentStyle(color ?? (pendingFork ? undefined : currentWs?.color)) : undefined
+	)
 	const forkAccentClasses = $derived(
 		accentStyle
 			? 'bg-[color:var(--fork-accent-bg)] dark:bg-[color:var(--fork-accent-bg-dark)] text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)] font-semibold'
