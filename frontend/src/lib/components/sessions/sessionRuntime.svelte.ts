@@ -25,19 +25,28 @@ type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { workspaceStore } from '$lib/stores'
+import { loadCopilot, copilotWorkspace } from '$lib/aiStore'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	ensureChatIdsSeeded,
+	getEffectiveWorkspaceId,
 	materializeTransient,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
+	setSessionPreviewCollapsed,
+	setSessionTabs,
 	setSessionTarget,
-	type Session,
-	type SessionTarget
+	type Session
 } from './sessionState.svelte'
+import {
+	SessionPreviewTabs,
+	describePreview,
+	hydratePreviewTabs,
+	previewTargetForSessionTarget
+} from './sessionPreviewTabs.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -69,6 +78,10 @@ import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 // (synchronous) target swap.
 export interface LoadSlot {
 	loadedPath: string | undefined
+	// The workspace `loadedPath`'s content was fetched from. A session can retarget
+	// the same item path to a different fork, so the cache must key on both — else
+	// the editor keeps the old workspace's content while save/deploy write to the new.
+	loadedWorkspace: string | undefined
 	loading: boolean
 	notFound: boolean
 }
@@ -78,6 +91,10 @@ export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 export interface SessionRuntime {
 	readonly sessionId: string
 	readonly manager: AIChatManager
+	// Single live owner of this session's preview tabs. Both the sessions page
+	// (renderer) and the open_preview/get_preview_status tools cross it, so the
+	// tab model has exactly one live copy.
+	readonly previewTabs: SessionPreviewTabs
 	// Pipeline target state — persists across editor hide/show (the pane unmounts
 	// on hide, so this can't be component-local) and across session switches.
 	readonly pipelineEditorState: PipelineEditorState
@@ -246,6 +263,13 @@ function createRuntime(session: Session): SessionRuntime {
 	// Carried into the tool helpers so this session's preview/deploy tool calls
 	// dispatch to THIS session even when another session is the UI-active one.
 	manager.sessionId = session.id
+	// The chat targets the session's OWN (possibly forked) workspace without
+	// switching the global workspaceStore. Resolved live from the session record
+	// so it tracks the pending → committed (and staged-fork) transitions.
+	manager.workspaceResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		return s ? getEffectiveWorkspaceId(s) : undefined
+	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
@@ -267,6 +291,16 @@ function createRuntime(session: Session): SessionRuntime {
 				'the session workspace could not be created or committed (fork creation may have failed)'
 			)
 		}
+		// The composer may have been enabled by a previous workspace's copilot
+		// config (copilotInfo is global). getCurrentModel() reads it when the
+		// request builds just after this hook, so load the committed workspace's
+		// config first — otherwise a send right after switching workspaces could
+		// pick the old provider/model while the proxy + tools target the new one.
+		// SessionWrapper's active-session load usually already did this; skip the
+		// fetch when it matches (a staged fork commits to a fresh id its load missed).
+		if (get(copilotWorkspace) !== committed) {
+			await loadCopilot(committed)
+		}
 	}
 	manager.afterFirstTurnSaved = () => generateAndApplySessionSummary(session.id, manager)
 
@@ -276,15 +310,43 @@ function createRuntime(session: Session): SessionRuntime {
 		val: undefined
 	})
 
-	const flowSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+	const flowSlot: LoadSlot = $state({
+		loadedPath: undefined,
+		loadedWorkspace: undefined,
+		loading: false,
+		notFound: false
+	})
 
 	const scriptStore: { val: NewScript | undefined } = $state({ val: undefined })
 	const savedScript: { val: SavedScript | undefined } = $state({ val: undefined })
-	const scriptSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+	const scriptSlot: LoadSlot = $state({
+		loadedPath: undefined,
+		loadedWorkspace: undefined,
+		loading: false,
+		notFound: false
+	})
 
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
-	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+	const rawAppSlot: LoadSlot = $state({
+		loadedPath: undefined,
+		loadedWorkspace: undefined,
+		loading: false,
+		notFound: false
+	})
+
+	// Hydrate the preview-tab owner from the session record (the durable backing);
+	// from here on the owner is the single live copy and writes back through the
+	// adapter. setSessionTabs / setSessionPreviewCollapsed / setSessionTarget stay
+	// the low-level record writers (a transient session's writes land in the
+	// localStorage draft slot until it materialises).
+	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
+		persist: (snap) => {
+			setSessionTabs(session.id, snap.tabs, snap.activeId)
+			setSessionPreviewCollapsed(session.id, snap.collapsed)
+		},
+		setTarget: (target) => setSessionTarget(session.id, target)
+	})
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —
@@ -297,6 +359,7 @@ function createRuntime(session: Session): SessionRuntime {
 	return {
 		sessionId: session.id,
 		manager,
+		previewTabs,
 		slot(kind: SessionTargetKind): LoadSlot {
 			return kind === 'flow' ? flowSlot : kind === 'script' ? scriptSlot : rawAppSlot
 		},
@@ -306,9 +369,12 @@ function createRuntime(session: Session): SessionRuntime {
 		savedFlow,
 
 		async loadFlow(workspace: string, path: string, force = false) {
-			if (flowSlot.loadedPath === path && !force) return
-			// See loadScript: forced reload remounts via the render gate.
-			if (force) flowSlot.loadedPath = undefined
+			if (flowSlot.loadedPath === path && flowSlot.loadedWorkspace === workspace && !force) return
+			// See loadScript: forced reload remounts via the render gate. A workspace
+			// retarget (same path, new fork) drops the stale content the same way so
+			// the editor gate shows loading and outbound sync can't write the old
+			// workspace's content into the new one before the fetch lands.
+			if (force || flowSlot.loadedWorkspace !== workspace) flowSlot.loadedPath = undefined
 			flowSlot.loading = true
 			flowSlot.notFound = false
 			try {
@@ -342,6 +408,7 @@ function createRuntime(session: Session): SessionRuntime {
 					if (deployedVersionId != null && flowStore.val)
 						flowStore.val.version_id = deployedVersionId
 					flowSlot.loadedPath = path
+					flowSlot.loadedWorkspace = workspace
 					return
 				}
 
@@ -363,6 +430,7 @@ function createRuntime(session: Session): SessionRuntime {
 				await initFlow(flow, flowStore, flowStateStore)
 				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
 				flowSlot.loadedPath = path
+				flowSlot.loadedWorkspace = workspace
 			} catch (err) {
 				console.error('Failed to load flow', err)
 				flowSlot.notFound = true
@@ -375,12 +443,13 @@ function createRuntime(session: Session): SessionRuntime {
 		savedScript,
 
 		async loadScript(workspace: string, path: string, force = false) {
-			if (scriptSlot.loadedPath === path && !force) return
+			if (scriptSlot.loadedPath === path && scriptSlot.loadedWorkspace === workspace && !force)
+				return
 			// Forced reload: clearing the slot's loadedPath drops us into
 			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
 			// which unmounts then remounts the editor — avoids the Monaco init race a
 			// synchronous {#key} would hit.
-			if (force) scriptSlot.loadedPath = undefined
+			if (force || scriptSlot.loadedWorkspace !== workspace) scriptSlot.loadedPath = undefined
 			scriptSlot.loading = true
 			scriptSlot.notFound = false
 			try {
@@ -433,6 +502,7 @@ function createRuntime(session: Session): SessionRuntime {
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
 					scriptStore.val = baseline
 					scriptSlot.loadedPath = path
+					scriptSlot.loadedWorkspace = workspace
 					return
 				}
 
@@ -458,6 +528,7 @@ function createRuntime(session: Session): SessionRuntime {
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline
 				scriptSlot.loadedPath = path
+				scriptSlot.loadedWorkspace = workspace
 			} catch (err) {
 				console.error('Failed to load script', err)
 				scriptSlot.notFound = true
@@ -470,9 +541,10 @@ function createRuntime(session: Session): SessionRuntime {
 		savedRawApp,
 
 		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
-			if (rawAppSlot.loadedPath === path && !force) return
+			if (rawAppSlot.loadedPath === path && rawAppSlot.loadedWorkspace === workspace && !force)
+				return
 			// See loadScript: forced reload remounts via the render gate.
-			if (force) rawAppSlot.loadedPath = undefined
+			if (force || rawAppSlot.loadedWorkspace !== workspace) rawAppSlot.loadedPath = undefined
 			rawAppSlot.loading = true
 			rawAppSlot.notFound = false
 			try {
@@ -521,6 +593,7 @@ function createRuntime(session: Session): SessionRuntime {
 						aiDraft
 					)
 					rawAppSlot.loadedPath = path
+					rawAppSlot.loadedWorkspace = workspace
 					return
 				}
 
@@ -582,6 +655,7 @@ function createRuntime(session: Session): SessionRuntime {
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue
 				rawAppSlot.loadedPath = path
+				rawAppSlot.loadedWorkspace = workspace
 			} catch (err) {
 				console.error('Failed to load raw app', err)
 				rawAppSlot.notFound = true
@@ -674,6 +748,23 @@ export function getRuntime(sessionId: string): SessionRuntime | undefined {
 	return runtimes.get(sessionId)
 }
 
+// Point a session's preview at a single seed tab. For re-pointing an existing
+// draft session at a new destination ("Open in AI session" / new-session-from-
+// page on a reused transient): its previous tabs — persisted with the draft
+// and/or held by a live owner — would otherwise keep showing the old target.
+// Must write through the live owner when one exists; a bare record write would
+// be clobbered by the owner's next flush.
+export function resetSessionPreviewTabs(sessionId: string, url: string): void {
+	const tabs = [{ id: 'session', url, loc: url }]
+	const rt = runtimes.get(sessionId)
+	if (rt) {
+		rt.previewTabs.reset(tabs, 'session')
+	} else {
+		setSessionTabs(sessionId, tabs, 'session')
+		setSessionPreviewCollapsed(sessionId, false)
+	}
+}
+
 export type SessionChatStatus =
 	| 'idle'
 	| 'streaming'
@@ -720,25 +811,31 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
 	}
-	const current = sessionState.sessions.find((s) => s.id === sessionId)?.target
-	if (current && current.kind === kind && current.path === path) {
-		return `Preview is already open showing ${kind} "${path}".`
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) {
+		return 'Error: no active session to open the preview in.'
 	}
-	const target: SessionTarget = { kind, path }
-	setSessionTarget(sessionId, target)
+	const target = previewTargetForSessionTarget(kind, path)
+	if (!target) {
+		return `Error: ${kind} targets cannot be shown in the preview panel.`
+	}
+	const result = getOrCreateRuntime(session).previewTabs.open(target)
 	promoteEditorWarm(sessionId)
-	return `Opened ${kind} preview for ${path} in the side panel.`
+	return result.status === 'focused'
+		? `A preview tab is already showing ${kind} "${path}" — focused it.`
+		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
 })
 
-// Companion to the open_preview handler: report whether the calling session's
-// preview is open and which item it shows, so the assistant can avoid
-// re-opening a preview already showing the item it just edited.
+// Companion to the open_preview handler: report the calling session's open
+// preview tabs (the panel is multi-tab), so the assistant can avoid re-opening
+// a tab already showing the item it just edited.
 setGetPreviewStatusHandler((callerSessionId) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return 'No active session; the preview panel is unavailable.'
-	const target = sessionState.sessions.find((s) => s.id === sessionId)?.target
-	if (!target) return 'No preview is currently open in the side panel.'
-	return `The preview is currently open showing ${target.kind} "${target.path}".`
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return 'No active session; the preview panel is unavailable.'
+	const owner = getOrCreateRuntime(session).previewTabs
+	return describePreview(owner.tabs, owner.activeId, session.target)
 })
 
 // After a chat deploy, reload the calling session's preview — only if it's open

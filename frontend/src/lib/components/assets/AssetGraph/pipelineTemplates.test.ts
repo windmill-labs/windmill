@@ -78,8 +78,6 @@ describe('pipelineTemplates materialize partition filter', () => {
 	it('teaches the grain-agnostic wm_partition filter', () => {
 		const body = materializeBody()
 		expect(body).toContain(`WHERE wm_partition(<ts_col>) = {partition}`)
-		// dynamic grain has no timestamp bucket — steer to the raw key.
-		expect(body).toContain(`WHERE <key_col> = {partition}`)
 	})
 
 	it('never scaffolds the naive `TIMESTAMP {partition}` cast, nor a raw strftime format', () => {

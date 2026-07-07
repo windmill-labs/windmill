@@ -43,6 +43,10 @@
 		 * inline. Breadcrumb navigation still works — only the rename UI is
 		 * gated. */
 		pathEditable?: boolean
+		/** Workspace whose items the breadcrumb picker lists. Session live
+		 * editors pass their acting workspace so the picker isn't scoped to the
+		 * navigation workspace; falls back to $workspaceStore in the picker. */
+		workspaceId?: string
 	}
 
 	let {
@@ -55,7 +59,8 @@
 		onBehalfOfEmail,
 		penVisibility = 'hover',
 		summaryEditable = true,
-		pathEditable = true
+		pathEditable = true,
+		workspaceId
 	}: Props = $props()
 
 	let pathPopoverOpen = $state(false)
@@ -138,6 +143,7 @@
 				initialHighlight={kindKey(kind)}
 				isCurrent={!segments}
 				{currentItem}
+				{workspaceId}
 				onPick={handlePickerSelect}
 			/>
 			{#if segments}
@@ -152,6 +158,7 @@
 							: { kind: 'all', dir: segments.dirs[i - 1].fullPath }}
 						initialHighlight={dKey}
 						{currentItem}
+						{workspaceId}
 						onPick={handlePickerSelect}
 					/>
 				{/each}
@@ -165,6 +172,7 @@
 					initialHighlight={leafKey}
 					isCurrent
 					{currentItem}
+					{workspaceId}
 					onPick={handlePickerSelect}
 				/>
 			{/if}

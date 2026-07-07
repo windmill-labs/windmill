@@ -97,20 +97,35 @@
 		wasLoading = isLoading
 	})
 
-	// Refresh when the tab regains visibility — covers edits in another tab / by
-	// another user while we were away.
+	// Refresh when the user comes back to this view — covers edits made
+	// elsewhere while we were away. Two signals: visibilitychange (another tab
+	// in the same window) and window focus (a second browser window, where this
+	// tab never goes hidden so visibilitychange never fires — e.g. deploying
+	// from the full-page editor side by side).
 	$effect(() => {
 		if (!committedId) return
-		function onVisibilityChange() {
+		function refreshIfCurrent() {
 			if (document.visibilityState !== 'visible') return
 			if (sessionState.currentSessionId !== session.id) return
 			refreshDock()
 		}
-		document.addEventListener('visibilitychange', onVisibilityChange)
-		return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+		document.addEventListener('visibilitychange', refreshIfCurrent)
+		window.addEventListener('focus', refreshIfCurrent)
+		return () => {
+			document.removeEventListener('visibilitychange', refreshIfCurrent)
+			window.removeEventListener('focus', refreshIfCurrent)
+		}
 	})
 
 	let diffDrawer: SessionDiffDrawer | undefined = $state(undefined)
+
+	// Opening the drawer re-fetches its own data, so it can show fresher state
+	// than the badge just clicked (e.g. "1 draft" that was deployed elsewhere in
+	// the meantime). Re-sync the dock alongside so the two never disagree.
+	function openDrawer() {
+		refreshDock()
+		diffDrawer?.open()
+	}
 
 	// The dock counts are computed from the same pure model over this chat's
 	// drafts; the readout mirrors the drawer's item states.
@@ -162,12 +177,12 @@
 	     badges (draft/deployed) so the bar reads at a glance. -->
 	<div class="flex items-center gap-1 shrink-0">
 		{#if dockCounts.draft > 0}
-			<Badge small clickable color="indigo" onclick={() => diffDrawer?.open()}>
+			<Badge small clickable color="indigo" onclick={openDrawer}>
 				{dockCounts.draft} draft{dockCounts.draft === 1 ? '' : 's'}
 			</Badge>
 		{/if}
 		{#if dockCounts.deployed > 0}
-			<Badge small clickable color="green" onclick={() => diffDrawer?.open()}>
+			<Badge small clickable color="green" onclick={openDrawer}>
 				{dockCounts.deployed} deployed
 			</Badge>
 		{/if}

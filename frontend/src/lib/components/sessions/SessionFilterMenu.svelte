@@ -11,16 +11,10 @@
 		// called against this specific menu instance (same pattern as DropdownSubmenuItem).
 		builders: MenubarMenuBuilders
 		showArchived: boolean
-		showAllWorkspaces: boolean
 		archivedCount: number
 	}
 
-	let {
-		builders,
-		showArchived = $bindable(),
-		showAllWorkspaces = $bindable(),
-		archivedCount
-	}: Props = $props()
+	let { builders, showArchived = $bindable(), archivedCount }: Props = $props()
 
 	const {
 		elements: { subTrigger, subMenu },
@@ -29,7 +23,7 @@
 
 	// Count of active (non-default) filters, surfaced as a subtle badge on the
 	// trigger so an applied filter is visible without opening the submenu.
-	let activeCount = $derived((showArchived ? 1 : 0) + (showAllWorkspaces ? 1 : 0))
+	let activeCount = $derived(showArchived ? 1 : 0)
 </script>
 
 <button
@@ -56,14 +50,6 @@
 		<!-- Rendered as plain content (not a MenuItem) so toggling a filter keeps
 		     the submenu open instead of selecting-and-closing the whole menu. -->
 		<div class="px-3 py-1.5 flex flex-col gap-2">
-			<div class="flex flex-col gap-0.5">
-				<Toggle
-					bind:checked={showAllWorkspaces}
-					size="xs"
-					options={{ right: 'Show all workspaces' }}
-				/>
-				<span class="text-2xs text-tertiary pl-1">Include sessions from every workspace.</span>
-			</div>
 			<div class="flex flex-col gap-0.5">
 				<Toggle bind:checked={showArchived} size="xs" options={{ right: 'Show archived' }} />
 				{#if archivedCount > 0}

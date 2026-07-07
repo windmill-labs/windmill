@@ -173,15 +173,24 @@
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 900)
 
-	// AutosaveIndicator watch key. Falls back to the full-page editor's
-	// global store + URL draft path; the sessions preview overrides both so the
-	// icon tracks the session's (forked) workspace + target path where autosave
-	// actually happens.
-	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	// The workspace this editor operates on: deploy, save-draft, trigger loading
+	// and the AutosaveIndicator all target it. Falls back to the full-page
+	// editor's global store; the sessions preview overrides it to the session's
+	// (forked) workspace, so an embedded editor acts on the session's fork rather
+	// than the navigation workspace ($workspaceStore, which stays put). indicatorPath
+	// is the matching draft path (URL path full-page, session target in preview).
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
+	// The shared `workerTags` store caches tags for the navigation workspace. A
+	// session editor deploys to `opWorkspace` (a fork), so it keeps a local list to
+	// gate/populate the tag picker without reading or clobbering the shared cache.
+	const usesLocalTags = $derived(opWorkspace != undefined && opWorkspace !== $workspaceStore)
+	let localWorkerTags = $state<string[] | undefined>(undefined)
+	const scriptWorkerTags = $derived(usesLocalTags ? localWorkerTags : $workerTags)
+
 	function getCompactMenuItems(): Item[] {
-		const hasTags = ($workerTags?.length ?? 0) > 0
+		const hasTags = (scriptWorkerTags?.length ?? 0) > 0
 		return [
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
@@ -285,13 +294,13 @@
 			return
 		}
 		$triggersCount = await ScriptService.getTriggersCountOfScript({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath
 		})
 
 		await triggersState.fetchTriggers(
 			triggersCount,
-			$workspaceStore,
+			opWorkspace,
 			initialPath,
 			false,
 			$primaryScheduleStore,
@@ -443,7 +452,7 @@
 		}
 		try {
 			const templateScript = await PostgresTriggerService.getTemplateScript({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				id: templateId
 			})
 			return templateScript
@@ -497,7 +506,7 @@
 			if (initialPath && initialPath != '') {
 				actual_parent_hash = (
 					await ScriptService.getScriptLatestVersion({
-						workspace: $workspaceStore!,
+						workspace: opWorkspace!,
 						path: initialPath
 					})
 				)?.script_hash
@@ -544,7 +553,7 @@
 
 	async function syncWithDeployed() {
 		const latestScript = await ScriptService.getScriptByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath,
 			withStarredInfo: true
 		})
@@ -608,7 +617,7 @@
 			}
 
 			const newHash = await ScriptService.createScript({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				requestBody: {
 					path: script.path,
 					summary: script.summary,
@@ -653,16 +662,16 @@
 
 			// New/updated path now exists server-side — drop the autocomplete
 			// cache so it shows up immediately instead of after the 60s TTL.
-			invalidateWorkspacePaths($workspaceStore!)
+			invalidateWorkspacePaths(opWorkspace!)
 
 			// Authoritative save-time schema-contract check (pipelines gap #2b):
 			// warn-only, post-commit so a self-produced target resolves to the
 			// content just deployed. Fire-and-forget — must never gate the deploy.
-			notifyContractWarnings($workspaceStore!, script.language, script.content)
+			notifyContractWarnings(opWorkspace!, script.language, script.content)
 
 			if (!initialPath) {
 				await CaptureService.moveCapturesAndConfigs({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: fakeInitialPath,
 					requestBody: {
 						new_path: script.path
@@ -674,7 +683,7 @@
 			if (triggersToDeploy) {
 				await deployTriggers(
 					triggersToDeploy,
-					$workspaceStore,
+					opWorkspace,
 					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 					usedTriggerKinds,
 					script.path,
@@ -718,11 +727,11 @@
 	// syncer flushes. No toast — the AutosaveIndicator narrates the result, and
 	// `flush` never rejects (postSave routes errors to the failures map).
 	async function saveDraft(): Promise<void> {
-		if (!$workspaceStore || !userDraftPath) return
+		if (!opWorkspace || !userDraftPath) return
 		editor?.flushPendingChanges()
 		await tick()
 		await UserDraftDbSyncer.flush({
-			workspace: $workspaceStore,
+			workspace: opWorkspace,
 			itemKind: 'script',
 			path: userDraftPath
 		})
@@ -786,10 +795,10 @@
 											window.open(`/scripts/add?template=${initialPath}`)
 										}
 									},
-									...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
+									...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 										? [
 												{
-													label: editInForkLabel($workspaceStore, $userWorkspaces),
+													label: editInForkLabel(opWorkspace, $userWorkspaces),
 													onClick: () => {
 														window.open(buildForkEditUrl('script', initialPath))
 													}
@@ -990,8 +999,12 @@
 
 	loadWorkerTags()
 	async function loadWorkerTags() {
-		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
+		if (usesLocalTags) {
+			if (!localWorkerTags) {
+				localWorkerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: opWorkspace! })
+			}
+		} else if (!$workerTags) {
+			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: opWorkspace! })
 		}
 	}
 </script>
@@ -1748,7 +1761,7 @@
 												/>
 												{#if script.on_behalf_of_email && canPreserve}
 													&rarr; <OnBehalfOfSelector
-														targetWorkspace={$workspaceStore ?? ''}
+														targetWorkspace={opWorkspace ?? ''}
 														targetValue={originalOnBehalfOfEmail}
 														selected={onBehalfOfChoice}
 														onSelect={(choice, details) => {
@@ -1906,13 +1919,14 @@
 								kind="script"
 								summaryEditable={customUi?.topBar?.editableSummary != false}
 								pathEditable={customUi?.topBar?.editablePath != false}
+								workspaceId={autosaveWorkspace}
 								onNavigate={(item) => onNavigate?.(item)}
 							/>
 						</div>
 					{/if}
-					{#if indicatorWorkspace}
+					{#if opWorkspace}
 						<AutosaveIndicator
-							workspace={indicatorWorkspace}
+							workspace={opWorkspace}
 							itemKind="script"
 							path={indicatorPath}
 							draftOnly={savedScript?.no_deployed === true}
@@ -1994,13 +2008,14 @@
 				{:else}
 					{@render diffButton()}
 					{#if customUi?.topBar?.tagEdit != false}
-						{#if $workerTags}
-							{#if $workerTags?.length ?? 0 > 0}
+						{#if scriptWorkerTags}
+							{#if scriptWorkerTags?.length ?? 0 > 0}
 								<div class="max-w-[200px]">
 									<WorkerTagSelect
 										nullTag={script.language}
 										placeholder={customUi?.tagSelectPlaceholder}
 										bind:tag={script.tag}
+										workspaceId={opWorkspace}
 									/>
 								</div>
 							{/if}
@@ -2056,6 +2071,15 @@
 
 		<ScriptEditor
 			{disableAi}
+			sessionOpen={script.path
+				? {
+						target: { kind: 'script', path: script.path },
+						workspaceId: opWorkspace ?? undefined,
+						// Flush the per-user draft so the session preview opens the script
+						// exactly as it is in the editor right now.
+						beforeOpen: saveDraft
+					}
+				: undefined}
 			bind:selectedTab={selectedInputTab}
 			{customUi}
 			{onTestJob}

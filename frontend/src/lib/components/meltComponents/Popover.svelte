@@ -11,7 +11,7 @@
 
 	const bubble = createBubbler()
 	import { createPopover, createSync, melt } from '@melt-ui/svelte'
-	import { fly } from 'svelte/transition'
+	import { placementFly } from '$lib/utils/placementFly'
 	import { X, Minimize2, Maximize2 } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { debounce, pointerDownOutside } from '$lib/utils'
@@ -264,7 +264,7 @@
 		}}
 		onmouseleave={debounceClose}
 		use:melt={$_content}
-		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
+		transition:placementFly={{ duration: enableFlyTransition ? 100 : 0, placement }}
 		class={twMerge(
 			'relative dark:border rounded-md bg-surface-tertiary shadow-lg',
 			fullScreen
