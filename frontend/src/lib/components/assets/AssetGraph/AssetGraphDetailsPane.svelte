@@ -690,10 +690,17 @@
 			} catch {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
+			// Pin the exact content this deploy ships: the editor stays live during
+			// the network round-trip, so `script.content` can advance past what was
+			// sent — `deployedFromPane` must record the shipped version, not the
+			// buffer at response time, or mid-deploy keystrokes match the guard and
+			// are never promoted to a draft.
+			const contentAtDeploy = script.content ?? ''
 			const newHash = await ScriptService.createScript({
 				workspace,
 				requestBody: {
 					...script,
+					content: contentAtDeploy,
 					language: script.language,
 					description: script.description ?? '',
 					// Brand-new drafts have no prior hash (buildDraft seeds ''
@@ -728,7 +735,7 @@
 			// backend rejects as a lineage fork ("no 2 scripts can have the
 			// same parent").
 			if (typeof newHash === 'string' && newHash) script.hash = newHash
-			deployedFromPane = { path: script.path, content: script.content ?? '' }
+			deployedFromPane = { path: script.path, content: contentAtDeploy }
 			sendUserToast(`Saved ${script.path}`)
 			// Authoritative save-time schema-contract check (pipelines gap #2b):
 			// warn-only, post-commit. Fire-and-forget — must never gate the save.
