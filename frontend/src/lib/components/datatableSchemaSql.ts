@@ -13,9 +13,7 @@ import type { GetDatatableFullSchemaResponse } from '$lib/gen'
 
 export type DatabaseSchema = Record<string, Record<string, TableEditorValues>>
 
-export function apiSchemaToEditorSchema(
-	apiSchema: GetDatatableFullSchemaResponse
-): DatabaseSchema {
+export function apiSchemaToEditorSchema(apiSchema: GetDatatableFullSchemaResponse): DatabaseSchema {
 	const result: DatabaseSchema = {}
 	for (const [schemaName, tables] of Object.entries(apiSchema)) {
 		result[schemaName] = {}
@@ -148,7 +146,11 @@ function resolveColumnType(c: TableEditorValuesColumn): {
 	return { datatype: c.datatype, defaultValue: c.defaultValue }
 }
 
-export function generateMigrationSql(change: TableDiff, sourceSchema: DatabaseSchema): string {
+export function generateMigrationSql(
+	change: TableDiff,
+	sourceSchema: DatabaseSchema,
+	options?: { ifNotExists?: boolean }
+): string {
 	if (change.kind === 'modified' && change.operations) {
 		const queries = makeAlterTableQueries(change.operations, 'postgresql', change.schemaName)
 		if (queries.length === 0) return ''
@@ -169,7 +171,8 @@ export function generateMigrationSql(change: TableDiff, sourceSchema: DatabaseSc
 		const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => `"${c.name}"`)
 		const pkLine = pkCols.length > 0 ? `,\n  PRIMARY KEY (${pkCols.join(', ')})` : ''
 		const qualifiedName = `"${change.schemaName}"."${change.tableName}"`
-		let sql = `BEGIN;\nCREATE TABLE ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
+		const createKeyword = options?.ifNotExists ? 'CREATE TABLE IF NOT EXISTS' : 'CREATE TABLE'
+		let sql = `BEGIN;\n${createKeyword} ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
 		for (const fk of table.foreignKeys ?? []) {
 			const fkSql = renderForeignKey(fk, {
 				useSchema: true,

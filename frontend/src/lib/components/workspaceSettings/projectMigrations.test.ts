@@ -119,6 +119,8 @@ describe('generateDatatableMigrations', () => {
 		expect(m.sql.indexOf('"public"."customers"')).toBeLessThan(m.sql.indexOf('"public"."orders"'))
 		// A single wrapping transaction, not one per table.
 		expect(m.sql.match(/BEGIN;/g)?.length).toBe(1)
+		// Idempotent: won't abort if a pulled-in parent already exists in the target.
+		expect(m.sql).toContain('CREATE TABLE IF NOT EXISTS "public"."customers"')
 		// Down migration drops in reverse order: orders (child) before customers (parent).
 		expect(m.sql_down).toContain('DROP TABLE IF EXISTS "public"."orders";')
 		expect(m.sql_down).toContain('DROP TABLE IF EXISTS "public"."customers";')

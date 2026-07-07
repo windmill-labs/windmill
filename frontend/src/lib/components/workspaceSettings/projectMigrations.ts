@@ -280,9 +280,15 @@ export async function generateDatatableMigrations(
 		const statements = ordered
 			.map((t) =>
 				unwrapTransaction(
+					// IF NOT EXISTS: FK closure pulls in shared parent tables (e.g. a
+					// referenced `orders` drags in `customers`) that often already exist in
+					// the target, so a plain CREATE would abort the whole transaction. The
+					// caveat — an existing differently-shaped table is silently left as-is —
+					// is acceptable for a best-effort, editable migration.
 					generateMigrationSql(
 						{ schemaName: t.schemaName, tableName: t.tableName, kind: 'added' },
-						prunedSchema
+						prunedSchema,
+						{ ifNotExists: true }
 					)
 				)
 			)
