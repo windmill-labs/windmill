@@ -299,15 +299,30 @@ function createRuntime(session: Session): SessionRuntime {
 		val: undefined
 	})
 
-	const flowSlot: LoadSlot = $state({ loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false })
+	const flowSlot: LoadSlot = $state({
+		loadedPath: undefined,
+		loadedWorkspace: undefined,
+		loading: false,
+		notFound: false
+	})
 
 	const scriptStore: { val: NewScript | undefined } = $state({ val: undefined })
 	const savedScript: { val: SavedScript | undefined } = $state({ val: undefined })
-	const scriptSlot: LoadSlot = $state({ loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false })
+	const scriptSlot: LoadSlot = $state({
+		loadedPath: undefined,
+		loadedWorkspace: undefined,
+		loading: false,
+		notFound: false
+	})
 
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
-	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false })
+	const rawAppSlot: LoadSlot = $state({
+		loadedPath: undefined,
+		loadedWorkspace: undefined,
+		loading: false,
+		notFound: false
+	})
 
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
@@ -344,8 +359,11 @@ function createRuntime(session: Session): SessionRuntime {
 
 		async loadFlow(workspace: string, path: string, force = false) {
 			if (flowSlot.loadedPath === path && flowSlot.loadedWorkspace === workspace && !force) return
-			// See loadScript: forced reload remounts via the render gate.
-			if (force) flowSlot.loadedPath = undefined
+			// See loadScript: forced reload remounts via the render gate. A workspace
+			// retarget (same path, new fork) drops the stale content the same way so
+			// the editor gate shows loading and outbound sync can't write the old
+			// workspace's content into the new one before the fetch lands.
+			if (force || flowSlot.loadedWorkspace !== workspace) flowSlot.loadedPath = undefined
 			flowSlot.loading = true
 			flowSlot.notFound = false
 			try {
@@ -414,12 +432,13 @@ function createRuntime(session: Session): SessionRuntime {
 		savedScript,
 
 		async loadScript(workspace: string, path: string, force = false) {
-			if (scriptSlot.loadedPath === path && scriptSlot.loadedWorkspace === workspace && !force) return
+			if (scriptSlot.loadedPath === path && scriptSlot.loadedWorkspace === workspace && !force)
+				return
 			// Forced reload: clearing the slot's loadedPath drops us into
 			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
 			// which unmounts then remounts the editor — avoids the Monaco init race a
 			// synchronous {#key} would hit.
-			if (force) scriptSlot.loadedPath = undefined
+			if (force || scriptSlot.loadedWorkspace !== workspace) scriptSlot.loadedPath = undefined
 			scriptSlot.loading = true
 			scriptSlot.notFound = false
 			try {
@@ -511,9 +530,10 @@ function createRuntime(session: Session): SessionRuntime {
 		savedRawApp,
 
 		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
-			if (rawAppSlot.loadedPath === path && rawAppSlot.loadedWorkspace === workspace && !force) return
+			if (rawAppSlot.loadedPath === path && rawAppSlot.loadedWorkspace === workspace && !force)
+				return
 			// See loadScript: forced reload remounts via the render gate.
-			if (force) rawAppSlot.loadedPath = undefined
+			if (force || rawAppSlot.loadedWorkspace !== workspace) rawAppSlot.loadedPath = undefined
 			rawAppSlot.loading = true
 			rawAppSlot.notFound = false
 			try {
