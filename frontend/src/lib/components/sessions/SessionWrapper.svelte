@@ -129,7 +129,11 @@
 	// on, not the navigation workspace — a session deliberately leaves
 	// $workspaceStore on the nav workspace, so keying off it would pick the model
 	// and provider from the wrong workspace's AI config for a fork-scoped session.
+	// Only the active session may write this: copilotInfo/copilotSessionModel are
+	// global, and warm background wrappers (each in their own workspace) would
+	// otherwise race to clobber the active chat's model config.
 	$effect(() => {
+		if (sessionState.currentSessionId !== sessionId) return
 		const ws = acting?.targetId ?? $workspaceStore
 		if (ws) {
 			loadCopilot(ws)
