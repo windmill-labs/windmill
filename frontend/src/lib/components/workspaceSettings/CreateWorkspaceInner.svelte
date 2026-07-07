@@ -813,7 +813,7 @@
 						forkCreationLoading = false
 					}}
 				/>
-				<ForkDucklakeSection bind:this={forkDucklakeSection} />
+				<ForkDucklakeSection bind:this={forkDucklakeSection} sourceWorkspace={baseWorkspaceId} />
 			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">

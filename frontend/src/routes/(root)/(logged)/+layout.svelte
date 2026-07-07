@@ -270,11 +270,19 @@
 
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
-			try {
-				sessionStorage.setItem('workspace', String(workspace))
-				localStorage.setItem('workspace', String(workspace))
-			} catch (e) {
-				console.error('Could not persist workspace to local storage', e)
+			// A preview iframe shares localStorage with the top-level app; persisting
+			// its session-scoped workspace there would clobber the workspace the user
+			// is actually navigating and reload the app into the preview fork. Keep it
+			// in-memory only ($workspaceStore is still set from the ?workspace= param
+			// for the iframe's own API calls) — only the top window owns the persisted
+			// workspace.
+			if (!embedded) {
+				try {
+					sessionStorage.setItem('workspace', String(workspace))
+					localStorage.setItem('workspace', String(workspace))
+				} catch (e) {
+					console.error('Could not persist workspace to local storage', e)
+				}
 			}
 			const user = await getUserExt(workspace)
 			if (!deepEqual(user, $userStore)) {
