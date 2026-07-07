@@ -2467,6 +2467,7 @@
 						import. Best-effort — review and edit before publishing.
 					</span>
 					{#each migrationDrafts as m (m.datatable_name)}
+						{@const down = dropTablesSql(m.sql)}
 						<div class="flex flex-col gap-1.5 rounded border bg-surface-secondary p-2">
 							<div class="flex items-center justify-between gap-2">
 								<span class="font-mono text-primary">{m.datatable_name}</span>
@@ -2481,7 +2482,6 @@
 								placeholder={`-- SQL migration for ${m.datatable_name}`}
 								class="rounded border bg-surface px-2 py-1.5 text-[11px] font-mono"
 							></textarea>
-							{@const down = dropTablesSql(m.sql)}
 							{#if down}
 								<span class="text-[11px] text-hint">
 									Rollback (down migration — drops the tables above):

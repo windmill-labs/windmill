@@ -615,6 +615,7 @@
 				recorded, otherwise it runs once as a preview job.
 			</p>
 			{#each reviewList as m (m.datatable_name)}
+				{@const down = dropTablesSql(m.sql)}
 				<div class="flex flex-col gap-1.5 rounded border bg-surface-secondary p-2 text-xs">
 					<div class="flex items-center justify-between gap-2">
 						<span class="font-mono text-primary">{m.datatable_name}</span>
@@ -627,7 +628,6 @@
 							spellcheck="false"
 							class="rounded border bg-surface px-2 py-1.5 text-[11px] font-mono"
 						></textarea>
-						{@const down = dropTablesSql(m.sql)}
 						{#if down}
 							<span class="text-[11px] text-hint">
 								Rollback (recorded as the down migration if this data table has migrations enabled):
