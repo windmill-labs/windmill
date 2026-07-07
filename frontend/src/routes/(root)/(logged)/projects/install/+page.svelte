@@ -11,6 +11,7 @@
 		ResourceService,
 		ScheduleService,
 		FolderService,
+		WorkspaceService,
 		HttpTriggerService,
 		WebsocketTriggerService,
 		KafkaTriggerService,
@@ -29,9 +30,18 @@
 		rewriteFlowValue,
 		rewriteRawAppContent
 	} from '$lib/components/workspaceSettings/projectBundle'
+	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
 	import { Cloud, Download, Loader2 } from 'lucide-svelte'
 
 	type ExportItem = Record<string, any>
+	interface ProjectMigration {
+		datatable_name: string
+		sql: string
+		enabled: boolean
+	}
 	interface ProjectExport {
 		project: { slug: string; name: string; summary: string; readme: string | null }
 		scripts: ExportItem[]
@@ -39,6 +49,7 @@
 		apps: ExportItem[]
 		resources: ExportItem[]
 		triggers: ExportItem[]
+		migrations?: ProjectMigration[]
 	}
 
 	let slug = $derived($page.url.searchParams.get('hub') ?? '')
@@ -51,6 +62,12 @@
 	let results = $state<{ path: string; ok: boolean; error?: string }[]>([])
 	let done = $state(false)
 	let folderName = $state('')
+
+	// Migration decisions are gathered up-front (before items are created) via these
+	// two linear-await modals: "run the migrations?" and, when the target lacks a
+	// needed data table, "import without that migration".
+	const runMigrationsModal = createAsyncConfirmationModal()
+	const missingDatatableModal = createAsyncConfirmationModal()
 
 	let loadSeq = 0
 
@@ -91,7 +108,10 @@
 					flows: data.flows.length,
 					apps: data.apps.length,
 					resources: data.resources.length,
-					triggers: data.triggers.length
+					triggers: data.triggers.length,
+					migrations: (data.migrations ?? []).filter(
+						(m) => m.enabled && (m.sql ?? '').trim() !== ''
+					).length
 				}
 			: undefined
 	)
@@ -213,6 +233,90 @@
 		}
 	}
 
+	// Decide which data table migrations to run. Migrations are keyed by data table
+	// name and applied only to a target data table of the same name; a missing one
+	// is surfaced (import proceeds without it). Returns the migrations to run and
+	// whether the user opted in.
+	async function planMigrations(
+		workspace: string,
+		migrations: ProjectMigration[]
+	): Promise<{ runnable: ProjectMigration[]; doRun: boolean }> {
+		const enabled = migrations.filter((m) => m.enabled && (m.sql ?? '').trim() !== '')
+		if (enabled.length === 0) return { runnable: [], doRun: false }
+
+		let present: Set<string>
+		try {
+			const dts = await WorkspaceService.listDataTables({ workspace })
+			present = new Set(dts.map((d) => d.name))
+		} catch {
+			// Can't read the target's data tables — skip migrations rather than guess.
+			return { runnable: [], doRun: false }
+		}
+		const runnable = enabled.filter((m) => present.has(m.datatable_name))
+		const missingNames = [
+			...new Set(enabled.filter((m) => !present.has(m.datatable_name)).map((m) => m.datatable_name))
+		]
+
+		let doRun = false
+		if (runnable.length > 0) {
+			doRun = await runMigrationsModal.ask({
+				title: 'Run data table migrations?',
+				confirmationText: 'Run migrations',
+				children: `This project ships migrations for data table(s) ${runnable
+					.map((m) => m.datatable_name)
+					.join(
+						', '
+					)}. Run them now to create the tables the project uses? You can skip and run them later.`
+			})
+		}
+		if (missingNames.length > 0) {
+			await missingDatatableModal.ask({
+				title: 'Some data tables are missing',
+				confirmationText: 'Import without them',
+				children: `This project uses data table(s) "${missingNames.join(
+					'", "'
+				)}" that don't exist in this workspace, so their migrations will be skipped. To apply them, create the data table(s) with the same name in Workspace settings → Data tables, then re-run this import.`
+			})
+		}
+		return { runnable, doRun }
+	}
+
+	// Apply one migration to the target data table. If the data table opted into
+	// migrations, record it (datatable_migrations + _wm_migrations, run only this
+	// version); otherwise run the SQL once as a preview job (unrecorded).
+	async function applyOneMigration(workspace: string, m: ProjectMigration): Promise<void> {
+		let recorded = false
+		try {
+			const status = await WorkspaceService.getDatatableMigrationsStatus({
+				workspace,
+				datatableName: m.datatable_name
+			})
+			recorded = !!status.enabled
+		} catch {}
+
+		if (recorded) {
+			const created = await WorkspaceService.createDatatableMigration({
+				workspace,
+				datatableName: m.datatable_name,
+				requestBody: { name: `hub_import_${data?.project.slug ?? 'project'}`, code_up: m.sql }
+			})
+			await WorkspaceService.runDatatableMigrations({
+				workspace,
+				datatableName: m.datatable_name,
+				only: created.timestamp
+			})
+		} else {
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: {
+					language: 'postgresql',
+					content: m.sql,
+					args: { database: `datatable://${m.datatable_name}` }
+				}
+			})
+		}
+	}
+
 	async function install() {
 		// Snapshot reactive state up-front: `workspace` ($derived) and `data`
 		// ($state, replaced by load()) can both change mid-import on a workspace
@@ -225,6 +329,10 @@
 		results = []
 		done = false
 		try {
+			// Ask about data table migrations up-front, before creating any items, so
+			// the whole import is one uninterrupted flow after the user decides.
+			const migPlan = await planMigrations(workspace, exportData.migrations ?? [])
+
 			try {
 				await FolderService.createFolder({ workspace, requestBody: { name: folder } })
 			} catch {}
@@ -369,6 +477,15 @@
 					}
 				}
 			}
+
+			// Apply the opted-in data table migrations after items exist. Each is
+			// recorded (or run as a preview job) per applyOneMigration.
+			if (migPlan.doRun) {
+				for (const m of migPlan.runnable) {
+					await record(`data table: ${m.datatable_name}`, applyOneMigration(workspace, m))
+				}
+			}
+
 			done = true
 			const failed = results.filter((r) => !r.ok).length
 			sendUserToast(
@@ -413,6 +530,9 @@
 			<span class="rounded border px-2 py-1">{counts?.apps} apps</span>
 			<span class="rounded border px-2 py-1">{counts?.resources} resources</span>
 			<span class="rounded border px-2 py-1">{counts?.triggers} triggers</span>
+			{#if counts && counts.migrations > 0}
+				<span class="rounded border px-2 py-1">{counts.migrations} data table migrations</span>
+			{/if}
 		</div>
 
 		<div
@@ -458,3 +578,8 @@
 		{/if}
 	{/if}
 </div>
+
+<Portal>
+	<ConfirmationModal {...runMigrationsModal.props} />
+	<ConfirmationModal {...missingDatatableModal.props} />
+</Portal>
