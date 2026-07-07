@@ -42,12 +42,42 @@ function parseDatatableAssetPath(path: string): { datatable: string; table?: str
 	return { datatable, table: table || undefined }
 }
 
-function addUsage(map: Map<string, Set<string>>, path: string): void {
-	const { datatable, table } = parseDatatableAssetPath(path)
+function addDatatableTable(map: Map<string, Set<string>>, datatable: string, table?: string): void {
 	if (!datatable) return
 	const set = map.get(datatable) ?? new Set<string>()
 	if (table) set.add(table)
 	map.set(datatable, set)
+}
+
+function addUsage(map: Map<string, Set<string>>, path: string): void {
+	const { datatable, table } = parseDatatableAssetPath(path)
+	addDatatableTable(map, datatable, table)
+}
+
+// Low-code apps declare data table usage explicitly on the DB-table component:
+// a `oneOf` `type` config with `selected === 'datatable'` holding the data table
+// (as `datatable://<name>`) and the table. Walk the app value for those instead
+// of parsing assets (low-code inline scripts don't carry a persisted asset list).
+function collectAppDatatableConfigs(node: any, map: Map<string, Set<string>>): void {
+	if (node == null || typeof node !== 'object') return
+	if (Array.isArray(node)) {
+		for (const v of node) collectAppDatatableConfigs(v, map)
+		return
+	}
+	if (node.selected === 'datatable' && node.configuration?.datatable) {
+		const dtRaw = node.configuration.datatable.datatable?.value
+		const tableRaw = node.configuration.datatable.table?.value
+		if (typeof dtRaw === 'string' && dtRaw.trim() !== '') {
+			const datatable = dtRaw
+				.trim()
+				.replace(/^\$res:/, '')
+				.replace(/^datatable:\/\//, '')
+			const table =
+				typeof tableRaw === 'string' && tableRaw.trim() !== '' ? tableRaw.trim() : undefined
+			addDatatableTable(map, datatable, table)
+		}
+	}
+	for (const k of Object.keys(node)) collectAppDatatableConfigs(node[k], map)
 }
 
 /**
@@ -56,6 +86,7 @@ function addUsage(map: Map<string, Set<string>>, path: string): void {
  *  - scripts: re-parse the code with the asset parser (`inferAssets`)
  *  - flows: read each module's stored `assets`
  *  - raw apps: read `runnables[key].inlineScript.assets` from the app JSON
+ *  - low-code apps: read the DB-table component's explicit datatable/table config
  */
 export async function detectDatatableTables(
 	items: FetchedItem[]
@@ -90,6 +121,8 @@ export async function detectDatatableTables(
 					for (const a of assets)
 						if (a?.kind === 'datatable' && typeof a.path === 'string') addUsage(map, a.path)
 			}
+		} else if (item.kind === 'app') {
+			collectAppDatatableConfigs(item.value, map)
 		}
 	}
 	return map
