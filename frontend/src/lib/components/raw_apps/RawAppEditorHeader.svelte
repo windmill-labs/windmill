@@ -215,7 +215,7 @@
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
-	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	$effect(() => {
@@ -242,8 +242,8 @@
 	)
 
 	$effect(() => {
-		if (liveEditorDraftStoragePath === undefined || !$workspaceStore) return
-		const workspace = $workspaceStore
+		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
+		const workspace = opWorkspace
 		UserDraft.setLiveEditorDraft({
 			workspace,
 			itemKind: 'raw_app',
@@ -333,7 +333,7 @@
 		try {
 			const { js, css } = await getBundle()
 			await AppService.createAppRaw({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				formData: {
 					app: {
 						value: app,
@@ -351,7 +351,7 @@
 			})
 			// New path now exists server-side — drop the autocomplete cache so
 			// it shows up immediately instead of after the 60s TTL.
-			invalidateWorkspacePaths($workspaceStore!)
+			invalidateWorkspacePaths(opWorkspace!)
 			savedApp = {
 				summary: summary,
 				value: structuredClone(stateSnapshot(app)),
@@ -415,7 +415,7 @@
 
 	async function syncWithDeployed() {
 		const deployedApp = await AppService.getAppByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath!,
 			withStarredInfo: true
 		})
@@ -454,7 +454,7 @@
 			policy.execution_mode = 'publisher'
 		}
 		await AppService.updateAppRaw({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath!,
 			formData: {
 				app: {
@@ -474,7 +474,7 @@
 				css
 			}
 		})
-		invalidateWorkspacePaths($workspaceStore!)
+		invalidateWorkspacePaths(opWorkspace!)
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
@@ -484,7 +484,7 @@
 			labels: $state.snapshot(labels)
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: npath
 		})
 		version = appHistory[0]?.version
@@ -508,7 +508,7 @@
 	async function setPublishState(message?: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath,
 			requestBody: { policy }
 		})
@@ -533,7 +533,7 @@
 		}
 		try {
 			const appVersion = await AppService.getAppLatestVersion({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				path: appPath
 			})
 			onLatest = appVersion?.version === undefined || version === appVersion?.version
@@ -798,9 +798,9 @@
 				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 			/>
 		</div>
-		{#if indicatorWorkspace && indicatorPath !== undefined}
+		{#if opWorkspace && indicatorPath !== undefined}
 			<AutosaveIndicator
-				workspace={indicatorWorkspace}
+				workspace={opWorkspace}
 				itemKind="raw_app"
 				path={indicatorPath}
 				draftOnly={newApp}
@@ -884,13 +884,13 @@
 			source={appPath
 				? {
 						target: { kind: 'raw_app', path: appPath },
-						workspaceId: $workspaceStore ?? undefined,
+						workspaceId: opWorkspace ?? undefined,
 						// Flush the autosaved draft so the session preview opens the app
 						// exactly as it is in the editor right now.
 						beforeOpen: () =>
-							indicatorWorkspace && indicatorPath !== undefined
+							opWorkspace && indicatorPath !== undefined
 								? UserDraftDbSyncer.flush({
-										workspace: indicatorWorkspace,
+										workspace: opWorkspace,
 										itemKind: 'raw_app',
 										path: indicatorPath
 									})
@@ -925,10 +925,10 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						},
-						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
+						...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 							? [
 									{
-										label: editInForkLabel($workspaceStore, $userWorkspaces),
+										label: editInForkLabel(opWorkspace, $userWorkspaces),
 										onClick: () => {
 											window.open(buildForkEditUrl('raw_app', appPath))
 										}
