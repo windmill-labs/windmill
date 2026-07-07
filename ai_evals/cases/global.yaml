@@ -872,6 +872,103 @@
     - fetches the logs for the requested job id
     - explains the failure from the returned logs (connection refused to the upstream API)
 
+# --- Page navigation (open_page) ---
+# The assistant should take the user to a Windmill page (Runs/Schedules) with the
+# right filters via open_page, rather than describing where to click or dumping the
+# data. No draft is produced, so the global judge is skipped and we validate the
+# tool call and its arguments.
+
+- id: global-openpage1-runs-failed-of-script
+  prompt: |-
+    Take me to the failed runs of the script at f/evals/global/greet_user so I can see what's going wrong.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - runs
+      - tool: open_page
+        field: status
+        stringIncludesAnyOf:
+          - failure
+      - tool: open_page
+        field: path
+        stringIncludesAnyOf:
+          - f/evals/global/greet_user
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page filtered to the failed runs of f/evals/global/greet_user
+    - applies both the failure status and the script path as filters
+    - does not write, deploy, or delete anything
+
+- id: global-openpage2-runs-of-schedule
+  prompt: |-
+    Open the runs page filtered to the jobs triggered by the schedule f/evals/global/nightly_digest.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - runs
+      - tool: open_page
+        field: schedule_path
+        stringIncludesAnyOf:
+          - f/evals/global/nightly_digest
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page filtered to jobs triggered by the f/evals/global/nightly_digest schedule
+    - passes the schedule path as the filter
+    - does not write, deploy, or delete anything
+
+- id: global-openpage3-open-schedule
+  prompt: |-
+    Open the schedule f/evals/global/nightly_digest so I can review and edit it.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_schedule
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - schedules
+      - tool: open_page
+        field: open
+        stringIncludesAnyOf:
+          - f/evals/global/nightly_digest
+  skipJudge: true
+  judgeChecklist:
+    - opens the Schedules page and targets the f/evals/global/nightly_digest schedule for editing
+    - passes the schedule path so the editor opens on it
+    - does not write, deploy, or delete anything
+
 # --- Documentation search (search_docs) ---
 # Pure product-knowledge questions: the assistant should consult the docs via
 # search_docs and answer conversationally, not draft or mutate anything. No

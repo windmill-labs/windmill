@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import {
+		ArrowRight,
 		Calendar,
 		Database,
 		KeyRound,
 		Mail,
 		Package,
+		Play,
 		Route,
 		SquarePen,
 		Unplug,
@@ -29,6 +31,7 @@
 		title: string
 		icon: any
 	}
+	type ActionCard = ActionCardConfig & { subtitle: string; buttonIcon: any }
 
 	let { actions }: Props = $props()
 	let runningActionId: string | undefined = $state(undefined)
@@ -49,12 +52,21 @@
 		email: { title: 'Email trigger', icon: Mail }
 	}
 
-	function getActionCardConfig(action: ToolDisplayAction): ActionCardConfig {
+	function getActionCard(action: ToolDisplayAction): ActionCard {
+		if (action.type === 'navigate') {
+			return {
+				title: action.page === 'runs' ? 'Runs' : 'Schedules',
+				subtitle: action.label,
+				icon: action.page === 'runs' ? Play : Calendar,
+				buttonIcon: ArrowRight
+			}
+		}
 		const key: ActionCardKey | undefined =
 			action.resource === 'trigger' ? action.triggerKind : action.resource
-		return key
+		const config = key
 			? actionCardConfigs[key]
 			: { title: action.label.replace(/^Open\s+/i, ''), icon: Webhook }
+		return { ...config, subtitle: action.path, buttonIcon: SquarePen }
 	}
 
 	async function handleAction(action: ToolDisplayAction) {
@@ -73,7 +85,7 @@
 {#if actions.length > 0}
 	<div class="space-y-2">
 		{#each actions as action (action.id)}
-			{@const card = getActionCardConfig(action)}
+			{@const card = getActionCard(action)}
 			{@const Icon = card.icon}
 			<div class="flex items-center gap-3 rounded-md border !border-green-500/40 bg-surface p-3">
 				<div
@@ -83,7 +95,7 @@
 				</div>
 				<div class="min-w-0 flex-1">
 					<div class="truncate text-xs font-semibold text-primary">{card.title}</div>
-					<div class="truncate text-2xs text-secondary">{action.path}</div>
+					<div class="truncate text-2xs text-secondary">{card.subtitle}</div>
 				</div>
 				<Button
 					size="xs"
@@ -91,7 +103,7 @@
 					title={action.label}
 					loading={runningActionId === action.id}
 					disabled={runningActionId !== undefined && runningActionId !== action.id}
-					startIcon={{ icon: SquarePen }}
+					startIcon={{ icon: card.buttonIcon }}
 					onClick={() => handleAction(action)}
 				>
 					Open

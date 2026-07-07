@@ -47,6 +47,7 @@ import {
 	hydratePreviewTabs,
 	previewTargetForSessionTarget
 } from './sessionPreviewTabs.svelte'
+import { matchPreviewPage } from './previewRouter'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -56,6 +57,7 @@ import {
 	setGetPreviewStatusHandler,
 	setGetRuntimeLogsHandler,
 	setListAppRunsHandler,
+	setOpenPagePreviewHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
 import {
@@ -824,6 +826,39 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`
 		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
+})
+
+// open_page dispatches here to show a workspace page (Runs/Schedules) as a page
+// tab in the calling session's preview panel. Returns undefined when there is no
+// session so open_page can fall back to browser navigation.
+setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	if (!sessionId) return undefined
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return undefined
+	const owner = getOrCreateRuntime(session).previewTabs
+	// Re-point the tab already showing this page (matched ignoring query/hash) so a
+	// filter change updates it in place instead of spawning a duplicate — unless the
+	// user asked for a separate tab. open() dedupes on the exact URL, so differing
+	// filters would otherwise always open a new tab.
+	const targetPage = matchPreviewPage(href)
+	if (!newTab && targetPage) {
+		const existing = owner.tabs.find(
+			(t) => matchPreviewPage(t.loc || t.url)?.path === targetPage.path
+		)
+		if (existing) {
+			owner.select(existing.id)
+			owner.navigate({ type: 'page', href, label })
+			owner.setCollapsed(false)
+			promoteEditorWarm(sessionId)
+			return `Updated the ${label} preview tab with the new filters.`
+		}
+	}
+	const result = owner.open({ type: 'page', href, label })
+	promoteEditorWarm(sessionId)
+	return result.status === 'focused'
+		? `A preview tab is already showing ${label} — focused it and applied the filters.`
+		: `Opened ${label} in a new preview tab in the side panel.`
 })
 
 // Companion to the open_preview handler: report the calling session's open

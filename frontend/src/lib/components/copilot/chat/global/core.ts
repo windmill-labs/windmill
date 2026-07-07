@@ -108,6 +108,9 @@ import { get } from 'svelte/store'
 import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
+import { chatNavigate, isCurrentPage } from '$lib/navigation'
+import { buildRunsUrl, buildSchedulesUrl, RUNS_PATH, SCHEDULES_PATH } from './pageNavigation'
+import { pageHref } from '$lib/components/sessions/previewRouter'
 import {
 	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
@@ -836,6 +839,7 @@ Rules:
 - A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
+- Use open_page to show the Runs or Schedules page with filters applied — e.g. after discussing a script's failures ("open the failed runs of f/foo/bar") or a specific schedule. In a session it opens as a tab in the side-panel preview next to the chat; it is the ONLY way to show a Runs/Schedules page there (open_preview handles only editable items). Changing filters on a page that's already open updates that same tab — only pass new_tab when the user explicitly asks for a separate tab. Don't use it as a substitute for list_runs when you just need the data yourself.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -1682,8 +1686,135 @@ export const readSkillTool: Tool<{}> = {
 	}
 }
 
+// One flat object (not a discriminated union): `page` selects the target and the
+// per-page fields are optional. Top-level `type: object` is what Anthropic's
+// input_schema requires; a top-level oneOf would be rejected. `path`/`schedule_path`
+// are shared by both pages, and the per-page URL builders drop any key that isn't in
+// their page's filter schema, so a cross-page field is harmless.
+const openPageSchema = z.object({
+	page: z.enum(['runs', 'schedules']).describe('Which page to open'),
+	status: z
+		.enum(['running', 'success', 'failure', 'canceled', 'waiting', 'suspended'])
+		.optional()
+		.describe('Runs: filter by job execution status'),
+	path: z
+		.string()
+		.optional()
+		.describe('Runs & Schedules: the script or flow path to filter by, e.g. f/foo/bar'),
+	schedule_path: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs triggered by this schedule path. Schedules: filter by this exact schedule path.'
+		),
+	job_kinds: z
+		.enum(['all', 'runs', 'dependencies', 'previews', 'deploymentcallbacks'])
+		.optional()
+		.describe('Runs: filter by job category (defaults to top-level runs)'),
+	user: z.string().optional().describe('Runs: filter by the user who created the job'),
+	open: z
+		.string()
+		.optional()
+		.describe('Schedules: exact schedule path to open in the edit drawer, e.g. f/foo/my_schedule'),
+	summary: z
+		.string()
+		.optional()
+		.describe('Schedules: search text matched against schedule summaries'),
+	new_tab: z
+		.boolean()
+		.optional()
+		.describe(
+			'Open in a NEW preview tab instead of updating the tab already showing this page. Only set true when the user explicitly asks for a new or separate tab; by default changing filters reuses the existing tab.'
+		)
+})
+
+type OpenPageArgs = z.infer<typeof openPageSchema>
+
+function summarizeRunsFilters(a: OpenPageArgs): string {
+	const bits: string[] = []
+	if (a.status) bits.push(a.status)
+	if (a.path) bits.push(a.path)
+	if (a.schedule_path) bits.push(`schedule ${a.schedule_path}`)
+	if (a.job_kinds) bits.push(a.job_kinds)
+	if (a.user) bits.push(`by ${a.user}`)
+	return bits.length ? bits.join(', ') : 'all runs'
+}
+
+function summarizeSchedulesTarget(a: OpenPageArgs): string {
+	if (a.open) return a.open
+	const bits: string[] = []
+	if (a.path) bits.push(a.path)
+	if (a.schedule_path) bits.push(a.schedule_path)
+	if (a.summary) bits.push(`"${a.summary}"`)
+	return bits.length ? bits.join(', ') : 'all schedules'
+}
+
+export const openPageTool: Tool<{}> = {
+	def: createToolDef(
+		openPageSchema,
+		'open_page',
+		'Open a Windmill page (Runs or Schedules) with filters applied. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it applies the filters in place or offers a clickable link. Use after surfacing runs or schedules the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y"). This is the only way to show a Runs/Schedules page in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines).'
+	),
+	// Keep the row expanded so the link chip (attached below as an action) is visible
+	// without the user having to expand the tool call.
+	showDetails: true,
+	autoCollapseDetails: false,
+	fn: async (ctx) => {
+		const { args, toolId, toolCallbacks } = ctx
+		const parsed = openPageSchema.parse(args)
+		let url: string
+		let appPath: string
+		let page: 'runs' | 'schedules'
+		let summary: string
+		if (parsed.page === 'runs') {
+			const { page: _p, open: _o, summary: _s, new_tab: _n, ...filters } = parsed
+			url = buildRunsUrl(filters)
+			appPath = RUNS_PATH
+			page = 'runs'
+			summary = summarizeRunsFilters(parsed)
+		} else {
+			const { page: _p, open, new_tab: _n, ...filters } = parsed
+			url = buildSchedulesUrl({ open, filters })
+			appPath = SCHEDULES_PATH
+			page = 'schedules'
+			summary = summarizeSchedulesTarget(parsed)
+		}
+		const pageLabel = page === 'runs' ? 'Runs' : 'Schedules'
+
+		// In a session, show the page as a preview tab alongside the chat (the primary
+		// UX). By default a filter change reuses the tab already showing this page;
+		// new_tab forces a separate tab. openPagePreview returns undefined when there
+		// is no active session, in which case we fall through to browser navigation.
+		const previewResult = openPagePreview({
+			sessionId: sessionIdFromCtx(ctx),
+			href: pageHref(url),
+			label: pageLabel,
+			newTab: parsed.new_tab ?? false
+		})
+		if (previewResult) {
+			toolCallbacks.setToolStatus(toolId, { content: `Opened ${page} preview: ${summary}` })
+			return previewResult
+		}
+
+		// Hybrid delivery outside a session: in-context filter change navigates
+		// directly; a cross-page jump offers a link chip so the user is never yanked
+		// out of context. If no navigator is registered, fall back to the chip.
+		if (isCurrentPage(appPath) && chatNavigate(url)) {
+			toolCallbacks.setToolStatus(toolId, { content: `Opened ${page}: ${summary}` })
+			return `Applied the ${page} filters in place (${summary}).`
+		}
+
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Prepared a link to ${page}: ${summary}`,
+			actions: [{ id: `open-page:${page}:${url}`, type: 'navigate', label: summary, url, page }]
+		})
+		return `Offered the user a link to the ${page} page (${summary}). They can click it to open.`
+	}
+}
+
 export const globalTools: Tool<{}>[] = [
 	readSkillTool,
+	openPageTool,
 	{
 		def: createToolDef(
 			getInstructionsSchema,
@@ -2524,6 +2655,34 @@ function openSessionPreview(
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
 	return openPreviewHandler({ ...args, sessionId })
+}
+
+// Opens a workspace *page* (Runs, Schedules, …) as a page tab in the session's
+// side-panel preview, so open_page can show it next to the chat instead of
+// navigating the whole browser. Registered by the session runtime. Returns a
+// status string when opened in a session, or undefined when there is no active
+// session — signalling open_page to fall back to a link chip / direct navigation.
+export type OpenPagePreviewHandler = (req: {
+	sessionId: string | undefined
+	href: string
+	label: string
+	// Force a separate tab instead of reusing the tab already showing this page.
+	newTab: boolean
+}) => string | undefined
+
+let openPagePreviewHandler: OpenPagePreviewHandler | undefined
+
+export function setOpenPagePreviewHandler(handler: OpenPagePreviewHandler | undefined): void {
+	openPagePreviewHandler = handler
+}
+
+function openPagePreview(req: {
+	sessionId: string | undefined
+	href: string
+	label: string
+	newTab: boolean
+}): string | undefined {
+	return openPagePreviewHandler?.(req)
 }
 
 // Companion to `open_preview`: lets the assistant query the current preview
