@@ -345,6 +345,18 @@ export class AIChatManager {
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
+	// Resolves the workspace this chat operates on. Session chats set it to their
+	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
+	// global workspaceStore. Undefined for the global side-panel chat, which
+	// follows the active workspace. Always read via `operatingWorkspace`.
+	workspaceResolver: (() => string | undefined) | undefined = undefined
+
+	// The workspace every workspace-scoped chat action targets — skills, tool
+	// loop, logging, user-message context, and commit. Session-resolved when a
+	// resolver is set, else the globally-active workspace.
+	get operatingWorkspace(): string | undefined {
+		return this.workspaceResolver?.() ?? get(workspaceStore)
+	}
 
 	// Fired whenever the active chat id changes away from the one the consumer
 	// knows (a "/clear" rotation or a history switch). Session runtimes wire this
@@ -1088,7 +1100,7 @@ export class AIChatManager {
 		this.systemMessage = systemMessage
 	}
 
-	refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
+	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.globalSkillsRefreshId
 		const skills = await loadWorkspaceSkills(workspace)
 		if (refreshId !== this.globalSkillsRefreshId) {
@@ -1349,11 +1361,19 @@ export class AIChatManager {
 				get webSearch() {
 					return isWebSearchEnabledForProvider(getCurrentModel().provider)
 				},
-				clients: {
-					openai: workspaceAIClients.getOpenaiClient(),
-					anthropic: workspaceAIClients.getAnthropicClient()
+				// Build the proxy clients against the operating workspace, not the global
+				// singleton: a session deliberately leaves workspaceStore untouched, so the
+				// singleton (init'd only on global workspace changes) would route the LLM
+				// request through the navigation workspace's /ai/proxy instead of the
+				// session's — sending it to the wrong workspace's AI credentials.
+				get clients() {
+					const ws = self.operatingWorkspace ?? ''
+					return {
+						openai: workspaceAIClients.createOpenaiClient(ws),
+						anthropic: workspaceAIClients.createAnthropicClient(ws)
+					}
 				},
-				workspace: get(workspaceStore) ?? '',
+				workspace: this.operatingWorkspace ?? '',
 				skipResponsesApi: this.skipResponsesApi,
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
@@ -1378,7 +1398,7 @@ export class AIChatManager {
 						return prepareGlobalUserMessage(
 							pendingPrompt,
 							this.contextManager.getSelectedContext(),
-							{ workspace: get(workspaceStore) }
+							{ workspace: this.operatingWorkspace }
 						)
 					}
 					return undefined
@@ -1581,7 +1601,7 @@ export class AIChatManager {
 		// Session chats commit their workspace in beforeSend; skills must match the
 		// committed workspace before the system prompt is sent.
 		if (this.mode === AIMode.GLOBAL) {
-			await this.refreshGlobalSkills(get(workspaceStore) ?? '')
+			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		// Declared outside `try` so the catch can recover what the loop produced
@@ -1609,7 +1629,7 @@ export class AIChatManager {
 			const model = tryGetCurrentModel()
 			if (model) {
 				WorkspaceService.logAiChat({
-					workspace: get(workspaceStore) ?? '',
+					workspace: this.operatingWorkspace ?? '',
 					requestBody: {
 						session_id: this.historyManager.getCurrentChatId(),
 						provider: model.provider,
@@ -1693,7 +1713,7 @@ export class AIChatManager {
 					break
 				case AIMode.GLOBAL:
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
-						workspace: get(workspaceStore)
+						workspace: this.operatingWorkspace
 					})
 					break
 				case AIMode.APP:

@@ -8,11 +8,14 @@
 	} from 'lucide-svelte'
 	import type { SessionChatStatus } from './sessionRuntime.svelte'
 
+	// The fork icon is deliberately sync-state-agnostic (no ahead/behind/
+	// diverged variants — that detail lives in the fork bar). Its only special
+	// state is detached: the session's fork workspace no longer exists.
 	let {
 		status,
 		isFork,
-		unavailable = false
-	}: { status: SessionChatStatus; isFork: boolean; unavailable?: boolean } = $props()
+		forkDetached = false
+	}: { status: SessionChatStatus; isFork: boolean; forkDetached?: boolean } = $props()
 
 	const statusTooltip: Record<SessionChatStatus, string> = {
 		idle: 'No chat activity',
@@ -32,7 +35,7 @@
 
 	const persistentTitle = $derived(
 		isFork
-			? unavailable
+			? forkDetached
 				? 'Fork — no longer available'
 				: 'Fork session'
 			: 'Root workspace session'
@@ -53,7 +56,7 @@
 	{:else if status === 'error'}
 		<AlertTriangle class="w-3 h-3 text-red-500" />
 	{:else if isFork}
-		{#if unavailable}
+		{#if forkDetached}
 			<GitPullRequestClosed class="w-3 h-3 text-red-500" />
 		{:else}
 			<GitFork class="w-3 h-3 text-tertiary" />
