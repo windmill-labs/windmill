@@ -925,6 +925,16 @@ export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSy
 
 ### Frontend
 - The frontend is bundled using esbuild with entrypoint \`index.tsx\`
+- \`index.tsx\` is also the **mount** entrypoint: it MUST mount a top-level \`App\` into \`#root\` — nothing is auto-rendered. Keep your UI in \`App.tsx\` and keep \`index.tsx\` as the mount shim:
+  \`\`\`tsx
+  import React from 'react'
+  import { createRoot } from 'react-dom/client'
+  import App from './App'
+
+  createRoot(document.getElementById('root')!).render(<App />)
+  \`\`\`
+  (Svelte: \`mount(App, { target: document.getElementById('root')! })\`; Vue: \`createApp(App).mount('#root')\`.)
+- **Never replace \`index.tsx\` with a bare component.** A component that is defined but never mounted produces a **blank screen with NO error** (the JSX never runs, so nothing throws). If the app renders blank, first verify \`index.tsx\` calls \`createRoot(document.getElementById('root')!).render(<App />)\`.
 - Frontend files are managed separately from backend runnables
 - The \`wmill.d.ts\` file is generated automatically from the backend runnables shape
 - Begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`. Raw apps bundle with the classic JSX transform, so \`React\` must be in scope wherever JSX is used — a missing import compiles fine but throws \`React is not defined\` at runtime.
