@@ -239,12 +239,13 @@ export default class HistoryManager {
 				lastModified: Date.now(),
 				...(this.sessionId ? { sessionId: this.sessionId } : {}),
 				...(contextUsage !== undefined ? { contextUsage } : {}),
-				// Only persist when the caller passes a defined array. Loaded legacy
-				// chats keep their accumulator undefined, so we never retroactively
-				// stamp them with [] (which would flip them to the filtered view).
-				// But since `put` replaces the whole record, a caller that omits the
-				// argument must not ERASE a tracked chat's stored mask — fall back to
-				// the previously saved field.
+				// Only persist when the caller passes a defined array — an untracked
+				// chat (the global side-panel chat, mask still undefined) must not be
+				// stamped with [], which would flip it to the filtered view. Session
+				// chats are always tracked (see AIChatManager.loadPastChat), so they do
+				// pass a defined array and persist it. Since `put` replaces the whole
+				// record, a caller that omits the argument must not ERASE a tracked
+				// chat's stored mask — fall back to the previously saved field.
 				...(modifiedItems !== undefined
 					? { modifiedItems }
 					: this.savedChats[this.currentChatId]?.modifiedItems !== undefined
