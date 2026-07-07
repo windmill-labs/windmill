@@ -53,6 +53,12 @@ vi.mock('@leeoniya/ufuzzy', () => ({
 	}
 }))
 
+// deriveChatJobStatus's scheduled branch calls forLater; stub it deterministically
+// (a real one pulls in stores/db-clock drift) — "later" = >5s in the future.
+vi.mock('$lib/forLater', () => ({
+	forLater: (scheduled: string | number | Date) => new Date(scheduled).getTime() > Date.now() + 5000
+}))
+
 describe('createToolDef', () => {
 	it('builds the create_trigger schema without top-level composition', async () => {
 		const { createToolDef } = await import('./shared')
@@ -779,5 +785,94 @@ describe('pollJobCompletion detach', () => {
 		} finally {
 			vi.useRealTimers()
 		}
+	})
+})
+
+describe('deriveChatJobStatus', () => {
+	// CompletedJob is discriminated by the presence of a `success` key; the branch
+	// order deliberately mirrors JobStatusIcon so the badge and scalar never drift.
+	it('maps a canceled completed job to canceled (canceled wins over success=false)', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: false, canceled: true } as any)).toBe('canceled')
+	})
+
+	it('maps a successful completed job to success', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: true, canceled: false } as any)).toBe('success')
+	})
+
+	it('maps a non-canceled failed completed job to failure', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: false, canceled: false } as any)).toBe('failure')
+	})
+
+	it('maps a running suspended queued job to suspended', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: true, suspend: 1 } as any)).toBe('suspended')
+	})
+
+	it('maps a running queued job to running', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: true } as any)).toBe('running')
+	})
+
+	it('maps a future-scheduled queued job to scheduled', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		const future = new Date(Date.now() + 3_600_000).toISOString()
+		expect(deriveChatJobStatus({ running: false, scheduled_for: future } as any)).toBe('scheduled')
+	})
+
+	it('maps a plain (non-running, non-scheduled) queued job to queued', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: false } as any)).toBe('queued')
+	})
+})
+
+describe('trimJob', () => {
+	const HEAVY = ['logs', 'args', 'result', 'raw_code', 'raw_flow', 'flow_status']
+
+	it('preserves the ABSENCE of a success key on a queued job (JobStatusIcon in-operator invariant)', async () => {
+		const { trimJob } = await import('./shared')
+		const queued = {
+			id: 'j1',
+			running: true,
+			logs: 'x',
+			args: {},
+			result: 1,
+			raw_code: 'c',
+			raw_flow: {},
+			flow_status: {}
+		}
+		const trimmed = trimJob(queued as any)
+		// The load-bearing invariant: a running/queued job must NOT gain a `success`
+		// key, or deriveChatJobStatus/JobStatusIcon would misread it as completed.
+		expect('success' in trimmed).toBe(false)
+		expect(trimmed.running).toBe(true)
+		expect(trimmed.id).toBe('j1')
+	})
+
+	it('deletes the six heavy fields but keeps the status-discriminant scalar', async () => {
+		const { trimJob } = await import('./shared')
+		const job = {
+			id: 'j1',
+			success: true,
+			logs: 'x',
+			args: { a: 1 },
+			result: [1],
+			raw_code: 'c',
+			raw_flow: { modules: [] },
+			flow_status: { step: 0 }
+		}
+		const trimmed = trimJob(job as any) as Record<string, unknown>
+		for (const k of HEAVY) expect(k in trimmed).toBe(false)
+		expect('success' in trimmed).toBe(true)
+		expect(trimmed.success).toBe(true)
+	})
+
+	it('does not mutate the input job', async () => {
+		const { trimJob } = await import('./shared')
+		const job = { id: 'j1', success: true, result: 42 }
+		trimJob(job as any)
+		expect(job.result).toBe(42)
 	})
 })

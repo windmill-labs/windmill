@@ -242,9 +242,9 @@
 	</div>
 {:else if committedId && (showBar || hasJobs)}
 	<!-- Segmented session bar: an Edits segment (what the AI changed this session)
-	     and a Jobs segment (background jobs it started), sharing one border box and
-	     split by a hairline. Each segment hides when its side is empty, so the other
-	     spans the full width. Fork identity / sync status lives inside the modal. -->
+	     and a Jobs segment (background jobs it started), sharing one border box.
+	     Each segment hides when its side is empty, so the other spans the full
+	     width. Fork identity / sync status lives inside the modal. -->
 	<div
 		class="flex h-[38px] items-stretch overflow-hidden rounded-md border bg-surface-tertiary text-xs"
 	>

@@ -293,6 +293,10 @@ export class AIChatManager {
 	#autoResuming = false
 	#jobPollTimer: ReturnType<typeof setTimeout> | undefined = undefined
 	#jobPollDelay = 2000
+	// Bumped on every conversation switch (clearBackgroundJobs). An in-flight poll
+	// captures it before its awaits and bails if it changed, so a getJob that
+	// resolves after the user switched chats can't mutate the newly-loaded one.
+	#jobPollGeneration = 0
 	// Consecutive getJob failures per background job, so a vanished/404 job can be
 	// drained instead of polled forever. Ephemeral, keyed by jobId.
 	#jobPollFailures = new Map<string, number>()
@@ -549,6 +553,7 @@ export class AIChatManager {
 
 	async #pollBackgroundJobs() {
 		this.#jobPollTimer = undefined
+		const gen = this.#jobPollGeneration
 		const pending = this.backgroundJobs.filter((j) => j.detached && this.isJobNonTerminal(j.status))
 		if (pending.length === 0) return
 
@@ -561,6 +566,10 @@ export class AIChatManager {
 					noLogs: false,
 					noCode: true
 				})
+				// The user switched conversations while this getJob was in flight; its
+				// result belongs to a chat that's gone. Drop it rather than mutate the
+				// newly-loaded one (which re-armed its own poller on load).
+				if (gen !== this.#jobPollGeneration) return
 				this.#jobPollFailures.delete(job.jobId)
 				if (fetched.type === 'CompletedJob') {
 					anyTerminal = true
@@ -574,6 +583,9 @@ export class AIChatManager {
 					})
 				}
 			} catch (e) {
+				// Same generation guard as the success path — a switch during the failing
+				// getJob means this result is for a conversation that's gone.
+				if (gen !== this.#jobPollGeneration) return
 				// A vanished job (404) or repeated failures must not keep the poller
 				// alive forever — now that suspended/scheduled are polled too, drain it
 				// as failed so isJobNonTerminal lets the poller stop.
@@ -607,14 +619,19 @@ export class AIChatManager {
 	}
 
 	#onBackgroundJobComplete(job: ChatJob, completed: CompletedJob) {
+		const status = deriveChatJobStatus(completed)
 		this.updateJob(job.jobId, {
-			status: deriveChatJobStatus(completed),
+			status,
 			durationMs: completed.duration_ms,
 			reported: true,
 			job: trimJob(completed)
 		})
 		// Fill the tool card that launched it (we run outside a turn here).
 		this.applyToolStatus(job.toolCallId, completedJobToolStatus(completed))
+		// A user-canceled job needs no model note or auto-resume: the user stopped it
+		// deliberately, so announcing it (as "FAILED", since a canceled job isn't a
+		// success) or burning a turn on it would be noise.
+		if (status === 'canceled') return
 		// Queue a completion note for the model. Delivered on the next turn —
 		// either the user's next message or an idle auto-resume (fired by the poller).
 		this.pendingJobNotes = [
@@ -680,6 +697,9 @@ export class AIChatManager {
 	/** Reset background-job state on conversation switch. */
 	private clearBackgroundJobs() {
 		this.#stopJobPoller()
+		// Invalidate any in-flight poll so its post-await continuation can't write
+		// into the conversation we're switching to.
+		this.#jobPollGeneration++
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
 	}

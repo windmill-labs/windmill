@@ -1267,6 +1267,11 @@ function backgroundedSummary(jobId: string, label: string): string {
 // terminal branch of executeTestRun so a job that finished in the background
 // fills its card the same way one that finished inline does.
 export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMessage> {
+	// A canceled job isn't a `success`, but it isn't a failure either — the user
+	// stopped it — so don't dress the card as an error.
+	if (job.canceled) {
+		return { content: 'Background job canceled', logs: formatLogs(job.logs) }
+	}
 	return {
 		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
 		result: formatResult(job.result),
