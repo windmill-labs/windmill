@@ -77,6 +77,10 @@ import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 // (synchronous) target swap.
 export interface LoadSlot {
 	loadedPath: string | undefined
+	// The workspace `loadedPath`'s content was fetched from. A session can retarget
+	// the same item path to a different fork, so the cache must key on both — else
+	// the editor keeps the old workspace's content while save/deploy write to the new.
+	loadedWorkspace: string | undefined
 	loading: boolean
 	notFound: boolean
 }
@@ -295,15 +299,15 @@ function createRuntime(session: Session): SessionRuntime {
 		val: undefined
 	})
 
-	const flowSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+	const flowSlot: LoadSlot = $state({ loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false })
 
 	const scriptStore: { val: NewScript | undefined } = $state({ val: undefined })
 	const savedScript: { val: SavedScript | undefined } = $state({ val: undefined })
-	const scriptSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+	const scriptSlot: LoadSlot = $state({ loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false })
 
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
-	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false })
 
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
@@ -339,7 +343,7 @@ function createRuntime(session: Session): SessionRuntime {
 		savedFlow,
 
 		async loadFlow(workspace: string, path: string, force = false) {
-			if (flowSlot.loadedPath === path && !force) return
+			if (flowSlot.loadedPath === path && flowSlot.loadedWorkspace === workspace && !force) return
 			// See loadScript: forced reload remounts via the render gate.
 			if (force) flowSlot.loadedPath = undefined
 			flowSlot.loading = true
@@ -375,6 +379,7 @@ function createRuntime(session: Session): SessionRuntime {
 					if (deployedVersionId != null && flowStore.val)
 						flowStore.val.version_id = deployedVersionId
 					flowSlot.loadedPath = path
+					flowSlot.loadedWorkspace = workspace
 					return
 				}
 
@@ -396,6 +401,7 @@ function createRuntime(session: Session): SessionRuntime {
 				await initFlow(flow, flowStore, flowStateStore)
 				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
 				flowSlot.loadedPath = path
+				flowSlot.loadedWorkspace = workspace
 			} catch (err) {
 				console.error('Failed to load flow', err)
 				flowSlot.notFound = true
@@ -408,7 +414,7 @@ function createRuntime(session: Session): SessionRuntime {
 		savedScript,
 
 		async loadScript(workspace: string, path: string, force = false) {
-			if (scriptSlot.loadedPath === path && !force) return
+			if (scriptSlot.loadedPath === path && scriptSlot.loadedWorkspace === workspace && !force) return
 			// Forced reload: clearing the slot's loadedPath drops us into
 			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
 			// which unmounts then remounts the editor — avoids the Monaco init race a
@@ -466,6 +472,7 @@ function createRuntime(session: Session): SessionRuntime {
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
 					scriptStore.val = baseline
 					scriptSlot.loadedPath = path
+					scriptSlot.loadedWorkspace = workspace
 					return
 				}
 
@@ -491,6 +498,7 @@ function createRuntime(session: Session): SessionRuntime {
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline
 				scriptSlot.loadedPath = path
+				scriptSlot.loadedWorkspace = workspace
 			} catch (err) {
 				console.error('Failed to load script', err)
 				scriptSlot.notFound = true
@@ -503,7 +511,7 @@ function createRuntime(session: Session): SessionRuntime {
 		savedRawApp,
 
 		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
-			if (rawAppSlot.loadedPath === path && !force) return
+			if (rawAppSlot.loadedPath === path && rawAppSlot.loadedWorkspace === workspace && !force) return
 			// See loadScript: forced reload remounts via the render gate.
 			if (force) rawAppSlot.loadedPath = undefined
 			rawAppSlot.loading = true
@@ -554,6 +562,7 @@ function createRuntime(session: Session): SessionRuntime {
 						aiDraft
 					)
 					rawAppSlot.loadedPath = path
+					rawAppSlot.loadedWorkspace = workspace
 					return
 				}
 
@@ -615,6 +624,7 @@ function createRuntime(session: Session): SessionRuntime {
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue
 				rawAppSlot.loadedPath = path
+				rawAppSlot.loadedWorkspace = workspace
 			} catch (err) {
 				console.error('Failed to load raw app', err)
 				rawAppSlot.notFound = true
