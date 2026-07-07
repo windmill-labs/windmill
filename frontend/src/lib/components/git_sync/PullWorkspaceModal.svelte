@@ -13,7 +13,7 @@
 	} from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import hubPaths from '$lib/hubPaths.json'
 	import { jobManager } from '$lib/services/JobManager'
@@ -147,6 +147,9 @@
 			const workspace = $workspaceStore
 			if (!workspace) return
 
+			// A dev workspace pulls from its environment-label branch (dev/staging),
+			// not the resource's tracked branch.
+			const currentWs = $userWorkspaces?.find((w) => w.id === workspace)
 			const payload = {
 				workspace_id: workspace,
 				repo_url_resource_path: gitRepoResourcePath,
@@ -155,7 +158,10 @@
 				only_wmill_yaml: settingsOnly,
 				settings_json: JSON.stringify(uiState),
 				use_promotion_overrides:
-					currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true
+					currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true,
+				...(currentWs?.is_dev_workspace
+					? { clone_ref: currentWs.dev_workspace_label ?? 'dev' }
+					: {})
 			}
 
 			const jobId = await JobService.runScriptByPath({

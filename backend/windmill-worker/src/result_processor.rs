@@ -879,14 +879,16 @@ async fn maybe_reconcile_git_sync_auto_pull(
 }
 
 /// Branch a git-sync push job deployed to, mirroring the hub script's
-/// derivation: the fork branch wins for fork workspaces
-/// (`wm-fork/<base>/<id-suffix>`), else the promotion `wm_deploy/**` formula
-/// (per-folder or per-item form). `None` when the deploy stays on the base
-/// branch (workspace-wide mode) and has no PR to open.
+/// derivation: a dev workspace deploys to its environment-label branch
+/// (`dev`/`staging`), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
+/// else the promotion `wm_deploy/**` formula (per-folder or per-item form).
+/// `None` when the deploy stays on the base branch (workspace-wide mode) and
+/// has no PR to open.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn git_sync_deploy_pr_head_branch(
     workspace_id: &str,
     parent_workspace_id: Option<&str>,
+    dev_workspace_label: Option<&str>,
     base: &str,
     use_individual_branch: bool,
     group_by_folder: bool,
@@ -894,6 +896,11 @@ fn git_sync_deploy_pr_head_branch(
     item_parent_path: &str,
     path_type: &str,
 ) -> Option<String> {
+    if dev_workspace_label.is_some() {
+        return Some(windmill_common::workspaces::dev_workspace_branch(
+            dev_workspace_label,
+        ));
+    }
     let is_fork = parent_workspace_id.is_some()
         || workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
     if is_fork {
@@ -939,6 +946,7 @@ async fn maybe_open_git_sync_deploy_pr(db: &DB, job_id: &uuid::Uuid, workspace_i
             args->'__git_sync_open_pr' as "marker",
             args->>'repo_url_resource_path' as "repo_path",
             args->>'parent_workspace_id' as "parent_workspace_id",
+            args->>'dev_workspace_label' as "dev_workspace_label",
             COALESCE((args->'use_individual_branch')::bool, false) as "use_individual_branch!",
             COALESCE((args->'group_by_folder')::bool, false) as "group_by_folder!",
             COALESCE(args->'items'->0->>'path', args->>'path', '') as "item_path!",
@@ -990,6 +998,7 @@ async fn maybe_open_git_sync_deploy_pr(db: &DB, job_id: &uuid::Uuid, workspace_i
     let Some(head) = git_sync_deploy_pr_head_branch(
         workspace_id,
         row.parent_workspace_id.as_deref(),
+        row.dev_workspace_label.as_deref(),
         &base,
         row.use_individual_branch,
         row.group_by_folder,
@@ -1795,17 +1804,38 @@ mod git_sync_pr_tests {
     fn fork_branch_wins_and_strips_the_id_prefix() {
         // Generated fork id: branch suffix drops the wm-fork- prefix.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("wm-fork-abc", Some("prod"), "main", false, false, "", "", ""),
+            git_sync_deploy_pr_head_branch("wm-fork-abc", Some("prod"), None,
+                "main",
+                false,
+                false,
+                "",
+                "",
+                ""
+            ),
             Some("wm-fork/main/abc".to_string())
         );
         // Dev workspace (prefix-less id, detected via parent): verbatim suffix.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("staging", Some("prod"), "main", false, false, "", "", ""),
+            git_sync_deploy_pr_head_branch("staging", Some("prod"), None,
+                "main",
+                false,
+                false,
+                "",
+                "",
+                ""
+            ),
             Some("wm-fork/main/staging".to_string())
         );
         // Orphaned fork (parent deleted): the id prefix still identifies it.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("wm-fork-abc", None, "main", true, false, "f/x/y", "", "script"),
+            git_sync_deploy_pr_head_branch("wm-fork-abc", None, None,
+                "main",
+                true,
+                false,
+                "f/x/y",
+                "",
+                "script"
+            ),
             Some("wm-fork/main/abc".to_string())
         );
     }
@@ -1814,17 +1844,38 @@ mod git_sync_pr_tests {
     fn promotion_branch_matches_the_hub_script_formula() {
         // Per-item form: wm_deploy/<ws>/<path_type>/<path with / -> __>.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, "main", true, false, "f/folder/my_script", "", "script"),
+            git_sync_deploy_pr_head_branch("dev", None, None,
+                "main",
+                true,
+                false,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
             Some("wm_deploy/dev/script/f__folder__my_script".to_string())
         );
         // Grouped-by-folder form: first two path segments joined by __.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, "main", true, true, "f/folder/my_script", "", "script"),
+            git_sync_deploy_pr_head_branch("dev", None, None,
+                "main",
+                true,
+                true,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
             Some("wm_deploy/dev/f__folder".to_string())
         );
         // Renamed object: falls back to the parent path.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, "main", true, false, "", "f/folder/old", "script"),
+            git_sync_deploy_pr_head_branch("dev", None, None,
+                "main",
+                true,
+                false,
+                "",
+                "f/folder/old",
+                "script"
+            ),
             Some("wm_deploy/dev/script/f__folder__old".to_string())
         );
     }
@@ -1833,13 +1884,28 @@ mod git_sync_pr_tests {
     fn no_branch_when_deploy_stays_on_base() {
         // Workspace-wide mode commits straight to the tracked branch.
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, "main", false, false, "f/x/y", "", "script"),
+            git_sync_deploy_pr_head_branch("dev", None, None, "main", false, false, "f/x/y", "", "script"
+            ),
             None
         );
         // Promotion mode but no per-item ref (e.g. user/group objects).
         assert_eq!(
-            git_sync_deploy_pr_head_branch("dev", None, "main", true, false, "", "", "user"),
+            git_sync_deploy_pr_head_branch("dev", None, None, "main", true, false, "", "", "user"),
             None
+        );
+    }
+
+    #[test]
+    fn dev_workspace_label_branch_wins() {
+        // Dev workspaces deploy to their environment-label branch verbatim.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("staging-ws", Some("prod"), Some("staging"), "main", false, false, "", "", ""),
+            Some("staging".to_string())
+        );
+        // Label present even on a wm-fork-prefixed id: label still wins.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("wm-fork-x", Some("prod"), Some("dev"), "main", false, false, "", "", ""),
+            Some("dev".to_string())
         );
     }
 }

@@ -104,6 +104,19 @@ describe("computeGitSyncDeployBranch", () => {
     expect(branch).not.toBe("main");
   });
 
+  test("dev workspace (parent + label) deploys to the label branch", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: false,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("staging");
+  });
+
   test("use_individual_branch=false -> null (stay on base/main, workspace-wide mode)", () => {
     expect(
       computeGitSyncDeployBranch({
@@ -178,6 +191,15 @@ describe("computeGitSyncDeployBranch", () => {
 describe("forkBranchName", () => {
   test("maps wm-fork-<id> to wm-fork/<branch>/<id>", () => {
     expect(forkBranchName("wm-fork-abc", "main")).toBe("wm-fork/main/abc");
+  });
+
+  test("dev workspace label wins: the branch is the label verbatim", () => {
+    expect(forkBranchName("staging-ws", "main", "staging")).toBe("staging");
+    expect(forkBranchName("wm-fork-abc", "main", "dev")).toBe("dev");
+  });
+
+  test("prefix-less id without a label falls back to the wm-fork form", () => {
+    expect(forkBranchName("staging-ws", "main")).toBe("wm-fork/main/staging-ws");
   });
 });
 

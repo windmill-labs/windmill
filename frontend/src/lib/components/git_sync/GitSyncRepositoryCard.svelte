@@ -99,10 +99,12 @@
 
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
 	// The branch this fork workspace syncs with, mirroring the CLI/hub-script
-	// naming: a wm-fork-<slug> id keeps only the slug, a dev workspace id is
-	// used verbatim.
+	// naming: a dev workspace uses its environment-label branch verbatim
+	// (dev/staging); a wm-fork-<slug> throwaway fork keeps only the slug.
 	const forkBranch = $derived(
-		`wm-fork/${targetBranch ?? 'main'}/${($workspaceStore ?? '').replace(/^wm-fork-/, '')}`
+		currentWorkspaceData?.is_dev_workspace
+			? (currentWorkspaceData?.dev_workspace_label ?? 'dev')
+			: `wm-fork/${targetBranch ?? 'main'}/${($workspaceStore ?? '').replace(/^wm-fork-/, '')}`
 	)
 	let resourceInfo = $state<{ url?: string; error?: string } | null>(null)
 	let loadingResourceInfo = $state(false)

@@ -124,14 +124,19 @@ export function isForkWorkspace(
   return !!parentWorkspaceId || workspaceId.startsWith(FORK_WORKSPACE_PREFIX);
 }
 
-// Mirrors the hub script's get_fork_branch_name. A `wm-fork-<slug>` fork id becomes
-// "wm-fork/<originalBranch>/<slug>". A dev workspace keeps a custom id with no
-// prefix, so prepend the branch prefix to the full id (e.g. "staging" ->
-// "wm-fork/main/staging") rather than replacing a prefix that isn't there.
+// Mirrors the hub script's get_fork_branch_name. A dev workspace syncs with its
+// environment-label branch verbatim ("dev"/"staging" — a first-class top-level
+// branch; the backend passes the label with the deploy). A `wm-fork-<slug>`
+// throwaway fork id becomes "wm-fork/<originalBranch>/<slug>"; a prefix-less id
+// without a label falls back to "wm-fork/<originalBranch>/<id>".
 export function forkBranchName(
   workspaceId: string,
   originalBranch: string,
+  devWorkspaceLabel?: string | null,
 ): string {
+  if (devWorkspaceLabel) {
+    return devWorkspaceLabel;
+  }
   const branchPrefix = `${WM_FORK_PREFIX}/${originalBranch}/`;
   return workspaceId.startsWith(FORK_WORKSPACE_PREFIX)
     ? workspaceId.replace(FORK_WORKSPACE_PREFIX, branchPrefix)
@@ -144,6 +149,7 @@ export function forkBranchName(
 export function computeGitSyncDeployBranch(params: {
   workspaceId: string;
   parentWorkspaceId?: string | null;
+  devWorkspaceLabel?: string | null;
   items: GitSyncDeployItem[];
   useIndividualBranch: boolean;
   groupByFolder: boolean;
@@ -152,6 +158,7 @@ export function computeGitSyncDeployBranch(params: {
   const {
     workspaceId,
     parentWorkspaceId,
+    devWorkspaceLabel,
     items,
     useIndividualBranch,
     groupByFolder,
@@ -159,7 +166,7 @@ export function computeGitSyncDeployBranch(params: {
   } = params;
 
   if (isForkWorkspace(workspaceId, parentWorkspaceId)) {
-    return forkBranchName(workspaceId, clonedBranchName);
+    return forkBranchName(workspaceId, clonedBranchName, devWorkspaceLabel);
   }
 
   if (items.length === 0) return null;

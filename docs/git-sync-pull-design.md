@@ -485,22 +485,36 @@ webhook, resource, or config; applies to current *and* future forks.
 
 How a fork branch change reaches the fork workspace (both delivery paths):
 
-- **Webhook**: the push to `wm-fork/<base>/<suffix>` lands on the **parent's**
-  webhook. `handle_github_git_sync_event` requires a `[WM]`-less head commit (a
-  fork's own deploy must not pull itself back), `auto_pull.enabled && sync_forks`,
-  and `base` == tracked branch, then calls `reconcile_fork_branch_pull`.
+- **Webhook**: the push to a fork branch (`wm-fork/<base>/<suffix>`, or a dev
+  workspace's label branch) lands on the **parent's** webhook.
+  `handle_github_git_sync_event` requires a `[WM]`-less head commit (a fork's
+  own deploy must not pull itself back) and `auto_pull.enabled && sync_forks`,
+  then calls `reconcile_fork_branch_pull`; branches that resolve to no live
+  child no-op.
 - **Polling**: the parent's poll tick also lists every `wm-fork/<tracked>/*` head
-  in one extra call — a `git ls-remote` pattern for token repos,
-  `git/matching-refs` for app-backed — and reconciles each
+  plus its dev-workspace children's label branches in one extra call — a
+  `git ls-remote` pattern (+ explicit refs) for token repos, `git/matching-refs`
+  (+ per-label head lookups) for app-backed — and reconciles each
   (`poll_git_fork_branches` in `monitor.rs`).
 
+**Dev workspaces sync with their environment-label branch.** A dev workspace's
+branch is its label verbatim (`dev`/`staging` — the classic env-branch layout,
+matching the documented `push-on-merge-staging` Action), not the namespaced
+`wm-fork/**` form. The label is set at create/attach time and immutable
+afterwards (the branch is keyed on it; the old set-label endpoint was removed),
+defaulting to `dev`. The backend passes it with every deploy job
+(`dev_workspace_label` arg → hub script → CLI `--dev-workspace-label`), the PR
+completion hook derives the same branch, and the CLI refuses to deploy when the
+label branch equals the checked-out tracked branch (which would otherwise
+commit fork content straight to it).
+
 `reconcile_fork_branch_pull` (windmill-git-sync EE) is the shared routing core:
-parse the branch (`parse_fork_branch` in windmill-common; handles the
-`wm-fork-<suffix>` fork-id form and the verbatim dev-workspace-id form), resolve
-it to a **live child of this parent** (`parent_workspace_id` match + `NOT
-deleted`, so a crafted branch name can't route a pull into an unrelated
-workspace), load the fork's own repo entry, and run the shared
-`reconcile_and_enqueue_pull` with the fork's per-ref dedup state and a
+resolve the branch to a **live child of this parent** (`parent_workspace_id`
+match + `NOT deleted`, so a crafted branch name can't route a pull into an
+unrelated workspace) — the `wm-fork/<base>/<suffix>` form via
+`parse_fork_branch` (windmill-common), or an environment-label branch via a
+dev-workspace label lookup — then load the fork's own repo entry and run the
+shared `reconcile_and_enqueue_pull` with the fork's per-ref dedup state and a
 `clone_ref` override so the pull job clones the fork branch instead of the
 resource's tracked branch.
 

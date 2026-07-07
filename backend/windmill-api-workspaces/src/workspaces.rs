@@ -156,7 +156,6 @@ pub fn workspaced_service() -> Router {
         .route("/create_fork", post(create_workspace_fork))
         .route("/attach_dev_workspace", post(attach_dev_workspace))
         .route("/detach_dev_workspace", post(detach_dev_workspace))
-        .route("/set_dev_workspace_label", post(set_dev_workspace_label))
         .route("/get_dev_workspace", get(get_dev_workspace))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
@@ -6240,51 +6239,6 @@ async fn attach_dev_workspace(
         "Attached {} as dev workspace of {}",
         dev_w_id, prod_w_id
     ))
-}
-
-#[derive(Deserialize)]
-struct SetDevWorkspaceLabel {
-    #[serde(default)]
-    dev_workspace_label: Option<String>,
-}
-
-/// Change the cosmetic display label ('dev' | 'staging') of the current workspace, which must itself
-/// be a dev workspace. Purely visual (badge text + wording); requires admin of the dev workspace.
-async fn set_dev_workspace_label(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<SetDevWorkspaceLabel>,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-    let label = normalize_dev_workspace_label(req.dev_workspace_label)?;
-
-    let mut tx = db.begin().await?;
-    let updated = sqlx::query_scalar!(
-        "UPDATE workspace SET dev_workspace_label = $1 WHERE id = $2 AND is_dev_workspace RETURNING id",
-        label,
-        &w_id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    if updated.is_none() {
-        return Err(Error::BadRequest(format!(
-            "Workspace '{w_id}' is not a dev workspace"
-        )));
-    }
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.set_dev_workspace_label",
-        ActionKind::Update,
-        &w_id,
-        label.as_deref(),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(format!("Updated dev workspace label for {w_id}"))
 }
 
 /// Reverse [`attach_dev_workspace`] / clear the dev designation: unset the dev flag and remove the

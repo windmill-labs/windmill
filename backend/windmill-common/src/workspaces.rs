@@ -217,6 +217,14 @@ pub fn fork_branch_workspace_id_candidates(suffix: &str) -> [String; 2] {
     [format!("{WM_FORK_PREFIX}{suffix}"), suffix.to_string()]
 }
 
+/// Git branch a dev workspace syncs with: its environment label verbatim, as a
+/// first-class top-level branch (`dev`, `staging` — the classic env-branch
+/// layout), defaulting to `dev` when the label is unset. Throwaway forks use
+/// the namespaced `wm-fork/<base>/<suffix>` form instead.
+pub fn dev_workspace_branch(label: Option<&str>) -> String {
+    label.filter(|l| !l.is_empty()).unwrap_or("dev").to_string()
+}
+
 /// The `workspace.name` column is `character varying(50)`, so a name longer than 50 characters
 /// triggers a raw `value too long for type character varying(50)` SQL error on insert. Validate
 /// up front to return a clear message instead.

@@ -3293,11 +3293,34 @@ async fn poll_git_fork_branches(
     repo_path: &str,
     base_branch: &str,
 ) {
+    // Dev-workspace children sync with their environment-label branch (`dev`/
+    // `staging`) rather than the `wm-fork/**` pattern, so their branches must be
+    // listed explicitly. A label equal to the tracked branch is excluded — the
+    // parent's own head check covers it.
+    let label_refs: Vec<String> = match sqlx::query_scalar!(
+        r#"SELECT DISTINCT COALESCE(dev_workspace_label, 'dev') as "label!"
+           FROM workspace
+           WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted"#,
+        parent_w_id
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(labels) => labels.into_iter().filter(|l| l != base_branch).collect(),
+        Err(e) => {
+            tracing::warn!(
+                "git fork sync: failed to list dev-workspace labels for {parent_w_id}: {e:#}"
+            );
+            Vec::new()
+        }
+    };
+
     let fork_heads = match windmill_store::resources::get_git_repo_fork_heads_for_autopull(
         db,
         parent_w_id,
         repo_path,
         base_branch,
+        &label_refs,
     )
     .await
     {
@@ -3312,6 +3335,7 @@ async fn poll_git_fork_branches(
                     parent_w_id,
                     repo_path,
                     base_branch,
+                    &label_refs,
                 )
                 .await
                 .map(|heads| heads.unwrap_or_default())

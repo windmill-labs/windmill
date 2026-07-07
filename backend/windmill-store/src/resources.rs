@@ -2872,16 +2872,19 @@ pub async fn get_git_repo_head_for_autopull(
     Ok(Some((ref_spec, sha)))
 }
 
-/// List the head sha of every `wm-fork/<base_branch>/*` branch of a workspace
-/// git-sync repository in one `git ls-remote` call, for parent-managed fork sync
-/// polling. Same auth model and app-repo exclusion as
-/// [`get_git_repo_head_for_autopull`]: returns `Ok(None)` for GitHub-App-backed
-/// repos (polled over the API instead) and errors on SSH remotes.
+/// List the head sha of every `wm-fork/<base_branch>/*` branch — plus any
+/// `extra_refs` (dev workspaces' environment-label branches, e.g. `dev`,
+/// `staging`) — of a workspace git-sync repository in one `git ls-remote` call,
+/// for parent-managed fork sync polling. Same auth model and app-repo exclusion
+/// as [`get_git_repo_head_for_autopull`]: returns `Ok(None)` for
+/// GitHub-App-backed repos (polled over the API instead) and errors on SSH
+/// remotes.
 pub async fn get_git_repo_fork_heads_for_autopull(
     db: &DB,
     w_id: &str,
     git_repo_resource_path: &str,
     base_branch: &str,
+    extra_refs: &[String],
 ) -> Result<Option<Vec<(String, String)>>> {
     use windmill_common::db::DbWithOptAuthed;
 
@@ -2933,6 +2936,10 @@ pub async fn get_git_repo_fork_heads_for_autopull(
         &git_resource.url,
         &format!("refs/heads/wm-fork/{}/*", base_branch),
     ]);
+    for r in extra_refs {
+        validate_git_ref(r)?;
+        git_cmd.arg(format!("refs/heads/{}", r));
+    }
     git_cmd.stderr(Stdio::piped());
     let output = git_cmd
         .output()

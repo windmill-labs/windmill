@@ -1274,32 +1274,6 @@ paths:
                   - id
                   - name
 
-  /w/{workspace}/workspaces/set_dev_workspace_label:
-    post:
-      summary: set the cosmetic display label (dev/staging) of this dev workspace
-      operationId: setDevWorkspaceLabel
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                dev_workspace_label:
-                  type: string
-                  enum: [dev, staging]
-      responses:
-        "200":
-          description: dev workspace label updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /workspaces/exists:
     post:
       summary: exists workspace

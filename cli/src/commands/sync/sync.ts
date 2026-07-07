@@ -2760,6 +2760,7 @@ export async function pull(
       gitDeployItems?: string;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
     },
@@ -2859,11 +2860,21 @@ export async function pull(
     const deployBranch = computeGitSyncDeployBranch({
       workspaceId: workspace.workspaceId,
       parentWorkspaceId: opts.parentWorkspaceId,
+      devWorkspaceLabel: opts.devWorkspaceLabel,
       items: deployItems,
       useIndividualBranch,
       groupByFolder,
       clonedBranchName,
     });
+    // A dev workspace whose environment-label branch equals the repository's
+    // tracked branch would silently commit the fork's content straight to the
+    // tracked branch. Refuse instead of deploying in place.
+    if (targetIsFork && deployBranch && deployBranch === clonedBranchName) {
+      log.error(
+        `Fork branch '${deployBranch}' equals the checked-out branch '${clonedBranchName}'; refusing to deploy a fork directly to the tracked branch. Use a different dev workspace label or tracked branch.`,
+      );
+      process.exit(1);
+    }
     if (deployBranch && deployBranch !== clonedBranchName) {
       checkoutGitSyncDeployBranch(deployBranch);
     }
@@ -3377,6 +3388,7 @@ export async function gitDeploy(
       groupByFolder?: boolean;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
       skipSecrets?: boolean;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
@@ -5221,6 +5233,10 @@ const command = new Command()
   .option(
     "--parent-workspace-id <id:string>",
     "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .option(
+    "--dev-workspace-label <label:string>",
+    "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
   )
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option(
