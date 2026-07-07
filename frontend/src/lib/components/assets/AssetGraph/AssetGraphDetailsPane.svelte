@@ -578,11 +578,9 @@
 				const orig = latest && latest.path === captured.path ? latest : origAtRegister
 				if (!orig || orig.path !== captured.path) return
 				if ((captured.content ?? '') === (orig.content ?? '')) return
-				// The effect can re-run mid-save — after createScript resolved
-				// but before the refetch lands — with `orig` still holding the
-				// pre-deploy version. The buffer isn't "unsaved edits" then, it
-				// IS the new deployed head; emitting would resurrect it as a
-				// phantom draft identical to what was just deployed.
+				// Mid-save re-runs (createScript resolved, refetch pending) see a
+				// pre-deploy `orig`; the buffer IS the new deployed head then, and
+				// emitting would resurrect it as a phantom draft.
 				if (
 					deployedFromPane?.path === captured.path &&
 					(captured.content ?? '') === deployedFromPane.content
@@ -730,11 +728,9 @@
 			} catch {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
-			// Pin the exact content this deploy ships: the editor stays live during
-			// the network round-trip, so `script.content` can advance past what was
-			// sent — `deployedFromPane` must record the shipped version, not the
-			// buffer at response time, or mid-deploy keystrokes match the guard and
-			// are never promoted to a draft.
+			// Pin the shipped content: the editor stays live during the round-trip,
+			// so recording the buffer at response time would make mid-deploy
+			// keystrokes match the phantom-draft guard and never promote to a draft.
 			const contentAtDeploy = script.content ?? ''
 			const newHash = await ScriptService.createScript({
 				workspace,

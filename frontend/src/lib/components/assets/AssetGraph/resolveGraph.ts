@@ -411,12 +411,9 @@ function seedAccumulator(input: ResolveGraphInput, ctx: ResolveContext): Accumul
 	}
 }
 
-/**
- * The write output(s) a `// materialize <asset>` annotation declares: the
- * target itself, plus — for a managed scd2 materialize — the `<dim>_current`
- * companion view (mirrors the deploy path), so a consumer of only the view
- * links back to this producer instead of orphaning.
- */
+/** The write output(s) a `// materialize <asset>` annotation declares: the
+ *  target, plus the scd2 `<dim>_current` companion view (deploy-path mirror)
+ *  so a consumer of only the view links back instead of orphaning. */
 function materializeOuts(
 	parsed: PipelineAnnotations
 ): Array<{ kind: AssetKind; path: string; derivedFrom?: string }> {
@@ -626,11 +623,9 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 			if (!hasTriggerAsset) assets.push({ kind: a.kind, path: a.path })
 		}
 		// Auto-derived cascade edges (backend parity): a ducklake/s3 read wires
-		// the edge from the body alone. Reads reuse the tier above; writes come
-		// from the active draft's live inference, else the captured snapshot /
-		// session cache. The open buffer's derived edges are re-computed
-		// authoritatively in applyLiveBufferOverlay (which strips this path's
-		// seeded triggers first), same as the explicit `// on` triggers above.
+		// the edge from the body alone. Reads reuse the tier above; writes use
+		// live inference, else the captured snapshot / session cache. The open
+		// buffer's edges are recomputed authoritatively in applyLiveBufferOverlay.
 		const draftWrites = liveForThisDraft
 			? extractWrites(liveBodyAssets.assets)
 			: (d.outputAssets ?? inferredWritesByPath.get(path) ?? [])
@@ -731,12 +726,10 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 			}
 		}
 	}
-	// Lineage overlay for an open SAVED script. seedDraftOverlays owns drafts,
-	// but a deployed script's unsaved edits are only promoted to a draft on
-	// pane teardown — until then the buffer's lineage lives here. staleForOpen
-	// already dropped the base edges the buffer no longer references; this adds
-	// the ones it now does. Without it, retargeting `// materialize` (or a body
-	// write/read) shows no output edge until the user clicks away.
+	// Lineage overlay for an open SAVED script (drafts are seedDraftOverlays').
+	// Unsaved edits only become a draft on pane teardown; until then this is
+	// the buffer's lineage source — staleForOpen dropped the no-longer-referenced
+	// base edges, and without this block the new refs show nothing until deselect.
 	if (!ctx.draftedPaths.has(livePath)) {
 		for (const out of materializeOuts(liveAnnotations.annotations)) {
 			pushWriteOut(acc, livePath, out)
@@ -808,11 +801,9 @@ function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
 		for (const [scriptPath, refs] of byPath) {
 			if (drafts.has(scriptPath)) continue
 			for (const a of refs) {
-				// Dedup against the ACCUMULATED edges, not just base: for the open
-				// script these same refs may already be overlaid by
-				// applyLiveBufferOverlay (which feeds the maps on the route page),
-				// and a duplicate would collide on the canvas's endpoint-derived
-				// edge ids.
+				// Dedup against the ACCUMULATED edges, not just base: the open
+				// script's refs may already be overlaid by applyLiveBufferOverlay,
+				// and a duplicate collides on the canvas's endpoint-derived edge ids.
 				const hasEdge = edges.some(
 					(e) =>
 						e.runnable_path === scriptPath &&
