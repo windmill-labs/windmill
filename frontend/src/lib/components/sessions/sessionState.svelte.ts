@@ -818,8 +818,8 @@ export function setSessionTarget(id: string, target: SessionTarget, summary?: st
 	void putSession(s)
 }
 
-// Persist the session's preview tabs. Fire-and-forget write-behind; no-ops for
-// transient sessions (putSession skips them) until they materialise on send.
+// Persist the session's preview tabs. Fire-and-forget write-behind (transient
+// sessions land in the localStorage draft slot).
 export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabId: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
