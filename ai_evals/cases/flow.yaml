@@ -360,7 +360,7 @@
       - finalize_purchase
     topLevelStepTypes:
       - id: request_approval
-        type: rawscript
+        type: [rawscript, script]
       - id: finalize_purchase
         type: rawscript
     schemaRequiredPaths:
