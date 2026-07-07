@@ -340,9 +340,9 @@
 	}
 
 	let pendingDelete: Session | undefined = $state(undefined)
-	// Default to also deleting the fork: it's tied to this session and would be
-	// orphaned otherwise. The user can still untick it in the modal.
-	let deleteAlsoFork = $state(true)
+	// Default off: deleting a fork workspace is destructive and not what deleting a
+	// session implies. The user can tick it in the modal to also drop the fork.
+	let deleteAlsoFork = $state(false)
 	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
 	const pendingDeleteForkId = $derived.by(() => {
 		const wsId = pendingDelete?.workspace_id
@@ -365,7 +365,7 @@
 			? $userWorkspaces.find((w) => w.id === forkToDelete)?.parent_workspace_id
 			: undefined
 		pendingDelete = undefined
-		deleteAlsoFork = true
+		deleteAlsoFork = false
 		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
 		removeSession(session.id)
@@ -863,7 +863,7 @@
 	onConfirmed={handleConfirmedDelete}
 	onCanceled={() => {
 		pendingDelete = undefined
-		deleteAlsoFork = true
+		deleteAlsoFork = false
 	}}
 >
 	<div class="flex flex-col gap-3">
