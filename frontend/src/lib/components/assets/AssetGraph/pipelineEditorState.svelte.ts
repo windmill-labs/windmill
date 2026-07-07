@@ -167,8 +167,13 @@ export class PipelineEditorState {
 			) =>
 				a.length === b.length && a.every((x, i) => x.kind === b[i]?.kind && x.path === b[i]?.path)
 			const writesEqual = refsEqual(d.outputAssets ?? [], snapshot.writes)
+			// An uncaptured entry (`inputAssets` undefined) is never "equal" to an
+			// incoming capture — even `reads: []` must be recorded, or the entry
+			// stays on the legacy fallback (session cache) and can keep stale read
+			// edges after the pane closes.
 			const readsEqual =
-				snapshot.reads == undefined || refsEqual(d.inputAssets ?? [], snapshot.reads)
+				snapshot.reads == undefined ||
+				(d.inputAssets != undefined && refsEqual(d.inputAssets, snapshot.reads))
 			if (d.script.content === snapshot.content && writesEqual && readsEqual) return
 			const next = new Map(this.drafts)
 			next.set(p, {
