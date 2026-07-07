@@ -713,6 +713,11 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 		manager.historyManager.setCurrentChatId(session.chatId)
 		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
 		await manager.loadPastChat(session.chatId)
+		// loadPastChat only seeds the mask when the chat exists in history; a chatId
+		// pointing at a chat not yet persisted (no turn saved) would leave it
+		// undefined, and the Edits surface would then show every workspace draft.
+		// Start tracking so this session is scoped to its own edits from the outset.
+		if (manager.modifiedItems === undefined) manager.initModifiedItemsTracking()
 	} else {
 		// Brand-new session chat: start tracking modified items now (empty mask)
 		// so the session bar filters to this chat's changes from the first turn.
