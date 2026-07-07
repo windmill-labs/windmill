@@ -326,12 +326,9 @@ export async function tryResolveBranchWorkspace(
     workspaceIdIfForked =
       getWorkspaceIdForWorkspaceForkFromBranchName(rawBranch);
 
+    // The "matched via fork branch" reason logged below already explains the
+    // base-branch lookup, so no extra message here.
     const branchToLookup = originalBranchIfForked ?? rawBranch;
-    if (originalBranchIfForked) {
-      log.infoStderr(
-        `Using original branch \`${originalBranchIfForked}\` for finding workspace from workspaces section in wmill.yaml`
-      );
-    }
 
     const match = findWorkspaceByGitBranch(config.workspaces, branchToLookup);
     if (match) {
@@ -460,7 +457,9 @@ export async function tryResolveBranchWorkspace(
     selectedProfile.name = `${selectedProfile.name}/${workspaceIdIfForked}`;
     selectedProfile.workspaceId = workspaceIdIfForked;
     log.infoStderr(
-      `Using fork workspace \`${workspaceIdIfForked}\` (parent: \`${workspaceId}\`) from branch \`${rawBranch}\``
+      colors.green(
+        `Automatically targeting fork workspace \`${workspaceIdIfForked}\` (fork of \`${workspaceId}\`), resolved from git branch \`${rawBranch}\`. Use --workspace to override.`
+      )
     );
   }
 
@@ -556,7 +555,7 @@ export async function resolveWorkspace(
       return workspace;
     } else {
       log.infoStderr(
-        `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\`. Use --workspace to override.`
+        `You are on fork branch \`${branch}\`, which takes precedence over the active workspace profile \`${workspace.name}\`: resolving the fork workspace from the branch name instead. Use --workspace to override.`
       );
     }
   } else if (opts.workspace) {
