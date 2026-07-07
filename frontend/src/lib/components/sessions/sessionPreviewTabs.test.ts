@@ -210,6 +210,16 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.tabs).toHaveLength(2)
 	})
 
+	it('focuses (not duplicates) a page tab whose iframe reported the injected workspace/nomenubar params', () => {
+		const o = owner()
+		o.open(pageTarget) // /runs
+		// The iframe loads with the params the preview injects on the src.
+		o.observeLocation(o.activeId, '/runs?nomenubar=true&workspace=wm-fork-x')
+		const res = o.open(pageTarget)
+		expect(res.status).toBe('focused')
+		expect(o.tabs).toHaveLength(1)
+	})
+
 	it('does not set a target for a legacy drag-and-drop app', () => {
 		const { adapter, targets } = makeAdapter()
 		const o = owner({}, adapter)

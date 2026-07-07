@@ -148,6 +148,10 @@
 	async function resetToNewSession() {
 		const fresh = createSession()
 		selectSession(fresh.id)
+		// The page derives the visible session from the `session_name` query, not
+		// currentSessionId — navigate so the URL leaves the deleted/archived session
+		// (else it renders the not-found state or stays on the archived one).
+		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
 	}
 
 	// If the session targets a forked workspace that's still accessible,

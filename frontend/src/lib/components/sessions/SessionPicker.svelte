@@ -387,9 +387,14 @@
 		if (wasActive) {
 			const next = sessionState.sessions[0]
 			if (next) await activate(next)
-			// No sessions left — clear the selection so the shell shows a fresh
-			// ready-to-type composer instead of a dangling deleted session.
-			else sessionState.currentSessionId = undefined
+			else {
+				// No sessions left — create a fresh one and navigate to it. The page
+				// derives the visible session from the `session_name` query, so just
+				// clearing currentSessionId would strand the URL on the deleted session
+				// and render its not-found state instead of a ready-to-type composer.
+				const fresh = createSession()
+				await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+			}
 		}
 	}
 

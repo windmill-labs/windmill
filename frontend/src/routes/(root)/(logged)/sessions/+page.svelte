@@ -298,10 +298,9 @@
 		try {
 			const loc = frame.contentWindow?.location
 			if (!loc) return
-			// Drop the injected `nomenubar` flag so the breadcrumb stays readable.
-			const u = new URL(loc.href)
-			u.searchParams.delete('nomenubar')
-			tabs.observeLocation(tab.id, u.pathname + u.search)
+			// observeLocation canonicalizes away the injected nomenubar/workspace
+			// params so the tab's `loc` stays symmetric with `url` for dedupe/display.
+			tabs.observeLocation(tab.id, loc.pathname + loc.search)
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.

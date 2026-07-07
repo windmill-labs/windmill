@@ -38,6 +38,22 @@ function targetUrl(target: PreviewTarget): string {
 	return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
 }
 
+// Strip the query params the sessions preview injects into iframe URLs
+// (`nomenubar` to hide the nav, `workspace` to scope the page): they aren't part
+// of the canonical page URL. The observed `loc` must drop them to stay symmetric
+// with `url` (targetUrl, which never carries them), else reopening the same page
+// spawns a duplicate tab instead of focusing the existing one.
+export function canonicalizeObservedLoc(loc: string): string {
+	try {
+		const u = new URL(loc, 'http://_')
+		u.searchParams.delete('nomenubar')
+		u.searchParams.delete('workspace')
+		return u.pathname + u.search + u.hash
+	} catch {
+		return loc
+	}
+}
+
 // The editor target a destination maps to, or undefined when it isn't an item we
 // host live (static pages, legacy drag-and-drop apps). Drives the "set the
 // session target iff the destination is an editable item" rule.
@@ -244,8 +260,10 @@ export class SessionPreviewTabs {
 	// the tab doesn't reload.
 	observeLocation(id: string, loc: string): void {
 		const t = this.#tabs.find((x) => x.id === id)
-		if (!t || t.loc === loc) return
-		t.loc = loc
+		if (!t) return
+		const canonical = canonicalizeObservedLoc(loc)
+		if (t.loc === canonical) return
+		t.loc = canonical
 		this.#flush()
 	}
 
