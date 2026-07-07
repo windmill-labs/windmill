@@ -12,9 +12,11 @@ const EDIT_PAGES = [
 	'/scripts/edit/',
 	'/flows/edit/',
 	'/apps/edit/',
+	'/apps_raw/edit/',
 	'/scripts/get/',
 	'/flows/get/',
-	'/apps/get/'
+	'/apps/get/',
+	'/apps_raw/get/'
 ]
 
 export async function fixupUrlAfterWorkspaceSwitch(id: string): Promise<void> {

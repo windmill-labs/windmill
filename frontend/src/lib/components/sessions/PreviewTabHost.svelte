@@ -68,10 +68,7 @@
 </script>
 
 {#if slot.kind === 'editor' && mounted && runtime}
-	<div
-		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
-		aria-hidden={!active}
-	>
+	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
 		{#if slot.editorKind === 'flow'}
 			<FlowEditorView {runtime} path={slot.path} {workspaceId} {onNavigate} {isActiveSession} />
 		{:else if slot.editorKind === 'script'}
@@ -90,7 +87,7 @@
 {:else if mounted}
 	<iframe
 		bind:this={frame}
-		src={withMenuHidden(tab.url)}
+		src={withMenuHidden(tab.url, workspaceId || undefined)}
 		onload={(e) => onLoad(e.currentTarget as HTMLIFrameElement)}
 		title="Session preview: {label}"
 		class="absolute inset-0 w-full h-full border-0 bg-surface {visibility}"

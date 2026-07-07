@@ -27,6 +27,14 @@ describe('withMenuHidden', () => {
 		expect(withMenuHidden('/runs?nomenubar=false')).toBe('/runs?nomenubar=true')
 	})
 
+	it('scopes the page to a workspace when one is given', () => {
+		expect(withMenuHidden('/runs', 'fork_ws')).toBe('/runs?nomenubar=true&workspace=fork_ws')
+	})
+
+	it('omits the workspace param when none is given', () => {
+		expect(withMenuHidden('/runs', undefined)).toBe('/runs?nomenubar=true')
+	})
+
 	it('returns unparseable input unchanged', () => {
 		expect(withMenuHidden('http://[bad')).toBe('http://[bad')
 	})

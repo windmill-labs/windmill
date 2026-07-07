@@ -1361,9 +1361,17 @@ export class AIChatManager {
 				get webSearch() {
 					return isWebSearchEnabledForProvider(getCurrentModel().provider)
 				},
-				clients: {
-					openai: workspaceAIClients.getOpenaiClient(),
-					anthropic: workspaceAIClients.getAnthropicClient()
+				// Build the proxy clients against the operating workspace, not the global
+				// singleton: a session deliberately leaves workspaceStore untouched, so the
+				// singleton (init'd only on global workspace changes) would route the LLM
+				// request through the navigation workspace's /ai/proxy instead of the
+				// session's — sending it to the wrong workspace's AI credentials.
+				get clients() {
+					const ws = self.operatingWorkspace ?? ''
+					return {
+						openai: workspaceAIClients.createOpenaiClient(ws),
+						anthropic: workspaceAIClients.createAnthropicClient(ws)
+					}
 				},
 				workspace: this.operatingWorkspace ?? '',
 				skipResponsesApi: this.skipResponsesApi,

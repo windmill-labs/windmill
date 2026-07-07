@@ -18,11 +18,16 @@ export function sessionTargetHref(target: SessionTarget | undefined): string | u
 
 // Force the global sidebar off in the previewed page (the sessions page already
 // has its own navigation rail) by setting Windmill's `nomenubar` query flag.
-// Returns a relative URL so the iframe stays same-origin.
-export function withMenuHidden(url: string): string {
+// A session deliberately never switches the global workspaceStore, so the iframe
+// must carry the session's effective workspace as `?workspace=` — the logged
+// layout reads that param to scope the page, otherwise it renders against the
+// navigation workspace (wrong data for a fork-scoped session). Returns a
+// relative URL so the iframe stays same-origin.
+export function withMenuHidden(url: string, workspaceId?: string): string {
 	try {
 		const u = new URL(url, 'http://_')
 		u.searchParams.set('nomenubar', 'true')
+		if (workspaceId) u.searchParams.set('workspace', workspaceId)
 		return u.pathname + u.search + u.hash
 	} catch {
 		return url
