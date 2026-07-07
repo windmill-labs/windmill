@@ -1978,6 +1978,13 @@ export const openPageTool: Tool<{}> = {
 		if (!allowedOpenPages().includes(page)) {
 			return `You don't have access to the ${OPEN_PAGE_LABELS[page] ?? page} page in this workspace.`
 		}
+		// Same fail-closed check for trigger_kind, which is narrowed to license-available
+		// kinds in the advertised schema: a model ignoring that narrowing must not get an
+		// EE-only trigger route built on a non-EE instance.
+		const triggerKind = parsed.trigger_kind as PageTriggerKind | undefined
+		if (page === 'triggers' && triggerKind && !allowedTriggerKinds().includes(triggerKind)) {
+			return `${TRIGGER_PAGES[triggerKind].label} aren't available on this instance.`
+		}
 		const url = buildOpenPageUrl(page, parsed)
 		const pageLabel = OPEN_PAGE_LABELS[page]
 		const summary = summarizeOpenPage(url, page)
