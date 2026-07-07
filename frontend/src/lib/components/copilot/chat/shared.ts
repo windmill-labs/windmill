@@ -1099,6 +1099,13 @@ export interface TestRunConfig {
 	background?: boolean
 	/** Human label for the jobs tray row (path / step id). Defaults to the job id. */
 	label?: string
+	/** Overrides the default "…test started, waiting for completion" status while the
+	 * job runs inline (e.g. an SQL tool shows "SQL running…"). */
+	runningMessage?: string
+	/** Custom terminal formatting for callers whose result isn't a plain test-run
+	 * summary (e.g. exec_datatable_sql shaping rows). Returns the string handed to
+	 * the model plus the tool-card patch. When omitted, the default summary is used. */
+	formatCompletion?: (job: CompletedJob) => { llmText: string; card: Partial<ToolDisplayMessage> }
 }
 
 // Common job polling function.
@@ -1299,7 +1306,7 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		})
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${contextName} test started, waiting for completion...`
+			content: config.runningMessage ?? `${contextName} test started, waiting for completion...`
 		})
 
 		const outcome = await pollJobCompletion(
@@ -1324,6 +1331,13 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			durationMs: job.duration_ms,
 			job: trimJob(job)
 		})
+
+		if (config.formatCompletion) {
+			const { llmText, card } = config.formatCompletion(job)
+			config.toolCallbacks.setToolStatus(config.toolId, card)
+			return llmText
+		}
+
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: `${contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),

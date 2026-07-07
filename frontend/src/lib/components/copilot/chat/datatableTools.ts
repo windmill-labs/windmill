@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { WorkspaceService } from '$lib/gen'
 import type { DataTableTables } from '$lib/gen/types.gen'
-import { runScriptAndPollResult } from '$lib/components/jobs/utils'
-import { createToolDef, type Tool } from './shared'
+import { runScript } from '$lib/components/jobs/utils'
+import { createToolDef, executeTestRun, type Tool } from './shared'
 
 /**
  * Workspace-scoped datatable tools, with no app whitelist and no creation policy.
@@ -44,36 +44,6 @@ export async function getDatatableColumns(
 		tableName
 	})
 	return schema.columns
-}
-
-/**
- * Execute an arbitrary SQL statement against a datatable.
- * Supports SELECT/INSERT/UPDATE/DELETE as well as DDL (CREATE/ALTER/DROP).
- * Returns rows for SELECT-like queries, an empty array otherwise.
- */
-export async function execDatatableSql(
-	workspace: string,
-	datatableName: string,
-	sql: string
-): Promise<
-	{ success: true; result: Record<string, any>[] } | { success: false; error: string }
-> {
-	try {
-		const result = await runScriptAndPollResult({
-			workspace,
-			requestBody: {
-				language: 'postgresql',
-				content: sql,
-				args: { database: `datatable://${datatableName}` }
-			}
-		})
-		if (Array.isArray(result)) {
-			return { success: true, result }
-		}
-		return { success: true, result: [] }
-	} catch (e) {
-		return { success: false, error: e instanceof Error ? e.message : String(e) }
-	}
 }
 
 // ============= Error helpers =============
@@ -140,6 +110,12 @@ const getExecDatatableSqlSchema = memo(() =>
 			.string()
 			.describe(
 				'The SQL query to execute. Supports SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, DROP TABLE, etc. For SELECT queries, results are returned as an array of objects. A newly created table will appear in list_datatables automatically.'
+			),
+		background: z
+			.boolean()
+			.optional()
+			.describe(
+				'Run in the background without waiting. Set true for queries you expect to be slow (large scans, heavy migrations) — you will be notified when it finishes. Leave unset for normal queries, which wait briefly and only background automatically if slow.'
 			)
 	})
 )
@@ -233,45 +209,63 @@ export function getDatatableTools(): Tool<{}>[] {
 			showDetails: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsedArgs = getExecDatatableSqlSchema().parse(args)
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Executing SQL on "${parsedArgs.datatable_name}"...`
-				})
-				try {
-					const result = await execDatatableSql(workspace, parsedArgs.datatable_name, parsedArgs.sql)
-					if (result.success) {
-						// Successful runs always carry a `result` array (empty for DDL/DML), so
-						// SELECT rows and zero-row statements share one reporting path.
-						const rowCount = result.result.length
-						toolCallbacks.setToolStatus(toolId, { content: `Query returned ${rowCount} row(s)` })
-						if (rowCount > MAX_ROWS) {
-							return JSON.stringify(
-								{
-									success: true,
-									rowCount,
-									result: result.result.slice(0, MAX_ROWS),
-									note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
-								},
-								null,
-								2
-							)
+				const name = parsedArgs.datatable_name
+				// Route through executeTestRun so a slow query detaches into the jobs
+				// tray (and honors `background`) instead of blocking the chat turn,
+				// while keeping the datatable-specific result/error shaping.
+				return executeTestRun({
+					jobStarter: () =>
+						runScript({
+							workspace,
+							requestBody: {
+								language: 'postgresql',
+								content: parsedArgs.sql,
+								args: { database: `datatable://${name}` }
+							}
+						}),
+					workspace,
+					toolCallbacks,
+					toolId,
+					contextName: 'script',
+					label: `SQL · ${name}`,
+					background: parsedArgs.background,
+					startMessage: `Executing SQL on "${name}"...`,
+					runningMessage: `SQL running on "${name}"...`,
+					formatCompletion: (job) => {
+						if (job.success) {
+							// Successful runs always carry a `result` array (empty for DDL/DML),
+							// so SELECT rows and zero-row statements share one reporting path.
+							const rows = Array.isArray(job.result) ? (job.result as Record<string, any>[]) : []
+							const rowCount = rows.length
+							const payload =
+								rowCount > MAX_ROWS
+									? {
+											success: true,
+											rowCount,
+											result: rows.slice(0, MAX_ROWS),
+											note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
+										}
+									: { success: true, rowCount, result: rows }
+							return {
+								llmText: JSON.stringify(payload, null, 2),
+								card: {
+									content: `Query returned ${rowCount} row(s)`,
+									result: JSON.stringify(job.result, null, 2)
+								}
+							}
 						}
-						return JSON.stringify({ success: true, rowCount, result: result.result }, null, 2)
-					} else {
-						const raw = result.error || 'Unknown error'
+						const raw =
+							(job.result as any)?.error?.message ??
+							(typeof job.result === 'string' ? job.result : JSON.stringify(job.result))
 						const errorMsg = isDatatableNotConfiguredError(raw)
-							? datatableNotConfiguredMessage(parsedArgs.datatable_name)
+							? datatableNotConfiguredMessage(name)
 							: raw
-						toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
-						return JSON.stringify({ success: false, error: errorMsg })
+						return {
+							llmText: JSON.stringify({ success: false, error: errorMsg }),
+							card: { content: `Error: ${errorMsg}`, error: errorMsg }
+						}
 					}
-				} catch (e) {
-					const raw = e instanceof Error ? e.message : String(e)
-					const errorMsg = isDatatableNotConfiguredError(raw)
-						? datatableNotConfiguredMessage(parsedArgs.datatable_name)
-						: raw
-					toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
-					return JSON.stringify({ success: false, error: errorMsg })
-				}
+				})
 			}
 		}
 	]
