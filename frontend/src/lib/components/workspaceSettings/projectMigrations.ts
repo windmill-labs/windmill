@@ -193,6 +193,19 @@ function orderByFkDependency(
 	return ordered
 }
 
+// Pull a readable one-line message out of an API error for embedding in a SQL
+// comment (collapse whitespace so it can't break out of the `--` line).
+function errorText(e: any): string {
+	const body = e?.body
+	const raw =
+		typeof body === 'string' && body.trim()
+			? body
+			: body && typeof body === 'object'
+				? (body.error?.message ?? body.message ?? JSON.stringify(body))
+				: (e?.message ?? String(e))
+	return String(raw).replace(/\s+/g, ' ').trim()
+}
+
 // Strip the per-table `BEGIN;`/`COMMIT;` wrapper that generateMigrationSql adds,
 // so several tables can share one transaction.
 function unwrapTransaction(sql: string): string {
@@ -203,13 +216,13 @@ function unwrapTransaction(sql: string): string {
 }
 
 /**
- * Generate one best-effort migration per used data table. A migration whose
- * tables were resolved from the live schema is a single transaction creating
- * every referenced table plus the tables they depend on via foreign key (in
- * FK-dependency order) and is enabled by default. A data table used with no
- * resolvable table (referenced as a whole, dropped table, or schema fetch
- * failure) yields an empty, disabled entry so the publisher still sees it and
- * can fill it in.
+ * Generate one best-effort migration per used data table. Resolved tables (plus
+ * the tables they depend on via foreign key, in FK-dependency order) become a
+ * single CREATE TABLE transaction, enabled by default. Anything that couldn't be
+ * auto-generated — a table not found in the schema, a data table referenced as a
+ * whole, or a schema that couldn't be loaded — is written as a `--` SQL comment
+ * describing the problem, so the publisher sees what's missing instead of a blank
+ * entry. A migration with no runnable statements (only comments) is left disabled.
  */
 export async function generateDatatableMigrations(
 	workspace: string,
@@ -217,7 +230,6 @@ export async function generateDatatableMigrations(
 ): Promise<GeneratedMigration[]> {
 	const out: GeneratedMigration[] = []
 	for (const [datatable, tableRefs] of usage) {
-		const disabled: GeneratedMigration = { datatable_name: datatable, sql: '', enabled: false }
 		let schema: DatabaseSchema
 		try {
 			const api = await WorkspaceService.getDatatableFullSchema({
@@ -225,13 +237,35 @@ export async function generateDatatableMigrations(
 				requestBody: { source: `datatable://${datatable}` }
 			})
 			schema = apiSchemaToEditorSchema(api)
-		} catch {
-			out.push(disabled)
+		} catch (e) {
+			// Couldn't reach the schema at all: leave a commented stub explaining why,
+			// so the publisher can fill it in rather than seeing a silent blank.
+			out.push({
+				datatable_name: datatable,
+				sql:
+					`-- Could not load the schema of data table "${datatable}": ${errorText(e)}\n` +
+					`-- Add the CREATE TABLE statement(s) for the tables this project uses.`,
+				enabled: false
+			})
 			continue
 		}
-		const resolved = [...tableRefs]
-			.map((ref) => resolveTable(schema, ref))
-			.filter((t): t is ResolvedTable => t != null)
+		// Resolve the referenced tables; record a comment for each one we can't find
+		// so a partial migration still explains what's missing.
+		const resolved: ResolvedTable[] = []
+		const comments: string[] = []
+		for (const ref of tableRefs) {
+			const t = resolveTable(schema, ref)
+			if (t) resolved.push(t)
+			else
+				comments.push(
+					`-- Table "${ref}" is referenced but was not found in data table "${datatable}"; add its CREATE TABLE manually.`
+				)
+		}
+		if (tableRefs.size === 0) {
+			comments.push(
+				`-- Data table "${datatable}" is used but no specific table was referenced; nothing to generate automatically.`
+			)
+		}
 		// Pull in the tables the referenced ones depend on via FK, then generate
 		// against a schema whose FKs are restricted to this set, so the migration
 		// creates everything it references and never emits a dangling FK.
@@ -248,14 +282,15 @@ export async function generateDatatableMigrations(
 				)
 			)
 			.filter((s) => s.length > 0)
-		if (statements.length === 0) {
-			out.push(disabled)
-			continue
-		}
+		// Comments (the errors) go on top; the CREATE TABLE transaction, if any,
+		// follows. Enabled only when there's something to run.
+		const parts: string[] = []
+		if (comments.length > 0) parts.push(comments.join('\n'))
+		if (statements.length > 0) parts.push(`BEGIN;\n${statements.join('\n\n')}\nCOMMIT;`)
 		out.push({
 			datatable_name: datatable,
-			sql: `BEGIN;\n${statements.join('\n\n')}\nCOMMIT;`,
-			enabled: true
+			sql: parts.join('\n\n'),
+			enabled: statements.length > 0
 		})
 	}
 	return out.sort((a, b) => a.datatable_name.localeCompare(b.datatable_name))

@@ -2471,15 +2471,15 @@
 								<span class="font-mono text-primary">{m.datatable_name}</span>
 								<Toggle bind:checked={m.enabled} size="xs" options={{ right: 'Include' }} />
 							</div>
-							{#if m.enabled}
-								<textarea
-									bind:value={m.sql}
-									rows="6"
-									spellcheck="false"
-									placeholder={`-- SQL migration for ${m.datatable_name}`}
-									class="rounded border bg-surface px-2 py-1.5 text-[11px] font-mono"
-								></textarea>
-							{/if}
+							<!-- Always shown: a disabled entry may carry `--` comments explaining
+							     what couldn't be auto-generated, which the user edits then includes. -->
+							<textarea
+								bind:value={m.sql}
+								rows="6"
+								spellcheck="false"
+								placeholder={`-- SQL migration for ${m.datatable_name}`}
+								class="rounded border bg-surface px-2 py-1.5 text-[11px] font-mono"
+							></textarea>
 						</div>
 					{/each}
 				{/if}

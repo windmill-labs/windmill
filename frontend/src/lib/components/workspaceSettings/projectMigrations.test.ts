@@ -169,10 +169,34 @@ describe('generateDatatableMigrations', () => {
 		expect(migrations[0].sql).not.toContain('warehouses')
 	})
 
-	it('emits an empty, disabled entry when no table resolves', async () => {
+	it('emits a disabled comment entry when a referenced table is not found', async () => {
 		getDatatableFullSchemaMock.mockResolvedValue(schema)
 		const usage = new Map([['main', new Set(['nonexistent'])]])
 		const migrations = await generateDatatableMigrations('ws', usage)
-		expect(migrations).toEqual([{ datatable_name: 'main', sql: '', enabled: false }])
+		expect(migrations).toHaveLength(1)
+		expect(migrations[0].enabled).toBe(false)
+		expect(migrations[0].sql).toContain('-- Table "nonexistent" is referenced but was not found')
+		expect(migrations[0].sql).not.toContain('BEGIN;')
+	})
+
+	it('keeps found tables and comments the missing ones in one migration', async () => {
+		getDatatableFullSchemaMock.mockResolvedValue(schema)
+		const usage = new Map([['main', new Set(['customers', 'ghost'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		expect(migrations[0].enabled).toBe(true)
+		expect(migrations[0].sql).toContain('"public"."customers"')
+		expect(migrations[0].sql).toContain('-- Table "ghost" is referenced but was not found')
+		// Comments precede the runnable transaction.
+		expect(migrations[0].sql.indexOf('-- Table "ghost"')).toBeLessThan(
+			migrations[0].sql.indexOf('BEGIN;')
+		)
+	})
+
+	it('comments a data table used with no specific table', async () => {
+		getDatatableFullSchemaMock.mockResolvedValue(schema)
+		const usage = new Map([['main', new Set<string>()]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		expect(migrations[0].enabled).toBe(false)
+		expect(migrations[0].sql).toContain('no specific table was referenced')
 	})
 })
