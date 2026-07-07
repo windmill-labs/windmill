@@ -170,8 +170,11 @@ input_transforms:
 
 ## Approval / Suspend Structure
 
+An approval step is a normal **script** step (\`type: rawscript\` or \`type: script\`) that is turned into an approval by adding a module-level \`suspend\`. Its script calls \`wmill.getResumeUrls(approver)\` to generate the secret resume/cancel URLs and returns them so they can be sent to the approver(s) (Slack, email, etc.) or approved from the run page.
+
 - \`suspend\` belongs on the flow module object itself, as a sibling of \`id\` and \`value\`
 - Never put \`suspend\` inside \`value\`
+- Do NOT use \`type: identity\` for an approval step. An identity step suspends but never produces the resume URLs, so approvers have no link to act on — it is not a functional approval.
 
 Correct shape:
 
@@ -187,10 +190,23 @@ Correct shape:
             type: string
         required: [comment]
   value:
-    type: identity
+    type: rawscript
+    language: bun
+    input_transforms:
+      approver:
+        type: static
+        value: ''
+    content: |
+      import * as wmill from "windmill-client"
+
+      export async function main(approver?: string) {
+        const urls = await wmill.getResumeUrls(approver)
+        // send urls.resume / urls.cancel to the approver(s), e.g. via Slack or email
+        return urls
+      }
 \`\`\`
 
-Incorrect shape:
+Incorrect shape (suspend misplaced inside \`value\`):
 
 \`\`\`yaml
 - id: request_approval
@@ -198,6 +214,16 @@ Incorrect shape:
     type: rawscript
     suspend:
       required_events: 1
+\`\`\`
+
+Incorrect shape (identity has no resume URLs — not a real approval):
+
+\`\`\`yaml
+- id: request_approval
+  suspend:
+    required_events: 1
+  value:
+    type: identity
 \`\`\`
 
 ## Branch Result Scope Rules
