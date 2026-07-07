@@ -43,9 +43,10 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
-    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
+    check_deploy_rules, check_user_against_rule, get_datatable_from_db,
+    get_datatable_resource_from_db_unchecked, validate_dev_workspace_id,
+    validate_fork_workspace_id, validate_workspace_name, DataTable, DataTableCatalogResourceType,
+    DataTableForkBehavior, DataTablePermissions, ProtectionRuleKind, ProtectionRules,
     ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
@@ -132,6 +133,18 @@ pub fn workspaced_service() -> Router {
             get(get_datatable_table_schema),
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .route(
+            "/datatable_permissions/{datatable_name}",
+            get(get_datatable_permissions),
+        )
+        .route(
+            "/set_datatable_permissions/{datatable_name}",
+            post(set_datatable_permissions),
+        )
+        .route(
+            "/sync_datatable_permissions/{datatable_name}",
+            post(sync_datatable_permissions),
+        )
         .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
@@ -2447,18 +2460,21 @@ async fn edit_datatable_config(
         .map(|r| (r.to.as_str(), r.from.as_str()))
         .collect();
 
-    // Migrations opt-in is owned by the enable/disable endpoints, not this config
-    // form: preserve each existing data table's flag, and default brand-new data
-    // tables to enabled.
+    // Migrations opt-in and advanced permissions are owned by their dedicated
+    // endpoints, not this config form: preserve each existing data table's state
+    // (default brand-new data tables to migrations-enabled / no permissions) so a
+    // plain config save can neither flip them nor desync the provisioned roles.
     for (name, dt) in new_config.settings.datatables.iter_mut() {
         let lookup = rename_src
             .get(name.as_str())
             .copied()
             .unwrap_or(name.as_str());
-        dt.migrations_enabled = match old_datatables.get(lookup) {
+        let old = old_datatables.get(lookup);
+        dt.migrations_enabled = match old {
             Some(old) => old.migrations_enabled,
             None => Some(true),
         };
+        dt.permissions = old.and_then(|old| old.permissions.clone());
     }
 
     let args_for_audit = format!("{:?}", new_config.settings);
@@ -2515,6 +2531,87 @@ async fn edit_datatable_config(
     tx.commit().await?;
 
     Ok(format!("Edit datatable config for workspace {}", &w_id))
+}
+
+async fn get_datatable_permissions(
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> Result<Json<Option<DataTablePermissions>>> {
+    require_admin(is_admin, &username)?;
+    let datatable = get_datatable_from_db(&db, &w_id, &datatable_name).await?;
+    Ok(Json(datatable.permissions))
+}
+
+/// Persist the advanced-permission config for a single data table and reconcile
+/// the target database (roles, grants, RLS policies) to match. Returns the
+/// reconciliation log so the modal can surface warnings (e.g. a resource
+/// database whose credentials lack the privileges to provision roles).
+async fn set_datatable_permissions(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+    Json(perms): Json<DataTablePermissions>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    crate::datatable_migrations::validate_datatable_path_segment(&datatable_name)?;
+
+    // Load first so a missing data table is a clean 404, then write only the
+    // `permissions` subfield (the rest of the catalog entry is untouched).
+    let mut datatable = get_datatable_from_db(&db, &w_id, &datatable_name).await?;
+    let perms_json =
+        serde_json::to_value(&perms).map_err(|e| Error::internal_err(e.to_string()))?;
+    // Runtime (non-macro) query so it needs no `.sqlx` cache entry.
+    sqlx::query(
+        "UPDATE workspace_settings
+         SET datatable = jsonb_set(datatable, ARRAY['datatables', $2, 'permissions'], $3::jsonb)
+         WHERE workspace_id = $1",
+    )
+    .bind(&w_id)
+    .bind(&datatable_name)
+    .bind(perms_json)
+    .execute(&db)
+    .await?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.set_datatable_permissions",
+        ActionKind::Update,
+        &w_id,
+        Some(&datatable_name),
+        None,
+    )
+    .await?;
+
+    datatable.permissions = Some(perms);
+    let log = windmill_common::datatable_permissions::reconcile_datatable_permissions(
+        &db,
+        &w_id,
+        &datatable_name,
+        &datatable,
+    )
+    .await?;
+    Ok(log.join("\n"))
+}
+
+/// Re-run reconciliation from the stored config, e.g. to pick up group-membership
+/// changes or newly-migrated tables without editing the permissions.
+async fn sync_datatable_permissions(
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    let datatable = get_datatable_from_db(&db, &w_id, &datatable_name).await?;
+    let log = windmill_common::datatable_permissions::reconcile_datatable_permissions(
+        &db,
+        &w_id,
+        &datatable_name,
+        &datatable,
+    )
+    .await?;
+    Ok(log.join("\n"))
 }
 
 #[derive(Deserialize)]

@@ -4759,6 +4759,78 @@ paths:
                   error:
                     type: string
 
+  /w/{workspace}/workspaces/datatable_permissions/{datatable_name}:
+    get:
+      summary: get the permissions configuration of a datatable
+      operationId: getDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: datatable permissions or null if not configured
+          content:
+            application/json:
+              schema:
+                nullable: true
+                allOf:
+                  - $ref: "#/components/schemas/DataTablePermissions"
+
+  /w/{workspace}/workspaces/set_datatable_permissions/{datatable_name}:
+    post:
+      summary: set the permissions configuration of a datatable
+      operationId: setDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: datatable permissions
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataTablePermissions"
+      responses:
+        "200":
+          description: reconciliation log
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/sync_datatable_permissions/{datatable_name}:
+    post:
+      summary: reconcile the datatable's database with its permissions configuration
+      operationId: syncDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: reconciliation log
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/enable_datatable_migrations/{datatable_name}:
     post:
       summary: opt a datatable in to migrations (admins / super admins only)
@@ -29388,6 +29460,74 @@ components:
             - ran
             - not_run
             - unknown
+    DataTablePermissions:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        grants:
+          type: array
+          default: []
+          items:
+            $ref: "#/components/schemas/DataTableGrant"
+        policies:
+          type: array
+          default: []
+          items:
+            $ref: "#/components/schemas/DataTablePolicy"
+    DataTableGrant:
+      type: object
+      required: [principal, access]
+      properties:
+        principal:
+          $ref: "#/components/schemas/DataTablePrincipal"
+        table:
+          type: string
+        access:
+          type: string
+          enum:
+            - none
+            - read
+            - write
+    DataTablePrincipal:
+      type: object
+      required: [kind, name]
+      properties:
+        kind:
+          type: string
+          enum:
+            - user
+            - group
+        name:
+          type: string
+          description: user email or group name
+    DataTablePolicy:
+      type: object
+      required: [table, name, command]
+      properties:
+        table:
+          type: string
+        name:
+          type: string
+        command:
+          type: string
+          default: all
+          enum:
+            - all
+            - select
+            - insert
+            - update
+            - delete
+        principals:
+          type: array
+          default: []
+          items:
+            $ref: "#/components/schemas/DataTablePrincipal"
+        using:
+          type: string
+        check:
+          type: string
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]

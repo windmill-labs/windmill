@@ -13,7 +13,7 @@ use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
+    get_datatable_resource_from_db_checked, get_ducklake_from_db_unchecked,
     strip_fork_reserved_attach_args, DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
@@ -1496,6 +1496,7 @@ pub async fn do_duckdb(
                     conn,
                     &mut hidden_passwords,
                     &job.workspace_id,
+                    &job.permissioned_as_email,
                 )
                 .await?
                 {
@@ -1573,6 +1574,7 @@ pub async fn do_duckdb(
                     conn,
                     &mut hidden_passwords,
                     &job.workspace_id,
+                    &job.permissioned_as_email,
                 )
                 .await?
                 {
@@ -2555,6 +2557,7 @@ async fn transform_attach_datatable(
     conn: &Connection,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     w_id: &str,
+    acting_email: &str,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?'\s*AS\s+([^ ;]+)").unwrap();
@@ -2569,7 +2572,12 @@ async fn transform_attach_datatable(
         Connection::Http(client) => {
             get_datatable_resource_from_agent_http(client, name, w_id).await?
         }
-        Connection::Sql(db) => get_datatable_resource_from_db_unchecked(db, w_id, name).await?,
+        // Enforce data table permissions (EE) as the acting user, exactly like the
+        // postgresql executor — otherwise a DuckDB `ATTACH 'datatable://...'` would
+        // run as the owner and bypass RLS/grants entirely.
+        Connection::Sql(db) => {
+            get_datatable_resource_from_db_checked(db, w_id, name, acting_email).await?
+        }
     };
     let db_type = "postgres";
 

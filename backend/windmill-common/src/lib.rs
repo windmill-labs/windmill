@@ -42,6 +42,13 @@ mod db_entra_ee;
 mod db_iam_ee;
 pub mod db_params;
 #[cfg(feature = "private")]
+pub mod datatable_permissions_ee;
+pub mod datatable_permissions_oss;
+#[cfg(feature = "private")]
+pub use datatable_permissions_ee as datatable_permissions;
+#[cfg(not(feature = "private"))]
+pub use datatable_permissions_oss as datatable_permissions;
+#[cfg(feature = "private")]
 pub mod deployment_requests_ee;
 pub mod deployment_requests_oss;
 #[cfg(feature = "private")]

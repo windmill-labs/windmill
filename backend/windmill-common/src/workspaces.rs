@@ -777,6 +777,164 @@ pub struct DataTable {
     /// when migrations already exist (see `datatable_migrations_enabled`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migrations_enabled: Option<bool>,
+    /// Advanced (EE) permissions. Absent/disabled = legacy behavior: every
+    /// workspace member connects as the shared owner role and has full access.
+    /// Owned by the dedicated permissions endpoints, not `edit_datatable_config`
+    /// (mirrors `migrations_enabled`) so a plain config save never clobbers it or
+    /// desyncs the provisioned Postgres roles/policies from the stored config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<DataTablePermissions>,
+}
+
+/// Desired advanced-permission state for a data table. This is the source of
+/// truth the modal edits; the EE provisioning engine reconciles the target
+/// Postgres database (roles, grants, RLS policies) to match it.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct DataTablePermissions {
+    /// Opt-in switch. When false, no enforcement happens and provisioned roles
+    /// (if any) are left in place but unused.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Table/operation access, resolved to Postgres GRANTs per principal.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<DataTableGrant>,
+    /// Row-level security policies applied to individual tables.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policies: Vec<DataTablePolicy>,
+}
+
+/// A Windmill principal, mirrored into a Postgres role: `wm_u_<slug>` (a LOGIN
+/// role, one per user) or `wm_g_<slug>` (a NOLOGIN membership role, one per group).
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[serde(tag = "kind", content = "name", rename_all = "snake_case")]
+pub enum DataTablePrincipal {
+    /// User email.
+    User(String),
+    /// Group name.
+    Group(String),
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DataTableGrant {
+    pub principal: DataTablePrincipal,
+    /// `None` targets every table (existing tables plus future ones via
+    /// `ALTER DEFAULT PRIVILEGES`); `Some(t)` targets a single table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<String>,
+    pub access: DataTableAccess,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DataTableAccess {
+    None,
+    Read,
+    Write,
+}
+
+/// A single RLS policy, mapped onto `CREATE POLICY <name> ON <table> FOR <command>
+/// TO <principals> USING (<using>) WITH CHECK (<check>)`.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DataTablePolicy {
+    pub table: String,
+    pub name: String,
+    #[serde(default)]
+    pub command: DataTablePolicyCommand,
+    /// Principals the policy applies to (`TO` clause). Empty => `PUBLIC`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub principals: Vec<DataTablePrincipal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub using: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DataTablePolicyCommand {
+    #[default]
+    All,
+    Select,
+    Insert,
+    Update,
+    Delete,
+}
+
+/// Outcome of resolving which Postgres identity a data table query should run
+/// under, given the acting Windmill user. Shared across CE/EE so the query
+/// executor can branch on it regardless of build.
+#[derive(Debug)]
+pub enum DatatableAccessDecision {
+    /// Use the default connection (shared owner role, or resource credentials).
+    /// This is the legacy path and the workspace-admin bypass.
+    Default,
+    /// Connect as a per-user principal role; RLS + grants enforce access.
+    /// Carries the resolved `PgDatabase` credentials as JSON (host/dbname of the
+    /// default connection with `user`/`password` overridden).
+    AsPrincipal(serde_json::Value),
+    /// The acting user has no access to this data table at all.
+    Denied,
+}
+
+/// Deterministic, workspace-scoped Postgres role name for a Windmill principal.
+///
+/// Postgres roles are cluster-global, and every instance data table lives on the
+/// same server, so the workspace id MUST be folded in to keep one workspace's
+/// principal roles from colliding with (or connecting to) another's. Hashing
+/// yields a stable, valid, <=63-char identifier from arbitrary emails/group
+/// names. Both provisioning and query-time resolution call this, so they always
+/// agree on the name for a given `(workspace, principal)`.
+pub fn datatable_role_name(w_id: &str, principal: &DataTablePrincipal) -> String {
+    use sha2::{Digest, Sha256};
+    let (prefix, raw) = match principal {
+        DataTablePrincipal::User(email) => ("wm_u_", email.as_str()),
+        DataTablePrincipal::Group(group) => ("wm_g_", group.as_str()),
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(w_id.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(raw.as_bytes());
+    format!("{prefix}{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+/// Deterministic password for a principal role, derived by HMAC-SHA256 of the
+/// role name under a stable instance secret (see
+/// `get_or_create_datatable_role_secret`). The role name already encodes the
+/// workspace, so keying on it alone is sufficient. Nothing per-role is stored:
+/// both the provisioner (which sets the password) and the executor (which
+/// authenticates with it) recompute it.
+pub fn derive_datatable_role_password(secret: &str, role: &str) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(role.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Fetch (or lazily create) the stable secret used to derive principal-role
+/// passwords. Unlike `custom_instance_user`'s password this is never rotated —
+/// rotating it would invalidate every principal password at once — so it lives
+/// under its own `global_settings` key generated on first use.
+pub async fn get_or_create_datatable_role_secret(db: &DB) -> Result<String> {
+    // `gen_random_uuid()` provides the randomness in-SQL so we don't pull in a
+    // CSPRNG here; two concatenated uuids give a 64-char secret. ON CONFLICT DO
+    // NOTHING makes concurrent first-uses converge on a single value.
+    // Runtime (non-macro) query so it needs no `.sqlx` cache entry.
+    sqlx::query(
+        r#"INSERT INTO global_settings (name, value)
+           VALUES ('datatable_permissions',
+                   jsonb_build_object('secret', gen_random_uuid()::text || gen_random_uuid()::text))
+           ON CONFLICT (name) DO NOTHING"#,
+    )
+    .execute(db)
+    .await?;
+    sqlx::query_scalar::<_, Option<String>>(
+        "SELECT value->>'secret' FROM global_settings WHERE name = 'datatable_permissions'",
+    )
+    .fetch_one(db)
+    .await?
+    .ok_or_else(|| Error::internal_err("datatable_permissions secret missing after insert"))
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -828,11 +986,8 @@ fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>)
     ))
 }
 
-pub async fn get_datatable_resource_from_db_unchecked(
-    db: &DB,
-    w_id: &str,
-    name: &str,
-) -> Result<serde_json::Value> {
+/// Load a data table's catalog entry (including its permission config).
+pub async fn get_datatable_from_db(db: &DB, w_id: &str, name: &str) -> Result<DataTable> {
     let datatables = sqlx::query_scalar!(
         r#"
             SELECT ws.datatable->'datatables' AS datatables
@@ -850,26 +1005,86 @@ pub async fn get_datatable_resource_from_db_unchecked(
         .and_then(|d| d.get(name))
         .filter(|v| !v.is_null())
         .ok_or_else(|| datatable_not_found_error(name, datatables.as_ref()))?;
-    let datatable = serde_json::from_value::<DataTable>(datatable.clone())?;
+    Ok(serde_json::from_value::<DataTable>(datatable.clone())?)
+}
 
-    let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
-    {
+/// Resolve the default connection credentials for a data table — the shared
+/// owner role (instance) or the backing resource (postgres). This performs no
+/// per-user authorization; permission enforcement is layered on in the `checked`
+/// variant.
+pub async fn datatable_base_creds(
+    db: &DB,
+    w_id: &str,
+    datatable: &DataTable,
+) -> Result<serde_json::Value> {
+    if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = datatable.database.resource_path.clone();
         pg_creds.user = Some("custom_instance_user".to_string());
         pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
         serde_json::to_value(&pg_creds)
-            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
     } else {
         transform_json_unchecked(
             &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
             w_id,
             db,
         )
-        .await?
-    };
+        .await
+    }
+}
 
-    Ok(db_resource)
+pub async fn get_datatable_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    let datatable = get_datatable_from_db(db, w_id, name).await?;
+    datatable_base_creds(db, w_id, &datatable).await
+}
+
+/// Like `get_datatable_resource_from_db_unchecked`, but applies the data table's
+/// advanced (EE) permissions for `acting_email`: an admin (or a data table
+/// without permissions) gets the default owner connection; other members get a
+/// per-user principal role subject to RLS/grants; members with no access are
+/// rejected. On the OSS build the EE hook is a no-op, so this equals the
+/// unchecked path.
+pub async fn get_datatable_resource_from_db_checked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    acting_email: &str,
+) -> Result<serde_json::Value> {
+    let datatable = get_datatable_from_db(db, w_id, name).await?;
+    let base = datatable_base_creds(db, w_id, &datatable).await?;
+
+    let is_workspace_admin = sqlx::query_scalar::<_, bool>(
+        "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+    )
+    .bind(w_id)
+    .bind(acting_email)
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+
+    match crate::datatable_permissions::resolve_datatable_access(
+        db,
+        w_id,
+        name,
+        &datatable,
+        &base,
+        acting_email,
+        is_workspace_admin,
+    )
+    .await?
+    {
+        DatatableAccessDecision::Default => Ok(base),
+        DatatableAccessDecision::AsPrincipal(creds) => Ok(creds),
+        DatatableAccessDecision::Denied => Err(Error::BadRequest(format!(
+            "You do not have access to data table '{name}'. Ask a workspace admin to grant \
+             access (data table permissions may need to be re-synced)."
+        ))),
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
