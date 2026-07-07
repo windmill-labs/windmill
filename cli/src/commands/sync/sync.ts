@@ -23,10 +23,17 @@ import {
   showDiff,
   extractNativeTriggerInfo,
   redactEncryptionKey,
+  isDatatableMigrationPath,
+  parseDatatableMigrationPath,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import {
+  pushMigrationFromDisk,
+  offerToRunNewMigrations,
+  validateLocalMigrations,
+} from "../datatable_migrations.ts";
 
 import {
   exts,
@@ -2477,7 +2484,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
-      !p.startsWith("dependencies" + SEP)
+      !p.startsWith("dependencies" + SEP) &&
+      !p.startsWith("migrations" + SEP)
     );
   }
 
@@ -2488,6 +2496,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
+    // Datatable migrations live under migrations/datatable/<datatable>/, outside
+    // the u/f/g namespaces, but are valid wmill files.
+    if (typ == "datatable_migration") {
+      return false;
+    }
     if (
       typ == "resource-type" ||
       typ == "settings" ||
@@ -2519,7 +2532,8 @@ export const isWhitelisted = (p: string) => {
     p == "ui" ||
     p == "users" ||
     p == "groups" ||
-    p == "dependencies"
+    p == "dependencies" ||
+    p == "migrations"
   );
 };
 
@@ -2614,6 +2628,11 @@ interface ChangeTracker {
 }
 
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
+  // Datatable migration .sql files are not scripts; they're synced via the
+  // dedicated datatable_migration handler in the push loop.
+  if (isDatatableMigrationPath(p)) {
+    return;
+  }
   const isScript = exts.some((e) => p.endsWith(e)) && !isFileResource(p) && !isFilesetResource(p);
   if (isScript) {
     if (isFlowPath(p)) {
@@ -3119,7 +3138,7 @@ export async function pull(
           change.path.endsWith(".json")
         ) {
           log.info(
-            `Editing ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Editing ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
                 ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
@@ -3137,7 +3156,7 @@ export async function pull(
         if (opts.stateful) {
           await mkdir(path.dirname(stateTarget), { recursive: true });
           log.info(
-            `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Adding ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
                 ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
@@ -3146,7 +3165,7 @@ export async function pull(
         }
         await writeFile(target, change.content, "utf-8");
         log.info(
-          `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
+          `Writing ${changeTypeLabel(change.path)}${targetPath}${
             targetPath !== change.path
               ? colors.gray(` (workspace-specific override for ${change.path})`)
               : ""
@@ -3158,7 +3177,7 @@ export async function pull(
       } else if (change.name === "deleted") {
         try {
           log.info(
-            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
+            `Deleting ${changeTypeLabel(change.path)}${change.path}`,
           );
           await rm(target);
           if (opts.stateful) {
@@ -3350,6 +3369,9 @@ export async function pull(
     log.warn(`Failed to pull shared UI folder: ${e}`);
   }
 
+  // Datatable migrations are part of the workspace export now, so they flow
+  // through the normal diff/apply above as `datatable_migration` items.
+
   // Git-sync deployment-callback mode stops here: branch checkout + pull have
   // happened, but commit + push are the caller's job. The hub script does
   // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
@@ -3425,6 +3447,14 @@ export async function gitDeploy(
   } as any);
 }
 
+// Display label for a change's type, with a trailing space. Datatable migrations
+// are self-describing via their `migrations/datatable/...` path, so they get no
+// label prefix.
+function changeTypeLabel(p: string): string {
+  const t = getTypeStrFromPath(p);
+  return t === "datatable_migration" ? "" : `${t} `;
+}
+
 function prettyChanges(
   changes: Change[],
   specificItems?: SpecificItemsConfig,
@@ -3456,7 +3486,7 @@ function prettyChanges(
     if (change.name === "added") {
       log.info(
         colors.green(
-          `+ ${getTypeStrFromPath(change.path)} ` +
+          `+ ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote),
         ) + extraNote,
@@ -3464,7 +3494,7 @@ function prettyChanges(
     } else if (change.name === "deleted") {
       log.info(
         colors.red(
-          `- ${getTypeStrFromPath(change.path)} ` +
+          `- ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote),
         ),
@@ -3473,7 +3503,7 @@ function prettyChanges(
       const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
-          `~ ${changeType} ` +
+          `~ ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
@@ -4221,6 +4251,24 @@ export async function push(
       ));
     }
 
+    // Reject malformed datatable migrations (duplicate timestamps, orphan downs)
+    // before touching the remote, scanning only the data tables in this push.
+    const migrationDatatables = new Set(
+      changes
+        .map((c) => parseDatatableMigrationPath(c.path)?.datatable)
+        .filter((d): d is string => !!d),
+    );
+    if (migrationDatatables.size > 0) {
+      const migrationErrors = validateLocalMigrations(migrationDatatables);
+      if (migrationErrors.length > 0) {
+        log.error(
+          "Invalid datatable migrations, aborting push:\n" +
+            migrationErrors.map((e) => `  - ${e}`).join("\n"),
+        );
+        process.exit(1);
+      }
+    }
+
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -4293,6 +4341,21 @@ export async function push(
     // Cache git branch at the start to avoid repeated execSync calls per change
     const cachedWsNameForPush = wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
+    // Datatable migrations are two files (.up.sql/.down.sql) for one record, so
+    // dedupe upsert/delete by (datatable, version) across the whole push.
+    const pushedMigrationKeys = new Set<string>();
+    // Migrations newly added by this push (an added .up.sql) — offered to run once
+    // the push has completed.
+    const newDatatableMigrations = changes
+      .filter((c) => c.name === "added")
+      .map((c) => parseDatatableMigrationPath(c.path))
+      .filter((p) => !!p && p.kind === "up")
+      .map((p) => ({
+        datatable: p!.datatable,
+        timestamp: p!.timestamp,
+        name: p!.name,
+      }));
+
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach the effective parallelism limit.
       // During the folder-meta phase this is 1 (sequential) so no item change
@@ -4320,6 +4383,20 @@ export async function push(
           }
 
           for await (const change of changes) {
+            // A datatable migration is one record across two files; upsert/delete
+            // it from disk once (deduped), regardless of which file changed.
+            if (isDatatableMigrationPath(change.path)) {
+              const parsed = parseDatatableMigrationPath(change.path);
+              if (parsed) {
+                const key = `${parsed.datatable}\0${parsed.timestamp}`;
+                if (!pushedMigrationKeys.has(key)) {
+                  pushedMigrationKeys.add(key);
+                  await pushMigrationFromDisk(workspace.workspaceId, parsed);
+                }
+              }
+              continue;
+            }
+
             let stateTarget = undefined;
             if (stateful) {
               try {
@@ -4974,6 +5051,16 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    try {
+      await offerToRunNewMigrations(workspace.workspaceId, newDatatableMigrations, {
+        yes: opts.yes,
+        jsonOutput: opts.jsonOutput,
+      });
+    } catch (e: any) {
+      log.warn(
+        `Failed to run new datatable migrations: ${e?.body ?? e?.message ?? e}`,
+      );
+    }
     const lockJobs = await checkServerLockJobs(
       workspace.workspaceId,
       pushStartedAt,
@@ -5039,6 +5126,7 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    // No changes pushed, so no new datatable migrations to run.
     if (opts.jsonOutput) {
       console.log(
         JSON.stringify(

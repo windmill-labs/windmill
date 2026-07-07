@@ -14473,6 +14473,7 @@ dependencies = [
  "sqlx",
  "strum",
  "tokio",
+ "tokio-postgres",
  "tracing",
  "uuid",
  "windmill-api-auth",

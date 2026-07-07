@@ -39,11 +39,21 @@ doesn't reflow the parent.
 		currentRaw?: unknown
 		/** Force unified diff (Monaco renderSideBySide=false). Default false. */
 		inlineDiff?: boolean
+		/** Opt out of Monaco's auto-inline fallback so the parent's inlineDiff/width
+		 * decision fully controls the view (used by the drawer's toggle). Default false. */
+		disableAutoInline?: boolean
 		/** For `raw_app_file`: the synthesized per-file diff item to render. */
 		rawFile?: RawAppFileItem
 	}
 
-	let { kind, originalRaw, currentRaw, inlineDiff = false, rawFile }: Props = $props()
+	let {
+		kind,
+		originalRaw,
+		currentRaw,
+		inlineDiff = false,
+		disableAutoInline = false,
+		rawFile
+	}: Props = $props()
 
 	type Prepared = { lang?: string; content?: string; metadata: string }
 
@@ -108,6 +118,7 @@ doesn't reflow the parent.
 			beforeMissing={originalRaw == null}
 			afterMissing={currentRaw == null}
 			{inlineDiff}
+			{disableAutoInline}
 		/>
 	</div>
 {:else if kind === 'raw_app_file' && rawFile}
@@ -119,6 +130,7 @@ doesn't reflow the parent.
 		fullYamlOriginal={rawFile.fullYamlOriginal}
 		fullYamlCurrent={rawFile.fullYamlCurrent}
 		{inlineDiff}
+		{disableAutoInline}
 	/>
 {:else if hasContent}
 	<div class="flex flex-col">
@@ -139,6 +151,7 @@ doesn't reflow the parent.
 						defaultOriginal={original.content ?? ''}
 						defaultModified={current.content ?? ''}
 						{inlineDiff}
+						{disableAutoInline}
 						readOnly
 					/>
 				{/await}
@@ -154,6 +167,7 @@ doesn't reflow the parent.
 						defaultOriginal={original.metadata}
 						defaultModified={current.metadata}
 						{inlineDiff}
+						{disableAutoInline}
 						readOnly
 					/>
 				{/await}
@@ -173,6 +187,7 @@ doesn't reflow the parent.
 				defaultOriginal={original.metadata}
 				defaultModified={current.metadata}
 				{inlineDiff}
+				{disableAutoInline}
 				readOnly
 			/>
 		</div>

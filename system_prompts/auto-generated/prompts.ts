@@ -587,6 +587,8 @@ A raw app has three logical parts:
 
 \`index.tsx\` is the bundling entrypoint. It typically renders a top-level \`App\` component. The bundler is esbuild.
 
+**Always begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`.** esbuild uses the classic JSX transform, so \`React\` must be in scope wherever JSX appears — a missing import compiles fine but throws \`React is not defined\` at runtime, leaving a blank screen.
+
 ### Generated bindings (\`wmill.d.ts\` / \`wmill.ts\`)
 
 The frontend imports a generated module that mirrors the backend runnables. **Never write to it directly** — it gets regenerated whenever backend runnables change. Modifying it by hand will be overwritten.
@@ -2753,6 +2755,13 @@ datatable related commands
 - \`datatable run <sql:string>\` - run a SQL query on a datatable
   - \`-n --name <name:string>\` - Datatable name (default: main)
   - \`-s --silent\` - Output only the final result as JSON. Useful for scripting.
+- \`datatable migrate\` - manage datatable migrations
+  - \`datatable migrate new <name:string>\` - scaffold a new migration (.up.sql / .down.sql files)
+    - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
+  - \`datatable migrate up\` - apply all pending migrations to the main datatable (or one via --datatable)
+    - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
+  - \`datatable migrate down\` - roll back the most recent migration on the main datatable (or one via --datatable)
+    - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
 - \`datatable create [name:string]\` - register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>
   - \`--resource <resource:string>\` - Back the datatable with an existing postgresql resource path instead of the instance database
   - \`--force\` - Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)
@@ -3021,19 +3030,18 @@ Manage jobs (list, inspect, cancel)
 
 ### jobs
 
-Pull completed and queued jobs from workspace
-
-**Arguments:** \`[workspace:string]\`
-
-**Options:**
-- \`-c, --completed-output <file:string>\` - Completed jobs output file (default: completed_jobs.json)
-- \`-q, --queued-output <file:string>\` - Queued jobs output file (default: queued_jobs.json)
-- \`--skip-worker-check\` - Skip checking for active workers before export
+Manage jobs (import/export)
 
 **Subcommands:**
 
-- \`jobs pull\`
-- \`jobs push\`
+- \`jobs pull [workspace:string]\` - Pull completed and queued jobs from workspace
+  - \`-c, --completed-output <file:string>\` - Completed jobs output file (default: completed_jobs.json)
+  - \`-q, --queued-output <file:string>\` - Queued jobs output file (default: queued_jobs.json)
+  - \`--skip-worker-check\` - Skip checking for active workers before export
+- \`jobs push [workspace:string]\` - Push completed and queued jobs to workspace
+  - \`-c, --completed-file <file:string>\` - Completed jobs input file (default: completed_jobs.json)
+  - \`-q, --queued-file <file:string>\` - Queued jobs input file (default: queued_jobs.json)
+  - \`--skip-worker-check\` - Skip checking for active workers before import
 
 ### lint
 

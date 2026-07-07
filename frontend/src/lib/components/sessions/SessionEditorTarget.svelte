@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack, type Snippet } from 'svelte'
+	import { setContext, untrack, type Snippet } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -38,6 +38,14 @@
 		 */
 		isActiveSession?: boolean
 	} = $props()
+
+	// Mark this subtree as the session side panel: editors below detect the
+	// context to hide their own AI entry points (an AI button here would nest
+	// sessions), and chat-aware components resolve the session's scoped manager
+	// instead of the app singleton. The value is captured at init — a reused
+	// component instance keeps the first runtime's manager — so descendants may
+	// rely on its presence, not its identity.
+	setContext('aiChatManager', runtime.manager)
 
 	const slot = $derived(runtime.slot(kind))
 
