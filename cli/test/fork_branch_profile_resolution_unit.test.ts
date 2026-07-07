@@ -14,11 +14,10 @@ import type { Workspace } from "../src/commands/workspace/workspace.ts";
 const BASE_URL = "http://localhost:9999/";
 const PARENT_WORKSPACE_ID = "parent";
 
-// Regression tests for fork-branch workspace resolution: every profile-selection
-// path in tryResolveBranchWorkspace must rewrite the returned profile to the
-// fork workspace id derived from the wm-fork/<base>/<id> branch. The last-used
-// path used to return the parent profile untouched, silently targeting the
-// parent workspace.
+// Fork-branch workspace resolution: every profile-selection path in
+// tryResolveBranchWorkspace must rewrite the returned profile to the fork
+// workspace id derived from the wm-fork/<base>/<id> branch — a path that
+// returns the parent profile untouched silently targets the parent workspace.
 async function withForkBranchSetup(
   profiles: Workspace[],
   fn: (opts: GlobalOptions) => Promise<void>,

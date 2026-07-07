@@ -387,23 +387,32 @@ export async function tryResolveBranchWorkspace(
     (w) => w.remote === normalizedBaseUrl && w.workspaceId === workspaceId
   );
 
+  // Every branch below must flow into the shared fork handling at the end —
+  // returning a profile directly would hand back the parent workspace profile
+  // on a fork branch.
+  let selectedProfile: Workspace;
+  let profileNote: string;
+  // Set when workspaceLine was already printed as context for the interactive
+  // profile-creation flow, so it isn't printed a second time at the end.
+  let workspaceLinePrinted = false;
+
   if (matchingProfiles.length === 0) {
     // No matching profile exists - prompt to create one
     log.infoStderr(workspaceLine);
-    return await createWorkspaceProfileInteractively(
+    workspaceLinePrinted = true;
+    const created = await createWorkspaceProfileInteractively(
       normalizedBaseUrl,
       workspaceId,
       wsName,
       opts,
       { rawBranch: rawBranch ?? wsName, isForked: !!originalBranchIfForked }
     );
-  }
-
-  // Handle multiple profiles
-  let selectedProfile: Workspace;
-  let profileNote: string;
-
-  if (matchingProfiles.length === 1) {
+    if (!created) {
+      return undefined;
+    }
+    selectedProfile = created;
+    profileNote = `profile '${selectedProfile.name}'`;
+  } else if (matchingProfiles.length === 1) {
     selectedProfile = matchingProfiles[0];
     profileNote = `profile '${selectedProfile.name}'`;
   } else {
@@ -418,12 +427,11 @@ export async function tryResolveBranchWorkspace(
       : undefined;
 
     if (lastUsedProfile) {
-      // Fall through to the shared fork handling below — an early return here
-      // would hand back the parent workspace profile on a fork branch.
       selectedProfile = lastUsedProfile;
       profileNote = `last used profile '${selectedProfile.name}'`;
     } else {
-      log.infoStderr(workspaceLine);
+      // selectFromMultipleProfiles prints its own context header, and the
+      // final summary line below names the chosen profile.
       selectedProfile = await selectFromMultipleProfiles(
         matchingProfiles,
         normalizedBaseUrl,
@@ -451,7 +459,7 @@ export async function tryResolveBranchWorkspace(
         `Automatically targeting fork workspace \`${workspaceIdIfForked}\` (fork of \`${workspaceId}\` on ${baseUrl}, ${profileNote}), resolved from git branch \`${rawBranch}\`. Use --workspace to override.`
       )
     );
-  } else {
+  } else if (!workspaceLinePrinted) {
     log.infoStderr(`${workspaceLine} (${profileNote})`);
   }
 
