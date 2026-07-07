@@ -9,6 +9,13 @@ import { GlobalOptions } from "../../types.ts";
 import { runCatalogQuery } from "../../utils/catalog.ts";
 import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
+import {
+  createMigration,
+  pushLocalMigrations,
+  rollbackMigrations,
+  runMigrations,
+  validateLocalMigrations,
+} from "../datatable_migrations.ts";
 
 const DEFAULT_DATATABLE_NAME = "main";
 
@@ -40,6 +47,69 @@ async function run(
   const name = opts.name ?? DEFAULT_DATATABLE_NAME;
   await runCatalogQuery(opts, "datatable", name, sql);
 }
+
+function migrateNew(
+  opts: GlobalOptions & { datatable?: string },
+  name: string,
+) {
+  createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name);
+}
+
+async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
+  // Reject malformed local migrations (duplicate timestamps, orphan downs) before
+  // pushing — the same check `wmill sync push` runs — so a duplicate timestamp
+  // can't silently overwrite one migration on upsert.
+  const errors = validateLocalMigrations(new Set([dt]));
+  if (errors.length > 0) {
+    log.error(
+      "Invalid datatable migrations, aborting:\n" +
+        errors.map((e) => `  - ${e}`).join("\n"),
+    );
+    process.exit(1);
+  }
+  // Push any locally-created/edited migration files first (without running
+  // them), so `migrate up` works even before a `wmill sync push`.
+  await pushLocalMigrations(workspace.workspaceId, dt);
+  await runMigrations(workspace.workspaceId, dt);
+}
+
+async function migrateDown(opts: GlobalOptions & { datatable?: string }) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
+  await rollbackMigrations(workspace.workspaceId, dt);
+}
+
+const migrateCommand = new Command()
+  .description("manage datatable migrations")
+  .command("new", "scaffold a new migration (.up.sql / .down.sql files)")
+  .arguments("<name:string>")
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .action(migrateNew as any)
+  .command(
+    "up",
+    "apply all pending migrations to the main datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .action(migrateUp as any)
+  .command(
+    "down",
+    "roll back the most recent migration on the main datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .action(migrateDown as any);
 
 async function create(
   opts: GlobalOptions & { resource?: string; force?: boolean },
@@ -124,6 +194,7 @@ const command = new Command()
     "Output only the final result as JSON. Useful for scripting.",
   )
   .action(run as any)
+  .command("migrate", migrateCommand)
   .command(
     "create",
     "register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>",

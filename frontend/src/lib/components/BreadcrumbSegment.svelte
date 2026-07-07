@@ -26,6 +26,9 @@ close siblings.
 		isCurrent?: boolean
 		currentItem?: WorkspaceItem & { savedPath?: string }
 		onPick: (item: WorkspaceItem) => void
+		/** Load the picker's items from this workspace (session editors pass their
+		 * acting workspace); falls back to $workspaceStore inside the picker. */
+		workspaceId?: string
 	}
 
 	let {
@@ -37,7 +40,8 @@ close siblings.
 		initialHighlight,
 		isCurrent = false,
 		currentItem,
-		onPick
+		onPick,
+		workspaceId
 	}: Props = $props()
 
 	let isOpen = $state(false)
@@ -71,6 +75,12 @@ close siblings.
 			>{:else}{label}{/if}
 	{/snippet}
 	{#snippet content()}
-		<WorkspaceItemDrillPicker {initialScope} {initialHighlight} {currentItem} onPick={handlePick} />
+		<WorkspaceItemDrillPicker
+			{initialScope}
+			{initialHighlight}
+			{currentItem}
+			{workspaceId}
+			onPick={handlePick}
+		/>
 	{/snippet}
 </Popover>

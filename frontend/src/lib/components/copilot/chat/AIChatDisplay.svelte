@@ -115,7 +115,9 @@
 		hideModeSelector = false,
 		wideLayout = false,
 		emptyHint,
-		inputPreface
+		inputPreface,
+		initialInstructions = undefined,
+		onDraftChange = undefined
 	}: {
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
@@ -142,6 +144,9 @@
 		wideLayout?: boolean
 		emptyHint?: Snippet
 		inputPreface?: Snippet
+		// Seed / observe the main composer's draft text (see AIChatInput).
+		initialInstructions?: string
+		onDraftChange?: (text: string) => void
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
@@ -707,6 +712,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
+				{initialInstructions}
+				{onDraftChange}
 				showContext={aiChatManager.mode !== AIMode.GLOBAL}
 				disabled={disabled || hasActiveUserQuestion}
 				isFirstMessage={messages.length === 0}

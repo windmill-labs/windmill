@@ -5,7 +5,7 @@
 	import { DraftService } from '$lib/gen'
 	import { decodeState, encodeState } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import { extractWrites } from '$lib/components/assets/lib'
+	import { extractReads, extractWrites } from '$lib/components/assets/lib'
 	import type { PipelineDraft } from './pipelineAiHelpers'
 	import type { ColumnLineageGraph } from './columnLineageGraph'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
@@ -369,6 +369,11 @@
 			editor.drafts.has(editor.liveBodyAssets.scriptPath)
 				? extractWrites(editor.liveBodyAssets.assets)
 				: undefined
+		const liveReadsSnapshot =
+			editor.liveBodyAssets.scriptPath != undefined &&
+			editor.drafts.has(editor.liveBodyAssets.scriptPath)
+				? extractReads(editor.liveBodyAssets.assets)
+				: undefined
 		const liveWritesPath = editor.liveBodyAssets.scriptPath
 		const liveContentPath =
 			editor.liveContent.scriptPath != undefined && editor.drafts.has(editor.liveContent.scriptPath)
@@ -382,13 +387,15 @@
 						? liveWritesSnapshot
 						: undefined
 					: d.outputAssets
+			const inputAssets =
+				liveReadsSnapshot != undefined && liveWritesPath === p ? liveReadsSnapshot : d.inputAssets
 			const script =
 				liveContentPath === p && d.script.content !== liveContentValue
 					? { ...d.script, content: liveContentValue }
 					: d.script
-			if (script === d.script && outputAssets === d.outputAssets)
+			if (script === d.script && outputAssets === d.outputAssets && inputAssets === d.inputAssets)
 				return [p, d] as [string, PipelineDraft]
-			return [p, { ...d, script, outputAssets }] as [string, PipelineDraft]
+			return [p, { ...d, script, outputAssets, inputAssets }] as [string, PipelineDraft]
 		})
 		const activePath = editor.activeDraftPath
 		const key = storageKey
@@ -524,6 +531,8 @@
 						{requestRunCascadeSignal}
 						{focusUploadSignal}
 						draftScript={activeDraft?.script}
+						draftOutputAssets={activeDraft?.outputAssets}
+						draftInputAssets={activeDraft?.inputAssets}
 						{pathPrefix}
 						{onDraftPathChange}
 						{workspace}

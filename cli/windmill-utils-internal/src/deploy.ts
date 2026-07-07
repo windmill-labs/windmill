@@ -21,6 +21,7 @@ export type DeployKind =
   | "resource_type"
   | "folder"
   | "schedule"
+  | "datatable_migration"
   | "http_trigger"
   | "websocket_trigger"
   | "kafka_trigger"
@@ -161,6 +162,24 @@ export interface DeployProvider {
     requestBody: any;
   }): Promise<any>;
   deleteFolder(p: { workspace: string; name: string }): Promise<any>;
+  // Datatable migrations. In the diff, an item's `path` is
+  // `<datatable>/<timestamp>_<name>` (see `parseDatatableMigrationDeployPath`).
+  listDatatableMigrations(p: { workspace: string }): Promise<any>;
+  upsertDatatableMigration(p: {
+    workspace: string;
+    datatableName: string;
+    requestBody: {
+      timestamp: number;
+      name: string;
+      code_up: string;
+      code_down?: string;
+    };
+  }): Promise<any>;
+  deleteDatatableMigration(p: {
+    workspace: string;
+    datatableName: string;
+    timestamp: number;
+  }): Promise<any>;
   // Triggers — per-kind dispatch is delegated to the implementor so the shared
   // module doesn't need to know about each of the 9 trigger services.
   existsTriggerByKind(
@@ -299,6 +318,40 @@ function toError(e: unknown): string {
   return err.body || err.message || String(e);
 }
 
+// A datatable-migration diff item's path is `<datatable>/<timestamp>_<name>`
+// (mirrors the backend, e.g. `mydt/20260101000001_create_users`).
+export function parseDatatableMigrationDeployPath(path: string): {
+  datatable: string;
+  timestamp: number;
+  name: string;
+} {
+  const slash = path.indexOf("/");
+  const underscore = slash >= 0 ? path.indexOf("_", slash + 1) : -1;
+  if (slash < 0 || underscore < 0) {
+    throw new Error(`Invalid datatable migration path: ${path}`);
+  }
+  const datatable = path.slice(0, slash);
+  const timestamp = Number(path.slice(slash + 1, underscore));
+  const name = path.slice(underscore + 1);
+  if (!datatable || !Number.isFinite(timestamp) || !name) {
+    throw new Error(`Invalid datatable migration path: ${path}`);
+  }
+  return { datatable, timestamp, name };
+}
+
+// The backend rejects `upsertDatatableMigration` when the target data table
+// hasn't opted in to migrations. Turn that opaque 400 into an explicit,
+// deploy-context message (falls back to the original error otherwise).
+function asMigrationsDisabledError(e: unknown, datatable: string): unknown {
+  const msg = (e as { body?: string; message?: string })?.body ?? ''
+  if (typeof msg === "string" && /migrations are not enabled/i.test(msg)) {
+    return new Error(
+      `Data table '${datatable}' has not opted in to migrations on the target workspace; enable migrations for it there before deploying its migrations.`
+    );
+  }
+  return e;
+}
+
 // ---------------------------------------------------------------------------
 // checkItemExists
 // ---------------------------------------------------------------------------
@@ -325,6 +378,12 @@ export async function checkItemExists(
     return provider.existsFolder({ workspace, name: folderName(path) });
   } else if (kind === "schedule") {
     return provider.existsSchedule({ workspace, path });
+  } else if (kind === "datatable_migration") {
+    const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+    const migrations = await provider.listDatatableMigrations({ workspace });
+    return (migrations as { datatable: string; timestamp: number }[]).some(
+      (m) => m.datatable === datatable && m.timestamp === timestamp
+    );
   } else if (isTriggerKind(kind)) {
     return provider.existsTriggerByKind(kind, { workspace, path });
   }
@@ -639,6 +698,41 @@ export async function deployItem(
           requestBody,
         });
       }
+    } else if (kind === "datatable_migration") {
+      const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+      const migrations = await provider.listDatatableMigrations({
+        workspace: workspaceFrom,
+      });
+      const migration = (
+        migrations as {
+          datatable: string;
+          timestamp: number;
+          name: string;
+          code_up: string;
+          code_down?: string;
+        }[]
+      ).find((m) => m.datatable === datatable && m.timestamp === timestamp);
+      if (!migration) {
+        throw new Error(
+          `Datatable migration ${path} not found in ${workspaceFrom}`
+        );
+      }
+      try {
+        await provider.upsertDatatableMigration({
+          workspace: workspaceTo,
+          datatableName: datatable,
+          requestBody: {
+            timestamp: migration.timestamp,
+            name: migration.name,
+            code_up: migration.code_up,
+            ...(migration.code_down != null
+              ? { code_down: migration.code_down }
+              : {}),
+          },
+        });
+      } catch (e) {
+        throw asMigrationsDisabledError(e, datatable);
+      }
     } else {
       throw new Error(`Unknown kind: ${kind}`);
     }
@@ -684,6 +778,13 @@ export async function deleteItemInWorkspace(
       await provider.deleteFolder({ workspace, name: folderName(path) });
     } else if (kind === "schedule") {
       await provider.deleteSchedule({ workspace, path });
+    } else if (kind === "datatable_migration") {
+      const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+      await provider.deleteDatatableMigration({
+        workspace,
+        datatableName: datatable,
+        timestamp,
+      });
     } else if (isTriggerKind(kind)) {
       await provider.deleteTriggerByKind(kind, { workspace, path });
     } else {
@@ -767,6 +868,29 @@ export async function getItemValue(
     } else if (isTriggerKind(kind)) {
       const trigger = await provider.getTriggerValue(kind, { workspace, path });
       return stripTriggerOrScheduleRuntimeFields(trigger);
+    } else if (kind === "datatable_migration") {
+      // Surface the migration SQL so the diff drawer shows the up/down bodies a
+      // reviewer needs to inspect before deploying.
+      const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+      const migrations = (await provider.listDatatableMigrations({
+        workspace,
+      })) as {
+        datatable: string;
+        timestamp: number;
+        name: string;
+        code_up: string;
+        code_down?: string;
+      }[];
+      const migration = migrations.find(
+        (m) => m.datatable === datatable && m.timestamp === timestamp
+      );
+      if (migration) {
+        return {
+          name: migration.name,
+          code_up: migration.code_up,
+          code_down: migration.code_down ?? null,
+        };
+      }
     }
   } catch {
     // Item may not exist

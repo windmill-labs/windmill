@@ -1124,8 +1124,6 @@ async fn create_script_internal<'c>(
             .execute(&mut *tx)
             .await?;
 
-            clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
-
             r
         }
     }?;
@@ -1989,15 +1987,17 @@ async fn create_script_internal<'c>(
     // discovered by the graph endpoint directly from the per-kind trigger
     // tables, so `trigger_spec_to_row` returns None for those.
     clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
-    // On rename, also drop the OLD path's trigger rows. clear is keyed by
-    // path (no by-hash variant), and only `ns.path` is wiped above — without
-    // this, stale `// on` edges for the old path keep matching producers and
-    // would trigger a script later recreated at that path even if it has no
-    // annotation (P1). (Producer/asset rows for the old path are already
-    // cleared via clear_static_asset_usage_by_script_hash on the parent.)
+    // On rename, also drop the OLD path's trigger and producer/asset rows.
+    // Both clears are keyed by path, and only `ns.path` is (re)written above
+    // (script_triggers here, asset rows via replace_static_asset_usage) — the
+    // renamed script no longer lives at the old path, so without this its
+    // stale `// on` edges keep matching producers (and would trigger a script
+    // later recreated at that path with no annotation, P1) and its producer
+    // rows keep it lingering in the asset graph.
     if let Some(ref old) = p_path_opt {
         if old != &ns.path {
             clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+            clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
         }
     }
     for spec in &pipeline_triggers {

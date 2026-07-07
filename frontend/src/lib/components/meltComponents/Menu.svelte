@@ -3,6 +3,7 @@
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
+	import { placementFly } from '$lib/utils/placementFly'
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
@@ -60,7 +61,15 @@
 			fitViewport: true,
 			strategy: 'fixed'
 		},
-		loop: true
+		loop: true,
+		// Hover tooltips (e.g. NameIdTooltip on menu rows) portal to body, so a
+		// click inside one — like its copy button — registers as an outside click.
+		// Veto the close so interacting with a tooltip doesn't tear the menu down.
+		onOutsideClick: (e) => {
+			if ((e.target as HTMLElement)?.closest?.('[data-melt-tooltip-content]')) {
+				e.preventDefault()
+			}
+		}
 	})
 
 	//Melt
@@ -81,7 +90,11 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
-		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
+		// Tooltip content counts as menu territory for the same reason as the
+		// onOutsideClick veto above.
+		return Array.from(
+			document.querySelectorAll('[data-menu], [data-melt-tooltip-content]')
+		) as HTMLElement[]
 	}
 </script>
 
@@ -112,6 +125,7 @@
 		<div
 			use:melt={$menuElement}
 			data-menu
+			transition:placementFly={{ duration: 100, placement }}
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none',
 				// Default: scroll on the melt element. submenuSafe moves it to the inner
@@ -125,7 +139,7 @@
 		>
 			<div
 				class={twMerge('py-1', submenuSafe ? 'overflow-y-auto' : '')}
-				style="max-height: {maxHeight}px; "
+				style="max-height: min({maxHeight}px, calc(100vh - 6rem)); "
 			>
 				{@render children?.({ item, open, builders })}
 			</div>

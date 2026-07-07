@@ -19,20 +19,39 @@
 		isPreprocessor: boolean
 	} = $props()
 
-	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+
+	// A fork-scoped session deploys to opWorkspace, not $workspaceStore. Keep a local
+	// tag list in that case so the gate reflects the fork without clobbering the
+	// shared, navigation-scoped `workerTags` cache.
+	let effectiveWorkspace = $derived(opWorkspace?.() ?? $workspaceStore)
+	let usesLocal = $derived(
+		effectiveWorkspace != undefined && effectiveWorkspace !== $workspaceStore
+	)
+	let localWorkerTags = $state<string[] | undefined>(undefined)
+	let currentTags = $derived(usesLocal ? localWorkerTags : $workerTags)
 
 	const dispatch = createEventDispatcher()
 	loadWorkerGroups()
 
 	async function loadWorkerGroups() {
-		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
+		if (usesLocal) {
+			if (!localWorkerTags) {
+				localWorkerTags = await WorkerService.getCustomTagsForWorkspace({
+					workspace: effectiveWorkspace!
+				})
+			}
+		} else if (!$workerTags) {
+			$workerTags = await WorkerService.getCustomTagsForWorkspace({
+				workspace: effectiveWorkspace!
+			})
 		}
 	}
 </script>
 
-{#if $workerTags}
-	{#if $workerTags?.length > 0}
+{#if currentTags}
+	{#if currentTags?.length > 0}
 		<div class="w-40">
 			{#if flowStore.val.tag == undefined || isPreprocessor || flowStore.val.value?.preserve_step_tags}
 				<WorkerTagSelect
@@ -40,6 +59,7 @@
 					{placeholder}
 					{nullTag}
 					bind:tag
+					workspaceId={usesLocal ? effectiveWorkspace : undefined}
 					on:change={(e) => dispatch('change', e.detail)}
 				/>
 			{:else}

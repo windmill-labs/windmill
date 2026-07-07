@@ -2,38 +2,35 @@ import { describe, it, expect } from 'vitest'
 import { workspaceMenuHref } from './workspaceMenuHref'
 
 describe('workspaceMenuHref', () => {
-	it('on a session route, keeps the workspace id (so new-tab lands in the right workspace)', () => {
+	it('keeps the open session for a same-family target (new-tab stays on the chat)', () => {
 		expect(
 			workspaceMenuHref({
-				routeId: '/(root)/(logged)/sessions',
-				base: '',
 				pathname: '/sessions',
 				searchParams: new URLSearchParams('session_name=foo'),
-				id: 'wm-fork-bar'
+				id: 'wm-fork-bar',
+				sameFamily: true
 			})
-		).toBe('/?workspace=wm-fork-bar')
+		).toBe('/sessions?session_name=foo&workspace=wm-fork-bar')
 	})
 
-	it('respects the base prefix on a session route', () => {
+	it('drops the open session for a cross-family target', () => {
 		expect(
 			workspaceMenuHref({
-				routeId: '/(root)/(logged)/sessions',
-				base: '/wm',
-				pathname: '/wm/sessions',
-				searchParams: new URLSearchParams(),
-				id: 'ws2'
+				pathname: '/sessions',
+				searchParams: new URLSearchParams('session_name=foo'),
+				id: 'other-root',
+				sameFamily: false
 			})
-		).toBe('/wm/?workspace=ws2')
+		).toBe('/sessions?workspace=other-root')
 	})
 
-	it('off a session route, swaps the workspace param on the current path', () => {
+	it('swaps the workspace param on the current path', () => {
 		expect(
 			workspaceMenuHref({
-				routeId: '/(root)/(logged)/scripts/edit/[...path]',
-				base: '',
 				pathname: '/scripts/edit/u/me/x',
 				searchParams: new URLSearchParams('workspace=old&foo=1'),
-				id: 'new_ws'
+				id: 'new_ws',
+				sameFamily: false
 			})
 		).toBe('/scripts/edit/u/me/x?workspace=new_ws&foo=1')
 	})
@@ -41,11 +38,10 @@ describe('workspaceMenuHref', () => {
 	it('adds the workspace param when none was present', () => {
 		expect(
 			workspaceMenuHref({
-				routeId: '/(root)/(logged)/runs',
-				base: '',
 				pathname: '/runs',
 				searchParams: new URLSearchParams(),
-				id: 'w'
+				id: 'w',
+				sameFamily: true
 			})
 		).toBe('/runs?workspace=w')
 	})
