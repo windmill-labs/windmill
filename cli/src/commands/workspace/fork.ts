@@ -390,7 +390,7 @@ async function createWorkspaceFork(
 
   log.info(`${checkoutHint}
 
-While on the branch \`${newBranchName}\`, every wmill command (sync pull/push, script run, ...) automatically targets the fork workspace \`${trueWorkspaceId}\` — no --workspace flag or profile switch needed. Auth and remote are reused from the base branch \`${clonedBranchName}\`'s entry in wmill.yaml's workspaces section.
+While on the branch \`${newBranchName}\`, every wmill command (sync pull/push, script run, ...) automatically targets the fork workspace \`${trueWorkspaceId}\` — no --workspace flag or profile switch needed. The remote comes from the base branch \`${clonedBranchName}\`'s entry in wmill.yaml's workspaces section, and auth is reused from that workspace's saved profile.
 
 To merge changes back to the parent workspace, you can:
   - Use the CLI: ` + colors.white(`git checkout ${newBranchName} && wmill workspace merge`) + `
