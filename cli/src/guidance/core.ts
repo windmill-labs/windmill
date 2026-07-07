@@ -177,6 +177,8 @@ Just run \`wmill workspace fork\` — it adapts to where you are:
 
 For non-interactive runs from a working branch, pass \`--from-branch <base>\` to skip the prompts. The CLI refuses to rename a base branch.
 
+While a \`wm-fork/<base>/<id>\` branch is checked out, every wmill command automatically targets the fork workspace (resolved from the branch name), reusing the base branch workspace's remote (from wmill.yaml) and its saved profile's auth — no \`--workspace\` flag or profile switch needed. Pass \`--workspace\` to target a different workspace explicitly.
+
 Merge a fork back into its parent with \`wmill workspace merge\` (or the Merge UI on the fork's home page). Full reference: https://www.windmill.dev/docs/advanced/workspace_forks
 
 ## Debugging Jobs

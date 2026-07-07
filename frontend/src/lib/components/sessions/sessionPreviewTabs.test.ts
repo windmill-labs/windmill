@@ -4,6 +4,7 @@ import {
 	describePreview,
 	hydratePreviewTabs,
 	previewTargetForSessionTarget,
+	selectPreviewTabsToClose,
 	type PreviewTabsAdapter,
 	type PreviewTabsSnapshot
 } from './sessionPreviewTabs.svelte'
@@ -407,5 +408,36 @@ describe('describePreview', () => {
 		const out = describePreview(tabs, 'a', { kind: 'script', path: 'u/me/foo' })
 		expect(out).toContain('page "Runs"')
 		expect(out).not.toContain('live editor')
+	})
+})
+
+describe('selectPreviewTabsToClose', () => {
+	const tabs: SessionPreviewTab[] = [
+		{ id: 'runs', url: '/runs?status=failure', loc: '/runs?status=failure' },
+		{ id: 'sched', url: '/schedules', loc: '/schedules' },
+		{ id: 'script', url: '/scripts/edit/u/me/foo', loc: '/scripts/edit/u/me/foo' }
+	]
+
+	it('closes every tab when `all`', () => {
+		expect(
+			selectPreviewTabsToClose(tabs, { all: true, match: undefined }).map((t) => t.id)
+		).toEqual(['runs', 'sched', 'script'])
+	})
+
+	it('matches a page by its label, case-insensitively', () => {
+		expect(selectPreviewTabsToClose(tabs, { all: false, match: 'Runs' }).map((t) => t.id)).toEqual([
+			'runs'
+		])
+	})
+
+	it('matches an item tab by its path fragment', () => {
+		expect(
+			selectPreviewTabsToClose(tabs, { all: false, match: 'u/me/foo' }).map((t) => t.id)
+		).toEqual(['script'])
+	})
+
+	it('closes nothing for an empty/whitespace match or no match', () => {
+		expect(selectPreviewTabsToClose(tabs, { all: false, match: '   ' })).toEqual([])
+		expect(selectPreviewTabsToClose(tabs, { all: false, match: 'nonexistent' })).toEqual([])
 	})
 })

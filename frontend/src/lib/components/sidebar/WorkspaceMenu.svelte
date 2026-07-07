@@ -324,6 +324,11 @@
 									<ChevronRight size={14} />
 								{/if}
 							</button>
+						{:else}
+							<!-- Reserve the expand-chevron's slot on fork-less rows so the hover copy
+							     button lines up with the forked rows' and never sits flush against the
+							     menu's right edge. Matches the chevron's px-2 (30px) + mr-1. -->
+							<div class="shrink-0 mr-1 w-[30px]" aria-hidden="true"></div>
 						{/if}
 					</div>
 				{/each}

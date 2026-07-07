@@ -634,6 +634,47 @@ describe('AIChatManager queued messages', () => {
 		await session.saveAndClear()
 		expect(session.attachedFiles.count).toBe(1)
 	})
+
+	it('tracks (empty mask) a session chat loaded with no stored modified-items', async () => {
+		// A legacy session chat has no persisted mask. It must NOT stay untracked
+		// (undefined) — that makes the Edits surface fall back to showing every
+		// draft in the (possibly forked) workspace. Seed an empty tracked set so the
+		// session only ever surfaces what it actually edited.
+		const manager = createManager(createInputMock())
+		manager.isSessionChat = true
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'legacy-session-chat',
+			title: 'Legacy',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'getModifiedItems').mockReturnValue(undefined)
+
+		await manager.loadPastChat('legacy-session-chat')
+
+		expect(manager.modifiedItems).toBeInstanceOf(Set)
+		expect(manager.modifiedItems?.size).toBe(0)
+	})
+
+	it('seeds a session chat mask from its stored modified-items', async () => {
+		const manager = createManager(createInputMock())
+		manager.isSessionChat = true
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'tracked-session-chat',
+			title: 'Tracked',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'getModifiedItems').mockReturnValue([
+			'script:u/admin/hello_world'
+		])
+
+		await manager.loadPastChat('tracked-session-chat')
+
+		expect([...(manager.modifiedItems ?? [])]).toEqual(['script:u/admin/hello_world'])
+	})
 })
 
 describe('AIChatManager context compaction', () => {

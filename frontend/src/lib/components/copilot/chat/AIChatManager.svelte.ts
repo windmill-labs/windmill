@@ -398,10 +398,11 @@ export class AIChatManager {
 
 	// Workspace items the CURRENT chat modified via AI tool calls, as
 	// `${UserDraftItemKind}:${storagePath}` keys (see modifiedItemsMask.ts).
-	// undefined = untracked: the global side-panel chat (never initialised) and
-	// loaded legacy chats with no stored mask, both of which fall back to the
-	// show-all bar. A SvelteSet (even empty) = tracked. Reactive so the session
-	// bar updates as tools record mid-turn.
+	// undefined = untracked: only the global side-panel chat (never initialised),
+	// which falls back to the show-all bar. Session chats are always tracked (a
+	// SvelteSet, even empty) — see loadPastChat/initRuntime — so their Edits
+	// surface never claims drafts the session didn't touch. Reactive so the
+	// session bar updates as tools record mid-turn.
 	modifiedItems = $state<SvelteSet<string> | undefined>(undefined)
 
 	// Start tracking for a brand-new session chat (empty = "tracked, nothing yet").
@@ -1395,7 +1396,12 @@ export class AIChatManager {
 			skills: this.globalSkills
 		})
 		const baseHelpers: GlobalToolHelpers = {
-			...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
+			// A session targets its own fixed (possibly forked) workspace, so capture it for
+			// permission gating. The global side-panel chat follows the live navigation
+			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
+			...(this.isSessionChat
+				? { sessionId: this.sessionId, operatingWorkspace: this.operatingWorkspace }
+				: {}),
 			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
 			attachedFiles: this.attachedFiles,
 			getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
@@ -2487,13 +2493,14 @@ export class AIChatManager {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)
-			// Seed the modified-items mask from the stored chat. A stored array
-			// (even empty) → tracked; a legacy chat with no field stays untracked
-			// (undefined) so the session bar falls back to showing all drafts. The
-			// global side-panel chat never tracks, so leave it untouched there.
+			// Seed the modified-items mask from the stored chat. A session's Edits
+			// surface is scoped strictly to what this session edited, so it must never
+			// fall back to showing every draft in the (possibly forked) workspace: a
+			// legacy chat with no stored mask seeds an empty tracked set, not undefined.
+			// The global side-panel chat never tracks, so leave it untouched there.
 			if (this.isSessionChat) {
 				const stored = this.historyManager.getModifiedItems(id)
-				this.modifiedItems = stored !== undefined ? new SvelteSet(stored) : undefined
+				this.modifiedItems = new SvelteSet(stored ?? [])
 			}
 			// Rebuild the jobs tray from the loaded chat, and re-attach the poller to
 			// any job that was still in flight when it was last persisted.
