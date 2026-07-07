@@ -6,7 +6,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
-	import { ChevronRight, ExternalLink, Hourglass, ThumbsUp, TimerOff, X } from 'lucide-svelte'
+	import { ChevronRight, ExternalLink, Hourglass, ThumbsUp, TimerOff } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { slide } from 'svelte/transition'
 	import { JobService, type Job } from '$lib/gen'
@@ -31,6 +31,14 @@
 	const approvalCount = $derived(jobs.filter((j) => j.status === 'suspended').length)
 	const queuedCount = $derived(jobs.filter((j) => j.status === 'queued').length)
 	const hasLive = $derived(jobs.some((j) => !isTerminal(j.status)))
+
+	// Show the most recent jobs first, capped to a page; "Show more" reveals older
+	// ones in batches so a long-running session doesn't grow an endless list.
+	const PAGE_SIZE = 5
+	let visibleCount = $state(PAGE_SIZE)
+	const sortedJobs = $derived([...jobs].sort((a, b) => b.createdAt - a.createdAt))
+	const visibleJobs = $derived(sortedJobs.slice(0, visibleCount))
+	const hiddenCount = $derived(Math.max(0, sortedJobs.length - visibleCount))
 
 	// A 1s clock for elapsed times, running only while a job is live so the tray
 	// isn't holding a timer once everything has settled.
@@ -128,18 +136,23 @@
 			<span class="ml-auto flex items-center gap-1">
 				{#if runningCount > 0}<Badge color="yellow" small>{runningCount} running</Badge>{/if}
 				{#if approvalCount > 0}<Badge color="violet" small>{approvalCount} approval</Badge>{/if}
-				{#if queuedCount > 0}<Badge color="gray" small>{queuedCount} queued</Badge>{/if}
+				{#if queuedCount > 0}<Badge color="orange" small>{queuedCount} queued</Badge>{/if}
 			</span>
 		</button>
 
 		{#if expanded}
 			<div transition:slide={{ duration: 150 }} class="border-t py-1">
-				{#each jobs as job (job.jobId)}
+				{#each visibleJobs as job (job.jobId)}
 					<div class="group flex items-center gap-2.5 px-3 py-2">
-						{#if job.job}
-							<JobStatusIcon job={job.job} />
+						{#if job.status === 'queued' || !job.job}
+							<!-- Queued: match the job detail page's orange badge (JobStatus.svelte).
+							     JobStatusIcon's default queued badge is gray, so render it here
+							     instead. This also covers the pre-first-fetch state (no job.job). -->
+							<Badge color="orange" baseClass="!px-1.5" title="Queued"
+								><Hourglass size={14} /></Badge
+							>
 						{:else}
-							<Badge baseClass="!px-1.5" title="Queued"><Hourglass size={14} /></Badge>
+							<JobStatusIcon job={job.job} />
 						{/if}
 						<span class="min-w-0 grow truncate text-secondary" title={job.label}>{job.label}</span>
 						<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
@@ -169,23 +182,18 @@
 							>
 								<ExternalLink size={13} />
 							</button>
-							<!-- Reserved-but-invisible remove slot keeps the open icon aligned across
-							     rows; it becomes visible/clickable only once the job is terminal. -->
-							<button
-								type="button"
-								class={`text-tertiary ${
-									isTerminal(job.status)
-										? 'opacity-0 hover:text-primary group-hover:opacity-100'
-										: 'invisible'
-								}`}
-								title="Remove from list"
-								onclick={() => aiChatManager.dismissJob(job.jobId)}
-							>
-								<X size={13} />
-							</button>
 						</div>
 					</div>
 				{/each}
+				{#if hiddenCount > 0}
+					<button
+						type="button"
+						class="flex w-full items-center justify-center border-t px-3 py-1.5 text-tertiary hover:text-primary"
+						onclick={() => (visibleCount += PAGE_SIZE)}
+					>
+						Show more ({hiddenCount})
+					</button>
+				{/if}
 			</div>
 		{/if}
 	</div>

@@ -78,6 +78,13 @@
 		open = { a: v, b: v, c: v, d: v }
 	}
 
+	// Variant D: cap to the 5 most recent, "Show more" reveals older ones.
+	const PAGE_SIZE = 5
+	let visibleCountD = $state(PAGE_SIZE)
+	const sortedJobsD = $derived([...jobs].sort((a, b) => b.createdAt - a.createdAt))
+	const visibleJobsD = $derived(sortedJobsD.slice(0, visibleCountD))
+	const hiddenCountD = $derived(Math.max(0, sortedJobsD.length - visibleCountD))
+
 	$effect(() => {
 		if (typeof localStorage === 'undefined') return
 		try {
@@ -198,7 +205,7 @@
 			case 'canceled':
 				return { color: 'gray', icon: Ban, text: 'Canceled' }
 			default:
-				return { color: 'gray', icon: Clock, text: 'Queued' }
+				return { color: 'orange', icon: Clock, text: 'Queued' }
 		}
 	}
 
@@ -423,7 +430,7 @@
 			<span class="ml-auto flex items-center gap-1">
 				{#if running}<Badge color="yellow" small>{running} running</Badge>{/if}
 				{#if approvals}<Badge color="violet" small>{approvals} approval</Badge>{/if}
-				{#if queued}<Badge color="gray" small>{queued} queued</Badge>{/if}
+				{#if queued}<Badge color="orange" small>{queued} queued</Badge>{/if}
 			</span>
 		</button>
 		{#if open.b}
@@ -498,7 +505,7 @@
 			<span class="ml-auto flex items-center gap-1.5 text-tertiary">
 				{#if running}<span class="text-yellow-600">{running} running</span>{/if}
 				{#if approvals}<span class="text-violet-600">{approvals} approval</span>{/if}
-				{#if queued}<span>{queued} queued</span>{/if}
+				{#if queued}<span class="text-orange-600">{queued} queued</span>{/if}
 			</span>
 		</button>
 		{#if open.c}
@@ -575,12 +582,12 @@
 			<span class="ml-auto flex items-center gap-1">
 				{#if running}<Badge color="yellow" small>{running} running</Badge>{/if}
 				{#if approvals}<Badge color="violet" small>{approvals} approval</Badge>{/if}
-				{#if queued}<Badge color="gray" small>{queued} queued</Badge>{/if}
+				{#if queued}<Badge color="orange" small>{queued} queued</Badge>{/if}
 			</span>
 		</button>
 		{#if open.d}
 			<div transition:slide={{ duration: 150 }} class="border-t py-1">
-				{#each jobs as job (job.id)}
+				{#each visibleJobsD as job (job.id)}
 					{@const meta = badgeMeta(job.status)}
 					{@const Icon = meta.icon}
 					<div class="group flex items-center gap-2.5 px-3 py-2">
@@ -615,21 +622,18 @@
 							>
 								<ExternalLink size={13} />
 							</button>
-							<!-- Always render the remove slot so the open icon stays aligned across
-							     rows; it is only visible/clickable once the job is terminal. -->
-							<button
-								type="button"
-								class="text-tertiary {isTerminal(job.status)
-									? 'opacity-0 hover:text-primary group-hover:opacity-100'
-									: 'invisible'}"
-								title="Remove"
-								onclick={() => removeJob(job.id)}
-							>
-								<X size={13} />
-							</button>
 						</div>
 					</div>
 				{/each}
+				{#if hiddenCountD > 0}
+					<button
+						type="button"
+						class="flex w-full items-center justify-center border-t px-3 py-1.5 text-tertiary hover:text-primary"
+						onclick={() => (visibleCountD += PAGE_SIZE)}
+					>
+						Show more ({hiddenCountD})
+					</button>
+				{/if}
 			</div>
 		{/if}
 	</div>
