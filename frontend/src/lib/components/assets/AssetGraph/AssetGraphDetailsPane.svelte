@@ -54,12 +54,9 @@
 		// `selection` when present. Used by the pipeline + menu so a new
 		// pipeline script opens inline instead of navigating to /scripts/add.
 		draftScript?: Script | undefined
-		// The draft entry's captured lineage (outputAssets / inputAssets), so the
-		// teardown skip below can tell "nothing to persist" from a lineage-only
-		// change: asset access can move without a text edit (a manual `?` →
-		// read/write override via AssetsDropdownButton), and a just-seeded draft
-		// (inputAssets undefined) must still emit once even with an untouched
-		// buffer.
+		// The draft entry's captured lineage — the teardown skip compares against
+		// these, since access overrides change lineage without a text edit and an
+		// uncaptured entry (inputAssets undefined) must still emit once.
 		draftOutputAssets?: Array<{ kind: AssetWithAltAccessType['kind']; path: string }>
 		draftInputAssets?: Array<{ kind: AssetWithAltAccessType['kind']; path: string }>
 		// Local-dev preview (`/pipeline_dev`): resolve a selected node to its
@@ -535,11 +532,9 @@
 		const origAtRegister = isDraftRun ? undefined : scriptRes.current
 		if (!isDraftRun && !origAtRegister) return
 		const captured = script
-		// Untracked — reading `.content` (or the draft entry's fields) in the
-		// effect body would re-run (and emit) on every keystroke, the exact
-		// per-key loop the header comment forbids. The lineage snapshots pair
-		// this registration with ITS entry — at cleanup time the props may
-		// already point at the next selected draft.
+		// Untracked — tracked reads here would re-run (and emit) per keystroke.
+		// Snapshotted at registration so the cleanup compares against ITS entry
+		// (at cleanup time the props may already point at the next draft).
 		const contentAtRegister = untrack(() => captured.content ?? '')
 		const writesAtRegister = untrack(() => draftOutputAssets)
 		const readsAtRegister = untrack(() => draftInputAssets)
@@ -560,18 +555,10 @@
 					return t === 'r' || t === 'rw'
 				})
 				.map((a) => ({ kind: a.kind, path: a.path }))
-			// Draft runs: only emit when something the user did in THIS clone needs
-			// persisting — text edits, or a lineage change without text (a manual
-			// `?` → read/write access override; a just-seeded entry whose reads
-			// were never captured, inputAssets undefined). When the drafts entry is
-			// rewritten externally while the pane stays mounted (rename rekey, AI
-			// edit), the pane re-clones and this cleanup fires with a captured
-			// generation the user never touched — emitting it would push the
-			// PREVIOUS generation's content back into the entry, which re-clones
-			// and re-emits forever (a microtask ping-pong that pins the tab and
-			// spams the draft autosave endpoint). Each emit records the lineage, so
-			// the ping-pong converges after at most one bounce for entries that
-			// predate the capture.
+			// Draft runs: emit only when content or lineage changed in THIS clone.
+			// An unconditional emit ping-pongs forever when the entry is rewritten
+			// externally while the pane stays mounted (rename rekey, AI edit):
+			// stale-generation emit → entry rewrite → re-clone → emit, pinning the tab.
 			if (
 				isDraftRun &&
 				(captured.content ?? '') === contentAtRegister &&
