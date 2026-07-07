@@ -137,6 +137,30 @@ describe('generateDatatableMigrations', () => {
 		expect(migrations[0].sql).toContain('"public"."customers"')
 	})
 
+	it('keeps same-named tables from different schemas both created', async () => {
+		const twoSchemas = {
+			public: {
+				customers: {
+					name: 'customers',
+					columns: [{ name: 'id', datatype: 'integer', primary_key: true, nullable: false }],
+					foreign_keys: []
+				}
+			},
+			app: {
+				customers: {
+					name: 'customers',
+					columns: [{ name: 'id', datatype: 'integer', primary_key: true, nullable: false }],
+					foreign_keys: []
+				}
+			}
+		}
+		getDatatableFullSchemaMock.mockResolvedValue(twoSchemas)
+		const usage = new Map([['main', new Set(['public.customers', 'app.customers'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		expect(migrations[0].sql).toContain('"public"."customers"')
+		expect(migrations[0].sql).toContain('"app"."customers"')
+	})
+
 	it('transitively pulls in FK-referenced tables not directly used', async () => {
 		getDatatableFullSchemaMock.mockResolvedValue(schema)
 		// Only `orders` is referenced; `customers` (its FK target) must still be

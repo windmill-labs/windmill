@@ -108,10 +108,11 @@ function resolveTable(
 		const tableName = tableRef.slice(dot + 1)
 		if (schema[schemaName]?.[tableName]) return { schemaName, tableName }
 	}
-	// No schema qualifier (or the qualified lookup missed): find the table by name
-	// across every schema, first match wins.
+	// No schema qualifier (or the qualified lookup missed, e.g. a stale schema name):
+	// find the bare table name across every schema, first match wins.
+	const bareName = dot !== -1 ? tableRef.slice(dot + 1) : tableRef
 	for (const schemaName of Object.keys(schema)) {
-		if (schema[schemaName][tableRef]) return { schemaName, tableName: tableRef }
+		if (schema[schemaName][bareName]) return { schemaName, tableName: bareName }
 	}
 	return undefined
 }
@@ -164,36 +165,37 @@ function pruneSchemaForTables(schema: DatabaseSchema, tables: ResolvedTable[]): 
 }
 
 // Order tables so a table is created after the in-set tables it references via a
-// foreign key. Falls back to input order on a cycle so generation never hangs.
-function orderByFkDependency(
-	schema: DatabaseSchema,
-	tables: { schemaName: string; tableName: string }[]
-): { schemaName: string; tableName: string }[] {
-	const inSet = new Set(tables.map((t) => t.tableName))
+// foreign key. Keyed by schema-qualified name (like the rest of the pipeline) so
+// two same-named tables in different schemas aren't collapsed. Falls back to input
+// order on a cycle so generation never hangs.
+function orderByFkDependency(schema: DatabaseSchema, tables: ResolvedTable[]): ResolvedTable[] {
+	const inSet = new Set(tables.map(tableKey))
 	const deps = new Map<string, Set<string>>()
 	for (const t of tables) {
 		const fks = schema[t.schemaName]?.[t.tableName]?.foreignKeys ?? []
 		const targets = new Set<string>()
 		for (const fk of fks) {
-			const target = (fk.targetTable ?? '').split('.').pop() ?? ''
-			if (target && target !== t.tableName && inSet.has(target)) targets.add(target)
+			const target = resolveTable(schema, fk.targetTable ?? '')
+			if (target && tableKey(target) !== tableKey(t) && inSet.has(tableKey(target))) {
+				targets.add(tableKey(target))
+			}
 		}
-		deps.set(t.tableName, targets)
+		deps.set(tableKey(t), targets)
 	}
-	const ordered: { schemaName: string; tableName: string }[] = []
+	const ordered: ResolvedTable[] = []
 	const done = new Set<string>()
 	const visiting = new Set<string>()
-	const byName = new Map(tables.map((t) => [t.tableName, t]))
-	const visit = (name: string) => {
-		if (done.has(name) || visiting.has(name)) return
-		visiting.add(name)
-		for (const dep of deps.get(name) ?? []) visit(dep)
-		visiting.delete(name)
-		done.add(name)
-		const t = byName.get(name)
+	const byKey = new Map(tables.map((t) => [tableKey(t), t]))
+	const visit = (key: string) => {
+		if (done.has(key) || visiting.has(key)) return
+		visiting.add(key)
+		for (const dep of deps.get(key) ?? []) visit(dep)
+		visiting.delete(key)
+		done.add(key)
+		const t = byKey.get(key)
 		if (t) ordered.push(t)
 	}
-	for (const t of tables) visit(t.tableName)
+	for (const t of tables) visit(tableKey(t))
 	return ordered
 }
 
