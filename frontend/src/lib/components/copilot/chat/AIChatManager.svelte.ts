@@ -594,7 +594,25 @@ export class AIChatManager {
 				this.#jobPollFailures.set(job.jobId, failures)
 				if (httpStatus === 404 || failures >= 5) {
 					this.#jobPollFailures.delete(job.jobId)
-					this.updateJob(job.jobId, { status: 'failure' })
+					// Vanished (404) or unreachable after repeated polls. Mark it failed WITH
+					// a snapshot + tool-card patch (mirroring #onBackgroundJobComplete) so
+					// neither the tray badge nor the launching tool card stays frozen on
+					// "running" — a bare `status: 'failure'` with no `job` would render the
+					// orange queued badge (JobsSegment's `!job.job` fallback). The synthetic
+					// failed CompletedJob keeps the `success`-key discriminant so JobStatusIcon
+					// and deriveChatJobStatus agree. No model note/auto-resume: a vanished job
+					// isn't a meaningful completion to react to (usually transient infra).
+					const gone = {
+						type: 'CompletedJob',
+						id: job.jobId,
+						success: false,
+						canceled: false
+					} as unknown as CompletedJob
+					this.updateJob(job.jobId, { status: 'failure', reported: true, job: trimJob(gone) })
+					this.applyToolStatus(job.toolCallId, {
+						content: 'Background job could not be retrieved (it may have been removed)',
+						error: `Job ${job.jobId} was unreachable`
+					})
 					anyTerminal = true
 				} else {
 					console.error('Failed to poll background job', job.jobId, e)

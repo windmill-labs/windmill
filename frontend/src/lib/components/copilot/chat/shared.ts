@@ -838,8 +838,8 @@ export interface ToolCallbacks {
 	removeToolStatus: (id: string) => void
 	/** Job-tracking hooks, wired only by the global/sessions chat (mode === GLOBAL).
 	 * Their presence is what enables detach-into-background in executeTestRun; when
-	 * absent (in-editor script/flow/pipeline chats), test runs keep blocking the
-	 * loop with the legacy 60s cap. */
+	 * absent (in-editor script/flow/pipeline chats), test runs stay blocking with a
+	 * 60s cap. */
 	onJobStarted?: (job: ChatJobInit) => void
 	onJobStatus?: (jobId: string, update: Partial<ChatJob>) => void
 	onJobDetached?: (jobId: string) => void
@@ -1121,7 +1121,7 @@ export interface TestRunConfig {
 // Common job polling function.
 //
 // Two modes, selected by whether `detachAfterMs` is provided:
-//  - Legacy (undefined): poll up to 60×1s, then set a timeout error and throw.
+//  - Blocking (undefined): poll up to 60×1s, then set a timeout error and throw.
 //    Used by in-editor chats, which have no jobs tray to hand off to.
 //  - Detach (a number): poll only for that inline budget; if the job is still
 //    running when it elapses, resolve `'detached'` instead of throwing so the

@@ -269,10 +269,14 @@
 					</span>
 				</a>
 			{:else}
+				<!-- Raw <button> (like the other clickable session rows/segments, e.g.
+				     SessionPicker/WorkspaceFamilyPicker): a full-width bar segment, not a
+				     discrete design-system action control. aria-haspopup marks the drawer. -->
 				<button
 					type="button"
 					class="flex min-w-0 flex-1 items-center gap-1.5 px-3 hover:bg-surface-hover"
 					title="Edited by the chat during this session"
+					aria-haspopup="dialog"
 					onclick={openDrawer}
 				>
 					<Pencil class="h-3.5 w-3.5 shrink-0 text-secondary" />

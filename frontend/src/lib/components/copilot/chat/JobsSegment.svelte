@@ -120,6 +120,29 @@
 		const t = setInterval(() => (now = Date.now()), 1000)
 		return () => clearInterval(t)
 	})
+
+	// Screen-reader announcement when a background job finishes — once per job (on
+	// its terminal transition), never per elapsed tick (the clock above updates
+	// `now`, not `jobs`, so this effect doesn't fire for it). Seed the seen-set on
+	// the first run so pre-existing terminal jobs aren't announced on mount.
+	let announcement = $state('')
+	const announcedTerminal = new Set<string>()
+	let announceInitialized = false
+	$effect(() => {
+		const terminal = jobs.filter((j) => isTerminal(j.status))
+		if (!announceInitialized) {
+			for (const j of terminal) announcedTerminal.add(j.jobId)
+			announceInitialized = true
+			return
+		}
+		for (const j of terminal) {
+			if (announcedTerminal.has(j.jobId)) continue
+			announcedTerminal.add(j.jobId)
+			const verb =
+				j.status === 'success' ? 'succeeded' : j.status === 'failure' ? 'failed' : 'was canceled'
+			announcement = `Background job ${shortName(j.label)} ${verb}.`
+		}
+	})
 	const runningJob = $derived(
 		runningCount === 1 && liveCount === 1 ? jobs.find((j) => j.status === 'running') : undefined
 	)
@@ -223,6 +246,9 @@
 </script>
 
 {#if jobs.length > 0}
+	<!-- Polite live region so a background-job completion is announced to screen
+	     readers even when the chip's visual change alone wouldn't be. -->
+	<div class="sr-only" role="status" aria-live="polite">{announcement}</div>
 	<Popover
 		bind:this={popover}
 		bind:isOpen={open}
@@ -244,8 +270,12 @@
 				<span
 					class={`min-w-0 truncate font-normal ${runningJob ? 'text-2xs' : 'text-xs'} ${segment.danger ? 'text-red-500' : 'text-primary'}`}
 					title={runningJob?.label ?? undefined}
+					dir={runningJob ? 'rtl' : undefined}
 				>
-					{segment.text}
+					<!-- Running single: show the FULL path, truncated with a LEADING ellipsis
+					     (dir=rtl clips the start) so the disambiguating tail stays visible;
+					     <bdi> keeps the path itself rendering left-to-right. Counts render as-is. -->
+					{#if runningJob}<bdi>{runningJob.label}</bdi>{:else}{segment.text}{/if}
 				</span>
 				{#if chipElapsed}
 					<span
@@ -298,14 +328,14 @@
 										on:click={() => aiChatManager.cancelJob(job.jobId)}>Cancel</Button
 									>
 								{/if}
-								<button
-									type="button"
-									class="text-tertiary hover:text-primary"
+								<Button
+									iconOnly
+									unifiedSize="xs"
+									variant="subtle"
+									startIcon={{ icon: ExternalLink }}
 									title="Open the run"
-									onclick={() => openRun(job)}
-								>
-									<ExternalLink size={13} />
-								</button>
+									on:click={() => openRun(job)}
+								/>
 							</div>
 						</div>
 					{/each}
