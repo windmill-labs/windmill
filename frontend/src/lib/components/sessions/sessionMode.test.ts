@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sessionTargetHref, withMenuHidden } from './sessionMode.svelte'
+import { sessionTargetHref, withMenuHidden, withWorkspaceParam } from './sessionMode.svelte'
 
 describe('sessionTargetHref', () => {
 	it('maps each editor kind to its full-page route', () => {
@@ -37,5 +37,27 @@ describe('withMenuHidden', () => {
 
 	it('returns unparseable input unchanged', () => {
 		expect(withMenuHidden('http://[bad')).toBe('http://[bad')
+	})
+})
+
+describe('withWorkspaceParam', () => {
+	it('appends the workspace param without touching the menu', () => {
+		expect(withWorkspaceParam('/scripts/get/abc', 'fork_ws')).toBe(
+			'/scripts/get/abc?workspace=fork_ws'
+		)
+	})
+
+	it('preserves existing query params and the hash', () => {
+		expect(withWorkspaceParam('/runs?tag=x#frag', 'fork_ws')).toBe(
+			'/runs?tag=x&workspace=fork_ws#frag'
+		)
+	})
+
+	it('is a no-op without a workspace', () => {
+		expect(withWorkspaceParam('/runs')).toBe('/runs')
+	})
+
+	it('returns unparseable input unchanged when a workspace is given', () => {
+		expect(withWorkspaceParam('http://[bad', 'fork_ws')).toBe('http://[bad')
 	})
 })

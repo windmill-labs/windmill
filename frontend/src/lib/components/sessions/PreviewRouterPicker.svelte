@@ -46,6 +46,12 @@ only ever navigates between items) doesn't grow a Pages section.
 		externalFilter?: string
 		autoFocus?: boolean
 		flush?: boolean
+		// The session's effective workspace. Items and drafts must load from it,
+		// not the navigation workspace ($workspaceStore) — a fork-scoped session
+		// leaves the global store on the nav workspace, so keying off it would
+		// list root items and miss fork-only ones. Falls back to $workspaceStore
+		// for non-session consumers.
+		workspaceId?: string
 	}
 
 	let {
@@ -55,10 +61,12 @@ only ever navigates between items) doesn't grow a Pages section.
 		currentItem,
 		externalFilter,
 		autoFocus = true,
-		flush = false
+		flush = false,
+		workspaceId
 	}: Props = $props()
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
+	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 	export function focus() {
@@ -72,7 +80,7 @@ only ever navigates between items) doesn't grow a Pages section.
 	}
 
 	const loader = useWorkspaceItemsLoader(
-		() => $workspaceStore,
+		() => effectiveWorkspace,
 		() => kinds
 	)
 
@@ -80,7 +88,7 @@ only ever navigates between items) doesn't grow a Pages section.
 	// chat-scaffolded items are navigable (see WorkspaceItemDrillPicker).
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
 	const globalDraftsResource = resource(
-		() => ({ ws: $workspaceStore, enabled: isGlobalAiEnabled() }),
+		() => ({ ws: effectiveWorkspace, enabled: isGlobalAiEnabled() }),
 		async ({ ws, enabled }) => (enabled && ws ? await listGlobalDrafts(ws) : [])
 	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {

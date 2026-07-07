@@ -125,9 +125,14 @@
 		}
 	])
 
+	// Load copilot config (models, providers) for the workspace the session acts
+	// on, not the navigation workspace — a session deliberately leaves
+	// $workspaceStore on the nav workspace, so keying off it would pick the model
+	// and provider from the wrong workspace's AI config for a fork-scoped session.
 	$effect(() => {
-		if ($workspaceStore) {
-			loadCopilot($workspaceStore)
+		const ws = acting?.targetId ?? $workspaceStore
+		if (ws) {
+			loadCopilot(ws)
 		}
 	})
 

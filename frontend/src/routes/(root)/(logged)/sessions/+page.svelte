@@ -25,11 +25,13 @@
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import {
 		createSession,
+		getEffectiveWorkspaceId,
 		selectSession,
 		sessionInCurrentFamily,
 		sessionState,
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
+	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
@@ -169,6 +171,13 @@
 	// this re-derives the moment it lands.
 	const activeRuntime = $derived(activeSession ? getRuntime(activeSession.id) : undefined)
 	const owner = $derived(activeRuntime?.previewTabs)
+
+	// The workspace the active session acts on. Preview pickers load their items
+	// from it and "Open in workspace" targets it, so a fork-scoped session never
+	// lists or opens against the navigation workspace ($workspaceStore).
+	const previewWorkspace = $derived(
+		(activeSession ? getEffectiveWorkspaceId(activeSession) : undefined) ?? $workspaceStore
+	)
 
 	// Lazy-mount gate: a tab's content only renders once its key lands here (on
 	// first activation) — so restoring a session with N saved tabs boots just
@@ -570,7 +579,7 @@
 								     corner to mirror the collapse control. -->
 							<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
 								<a
-									href={owner?.activeTab?.url ?? `${base}/`}
+									href={withWorkspaceParam(owner?.activeTab?.url ?? `${base}/`, previewWorkspace)}
 									title="Open in workspace"
 									aria-label="Open in workspace"
 									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
@@ -628,6 +637,7 @@
 														initialScope={activePickerScope}
 														initialHighlight={activePickerHighlight}
 														{currentItem}
+														workspaceId={previewWorkspace}
 														onPick={(t) => {
 															activeTabPickerOpen = false
 															navigatePreviewTo(t)
@@ -672,6 +682,7 @@
 									{/snippet}
 									{#snippet content()}
 										<PreviewRouterPicker
+											workspaceId={previewWorkspace}
 											onPick={(t) => {
 												newTabOpen = false
 												openInNewTab(t)
@@ -736,6 +747,7 @@
 											{/snippet}
 											{#snippet content()}
 												<PreviewRouterPicker
+													workspaceId={previewWorkspace}
 													onPick={(t) => {
 														emptyStateNewTabOpen = false
 														openInNewTab(t)

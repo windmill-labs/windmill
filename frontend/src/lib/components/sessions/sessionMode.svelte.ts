@@ -33,3 +33,18 @@ export function withMenuHidden(url: string, workspaceId?: string): string {
 		return url
 	}
 }
+
+// Append `?workspace=` to a canonical route so a full-page navigation (e.g.
+// "Open in workspace") lands on the session's effective workspace instead of
+// the navigation workspace. Unlike withMenuHidden, the menu is kept visible —
+// this leaves the session for the real workspace UI. No-op without a workspace.
+export function withWorkspaceParam(url: string, workspaceId?: string): string {
+	if (!workspaceId) return url
+	try {
+		const u = new URL(url, 'http://_')
+		u.searchParams.set('workspace', workspaceId)
+		return u.pathname + u.search + u.hash
+	} catch {
+		return url
+	}
+}
