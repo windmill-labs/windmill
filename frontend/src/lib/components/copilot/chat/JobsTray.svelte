@@ -32,6 +32,16 @@
 	const queuedCount = $derived(jobs.filter((j) => j.status === 'queued').length)
 	const hasLive = $derived(jobs.some((j) => !isTerminal(j.status)))
 
+	// A job waiting for approval needs the user's attention, so auto-expand the
+	// tray when one appears. Rising-edge only (a newly suspended job), so the
+	// user can still collapse it while the approval stays pending.
+	let prevApprovalCount = 0
+	$effect(() => {
+		const count = approvalCount
+		if (count > prevApprovalCount) expanded = true
+		prevApprovalCount = count
+	})
+
 	// Show the most recent jobs first, capped to a page; "Show more" reveals older
 	// ones in batches so a long-running session doesn't grow an endless list.
 	const PAGE_SIZE = 5
@@ -213,6 +223,16 @@
 					workspaceId={approvalJob.workspace_id}
 					isOwner={true}
 					light
+					onAction={(approved) => {
+						// Approving resumes the flow (back to running); optimistically drop the
+						// suspended status so the tray badge/count update instantly. Closing the
+						// modal triggers the on-close effect below, which re-polls to reconcile.
+						// A reject's outcome is ambiguous — let the poll decide.
+						if (approved && approvalJob) {
+							aiChatManager.updateJob(approvalJob.id, { status: 'running' })
+						}
+						approvalOpen = false
+					}}
 				/>
 			{:else}
 				<div class="p-6 text-center text-xs text-tertiary">Loading approval…</div>
