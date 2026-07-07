@@ -135,12 +135,18 @@
 			announceInitialized = true
 			return
 		}
-		for (const j of terminal) {
-			if (announcedTerminal.has(j.jobId)) continue
-			announcedTerminal.add(j.jobId)
-			const verb =
-				j.status === 'success' ? 'succeeded' : j.status === 'failure' ? 'failed' : 'was canceled'
-			announcement = `Background job ${shortName(j.label)} ${verb}.`
+		// Announce every job that became terminal this tick in one utterance —
+		// setting `announcement` per job would drop all but the last when several
+		// finish together.
+		const newlyDone = terminal.filter((j) => !announcedTerminal.has(j.jobId))
+		for (const j of newlyDone) announcedTerminal.add(j.jobId)
+		if (newlyDone.length > 0) {
+			const parts = newlyDone.map((j) => {
+				const verb =
+					j.status === 'success' ? 'succeeded' : j.status === 'failure' ? 'failed' : 'was canceled'
+				return `${shortName(j.label)} ${verb}`
+			})
+			announcement = `Background job${newlyDone.length > 1 ? 's' : ''}: ${parts.join('; ')}.`
 		}
 	})
 	const runningJob = $derived(
@@ -246,9 +252,10 @@
 </script>
 
 {#if jobs.length > 0}
-	<!-- Polite live region so a background-job completion is announced to screen
-	     readers even when the chip's visual change alone wouldn't be. -->
-	<div class="sr-only" role="status" aria-live="polite">{announcement}</div>
+	<!-- Live region so a background-job completion is announced to screen readers
+	     even when the chip's visual change alone wouldn't be. role="status" already
+	     implies aria-live="polite". -->
+	<div class="sr-only" role="status">{announcement}</div>
 	<Popover
 		bind:this={popover}
 		bind:isOpen={open}
