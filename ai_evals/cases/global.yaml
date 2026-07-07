@@ -1023,6 +1023,33 @@
     - opens the Audit logs page filtered to the admin user
     - does not write, deploy, or delete anything
 
+- id: global-openpage6-triggers-kind
+  prompt: |-
+    Take me to the Kafka triggers for this workspace.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - triggers
+      - tool: open_page
+        field: trigger_kind
+        stringIncludesAnyOf:
+          - kafka
+  skipJudge: true
+  judgeChecklist:
+    - opens the Kafka triggers page
+    - does not write, deploy, or delete anything
+
 # --- Documentation search (search_docs) ---
 # Pure product-knowledge questions: the assistant should consult the docs via
 # search_docs and answer conversationally, not draft or mutate anything. No

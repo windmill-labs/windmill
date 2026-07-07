@@ -103,7 +103,7 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
-import { userStore, superadmin } from '$lib/stores'
+import { userStore, superadmin, enterpriseLicense } from '$lib/stores'
 import { get } from 'svelte/store'
 import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -116,9 +116,16 @@ import {
 	buildAssetsUrl,
 	buildAuditLogsUrl,
 	buildWorkspaceSettingsUrl,
+	buildFoldersUrl,
+	buildGroupsUrl,
+	buildTriggersUrl,
 	WORKSPACE_SETTINGS_TABS
 } from './pageNavigation'
-import { pageHref } from '$lib/components/sessions/previewRouter'
+import {
+	pageHref,
+	TRIGGER_PAGES,
+	type TriggerKind as PageTriggerKind
+} from '$lib/components/sessions/previewRouter'
 import {
 	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
@@ -1701,6 +1708,9 @@ const OPEN_PAGE_NAMES = [
 	'resources',
 	'assets',
 	'audit_logs',
+	'folders',
+	'groups',
+	'triggers',
 	'workspace_settings'
 ] as const
 type OpenPageName = (typeof OPEN_PAGE_NAMES)[number]
@@ -1712,13 +1722,23 @@ const OPEN_PAGE_LABELS: Record<OpenPageName, string> = {
 	resources: 'Resources',
 	assets: 'Assets',
 	audit_logs: 'Audit logs',
+	folders: 'Folders',
+	groups: 'Groups',
+	triggers: 'Triggers',
 	workspace_settings: 'Workspace settings'
+}
+
+// Trigger kinds available given the workspace's license — the EE-gated kinds
+// (kafka/nats/sqs/gcp/azure) are only offered with an enterprise license.
+function allowedTriggerKinds(): PageTriggerKind[] {
+	const ee = !!get(enterpriseLicense)
+	return (Object.keys(TRIGGER_PAGES) as PageTriggerKind[]).filter((k) => ee || !TRIGGER_PAGES[k].ee)
 }
 
 // Which pages the current user can actually reach — mirrors the sidebar's gating
 // (operators are restricted to runs/assets by default; workspace settings is
-// admin/superadmin only; operators see audit logs only when granted). The tool only
-// ever advertises, and only ever acts on, pages in this set.
+// admin/superadmin only). The tool only ever advertises, and only ever acts on, pages
+// in this set.
 function allowedOpenPages(): OpenPageName[] {
 	const u = get(userStore)
 	const isOperator = !!u?.operator
@@ -1729,6 +1749,9 @@ function allowedOpenPages(): OpenPageName[] {
 		allowed.add('variables')
 		allowed.add('resources')
 		allowed.add('audit_logs')
+		allowed.add('folders')
+		allowed.add('groups')
+		allowed.add('triggers')
 	}
 	if (isAdmin) allowed.add('workspace_settings')
 	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
@@ -1749,6 +1772,9 @@ const openPageFullSchema = z.object({
 			'resources',
 			'assets',
 			'audit_logs',
+			'folders',
+			'groups',
+			'triggers',
 			'workspace_settings'
 		])
 		.describe('Which page to open'),
@@ -1776,11 +1802,17 @@ const openPageFullSchema = z.object({
 	open: z
 		.string()
 		.optional()
-		.describe('Schedules: exact schedule path to open in the edit drawer, e.g. f/foo/my_schedule'),
+		.describe(
+			'Schedules/Triggers: exact schedule or trigger path to open in the edit drawer, e.g. f/foo/my_schedule'
+		),
 	summary: z
 		.string()
 		.optional()
 		.describe('Schedules: search text matched against schedule summaries'),
+	trigger_kind: z
+		.enum([...(Object.keys(TRIGGER_PAGES) as [PageTriggerKind, ...PageTriggerKind[]])])
+		.optional()
+		.describe('Triggers: which trigger kind page to open (http, websocket, postgres, kafka, ...)'),
 	resource_type: z
 		.string()
 		.optional()
@@ -1814,8 +1846,9 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	schedule_path: ['runs', 'schedules'],
 	job_kinds: ['runs'],
 	user: ['runs'],
-	open: ['schedules'],
+	open: ['schedules', 'triggers'],
 	summary: ['schedules'],
+	trigger_kind: ['triggers'],
 	resource_type: ['resources'],
 	owner: ['variables', 'resources'],
 	username: ['audit_logs'],
@@ -1825,21 +1858,32 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 }
 
 // The model-facing schema for the given allowed pages: the `page` enum plus only the
-// fields relevant to those pages (reusing the full schema's field definitions).
-function buildOpenPageDefSchema(pages: readonly OpenPageName[]): z.ZodTypeAny {
+// fields relevant to those pages (reusing the full schema's field definitions). The
+// `trigger_kind` enum is narrowed to the license-available kinds.
+function buildOpenPageDefSchema(
+	pages: readonly OpenPageName[],
+	triggerKinds: readonly PageTriggerKind[]
+): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
 	const shape: Record<string, z.ZodTypeAny> = {
 		page: z.enum([...pages] as [OpenPageName, ...OpenPageName[]]).describe('Which page to open')
 	}
 	for (const [field, fieldPages] of Object.entries(OPEN_PAGE_FIELD_PAGES)) {
-		if (fieldPages.some((p) => pages.includes(p))) shape[field] = full[field]
+		if (!fieldPages.some((p) => pages.includes(p))) continue
+		shape[field] =
+			field === 'trigger_kind'
+				? z
+						.enum([...triggerKinds] as [string, ...string[]])
+						.optional()
+						.describe('Triggers: which trigger kind page to open')
+				: full[field]
 	}
 	shape.new_tab = full.new_tab
 	return z.object(shape)
 }
 
 const OPEN_PAGE_DESCRIPTION =
-	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings (on a specific tab). Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings"). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed in the `page` enum are available to this user.'
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), or Workspace settings (on a specific tab). Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
 
 function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
 	switch (page) {
@@ -1868,6 +1912,16 @@ function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
 				operation: a.operation,
 				resource: a.resource
 			})
+		case 'folders':
+			return buildFoldersUrl()
+		case 'groups':
+			return buildGroupsUrl()
+		case 'triggers':
+			return buildTriggersUrl({
+				// Default to HTTP routes when the model names no kind.
+				trigger_kind: (a.trigger_kind as PageTriggerKind | undefined) ?? 'http',
+				open: a.open
+			})
 		case 'workspace_settings':
 			return buildWorkspaceSettingsUrl({ tab: a.tab })
 	}
@@ -1885,7 +1939,7 @@ function summarizeOpenPage(url: string, page: OpenPageName): string {
 
 export const openPageTool: Tool<{}> = {
 	def: createToolDef(
-		buildOpenPageDefSchema(allowedOpenPages()),
+		buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds()),
 		'open_page',
 		OPEN_PAGE_DESCRIPTION
 	),
@@ -1897,7 +1951,7 @@ export const openPageTool: Tool<{}> = {
 	// the model never sees (or suggests) a page the user can't reach.
 	setSchema: async function () {
 		this.def = createToolDef(
-			buildOpenPageDefSchema(allowedOpenPages()),
+			buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds()),
 			'open_page',
 			OPEN_PAGE_DESCRIPTION
 		)

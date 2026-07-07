@@ -50,6 +50,7 @@
 		pageKey,
 		stripBase,
 		parsePreviewItemRoute,
+		triggerLabelForPath,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
@@ -431,6 +432,8 @@
 	function tabLabel(url: string): string {
 		const page = matchPreviewPage(url)
 		if (page) return page.label
+		const trigger = triggerLabelForPath(url)
+		if (trigger) return trigger
 		const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
 		if (run) return `Run ${decodeURIComponent(run[1]).slice(0, 8)}`
 		const parsed = parsePreviewItemRoute(url)

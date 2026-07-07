@@ -1,6 +1,7 @@
 import { buildFilterUrl } from '$lib/navigation'
 import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
+import { TRIGGER_PAGES, type TriggerKind } from '$lib/components/sessions/previewRouter'
 
 // In-app paths for the deep-linkable preview pages the AI chat can open.
 export const RUNS_PATH = '/runs'
@@ -10,6 +11,8 @@ export const RESOURCES_PATH = '/resources'
 export const ASSETS_PATH = '/assets'
 export const AUDIT_LOGS_PATH = '/audit_logs'
 export const WORKSPACE_SETTINGS_PATH = '/workspace_settings'
+export const FOLDERS_PATH = '/folders'
+export const GROUPS_PATH = '/groups'
 
 // Selectable tabs on the Workspace settings page (the `?tab=` query param). Mirrors the
 // union in routes/(root)/(logged)/workspace_settings/+page.svelte.
@@ -104,4 +107,27 @@ export function buildAuditLogsUrl(filters: Record<string, unknown>): string {
 /** Deep-link to the Workspace settings page, optionally on a specific `?tab=`. */
 export function buildWorkspaceSettingsUrl({ tab }: { tab?: string }): string {
 	return buildFilterUrl(WORKSPACE_SETTINGS_PATH, tab ? { tab } : {})
+}
+
+/** Folders and Groups list pages have no query filters — just open them. */
+export function buildFoldersUrl(): string {
+	return FOLDERS_PATH
+}
+
+export function buildGroupsUrl(): string {
+	return GROUPS_PATH
+}
+
+/**
+ * Deep-link to a trigger list page (by kind). When `open` is set, the trigger at that
+ * exact path is opened in the edit drawer via the `#<path>` hash the page handles.
+ */
+export function buildTriggersUrl({
+	trigger_kind,
+	open
+}: {
+	trigger_kind: TriggerKind
+	open?: string
+}): string {
+	return buildFilterUrl(TRIGGER_PAGES[trigger_kind].path, {}, { hash: open })
 }

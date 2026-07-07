@@ -3,7 +3,9 @@ import {
 	buildWorkspaceSettingsUrl,
 	buildAuditLogsUrl,
 	buildResourcesUrl,
-	buildVariablesUrl
+	buildVariablesUrl,
+	buildTriggersUrl,
+	buildFoldersUrl
 } from './pageNavigation'
 
 function parse(appPath: string): URL {
@@ -47,5 +49,18 @@ describe('pageNavigation builders', () => {
 		expect(u.searchParams.get('path')).toBe('f/x')
 		expect(u.searchParams.get('owner')).toBe('u/alice')
 		expect(u.searchParams.has('resource_type')).toBe(false)
+	})
+
+	it('triggers route to the kind page, opening a specific trigger via hash', () => {
+		expect(parse(buildTriggersUrl({ trigger_kind: 'kafka' })).pathname).toBe('/kafka_triggers')
+		const u = parse(buildTriggersUrl({ trigger_kind: 'http', open: 'f/a/b' }))
+		expect(u.pathname).toBe('/routes')
+		expect(u.hash).toBe('#f/a/b')
+	})
+
+	it('folders opens the list page with no params', () => {
+		const u = parse(buildFoldersUrl())
+		expect(u.pathname).toBe('/folders')
+		expect(u.search).toBe('')
 	})
 })

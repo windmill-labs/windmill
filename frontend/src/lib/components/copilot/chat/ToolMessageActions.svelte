@@ -6,6 +6,7 @@
 		Calendar,
 		Database,
 		DollarSign,
+		FolderOpen,
 		KeyRound,
 		Mail,
 		Package,
@@ -15,7 +16,9 @@
 		Settings,
 		SquarePen,
 		Unplug,
-		Webhook
+		Users,
+		Webhook,
+		Zap
 	} from 'lucide-svelte'
 	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
@@ -63,6 +66,9 @@
 		resources: { title: 'Resources', icon: Boxes },
 		assets: { title: 'Assets', icon: Database },
 		audit_logs: { title: 'Audit logs', icon: ScrollText },
+		folders: { title: 'Folders', icon: FolderOpen },
+		groups: { title: 'Groups', icon: Users },
+		triggers: { title: 'Triggers', icon: Zap },
 		workspace_settings: { title: 'Workspace settings', icon: Settings }
 	}
 
