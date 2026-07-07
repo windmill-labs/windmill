@@ -116,6 +116,12 @@ const getExecDatatableSqlSchema = memo(() =>
 			.optional()
 			.describe(
 				'Run in the background without waiting. Set true for queries you expect to be slow (large scans, heavy migrations) — you will be notified when it finishes. Leave unset for normal queries, which wait briefly and only background automatically if slow.'
+			),
+		wait_seconds: z
+			.number()
+			.optional()
+			.describe(
+				'How many seconds to wait for the query in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a query you expect to finish in ~30–60s and want the result in this same turn. Ignored when background is true.'
 			)
 	})
 )
@@ -229,6 +235,10 @@ export function getDatatableTools(): Tool<{}>[] {
 					contextName: 'script',
 					label: `SQL · ${name}`,
 					background: parsedArgs.background,
+					detachAfterMs:
+						parsedArgs.wait_seconds == null
+							? undefined
+							: Math.max(0, parsedArgs.wait_seconds) * 1000,
 					startMessage: `Executing SQL on "${name}"...`,
 					runningMessage: `SQL running on "${name}"...`,
 					formatCompletion: (job) => {

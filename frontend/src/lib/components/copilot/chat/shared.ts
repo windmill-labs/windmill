@@ -1088,6 +1088,11 @@ export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
  * handed to the background poller so the chat loop is freed. */
 export const DETACH_AFTER_MS = 15000
 
+/** Upper bound on a model-requested inline wait. Beyond this, backgrounding is
+ * almost always better than holding the chat turn, so we clamp rather than let
+ * the model block the loop for minutes. */
+export const MAX_DETACH_AFTER_MS = 120000
+
 export interface TestRunConfig {
 	jobStarter: () => Promise<string>
 	workspace: string
@@ -1097,6 +1102,11 @@ export interface TestRunConfig {
 	contextName: 'script' | 'flow'
 	/** Detach immediately instead of waiting the inline budget (the model's opt-in). */
 	background?: boolean
+	/** Overrides the inline wait budget (ms) before the job detaches into the tray.
+	 * The model's opt-in for jobs it expects to take a bit longer than the 15s
+	 * default but still wants to await in-turn. Ignored when `background` is set
+	 * (that detaches immediately). Clamped to MAX_DETACH_AFTER_MS. */
+	detachAfterMs?: number
 	/** Human label for the jobs tray row (path / step id). Defaults to the job id. */
 	label?: string
 	/** Overrides the default "…test started, waiting for completion" status while the
@@ -1314,7 +1324,13 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			config.workspace,
 			config.toolId,
 			config.toolCallbacks,
-			detachEnabled ? { detachAfterMs: config.background ? 0 : DETACH_AFTER_MS } : undefined
+			detachEnabled
+				? {
+						detachAfterMs: config.background
+							? 0
+							: Math.min(config.detachAfterMs ?? DETACH_AFTER_MS, MAX_DETACH_AFTER_MS)
+					}
+				: undefined
 		)
 
 		if (outcome === 'detached') {
@@ -1371,6 +1387,9 @@ export type FlowStepTestRunConfig = {
 	toolCallbacks: ToolCallbacks
 	toolId: string
 	background?: boolean
+	/** Inline wait budget (ms) before the step job detaches into the tray; forwarded
+	 * to executeTestRun. Ignored when `background` is set. */
+	detachAfterMs?: number
 	loadScript?: FlowStepScriptLoader
 	loadFlowPreviewValue?: FlowStepPreviewLoader
 }
@@ -1413,6 +1432,7 @@ export async function executeFlowStepTestRun({
 	toolCallbacks,
 	toolId,
 	background,
+	detachAfterMs,
 	loadScript = loadDeployedScriptForFlowStep,
 	loadFlowPreviewValue
 }: FlowStepTestRunConfig): Promise<string> {
@@ -1448,7 +1468,8 @@ export async function executeFlowStepTestRun({
 			startMessage: `Starting test run of step "${stepId}"...`,
 			contextName: 'script',
 			label: `step ${stepId}`,
-			background
+			background,
+			detachAfterMs
 		})
 	}
 
@@ -1471,7 +1492,8 @@ export async function executeFlowStepTestRun({
 			startMessage: `Starting test run of script step "${stepId}"...`,
 			contextName: 'script',
 			label: `step ${stepId}`,
-			background
+			background,
+			detachAfterMs
 		})
 	}
 
@@ -1494,7 +1516,8 @@ export async function executeFlowStepTestRun({
 				startMessage: `Starting test run of draft flow step "${stepId}"...`,
 				contextName: 'flow',
 				label: `step ${stepId}`,
-				background
+				background,
+				detachAfterMs
 			})
 		}
 
@@ -1511,7 +1534,8 @@ export async function executeFlowStepTestRun({
 			startMessage: `Starting test run of flow step "${stepId}"...`,
 			contextName: 'flow',
 			label: `step ${stepId}`,
-			background
+			background,
+			detachAfterMs
 		})
 	}
 

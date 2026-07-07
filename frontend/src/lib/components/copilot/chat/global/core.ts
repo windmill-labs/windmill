@@ -524,10 +524,25 @@ const backgroundArgSchema = z
 		'Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.'
 	)
 
+const waitSecondsArgSchema = z
+	.number()
+	.optional()
+	.describe(
+		'How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.'
+	)
+
+/** Translate the model's `wait_seconds` into executeTestRun's `detachAfterMs`
+ * (the value is clamped to MAX_DETACH_AFTER_MS there). `undefined` keeps the
+ * default inline budget; negatives are floored to 0 (immediate detach). */
+function waitSecondsToDetachMs(waitSeconds: number | undefined): number | undefined {
+	return waitSeconds == null ? undefined : Math.max(0, waitSeconds) * 1000
+}
+
 const testRunScriptSchema = z.object({
 	path: z.string().describe('Workspace path of the script to test.'),
 	args: testRunArgsSchema,
-	background: backgroundArgSchema
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
 })
 
 const testRunScriptToolDef = createToolDef(
@@ -540,7 +555,8 @@ const testRunScriptToolDef = createToolDef(
 const testRunFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow to test.'),
 	args: testRunArgsSchema,
-	background: backgroundArgSchema
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
 })
 
 const testRunFlowToolDef = createToolDef(
@@ -554,7 +570,8 @@ const testRunStepSchema = z.object({
 	path: z.string().describe('Workspace path of the flow containing the step to test.'),
 	stepId: z.string().describe('The id of the step/module to test.'),
 	args: testRunArgsSchema,
-	background: backgroundArgSchema
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
 })
 
 const testRunStepToolDef = createToolDef(
@@ -3282,6 +3299,7 @@ async function testRunScriptByPath(
 		startMessage: `Running test for script "${args.path}"...`,
 		contextName: 'script',
 		background: args.background,
+		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		label: args.path
 	})
 }
@@ -3318,6 +3336,7 @@ async function testRunFlowByPath(
 			startMessage: `Starting flow test run for "${args.path}"...`,
 			contextName: 'flow',
 			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			label: args.path
 		})
 	}
@@ -3340,6 +3359,7 @@ async function testRunFlowByPath(
 		startMessage: `Starting flow test run for "${args.path}"...`,
 		contextName: 'flow',
 		background: args.background,
+		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		label: args.path
 	})
 }
@@ -3361,6 +3381,7 @@ async function testRunFlowStepByPath(
 		toolCallbacks,
 		toolId,
 		background: args.background,
+		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		loadScript: loadScriptForFlowStep,
 		loadFlowPreviewValue: loadDraftFlowPreviewValue
 	})
