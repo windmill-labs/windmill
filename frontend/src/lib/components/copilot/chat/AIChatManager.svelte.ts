@@ -299,6 +299,11 @@ export class AIChatManager {
 	#autoResuming = false
 	#jobPollTimer: ReturnType<typeof setTimeout> | undefined = undefined
 	#jobPollDelay = 2000
+	// True while a #pollBackgroundJobs pass is executing. #stopJobPoller only clears
+	// the scheduled timer, not an in-flight poll, so without this a refreshBackgroundJobs
+	// mid-poll (cancel / approval close) would start a second concurrent poll chain and
+	// double the poll rate. The guard makes such a refresh coalesce into the running pass.
+	#isPolling = false
 	// Bumped on every conversation switch (clearBackgroundJobs). An in-flight poll
 	// captures it before its awaits and bails if it changed, so a getJob that
 	// resolves after the user switched chats can't mutate the newly-loaded one.
@@ -571,7 +576,20 @@ export class AIChatManager {
 		}
 	}
 
+	// Guarded entry point for every poll trigger (scheduled tick, #ensureJobPoller,
+	// and refreshBackgroundJobs): if a pass is already running, coalesce into it
+	// instead of starting a second concurrent chain that would double the poll rate.
 	async #pollBackgroundJobs() {
+		if (this.#isPolling) return
+		this.#isPolling = true
+		try {
+			await this.#runBackgroundJobsPoll()
+		} finally {
+			this.#isPolling = false
+		}
+	}
+
+	async #runBackgroundJobsPoll() {
 		this.#jobPollTimer = undefined
 		const gen = this.#jobPollGeneration
 		const pending = this.backgroundJobs.filter((j) => j.detached && this.isJobNonTerminal(j.status))

@@ -266,7 +266,10 @@ export function getDatatableTools(): Tool<{}>[] {
 						}
 						const raw =
 							(job.result as any)?.error?.message ??
-							(typeof job.result === 'string' ? job.result : JSON.stringify(job.result))
+							(typeof job.result === 'string' ? job.result : JSON.stringify(job.result)) ??
+							// JSON.stringify(undefined) is `undefined` (not a string), so a failed
+							// job with no result would otherwise yield an empty error message.
+							'Unknown error'
 						const errorMsg = isDatatableNotConfiguredError(raw)
 							? datatableNotConfiguredMessage(name)
 							: raw
