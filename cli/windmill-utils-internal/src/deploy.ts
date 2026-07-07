@@ -320,7 +320,7 @@ function toError(e: unknown): string {
 
 // A datatable-migration diff item's path is `<datatable>/<timestamp>_<name>`
 // (mirrors the backend, e.g. `mydt/20260101000001_create_users`).
-function parseDatatableMigrationDeployPath(path: string): {
+export function parseDatatableMigrationDeployPath(path: string): {
   datatable: string;
   timestamp: number;
   name: string;

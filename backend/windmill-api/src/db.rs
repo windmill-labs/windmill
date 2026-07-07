@@ -96,6 +96,14 @@ lazy_static::lazy_static! {
 pub struct CustomMigrator {
     inner: PoolConnection<Postgres>,
 }
+impl CustomMigrator {
+    /// The connection the migrator already holds (with the migration advisory lock).
+    /// Migration housekeeping runs on it instead of re-acquiring: a second connection
+    /// while this one is held deadlocks a single-connection backend (e.g. embedded pglite).
+    pub fn connection(&mut self) -> &mut PgConnection {
+        &mut *self.inner
+    }
+}
 impl Migrate for CustomMigrator {
     fn ensure_migrations_table(
         &mut self,
@@ -272,7 +280,7 @@ pub async fn migrate(
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
         version=20250201145631 OR version=20250201145632 OR version=20251006143821"
     )
-    .execute(db)
+    .execute(custom_migrator.connection())
     .await
     {
         tracing::info!("Could not remove sqlx migrations: {err:#}");
@@ -310,7 +318,7 @@ pub async fn migrate(
                 sqlx::query("DELETE FROM _sqlx_migrations WHERE version = $1 AND checksum != $2")
                     .bind(m.version)
                     .bind(&*m.checksum)
-                    .execute(db)
+                    .execute(custom_migrator.connection())
                     .await
             {
                 tracing::info!("Could not clean up stale migration {}: {err:#}", m.version);
@@ -340,7 +348,7 @@ pub async fn migrate(
         }
     }
 
-    crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
+    crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
     Ok(None)
 }
 

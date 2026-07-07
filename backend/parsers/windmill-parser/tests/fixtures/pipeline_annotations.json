@@ -769,5 +769,109 @@
 			"tag": null,
 			"retry": null
 		}
+	},
+	{
+		"name": "mute suppresses a single ducklake read edge",
+		"code": "// pipeline\n// mute ducklake://main.orders\nselect 1",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"mute": [
+				"ducklake:main.orders"
+			]
+		}
+	},
+	{
+		"name": "mute all opts out of all auto-derivation",
+		"code": "// pipeline\n// mute all\nselect 1",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"mute_all": true
+		}
+	},
+	{
+		"name": "mute accumulates in order and dedups",
+		"code": "// pipeline\n// mute ducklake://main.a\n// mute s3://raw/b\n// mute ducklake://main.a\nselect 1",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"mute": [
+				"ducklake:main.a",
+				"s3object:raw/b"
+			]
+		}
+	},
+	{
+		"name": "mute of a native trigger kind is dropped (only assets are muteable)",
+		"code": "// pipeline\n// mute kafka\nselect 1",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "mute prose without an asset ref never false-positives",
+		"code": "// pipeline\n// muted for now\nselect 1",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
+	},
+	{
+		"name": "mute all coexists with explicit on edges",
+		"code": "// pipeline\n// mute all\n// on ducklake://main.orders\nselect 1",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"ducklake:main.orders"
+			],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"mute_all": true
+		}
+	},
+	{
+		"name": "on asset ref strips trailing key=value opts",
+		"code": "// pipeline\n// on ducklake://main.orders debounce=60s\nselect 1",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [
+				"ducklake:main.orders"
+			],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
 	}
 ]

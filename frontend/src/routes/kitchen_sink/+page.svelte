@@ -4,9 +4,37 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
+	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { Globe } from 'lucide-svelte'
 
 	let tab = $state('button')
+
+	const sampleMarkdown = `# Heading 1
+
+## Heading 2
+
+Body text with **bold**, *italic*, a [link](https://windmill.dev), and \`inline code\` that must stay readable in both themes.
+
+> A block quote should be legible too.
+
+- First bullet
+- Second bullet with \`code\`
+
+1. Ordered one
+2. Ordered two
+
+\`\`\`ts
+const block = 'code block'
+console.log(block)
+\`\`\`
+
+| Column A | Column B |
+| -------- | -------- |
+| one      | two      |
+| three    | four     |
+
+---
+`
 	let dropdownItems = [
 		{
 			label: 'Lorem ipsum',
@@ -19,6 +47,7 @@
 
 <Tabs bind:selected={tab}>
 	<Tab value="button" label="Buttons" />
+	<Tab value="markdown" label="Markdown" />
 
 	{#snippet content()}
 		<TabContent value="button" class="p-4 flex gap-4 flex-col ">
@@ -71,6 +100,9 @@
 				<Button variant="default" {dropdownItems}>Lorem</Button>
 				<Button variant="default" {dropdownItems}>Lorem</Button>
 			</div>
+		</TabContent>
+		<TabContent value="markdown" class="p-4">
+			<GfmMarkdown md={sampleMarkdown} />
 		</TabContent>
 	{/snippet}
 </Tabs>

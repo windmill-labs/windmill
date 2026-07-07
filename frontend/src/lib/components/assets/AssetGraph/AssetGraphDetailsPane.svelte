@@ -636,7 +636,9 @@
 					dataTests: [],
 					columnLineage: [],
 					macros: false,
-					useLibs: []
+					useLibs: [],
+					muteAssets: [],
+					muteAll: false
 				}
 	)
 	// `// macros` library: the defined signatures for the strip above the

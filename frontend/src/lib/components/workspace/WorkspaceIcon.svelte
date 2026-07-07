@@ -2,11 +2,13 @@
 	import { Building, GitFork } from 'lucide-svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { getContrastTextColor } from '$lib/utils'
+	import { devLabelWord } from '$lib/utils/devWorkspaceLabel'
 
 	interface Props {
 		workspaceColor?: string
 		isForked?: boolean
 		isDevWorkspace?: boolean
+		devWorkspaceLabel?: string | null
 		parentName?: string
 		size?: number
 	}
@@ -15,6 +17,7 @@
 		workspaceColor,
 		isForked = false,
 		isDevWorkspace = false,
+		devWorkspaceLabel,
 		parentName,
 		size = 14
 	}: Props = $props()
@@ -27,7 +30,7 @@
 		<Tooltip>
 			{#snippet text()}
 				{#if isForked && parentName}
-					{isDevWorkspace ? 'Dev workspace of' : 'Fork of'}
+					{isDevWorkspace ? `${devLabelWord(devWorkspaceLabel)} workspace of` : 'Fork of'}
 					{parentName}
 				{/if}
 			{/snippet}

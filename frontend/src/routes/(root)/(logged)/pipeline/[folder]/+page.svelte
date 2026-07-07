@@ -259,7 +259,9 @@
 			dataTests: [],
 			columnLineage: [],
 			macros: false,
-			useLibs: []
+			useLibs: [],
+			muteAssets: [],
+			muteAll: false
 		}
 	}
 

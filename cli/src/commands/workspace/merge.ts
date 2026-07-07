@@ -11,10 +11,12 @@ import {
   deleteItemInWorkspace,
   getOnBehalfOf,
   isTriggerOrScheduleKind,
+  parseDatatableMigrationDeployPath,
   type DeployKind,
   type DeployProvider,
   type TriggerDeployKind,
 } from "../../../windmill-utils-internal/src/deploy.ts";
+import { offerToRunNewMigrations } from "../datatable_migrations.ts";
 
 // ---------------------------------------------------------------------------
 // Provider adapter — wraps CLI's standalone API functions
@@ -534,6 +536,14 @@ async function mergeWorkspaces(
   // 10. Deploy
   let successCount = 0;
   let failCount = 0;
+  // Datatable migrations deployed (not deleted) into the target. Deploying a
+  // migration only upserts its definition — the target schema is unchanged until
+  // the migration is run — so offer to run them afterwards (like the push path).
+  const deployedMigrations: {
+    datatable: string;
+    timestamp: number;
+    name: string;
+  }[] = [];
 
   for (const diff of sorted) {
     const label = `${diff.kind}:${diff.path}`;
@@ -577,6 +587,12 @@ async function mergeWorkspaces(
     if (result.success) {
       log.info(colors.green(`  ✓ ${label}`));
       successCount++;
+      if (
+        !itemDeletedInSource &&
+        (diff.kind as DeployKind) === "datatable_migration"
+      ) {
+        deployedMigrations.push(parseDatatableMigrationDeployPath(diff.path));
+      }
     } else {
       log.info(colors.red(`  ✗ ${label}: ${result.error}`));
       failCount++;
@@ -609,6 +625,18 @@ async function mergeWorkspaces(
         `Deployed ${successCount} item(s), ${colors.red(String(failCount) + " failed")} from ${workspaceFrom} to ${workspaceTo}.`
       )
     );
+  }
+
+  // 13. Deployed migration definitions don't touch the target schema until run;
+  // offer to run them on the target now (interactive only, like the push path).
+  if (deployedMigrations.length > 0) {
+    try {
+      await offerToRunNewMigrations(workspaceTo, deployedMigrations, {
+        yes: opts.yes,
+      });
+    } catch (e) {
+      log.warn(colors.yellow(`Failed to run deployed migrations: ${e}`));
+    }
   }
 }
 

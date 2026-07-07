@@ -91,9 +91,10 @@ pub(crate) async fn change_workspace_id(
         .await?;
     }
     sqlx::query!(
-        "INSERT INTO workspace (id, name, owner, deleted, premium, parent_workspace_id, is_dev_workspace)
+        "INSERT INTO workspace (id, name, owner, deleted, premium, parent_workspace_id, is_dev_workspace, dev_workspace_label)
          SELECT $1, $2, owner, false, premium,
-                CASE WHEN $4 THEN parent_workspace_id ELSE NULL END, $5
+                CASE WHEN $4 THEN parent_workspace_id ELSE NULL END, $5,
+                CASE WHEN $5 THEN dev_workspace_label ELSE NULL END
          FROM workspace WHERE id = $3",
         &rw.new_id,
         &rw.new_name,
@@ -1095,7 +1096,10 @@ pub(crate) async fn delete_workspace(
     // effort: failures are logged — the workspace row is already gone, and broken storage
     // credentials must not have made it undeletable.
     for e in cleanup_fork_ducklake_namespaces(&db, &w_id, fork_ducklake_cleanups).await {
-        tracing::warn!("deleted workspace {w_id}: ducklake namespace cleanup: {}", e.msg);
+        tracing::warn!(
+            "deleted workspace {w_id}: ducklake namespace cleanup: {}",
+            e.msg
+        );
     }
 
     if let Some(parent) = dev_lock_parent {

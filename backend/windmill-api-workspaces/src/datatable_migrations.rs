@@ -237,6 +237,61 @@ async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<
     Ok(())
 }
 
+/// Open a connection to a data table's own database and hold the session-level
+/// advisory lock that serializes migration runs/rollbacks. The lock is released
+/// when the returned client is dropped, so callers must keep it in scope for the
+/// whole critical section.
+///
+/// Runs, rollbacks *and* definition rewrites/deletes all take this lock: a run
+/// snapshots a migration's `code_up` from `datatable_migrations` and only records
+/// its version in `_wm_migrations` after the job succeeds, so an unserialized edit
+/// could rewrite the definition in that window and leave `_wm_migrations` pointing
+/// at SQL that was never applied. `_wm_migrations` is per-database, so a single
+/// key is sufficient.
+async fn lock_datatable_migration_runs(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<tokio_postgres::Client> {
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    client
+        .batch_execute("SELECT pg_advisory_lock(hashtext('windmill_datatable_migrations')::int8)")
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
+    Ok(client)
+}
+
+/// Read the versions recorded as applied in a data table's `_wm_migrations`,
+/// scoped to that data table, using an existing connection. An absent table
+/// (`42P01`) means nothing has been migrated yet.
+async fn read_applied_versions_on_client(
+    client: &tokio_postgres::Client,
+    datatable_name: &str,
+) -> Result<HashSet<i64>> {
+    match client
+        .query(
+            "SELECT version FROM _wm_migrations WHERE datatable = $1",
+            &[&datatable_name],
+        )
+        .await
+    {
+        Ok(rows) => Ok(rows.iter().map(|row| row.get::<_, i64>(0)).collect()),
+        Err(e) if e.as_db_error().map(|d| d.code().code()) == Some("42P01") => Ok(HashSet::new()),
+        Err(e) => Err(Error::internal_err(format!(
+            "Failed to read _wm_migrations: {}",
+            e
+        ))),
+    }
+}
+
 /// Apply the workspace's pending data table migrations to a given data table.
 /// Each migration runs as a normal Windmill `postgresql` job (permissioned as
 /// the requester, labelled `datatable_migration`); applied versions are then
@@ -260,6 +315,14 @@ async fn run_datatable_migrations(
     )
     .await?;
 
+    let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
+
+    // Take the run-serialization lock before snapshotting the migration
+    // definitions: a concurrent definition rewrite/delete takes the same lock, so
+    // the `code_up` we read here can't change between now and when we record its
+    // version below. The lock is held until `client` drops at return.
+    let client = lock_datatable_migration_runs(&db, &w_id, &datatable_name).await?;
+
     let migrations = sqlx::query!(
         "SELECT timestamp, name, code_up FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 ORDER BY timestamp ASC",
@@ -269,43 +332,9 @@ async fn run_datatable_migrations(
     .fetch_all(&db)
     .await?;
 
-    let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
-
-    // The data table's `_wm_migrations` bookkeeping is read here and written
-    // after each job succeeds; the migration SQL itself runs in the job.
-    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
-    let pg_db: PgDatabase = serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(Some(&db)).await?;
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::error!("Datatable connection error: {}", e);
-        }
-    });
-
-    // Serialize concurrent migration runs/rollbacks against this data table's
-    // database. Without it two "Run all" requests (or a run racing a rollback)
-    // read the same `_wm_migrations` state and launch the same DDL twice, which
-    // errors or corrupts a non-idempotent migration. This session-level lock is
-    // held for the whole operation and released when the connection drops at
-    // return; `_wm_migrations` is per-database, so a single key is sufficient.
-    client
-        .batch_execute("SELECT pg_advisory_lock(hashtext('windmill_datatable_migrations')::int8)")
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
-
     ensure_wm_migrations_schema(&client).await?;
 
-    let applied_versions: HashSet<i64> = client
-        .query(
-            "SELECT version FROM _wm_migrations WHERE datatable = $1",
-            &[&datatable_name],
-        )
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?
-        .iter()
-        .map(|row| row.get::<_, i64>(0))
-        .collect();
+    let applied_versions = read_applied_versions_on_client(&client, &datatable_name).await?;
 
     let mut applied = Vec::new();
     for m in migrations {
@@ -386,27 +415,10 @@ async fn rollback_datatable_migrations(
     .await?;
 
     // The data table's `_wm_migrations` bookkeeping is read here and the version
-    // dropped after the job succeeds; the down SQL itself runs in the job.
-    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
-    let pg_db: PgDatabase = serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(Some(&db)).await?;
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::error!("Datatable connection error: {}", e);
-        }
-    });
-
-    // Serialize concurrent migration runs/rollbacks against this data table's
-    // database. Without it two "Run all" requests (or a run racing a rollback)
-    // read the same `_wm_migrations` state and launch the same DDL twice, which
-    // errors or corrupts a non-idempotent migration. This session-level lock is
-    // held for the whole operation and released when the connection drops at
-    // return; `_wm_migrations` is per-database, so a single key is sufficient.
-    client
-        .batch_execute("SELECT pg_advisory_lock(hashtext('windmill_datatable_migrations')::int8)")
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
+    // dropped after the job succeeds; the down SQL itself runs in the job. The
+    // lock is held (until `client` drops at return) so a concurrent run or
+    // definition rewrite can't interleave with this rollback.
+    let client = lock_datatable_migration_runs(&db, &w_id, &datatable_name).await?;
 
     ensure_wm_migrations_schema(&client).await?;
 
@@ -605,22 +617,9 @@ async fn read_applied_datatable_versions(
         }
     });
 
-    // Read-only status path: don't create the table here. Scope by data table.
-    match client
-        .query(
-            "SELECT version FROM _wm_migrations WHERE datatable = $1",
-            &[&datatable_name],
-        )
-        .await
-    {
-        Ok(rows) => Ok(rows.iter().map(|row| row.get::<_, i64>(0)).collect()),
-        // 42P01 = undefined_table: the data table has never been migrated yet.
-        Err(e) if e.as_db_error().map(|d| d.code().code()) == Some("42P01") => Ok(HashSet::new()),
-        Err(e) => Err(Error::internal_err(format!(
-            "Failed to read _wm_migrations: {}",
-            e
-        ))),
-    }
+    // Read-only status path: don't create the table here, and don't take the run
+    // lock — a stale-by-a-moment applied set is fine for display.
+    read_applied_versions_on_client(&client, datatable_name).await
 }
 
 /// List a data table's migrations annotated with whether each has been applied.
@@ -1007,6 +1006,33 @@ async fn delete_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
 ) -> Result<String> {
+    // Hold the run-serialization lock across the applied-check and the delete: a
+    // run snapshots a migration's SQL before recording its version, so an
+    // unserialized delete could race it and leave `_wm_migrations` pointing at a
+    // definition that no longer exists (breaking rollback and hiding the applied
+    // version). Held until the handler returns. Fail closed if we can't verify.
+    let unreachable = |e| {
+        Error::internal_err(format!(
+            "Cannot verify whether migration {} on data table '{}' has already been applied \
+             (its database is unreachable: {}). Refusing to delete it; retry once the database \
+             is reachable.",
+            timestamp, datatable_name, e
+        ))
+    };
+    let lock_client = lock_datatable_migration_runs(&db, &w_id, &datatable_name)
+        .await
+        .map_err(unreachable)?;
+    let applied = read_applied_versions_on_client(&lock_client, &datatable_name)
+        .await
+        .map_err(unreachable)?;
+    if applied.contains(&timestamp) {
+        return Err(Error::BadRequest(format!(
+            "Migration {} on data table '{}' has already been applied and cannot be deleted. \
+             Revert it first.",
+            timestamp, datatable_name
+        )));
+    }
+
     let deleted_name = sqlx::query_scalar!(
         "DELETE FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3 \
@@ -1017,6 +1043,9 @@ async fn delete_datatable_migration(
     )
     .fetch_optional(&db)
     .await?;
+    // The definition is removed; runs may resume (audit/deploy metadata below
+    // don't need the lock).
+    drop(lock_client);
 
     audit_log(
         &db,
@@ -1085,24 +1114,33 @@ async fn upsert_datatable_migration(
     )
     .fetch_optional(&db)
     .await?;
-    if let Some(existing) = existing {
-        let unchanged = existing.name == payload.name
-            && existing.code_up == payload.code_up
-            && existing.code_down == payload.code_down;
-        if !unchanged {
-            // Fail closed: if the applied set can't be read (e.g. the data-table
-            // database is temporarily unreachable), refuse the change rather than
-            // risk overwriting a migration that has already run.
-            let applied = read_applied_datatable_versions(&db, &w_id, &datatable_name)
+    // When modifying an existing definition, hold the run-serialization lock
+    // across the applied-check and the write below so an in-flight run can't
+    // record a version for the SQL we're about to overwrite. Held until the end
+    // of the handler (well past the write); a new/unchanged upsert needs no lock.
+    let _run_lock = match existing {
+        Some(existing)
+            if !(existing.name == payload.name
+                && existing.code_up == payload.code_up
+                && existing.code_down == payload.code_down) =>
+        {
+            // Fail closed: if we can't lock/read the applied set (e.g. the
+            // data-table database is temporarily unreachable), refuse the change
+            // rather than risk overwriting a migration that has already run.
+            let unreachable = |e| {
+                Error::internal_err(format!(
+                    "Cannot verify whether migration {} on data table '{}' has already been \
+                     applied (its database is unreachable: {}). Refusing to modify it; retry \
+                     once the database is reachable.",
+                    payload.timestamp, datatable_name, e
+                ))
+            };
+            let client = lock_datatable_migration_runs(&db, &w_id, &datatable_name)
                 .await
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "Cannot verify whether migration {} on data table '{}' has already been \
-                         applied (its database is unreachable: {}). Refusing to modify it; retry \
-                         once the database is reachable.",
-                        payload.timestamp, datatable_name, e
-                    ))
-                })?;
+                .map_err(unreachable)?;
+            let applied = read_applied_versions_on_client(&client, &datatable_name)
+                .await
+                .map_err(unreachable)?;
             if applied.contains(&payload.timestamp) {
                 return Err(Error::BadRequest(format!(
                     "Migration {} on data table '{}' has already been applied and cannot be modified. \
@@ -1110,8 +1148,10 @@ async fn upsert_datatable_migration(
                     payload.timestamp, datatable_name
                 )));
             }
+            Some(client)
         }
-    }
+        _ => None,
+    };
 
     sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
@@ -1127,6 +1167,9 @@ async fn upsert_datatable_migration(
     )
     .execute(&db)
     .await?;
+    // The definition is written; runs may resume (audit/deploy metadata below
+    // don't need the lock).
+    drop(_run_lock);
 
     audit_log(
         &db,

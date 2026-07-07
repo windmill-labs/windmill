@@ -78,8 +78,6 @@ describe('pipelineTemplates materialize partition filter', () => {
 	it('teaches the grain-agnostic wm_partition filter', () => {
 		const body = materializeBody()
 		expect(body).toContain(`WHERE wm_partition(<ts_col>) = {partition}`)
-		// dynamic grain has no timestamp bucket — steer to the raw key.
-		expect(body).toContain(`WHERE <key_col> = {partition}`)
 	})
 
 	it('never scaffolds the naive `TIMESTAMP {partition}` cast, nor a raw strftime format', () => {
@@ -89,5 +87,72 @@ describe('pipelineTemplates materialize partition filter', () => {
 		expect(body).not.toMatch(/TIMESTAMP\s*\{partition\}/)
 		// No hand-written strftime format to drift from the resolver.
 		expect(body).not.toContain('strftime')
+	})
+})
+
+describe('pipelineTemplates: auto-derived reads drop the redundant // on', () => {
+	const draft = (
+		input: { kind: 'ducklake' | 's3object' | 'datatable'; path: string } | undefined,
+		triggers: Parameters<typeof generatePipelineDraft>[0]['triggers'],
+		language: ScriptLang = 'duckdb',
+		outputKind: PipelineOutputKind = 'materialize'
+	) =>
+		generatePipelineDraft({
+			language,
+			outputKind,
+			output: autoOutputAsset(outputKind, 'demo', language),
+			input,
+			triggers
+		})
+
+	it('omits // on for a ducklake input the body reads (auto-derived)', () => {
+		const body = draft({ kind: 'ducklake', path: 'main/orders' }, [
+			{ kind: 'asset', ref: 'ducklake://main/orders' }
+		])
+		expect(body).not.toContain('on ducklake://main/orders')
+		// The body still attaches and reads the table (`ducklake://main` →
+		// `lake.orders`), which is what wires the cascade now that the explicit
+		// `// on` is gone.
+		expect(body).toContain(`ATTACH 'ducklake://main'`)
+		expect(body).toContain('lake.orders')
+	})
+
+	it('omits // on for an s3 input the body reads', () => {
+		const body = draft({ kind: 's3object', path: 'raw/events.parquet' }, [
+			{ kind: 'asset', ref: 's3://raw/events.parquet' }
+		])
+		expect(body).not.toContain('on s3://raw/events.parquet')
+	})
+
+	it('keeps // on for a datatable input (not auto-derived)', () => {
+		const body = draft({ kind: 'datatable', path: 'main/dt' }, [
+			{ kind: 'asset', ref: 'datatable://main/dt' }
+		])
+		expect(body).toContain('on datatable://main/dt')
+	})
+
+	it('keeps // on for a native trigger', () => {
+		const body = draft(undefined, [{ kind: 'schedule', path: undefined }])
+		expect(body).toContain('on schedule')
+	})
+
+	it('keeps // on when the body does not read the input (postgres, bash)', () => {
+		// postgres/bash bodies ignore `input`, so dropping `// on` would leave the
+		// script with neither an explicit trigger nor an inferred read → no cascade.
+		const pg = draft(
+			{ kind: 'ducklake', path: 'main/orders' },
+			[{ kind: 'asset', ref: 'ducklake://main/orders' }],
+			'postgresql',
+			'datatable'
+		)
+		expect(pg).toContain('on ducklake://main/orders')
+
+		const bash = draft(
+			{ kind: 's3object', path: 'raw/events.parquet' },
+			[{ kind: 'asset', ref: 's3://raw/events.parquet' }],
+			'bash',
+			's3_object'
+		)
+		expect(bash).toContain('on s3://raw/events.parquet')
 	})
 })

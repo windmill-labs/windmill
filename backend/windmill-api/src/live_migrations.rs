@@ -9,26 +9,26 @@
 use sqlx::Postgres;
 use windmill_common::error::Error;
 
-use crate::db::{CustomMigrator, DB};
+use crate::db::CustomMigrator;
 use sqlx::migrate::Migrate;
+use sqlx::Acquire;
 use sqlx::Executor;
 
-pub async fn custom_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(), Error> {
-    if let Err(err) = fix_flow_versioning_migration(migrator, db).await {
+pub async fn custom_migrations(migrator: &mut CustomMigrator) -> Result<(), Error> {
+    if let Err(err) = fix_flow_versioning_migration(migrator).await {
         tracing::error!("Could not apply flow versioning fix migration: {err:#}");
     }
 
     Ok(())
 }
 
-async fn fix_flow_versioning_migration(
-    migrator: &mut CustomMigrator,
-    db: &DB,
-) -> Result<(), Error> {
+// Runs on the migrator's held connection (see CustomMigrator::connection): re-acquiring
+// from the pool here would deadlock a single-connection backend.
+async fn fix_flow_versioning_migration(migrator: &mut CustomMigrator) -> Result<(), Error> {
     let has_done_migration = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
     )
-    .fetch_one(db)
+    .fetch_one(migrator.connection())
     .await?
     .unwrap_or(false);
 
@@ -44,14 +44,14 @@ async fn fix_flow_versioning_migration(
             let has_done_migration = sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
             )
-            .fetch_one(db)
+            .fetch_one(migrator.connection())
             .await?
             .unwrap_or(false);
 
             if !has_done_migration {
                 let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
                 tracing::info!("Applying fix_flow_versioning_2.sql");
-                let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
+                let mut tx: sqlx::Transaction<'_, Postgres> = migrator.connection().begin().await?;
                 tx.execute(query).await?;
                 tracing::info!("Applied fix_flow_versioning_2.sql");
                 sqlx::query!(
