@@ -1906,6 +1906,7 @@
 								kind="script"
 								summaryEditable={customUi?.topBar?.editableSummary != false}
 								pathEditable={customUi?.topBar?.editablePath != false}
+								workspaceId={autosaveWorkspace}
 								onNavigate={(item) => onNavigate?.(item)}
 							/>
 						</div>

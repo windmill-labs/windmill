@@ -794,6 +794,7 @@
 				savedPath={appPath || newPath || undefined}
 				kind="app"
 				raw_app
+				workspaceId={autosaveWorkspace}
 				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 			/>
 		</div>

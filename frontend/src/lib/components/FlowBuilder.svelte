@@ -1106,6 +1106,7 @@
 							bind:path={$pathStore}
 							savedPath={initialPath}
 							onBehalfOfEmail={$savedOnBehalfOfEmail}
+							workspaceId={autosaveWorkspace}
 							onNavigate={(item) => onNavigate?.(item)}
 						/>
 					</div>
