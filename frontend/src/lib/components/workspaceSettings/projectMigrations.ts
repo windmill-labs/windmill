@@ -206,6 +206,29 @@ function errorText(e: any): string {
 	return String(raw).replace(/\s+/g, ' ').trim()
 }
 
+/** A `CREATE TABLE [IF NOT EXISTS] <name>(` table name — quoted or bare, optionally
+ *  schema-qualified. Group 1 is the full name as written. */
+const CREATE_TABLE_RE =
+	/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?("[^"]+"(?:\s*\.\s*"[^"]+")?|[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?)/gi
+
+/**
+ * Best-effort down migration for an up migration: `DROP TABLE IF EXISTS` for each
+ * table the up creates, in reverse creation order (children before parents, so
+ * foreign keys don't block the drop). Derived from the up SQL so it always matches
+ * the current (possibly edited) statements. Returns '' when the up creates nothing.
+ */
+export function dropTablesSql(upSql: string): string {
+	const names: string[] = []
+	CREATE_TABLE_RE.lastIndex = 0
+	let m: RegExpExecArray | null
+	while ((m = CREATE_TABLE_RE.exec(upSql)) !== null) {
+		names.push(m[1].replace(/\s+/g, ''))
+	}
+	if (names.length === 0) return ''
+	const drops = names.reverse().map((n) => `DROP TABLE IF EXISTS ${n};`)
+	return `BEGIN;\n${drops.join('\n')}\nCOMMIT;`
+}
+
 // Strip the per-table `BEGIN;`/`COMMIT;` wrapper that generateMigrationSql adds,
 // so several tables can share one transaction.
 function unwrapTransaction(sql: string): string {

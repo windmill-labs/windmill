@@ -44,6 +44,7 @@
 	} from './projectBundle'
 	import {
 		detectDatatableTables,
+		dropTablesSql,
 		generateDatatableMigrations,
 		type GeneratedMigration
 	} from './projectMigrations'
@@ -2480,6 +2481,16 @@
 								placeholder={`-- SQL migration for ${m.datatable_name}`}
 								class="rounded border bg-surface px-2 py-1.5 text-[11px] font-mono"
 							></textarea>
+							{@const down = dropTablesSql(m.sql)}
+							{#if down}
+								<span class="text-[11px] text-hint">
+									Rollback (down migration — drops the tables above):
+								</span>
+								<pre
+									class="overflow-x-auto rounded border bg-surface px-2 py-1.5 text-[11px] font-mono text-secondary whitespace-pre"
+									>{down}</pre
+								>
+							{/if}
 						</div>
 					{/each}
 				{/if}

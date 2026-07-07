@@ -3,7 +3,8 @@
 	import { goto } from '$app/navigation'
 	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Button } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		ScriptService,
 		FlowService,
@@ -30,6 +31,7 @@
 		rewriteFlowValue,
 		rewriteRawAppContent
 	} from '$lib/components/workspaceSettings/projectBundle'
+	import { dropTablesSql } from '$lib/components/workspaceSettings/projectMigrations'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
@@ -63,11 +65,27 @@
 	let done = $state(false)
 	let folderName = $state('')
 
-	// Migration decisions are gathered up-front (before items are created) via these
-	// two linear-await modals: "run the migrations?" and, when the target lacks a
-	// needed data table, "import without that migration".
-	const runMigrationsModal = createAsyncConfirmationModal()
+	// When the target lacks a needed data table, "import without that migration".
 	const missingDatatableModal = createAsyncConfirmationModal()
+
+	// Migration review drawer: preview + edit each runnable migration's SQL and
+	// choose which to run, resolved linearly via `reviewResolve`.
+	let reviewDrawer = $state<Drawer | undefined>()
+	let reviewList = $state<{ datatable_name: string; sql: string; run: boolean }[]>([])
+	let reviewResolve: ((run: boolean) => void) | undefined
+	function openMigrationReview(migs: ProjectMigration[]): Promise<boolean> {
+		reviewList = migs.map((m) => ({ datatable_name: m.datatable_name, sql: m.sql, run: true }))
+		reviewDrawer?.openDrawer()
+		return new Promise((resolve) => (reviewResolve = resolve))
+	}
+	function closeMigrationReview(run: boolean) {
+		// Capture + clear first so the `on:close` fired by closeDrawer() (which would
+		// call this again with run=false) can't override an explicit Run/Skip choice.
+		const resolve = reviewResolve
+		reviewResolve = undefined
+		reviewDrawer?.closeDrawer()
+		resolve?.(run)
+	}
 
 	let loadSeq = 0
 
@@ -235,14 +253,15 @@
 
 	// Decide which data table migrations to run. Migrations are keyed by data table
 	// name and applied only to a target data table of the same name; a missing one
-	// is surfaced (import proceeds without it). Returns the migrations to run and
-	// whether the user opted in.
+	// is surfaced (import proceeds without it). The runnable ones are shown in a
+	// review drawer to preview/edit before running. Returns the migrations to run
+	// (with any edits the user made), empty if skipped.
 	async function planMigrations(
 		workspace: string,
 		migrations: ProjectMigration[]
-	): Promise<{ runnable: ProjectMigration[]; doRun: boolean }> {
+	): Promise<ProjectMigration[]> {
 		const enabled = migrations.filter((m) => m.enabled && (m.sql ?? '').trim() !== '')
-		if (enabled.length === 0) return { runnable: [], doRun: false }
+		if (enabled.length === 0) return []
 
 		let present: Set<string>
 		try {
@@ -250,24 +269,21 @@
 			present = new Set(dts.map((d) => d.name))
 		} catch {
 			// Can't read the target's data tables — skip migrations rather than guess.
-			return { runnable: [], doRun: false }
+			return []
 		}
 		const runnable = enabled.filter((m) => present.has(m.datatable_name))
 		const missingNames = [
 			...new Set(enabled.filter((m) => !present.has(m.datatable_name)).map((m) => m.datatable_name))
 		]
 
-		let doRun = false
+		let toRun: ProjectMigration[] = []
 		if (runnable.length > 0) {
-			doRun = await runMigrationsModal.ask({
-				title: 'Run data table migrations?',
-				confirmationText: 'Run migrations',
-				children: `This project ships migrations for data table(s) ${runnable
-					.map((m) => m.datatable_name)
-					.join(
-						', '
-					)}. Run them now to create the tables the project uses? You can skip and run them later.`
-			})
+			const run = await openMigrationReview(runnable)
+			if (run) {
+				toRun = reviewList
+					.filter((r) => r.run && r.sql.trim() !== '')
+					.map((r) => ({ datatable_name: r.datatable_name, sql: r.sql, enabled: true }))
+			}
 		}
 		if (missingNames.length > 0) {
 			await missingDatatableModal.ask({
@@ -278,7 +294,7 @@
 				)}" that don't exist in this workspace, so their migrations will be skipped. To apply them, create the data table(s) with the same name in Workspace settings → Data tables, then re-run this import.`
 			})
 		}
-		return { runnable, doRun }
+		return toRun
 	}
 
 	// Apply one migration to the target data table. If the data table opted into
@@ -295,10 +311,17 @@
 		} catch {}
 
 		if (recorded) {
+			// Record a matching down migration (DROP the created tables) so it can be
+			// rolled back. Derived from the up SQL so it tracks any edits.
+			const codeDown = dropTablesSql(m.sql)
 			const created = await WorkspaceService.createDatatableMigration({
 				workspace,
 				datatableName: m.datatable_name,
-				requestBody: { name: `hub_import_${data?.project.slug ?? 'project'}`, code_up: m.sql }
+				requestBody: {
+					name: `hub_import_${data?.project.slug ?? 'project'}`,
+					code_up: m.sql,
+					code_down: codeDown || undefined
+				}
 			})
 			await WorkspaceService.runDatatableMigrations({
 				workspace,
@@ -325,14 +348,15 @@
 		const exportData = data
 		if (!exportData || !workspace) return
 		const folder = folderName.trim() || exportData.project.slug
+
+		// Review data table migrations first (before the import spinner), so the user
+		// previews/edits and decides, then the whole import runs uninterrupted.
+		const migrationsToRun = await planMigrations(workspace, exportData.migrations ?? [])
+
 		installing = true
 		results = []
 		done = false
 		try {
-			// Ask about data table migrations up-front, before creating any items, so
-			// the whole import is one uninterrupted flow after the user decides.
-			const migPlan = await planMigrations(workspace, exportData.migrations ?? [])
-
 			try {
 				await FolderService.createFolder({ workspace, requestBody: { name: folder } })
 			} catch {}
@@ -478,12 +502,10 @@
 				}
 			}
 
-			// Apply the opted-in data table migrations after items exist. Each is
+			// Apply the reviewed data table migrations after items exist. Each is
 			// recorded (or run as a preview job) per applyOneMigration.
-			if (migPlan.doRun) {
-				for (const m of migPlan.runnable) {
-					await record(`data table: ${m.datatable_name}`, applyOneMigration(workspace, m))
-				}
+			for (const m of migrationsToRun) {
+				await record(`data table: ${m.datatable_name}`, applyOneMigration(workspace, m))
 			}
 
 			done = true
@@ -580,6 +602,54 @@
 </div>
 
 <Portal>
-	<ConfirmationModal {...runMigrationsModal.props} />
 	<ConfirmationModal {...missingDatatableModal.props} />
 </Portal>
+
+<Drawer bind:this={reviewDrawer} size="700px" on:close={() => closeMigrationReview(false)}>
+	<DrawerContent title="Data table migrations" on:close={() => closeMigrationReview(false)}>
+		<div class="flex flex-col gap-4">
+			<p class="text-xs text-secondary">
+				This project ships migrations that recreate the data tables it uses. Review and edit the
+				SQL, then choose which to run. A migration runs against the data table of the same name in
+				<span class="font-mono">{workspace}</span>; if that data table has migrations enabled it is
+				recorded, otherwise it runs once as a preview job.
+			</p>
+			{#each reviewList as m (m.datatable_name)}
+				<div class="flex flex-col gap-1.5 rounded border bg-surface-secondary p-2 text-xs">
+					<div class="flex items-center justify-between gap-2">
+						<span class="font-mono text-primary">{m.datatable_name}</span>
+						<Toggle bind:checked={m.run} size="xs" options={{ right: 'Run' }} />
+					</div>
+					{#if m.run}
+						<textarea
+							bind:value={m.sql}
+							rows="8"
+							spellcheck="false"
+							class="rounded border bg-surface px-2 py-1.5 text-[11px] font-mono"
+						></textarea>
+						{@const down = dropTablesSql(m.sql)}
+						{#if down}
+							<span class="text-[11px] text-hint">
+								Rollback (recorded as the down migration if this data table has migrations enabled):
+							</span>
+							<pre
+								class="overflow-x-auto rounded border bg-surface px-2 py-1.5 text-[11px] font-mono text-secondary whitespace-pre"
+								>{down}</pre
+							>
+						{/if}
+					{/if}
+				</div>
+			{/each}
+		</div>
+		{#snippet actions()}
+			<Button variant="border" onclick={() => closeMigrationReview(false)}>Skip migrations</Button>
+			<Button
+				variant="accent"
+				disabled={!reviewList.some((m) => m.run && m.sql.trim() !== '')}
+				onclick={() => closeMigrationReview(true)}
+			>
+				Run selected
+			</Button>
+		{/snippet}
+	</DrawerContent>
+</Drawer>
