@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND NOT deleted AND (id = $2 OR id = $3) ORDER BY (id = $2) DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "124f7c43d603e2bb07cbadf7eaaee4dfc0e2c9521c0689ef3777c61ab06c5dd8"
+}

@@ -29315,6 +29315,8 @@ components:
             $ref: "#/components/schemas/GitSyncObjectType"
         auto_pull:
           $ref: "#/components/schemas/AutoPullSettings"
+        promotion_open_prs:
+          type: boolean
         fork_open_prs:
           type: boolean
       required:
@@ -29355,6 +29357,8 @@ components:
           $ref: "#/components/schemas/AutoPullMode"
         poll_interval_s:
           type: integer
+        sync_forks:
+          type: boolean
         webhook_id:
           type: integer
           format: int64

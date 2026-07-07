@@ -769,6 +769,46 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.last_pull_status = None;
 }
 
+/// Reject parent-only git-sync settings on a fork workspace. Auto-pull, fork
+/// PRs, and promotion mode are all configured at the parent: repo → fork sync is
+/// routed by the parent's webhook/poller (`sync_forks`), a fork-owned auto-pull
+/// would register a second webhook on the same GitHub repo per fork, and a
+/// fork's deploys always go to its `wm-fork/**` branch so a promotion repo could
+/// never take effect there.
+async fn reject_parent_only_git_sync_settings_on_fork<'a>(
+    db: &DB,
+    w_id: &str,
+    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    let offending = repos.find_map(|r| {
+        if r.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+            Some("Auto-pull")
+        } else if r.use_individual_branch.unwrap_or(false) {
+            Some("Promotion mode")
+        } else if r.fork_open_prs {
+            Some("Opening PRs for fork deploys")
+        } else {
+            None
+        }
+    });
+    let Some(offending) = offending else {
+        return Ok(());
+    };
+    let parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if parent.is_some() || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "{offending} cannot be configured on a fork workspace: it is managed from the parent workspace's git sync settings"
+        )));
+    }
+    Ok(())
+}
+
 /// Persist only the reconciled webhook fields (id/secret/error) for `changed` repos.
 /// The webhook reconcile runs after the main save has committed, so writing the whole
 /// pre-reconcile snapshot back would clobber a git-sync edit or poller status write
@@ -803,6 +843,10 @@ async fn persist_reconciled_webhook_fields(
             cur_ap.webhook_id = new_ap.webhook_id;
             cur_ap.webhook_secret = new_ap.webhook_secret.clone();
             cur_ap.webhook_error = new_ap.webhook_error.clone();
+            // The reconcile also normalizes the delivery mode (webhook -> polling
+            // for repos that can't register hooks); losing it would leave the
+            // poller skipping a webhook-mode repo that has no webhook.
+            cur_ap.mode = new_ap.mode;
         }
     }
     let updated = serde_json::to_value(&current).map_err(|e| Error::internal_err(e.to_string()))?;
@@ -2772,6 +2816,23 @@ async fn edit_git_sync_config(
                 clear_client_supplied_auto_pull_state(ap);
             }
         }
+        reject_parent_only_git_sync_settings_on_fork(
+            &db,
+            &w_id,
+            git_sync_settings.repositories.iter(),
+        )
+        .await?;
+        // Auto-pull is EE-only (see edit_git_sync_repository).
+        #[cfg(not(feature = "enterprise"))]
+        if git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
+        {
+            return Err(Error::BadRequest(
+                "Automatic pull from git is an Enterprise Edition feature".to_string(),
+            ));
+        }
         // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
         // status) that the redacted GET response omits — otherwise a whole-config
         // save from the UI would drop the webhook secret (breaking delivery) or
@@ -2948,6 +3009,26 @@ async fn edit_git_sync_repository(
     // starts clean.
     if let Some(ap) = new_config.repository.auto_pull.as_mut() {
         clear_client_supplied_auto_pull_state(ap);
+    }
+    reject_parent_only_git_sync_settings_on_fork(
+        &db,
+        &w_id,
+        std::iter::once(&new_config.repository),
+    )
+    .await?;
+
+    // Auto-pull is EE-only: CE builds compile neither the poller nor the webhook
+    // reconciler, so accepting the setting would silently do nothing.
+    #[cfg(not(feature = "enterprise"))]
+    if new_config
+        .repository
+        .auto_pull
+        .as_ref()
+        .is_some_and(|a| a.enabled)
+    {
+        return Err(Error::BadRequest(
+            "Automatic pull from git is an Enterprise Edition feature".to_string(),
+        ));
     }
 
     // Promotion mode: EE only
@@ -4738,11 +4819,12 @@ async fn update_workspace_settings(
         .filter(|r| !r.use_individual_branch.unwrap_or(false))
         .take(1)
         .map(|mut r| {
-            // Auto-pull is parent-owned and must not be inherited: the fork would
-            // otherwise carry the parent's webhook id (turning off auto-pull on the
-            // fork would delete the parent's webhook). A fork still inherits the
-            // push-direction config and the installation. fork_open_prs is a
-            // parent-level flag, so clear it too.
+            // Auto-pull and fork PRs are parent-owned and must not be inherited:
+            // the fork would otherwise carry the parent's webhook id (turning off
+            // auto-pull on the fork would delete the parent's webhook). A fork
+            // still inherits the push-direction config and the installation.
+            // Repo → fork sync is driven by the parent's webhook/poller
+            // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
             r.auto_pull = None;
             r.fork_open_prs = false;
             r

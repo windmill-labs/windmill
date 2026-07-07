@@ -2872,6 +2872,94 @@ pub async fn get_git_repo_head_for_autopull(
     Ok(Some((ref_spec, sha)))
 }
 
+/// List the head sha of every `wm-fork/<base_branch>/*` branch of a workspace
+/// git-sync repository in one `git ls-remote` call, for parent-managed fork sync
+/// polling. Same auth model and app-repo exclusion as
+/// [`get_git_repo_head_for_autopull`]: returns `Ok(None)` for GitHub-App-backed
+/// repos (polled over the API instead) and errors on SSH remotes.
+pub async fn get_git_repo_fork_heads_for_autopull(
+    db: &DB,
+    w_id: &str,
+    git_repo_resource_path: &str,
+    base_branch: &str,
+) -> Result<Option<Vec<(String, String)>>> {
+    use windmill_common::db::DbWithOptAuthed;
+
+    let resource_path = git_repo_resource_path
+        .strip_prefix("$res:")
+        .unwrap_or(git_repo_resource_path);
+
+    let dba: DbWithOptAuthed<'_, ApiAuthed> = DbWithOptAuthed::DB {
+        db: db.clone(),
+        audit_author: windmill_common::audit::AuditAuthor {
+            username: "git_sync_auto_pull".to_string(),
+            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
+            username_override: None,
+            token_prefix: None,
+        },
+    };
+    let value =
+        get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true)
+            .await?
+            .ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "Git repository resource '{}' not found",
+                    resource_path
+                ))
+            })?;
+
+    if value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+
+    let git_resource: GitRepositoryResource = serde_json::from_value(value)
+        .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
+    let url = git_resource.url.trim_start();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(Error::BadRequest(
+            "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
+        ));
+    }
+    validate_git_url(&git_resource.url).await?;
+    validate_git_ref(base_branch)?;
+
+    let mut git_cmd = Command::new("git");
+    git_cmd.args([
+        "ls-remote",
+        &git_resource.url,
+        &format!("refs/heads/wm-fork/{}/*", base_branch),
+    ]);
+    git_cmd.stderr(Stdio::piped());
+    let output = git_cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)
+            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        return Err(Error::BadRequest(format!(
+            "Error listing fork branches: {}",
+            stderr
+        )));
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("Failed to decode git output: {}", e)))?;
+    let heads = stdout
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let sha = parts.next()?;
+            let branch = parts.next()?.strip_prefix("refs/heads/")?;
+            Some((branch.to_string(), sha.to_string()))
+        })
+        .collect();
+    Ok(Some(heads))
+}
+
 #[cfg(all(
     feature = "enterprise",
     any(feature = "nats", feature = "kafka", feature = "sqs_trigger")

@@ -878,6 +878,150 @@ async fn maybe_reconcile_git_sync_auto_pull(
     .await;
 }
 
+/// Branch a git-sync push job deployed to, mirroring the hub script's
+/// derivation: the fork branch wins for fork workspaces
+/// (`wm-fork/<base>/<id-suffix>`), else the promotion `wm_deploy/**` formula
+/// (per-folder or per-item form). `None` when the deploy stays on the base
+/// branch (workspace-wide mode) and has no PR to open.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn git_sync_deploy_pr_head_branch(
+    workspace_id: &str,
+    parent_workspace_id: Option<&str>,
+    base: &str,
+    use_individual_branch: bool,
+    group_by_folder: bool,
+    item_path: &str,
+    item_parent_path: &str,
+    path_type: &str,
+) -> Option<String> {
+    let is_fork = parent_workspace_id.is_some()
+        || workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
+    if is_fork {
+        let suffix = workspace_id
+            .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
+            .unwrap_or(workspace_id);
+        return Some(format!("wm-fork/{base}/{suffix}"));
+    }
+    if !use_individual_branch {
+        return None;
+    }
+    let git_ref = if !item_path.is_empty() {
+        item_path
+    } else {
+        item_parent_path
+    };
+    if git_ref.is_empty() {
+        return None;
+    }
+    Some(if group_by_folder {
+        format!(
+            "wm_deploy/{workspace_id}/{}",
+            git_ref.split('/').take(2).collect::<Vec<_>>().join("__")
+        )
+    } else {
+        format!(
+            "wm_deploy/{workspace_id}/{}/{}",
+            path_type,
+            git_ref.replace('/', "__")
+        )
+    })
+}
+
+/// When a git-sync push job carrying `__git_sync_open_pr` succeeds, open (or
+/// reopen) the PR for the branch it pushed: `wm-fork/<base>/<id>` for a fork
+/// deploy, `wm_deploy/**` for a promotion deploy. Runs outbound with the
+/// installation token, so it works regardless of webhook reachability.
+/// Best-effort: failures are logged, never propagated.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_open_git_sync_deploy_pr(db: &DB, job_id: &uuid::Uuid, workspace_id: &str) {
+    let row = match sqlx::query!(
+        r#"SELECT
+            args->'__git_sync_open_pr' as "marker",
+            args->>'repo_url_resource_path' as "repo_path",
+            args->>'parent_workspace_id' as "parent_workspace_id",
+            COALESCE((args->'use_individual_branch')::bool, false) as "use_individual_branch!",
+            COALESCE((args->'group_by_folder')::bool, false) as "group_by_folder!",
+            COALESCE(args->'items'->0->>'path', args->>'path', '') as "item_path!",
+            COALESCE(args->'items'->0->>'parent_path', args->>'parent_path', '') as "item_parent_path!",
+            COALESCE(args->'items'->0->>'path_type', args->>'path_type', '') as "path_type!",
+            COALESCE(args->'items'->0->>'commit_msg', args->>'commit_msg', '') as "commit_msg!"
+        FROM v2_job WHERE id = $1"#,
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::error!("git sync PR: failed to read job args: {e:#}");
+            return;
+        }
+    };
+    if row.marker.is_none() {
+        return;
+    }
+    let Some(repo_path) = row.repo_path else {
+        return;
+    };
+
+    // Base = the tracked branch (resource branch, else the repo default). Also
+    // acts as the app-backed gate: PR creation needs the installation token.
+    let base = match windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
+        db,
+        workspace_id,
+        &repo_path,
+    )
+    .await
+    {
+        Ok(Some((branch, _))) => branch,
+        Ok(None) => {
+            tracing::debug!(
+                "git sync PR: repo {repo_path} in {workspace_id} is not app-backed, skipping"
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::warn!("git sync PR: could not resolve base branch for {repo_path}: {e:#}");
+            return;
+        }
+    };
+
+    let Some(head) = git_sync_deploy_pr_head_branch(
+        workspace_id,
+        row.parent_workspace_id.as_deref(),
+        &base,
+        row.use_individual_branch,
+        row.group_by_folder,
+        &row.item_path,
+        &row.item_parent_path,
+        &row.path_type,
+    ) else {
+        return;
+    };
+
+    let repo_url =
+        match windmill_common::git_sync_ee::resolve_repo_url(db, workspace_id, &repo_path).await {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::warn!("git sync PR: could not resolve repo url for {repo_path}: {e:#}");
+                return;
+            }
+        };
+    if let Err(e) = windmill_common::git_sync_ee::ensure_pull_request(
+        db,
+        workspace_id,
+        &repo_url,
+        &head,
+        &base,
+        &row.commit_msg,
+    )
+    .await
+    {
+        tracing::warn!("git sync PR: failed to open PR {head} -> {base} for {repo_path}: {e:#}");
+    }
+}
+
 /// When a git-sync pull job carrying a check marker completes, post the outcome
 /// to its GitHub check run: the PR diff preview (`__git_sync_pr_check`, phase 4)
 /// or the live deploy status (`__git_sync_deploy_check`, phase 6).
@@ -1102,6 +1246,7 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
+            maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id).await;
         }
 
         // Asset-trigger fan-out: best-effort, never propagates errors.
@@ -1640,4 +1785,61 @@ pub fn extract_error_value(
         step_id,
         exit_code: Some(i),
     });
+}
+
+#[cfg(all(test, feature = "enterprise", feature = "private"))]
+mod git_sync_pr_tests {
+    use super::git_sync_deploy_pr_head_branch;
+
+    #[test]
+    fn fork_branch_wins_and_strips_the_id_prefix() {
+        // Generated fork id: branch suffix drops the wm-fork- prefix.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("wm-fork-abc", Some("prod"), "main", false, false, "", "", ""),
+            Some("wm-fork/main/abc".to_string())
+        );
+        // Dev workspace (prefix-less id, detected via parent): verbatim suffix.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("staging", Some("prod"), "main", false, false, "", "", ""),
+            Some("wm-fork/main/staging".to_string())
+        );
+        // Orphaned fork (parent deleted): the id prefix still identifies it.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("wm-fork-abc", None, "main", true, false, "f/x/y", "", "script"),
+            Some("wm-fork/main/abc".to_string())
+        );
+    }
+
+    #[test]
+    fn promotion_branch_matches_the_hub_script_formula() {
+        // Per-item form: wm_deploy/<ws>/<path_type>/<path with / -> __>.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("dev", None, "main", true, false, "f/folder/my_script", "", "script"),
+            Some("wm_deploy/dev/script/f__folder__my_script".to_string())
+        );
+        // Grouped-by-folder form: first two path segments joined by __.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("dev", None, "main", true, true, "f/folder/my_script", "", "script"),
+            Some("wm_deploy/dev/f__folder".to_string())
+        );
+        // Renamed object: falls back to the parent path.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("dev", None, "main", true, false, "", "f/folder/old", "script"),
+            Some("wm_deploy/dev/script/f__folder__old".to_string())
+        );
+    }
+
+    #[test]
+    fn no_branch_when_deploy_stays_on_base() {
+        // Workspace-wide mode commits straight to the tracked branch.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("dev", None, "main", false, false, "f/x/y", "", "script"),
+            None
+        );
+        // Promotion mode but no per-item ref (e.g. user/group objects).
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("dev", None, "main", true, false, "", "", "user"),
+            None
+        );
+    }
 }

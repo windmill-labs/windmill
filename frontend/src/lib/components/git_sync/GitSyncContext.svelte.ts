@@ -181,6 +181,7 @@ export function createGitSyncContext(workspace: string) {
 			settings: repo.settings,
 			exclude_types_override: repo.exclude_types_override,
 			auto_pull: repo.auto_pull,
+			promotion_open_prs: repo.promotion_open_prs,
 			fork_open_prs: repo.fork_open_prs
 		}
 	}
@@ -202,9 +203,11 @@ export function createGitSyncContext(workspace: string) {
 			isUnsavedConnection: true,
 			collapsed: false,
 			// New connections default to pulling changes from Git (webhook with a
-			// polling fallback). Existing repos load without auto_pull and stay off
-			// until an admin opts in, so upgrades never start auto-deploying.
-			auto_pull: { enabled: true, mode: 'auto' }
+			// polling fallback), forks included. Existing repos load without
+			// auto_pull and stay off until an admin opts in, so upgrades never
+			// start auto-deploying.
+			auto_pull: { enabled: true, mode: 'auto', sync_forks: true },
+			fork_open_prs: true
 		})
 		gitSyncTestJobs.push({
 			jobId: '',
@@ -509,6 +512,7 @@ export function createGitSyncContext(workspace: string) {
 					settings: repoToSave.settings,
 					exclude_types_override: repoToSave.exclude_types_override,
 					auto_pull: repoToSave.auto_pull,
+					promotion_open_prs: repoToSave.promotion_open_prs,
 					fork_open_prs: repoToSave.fork_open_prs
 				}
 			}
@@ -681,8 +685,10 @@ export function createGitSyncContext(workspace: string) {
 			isUnsavedConnection: true,
 			collapsed: false,
 			// New connections default to pulling changes from Git (webhook with a
-			// polling fallback). Existing repos load without auto_pull and stay off.
-			auto_pull: { enabled: true, mode: 'auto' }
+			// polling fallback), forks included. Existing repos load without
+			// auto_pull and stay off.
+			auto_pull: { enabled: true, mode: 'auto', sync_forks: true },
+			fork_open_prs: true
 		})
 		gitSyncTestJobs.push({
 			jobId: '',
@@ -709,7 +715,10 @@ export function createGitSyncContext(workspace: string) {
 			exclude_types_override: [],
 			legacyImported: false,
 			isUnsavedConnection: true,
-			collapsed: false
+			collapsed: false,
+			// New promotion repos default to opening the PR in-app when a deploy
+			// pushes its wm_deploy/** branch (app-backed repos only at runtime).
+			promotion_open_prs: true
 		})
 		gitSyncTestJobs.push({
 			jobId: '',

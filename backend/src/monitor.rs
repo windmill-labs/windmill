@@ -3237,6 +3237,7 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                         repo,
                         &git_ref,
                         &sha,
+                        None,
                     )
                     .await
                     {
@@ -3245,6 +3246,22 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                             row.workspace_id,
                             repo.git_repo_resource_path
                         );
+                    }
+
+                    // Parent-managed fork sync: list the fork branches' heads in
+                    // the same poll tick (one extra ls-remote / API call) and
+                    // route each into its fork workspace. Needs the concrete
+                    // tracked branch name to scope `wm-fork/<branch>/*`, which
+                    // the ls-remote path lacks when the resource has no explicit
+                    // branch (`HEAD`).
+                    if auto_pull.sync_forks && git_ref != "HEAD" {
+                        poll_git_fork_branches(
+                            db,
+                            &row.workspace_id,
+                            &repo.git_repo_resource_path,
+                            &git_ref,
+                        )
+                        .await;
                     }
                 }
                 Ok(None) => {}
@@ -3263,6 +3280,74 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
     }
 
     Ok(())
+}
+
+/// Poll-side half of parent-managed fork sync (`sync_forks`): list every
+/// `wm-fork/<base_branch>/*` head of the parent's repo and reconcile each into
+/// its fork workspace. Failures are logged, not recorded in the parent's pull
+/// status — the parent's own sync state is unaffected by a fork's.
+#[cfg(feature = "private")]
+async fn poll_git_fork_branches(
+    db: &Pool<Postgres>,
+    parent_w_id: &str,
+    repo_path: &str,
+    base_branch: &str,
+) {
+    let fork_heads = match windmill_store::resources::get_git_repo_fork_heads_for_autopull(
+        db,
+        parent_w_id,
+        repo_path,
+        base_branch,
+    )
+    .await
+    {
+        Ok(Some(heads)) => Ok(heads),
+        // App-backed repos list fork refs over the GitHub API, mirroring the
+        // parent head check's fallback.
+        Ok(None) => {
+            #[cfg(feature = "enterprise")]
+            {
+                windmill_common::git_sync_ee::get_app_repo_fork_heads_for_autopull(
+                    db,
+                    parent_w_id,
+                    repo_path,
+                    base_branch,
+                )
+                .await
+                .map(|heads| heads.unwrap_or_default())
+            }
+            #[cfg(not(feature = "enterprise"))]
+            {
+                Ok(Vec::new())
+            }
+        }
+        Err(e) => Err(e),
+    };
+    match fork_heads {
+        Ok(heads) => {
+            for (branch, sha) in heads {
+                if let Err(e) = windmill_git_sync::reconcile_fork_branch_pull(
+                    db,
+                    parent_w_id,
+                    repo_path,
+                    &branch,
+                    base_branch,
+                    &sha,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "git fork sync: reconcile failed for {parent_w_id}/{repo_path} branch {branch}: {e:#}"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "git fork sync: fork branch listing failed for {parent_w_id}/{repo_path}: {e:#}"
+            );
+        }
+    }
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {

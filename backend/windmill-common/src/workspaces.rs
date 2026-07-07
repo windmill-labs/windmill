@@ -194,6 +194,29 @@ pub fn validate_dev_workspace_id(id: &str) -> error::Result<()> {
     validate_workspace_branch_id(id, false)
 }
 
+/// Split a fork git branch `wm-fork/<base_branch>/<suffix>` into `(base_branch, suffix)`.
+///
+/// Inverse of the CLI/hub-script `forkBranchName`. The suffix is a workspace id
+/// fragment and can't contain `/`, while the base branch may (`release/v2`), so the
+/// split is on the last separator. Returns `None` for anything else.
+pub fn parse_fork_branch(branch: &str) -> Option<(&str, &str)> {
+    let rest = branch.strip_prefix("wm-fork/")?;
+    let idx = rest.rfind('/')?;
+    let (base, suffix) = (&rest[..idx], &rest[idx + 1..]);
+    if base.is_empty() || suffix.is_empty() {
+        return None;
+    }
+    Some((base, suffix))
+}
+
+/// Workspace ids that could own a fork branch with this suffix: a generated fork
+/// (`wm-fork-<suffix>`, whose branch strips the id prefix) or a dev workspace
+/// (prefix-less id used verbatim). Ordered generated-fork first so an ambiguous
+/// suffix resolves deterministically.
+pub fn fork_branch_workspace_id_candidates(suffix: &str) -> [String; 2] {
+    [format!("{WM_FORK_PREFIX}{suffix}"), suffix.to_string()]
+}
+
 /// The `workspace.name` column is `character varying(50)`, so a name longer than 50 characters
 /// triggers a raw `value too long for type character varying(50)` SQL error on insert. Validate
 /// up front to return a clear message instead.
@@ -296,11 +319,14 @@ pub struct GitRepositorySettings {
     /// reverse direction is not automated (the historical behaviour).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_pull: Option<AutoPullSettings>,
-    /// Parent-level fork setting (app-backed repos only). Set on the parent
-    /// workspace's repo; applies to all of its forks, mirroring how the
-    /// `open-pr-on-fork-commit` GitHub Action is configured once at the repo.
-    /// Open a PR when a fork deploys to a `wm-fork/**` branch on the shared repo.
-    /// Off by default.
+    /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
+    /// repo (app-backed only; runs from the deploy callback so it works without
+    /// inbound webhooks). Off by default so upgrades don't change behavior.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub promotion_open_prs: bool,
+    /// Parent-level: open a PR when a fork of this workspace deploys to its
+    /// `wm-fork/**` branch (app-backed only; the fork's deploy callback reads
+    /// this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
 }
@@ -369,8 +395,11 @@ pub struct AutoPullStatus {
 /// Stored inside `GitRepositorySettings` (workspace_settings.git_sync JSONB).
 /// Webhook fields are populated in phase 2; phase 1 exercises the polling path
 /// only, but the full shape is defined up front to avoid a second schema change.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct AutoPullSettings {
+    /// Default so a server-written status-only blob (fork workspaces, which never
+    /// enable auto-pull themselves) parses even without the field.
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub mode: AutoPullMode,
@@ -378,6 +407,12 @@ pub struct AutoPullSettings {
     /// when polling without an active webhook, relaxed once a webhook is live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub poll_interval_s: Option<u32>,
+    /// Parent-level: also pull each live fork of this workspace from its own
+    /// `wm-fork/<branch>/<id>` branch when that branch moves (webhook or poll),
+    /// the managed equivalent of the `push-on-merge-to-forks` GitHub Action.
+    /// Configured once on the parent; forks never enable auto-pull themselves.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sync_forks: bool,
     /// GitHub repository webhook id (managed-app, phase 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_id: Option<i64>,
@@ -404,6 +439,7 @@ impl std::fmt::Debug for AutoPullSettings {
             .field("enabled", &self.enabled)
             .field("mode", &self.mode)
             .field("poll_interval_s", &self.poll_interval_s)
+            .field("sync_forks", &self.sync_forks)
             .field("webhook_id", &self.webhook_id)
             .field(
                 "webhook_secret",
@@ -1911,6 +1947,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_fork_branch() {
+        // Generated fork (`wm-fork-abc`) and dev workspace (`staging`) forms.
+        assert_eq!(parse_fork_branch("wm-fork/main/abc"), Some(("main", "abc")));
+        assert_eq!(
+            parse_fork_branch("wm-fork/main/staging"),
+            Some(("main", "staging"))
+        );
+        // Base branch may itself contain slashes; the suffix never does.
+        assert_eq!(
+            parse_fork_branch("wm-fork/release/v2/abc"),
+            Some(("release/v2", "abc"))
+        );
+        assert_eq!(parse_fork_branch("main"), None);
+        assert_eq!(parse_fork_branch("wm-fork/main"), None);
+        assert_eq!(parse_fork_branch("wm-fork/main/"), None);
+        assert_eq!(parse_fork_branch("wm-fork//abc"), None);
+        assert_eq!(parse_fork_branch("wm_deploy/main/abc"), None);
+    }
+
+    #[test]
+    fn test_fork_branch_workspace_id_candidates_prefers_generated_fork() {
+        let [first, second] = fork_branch_workspace_id_candidates("abc");
+        assert_eq!(first, "wm-fork-abc");
+        assert_eq!(second, "abc");
+    }
+
+    #[test]
     fn test_validate_fork_workspace_id_accepts_valid() {
         validate_fork_workspace_id("wm-fork-test-allow").unwrap();
         validate_fork_workspace_id("wm-fork-my_workspace.42").unwrap();
@@ -1990,6 +2053,7 @@ mod tests {
             enabled,
             mode: AutoPullMode::Auto,
             poll_interval_s: None,
+            sync_forks: false,
             webhook_id: None,
             webhook_secret: None,
             webhook_error: None,

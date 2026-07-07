@@ -60,7 +60,8 @@
 			repo.auto_pull = {
 				...(repo.auto_pull ?? {}),
 				enabled: true,
-				mode: repo.auto_pull?.mode ?? 'auto'
+				mode: repo.auto_pull?.mode ?? 'auto',
+				sync_forks: repo.auto_pull?.sync_forks ?? true
 			}
 		} else if (repo.auto_pull) {
 			repo.auto_pull = { ...repo.auto_pull, enabled: false }
@@ -86,11 +87,23 @@
 		($workspaceStore?.startsWith('wm-fork-') ?? false) ||
 			!!currentWorkspaceData?.parent_workspace_id
 	)
+	function setSyncForks(v: boolean) {
+		if (repo?.auto_pull) repo.auto_pull = { ...repo.auto_pull, sync_forks: v }
+	}
 	function setForkOpenPrs(v: boolean) {
 		if (repo) repo.fork_open_prs = v
 	}
+	function setPromotionOpenPrs(v: boolean) {
+		if (repo) repo.promotion_open_prs = v
+	}
 
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
+	// The branch this fork workspace syncs with, mirroring the CLI/hub-script
+	// naming: a wm-fork-<slug> id keeps only the slug, a dev workspace id is
+	// used verbatim.
+	const forkBranch = $derived(
+		`wm-fork/${targetBranch ?? 'main'}/${($workspaceStore ?? '').replace(/^wm-fork-/, '')}`
+	)
 	let resourceInfo = $state<{ url?: string; error?: string } | null>(null)
 	let loadingResourceInfo = $state(false)
 	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
@@ -553,6 +566,19 @@
 									Push to repo
 								</Button>
 							</div>
+							{#if repoMode === 'promotion' && isGithubApp}
+								<div class="mt-2">
+									<Toggle
+										checked={repo.promotion_open_prs ?? false}
+										options={{
+											right: 'Open a pull request for each deploy branch',
+											rightTooltip:
+												'After a deploy pushes its wm_deploy/** branch, Windmill opens a pull request to the target branch. Runs from the deploy itself, so it works without inbound webhooks.'
+										}}
+										on:change={(e) => setPromotionOpenPrs(e.detail)}
+									/>
+								</div>
+							{/if}
 						</div>
 
 						<!-- Direction 2: Git -> Windmill (pull / auto-deploy) -->
@@ -569,15 +595,39 @@
 									Pull from repo
 								</Button>
 							</div>
-							<Toggle
-								checked={repo.auto_pull?.enabled ?? false}
-								options={{
-									right: 'Automatically deploy changes from Git',
-									rightTooltip:
-										'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks; others are checked about every minute.'
-								}}
-								on:change={(e) => setAutoPullEnabled(e.detail)}
-							/>
+							{#if isFork}
+								<!-- Fork sync is parent-managed: no control here, only status. -->
+								<div class="text-2xs text-secondary">
+									Automatic sync from Git is managed in the parent workspace's git sync settings.
+									When enabled there, changes to this fork's
+									<span class="font-mono">{forkBranch}</span> branch deploy here automatically.
+								</div>
+								{#if repo.auto_pull?.last_pull_status}
+									<div class="text-2xs text-secondary mt-2">
+										{#if repo.auto_pull.last_pull_status.success}
+											Last synced{repo.auto_pull.last_pull_status.synced_sha
+												? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
+												: ''}.
+										{:else}
+											<span class="text-red-600 dark:text-red-400">
+												Last sync failed{repo.auto_pull.last_pull_status.error
+													? `: ${repo.auto_pull.last_pull_status.error}`
+													: ''}.
+											</span>
+										{/if}
+									</div>
+								{/if}
+							{:else}
+								<Toggle
+									checked={repo.auto_pull?.enabled ?? false}
+									options={{
+										right: 'Automatically deploy changes from Git',
+										rightTooltip:
+											'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks; others are checked about every minute.'
+									}}
+									on:change={(e) => setAutoPullEnabled(e.detail)}
+								/>
+							{/if}
 							{#if repo.auto_pull?.enabled}
 								{@const viaWebhook = repo.auto_pull?.webhook_id != null}
 								{#if isGithubApp}
@@ -638,27 +688,36 @@
 										it now so the two don't fight over deploys.
 									</Alert>
 								</div>
-								{#if isGithubApp && !isFork}
-									<!-- Parent-level fork auto-sync (applies to all forks of this workspace) -->
-									<div
-										class="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
-									>
-										<div class="text-sm font-semibold text-emphasis">Forks of this workspace</div>
-										<div class="text-2xs text-secondary">
-											Applies to every fork of this workspace using this workspace's GitHub App
-											installation. Replaces the fork GitHub Actions.
-										</div>
+							{/if}
+							{#if !isFork && repoMode === 'sync'}
+								<!-- Parent-level fork settings (apply to every fork of this workspace) -->
+								<div
+									class="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
+								>
+									<div class="text-sm font-semibold text-emphasis">Forks of this workspace</div>
+									<Toggle
+										disabled={!repo.auto_pull?.enabled}
+										checked={!!(repo.auto_pull?.enabled && repo.auto_pull?.sync_forks)}
+										options={{
+											right: 'Automatically deploy fork branches into forks',
+											rightTooltip: repo.auto_pull?.enabled
+												? "When a fork workspace's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. Configured once here, applied to every fork of this workspace."
+												: 'Requires automatic deploy from Git to be enabled above.'
+										}}
+										on:change={(e) => setSyncForks(e.detail)}
+									/>
+									{#if isGithubApp}
 										<Toggle
 											checked={repo.fork_open_prs ?? false}
 											options={{
-												right: 'Open a PR when a fork deploys',
+												right: 'Open a pull request when a fork deploys',
 												rightTooltip:
-													'When a fork deploys, Windmill opens a pull request from its wm-fork/** branch to the tracked branch of the shared repository.'
+													"When a fork deploys to its wm-fork/** branch, Windmill opens a pull request to the tracked branch of the shared repository. Runs from the fork's deploy itself, so it works without inbound webhooks."
 											}}
 											on:change={(e) => setForkOpenPrs(e.detail)}
 										/>
-									</div>
-								{/if}
+									{/if}
+								</div>
 							{/if}
 						</div>
 					{/if}

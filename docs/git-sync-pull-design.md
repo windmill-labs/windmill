@@ -274,23 +274,24 @@ direction after the existing "test connection" and "initialize repo" steps:
 
 ## 11. Promotion & forks parity: PR creation moves instance-side
 
-Today two documented GH Actions exist only to call `gh pr create`:
+Both PR-producing branches are pushed by Windmill's own deploys — `wm_deploy/**`
+(promotion) and `wm-fork/**` (fork deploys) — so opening the PR moves into the
+**deploy pipeline** itself, per repo toggle: the push job carries a
+`__git_sync_open_pr` marker and its completion hook opens (or reopens) the PR
+via the installation token once the push has landed. Outbound-only, so it works
+for every connectivity profile — no webhook required.
 
-- on push to `wm_deploy/**` (promotion mode),
-- on fork-branch commits (workspace forks).
+- Promotion: `promotion_open_prs` on the promotion repo ("Open a pull request
+  for each deploy branch").
+- Forks: `fork_open_prs` on the **parent's** sync repo ("Open a pull request
+  when a fork deploys"), read by the fork's deploy callback — parent-owned like
+  `sync_forks`, zero fork-side setup.
 
-Both move into the deployment callback: after pushing the branch, open (or
-reopen) the PR via the installation token (`POST /repos/.../pulls`), targeting
-the promotion/parent branch. Benefits: one less customer-installed workflow,
-and the deploy UI can link directly to the PR. The merge side is already
-covered by §7 routing (push event on the target branch). The documented actions
-remain valid for customers who want CI in the path.
-
-> Implementation note: PR creation landed in the **webhook handler**
-> (`handle_github_git_sync_event`, `wm_deploy/**` + `wm-fork/**` → `ensure_pull_request`),
-> not the deployment callback — the parent's webhook already receives the branch
-> push. Fork specifics (the parent-level fork-PR toggle) are in
-> Phase 5.
+Both default on for newly configured repos and off in storage (upgrades don't
+change behavior). `ensure_pull_request` treats an existing PR as success, so the
+documented `open-pr-on-commit` / `open-pr-on-fork-commit` Actions can stay
+installed for custom titles/CI without duplicate PRs. The merge side is already
+covered by §7 routing (push event on the target branch).
 
 ## 12. Later: PR diff preview checks
 
@@ -309,7 +310,7 @@ Deployed" status (the other half of the Cloudflare feel) is Phase 6.
 | Multi-repo primary/secondary             | per-repo toggle; secondaries stay push-only           |
 | Promotion mode, single instance          | §7 promotion routing + §11 PR creation                |
 | Promotion mode, cross-instance           | each instance triggers independently — strictly better than CI (no cross-instance tokens/URLs) |
-| Workspace forks (`wm-fork/**`)           | §7 fork routing + Phase 5 (parent-level fork auto-sync)|
+| Workspace forks (`wm-fork/**`)           | §7 fork routing + Phase 5 (parent-level `sync_forks`) |
 | PR dry-run preview                       | §12 (optional follow-up)                              |
 | Local dev, git as entry point            | ordinary push events; nothing special                 |
 | Customers with real CI gates             | unchanged; pull triggers are idempotent and coexist   |
@@ -435,12 +436,15 @@ Frontend:
 - `GhesAppSettings.svelte`: webhook-secret field + updated checklist (and,
   optional, the App Manifest one-click flow, §5.2).
 
-### Phase 3 — PR creation instance-side (promotion/fork parity)
+### Phase 3 — PR creation instance-side (promotion + forks, toggled)
 
-- In the deployment callback (`windmill-git-sync/src/git_sync_ee.rs`), after
-  pushing a `wm_deploy/**` or fork branch, open/reopen the PR via the
-  installation token (`POST /repos/.../pulls`). Replaces the two documented
-  `gh pr create` actions; docs updated to mark them optional.
+- The deploy's push job carries a `__git_sync_open_pr` marker when the repo
+  opted in (`promotion_open_prs` on the promotion repo; parent-level
+  `fork_open_prs` for fork deploys); the job-completion hook
+  (`maybe_open_git_sync_deploy_pr` in `result_processor.rs`) derives the pushed
+  branch (fork branch wins, else the `wm_deploy/**` formula) and calls
+  `ensure_pull_request`. Outbound with the installation token, so no webhook
+  reachability is needed; app-backed repos only.
 - Fork-branch routing edge cases (§7) hardened here.
 
 ### Phase 4 — PR diff preview checks (optional)
@@ -448,65 +452,72 @@ Frontend:
 - Subscribe `pull_request` events; on open/synchronize run the existing
   `dry_run: true` pull and post the diff as a check run (`checks: write`).
 
-### Phase 5 — fork PR creation, configured at the parent (replaces the `open-pr-on-fork-commit` GitHub Action) — implemented
+### Phase 5 — fork sync, configured at the parent (replaces the `push-on-merge-to-forks` GitHub Action) — implemented
 
-> **`fork_pull_sync` was dropped.** An earlier draft of this phase also shipped
-> *Keep forks in sync with the tracked branch* (`fork_pull_sync`) — a parent-level
-> fan-out that pulled the tracked branch straight into every fork. It was removed:
-> fanning `main` into forks is inconsistent with how a fork otherwise works (each
-> fork syncs its *own* `wm-fork/**` branch, not `main`) and would clobber a dev
-> workspace's local work. The consistent replacement — each fork/dev workspace
-> syncing bidirectionally with its own branch (route a `wm-fork/<id>` push back
-> into fork `<id>`) — is a separate follow-up. Only **Open PRs for fork deploys**
-> (`fork_open_prs`) ships in this phase.
+**Scope rule: Windmill absorbs automation for events it originates or
+consumes; Actions remain for custom CI.** Of the documented CI/CD workflows:
+`push-on-merge` (repo → prod workspace) is phases 1–2 auto-pull;
+`push-on-merge-to-forks` (fork branch → fork workspace) is this phase; and the
+PR-opening workflows (`open-pr-on-commit` for `wm_deploy/**`,
+`open-pr-on-fork-commit` for `wm-fork/**`) react to branches Windmill itself
+pushes, so they move into the deploy pipeline as per-repo toggles (§11 / Phase
+3) and the Actions become optional alternatives. (A `fork_pull_sync` "fan the
+tracked branch out to every fork" draft was dropped: a fork syncs its *own*
+`wm-fork/**` branch, never `main` directly, and blind fan-out would clobber a
+dev workspace's local work.)
 
-**Today's behavior (the premise).** `create_workspace_fork` copies the parent's
-resources (so the `git_repository` resource lands in the fork) and members, and
-via `clone_workspace_data` → `update_workspace_settings` it *also* copies the
-parent's `git_app_installations` and `git_sync` (keeping the first sync-mode
-repo — WIN-1559). So a fork already inherits the push-direction config and the
-installation, and can push to git on deploy with the parent's app.
+**The premise.** `create_workspace_fork` copies the parent's resources (so the
+`git_repository` resource lands in the fork) and, via `clone_workspace_data` →
+`update_workspace_settings`, the parent's `git_app_installations` and `git_sync`
+(keeping the first sync-mode repo — WIN-1559). So a fork already pushes to its
+`wm-fork/<tracked>/<id>` branch on deploy. What it must **not** inherit is the
+`auto_pull` block: it carries the parent's `webhook_id`/`webhook_secret` (the
+repo webhook is parent-owned), so `update_workspace_settings` strips it. The
+server also rejects parent-only settings on a fork workspace (enabled
+`auto_pull`, promotion mode, `fork_open_prs`) — a fork's deploys always target
+its `wm-fork/**` branch, so none of them could take effect there, and fork sync
+is exclusively parent-managed.
 
-What a fork must **not** inherit is the new `auto_pull` block: it carries the
-parent's `webhook_id`/`webhook_secret` (a repo webhook is per-repo and owned by
-the parent, so a fork turning auto-pull off would delete the *parent's* hook). So
-`update_workspace_settings` strips `auto_pull` (and the parent-level `fork_open_prs`
-flag) from the copied repo. The fork keeps push + installation (unchanged).
+**Design: one parent-level toggle, `auto_pull.sync_forks` (default on when
+auto-pull is enabled).** Matches the Action model (configured once at the repo,
+fires for every `wm-fork/**` branch) and needs zero per-fork setup — no fork
+webhook, resource, or config; applies to current *and* future forks.
 
-**Design decision: configure the fork-PR behavior at the _parent_ workspace, not
-per fork.** This matches the GitHub Action model (configured once at the repo,
-loops over forks) and needs zero per-fork setup — no fork resource, installation,
-webhook, or `git_sync` config. It applies to current *and* future forks, uses a
-single credential (the parent's installation), and keeps every credential
-server-side (no token is ever copied into a fork — strictly safer than today's
-PAT-resource copy). One toggle lives in the parent repo card, shown only when the
-parent is app-backed and is not itself a fork:
+How a fork branch change reaches the fork workspace (both delivery paths):
 
-- **Open PRs for fork deploys** (`open-pr-on-fork-commit` parity). A fork's deploy
-  pushes `wm-fork/<parent>/<id>` to the shared repo, GitHub delivers to the
-  **parent's** webhook, and `handle_github_git_sync_event` matches `wm-fork/**`
-  and calls `ensure_pull_request`, gated on the parent's `fork_open_prs` flag. No
-  per-fork webhook.
+- **Webhook**: the push to `wm-fork/<base>/<suffix>` lands on the **parent's**
+  webhook. `handle_github_git_sync_event` requires a `[WM]`-less head commit (a
+  fork's own deploy must not pull itself back), `auto_pull.enabled && sync_forks`,
+  and `base` == tracked branch, then calls `reconcile_fork_branch_pull`.
+- **Polling**: the parent's poll tick also lists every `wm-fork/<tracked>/*` head
+  in one extra call — a `git ls-remote` pattern for token repos,
+  `git/matching-refs` for app-backed — and reconciles each
+  (`poll_git_fork_branches` in `monitor.rs`).
 
-Backend (EE):
+`reconcile_fork_branch_pull` (windmill-git-sync EE) is the shared routing core:
+parse the branch (`parse_fork_branch` in windmill-common; handles the
+`wm-fork-<suffix>` fork-id form and the verbatim dev-workspace-id form), resolve
+it to a **live child of this parent** (`parent_workspace_id` match + `NOT
+deleted`, so a crafted branch name can't route a pull into an unrelated
+workspace), load the fork's own repo entry, and run the shared
+`reconcile_and_enqueue_pull` with the fork's per-ref dedup state and a
+`clone_ref` override so the pull job clones the fork branch instead of the
+resource's tracked branch.
 
-- Settings: `fork_open_prs: bool` on `GitRepositorySettings`, off by default.
-- PR gate: in `handle_github_git_sync_event`, guard the `wm-fork/**`
-  `ensure_pull_request` branch on `fork_open_prs`.
+State lives with the fork: its repo entry carries a server-written status-only
+`auto_pull` blob (`last_synced_sha` keyed by the fork branch, `last_pull_status`;
+`enabled` stays false). `persist_auto_pull_state` creates that blob when missing.
+The fork's repo card shows a read-only "managed in the parent workspace" line
+with the fork branch name plus the last pull status; the enable/disable control
+exists only on the parent's card.
 
-Frontend:
-
-- One toggle in the parent `GitSyncRepositoryCard.svelte`, gated on app-backed and
-  `!isFork` (`isFork` = has a `parent_workspace_id`, or the `wm-fork-` id prefix,
-  matching the backend/CLI rule), with a one-line note that it applies to all forks
-  of this workspace. Off by default.
-
-Perms: gate the toggles on parent-workspace admin (whoever edits the parent's
+Perms: the toggle is parent-workspace admin (whoever edits the parent's
 `git_sync`) — the same bar as "who set up the repo secret + workflow." No
-per-fork authorization; matches the current Action ergonomics.
+per-fork authorization; matches the Action ergonomics.
 
-Non-goals for v1: per-fork opt-out (default is all forks; add an exclusion list
-later if asked); per-fork include/exclude filters (v1 applies the parent's).
+Non-goals for v1: per-fork opt-out on the parent (default is all forks; add an
+exclusion list later if asked); per-fork include/exclude filters (the pull
+applies the repo's `wmill.yaml` like any pull).
 
 ### Phase 6 — live deploy status check on the commit (Cloudflare-style) — implemented
 
