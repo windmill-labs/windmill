@@ -243,8 +243,9 @@
 {:else if committedId && (showBar || hasJobs)}
 	<!-- Segmented session bar: an Edits segment (what the AI changed this session)
 	     and a Jobs segment (background jobs it started), sharing one border box.
-	     Each segment hides when its side is empty, so the other spans the full
-	     width. Fork identity / sync status lives inside the modal. -->
+	     The Edits segment (or, in its absence, a flex-1 spacer) fills the left so the
+	     Jobs segment stays pinned to the right whether or not there are edits. Fork
+	     identity / sync status lives inside the modal. -->
 	<div
 		class="flex h-[38px] items-stretch overflow-hidden rounded-md border bg-surface-tertiary text-xs"
 	>
@@ -279,6 +280,9 @@
 					<span class="ml-auto">{@render dock()}</span>
 				</button>
 			{/if}
+		{:else}
+			<!-- No edits: a spacer fills the left so the Jobs segment stays right-aligned. -->
+			<div class="flex-1"></div>
 		{/if}
 		{#if hasJobs}
 			<!-- standalone={false}: renders just the chip trigger as a full-height
