@@ -431,6 +431,8 @@ async fn publish_triggers(
 struct PublishMigrationBody {
     datatable_name: String,
     sql: String,
+    #[serde(default)]
+    sql_down: String,
     enabled: bool,
 }
 

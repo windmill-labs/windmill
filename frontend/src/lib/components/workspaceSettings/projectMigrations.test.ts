@@ -13,38 +13,8 @@ vi.mock('$lib/gen', () => ({
 	}
 }))
 
-import {
-	detectDatatableTables,
-	dropTablesSql,
-	generateDatatableMigrations
-} from './projectMigrations'
+import { detectDatatableTables, generateDatatableMigrations } from './projectMigrations'
 import type { FetchedItem } from './projectBundle'
-
-describe('dropTablesSql', () => {
-	it('drops created tables in reverse order', () => {
-		const up =
-			'BEGIN;\nCREATE TABLE "public"."customers" (\n  "id" integer\n);\n\nCREATE TABLE "public"."orders" (\n  "id" integer\n);\nALTER TABLE "public"."orders" ADD CONSTRAINT fk ...;\nCOMMIT;'
-		const down = dropTablesSql(up)
-		expect(down.startsWith('BEGIN;')).toBe(true)
-		expect(down.trimEnd().endsWith('COMMIT;')).toBe(true)
-		// orders (created last, child) dropped before customers (parent).
-		expect(down.indexOf('"public"."orders"')).toBeLessThan(down.indexOf('"public"."customers"'))
-		expect(down).toContain('DROP TABLE IF EXISTS "public"."orders";')
-	})
-
-	it('handles bare and IF NOT EXISTS table names', () => {
-		const down = dropTablesSql(
-			'CREATE TABLE IF NOT EXISTS orders (id int); CREATE TABLE app.users (id int);'
-		)
-		expect(down).toContain('DROP TABLE IF EXISTS app.users;')
-		expect(down).toContain('DROP TABLE IF EXISTS orders;')
-	})
-
-	it('returns empty when nothing is created', () => {
-		expect(dropTablesSql('-- Table "x" not found; add it manually.')).toBe('')
-		expect(dropTablesSql('')).toBe('')
-	})
-})
 
 describe('detectDatatableTables', () => {
 	beforeEach(() => inferAssetsMock.mockReset())
@@ -149,6 +119,12 @@ describe('generateDatatableMigrations', () => {
 		expect(m.sql.indexOf('"public"."customers"')).toBeLessThan(m.sql.indexOf('"public"."orders"'))
 		// A single wrapping transaction, not one per table.
 		expect(m.sql.match(/BEGIN;/g)?.length).toBe(1)
+		// Down migration drops in reverse order: orders (child) before customers (parent).
+		expect(m.sql_down).toContain('DROP TABLE IF EXISTS "public"."orders";')
+		expect(m.sql_down).toContain('DROP TABLE IF EXISTS "public"."customers";')
+		expect(m.sql_down.indexOf('"public"."orders"')).toBeLessThan(
+			m.sql_down.indexOf('"public"."customers"')
+		)
 	})
 
 	it('accepts schema-qualified table refs', async () => {

@@ -44,11 +44,11 @@
 	} from './projectBundle'
 	import {
 		detectDatatableTables,
-		dropTablesSql,
 		generateDatatableMigrations,
 		type GeneratedMigration
 	} from './projectMigrations'
 	import Toggle from '../Toggle.svelte'
+	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
 	import {
 		Check,
 		Cloud,
@@ -618,6 +618,9 @@
 	let migrationDrafts = $state<GeneratedMigration[]>([])
 	let migrationsGenerating = $state(false)
 	let migrationsSeq = 0
+	// Bumped whenever the drafts are (re)generated, to re-key the Monaco editors so
+	// they pick up the fresh SQL (Monaco doesn't sync external `code` changes).
+	let migrationsGeneration = $state(0)
 
 	async function regenerateMigrations(workspace: string) {
 		const seq = ++migrationsSeq
@@ -638,8 +641,12 @@
 			const drafts = await generateDatatableMigrations(workspace, usage)
 			if (seq !== migrationsSeq) return
 			migrationDrafts = drafts
+			migrationsGeneration++
 		} catch (e: any) {
-			if (seq === migrationsSeq) migrationDrafts = []
+			if (seq === migrationsSeq) {
+				migrationDrafts = []
+				migrationsGeneration++
+			}
 		} finally {
 			if (seq === migrationsSeq) migrationsGenerating = false
 		}
@@ -1287,6 +1294,7 @@
 					migrations: migrationDrafts.map((m) => ({
 						datatable_name: m.datatable_name,
 						sql: m.sql,
+						sql_down: m.sql_down,
 						enabled: m.enabled
 					})),
 					project_slug: slug
@@ -2467,30 +2475,16 @@
 						import. Best-effort — review and edit before publishing.
 					</span>
 					{#each migrationDrafts as m (m.datatable_name)}
-						{@const down = dropTablesSql(m.sql)}
 						<div class="flex flex-col gap-1.5 rounded border bg-surface-secondary p-2">
 							<div class="flex items-center justify-between gap-2">
 								<span class="font-mono text-primary">{m.datatable_name}</span>
 								<Toggle bind:checked={m.enabled} size="xs" options={{ right: 'Include' }} />
 							</div>
-							<!-- Always shown: a disabled entry may carry `--` comments explaining
-							     what couldn't be auto-generated, which the user edits then includes. -->
-							<textarea
-								bind:value={m.sql}
-								rows="6"
-								spellcheck="false"
-								placeholder={`-- SQL migration for ${m.datatable_name}`}
-								class="rounded border bg-surface px-2 py-1.5 text-[11px] font-mono"
-							></textarea>
-							{#if down}
-								<span class="text-[11px] text-hint">
-									Rollback (down migration — drops the tables above):
-								</span>
-								<pre
-									class="overflow-x-auto rounded border bg-surface px-2 py-1.5 text-[11px] font-mono text-secondary whitespace-pre"
-									>{down}</pre
-								>
-							{/if}
+							<MigrationSqlEditor
+								bind:up={m.sql}
+								bind:down={m.sql_down}
+								generation={migrationsGeneration}
+							/>
 						</div>
 					{/each}
 				{/if}

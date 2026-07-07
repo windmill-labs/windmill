@@ -22,7 +22,11 @@ import type { FetchedItem } from './projectBundle'
 
 export interface GeneratedMigration {
 	datatable_name: string
+	/** Up migration: creates the tables. */
 	sql: string
+	/** Down migration: drops the created tables. Best-effort, generated once and
+	 *  editable by the publisher (not re-derived from `sql`). */
+	sql_down: string
 	enabled: boolean
 }
 
@@ -206,29 +210,6 @@ function errorText(e: any): string {
 	return String(raw).replace(/\s+/g, ' ').trim()
 }
 
-/** A `CREATE TABLE [IF NOT EXISTS] <name>(` table name — quoted or bare, optionally
- *  schema-qualified. Group 1 is the full name as written. */
-const CREATE_TABLE_RE =
-	/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?("[^"]+"(?:\s*\.\s*"[^"]+")?|[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?)/gi
-
-/**
- * Best-effort down migration for an up migration: `DROP TABLE IF EXISTS` for each
- * table the up creates, in reverse creation order (children before parents, so
- * foreign keys don't block the drop). Derived from the up SQL so it always matches
- * the current (possibly edited) statements. Returns '' when the up creates nothing.
- */
-export function dropTablesSql(upSql: string): string {
-	const names: string[] = []
-	CREATE_TABLE_RE.lastIndex = 0
-	let m: RegExpExecArray | null
-	while ((m = CREATE_TABLE_RE.exec(upSql)) !== null) {
-		names.push(m[1].replace(/\s+/g, ''))
-	}
-	if (names.length === 0) return ''
-	const drops = names.reverse().map((n) => `DROP TABLE IF EXISTS ${n};`)
-	return `BEGIN;\n${drops.join('\n')}\nCOMMIT;`
-}
-
 // Strip the per-table `BEGIN;`/`COMMIT;` wrapper that generateMigrationSql adds,
 // so several tables can share one transaction.
 function unwrapTransaction(sql: string): string {
@@ -268,6 +249,7 @@ export async function generateDatatableMigrations(
 				sql:
 					`-- Could not load the schema of data table "${datatable}": ${errorText(e)}\n` +
 					`-- Add the CREATE TABLE statement(s) for the tables this project uses.`,
+				sql_down: '',
 				enabled: false
 			})
 			continue
@@ -310,9 +292,15 @@ export async function generateDatatableMigrations(
 		const parts: string[] = []
 		if (comments.length > 0) parts.push(comments.join('\n'))
 		if (statements.length > 0) parts.push(`BEGIN;\n${statements.join('\n\n')}\nCOMMIT;`)
+		// Best-effort down migration generated once from the same table set (reverse
+		// order so children drop before parents). Editable by the publisher afterwards.
+		const drops = [...ordered]
+			.reverse()
+			.map((t) => `DROP TABLE IF EXISTS "${t.schemaName}"."${t.tableName}";`)
 		out.push({
 			datatable_name: datatable,
 			sql: parts.join('\n\n'),
+			sql_down: drops.length > 0 ? `BEGIN;\n${drops.join('\n')}\nCOMMIT;` : '',
 			enabled: statements.length > 0
 		})
 	}

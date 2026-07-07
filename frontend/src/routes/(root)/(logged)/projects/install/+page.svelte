@@ -31,7 +31,7 @@
 		rewriteFlowValue,
 		rewriteRawAppContent
 	} from '$lib/components/workspaceSettings/projectBundle'
-	import { dropTablesSql } from '$lib/components/workspaceSettings/projectMigrations'
+	import MigrationSqlEditor from '$lib/components/workspaceSettings/MigrationSqlEditor.svelte'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
@@ -42,6 +42,7 @@
 	interface ProjectMigration {
 		datatable_name: string
 		sql: string
+		sql_down?: string
 		enabled: boolean
 	}
 	interface ProjectExport {
@@ -71,10 +72,20 @@
 	// Migration review drawer: preview + edit each runnable migration's SQL and
 	// choose which to run, resolved linearly via `reviewResolve`.
 	let reviewDrawer = $state<Drawer | undefined>()
-	let reviewList = $state<{ datatable_name: string; sql: string; run: boolean }[]>([])
+	let reviewList = $state<
+		{ datatable_name: string; sql: string; sql_down: string; run: boolean }[]
+	>([])
+	// Bumped per review session so the Monaco editors re-mount with the new SQL.
+	let reviewGeneration = $state(0)
 	let reviewResolve: ((run: boolean) => void) | undefined
 	function openMigrationReview(migs: ProjectMigration[]): Promise<boolean> {
-		reviewList = migs.map((m) => ({ datatable_name: m.datatable_name, sql: m.sql, run: true }))
+		reviewList = migs.map((m) => ({
+			datatable_name: m.datatable_name,
+			sql: m.sql,
+			sql_down: m.sql_down ?? '',
+			run: true
+		}))
+		reviewGeneration++
 		reviewDrawer?.openDrawer()
 		return new Promise((resolve) => (reviewResolve = resolve))
 	}
@@ -282,7 +293,12 @@
 			if (run) {
 				toRun = reviewList
 					.filter((r) => r.run && r.sql.trim() !== '')
-					.map((r) => ({ datatable_name: r.datatable_name, sql: r.sql, enabled: true }))
+					.map((r) => ({
+						datatable_name: r.datatable_name,
+						sql: r.sql,
+						sql_down: r.sql_down,
+						enabled: true
+					}))
 			}
 		}
 		if (missingNames.length > 0) {
@@ -311,9 +327,9 @@
 		} catch {}
 
 		if (recorded) {
-			// Record a matching down migration (DROP the created tables) so it can be
-			// rolled back. Derived from the up SQL so it tracks any edits.
-			const codeDown = dropTablesSql(m.sql)
+			// Record the shipped down migration (DROP the created tables) so it can be
+			// rolled back.
+			const codeDown = (m.sql_down ?? '').trim()
 			const created = await WorkspaceService.createDatatableMigration({
 				workspace,
 				datatableName: m.datatable_name,
@@ -615,28 +631,17 @@
 				recorded, otherwise it runs once as a preview job.
 			</p>
 			{#each reviewList as m (m.datatable_name)}
-				{@const down = dropTablesSql(m.sql)}
 				<div class="flex flex-col gap-1.5 rounded border bg-surface-secondary p-2 text-xs">
 					<div class="flex items-center justify-between gap-2">
 						<span class="font-mono text-primary">{m.datatable_name}</span>
 						<Toggle bind:checked={m.run} size="xs" options={{ right: 'Run' }} />
 					</div>
 					{#if m.run}
-						<textarea
-							bind:value={m.sql}
-							rows="8"
-							spellcheck="false"
-							class="rounded border bg-surface px-2 py-1.5 text-[11px] font-mono"
-						></textarea>
-						{#if down}
-							<span class="text-[11px] text-hint">
-								Rollback (recorded as the down migration if this data table has migrations enabled):
-							</span>
-							<pre
-								class="overflow-x-auto rounded border bg-surface px-2 py-1.5 text-[11px] font-mono text-secondary whitespace-pre"
-								>{down}</pre
-							>
-						{/if}
+						<MigrationSqlEditor
+							bind:up={m.sql}
+							bind:down={m.sql_down}
+							generation={reviewGeneration}
+						/>
 					{/if}
 				</div>
 			{/each}
