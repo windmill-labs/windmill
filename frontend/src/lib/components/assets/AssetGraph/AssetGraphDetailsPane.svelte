@@ -482,6 +482,7 @@
 	// restores its input. Guarded on the path so a staging round-trip
 	// (emit → page → runFormInitialArgs) doesn't re-seed and loop. The read-only
 	// branch uses PipelineScriptView's own onArgsChange instead.
+	let args = $state<Record<string, any>>({})
 	let argsSeedPath: string | undefined = undefined
 	$effect.pre(() => {
 		const p = script?.path
@@ -532,6 +533,16 @@
 				const orig = latest && latest.path === captured.path ? latest : origAtRegister
 				if (!orig || orig.path !== captured.path) return
 				if ((captured.content ?? '') === (orig.content ?? '')) return
+				// The effect can re-run mid-save — after createScript resolved
+				// but before the refetch lands — with `orig` still holding the
+				// pre-deploy version. The buffer isn't "unsaved edits" then, it
+				// IS the new deployed head; emitting would resurrect it as a
+				// phantom draft identical to what was just deployed.
+				if (
+					deployedFromPane?.path === captured.path &&
+					(captured.content ?? '') === deployedFromPane.content
+				)
+					return
 			}
 			const writes = (liveBodyAssets ?? [])
 				.filter((a) => {
@@ -547,8 +558,11 @@
 		}
 	})
 
-	let args = $state<Record<string, any>>({})
 	let saving = $state(false)
+	// What this pane last deployed, so the persist-back cleanup can tell "the
+	// buffer equals the new deployed head" from real unsaved edits (plain
+	// variable: only read inside the untracked cleanup).
+	let deployedFromPane: { path: string; content: string } | undefined = undefined
 	let isDraft = $derived(draftScript != undefined)
 
 	// Single trash-bin button opens one modal that exposes both Archive
@@ -714,6 +728,7 @@
 			// backend rejects as a lineage fork ("no 2 scripts can have the
 			// same parent").
 			if (typeof newHash === 'string' && newHash) script.hash = newHash
+			deployedFromPane = { path: script.path, content: script.content ?? '' }
 			sendUserToast(`Saved ${script.path}`)
 			// Authoritative save-time schema-contract check (pipelines gap #2b):
 			// warn-only, post-commit. Fire-and-forget — must never gate the save.

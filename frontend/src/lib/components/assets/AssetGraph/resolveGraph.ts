@@ -409,6 +409,95 @@ function seedAccumulator(input: ResolveGraphInput, ctx: ResolveContext): Accumul
 }
 
 /**
+ * The write output(s) a `// materialize <asset>` annotation declares: the
+ * target itself, plus — for a managed scd2 materialize — the `<dim>_current`
+ * companion view (mirrors the deploy path), so a consumer of only the view
+ * links back to this producer instead of orphaning.
+ */
+function materializeOuts(
+	parsed: PipelineAnnotations
+): Array<{ kind: AssetKind; path: string; derivedFrom?: string }> {
+	if (!parsed.materialize) return []
+	const outs: Array<{ kind: AssetKind; path: string; derivedFrom?: string }> = [
+		{ kind: parsed.materialize.targetKind, path: parsed.materialize.targetPath }
+	]
+	const currentPath = scd2CurrentTargetPath(parsed.materialize)
+	if (currentPath) {
+		outs.push({
+			kind: parsed.materialize.targetKind,
+			path: currentPath,
+			derivedFrom: parsed.materialize.targetPath
+		})
+	}
+	return outs
+}
+
+/** Add an output asset node + unsaved write edge for `runnablePath`, deduped
+ *  against the assets/edges already accumulated (base survivors included). */
+function pushWriteOut(
+	acc: Accumulator,
+	runnablePath: string,
+	out: { kind: AssetKind; path: string; derivedFrom?: string }
+) {
+	const existing = acc.assets.find((a) => a.kind === out.kind && a.path === out.path)
+	if (!existing) {
+		acc.assets.push({
+			kind: out.kind,
+			path: out.path,
+			...(out.derivedFrom ? { derived_from: out.derivedFrom } : {})
+		})
+	} else if (out.derivedFrom && existing.derived_from == undefined) {
+		existing.derived_from = out.derivedFrom
+	}
+	const hasWriteEdge = acc.edges.some(
+		(e) =>
+			e.runnable_kind === 'script' &&
+			e.runnable_path === runnablePath &&
+			e.asset_kind === out.kind &&
+			e.asset_path === out.path &&
+			(e.access_type === 'w' || e.access_type === 'rw')
+	)
+	if (hasWriteEdge) return
+	acc.edges.push({
+		runnable_path: runnablePath,
+		runnable_kind: 'script',
+		asset_kind: out.kind,
+		asset_path: out.path,
+		access_type: 'w',
+		unsaved: true
+	})
+}
+
+/** Add an input asset node + unsaved read edge for `runnablePath`, deduped
+ *  against the assets/edges already accumulated. */
+function pushReadIn(
+	acc: Accumulator,
+	runnablePath: string,
+	inp: { kind: AssetKind; path: string }
+) {
+	if (!acc.assets.some((a) => a.kind === inp.kind && a.path === inp.path)) {
+		acc.assets.push({ kind: inp.kind, path: inp.path })
+	}
+	const hasReadEdge = acc.edges.some(
+		(e) =>
+			e.runnable_kind === 'script' &&
+			e.runnable_path === runnablePath &&
+			e.asset_kind === inp.kind &&
+			e.asset_path === inp.path &&
+			(e.access_type === 'r' || e.access_type === 'rw')
+	)
+	if (hasReadEdge) return
+	acc.edges.push({
+		runnable_path: runnablePath,
+		runnable_kind: 'script',
+		asset_kind: inp.kind,
+		asset_path: inp.path,
+		access_type: 'r',
+		unsaved: true
+	})
+}
+
+/**
  * Every draft contributes: a runnable, output asset(s), a write edge, live
  * read lineage for the active draft, plus its seeded asset/native triggers
  * (template includes `// on schedule …` by default). Iterates the whole
@@ -416,10 +505,17 @@ function seedAccumulator(input: ResolveGraphInput, ctx: ResolveContext): Accumul
  */
 function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 	const { base, drafts, liveBodyAssets, inferredReadsByPath, inferredWritesByPath } = input
-	const { runnables, assets, edges, extraTriggers } = acc
+	const { runnables, assets, extraTriggers } = acc
 
 	for (const [path, d] of drafts) {
-		const parsed = parsePipelineAnnotations(d.script.content)
+		// The open draft's annotations come from the live buffer, not the draft
+		// snapshot — the snapshot only syncs on pane teardown, so parsing it here
+		// would pin annotation-derived outputs (`// materialize` target, badges)
+		// to their pre-edit values until the user clicks away.
+		const parsed =
+			path === input.liveAnnotations.scriptPath
+				? input.liveAnnotations.annotations
+				: parsePipelineAnnotations(d.script.content)
 		// For the open script, fold in the WASM-inferred column lineage (DuckDB
 		// SQL AST) under the same annotation-wins precedence the backend applies
 		// on deploy, so the live preview matches what deploys. Only the open
@@ -490,57 +586,11 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 			writeOuts.push(...d.outputAssets)
 		}
 		// `// materialize <asset>` declares a write output via annotation, not
-		// the SQL body, so the body-inference tiers above miss it. Add it from
-		// the live-parsed annotations so an edited materialize script keeps its
-		// output edge (the loop below dedups against existing assets/edges). A
-		// managed scd2 materialize also produces the `<dim>_current` companion
-		// view — add it too (mirrors the deploy path) so a draft consuming only
-		// the view links back to this producer instead of orphaning.
-		if (parsed.materialize) {
-			writeOuts.push({
-				kind: parsed.materialize.targetKind,
-				path: parsed.materialize.targetPath
-			})
-			const currentPath = scd2CurrentTargetPath(parsed.materialize)
-			if (currentPath) {
-				writeOuts.push({
-					kind: parsed.materialize.targetKind,
-					path: currentPath,
-					derivedFrom: parsed.materialize.targetPath
-				})
-			}
-		}
+		// the SQL body, so the body-inference tiers above miss it (pushWriteOut
+		// dedups against existing assets/edges).
+		writeOuts.push(...materializeOuts(parsed))
 		for (const out of writeOuts) {
-			const existing = assets.find((a) => a.kind === out.kind && a.path === out.path)
-			if (!existing) {
-				assets.push({
-					kind: out.kind,
-					path: out.path,
-					...(out.derivedFrom ? { derived_from: out.derivedFrom } : {})
-				})
-			} else if (out.derivedFrom && existing.derived_from == undefined) {
-				existing.derived_from = out.derivedFrom
-			}
-			// Dedup against edges already in the overlay (this draft's base
-			// edges were dropped above, so this only guards against duplicate
-			// writeOuts entries — not against the persisted version).
-			const hasWriteEdge = edges.some(
-				(e) =>
-					e.runnable_kind === 'script' &&
-					e.runnable_path === path &&
-					e.asset_kind === out.kind &&
-					e.asset_path === out.path &&
-					(e.access_type === 'w' || e.access_type === 'rw')
-			)
-			if (hasWriteEdge) continue
-			edges.push({
-				runnable_path: path,
-				runnable_kind: 'script',
-				asset_kind: out.kind,
-				asset_path: out.path,
-				access_type: 'w',
-				unsaved: true
-			})
+			pushWriteOut(acc, path, out)
 		}
 		// Live read lineage for the active draft (body reads like loadS3File /
 		// SELECT). Only the open draft has live-inferred assets; inactive drafts
@@ -549,26 +599,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		// edges of a saved script the moment the user starts editing it.
 		if (liveForThisDraft) {
 			for (const inp of extractReads(liveBodyAssets.assets)) {
-				if (!assets.some((a) => a.kind === inp.kind && a.path === inp.path)) {
-					assets.push({ kind: inp.kind, path: inp.path })
-				}
-				const hasReadEdge = edges.some(
-					(e) =>
-						e.runnable_kind === 'script' &&
-						e.runnable_path === path &&
-						e.asset_kind === inp.kind &&
-						e.asset_path === inp.path &&
-						(e.access_type === 'r' || e.access_type === 'rw')
-				)
-				if (hasReadEdge) continue
-				edges.push({
-					runnable_path: path,
-					runnable_kind: 'script',
-					asset_kind: inp.kind,
-					asset_path: inp.path,
-					access_type: 'r',
-					unsaved: true
-				})
+				pushReadIn(acc, path, inp)
 			}
 		}
 		// Seed trigger edges from the draft's template so the graph stays
@@ -697,6 +728,25 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 			})
 			if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
 				assets.push({ kind: a.kind, path: a.path })
+			}
+		}
+	}
+	// Lineage overlay for an open SAVED script. seedDraftOverlays owns drafts,
+	// but a deployed script's unsaved edits are only promoted to a draft on
+	// pane teardown — until then the buffer's lineage lives here. staleForOpen
+	// already dropped the base edges the buffer no longer references; this adds
+	// the ones it now does. Without it, retargeting `// materialize` (or a body
+	// write/read) shows no output edge until the user clicks away.
+	if (!ctx.draftedPaths.has(livePath)) {
+		for (const out of materializeOuts(liveAnnotations.annotations)) {
+			pushWriteOut(acc, livePath, out)
+		}
+		if (input.liveBodyAssets.scriptPath === livePath) {
+			for (const out of extractWrites(input.liveBodyAssets.assets)) {
+				pushWriteOut(acc, livePath, out)
+			}
+			for (const inp of extractReads(input.liveBodyAssets.assets)) {
+				pushReadIn(acc, livePath, inp)
 			}
 		}
 	}

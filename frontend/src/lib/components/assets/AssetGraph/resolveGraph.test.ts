@@ -796,3 +796,155 @@ describe('computeMutedReadKeys', () => {
 		expect(computeMutedReadKeys([readEdge('ducklake', 'main.orders')], [], flow).size).toBe(0)
 	})
 })
+
+describe('live buffer overlays (open script)', () => {
+	// A deployed producer: `f/x/prod` materializes ducklake main/orders.
+	const deployedProducer = () =>
+		baseGraph({
+			assets: [{ kind: 'ducklake', path: 'main/orders' }],
+			runnables: [{ path: 'f/x/prod', usage_kind: 'script', in_pipeline: true }],
+			edges: [
+				{
+					runnable_path: 'f/x/prod',
+					runnable_kind: 'script',
+					asset_kind: 'ducklake',
+					asset_path: 'main/orders',
+					access_type: 'w'
+				}
+			]
+		})
+
+	it('open draft: live annotations win over the stale draft snapshot for the materialize target', () => {
+		const drafts = new Map([
+			['f/x/d', { script: { content: '-- materialize ducklake://main/old_target\nselect 1' } }]
+		])
+		const r = resolveGraph(
+			input({
+				drafts,
+				liveBodyAssets: { scriptPath: 'f/x/d', assets: [] },
+				liveAnnotations: {
+					scriptPath: 'f/x/d',
+					annotations: ann({
+						inPipeline: true,
+						materialize: { targetKind: 'ducklake', targetPath: 'main/new_target' }
+					})
+				}
+			})
+		)
+		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/new_target' })
+		expect(r.assets).not.toContainEqual({ kind: 'ducklake', path: 'main/old_target' })
+		expect(r.edges).toContainEqual({
+			runnable_path: 'f/x/d',
+			runnable_kind: 'script',
+			asset_kind: 'ducklake',
+			asset_path: 'main/new_target',
+			access_type: 'w',
+			unsaved: true
+		})
+	})
+
+	it('open saved script: retargeting `// materialize` swaps the write edge live', () => {
+		const r = resolveGraph(
+			input({
+				base: deployedProducer(),
+				liveBodyAssets: { scriptPath: 'f/x/prod', assets: [] },
+				liveAnnotations: {
+					scriptPath: 'f/x/prod',
+					annotations: ann({
+						inPipeline: true,
+						materialize: { targetKind: 'ducklake', targetPath: 'main/orders_gold' }
+					})
+				}
+			})
+		)
+		// New target surfaces as an unsaved write edge…
+		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/orders_gold' })
+		expect(r.edges).toContainEqual({
+			runnable_path: 'f/x/prod',
+			runnable_kind: 'script',
+			asset_kind: 'ducklake',
+			asset_path: 'main/orders_gold',
+			access_type: 'w',
+			unsaved: true
+		})
+		// …the stale write edge is dropped, but the deployed dataset node stays.
+		expect(
+			r.edges.filter((e) => e.asset_path === 'main/orders' && e.runnable_path === 'f/x/prod')
+		).toEqual([])
+		expect(r.assets).toContainEqual({ kind: 'ducklake', path: 'main/orders' })
+	})
+
+	it('open saved script: unchanged materialize target dedups against the persisted write edge', () => {
+		const r = resolveGraph(
+			input({
+				base: deployedProducer(),
+				liveBodyAssets: { scriptPath: 'f/x/prod', assets: [] },
+				liveAnnotations: {
+					scriptPath: 'f/x/prod',
+					annotations: ann({
+						inPipeline: true,
+						materialize: { targetKind: 'ducklake', targetPath: 'main/orders' }
+					})
+				}
+			})
+		)
+		expect(
+			r.edges.filter(
+				(e) =>
+					e.runnable_path === 'f/x/prod' &&
+					e.asset_path === 'main/orders' &&
+					(e.access_type === 'w' || e.access_type === 'rw')
+			)
+		).toHaveLength(1)
+	})
+
+	it('open saved script: live body reads/writes overlay as unsaved lineage', () => {
+		const base = baseGraph({
+			assets: [{ kind: 'ducklake', path: 'main/orders' }],
+			runnables: [{ path: 'f/x/cons', usage_kind: 'script', in_pipeline: true }],
+			edges: [
+				{
+					runnable_path: 'f/x/cons',
+					runnable_kind: 'script',
+					asset_kind: 'ducklake',
+					asset_path: 'main/orders',
+					access_type: 'r'
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveBodyAssets: {
+					scriptPath: 'f/x/cons',
+					assets: [duck('main/orders_eu', 'r'), s3('/report.parquet', 'w')]
+				},
+				liveAnnotations: {
+					scriptPath: 'f/x/cons',
+					annotations: ann({ inPipeline: true })
+				}
+			})
+		)
+		// New read + write from the buffer…
+		expect(r.edges).toContainEqual({
+			runnable_path: 'f/x/cons',
+			runnable_kind: 'script',
+			asset_kind: 'ducklake',
+			asset_path: 'main/orders_eu',
+			access_type: 'r',
+			unsaved: true
+		})
+		expect(r.edges).toContainEqual({
+			runnable_path: 'f/x/cons',
+			runnable_kind: 'script',
+			asset_kind: 's3object',
+			asset_path: '/report.parquet',
+			access_type: 'w',
+			unsaved: true
+		})
+		// …the no-longer-read persisted edge is dropped.
+		expect(
+			r.edges.filter((e) => e.asset_path === 'main/orders' && e.runnable_path === 'f/x/cons')
+		).toEqual([])
+	})
+})
