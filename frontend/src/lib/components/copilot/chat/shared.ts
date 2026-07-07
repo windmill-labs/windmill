@@ -498,7 +498,8 @@ export type NavigateAction = {
 	type: 'navigate'
 	label: string
 	url: string
-	page: 'runs' | 'schedules'
+	// Which page the chip opens (runs, schedules, variables, …); drives its icon/title.
+	page: string
 }
 
 export type ToolDisplayAction = CreatedResourceAction | NavigateAction

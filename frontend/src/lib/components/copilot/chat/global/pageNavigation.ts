@@ -5,6 +5,39 @@ import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesF
 // In-app paths for the deep-linkable preview pages the AI chat can open.
 export const RUNS_PATH = '/runs'
 export const SCHEDULES_PATH = '/schedules'
+export const VARIABLES_PATH = '/variables'
+export const RESOURCES_PATH = '/resources'
+export const ASSETS_PATH = '/assets'
+export const AUDIT_LOGS_PATH = '/audit_logs'
+export const WORKSPACE_SETTINGS_PATH = '/workspace_settings'
+
+// Selectable tabs on the Workspace settings page (the `?tab=` query param). Mirrors the
+// union in routes/(root)/(logged)/workspace_settings/+page.svelte.
+export const WORKSPACE_SETTINGS_TABS = [
+	'users',
+	'slack',
+	'teams',
+	'premium',
+	'general',
+	'webhook',
+	'deploy_to',
+	'dev_workspace',
+	'error_handler',
+	'success_handler',
+	'critical_alerts',
+	'ai',
+	'windmill_data_tables',
+	'windmill_lfs',
+	'volume_storage',
+	'ducklake',
+	'git_sync',
+	'default_app',
+	'native_triggers',
+	'encryption',
+	'dependencies',
+	'rulesets',
+	'shared_ui'
+] as const
 
 // Valid query-param keys are derived from the real filter schemas (option arrays are
 // irrelevant to the key set), so a renamed filter key propagates here for free.
@@ -42,4 +75,33 @@ export function buildSchedulesUrl({
 		validKeys: SCHEDULES_FILTER_KEYS,
 		hash: open
 	})
+}
+
+// The remaining pages expose a curated subset of each page's real query params (not the
+// full filter schema), so the allow-list is the exact set of keys the builder emits —
+// these names match the query params the pages read (variablesFilter/resourcesFilter/
+// assetsFilter and audit_logs/+page.svelte).
+export function buildVariablesUrl(filters: Record<string, unknown>): string {
+	return buildFilterUrl(VARIABLES_PATH, filters, { validKeys: ['path', 'owner'] })
+}
+
+export function buildResourcesUrl(filters: Record<string, unknown>): string {
+	return buildFilterUrl(RESOURCES_PATH, filters, {
+		validKeys: ['path', 'resource_type', 'owner']
+	})
+}
+
+export function buildAssetsUrl(filters: Record<string, unknown>): string {
+	return buildFilterUrl(ASSETS_PATH, filters, { validKeys: ['path'] })
+}
+
+export function buildAuditLogsUrl(filters: Record<string, unknown>): string {
+	return buildFilterUrl(AUDIT_LOGS_PATH, filters, {
+		validKeys: ['username', 'operation', 'resource']
+	})
+}
+
+/** Deep-link to the Workspace settings page, optionally on a specific `?tab=`. */
+export function buildWorkspaceSettingsUrl({ tab }: { tab?: string }): string {
+	return buildFilterUrl(WORKSPACE_SETTINGS_PATH, tab ? { tab } : {})
 }

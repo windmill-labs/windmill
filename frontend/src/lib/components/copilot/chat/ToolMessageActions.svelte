@@ -2,13 +2,17 @@
 	import { Button } from '$lib/components/common'
 	import {
 		ArrowRight,
+		Boxes,
 		Calendar,
 		Database,
+		DollarSign,
 		KeyRound,
 		Mail,
 		Package,
 		Play,
 		Route,
+		ScrollText,
+		Settings,
 		SquarePen,
 		Unplug,
 		Webhook
@@ -52,14 +56,20 @@
 		email: { title: 'Email trigger', icon: Mail }
 	}
 
+	const navigatePageConfig: Record<string, ActionCardConfig> = {
+		runs: { title: 'Runs', icon: Play },
+		schedules: { title: 'Schedules', icon: Calendar },
+		variables: { title: 'Variables', icon: DollarSign },
+		resources: { title: 'Resources', icon: Boxes },
+		assets: { title: 'Assets', icon: Database },
+		audit_logs: { title: 'Audit logs', icon: ScrollText },
+		workspace_settings: { title: 'Workspace settings', icon: Settings }
+	}
+
 	function getActionCard(action: ToolDisplayAction): ActionCard {
 		if (action.type === 'navigate') {
-			return {
-				title: action.page === 'runs' ? 'Runs' : 'Schedules',
-				subtitle: action.label,
-				icon: action.page === 'runs' ? Play : Calendar,
-				buttonIcon: ArrowRight
-			}
+			const config = navigatePageConfig[action.page] ?? { title: action.page, icon: Route }
+			return { ...config, subtitle: action.label, buttonIcon: ArrowRight }
 		}
 		const key: ActionCardKey | undefined =
 			action.resource === 'trigger' ? action.triggerKind : action.resource

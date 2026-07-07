@@ -103,12 +103,21 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
-import { userStore } from '$lib/stores'
+import { userStore, superadmin } from '$lib/stores'
 import { get } from 'svelte/store'
 import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
-import { buildRunsUrl, buildSchedulesUrl } from './pageNavigation'
+import {
+	buildRunsUrl,
+	buildSchedulesUrl,
+	buildVariablesUrl,
+	buildResourcesUrl,
+	buildAssetsUrl,
+	buildAuditLogsUrl,
+	buildWorkspaceSettingsUrl,
+	WORKSPACE_SETTINGS_TABS
+} from './pageNavigation'
 import { pageHref } from '$lib/components/sessions/previewRouter'
 import {
 	clearEphemeralSecretVariableDraftValue,
@@ -838,7 +847,7 @@ Rules:
 - A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
-- Use open_page to show the Runs or Schedules page with filters applied — e.g. after discussing a script's failures ("open the failed runs of f/foo/bar") or a specific schedule. In a session it opens as a tab in the side-panel preview next to the chat; it is the ONLY way to show a Runs/Schedules page there (open_preview handles only editable items). Changing filters on a page that's already open updates that same tab — only pass new_tab when the user explicitly asks for a separate tab. Don't use it as a substitute for list_runs when you just need the data yourself.
+- Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. In a session it opens as a tab in the side-panel preview next to the chat; it is the ONLY way to show these pages there (open_preview handles only editable items). Changing filters on a page that's already open updates that same tab — only pass new_tab when the user explicitly asks for a separate tab. Don't use it as a substitute for list_runs when you just need the data yourself.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -1685,21 +1694,74 @@ export const readSkillTool: Tool<{}> = {
 	}
 }
 
+const OPEN_PAGE_NAMES = [
+	'runs',
+	'schedules',
+	'variables',
+	'resources',
+	'assets',
+	'audit_logs',
+	'workspace_settings'
+] as const
+type OpenPageName = (typeof OPEN_PAGE_NAMES)[number]
+
+const OPEN_PAGE_LABELS: Record<OpenPageName, string> = {
+	runs: 'Runs',
+	schedules: 'Schedules',
+	variables: 'Variables',
+	resources: 'Resources',
+	assets: 'Assets',
+	audit_logs: 'Audit logs',
+	workspace_settings: 'Workspace settings'
+}
+
+// Which pages the current user can actually reach — mirrors the sidebar's gating
+// (operators are restricted to runs/assets by default; workspace settings is
+// admin/superadmin only; operators see audit logs only when granted). The tool only
+// ever advertises, and only ever acts on, pages in this set.
+function allowedOpenPages(): OpenPageName[] {
+	const u = get(userStore)
+	const isOperator = !!u?.operator
+	const isAdmin = !!u?.is_admin || !!get(superadmin)
+	const allowed = new Set<OpenPageName>(['runs', 'assets']) // available to everyone
+	if (!isOperator) {
+		allowed.add('schedules')
+		allowed.add('variables')
+		allowed.add('resources')
+		allowed.add('audit_logs')
+	}
+	if (isAdmin) allowed.add('workspace_settings')
+	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
+}
+
 // One flat object (not a discriminated union): `page` selects the target and the
 // per-page fields are optional. Top-level `type: object` is what Anthropic's
-// input_schema requires; a top-level oneOf would be rejected. `path`/`schedule_path`
-// are shared by both pages, and the per-page URL builders drop any key that isn't in
-// their page's filter schema, so a cross-page field is harmless.
-const openPageSchema = z.object({
-	page: z.enum(['runs', 'schedules']).describe('Which page to open'),
+// input_schema requires; a top-level oneOf would be rejected. Each per-page URL builder
+// drops any key that isn't one of its page's real query params, so a field that doesn't
+// apply to the chosen page is harmless. This full schema is used to PARSE tool args; the
+// advertised schema (what the model sees) is narrowed per-user in `setSchema`.
+const openPageFullSchema = z.object({
+	page: z
+		.enum([
+			'runs',
+			'schedules',
+			'variables',
+			'resources',
+			'assets',
+			'audit_logs',
+			'workspace_settings'
+		])
+		.describe('Which page to open'),
+	path: z
+		.string()
+		.optional()
+		.describe(
+			'Runs/Schedules/Variables/Resources/Assets: the script, flow or item path to filter by'
+		),
 	status: z
 		.enum(['running', 'success', 'failure', 'canceled', 'waiting', 'suspended'])
 		.optional()
 		.describe('Runs: filter by job execution status'),
-	path: z
-		.string()
-		.optional()
-		.describe('Runs & Schedules: the script or flow path to filter by, e.g. f/foo/bar'),
 	schedule_path: z
 		.string()
 		.optional()
@@ -1719,6 +1781,21 @@ const openPageSchema = z.object({
 		.string()
 		.optional()
 		.describe('Schedules: search text matched against schedule summaries'),
+	resource_type: z
+		.string()
+		.optional()
+		.describe('Resources: filter by resource type, e.g. postgres'),
+	owner: z
+		.string()
+		.optional()
+		.describe('Variables/Resources: filter by owner, e.g. u/alice or f/team'),
+	username: z.string().optional().describe('Audit logs: filter by the acting username'),
+	operation: z.string().optional().describe('Audit logs: filter by operation, e.g. jobs.run'),
+	resource: z.string().optional().describe('Audit logs: filter by the affected resource path'),
+	tab: z
+		.enum([...WORKSPACE_SETTINGS_TABS] as [string, ...string[]])
+		.optional()
+		.describe('Workspace settings: which settings tab to open'),
 	new_tab: z
 		.boolean()
 		.optional()
@@ -1727,55 +1804,116 @@ const openPageSchema = z.object({
 		)
 })
 
-type OpenPageArgs = z.infer<typeof openPageSchema>
+type OpenPageArgs = z.infer<typeof openPageFullSchema>
 
-function summarizeRunsFilters(a: OpenPageArgs): string {
-	const bits: string[] = []
-	if (a.status) bits.push(a.status)
-	if (a.path) bits.push(a.path)
-	if (a.schedule_path) bits.push(`schedule ${a.schedule_path}`)
-	if (a.job_kinds) bits.push(a.job_kinds)
-	if (a.user) bits.push(`by ${a.user}`)
-	return bits.length ? bits.join(', ') : 'all runs'
+// Which pages each optional field applies to — drives narrowing the advertised schema
+// so the model isn't shown fields for pages it can't open.
+const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
+	path: ['runs', 'schedules', 'variables', 'resources', 'assets'],
+	status: ['runs'],
+	schedule_path: ['runs', 'schedules'],
+	job_kinds: ['runs'],
+	user: ['runs'],
+	open: ['schedules'],
+	summary: ['schedules'],
+	resource_type: ['resources'],
+	owner: ['variables', 'resources'],
+	username: ['audit_logs'],
+	operation: ['audit_logs'],
+	resource: ['audit_logs'],
+	tab: ['workspace_settings']
 }
 
-function summarizeSchedulesTarget(a: OpenPageArgs): string {
-	if (a.open) return a.open
-	const bits: string[] = []
-	if (a.path) bits.push(a.path)
-	if (a.schedule_path) bits.push(a.schedule_path)
-	if (a.summary) bits.push(`"${a.summary}"`)
-	return bits.length ? bits.join(', ') : 'all schedules'
+// The model-facing schema for the given allowed pages: the `page` enum plus only the
+// fields relevant to those pages (reusing the full schema's field definitions).
+function buildOpenPageDefSchema(pages: readonly OpenPageName[]): z.ZodTypeAny {
+	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
+	const shape: Record<string, z.ZodTypeAny> = {
+		page: z.enum([...pages] as [OpenPageName, ...OpenPageName[]]).describe('Which page to open')
+	}
+	for (const [field, fieldPages] of Object.entries(OPEN_PAGE_FIELD_PAGES)) {
+		if (fieldPages.some((p) => pages.includes(p))) shape[field] = full[field]
+	}
+	shape.new_tab = full.new_tab
+	return z.object(shape)
+}
+
+const OPEN_PAGE_DESCRIPTION =
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings (on a specific tab). Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings"). This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed in the `page` enum are available to this user.'
+
+function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs): string {
+	switch (page) {
+		case 'runs':
+			return buildRunsUrl({
+				status: a.status,
+				path: a.path,
+				schedule_path: a.schedule_path,
+				job_kinds: a.job_kinds,
+				user: a.user
+			})
+		case 'schedules':
+			return buildSchedulesUrl({
+				open: a.open,
+				filters: { path: a.path, schedule_path: a.schedule_path, summary: a.summary }
+			})
+		case 'variables':
+			return buildVariablesUrl({ path: a.path, owner: a.owner })
+		case 'resources':
+			return buildResourcesUrl({ path: a.path, resource_type: a.resource_type, owner: a.owner })
+		case 'assets':
+			return buildAssetsUrl({ path: a.path })
+		case 'audit_logs':
+			return buildAuditLogsUrl({
+				username: a.username,
+				operation: a.operation,
+				resource: a.resource
+			})
+		case 'workspace_settings':
+			return buildWorkspaceSettingsUrl({ tab: a.tab })
+	}
+}
+
+// Human-readable one-liner for the tool status/chip: the applied query params (and any
+// hash target), or "all <page>" when unfiltered.
+function summarizeOpenPage(url: string, page: OpenPageName): string {
+	const u = new URL(url, 'http://x')
+	const parts: string[] = []
+	u.searchParams.forEach((v, k) => parts.push(`${k}=${v}`))
+	if (u.hash) parts.push(u.hash.slice(1))
+	return parts.length ? parts.join(', ') : `all ${OPEN_PAGE_LABELS[page].toLowerCase()}`
 }
 
 export const openPageTool: Tool<{}> = {
 	def: createToolDef(
-		openPageSchema,
+		buildOpenPageDefSchema(allowedOpenPages()),
 		'open_page',
-		'Open a Windmill page (Runs or Schedules) with filters applied. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it applies the filters in place or offers a clickable link. Use after surfacing runs or schedules the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y"). This is the only way to show a Runs/Schedules page in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines).'
+		OPEN_PAGE_DESCRIPTION
 	),
 	// Keep the row expanded so the link chip (attached below as an action) is visible
 	// without the user having to expand the tool call.
 	showDetails: true,
 	autoCollapseDetails: false,
+	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
+	// the model never sees (or suggests) a page the user can't reach.
+	setSchema: async function () {
+		this.def = createToolDef(
+			buildOpenPageDefSchema(allowedOpenPages()),
+			'open_page',
+			OPEN_PAGE_DESCRIPTION
+		)
+	},
 	fn: async (ctx) => {
 		const { args, toolId, toolCallbacks } = ctx
-		const parsed = openPageSchema.parse(args)
-		let url: string
-		let page: 'runs' | 'schedules'
-		let summary: string
-		if (parsed.page === 'runs') {
-			const { page: _p, open: _o, summary: _s, new_tab: _n, ...filters } = parsed
-			url = buildRunsUrl(filters)
-			page = 'runs'
-			summary = summarizeRunsFilters(parsed)
-		} else {
-			const { page: _p, open, new_tab: _n, ...filters } = parsed
-			url = buildSchedulesUrl({ open, filters })
-			page = 'schedules'
-			summary = summarizeSchedulesTarget(parsed)
+		const parsed = openPageFullSchema.parse(args)
+		const page = parsed.page as OpenPageName
+		// Defense in depth: never act on a page the user can't reach, even if the model
+		// requests one outside the advertised enum.
+		if (!allowedOpenPages().includes(page)) {
+			return `You don't have access to the ${OPEN_PAGE_LABELS[page] ?? page} page in this workspace.`
 		}
-		const pageLabel = page === 'runs' ? 'Runs' : 'Schedules'
+		const url = buildOpenPageUrl(page, parsed)
+		const pageLabel = OPEN_PAGE_LABELS[page]
+		const summary = summarizeOpenPage(url, page)
 
 		// In a session, show the page as a preview tab alongside the chat (the primary
 		// UX). By default a filter change reuses the tab already showing this page;
@@ -1788,7 +1926,7 @@ export const openPageTool: Tool<{}> = {
 			newTab: parsed.new_tab ?? false
 		})
 		if (previewResult) {
-			toolCallbacks.setToolStatus(toolId, { content: `Opened ${page} preview: ${summary}` })
+			toolCallbacks.setToolStatus(toolId, { content: `Opened ${pageLabel} preview: ${summary}` })
 			return previewResult
 		}
 
@@ -1796,10 +1934,10 @@ export const openPageTool: Tool<{}> = {
 		// controls. (We deliberately don't navigate in place: a same-route goto would
 		// not re-sync the page's URL-driven filter state, so the change wouldn't land.)
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Prepared a link to ${page}: ${summary}`,
+			content: `Prepared a link to ${pageLabel}: ${summary}`,
 			actions: [{ id: `open-page:${page}:${url}`, type: 'navigate', label: summary, url, page }]
 		})
-		return `Offered the user a link to the ${page} page (${summary}). They can click it to open.`
+		return `Offered the user a link to the ${pageLabel} page (${summary}). They can click it to open.`
 	}
 }
 

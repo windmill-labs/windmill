@@ -969,6 +969,60 @@
     - passes the schedule path so the editor opens on it
     - does not write, deploy, or delete anything
 
+- id: global-openpage4-workspace-settings-tab
+  prompt: |-
+    Take me to the Git sync configuration for this workspace.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - workspace_settings
+      - tool: open_page
+        field: tab
+        stringIncludesAnyOf:
+          - git_sync
+  skipJudge: true
+  judgeChecklist:
+    - opens the Workspace settings page on the git_sync tab
+    - does not write, deploy, or delete anything
+
+- id: global-openpage5-audit-logs-user
+  prompt: |-
+    Open the audit logs filtered to actions performed by the user admin.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - audit_logs
+      - tool: open_page
+        field: username
+        stringIncludesAnyOf:
+          - admin
+  skipJudge: true
+  judgeChecklist:
+    - opens the Audit logs page filtered to the admin user
+    - does not write, deploy, or delete anything
+
 # --- Documentation search (search_docs) ---
 # Pure product-knowledge questions: the assistant should consult the docs via
 # search_docs and answer conversationally, not draft or mutate anything. No
