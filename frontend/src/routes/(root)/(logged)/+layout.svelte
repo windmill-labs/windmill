@@ -42,6 +42,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
 	import { goto } from '$lib/navigation'
+	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -193,6 +194,15 @@
 	}
 
 	onDestroy(() => stopSidebarResize?.())
+
+	// Let AI chat's 'navigate' link chips route through the app router without the
+	// tool layer importing $app/navigation.
+	$effect(() => {
+		const unregisterNavigate = registerToolDisplayActionHandler('navigate', (action) => {
+			if (action.type === 'navigate') goto(action.url)
+		})
+		return unregisterNavigate
+	})
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 	let menuHidden = $state(false)
@@ -326,6 +336,20 @@
 		}
 	}
 
+	// A job-detail navigation (/run/<id>) inside a preview tab should open the job in
+	// a NEW tab rather than navigate the current tab away from its page (e.g. clicking
+	// a job in the Runs tab keeps Runs put and opens the run beside it). Returns the
+	// href to open (nomenubar dropped — the preview host re-adds it) and a short label.
+	function previewRunTarget(url: URL | undefined): { href: string; label: string } | undefined {
+		if (!url) return undefined
+		const m = url.pathname.match(/\/run\/([^/?#]+)/)
+		if (!m) return undefined
+		const u = new URL(url.href)
+		u.searchParams.delete('nomenubar')
+		const id = decodeURIComponent(m[1])
+		return { href: u.pathname + u.search, label: `Run ${id.slice(0, 8)}` }
+	}
+
 	// Map a navigation target to the session editor it should open as a component,
 	// or undefined for anything without a live-editor wrapper (regular apps, pages,
 	// /get viewers). Only /edit routes — the wrappers are editors.
@@ -365,6 +389,17 @@
 				try {
 					window.parent.postMessage(
 						{ type: 'wm.session.openEditor', kind: target.kind, path: target.path },
+						window.location.origin
+					)
+				} catch {}
+				return
+			}
+			const runTarget = previewRunTarget(navigation.to?.url)
+			if (runTarget) {
+				navigation.cancel()
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openRun', href: runTarget.href, label: runTarget.label },
 						window.location.origin
 					)
 				} catch {}

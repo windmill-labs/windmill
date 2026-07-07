@@ -45,17 +45,21 @@ import {
 	SessionPreviewTabs,
 	describePreview,
 	hydratePreviewTabs,
-	previewTargetForSessionTarget
+	previewTargetForSessionTarget,
+	selectPreviewTabsToClose
 } from './sessionPreviewTabs.svelte'
+import { matchPreviewPage, previewLocationLabel } from './previewRouter'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
 import {
 	setDeployedInSessionHandler,
+	setClosePreviewTabsHandler,
 	setGetPreviewStatusHandler,
 	setGetRuntimeLogsHandler,
 	setListAppRunsHandler,
+	setOpenPagePreviewHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
 import {
@@ -831,6 +835,39 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
 })
 
+// open_page dispatches here to show a workspace page (Runs/Schedules) as a page
+// tab in the calling session's preview panel. Returns undefined when there is no
+// session so open_page can fall back to browser navigation.
+setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	if (!sessionId) return undefined
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return undefined
+	const owner = getOrCreateRuntime(session).previewTabs
+	// Re-point the tab already showing this page (matched ignoring query/hash) so a
+	// filter change updates it in place instead of spawning a duplicate — unless the
+	// user asked for a separate tab. open() dedupes on the exact URL, so differing
+	// filters would otherwise always open a new tab.
+	const targetPage = matchPreviewPage(href)
+	if (!newTab && targetPage) {
+		const existing = owner.tabs.find(
+			(t) => matchPreviewPage(t.loc || t.url)?.path === targetPage.path
+		)
+		if (existing) {
+			owner.select(existing.id)
+			owner.navigate({ type: 'page', href, label })
+			owner.setCollapsed(false)
+			promoteEditorWarm(sessionId)
+			return `Updated the ${label} preview tab with the new filters.`
+		}
+	}
+	const result = owner.open({ type: 'page', href, label })
+	promoteEditorWarm(sessionId)
+	return result.status === 'focused'
+		? `A preview tab is already showing ${label} — focused it and applied the filters.`
+		: `Opened ${label} in a new preview tab in the side panel.`
+})
+
 // Companion to the open_preview handler: report the calling session's open
 // preview tabs (the panel is multi-tab), so the assistant can avoid re-opening
 // a tab already showing the item it just edited.
@@ -841,6 +878,29 @@ setGetPreviewStatusHandler((callerSessionId) => {
 	if (!session) return 'No active session; the preview panel is unavailable.'
 	const owner = getOrCreateRuntime(session).previewTabs
 	return describePreview(owner.tabs, owner.activeId, session.target)
+})
+
+// close_page dispatches here to close preview tabs in the calling session's
+// panel. `all` clears every tab; otherwise `match` is a case-insensitive
+// substring tested against each tab's page label and stripped path.
+setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	if (!sessionId) return 'No active session; the preview panel is unavailable.'
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session) return 'No active session; the preview panel is unavailable.'
+	const owner = getOrCreateRuntime(session).previewTabs
+	if (owner.tabs.length === 0) return 'The preview panel has no open tabs.'
+
+	const labelFor = (t: (typeof owner.tabs)[number]) => previewLocationLabel(t.loc || t.url)
+	// Resolve the doomed tabs to ids up front — close() re-indexes on each call.
+	const doomed = selectPreviewTabsToClose(owner.tabs, { all, match })
+	if (doomed.length === 0) {
+		const open = owner.tabs.map(labelFor).join(', ')
+		return `No open tab matched "${match}". Open tabs: ${open}.`
+	}
+	const closedLabels = doomed.map(labelFor)
+	for (const t of doomed) owner.close(t.id)
+	return `Closed ${closedLabels.length} preview tab${closedLabels.length === 1 ? '' : 's'} (${closedLabels.join(', ')}).`
 })
 
 // After a chat deploy, reload the calling session's preview — only if it's open

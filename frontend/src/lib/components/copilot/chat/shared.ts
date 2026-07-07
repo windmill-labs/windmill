@@ -490,7 +490,19 @@ export type CreatedResourceAction = {
 	triggerKind?: CreatedResourceTriggerKind
 }
 
-export type ToolDisplayAction = CreatedResourceAction
+// A clickable chip that deep-links the user to an in-app page (e.g. Runs filtered to
+// a script's failures). Used for cross-page navigation from the chat; the handler is
+// registered by a top-level layout and calls `goto(url)`.
+export type NavigateAction = {
+	id: string
+	type: 'navigate'
+	label: string
+	url: string
+	// Which page the chip opens (runs, schedules, variables, …); drives its icon/title.
+	page: string
+}
+
+export type ToolDisplayAction = CreatedResourceAction | NavigateAction
 
 export type UserQuestionDisplay = {
 	question: string

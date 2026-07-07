@@ -20,7 +20,7 @@ import { itemHref as offboardingItemHref } from '$lib/components/offboarding-uti
 import { findAndReplace } from 'mdast-util-find-and-replace'
 import { visit } from 'unist-util-visit'
 import type { Root, InlineCode, Link } from 'mdast'
-import type { ToolDisplayAction } from './shared'
+import type { CreatedResourceAction, ToolDisplayAction } from './shared'
 
 export type WindmillItemKind =
 	| 'script'
@@ -67,9 +67,9 @@ export const WINDMILL_PATH_REGEX =
  */
 const WINDMILL_PATH_EXACT_REGEX = /^[uf]\/[A-Za-z0-9_.\-]+\/[A-Za-z0-9_./\-]*[A-Za-z0-9_\-]$/
 
-function workspaceItemTriggerKind(kind: WindmillItemKind): ToolDisplayAction['triggerKind'] {
+function workspaceItemTriggerKind(kind: WindmillItemKind): CreatedResourceAction['triggerKind'] {
 	if (!kind.endsWith('_trigger')) return undefined
-	return kind.slice(0, -'_trigger'.length) as ToolDisplayAction['triggerKind']
+	return kind.slice(0, -'_trigger'.length) as CreatedResourceAction['triggerKind']
 }
 
 /**

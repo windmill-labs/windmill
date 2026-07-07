@@ -41,6 +41,41 @@ export const PREVIEW_PAGES: PreviewPage[] = [
 	{ label: 'Audit logs', path: '/audit_logs', icon: ScrollText }
 ]
 
+// Trigger list pages, by kind. Deliberately kept out of PREVIEW_PAGES (the curated
+// breadcrumb picker) but shared here so open_page can route to them and the preview tab
+// can label them. `ee` kinds require an enterprise license. Each supports `#<path>` to
+// open a specific trigger, like Schedules.
+export type TriggerKind =
+	| 'http'
+	| 'websocket'
+	| 'postgres'
+	| 'kafka'
+	| 'nats'
+	| 'sqs'
+	| 'gcp'
+	| 'azure'
+	| 'mqtt'
+	| 'email'
+
+export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; ee?: boolean }> = {
+	http: { path: '/routes', label: 'HTTP routes' },
+	websocket: { path: '/websocket_triggers', label: 'WebSocket triggers' },
+	postgres: { path: '/postgres_triggers', label: 'Postgres triggers' },
+	kafka: { path: '/kafka_triggers', label: 'Kafka triggers', ee: true },
+	nats: { path: '/nats_triggers', label: 'NATS triggers', ee: true },
+	sqs: { path: '/sqs_triggers', label: 'SQS triggers', ee: true },
+	gcp: { path: '/gcp_triggers', label: 'GCP Pub/Sub triggers', ee: true },
+	azure: { path: '/azure_triggers', label: 'Azure Event Grid triggers', ee: true },
+	mqtt: { path: '/mqtt_triggers', label: 'MQTT triggers' },
+	email: { path: '/email_triggers', label: 'Email triggers' }
+}
+
+/** Label a trigger list page from its (base-stripped) pathname, or undefined. */
+export function triggerLabelForPath(path: string): string | undefined {
+	const clean = stripBase(path)
+	return Object.values(TRIGGER_PAGES).find((t) => t.path === clean)?.label
+}
+
 export const pageKey = (path: string) => `page:${path}`
 export const pageHref = (path: string) => `${base}${path}`
 
@@ -57,6 +92,21 @@ export function stripBase(path: string): string {
 export function matchPreviewPage(path: string): PreviewPage | undefined {
 	const clean = stripBase(path)
 	return PREVIEW_PAGES.find((p) => p.path === clean)
+}
+
+/** Human label for a preview tab's location — the workspace page name, trigger
+ * page, run detail, or item path. Shared by the sessions tab strip and the
+ * close_page matcher so both name a tab the same way. */
+export function previewLocationLabel(url: string): string {
+	const page = matchPreviewPage(url)
+	if (page) return page.label
+	const trigger = triggerLabelForPath(url)
+	if (trigger) return trigger
+	const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
+	if (run) return `Run ${decodeURIComponent(run[1]).slice(0, 8)}`
+	const parsed = parsePreviewItemRoute(url)
+	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
+	return stripBase(url)
 }
 
 export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
