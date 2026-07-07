@@ -195,6 +195,23 @@ describe('Anthropic Messages API routing', () => {
 		expect(headers['X-Resource-Path']).toBe('u/admin/foundry')
 	})
 
+	it('caps max_tokens for metadata completions so the Anthropic SDK stays non-streaming', async () => {
+		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
+			await import('./lib')
+		// claude-sonnet defaults to 64000 max_tokens; the Anthropic SDK refuses a
+		// non-streaming request that large (>10min worst case), which silently broke
+		// session auto-rename and the other metadata generators.
+		h.currentModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+
+		await getNonStreamingCompletion(messages, new AbortController())
+		expect(anthropicCreate.mock.calls[0][0].max_tokens).toBe(64000)
+
+		anthropicCreate.mockClear()
+		await getNonStreamingMetadataCompletion(messages, new AbortController())
+		expect(anthropicCreate.mock.calls[0][0].max_tokens).toBe(METADATA_MAX_TOKENS)
+		expect(METADATA_MAX_TOKENS).toBeLessThanOrEqual(21333)
+	})
+
 	it('getFimCompletion no-ops for Anthropic Messages API models', async () => {
 		const { getFimCompletion } = await import('./lib')
 		const fetchSpy = vi.spyOn(globalThis, 'fetch')
