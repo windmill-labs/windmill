@@ -56,7 +56,17 @@
 		// iframe fallback (a separate page) has to be told to refresh.
 		if (slot.kind === 'editor') return
 		try {
-			frame?.contentWindow?.location.reload()
+			const win = frame?.contentWindow
+			if (!win) return
+			// Reload the page the user is actually viewing (observed `loc`, canonical
+			// with nomenubar/workspace stripped), re-injecting nomenubar + workspace.
+			// A plain location.reload() would reload the iframe's current URL, which
+			// in-frame navigation may have stripped of ?workspace= — booting the frame
+			// into the top-level navigation workspace instead of the session fork
+			// (sessionStorage/localStorage are shared with the top window, so the
+			// scoping can only live in the URL). replace() forces the load even when
+			// the target equals the current URL.
+			win.location.replace(withMenuHidden(tab.loc || tab.url, workspaceId || undefined))
 		} catch {
 			// Cross-navigation timing — skip; the next mutation reloads again.
 		}

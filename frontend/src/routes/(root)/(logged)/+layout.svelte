@@ -270,12 +270,14 @@
 
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
-			// A preview iframe shares localStorage with the top-level app; persisting
-			// its session-scoped workspace there would clobber the workspace the user
-			// is actually navigating and reload the app into the preview fork. Keep it
-			// in-memory only ($workspaceStore is still set from the ?workspace= param
-			// for the iframe's own API calls) — only the top window owns the persisted
-			// workspace.
+			// A preview iframe shares BOTH localStorage and sessionStorage with the
+			// top-level app (same-origin nested browsing contexts share the top-level
+			// session storage). Persisting its session-scoped workspace to either would
+			// clobber the workspace the user is actually navigating. Keep it in-memory
+			// only ($workspaceStore is still set from the ?workspace= param for the
+			// iframe's own API calls); the fork survives iframe reloads because the
+			// preview always reloads a URL that carries ?workspace= (see
+			// PreviewTabHost.reload). Only the top window owns the persisted keys.
 			if (!embedded) {
 				try {
 					sessionStorage.setItem('workspace', String(workspace))
