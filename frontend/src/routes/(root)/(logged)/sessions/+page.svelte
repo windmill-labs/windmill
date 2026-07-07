@@ -707,6 +707,11 @@
 									{@const rt = getRuntime(s.id)}
 									{@const tabs = rt?.previewTabs}
 									{#each tabs?.tabs ?? [] as tab (tab.id)}
+										<!-- tabHosts is an imperative ref-bag (only tabHosts[key]?.reload() in
+										     reloadTabs); it is intentionally a plain object so component
+										     instances aren't proxied. Nothing reads it reactively, so the
+										     non-reactive binding is fine. -->
+										<!-- svelte-ignore binding_property_non_reactive -->
 										<PreviewTabHost
 											bind:this={tabHosts[tabKey(s.id, tab.id)]}
 											{tab}
