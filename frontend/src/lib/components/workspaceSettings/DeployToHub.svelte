@@ -646,6 +646,8 @@
 			if (seq === migrationsSeq) {
 				migrationDrafts = []
 				migrationsGeneration++
+				// Toast so a genuine failure isn't mistaken for "no data table usage".
+				sendUserToast(`Could not generate data table migrations: ${e?.message ?? e}`, true)
 			}
 		} finally {
 			if (seq === migrationsSeq) migrationsGenerating = false
