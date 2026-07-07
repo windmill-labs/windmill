@@ -738,6 +738,8 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
+	runtimeWarmIds.delete(sessionId)
+	sessionsWithDraft.delete(sessionId)
 }
 
 export function listRuntimes(): SessionRuntime[] {
@@ -797,6 +799,63 @@ export function promoteEditorWarm(sessionId: string): void {
 		const oldest = editorWarmIds.values().next().value
 		if (oldest === undefined) break
 		editorWarmIds.delete(oldest)
+	}
+}
+
+// MRU of session ids whose runtime should stay warm. A full SessionRuntime
+// (AIChatManager + loaded history + IDB connection) is ~tens of MB, so warming
+// one per visible session made the page scale linearly with the family size.
+// We keep the active session + this MRU + any session with an in-flight stream
+// warm (see evictColdRuntimes) and dispose the rest; a cold session re-warms on
+// activation from its persisted chat + snapshot.
+const MAX_WARM_RUNTIMES = 3
+const runtimeWarmIds = new SvelteSet<string>()
+
+// Sessions whose composer holds unsent text. The draft lives in AIChatInput's
+// local state (not manager.instructions — that only carries programmatic
+// prompts), and it isn't persisted, so a session with a draft must be kept warm
+// or the text is lost. SessionWrapper reports changes via setSessionDraftFlag as
+// the user types; read at eviction time (see hasVolatileState).
+const sessionsWithDraft = new Set<string>()
+
+export function setSessionDraftFlag(sessionId: string, hasDraft: boolean): void {
+	if (hasDraft) sessionsWithDraft.add(sessionId)
+	else sessionsWithDraft.delete(sessionId)
+}
+
+export function promoteRuntimeWarm(sessionId: string): void {
+	runtimeWarmIds.delete(sessionId)
+	runtimeWarmIds.add(sessionId)
+	while (runtimeWarmIds.size > MAX_WARM_RUNTIMES) {
+		const oldest = runtimeWarmIds.values().next().value
+		if (oldest === undefined) break
+		runtimeWarmIds.delete(oldest)
+	}
+}
+
+// Live state that would be lost by eviction, so the runtime must stay warm even
+// when it falls out of the MRU. We don't persist these (that machinery isn't
+// worth its complexity — see the perf memo), so keeping the session warm is how
+// its picker dot stays right and its unsent draft survives:
+//  - a mid-stream generation (disposeRuntime cancels it),
+//  - a pending tool confirmation (the amber "needs you" dot is read live),
+//  - unsent composer text (there is no persisted copy to restore from).
+function hasVolatileState(runtime: SessionRuntime): boolean {
+	const m = runtime.manager
+	if (m.loading) return true
+	if (sessionsWithDraft.has(runtime.sessionId)) return true
+	const last = m.displayMessages[m.displayMessages.length - 1]
+	return last?.role === 'tool' && !!last.needsConfirmation
+}
+
+// Dispose every warm runtime that isn't the active session, in the warm MRU, or
+// holding volatile state. Idle sessions that fall out of the MRU go cold; their
+// picker dot reverts to the neutral icon until reopened.
+export function evictColdRuntimes(activeId: string | undefined): void {
+	for (const runtime of runtimes.values()) {
+		const id = runtime.sessionId
+		if (id === activeId || runtimeWarmIds.has(id) || hasVolatileState(runtime)) continue
+		disposeRuntime(id)
 	}
 }
 
