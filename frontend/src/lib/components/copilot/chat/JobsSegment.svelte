@@ -32,6 +32,7 @@
 		jobs.filter((j) => j.status === 'queued' || j.status === 'scheduled').length
 	)
 	const failureCount = $derived(jobs.filter((j) => j.status === 'failure').length)
+	const successCount = $derived(jobs.filter((j) => j.status === 'success').length)
 	const liveCount = $derived(jobs.filter((j) => !isTerminal(j.status)).length)
 	const hasLive = $derived(liveCount > 0)
 
@@ -104,7 +105,11 @@
 				}
 			if (failureCount > 0)
 				return { dot: dotClass('failure'), pulse: false, text: `${jobs.length}`, danger: true }
-			return { dot: dotClass('success'), pulse: false, text: `${jobs.length}`, danger: false }
+			// All terminal, none failed: green if anything actually succeeded, else gray
+			// (only canceled jobs left — a cancel isn't a success, so don't show green).
+			if (successCount > 0)
+				return { dot: dotClass('success'), pulse: false, text: `${jobs.length}`, danger: false }
+			return { dot: dotClass('canceled'), pulse: false, text: `${jobs.length}`, danger: false }
 		}
 	)
 
