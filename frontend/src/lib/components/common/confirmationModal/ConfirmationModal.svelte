@@ -16,6 +16,9 @@
 		showIcon?: boolean
 		id?: string
 		trashbin?: boolean
+		/** Tailwind z-index class for the modal root. Override to stack this modal
+		 * above another modal that's already open (both default to `z-[9999]`). */
+		zIndexClass?: string
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -31,6 +34,7 @@
 		showIcon = true,
 		id,
 		trashbin = false,
+		zIndexClass = 'z-[9999]',
 		children,
 		onConfirmed,
 		onCanceled
@@ -104,7 +108,7 @@
 {#if open}
 	<div
 		transition:fadeFast|local
-		class={'fixed top-0 bottom-0 left-0 right-0 z-[9999]'}
+		class={twMerge('fixed top-0 bottom-0 left-0 right-0', zIndexClass)}
 		role="dialog"
 		{id}
 	>

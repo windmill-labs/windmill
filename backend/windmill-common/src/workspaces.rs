@@ -164,6 +164,7 @@ pub enum ObjectType {
     Settings,
     Key,
     WorkspaceDependencies,
+    DatatableMigration,
 }
 
 pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28719/sync-script-to-git-repo-windmill";
@@ -771,6 +772,11 @@ pub struct DataTable {
     pub database: DataTableDatabase,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<DataTableForkedFrom>,
+    /// Whether the SQL-migrations feature is opted in for this data table.
+    /// Absent on data tables created before the feature: treated as enabled only
+    /// when migrations already exist (see `datatable_migrations_enabled`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migrations_enabled: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
