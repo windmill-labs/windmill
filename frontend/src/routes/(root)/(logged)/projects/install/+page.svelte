@@ -62,6 +62,9 @@
 	let loadError = $state<string | undefined>(undefined)
 	let data = $state<ProjectExport | undefined>(undefined)
 	let installing = $state(false)
+	// True while the migration review/missing-datatable modals are open, before the
+	// import spinner starts — keeps the Import button from launching a second import.
+	let planningMigrations = $state(false)
 	let results = $state<{ path: string; ok: boolean; error?: string }[]>([])
 	let done = $state(false)
 	let folderName = $state('')
@@ -360,6 +363,10 @@
 		// Snapshot reactive state up-front: `workspace` ($derived) and `data`
 		// ($state, replaced by load()) can both change mid-import on a workspace
 		// switch, which would split items or mix two exports. Pin both.
+		// Guard against a second click while the review modal is open (the Import
+		// button isn't `installing` yet during planning, so it would otherwise be
+		// clickable and start a concurrent import).
+		if (installing || planningMigrations) return
 		const workspace = $workspaceStore
 		const exportData = data
 		if (!exportData || !workspace) return
@@ -367,7 +374,13 @@
 
 		// Review data table migrations first (before the import spinner), so the user
 		// previews/edits and decides, then the whole import runs uninterrupted.
-		const migrationsToRun = await planMigrations(workspace, exportData.migrations ?? [])
+		planningMigrations = true
+		let migrationsToRun: ProjectMigration[]
+		try {
+			migrationsToRun = await planMigrations(workspace, exportData.migrations ?? [])
+		} finally {
+			planningMigrations = false
+		}
 
 		installing = true
 		results = []
@@ -587,7 +600,7 @@
 			<Button
 				variant="accent"
 				startIcon={{ icon: done ? Cloud : Download }}
-				disabled={installing || done}
+				disabled={installing || done || planningMigrations}
 				onclick={install}
 			>
 				{#if installing}
