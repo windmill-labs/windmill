@@ -593,7 +593,7 @@
 									onclick={() => owner?.setCollapsed(true)}
 									title="Collapse preview"
 									aria-label="Collapse preview"
-									class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									<PanelRightClose size={14} />
 								</button>
@@ -609,7 +609,7 @@
 									)}
 									title="Open in workspace"
 									aria-label="Open in workspace"
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									<ExternalLink size={14} />
 								</a>
@@ -618,7 +618,7 @@
 									onclick={() => (fullscreen = !fullscreen)}
 									title={fullscreen ? 'Exit full screen' : 'Full screen'}
 									aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									{#if fullscreen}
 										<Minimize2 size={14} />
