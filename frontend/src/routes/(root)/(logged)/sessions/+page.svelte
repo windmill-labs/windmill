@@ -638,9 +638,7 @@
 								onSelect={selectTab}
 								onClose={closeTab}
 								onReorder={reorderTabs}
-								class="h-8 border-b border-light bg-surface-secondary {fullscreen
-									? 'pl-1.5'
-									: 'pl-9'} pr-16"
+								class="h-8 border-b border-light bg-surface {fullscreen ? 'pl-1.5' : 'pl-9'} pr-16"
 							>
 								{#snippet tabAccessory(_tab, isActive)}
 									{#if isActive}
