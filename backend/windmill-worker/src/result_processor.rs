@@ -1072,6 +1072,60 @@ async fn maybe_open_git_sync_deploy_pr(
 /// When a git-sync pull job carrying a check marker completes, post the outcome
 /// to its GitHub check run: the PR diff preview (`__git_sync_pr_check`, phase 4)
 /// or the live deploy status (`__git_sync_deploy_check`, phase 6).
+/// A one-line description of the repo's sync filters, appended to an "in sync"
+/// PR verdict: a PR that only touches files outside these paths deploys
+/// nothing on merge, which otherwise looks like a wrong verdict.
+fn format_git_sync_scope_note(include: &[String], exclude: &[String]) -> Option<String> {
+    if include.is_empty() {
+        return None;
+    }
+    let fmt = |paths: &[String]| {
+        paths
+            .iter()
+            .map(|p| format!("`{p}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut note = format!(
+        "\n\nOnly files matching this repository's sync filters deploy on merge: {}",
+        fmt(include)
+    );
+    if !exclude.is_empty() {
+        note.push_str(&format!(" (excluding {})", fmt(exclude)));
+    }
+    note.push('.');
+    Some(note)
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn git_sync_repo_scope_note(
+    db: &DB,
+    workspace_id: &str,
+    repo_path: Option<&str>,
+) -> Option<String> {
+    let repo_path = repo_path?;
+    let settings = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await
+    .ok()?
+    .flatten()?;
+    let settings: windmill_common::workspaces::WorkspaceGitSyncSettings =
+        serde_json::from_value(settings).ok()?;
+    // Job args carry the bare resource path; stored settings keep the $res: prefix.
+    let repo = settings.repositories.iter().find(|r| {
+        r.git_repo_resource_path.trim_start_matches("$res:")
+            == repo_path.trim_start_matches("$res:")
+    })?;
+    let s = repo.settings.as_ref()?;
+    format_git_sync_scope_note(
+        &s.include_path,
+        s.exclude_path.as_deref().unwrap_or_default(),
+    )
+}
+
 #[cfg(all(feature = "enterprise", feature = "private"))]
 async fn maybe_post_git_sync_check(
     db: &DB,
@@ -1082,7 +1136,8 @@ async fn maybe_post_git_sync_check(
 ) {
     // Only git-sync pull jobs carry one of these markers; everything else no-ops.
     let row = match sqlx::query!(
-        r#"SELECT args->'__git_sync_pr_check' AS "pr", args->'__git_sync_deploy_check' AS "deploy"
+        r#"SELECT args->'__git_sync_pr_check' AS "pr", args->'__git_sync_deploy_check' AS "deploy",
+           args->>'repo_url_resource_path' AS "repo_path"
            FROM v2_job WHERE id = $1"#,
         job_id
     )
@@ -1106,6 +1161,13 @@ async fn maybe_post_git_sync_check(
     };
     let Ok(check) = serde_json::from_value::<GitSyncCheck>(marker) else {
         return;
+    };
+    // "In sync" on a PR that visibly changes files reads as a bug when those
+    // files are outside the repo's sync filters — say what the scope is.
+    let scope_note = if !is_deploy && success {
+        git_sync_repo_scope_note(db, workspace_id, row.repo_path.as_deref()).await
+    } else {
+        None
     };
 
     let (conclusion, title, summary): (&str, String, String) = if is_deploy {
@@ -1164,7 +1226,10 @@ async fn maybe_post_git_sync_check(
                 Some((changes, settings_changed)) if changes.is_empty() && !settings_changed => (
                     "success",
                     "In sync".to_string(),
-                    "Merging this PR would make no changes to the workspace.".to_string(),
+                    format!(
+                        "Merging this PR would make no changes to the workspace.{}",
+                        scope_note.as_deref().unwrap_or_default()
+                    ),
                 ),
                 Some((changes, settings_changed)) => {
                     let mut lines = vec![format!(
@@ -1889,6 +1954,21 @@ mod git_sync_pr_tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn scope_note_lists_filters() {
+        use super::format_git_sync_scope_note;
+        assert_eq!(format_git_sync_scope_note(&[], &[]), None);
+        assert_eq!(
+            format_git_sync_scope_note(&["f/**".into()], &[]).unwrap(),
+            "\n\nOnly files matching this repository's sync filters deploy on merge: `f/**`."
+        );
+        assert_eq!(
+            format_git_sync_scope_note(&["f/**".into(), "u/**".into()], &["f/pat/**".into()])
+                .unwrap(),
+            "\n\nOnly files matching this repository's sync filters deploy on merge: `f/**`, `u/**` (excluding `f/pat/**`)."
+        );
     }
 
     #[test]
