@@ -8,7 +8,22 @@ import * as path from "path";
 // path -> content, fileset resource, that contains your CLAUDE.md, and skills
 type AgentInstructions = Record<string, string>
 
+// The Claude Code CLI is not bundled in the default Windmill image. Install it on the
+// worker via an init script (Worker Management > Init scripts) with:
+//   curl -fsSL https://claude.ai/install.sh | bash && cp /root/.local/share/claude/versions/* /usr/bin/claude
+// See https://www.windmill.dev/docs/core_concepts/worker_groups#init-scripts
+const CLAUDE_CODE_EXECUTABLE = "/usr/bin/claude";
+
 export async function main(anthropic: RT.Anthropic, agent_instructions?: AgentInstructions) {
+
+  if (!fs.existsSync(CLAUDE_CODE_EXECUTABLE)) {
+    throw new Error(
+      `Claude Code CLI not found at ${CLAUDE_CODE_EXECUTABLE}. It is not bundled in the default Windmill image. ` +
+      `Install it on this worker with an init script (Worker Management > Init scripts):\n` +
+      `  curl -fsSL https://claude.ai/install.sh | bash && cp /root/.local/share/claude/versions/* /usr/bin/claude\n` +
+      `See https://www.windmill.dev/docs/core_concepts/worker_groups#init-scripts`
+    );
+  }
 
   const sessionFile = path.join(".claude/session-id.txt");
 
@@ -40,7 +55,7 @@ export async function main(anthropic: RT.Anthropic, agent_instructions?: AgentIn
     prompt,
     options: {
       model: "opus",
-      pathToClaudeCodeExecutable: "/usr/bin/claude",
+      pathToClaudeCodeExecutable: CLAUDE_CODE_EXECUTABLE,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       ...(isResume ? { resume: sessionId } : {}),

@@ -145,6 +145,9 @@ ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
 # helm is no longer bundled in the default image; opt back in with WITH_HELM=true
 ARG WITH_HELM=false
+# the Claude Code CLI (~245MB, used only by the claude sandbox template) is no longer
+# bundled in the default image; opt back in with WITH_CLAUDE_CODE=true
+ARG WITH_CLAUDE_CODE=false
 ARG WITH_GIT=true
 ARG features=""
 
@@ -299,11 +302,16 @@ COPY --from=oven/bun:1.3.10 /usr/local/bin/bun /usr/bin/bun
 RUN bun install -g windmill-cli \
     && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
 
-# Install Claude Code CLI (used by claude sandbox scripts)
-# The installer puts the binary in ~/.local/bin/claude (symlink to ~/.local/share/claude/versions/*)
-# Copy it to /usr/bin/claude so it's accessible inside nsjail sandbox (which mounts /usr but not /root)
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && cp /root/.local/share/claude/versions/* /usr/bin/claude
+# Claude Code CLI (used only by the claude sandbox script template). Not bundled by
+# default to keep the image lean (~245MB); opt in with --build-arg WITH_CLAUDE_CODE=true,
+# or install it at worker startup via an init script. When absent, the claude sandbox
+# template fails fast with instructions (frontend/src/lib/templates/claude_sandbox.ts.template).
+# The installer puts the binary in ~/.local/bin/claude (symlink to ~/.local/share/claude/versions/*);
+# copy it to /usr/bin/claude so it's reachable inside the nsjail sandbox (which mounts /usr but not /root).
+RUN if [ "$WITH_CLAUDE_CODE" = "true" ]; then \
+    curl -fsSL https://claude.ai/install.sh | bash \
+    && cp /root/.local/share/claude/versions/* /usr/bin/claude; \
+    else echo 'Building the image without the Claude Code CLI'; fi
 
 COPY --from=php:8.3.30-cli-bookworm /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
