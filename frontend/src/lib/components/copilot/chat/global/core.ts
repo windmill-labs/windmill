@@ -217,7 +217,13 @@ const askUserQuestionSchema = z.object({
 		.array(z.string().min(1).describe('Proposed answer text shown to the user and returned as-is.'))
 		.min(2)
 		.max(10)
-		.describe('Two to ten mutually exclusive proposed answer strings.')
+		.describe('Two to ten proposed answer strings.'),
+	multiSelect: z
+		.boolean()
+		.optional()
+		.describe(
+			'When true, the user may select several answers; use only when the choices can genuinely co-apply (not mutually exclusive). Defaults to single-select.'
+		)
 })
 
 // Matches the per-mode cap enforced by the prompt-settings UI (AIPromptsModal) and
@@ -905,7 +911,7 @@ Rules:
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
-- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
+- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
 		previewTools
@@ -2106,7 +2112,8 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = askUserQuestionSchema.parse(args)
 			const userQuestion = {
 				question: parsed.question,
-				choices: parsed.choices
+				choices: parsed.choices,
+				multiSelect: parsed.multiSelect
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -2126,8 +2133,8 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 
-			const selectedChoice = await toolCallbacks.requestUserQuestion(toolId, userQuestion)
-			if (!selectedChoice) {
+			const selected = await toolCallbacks.requestUserQuestion(toolId, userQuestion)
+			if (!selected?.length) {
 				const message = 'Question cancelled by user'
 				toolCallbacks.setToolStatus(toolId, {
 					content: message,
@@ -2138,16 +2145,26 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 
+			// Model-facing answer: bare string for one pick (preserves the single-select
+			// contract, even when multiSelect was set), newline-bulleted list for several.
+			// Comma-joining is avoided here so a choice that itself contains a comma
+			// ("Yes, immediately") stays unambiguous to the model reading it back.
+			const answerText =
+				selected.length === 1 ? selected[0] : selected.map((c) => `- ${c}`).join('\n')
+			// The collapsed tool-header is a human glance, not model input, so the picks
+			// read as a compact comma list there instead of a stacked bullet list.
+			const answerSummary = selected.join(', ')
+
 			toolCallbacks.setToolStatus(toolId, {
-				content: `User answered question: ${selectedChoice}`,
+				content: `User answered question: ${answerSummary}`,
 				userQuestion: {
 					...userQuestion,
-					selectedChoice
+					selectedChoices: selected
 				},
-				result: selectedChoice,
+				result: answerText,
 				isLoading: false
 			})
-			return selectedChoice
+			return answerText
 		}
 	},
 	{
