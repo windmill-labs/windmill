@@ -341,6 +341,72 @@ function normalizeRetry(retry: ParseAssetsRaw["retry"]): ParseAssetsRaw["retry"]
   return { ...retry, delay: retry.delay.replace(/^delay=/, "") };
 }
 
+// Read-asset kinds whose read auto-derives a cascade trigger edge inside a
+// `// pipeline`. Mirror of backend `is_auto_trigger_kind` (windmill-common
+// assets.rs) / frontend `AUTO_TRIGGER_KINDS` (resolveGraph.ts) — ducklake
+// tables and s3 objects only; resource/datatable/volume stay explicit-`// on`.
+const AUTO_TRIGGER_KINDS = new Set(["ducklake", "s3object"]);
+
+// Asset-URI prefixes accepted by `// mute <asset>`, in lockstep with the
+// canonical `parse_asset_syntax` / frontend `ASSET_PREFIXES`. Non-derivable
+// kinds are parsed too (their muted key simply never matches a derived edge),
+// so a mute line is never REinterpreted differently from the deploy path.
+const MUTE_ASSET_PREFIXES: [string, string][] = [
+  ["s3://", "s3object"],
+  ["res://", "resource"],
+  ["$res:", "resource"],
+  ["ducklake://", "ducklake"],
+  ["datatable://", "datatable"],
+  ["volume://", "volume"],
+];
+
+// `// mute <asset>` / `// mute all` from the LEADING comment header, as
+// `<kind>:<path>` keys. Parsed locally because the pinned wasm asset parser
+// predates the mute annotations; mirrors the canonical parsers (Rust
+// `parse_pipeline_annotations`, frontend parsePipelineAnnotations.ts): any of
+// the three comment prefixes is accepted regardless of language, blank lines
+// are skipped, scanning stops at the first non-comment line, and `mute` must
+// be a complete word (`// muted for now` never matches).
+export function parseMuteAnnotations(content: string): {
+  muteAll: boolean;
+  muted: Set<string>;
+} {
+  const muted = new Set<string>();
+  let muteAll = false;
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trimStart();
+    if (line === "") continue;
+    let rest: string;
+    if (line.startsWith("//")) rest = line.slice(2);
+    else if (line.startsWith("--")) rest = line.slice(2);
+    else if (line.startsWith("#")) rest = line.slice(1);
+    else break;
+    rest = rest.trimStart();
+    if (!rest.startsWith("mute")) continue;
+    const after = rest.slice("mute".length);
+    if (after !== "" && !/^\s/.test(after)) continue;
+    const arg = after.trim();
+    if (arg === "all") {
+      muteAll = true;
+      continue;
+    }
+    for (const [prefix, kind] of MUTE_ASSET_PREFIXES) {
+      if (arg.startsWith(prefix)) {
+        // S3 canonicalization as in `parse_asset_syntax`: strip every leading
+        // slash so `s3:///key` (default storage) mutes the same node as the
+        // inferred bare `key`.
+        const p =
+          kind === "s3object"
+            ? arg.slice(prefix.length).replace(/^\/+/, "")
+            : arg.slice(prefix.length);
+        muted.add(`${kind}:${p}`);
+        break;
+      }
+    }
+  }
+  return { muteAll, muted };
+}
+
 // Comment prefix for `volume:` annotations. Deliberately NOT `commentPrefix`
 // above (which returns `--` for SQL): volume annotations are only recognized for
 // the languages the backend/frontend recognize them for — mirrors
@@ -684,6 +750,49 @@ export async function buildLocalPipelineGraph(args: {
         runnable_kind: "script",
         runnable_path: s.path,
       });
+    }
+    // Auto-derived cascade edges (backend `derive_pipeline_asset_trigger_refs`,
+    // frontend `deriveAutoAssetTriggers`): a pipeline script's read-only
+    // ducklake/s3 input wires its cascade trigger straight from the body read,
+    // so `// on <asset>` is only needed for edges inference can't see. Skipped:
+    // assets this script also writes — including the `// materialize` target and
+    // its scd2 `_current` companion, whose writes the body SELECT doesn't
+    // express — plus `// mute <asset>` opt-outs and explicit `// on` (which wins
+    // the dedup); `// mute all` opts the script out of derivation entirely.
+    // Ambiguous access (no `access_type`) fails safe and derives nothing.
+    const mute = parseMuteAnnotations(s.content);
+    if (!mute.muteAll) {
+      const skip = new Set<string>(mute.muted);
+      for (const a of out.assets ?? []) {
+        if (a.access_type === "w" || a.access_type === "rw") {
+          skip.add(`${a.kind}:${a.path}`);
+        }
+      }
+      if (mat) {
+        skip.add(`${mat.target_kind}:${mat.target_path}`);
+        if (mat.scd2 && !mat.manual) {
+          skip.add(`${mat.target_kind}:${mat.target_path}_current`);
+        }
+      }
+      for (const t of out.triggers ?? []) {
+        if (t.kind === "asset") {
+          const at = t as { kind: "asset"; asset_kind: string; path: string };
+          skip.add(`${at.asset_kind}:${at.path}`);
+        }
+      }
+      for (const a of out.assets ?? []) {
+        if (a.access_type !== "r" || !AUTO_TRIGGER_KINDS.has(a.kind)) continue;
+        const key = `${a.kind}:${a.path}`;
+        if (skip.has(key)) continue;
+        skip.add(key);
+        triggers.push({
+          trigger_kind: "asset",
+          asset_kind: a.kind,
+          asset_path: a.path,
+          runnable_kind: "script",
+          runnable_path: s.path,
+        });
+      }
     }
   }
 

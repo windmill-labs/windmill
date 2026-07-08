@@ -3,7 +3,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildLocalPipelineGraph } from "../src/commands/pipeline/localGraph.ts";
+import {
+  buildLocalPipelineGraph,
+  parseMuteAnnotations,
+} from "../src/commands/pipeline/localGraph.ts";
 
 // Build a throwaway workspace tree with `f/<folder>/<file>` scripts and a
 // wmill.yaml at the root, then assert the graph the wasm-backed builder derives.
@@ -288,6 +291,120 @@ test("HD-2: an scd2 `history` producer writes both `<dim>` and `<dim>_current` s
       expect(at?.asset_path).toBe("main/dim_customers_current");
     },
   );
+});
+
+test("auto-derived cascade triggers: a body ducklake read wires the edge, incl. the scd2 `_current` view", async () => {
+  // Backend parity (#9963 `derive_pipeline_asset_trigger_refs`): inside a
+  // `// pipeline`, a read-only ducklake/s3 body read derives its cascade
+  // trigger — no `// on` needed. The scd2 `_current` companion is both written
+  // by the producer AND a derivable read for its consumer, so the full chain
+  // stg → dim → consumer must connect without a single explicit trigger.
+  await withFolder(
+    {
+      "stg.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/stg\nSELECT 1 AS id;\n`,
+      "dim.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/dim key=id history\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM stg;\n`,
+      "consume.duckdb.sql":
+        `-- pipeline\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM dim_current;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >[];
+      expect(
+        ats.map((t) => `${t.asset_path}->${t.runnable_path}`).sort(),
+      ).toEqual(["main/dim_current->f/mypipe/consume", "main/stg->f/mypipe/dim"]);
+      // the schema-level `main` read (ambiguous access) must NOT derive a trigger
+      expect(ats.some((t) => t.asset_path === "main")).toBe(false);
+      // the scd2 producer still carries the `_current` companion write the
+      // derived consumer edge resolves against (deployed-graph parity)
+      expect(graph.edges).toContainEqual({
+        runnable_kind: "script",
+        runnable_path: "f/mypipe/dim",
+        asset_kind: "ducklake",
+        asset_path: "main/dim_current",
+        access_type: "w",
+      });
+    },
+  );
+});
+
+test("`// mute <asset>` suppresses one derived trigger; `// mute all` opts the script out", async () => {
+  await withFolder(
+    {
+      // reads two tables, mutes one → only the unmuted read derives
+      "partial.duckdb.sql":
+        `-- pipeline\n-- mute ducklake://main/lookup\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM lookup JOIN facts USING (id);\n`,
+      // mute all: body read derives nothing, the explicit `// on` still stands
+      "optout.duckdb.sql":
+        `-- pipeline\n-- mute all\n-- on ducklake://main/manual\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM facts;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >[];
+      expect(
+        ats.map((t) => `${t.asset_path}->${t.runnable_path}`).sort(),
+      ).toEqual(["main/facts->f/mypipe/partial", "main/manual->f/mypipe/optout"]);
+    },
+  );
+});
+
+test("derived triggers dedup against explicit `// on` and never self-trigger a materialize producer", async () => {
+  await withFolder(
+    {
+      // explicit `// on` for an asset the body also reads → exactly one trigger
+      "explicit.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/src debounce=60s\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM src;\n`,
+      // an incremental model reading its own materialize target must not
+      // cascade on itself (the deploy path upgrades that read to rw)
+      "incremental.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/inc key=id\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM inc;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >[];
+      expect(
+        ats.map((t) => `${t.asset_path}->${t.runnable_path}`),
+      ).toEqual(["main/src->f/mypipe/explicit"]);
+    },
+  );
+});
+
+test("parseMuteAnnotations mirrors the canonical annotation grammar", () => {
+  // Any comment prefix regardless of language, header-only scan, complete-word
+  // keyword, s3 leading-slash canonicalization — in lockstep with the Rust
+  // `parse_pipeline_annotations` / frontend parsePipelineAnnotations.ts.
+  const all3 = parseMuteAnnotations(
+    `// mute ducklake://main/a\n-- mute datatable://main/b\n# mute s3:///lead/slash\nSELECT 1;\n// mute ducklake://main/body\n`,
+  );
+  expect(all3.muteAll).toBe(false);
+  // all three prefixes accepted; s3 triple-slash canonicalizes to the bare key;
+  // the line PAST the first non-comment line is ignored (header-only)
+  expect([...all3.muted].sort()).toEqual([
+    "datatable:main/b",
+    "ducklake:main/a",
+    "s3object:lead/slash",
+  ]);
+
+  // `mute` must be a complete word, and prose args are not asset URIs
+  const prose = parseMuteAnnotations(
+    `// muted for now\n// mutex ducklake://main/x\n// mute for now\n`,
+  );
+  expect(prose.muteAll).toBe(false);
+  expect(prose.muted.size).toBe(0);
+
+  // `mute all` sets the opt-out; blank header lines are skipped, not a stop
+  const optout = parseMuteAnnotations(`-- pipeline\n\n-- mute all\nSELECT 1;\n`);
+  expect(optout.muteAll).toBe(true);
 });
 
 test("a bare `.sql` (ambiguous dialect) is skipped, not a build-aborting crash", async () => {

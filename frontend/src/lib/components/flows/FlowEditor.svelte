@@ -2,6 +2,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
+	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
@@ -52,6 +53,7 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		sessionOpen?: OpenInSessionSource
 		localModuleStates?: Record<string, GraphModuleState>
 		testModuleStates?: ModulesTestStates
 		isOwner?: boolean
@@ -90,6 +92,7 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
+		sessionOpen,
 		isOwner,
 		onTestFlow,
 		isRunning,
@@ -207,6 +210,7 @@
 						{aiChatOpen}
 						{showFlowAiButton}
 						{toggleAiChat}
+						{sessionOpen}
 						{isOwner}
 						{onTestFlow}
 						{isRunning}

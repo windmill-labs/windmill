@@ -35,7 +35,10 @@ RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
 
 # Oracle DB Client
 COPY --from=oracledb-client /opt/oracle/23/lib /opt/oracle/23/lib
-RUN apt-get -y update && apt-get install -y libaio1
+# libaio1t64 only ships libaio.so.1t64; Oracle instantclient loads libaio.so.1, so add a compat symlink
+RUN apt-get -y update && apt-get install -y libaio1t64 \
+    && libaio="$(find /usr/lib -name 'libaio.so.1t64' -print -quit)" \
+    && ln -s "$(basename "$libaio")" "$(dirname "$libaio")/libaio.so.1"
 RUN echo /opt/oracle/23/lib > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 
 # Nushell

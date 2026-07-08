@@ -86,6 +86,29 @@ export async function getWorkspaceByName(
   return undefined;
 }
 
+// When the current git branch is a fork branch (wm-fork/<base>/<id>), commands
+// resolve the fork workspace from the branch name and ignore the active
+// profile — surface that wherever we display the active workspace, so users
+// don't act on the wrong "Active:" line.
+async function forkBranchAutoTargetNote(): Promise<string | undefined> {
+  const {
+    getCurrentGitBranch,
+    getOriginalBranchForWorkspaceForks,
+    getWorkspaceIdForWorkspaceForkFromBranchName,
+  } = await import("../../utils/git.ts");
+  const branch = getCurrentGitBranch();
+  if (!branch || !getOriginalBranchForWorkspaceForks(branch)) {
+    return undefined;
+  }
+  const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch);
+  if (!forkWorkspaceId) {
+    return undefined;
+  }
+  return (
+    `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` here, regardless of the active profile. Use --workspace to override.`
+  );
+}
+
 export async function list(opts: GlobalOptions) {
   const workspaces = await allWorkspaces(opts.configDir);
   const activeName = await getActiveWorkspaceName(opts);
@@ -107,6 +130,11 @@ export async function list(opts: GlobalOptions) {
     .render();
 
   log.info("Active: " + colors.green.bold(activeName || "none"));
+
+  const forkNote = await forkBranchAutoTargetNote();
+  if (forkNote) {
+    log.info(colors.yellow(forkNote));
+  }
 }
 
 async function switchC(opts: GlobalOptions, workspaceName: string) {
@@ -140,6 +168,10 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
       `Switched to workspace ${workspaceName} (${workspace?.workspaceId} on ${workspace?.remote})`
     )
   );
+  const forkNote = await forkBranchAutoTargetNote();
+  if (forkNote) {
+    log.info(colors.yellow(forkNote));
+  }
   return;
 }
 
@@ -821,7 +853,15 @@ const command = new Command()
   .option("--workspace <name:string>", "Workspace to unbind")
   .action((opts) => bind(opts as any, false))
   .command("fork")
-  .description("Create a forked workspace")
+  .description(
+    `Create a forked workspace from its parent workspace.
+
+The parent is resolved from your current git branch, not from the active profile: run this from a git repo checked out on the branch mapped to the parent workspace in wmill.yaml's \`workspaces:\` section (a fork branch of it resolves to the same parent). \`wmill workspace switch\` does not change which workspace is forked.
+
+Arguments (omit both to be prompted interactively):
+  [workspace_name]  Friendly display name for the fork, shown in the UI. May contain spaces, so quote it in the shell (e.g. "My Fork"). Max 50 chars. Defaults to "<parent workspace name>'s fork".
+  [workspace_id]    Id for the fork. Must be a slug (no spaces or special characters) and is automatically prefixed with \`wm-fork-\`, so pass just the bare slug (e.g. \`my-fork\` becomes \`wm-fork-my-fork\`). This id also determines the fork's git branch name. Defaults to a slug derived from the name — or, when you are converting an existing branch into the fork branch, from that branch.`
+  )
   .arguments("[workspace_name:string] [workspace_id:string]")
   .option(
     "--create-workspace-name <workspace_name:string>",

@@ -654,7 +654,22 @@
 		if (!$workspaceStore || pe.drafts.size === 0 || savingAll) return
 		savingAll = true
 		const ws = $workspaceStore
-		const entries = [...pe.drafts.entries()]
+		// The open pane's keystrokes live in `pe.liveContent` until the pane is
+		// torn down — the drafts Map still holds the pre-edit snapshot. Deploy
+		// what the user sees: fold the live buffer into its draft (same merge
+		// the autosave bundle applies before persisting).
+		const liveContentPath =
+			pe.liveContent.scriptPath != undefined && pe.drafts.has(pe.liveContent.scriptPath)
+				? pe.liveContent.scriptPath
+				: undefined
+		const entries = [...pe.drafts.entries()].map(([path, d]) => {
+			if (path !== liveContentPath || d.script.content === pe.liveContent.content)
+				return [path, d] as [string, Draft]
+			return [path, { ...d, script: { ...d.script, content: pe.liveContent.content } }] as [
+				string,
+				Draft
+			]
+		})
 		// Snapshot what the preview promises for every draft before anything
 		// deploys — used to verify the persisted graph below.
 		const predicted = predictCascadeFacts(entries.map(([p]) => p))
@@ -771,7 +786,13 @@
 		// position so the canvas / lists don't reshuffle on rename.
 		for (const [k, v] of pe.drafts) {
 			if (k === oldPath) {
-				const updatedScript = { ...v.script, path: newPath }
+				// Fold the open pane's live buffer in: the drafts Map only syncs
+				// on pane teardown, and the rename both re-clones the pane from
+				// this entry AND auto-deploys it — a stale snapshot here wipes
+				// the user's unsaved keystrokes and ships pre-edit content.
+				const content =
+					pe.liveContent.scriptPath === oldPath ? pe.liveContent.content : v.script.content
+				const updatedScript = { ...v.script, path: newPath, content }
 				next.set(newPath, { ...v, script: updatedScript })
 			} else {
 				next.set(k, v)

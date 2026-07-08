@@ -17,6 +17,8 @@ the escape hatch, shown only on demand.
 		current?: string
 		lang: string
 		inlineDiff?: boolean
+		/** Forward Monaco's auto-inline opt-out to the underlying DiffEditor. */
+		disableAutoInline?: boolean
 		lineBudget?: number
 		isMetadata?: boolean
 		fullYamlOriginal?: string
@@ -28,6 +30,7 @@ the escape hatch, shown only on demand.
 		current,
 		lang,
 		inlineDiff = false,
+		disableAutoInline = false,
 		lineBudget = 1500,
 		isMetadata = false,
 		fullYamlOriginal,
@@ -89,6 +92,7 @@ the escape hatch, shown only on demand.
 					defaultOriginal={activeOriginal}
 					defaultModified={activeModified}
 					{inlineDiff}
+					{disableAutoInline}
 					readOnly
 				/>
 			</div>

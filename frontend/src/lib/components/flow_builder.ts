@@ -62,4 +62,8 @@ export type FlowBuilderProps = {
 	// Fired whenever a test run is started from the flow editor, with the
 	// preview job id. Used by whitelabel embedders to track test jobs.
 	onTestJob?: (e: { jobId: string }) => void
+	// Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+	// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+	// session preview to save vertical room.
+	condensedHeader?: boolean
 }

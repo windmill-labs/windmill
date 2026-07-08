@@ -1030,6 +1030,11 @@ pub async fn run_agent(
                 // Add websearch tool message if websearch was used
                 if used_websearch {
                     actions.push(AgentAction::WebSearch {});
+                    if let Some(parent_job) = parent_job {
+                        update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                        update_flow_status_module_with_actions_success(db, parent_job, true)
+                            .await?;
+                    }
                     messages.push(OpenAIMessage {
                         role: "tool".to_string(),
                         content: Some(OpenAIContent::Text(

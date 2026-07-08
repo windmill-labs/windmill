@@ -18,6 +18,10 @@
 		style?: string
 		cancelText?: string | undefined
 		kind?: 'button' | 'X'
+		/** Force a minimum z-index base. Defaults to elevating above the AI chat
+		 * side panel when it is open. Pass an explicit value to stack above other
+		 * surfaces (e.g. a modal opened over the /sessions preview-pane editor). */
+		minZIndex?: number
 		settings?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
@@ -30,6 +34,7 @@
 		style = '',
 		cancelText = undefined,
 		kind = 'button',
+		minZIndex: minZIndexProp = undefined,
 		settings,
 		children: children_render,
 		actions
@@ -39,9 +44,10 @@
 
 	let disposable: Disposable | undefined = $state(undefined)
 
-	// Only elevate above the AI chat panel when it's actually open —
-	// when chat is closed there's nothing at z-index 1200 to stack above.
-	const minZIndex = $derived(chatState.size > 0 ? zIndexes.aiChat + 1 : 0)
+	// An explicit override wins; otherwise only elevate above the AI chat panel
+	// when it's actually open — when chat is closed there's nothing at z-index
+	// 1200 to stack above.
+	const minZIndex = $derived(minZIndexProp ?? (chatState.size > 0 ? zIndexes.aiChat + 1 : 0))
 
 	// Both `bind:open` and this $effect are needed: bind:open syncs the
 	// boolean, while the effect calls openDrawer/closeDrawer to register
@@ -93,9 +99,7 @@
 				<div
 					class={twMerge(
 						'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
-						open
-							? 'ease-out duration-300 opacity-100'
-							: 'ease-in duration-200 opacity-0'
+						open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
 					)}
 				></div>
 
@@ -131,9 +135,7 @@
 								</div>
 							</div>
 							{#if kind == 'button'}
-								<div
-									class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4"
-								>
+								<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
 									{@render actions?.()}
 									<Button
 										on:click={() => {

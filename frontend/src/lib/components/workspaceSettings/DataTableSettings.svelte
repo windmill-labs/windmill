@@ -1,6 +1,12 @@
 <script lang="ts" module>
+	import { randomUUID } from '$lib/utils/uuid'
+
 	export type DataTableSettingsType = {
 		dataTables: {
+			// Stable client-side id so the UI can track renames (A -> B) across a
+			// save rather than seeing them as a delete + add. Never sent to the
+			// backend config.
+			id: string
 			name: string
 			database: {
 				resource_type: 'postgresql' | 'instance'
@@ -16,6 +22,7 @@
 		if (settings?.datatables) {
 			for (const [name, rest] of Object.entries(settings.datatables)) {
 				s.dataTables.push({
+					id: randomUUID(),
 					name,
 					...rest
 				})
@@ -70,6 +77,7 @@
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
+	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
@@ -114,6 +122,7 @@
 			? `${random_adj()}_datatable`
 			: 'main'
 		tempSettings.dataTables.push({
+			id: randomUUID(),
 			name,
 			database: {
 				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
@@ -140,9 +149,19 @@
 				if (!confirm) return
 			}
 			const settings = convertDataTableSettingsToBackend(tempSettings)
+			// Track renames/deletions by stable id (against the saved baseline) so
+			// the backend can cascade or delete each data table's migrations.
+			const savedById = new Map(dataTableSettings.dataTables.map((d) => [d.id, d.name]))
+			const tempIds = new Set(tempSettings.dataTables.map((d) => d.id))
+			const renames = tempSettings.dataTables
+				.filter((d) => savedById.has(d.id) && savedById.get(d.id) !== d.name)
+				.map((d) => ({ from: savedById.get(d.id)!, to: d.name }))
+			const deleted_datatables = dataTableSettings.dataTables
+				.filter((d) => !tempIds.has(d.id))
+				.map((d) => d.name)
 			await WorkspaceService.editDataTableConfig({
 				workspace: $workspaceStore!,
-				requestBody: { settings }
+				requestBody: { settings, renames, deleted_datatables }
 			})
 			dataTableSettings = clone(tempSettings)
 			sendUserToast('Data table settings saved successfully')
@@ -158,7 +177,7 @@
 		const map: Record<string, boolean> = {}
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
 			let temp = tempSettings.dataTables[i]
-			let dt = dataTableSettings.dataTables.find((d) => d.name === temp.name)
+			let dt = dataTableSettings.dataTables.find((d) => d.id === temp.id)
 			map[temp.name] = !deepEqual(dt, temp)
 		}
 		return map
@@ -218,7 +237,7 @@
 				</Cell>
 			</Row>
 		{/if}
-		{#each tempSettings.dataTables as dataTable, dataTableIndex}
+		{#each tempSettings.dataTables as dataTable, dataTableIndex (dataTable.id)}
 			<Row>
 				<Cell first class="w-48 relative">
 					<TextInput bind:value={dataTable.name} inputProps={{ placeholder: 'Name', id: 'name' }} />
@@ -279,8 +298,13 @@
 					</div>
 				</Cell>
 
-				<Cell class="w-12">
+				<Cell class="whitespace-nowrap">
 					<div class="flex gap-2">
+						<DataTableMigrationsButton
+							workspace={$workspaceStore ?? ''}
+							datatable={dataTable.name}
+							disabled={!!dirtyMap[dataTable.name]}
+						/>
 						{#if dirtyMap[dataTable.name]}
 							<Popover
 								openOnHover

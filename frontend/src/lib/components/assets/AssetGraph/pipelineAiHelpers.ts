@@ -1,7 +1,11 @@
 import { JobService, ScriptService, type AssetKind, type Script, type ScriptLang } from '$lib/gen'
 import { emptySchema, sendUserToast } from '$lib/utils'
 import { inferAssets } from '$lib/infer'
-import { extractWrites, type AssetWithAltAccessType } from '$lib/components/assets/lib'
+import {
+	extractReads,
+	extractWrites,
+	type AssetWithAltAccessType
+} from '$lib/components/assets/lib'
 import { assetUri, autoOutputAsset, type PipelineOutputKind } from './pipelineTemplates'
 import { parsePipelineAnnotations } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
@@ -31,6 +35,11 @@ export type PipelineDraft = {
 	localId: string
 	script: Script
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
+	/** Body-inferred reads captured with the draft, so an inactive draft keeps
+	 * its input lineage on the canvas. `undefined` = not captured yet (legacy
+	 * bundle / just-seeded draft) — consumers fall back to the session cache;
+	 * an empty array is an authoritative "reads nothing". */
+	inputAssets?: Array<{ kind: AssetKind; path: string }>
 }
 
 export type PipelineAiHelperDeps = {
@@ -81,16 +90,20 @@ export function makePipelineScript(
 	} as unknown as Script
 }
 
-async function inferOutputAssets(
+async function inferDraftAssets(
 	language: ScriptLang,
 	content: string
-): Promise<Array<{ kind: AssetKind; path: string }>> {
+): Promise<{
+	writes: Array<{ kind: AssetKind; path: string }>
+	reads: Array<{ kind: AssetKind; path: string }>
+}> {
 	try {
 		const inferred = await inferAssets(language, content)
-		if (inferred?.status === 'error') return []
-		return extractWrites((inferred?.assets ?? []) as AssetWithAltAccessType[])
+		if (inferred?.status === 'error') return { writes: [], reads: [] }
+		const assets = (inferred?.assets ?? []) as AssetWithAltAccessType[]
+		return { writes: extractWrites(assets), reads: extractReads(assets) }
 	} catch {
-		return []
+		return { writes: [], reads: [] }
 	}
 }
 
@@ -219,11 +232,11 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 					)
 				}
 			}
-			const inferred = await inferOutputAssets(language, content)
+			const inferred = await inferDraftAssets(language, content)
 			// Fall back to a seeded output (from the declared output_kind) when the
 			// body doesn't yet write anything inferable.
 			const seeded =
-				inferred[0] ??
+				inferred.writes[0] ??
 				(outputKind
 					? autoOutputAsset(outputKind as PipelineOutputKind, deps.getFolder(), language)
 					: undefined)
@@ -231,7 +244,8 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			next.set(path, {
 				localId: deps.newDraftLocalId(),
 				script: makePipelineScript(language, path, content, new Date().toISOString()),
-				outputAssets: inferred.length > 0 ? inferred : seeded ? [seeded] : undefined
+				outputAssets: inferred.writes.length > 0 ? inferred.writes : seeded ? [seeded] : undefined,
+				inputAssets: inferred.reads
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
@@ -258,12 +272,13 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				if (!workspace) throw new Error('No workspace is selected.')
 				baseScript = await ScriptService.getScriptByPath({ workspace, path })
 			}
-			const inferred = await inferOutputAssets(baseScript.language, content)
+			const inferred = await inferDraftAssets(baseScript.language, content)
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: existing?.localId ?? deps.newDraftLocalId(),
 				script: { ...baseScript, content },
-				outputAssets: inferred.length > 0 ? inferred : existing?.outputAssets
+				outputAssets: inferred.writes.length > 0 ? inferred.writes : existing?.outputAssets,
+				inputAssets: inferred.reads
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
