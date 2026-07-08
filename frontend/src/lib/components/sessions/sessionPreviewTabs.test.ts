@@ -317,6 +317,59 @@ describe('SessionPreviewTabs.select / close / setCollapsed', () => {
 	})
 })
 
+describe('SessionPreviewTabs.reorder', () => {
+	it('reorders tabs to the given id order and persists, keeping the active id', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner(
+			{
+				tabs: [
+					{ id: 'a', url: '/x', loc: '/x' },
+					{ id: 'b', url: '/y', loc: '/y' },
+					{ id: 'c', url: '/z', loc: '/z' }
+				],
+				activeId: 'a'
+			},
+			adapter
+		)
+		o.reorder(['c', 'a', 'b'])
+		expect(o.tabs.map((t) => t.id)).toEqual(['c', 'a', 'b'])
+		expect(o.activeId).toBe('a')
+		vi.runAllTimers()
+		expect(persisted.at(-1)?.tabs.map((t) => t.id)).toEqual(['c', 'a', 'b'])
+	})
+
+	it('ignores unknown ids and keeps omitted tabs at the end', () => {
+		const o = owner({
+			tabs: [
+				{ id: 'a', url: '/x', loc: '/x' },
+				{ id: 'b', url: '/y', loc: '/y' },
+				{ id: 'c', url: '/z', loc: '/z' }
+			],
+			activeId: 'a'
+		})
+		// 'zzz' doesn't exist (ignored); 'c' omitted from the order (kept at the end).
+		o.reorder(['b', 'zzz', 'a'])
+		expect(o.tabs.map((t) => t.id)).toEqual(['b', 'a', 'c'])
+	})
+
+	it('is a no-op (no persist) when the order is unchanged', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner(
+			{
+				tabs: [
+					{ id: 'a', url: '/x', loc: '/x' },
+					{ id: 'b', url: '/y', loc: '/y' }
+				],
+				activeId: 'a'
+			},
+			adapter
+		)
+		o.reorder(['a', 'b'])
+		vi.runAllTimers()
+		expect(persisted).toHaveLength(0)
+	})
+})
+
 describe('SessionPreviewTabs.observeLocation', () => {
 	it('updates loc without touching url', () => {
 		const o = owner({

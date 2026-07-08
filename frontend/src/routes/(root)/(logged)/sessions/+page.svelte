@@ -11,11 +11,11 @@
 		PanelRightOpen,
 		ChevronDown,
 		MonitorPlay,
-		Loader2,
-		X
+		Loader2
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { Button } from '$lib/components/common'
+	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PreviewRouterPicker, {
 		type Scope
@@ -236,6 +236,14 @@
 		const sid = activeRuntime?.sessionId
 		if (sid) mountedTabKeys.delete(tabKey(sid, id))
 	}
+	function reorderTabs(next: TabItem[]) {
+		owner?.reorder(next.map((t) => t.id))
+	}
+	// Adapt the session tab model to DraggableTabs items (labels derived from the
+	// observed location; every tab closable, none pinned).
+	const previewTabItems = $derived<TabItem[]>(
+		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabel(t.loc) }))
+	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
 	// same time as the tab-strip "+" popover, so sharing one flag would open both
@@ -646,7 +654,7 @@
 									onclick={() => owner?.setCollapsed(true)}
 									title="Collapse preview"
 									aria-label="Collapse preview"
-									class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									<PanelRightClose size={14} />
 								</button>
@@ -662,7 +670,7 @@
 									)}
 									title="Open in workspace"
 									aria-label="Open in workspace"
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									<ExternalLink size={14} />
 								</a>
@@ -671,7 +679,7 @@
 									onclick={() => (fullscreen = !fullscreen)}
 									title={fullscreen ? 'Exit full screen' : 'Full screen'}
 									aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									{#if fullscreen}
 										<Minimize2 size={14} />
@@ -681,96 +689,78 @@
 								</button>
 							</div>
 
-							<!-- Tab strip: open preview pages. "+" opens the router picker to
-								     add more. -->
-							<div
-								class="flex items-center gap-1 h-8 border-b border-light shrink-0 bg-surface-secondary overflow-x-auto {fullscreen
+							<!-- Tab strip: open preview pages, shared with the raw-app editor
+								     (DraggableTabs). The active tab hosts its own breadcrumb picker via
+								     the accessory chevron; the "+" trailing opens the router picker.
+								     Left/right padding clears the floating collapse/fullscreen buttons. -->
+							<DraggableTabs
+								tabs={previewTabItems}
+								activeId={owner?.activeId ?? ''}
+								onSelect={selectTab}
+								onClose={closeTab}
+								onReorder={reorderTabs}
+								class="h-8 border-b border-light bg-surface-secondary/50 {fullscreen
 									? 'pl-1.5'
 									: 'pl-9'} pr-16"
 							>
-								{#each owner?.tabs ?? [] as tab (tab.id)}
-									<div
-										class="group/tab flex items-center gap-1 shrink-0 max-w-[14rem] h-6 pl-2 pr-1 rounded-md text-xs border transition-colors {tab.id ===
-										owner?.activeId
-											? 'bg-surface text-primary border-light'
-											: 'text-secondary border-transparent hover:bg-surface-hover'}"
-									>
-										{#if tab.id === owner?.activeId}
-											<!-- Active tab doubles as its own breadcrumb picker. -->
-											<Popover
-												placement="bottom-start"
-												usePointerDownOutside
-												excludeSelectors=".drawer"
-												disableFocusTrap
-												closeOnOtherPopoverOpen
-												enableFlyTransition
-												bind:isOpen={activeTabPickerOpen}
-												openFocus="[data-workspace-picker-search]"
-												class="flex items-center gap-1.5 min-w-0 cursor-pointer"
-											>
-												{#snippet trigger()}
-													<span class="truncate">{tabLabel(tab.loc)}</span>
-													<ChevronDown size={12} class="shrink-0 text-tertiary" />
-												{/snippet}
-												{#snippet content()}
-													<PreviewRouterPicker
-														initialScope={activePickerScope}
-														initialHighlight={activePickerHighlight}
-														{currentItem}
-														workspaceId={previewWorkspace}
-														onPick={(t) => {
-															activeTabPickerOpen = false
-															navigatePreviewTo(t)
-														}}
-													/>
-												{/snippet}
-											</Popover>
-										{:else}
-											<button
-												type="button"
-												class="flex items-center gap-1.5 min-w-0"
-												onclick={() => selectTab(tab.id)}
-												title={tabLabel(tab.loc)}
-											>
-												<span class="truncate">{tabLabel(tab.loc)}</span>
-											</button>
-										{/if}
-										<button
-											type="button"
-											onclick={() => closeTab(tab.id)}
-											title="Close tab"
-											aria-label="Close tab"
-											class="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded text-tertiary hover:text-primary hover:bg-surface-hover opacity-0 group-hover/tab:opacity-100"
+								{#snippet tabAccessory(_tab, isActive)}
+									{#if isActive}
+										<Popover
+											placement="bottom-start"
+											usePointerDownOutside
+											excludeSelectors=".drawer"
+											disableFocusTrap
+											closeOnOtherPopoverOpen
+											enableFlyTransition
+											bind:isOpen={activeTabPickerOpen}
+											openFocus="[data-workspace-picker-search]"
+											class="flex items-center shrink-0 cursor-pointer text-tertiary hover:text-primary"
 										>
-											<X size={11} />
-										</button>
-									</div>
-								{/each}
-								<Popover
-									placement="bottom-start"
-									usePointerDownOutside
-									excludeSelectors=".drawer"
-									disableFocusTrap
-									closeOnOtherPopoverOpen
-									bind:isOpen={newTabOpen}
-									enableFlyTransition
-									openFocus="[data-workspace-picker-search]"
-									class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
-								>
-									{#snippet trigger()}
-										<Plus size={14} />
-									{/snippet}
-									{#snippet content()}
-										<PreviewRouterPicker
-											workspaceId={previewWorkspace}
-											onPick={(t) => {
-												newTabOpen = false
-												openInNewTab(t)
-											}}
-										/>
-									{/snippet}
-								</Popover>
-							</div>
+											{#snippet trigger()}
+												<ChevronDown size={12} />
+											{/snippet}
+											{#snippet content()}
+												<PreviewRouterPicker
+													initialScope={activePickerScope}
+													initialHighlight={activePickerHighlight}
+													{currentItem}
+													workspaceId={previewWorkspace}
+													onPick={(t) => {
+														activeTabPickerOpen = false
+														navigatePreviewTo(t)
+													}}
+												/>
+											{/snippet}
+										</Popover>
+									{/if}
+								{/snippet}
+								{#snippet afterTabs()}
+									<Popover
+										placement="bottom-start"
+										usePointerDownOutside
+										excludeSelectors=".drawer"
+										disableFocusTrap
+										closeOnOtherPopoverOpen
+										bind:isOpen={newTabOpen}
+										enableFlyTransition
+										openFocus="[data-workspace-picker-search]"
+										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
+									>
+										{#snippet trigger()}
+											<Plus size={14} />
+										{/snippet}
+										{#snippet content()}
+											<PreviewRouterPicker
+												workspaceId={previewWorkspace}
+												onPick={(t) => {
+													newTabOpen = false
+													openInNewTab(t)
+												}}
+											/>
+										{/snippet}
+									</Popover>
+								{/snippet}
+							</DraggableTabs>
 
 							<!-- One host per tab of every warm session, stacked and
 								     visibility-toggled so switching tabs or sessions never reloads
