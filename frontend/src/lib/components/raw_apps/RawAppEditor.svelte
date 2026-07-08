@@ -1109,6 +1109,12 @@
 			emptyRender = true
 			return
 		}
+		// A slow app (async fetch, Suspense) mounted #root after the empty-render
+		// grace window, so the preview retracts the hint to avoid a false positive.
+		if (fromPreview && e.data.type === 'renderAppeared') {
+			emptyRender = false
+			return
+		}
 
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
