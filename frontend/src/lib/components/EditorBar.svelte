@@ -373,7 +373,7 @@
 	async function onScriptPick(e: { detail: { path: string } }) {
 		codeObj = undefined
 		codeViewer?.openDrawer?.()
-		codeObj = await getScriptByPath(e.detail.path ?? '')
+		codeObj = await getScriptByPath(e.detail.path ?? '', ws)
 	}
 
 	const dispatch = createEventDispatcher()

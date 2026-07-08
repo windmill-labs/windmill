@@ -140,7 +140,7 @@
 		<div class="text-xs text-primary mb-4">tag: {tag}</div>
 	{/if}
 	{#if notFound}
-		<div class="text-red-400">script not found at {path} in workspace {$workspaceStore}</div>
+		<div class="text-red-400">script not found at {path} in workspace {opWs}</div>
 	{:else if showAllCode}
 		{#if showDiff}
 			{#key (previousCode ?? '') + (code ?? '')}
