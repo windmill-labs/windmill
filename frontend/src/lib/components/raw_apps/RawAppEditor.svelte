@@ -282,6 +282,10 @@
 	let buildError = $state<string | undefined>(undefined)
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
 	let runtimeError = $state<string | undefined>(undefined)
+	// True when a build ran cleanly but never mounted anything into #root (e.g. the
+	// entrypoint defines a component but never calls createRoot(...).render(...)).
+	// Cleared on next build.
+	let emptyRender = $state(false)
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
@@ -1099,6 +1103,13 @@
 			return
 		}
 
+		// Build ran but #root stayed empty — the entrypoint likely never mounted
+		// the app. Surfaced as a hint so a silent blank screen is self-explanatory.
+		if (fromPreview && e.data.type === 'emptyRender') {
+			emptyRender = true
+			return
+		}
+
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
@@ -1193,6 +1204,7 @@
 	// render throws again app-preview.html re-posts `runtimeError`.
 	function feedPreviewIframe(build: { css: string; js: string }) {
 		runtimeError = undefined
+		emptyRender = false
 		previewIframe?.contentWindow?.postMessage(
 			{ type: 'preview', css: build.css, js: build.js },
 			'*'
@@ -1957,6 +1969,23 @@
 											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
 												>{runtimeError}</pre
 											>
+										</Alert>
+									</div>
+								{:else if emptyRender}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="status">
+										<Alert
+											type="info"
+											title="Nothing rendered"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<span class="text-xs">
+												The build succeeded but nothing was mounted into <code>#root</code>. Make
+												sure your entrypoint (<code>index.tsx</code>) calls
+												<code
+													>createRoot(document.getElementById('root')!).render(&lt;App /&gt;)</code
+												>
+												rather than only defining a component.
+											</span>
 										</Alert>
 									</div>
 								{/if}
