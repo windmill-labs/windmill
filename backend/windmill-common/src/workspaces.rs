@@ -172,7 +172,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28786/sync-script-to-git-repo
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
 /// `PullWorkspaceModal` with `pull: true`; the slug's `:` is percent-encoded.
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28785/git-sync%3A-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28787/git-sync%3A-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
