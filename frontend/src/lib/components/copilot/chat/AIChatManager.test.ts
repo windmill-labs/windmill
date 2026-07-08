@@ -6,6 +6,18 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { runChatLoop } from './chatLoop'
 
+// This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
+// client runtime (pulled transitively via $lib/navigation) evaluate browser-only
+// globals at import time and throw "location is not defined" under the node test
+// env. Stub the two $app modules $lib/navigation needs so kit's client runtime is
+// never loaded. File-local: no other suite is affected.
+vi.mock('$app/navigation', () => ({
+	goto: vi.fn(),
+	afterNavigate: vi.fn(),
+	beforeNavigate: vi.fn()
+}))
+vi.mock('$app/paths', () => ({ base: '', assets: '' }))
+
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
 	tryGetCurrentModel: vi.fn(),
@@ -17,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 	getNonStreamingCompletion: vi.fn(),
 	runChatLoop: vi.fn(),
 	listAiSkills: vi.fn(),
+	getJob: vi.fn(),
 	workspace: 'test_workspace' as string | undefined
 }))
 
@@ -31,27 +44,39 @@ vi.mock('$lib/gen', () => ({
 	},
 	ScriptService: {},
 	FlowService: {},
-	JobService: {}
+	JobService: {
+		getJob: mocks.getJob
+	}
 }))
 
 // Autonomy mode is now namespaced by the logged-in user's email (see
 // userScopedStorage); the mock emits one so scopedKey() resolves.
 const TEST_EMAIL = 'admin@test'
 
-vi.mock('$lib/stores', () => ({
-	workspaceStore: {
-		subscribe: (run: (value: string | undefined) => void) => {
-			run(mocks.workspace)
+vi.mock('$lib/stores', () => {
+	// A minimal readable store: get(store) reads this value synchronously. Defined
+	// inside the factory since vi.mock is hoisted above module-scope declarations.
+	const readable = <T>(value: T) => ({
+		subscribe: (run: (v: T) => void) => {
+			run(value)
 			return () => undefined
 		}
-	},
-	userStore: {
-		subscribe: (run: (value: { username: string; email: string }) => void) => {
-			run({ username: 'admin', email: 'admin@test' })
-			return () => undefined
-		}
+	})
+	return {
+		workspaceStore: {
+			subscribe: (run: (value: string | undefined) => void) => {
+				run(mocks.workspace)
+				return () => undefined
+			}
+		},
+		userStore: readable({ username: 'admin', email: 'admin@test', is_admin: true }),
+		// Read eagerly at module load by the open_page tool's allowedOpenPages /
+		// allowedTriggerKinds (global/core.ts) as the manager's tools are built.
+		superadmin: readable(false),
+		userWorkspaces: readable([] as unknown[]),
+		enterpriseLicense: readable(undefined)
 	}
-}))
+})
 
 vi.mock('$lib/toast', () => ({
 	sendUserToast: mocks.sendUserToast
@@ -1599,5 +1624,93 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.displayMessages).toHaveLength(0)
 		expect(deletePastChat).toHaveBeenCalledWith(manager.historyManager.getCurrentChatId())
 		expect(manager.loading).toBe(false)
+	})
+})
+
+describe('AIChatManager background job completion', () => {
+	const completed = (over: Record<string, unknown> = {}) =>
+		({
+			type: 'CompletedJob',
+			id: 'job-1',
+			success: true,
+			canceled: false,
+			result: [{ n: 1 }],
+			duration_ms: 1234,
+			logs: 'ran',
+			...over
+		}) as any
+
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+		mocks.getCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+	})
+
+	// Drive a registered+detached job to completion through the public poller entry
+	// (refreshBackgroundJobs polls immediately) and wait until the poller reports it.
+	async function completeDetachedJob(manager: AIChatManager) {
+		manager.markJobDetached('job-1')
+		manager.refreshBackgroundJobs()
+		await vi.waitFor(() => expect(manager.backgroundJobs[0]?.reported).toBe(true))
+	}
+
+	it('runs a detached job completion through its launching tool formatter', async () => {
+		const manager = new AIChatManager()
+		const formatCompletion = vi.fn(() => ({
+			llmText: '{"success":true,"rowCount":1}',
+			card: { content: 'Query returned 1 row(s)', result: '[{"n":1}]' }
+		}))
+		manager.registerJob(
+			{ jobId: 'job-1', toolCallId: 'tc-1', kind: 'script', label: 'SQL · main', workspace: 'ws' },
+			formatCompletion
+		)
+		const applyToolStatus = vi.spyOn(manager, 'applyToolStatus')
+		mocks.getJob.mockResolvedValue(completed())
+
+		await completeDetachedJob(manager)
+
+		// The formatter shaped both the tool card and the model-visible note, so the
+		// detached path carries the same contract the inline path would have.
+		expect(formatCompletion).toHaveBeenCalledTimes(1)
+		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
+			content: 'Query returned 1 row(s)',
+			result: '[{"n":1}]'
+		})
+		expect(manager.pendingJobNotes).toHaveLength(1)
+		expect(manager.pendingJobNotes[0]).toContain('{"success":true,"rowCount":1}')
+	})
+
+	it('skips the formatter and emits no note for a canceled detached job', async () => {
+		const manager = new AIChatManager()
+		const formatCompletion = vi.fn()
+		manager.registerJob(
+			{ jobId: 'job-1', toolCallId: 'tc-1', kind: 'script', label: 'SQL · main', workspace: 'ws' },
+			formatCompletion
+		)
+		mocks.getJob.mockResolvedValue(completed({ success: false, canceled: true }))
+
+		await completeDetachedJob(manager)
+
+		// A user cancel isn't a result to shape or a completion to announce.
+		expect(formatCompletion).not.toHaveBeenCalled()
+		expect(manager.pendingJobNotes).toHaveLength(0)
+		expect(manager.backgroundJobs[0]?.status).toBe('canceled')
+	})
+
+	it('falls back to the generic note when the job had no formatter', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob({
+			jobId: 'job-1',
+			toolCallId: 'tc-1',
+			kind: 'script',
+			label: 'run',
+			workspace: 'ws'
+		})
+		mocks.getJob.mockResolvedValue(completed())
+
+		await completeDetachedJob(manager)
+
+		expect(manager.pendingJobNotes).toHaveLength(1)
+		expect(manager.pendingJobNotes[0]).toContain('Background job job-1 for "run" succeeded')
 	})
 })

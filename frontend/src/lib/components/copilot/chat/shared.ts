@@ -852,7 +852,7 @@ export interface ToolCallbacks {
 	 * Their presence is what enables detach-into-background in executeTestRun; when
 	 * absent (in-editor script/flow/pipeline chats), test runs stay blocking with a
 	 * 60s cap. */
-	onJobStarted?: (job: ChatJobInit) => void
+	onJobStarted?: (job: ChatJobInit, formatCompletion?: BackgroundJobFormatter) => void
 	onJobStatus?: (jobId: string, update: Partial<ChatJob>) => void
 	onJobDetached?: (jobId: string) => void
 	/** Streamed reasoning/thinking deltas, rendered as a collapsible block in the chat. */
@@ -1127,7 +1127,15 @@ export interface TestRunConfig {
 	/** Custom terminal formatting for callers whose result isn't a plain test-run
 	 * summary (e.g. exec_datatable_sql shaping rows). Returns the string handed to
 	 * the model plus the tool-card patch. When omitted, the default summary is used. */
-	formatCompletion?: (job: CompletedJob) => { llmText: string; card: Partial<ToolDisplayMessage> }
+	formatCompletion?: BackgroundJobFormatter
+}
+
+/** Terminal formatter a tool supplies so its result keeps the same model-visible
+ * contract whether the job finishes inline or completes after detaching into the
+ * background (see AIChatManager's #jobFormatters). */
+export type BackgroundJobFormatter = (job: CompletedJob) => {
+	llmText: string
+	card: Partial<ToolDisplayMessage>
 }
 
 // Common job polling function.
@@ -1297,10 +1305,15 @@ export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMe
 export function backgroundJobCompletionNote(
 	jobId: string,
 	label: string,
-	job: CompletedJob
+	job: CompletedJob,
+	// When the launching tool supplied a formatter (e.g. exec_datatable_sql), pass its
+	// `llmText` here so the notify-only note carries the same shaped result the inline
+	// path would have returned — row-capped, friendly errors — instead of the raw job
+	// result. Omitted → the generic 2000-char result head.
+	formattedResult?: string
 ): string {
 	const status = job.success ? 'succeeded' : 'FAILED'
-	const resultHead = formatResult(job.result).slice(0, 2000)
+	const resultHead = formattedResult ?? formatResult(job.result).slice(0, 2000)
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
 		`Result: ${resultHead}\n` +
@@ -1323,14 +1336,19 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
 
-		// Register the job so the tray shows it from the moment it is queued.
-		config.toolCallbacks.onJobStarted?.({
-			jobId,
-			toolCallId: config.toolId,
-			kind: config.contextName,
-			label,
-			workspace: config.workspace
-		})
+		// Register the job so the tray shows it from the moment it is queued. Hand the
+		// terminal formatter along too so a job that later detaches keeps the same
+		// model-visible result contract this inline path applies below.
+		config.toolCallbacks.onJobStarted?.(
+			{
+				jobId,
+				toolCallId: config.toolId,
+				kind: config.contextName,
+				label,
+				workspace: config.workspace
+			},
+			config.formatCompletion
+		)
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: config.runningMessage ?? `${contextName} test started, waiting for completion...`

@@ -23,6 +23,7 @@ import {
 	type ChatJob,
 	type ChatJobInit,
 	type ChatJobStatus,
+	type BackgroundJobFormatter,
 	completedJobToolStatus,
 	backgroundJobCompletionNote,
 	deriveChatJobStatus,
@@ -501,10 +502,18 @@ export class AIChatManager {
 		)
 	}
 
+	// Terminal formatters keyed by jobId, kept OUT of the persisted ChatJob (a
+	// closure can't be structuredCloned into IndexedDB). Lets a job that detaches
+	// mid-run still report through the launching tool's result contract when it
+	// completes (see #onBackgroundJobComplete). In-memory only: a job that detached
+	// before a page reload loses its formatter and falls back to the generic note.
+	#jobFormatters = new Map<string, BackgroundJobFormatter>()
+
 	/** Record a job the moment it starts, so the tray shows it while it is still
 	 * inline-waiting. Idempotent on jobId. */
-	registerJob = (init: ChatJobInit) => {
+	registerJob = (init: ChatJobInit, formatCompletion?: BackgroundJobFormatter) => {
 		if (this.backgroundJobs.some((j) => j.jobId === init.jobId)) return
+		if (formatCompletion) this.#jobFormatters.set(init.jobId, formatCompletion)
 		this.backgroundJobs = [
 			...this.backgroundJobs,
 			{ ...init, createdAt: Date.now(), status: 'queued', detached: false, reported: false }
@@ -547,6 +556,7 @@ export class AIChatManager {
 	/** Remove a finished job from the tray. */
 	dismissJob = (jobId: string) => {
 		this.backgroundJobs = this.backgroundJobs.filter((j) => j.jobId !== jobId)
+		this.#jobFormatters.delete(jobId)
 		void this.#persistBackgroundJobs()
 	}
 
@@ -560,6 +570,12 @@ export class AIChatManager {
 
 	#ensureJobPoller() {
 		if (this.#jobPollTimer !== undefined) return
+		// A poll pass is running (it cleared #jobPollTimer on entry). It reschedules
+		// from the current job set when it finishes, so the job that just detached is
+		// already covered. Scheduling here instead would create a second timer that the
+		// end-of-pass reschedule overwrites WITHOUT clearing — orphaning it into a
+		// duplicate, self-perpetuating poll chain. Coalesce into the active pass.
+		if (this.#isPolling) return
 		if (!this.backgroundJobs.some((j) => j.detached && this.isJobNonTerminal(j.status))) return
 		this.#jobPollDelay = 2000
 		this.#scheduleJobPoll()
@@ -682,8 +698,14 @@ export class AIChatManager {
 			reported: true,
 			job: trimJob(completed)
 		})
+		// If the launching tool supplied a formatter, run the completion through it so
+		// the detached path reports the same shaped card + model text the inline path
+		// would (row-capped rows, friendly datatable errors). A canceled job skips the
+		// formatter — its card is the neutral "canceled" state, not a result.
+		const formatter = status === 'canceled' ? undefined : this.#jobFormatters.get(job.jobId)
+		const formatted = formatter?.(completed)
 		// Fill the tool card that launched it (we run outside a turn here).
-		this.applyToolStatus(job.toolCallId, completedJobToolStatus(completed))
+		this.applyToolStatus(job.toolCallId, formatted?.card ?? completedJobToolStatus(completed))
 		// A user-canceled job needs no model note or auto-resume: the user stopped it
 		// deliberately, so announcing it (as "FAILED", since a canceled job isn't a
 		// success) or burning a turn on it would be noise.
@@ -692,7 +714,7 @@ export class AIChatManager {
 		// either the user's next message or an idle auto-resume (fired by the poller).
 		this.pendingJobNotes = [
 			...this.pendingJobNotes,
-			backgroundJobCompletionNote(job.jobId, job.label, completed)
+			backgroundJobCompletionNote(job.jobId, job.label, completed, formatted?.llmText)
 		]
 	}
 
@@ -758,6 +780,7 @@ export class AIChatManager {
 		this.#jobPollGeneration++
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
+		this.#jobFormatters.clear()
 	}
 
 	/** Merge a status patch into the tool card identified by tool_call_id, or
@@ -2217,7 +2240,7 @@ export class AIChatManager {
 					// chats leave these undefined, so their test runs keep blocking.
 					...(this.mode === AIMode.GLOBAL
 						? {
-								onJobStarted: (job) => this.registerJob(job),
+								onJobStarted: (job, formatCompletion) => this.registerJob(job, formatCompletion),
 								onJobStatus: (jobId, update) => this.updateJob(jobId, update),
 								onJobDetached: (jobId) => this.markJobDetached(jobId)
 							}
