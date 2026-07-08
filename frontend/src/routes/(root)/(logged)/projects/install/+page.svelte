@@ -31,6 +31,9 @@
 		rewriteFlowValue,
 		rewriteRawAppContent
 	} from '$lib/components/workspaceSettings/projectBundle'
+	import { updatePolicy } from '$lib/components/apps/editor/appPolicy'
+	import { updateRawAppPolicy } from '$lib/sharedUtils'
+	import type { App } from '$lib/components/apps/types'
 	import MigrationSqlEditor from '$lib/components/workspaceSettings/MigrationSqlEditor.svelte'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -171,8 +174,21 @@
 		)
 	}
 
-	// Minimal non-public policy for re-created apps.
-	const defaultPolicy = { execution_mode: 'publisher', triggerables_v2: {} } as any
+	// Recompute an app's execution policy from its (retargeted) value, mirroring
+	// what the editor does on deploy. `triggerables_v2` is keyed by
+	// `<component>:rawscript/<sha256(inline content)>`; retargeting rewrites that
+	// content, so a copied or empty policy would leave every inline runnable
+	// "forbidden by policy" at runtime. Default to publisher (auth required).
+	async function computeAppPolicy(value: any): Promise<any> {
+		const policy = (await updatePolicy(value as App, undefined)) as any
+		if (!policy.execution_mode) policy.execution_mode = 'publisher'
+		return policy
+	}
+	async function computeRawAppPolicy(runnables: Record<string, any>): Promise<any> {
+		const policy = (await updateRawAppPolicy(runnables, undefined)) as any
+		if (!policy.execution_mode) policy.execution_mode = 'publisher'
+		return policy
+	}
 
 	// EE-only kinds; the rest (http, websocket, postgres, mqtt, email) work on CE.
 	const EE_TRIGGER_KINDS = new Set(['kafka', 'nats', 'sqs', 'gcp', 'azure'])
@@ -462,6 +478,7 @@
 							const css = files['/bundle.css'] ?? ''
 							delete files['/bundle.js']
 							delete files['/bundle.css']
+							const runnables = parsed.runnables ?? {}
 							return AppService.createAppRaw({
 								workspace,
 								formData: {
@@ -470,12 +487,12 @@
 										summary: a.summary ?? '',
 										value: {
 											files,
-											runnables: parsed.runnables ?? {},
+											runnables,
 											// Keep the full-code app's explicit data table declaration.
 											...(parsed.data !== undefined ? { data: parsed.data } : {}),
 											...(parsed.datatables !== undefined ? { datatables: parsed.datatables } : {})
 										},
-										policy: defaultPolicy
+										policy: await computeRawAppPolicy(runnables)
 									},
 									js,
 									css
@@ -486,15 +503,16 @@
 				} else {
 					await record(
 						a.path,
-						AppService.createApp({
-							workspace,
-							requestBody: {
-								path: a.path,
-								summary: a.summary ?? '',
-								value: a.value,
-								policy: defaultPolicy
-							}
-						})
+						(async () =>
+							AppService.createApp({
+								workspace,
+								requestBody: {
+									path: a.path,
+									summary: a.summary ?? '',
+									value: a.value,
+									policy: await computeAppPolicy(a.value)
+								}
+							}))()
 					)
 				}
 			}
