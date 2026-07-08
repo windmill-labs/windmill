@@ -17,6 +17,7 @@
 		disabled = false,
 		placeholder,
 		inputClass,
+		size = 'md',
 		workspaceId = undefined
 	}: {
 		tag: string | undefined
@@ -27,6 +28,9 @@
 		language?: string
 		class?: string
 		inputClass?: string
+		/** Forwarded to the underlying Select — controls the input height. The
+		 * condensed session top bar passes `sm` to match its smaller buttons. */
+		size?: 'sm' | 'md' | 'lg'
 		// Workspace to read custom tags and worker availability from. Defaults to
 		// $workspaceStore. Session editors act on a workspace that differs from the
 		// navigation one, so they pass their effective workspace to keep the tag
@@ -164,6 +168,7 @@
 		clearable
 		class="w-full"
 		bind:open
+		{size}
 		{inputClass}
 		{disabled}
 		placeholder={nullTag ? nullTag : (placeholder ?? 'lang default')}

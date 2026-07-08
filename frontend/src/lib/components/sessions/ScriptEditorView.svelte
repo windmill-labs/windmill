@@ -103,6 +103,7 @@
 				neverShowMeta={true}
 				fullyLoaded={!runtime.slot('script').loading}
 				disableHistoryChange={true}
+				condensedHeader={true}
 				{diffDrawer}
 				{onNavigate}
 				{initialTestPanelCollapsed}

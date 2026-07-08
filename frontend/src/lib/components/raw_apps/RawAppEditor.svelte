@@ -132,6 +132,10 @@
 		// prop for the same reason as `onRestore` — `on:savedNewAppPath` forwarding
 		// through these runes-mode components is dropped.
 		onSavedNewAppPath?: (path: string) => void
+		// Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+		// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+		// session preview to save vertical room.
+		condensedHeader?: boolean
 	}
 
 	let {
@@ -162,7 +166,8 @@
 		onRuntimeLogRequester = undefined,
 		onRunsProvider = undefined,
 		onRestore,
-		onSavedNewAppPath
+		onSavedNewAppPath,
+		condensedHeader = false
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -1681,6 +1686,7 @@
 		onOpenYamlEditor={() => yamlEditorDrawer?.openDrawer()}
 		sidebarCollapsed={sidebarCollapsed.val}
 		onToggleSidebar={() => (sidebarCollapsed.val = !sidebarCollapsed.val)}
+		{condensedHeader}
 	/>
 
 	<RawAppYamlEditor

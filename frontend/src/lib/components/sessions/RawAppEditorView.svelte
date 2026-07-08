@@ -117,6 +117,7 @@
 				newApp={!runtime.savedRawApp.val || runtime.savedRawApp.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
+				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => {
 					// Sync the preview to deployed (raw apps deploy only from this editor).
