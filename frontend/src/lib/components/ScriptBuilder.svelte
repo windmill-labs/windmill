@@ -1897,7 +1897,7 @@
 		</DrawerContent>
 	</Drawer>
 
-	<div class="flex flex-col h-screen">
+	<div class="flex flex-col h-full">
 		<div bind:clientWidth={topbarWidth} class="flex h-12 items-center px-4">
 			<div class="flex gap-2 lg:gap-2 w-full items-center">
 				<div class="flex flex-row items-center gap-2 min-w-0 shrink">
