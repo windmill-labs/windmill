@@ -465,3 +465,150 @@ export async function main() {
 
     Ok(())
 }
+
+/// Helper: fetch the child job of `parent` for flow step `step_id`.
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
+async fn get_flow_step_job(db: &Pool<Postgres>, parent: Uuid, step_id: &str) -> Uuid {
+    sqlx::query_scalar!(
+        r#"SELECT id FROM v2_job WHERE parent_job = $1 AND flow_step_id = $2"#,
+        parent,
+        step_id,
+    )
+    .fetch_one(db)
+    .await
+    .expect("child job for flow step")
+}
+
+/// Helper: fetch a job's stored args as a JSON value.
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
+async fn get_job_args(db: &Pool<Postgres>, job_id: Uuid) -> serde_json::Value {
+    sqlx::query_scalar!(
+        r#"SELECT args as "args!: sqlx::types::Json<serde_json::Value>" FROM v2_job WHERE id = $1"#,
+        job_id,
+    )
+    .fetch_one(db)
+    .await
+    .expect("job args")
+    .0
+}
+
+/// Secrets fetched via `variable(...)` inside flow input transform expressions
+/// must be masked in the logs of the child step jobs the transforms feed into.
+/// The masks travel to the child via the `_secret_masks` arg, encrypted with
+/// the workspace key + root job id so the raw values never appear in the
+/// child's stored args.
+///
+/// Requires a JS expression evaluator for the transforms, hence the
+/// deno_core/quickjs gate.
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_flow_transform_secret_masking(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::flows::FlowValue;
+    use windmill_test_utils::StreamFind;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let secret_a = "flow_transform_secret_v9k4w2";
+    let secret_b = "flow_step_two_secret_j6m8q3";
+    create_variable(port, "u/test-user/flow_secret_a", secret_a, true).await;
+    create_variable(port, "u/test-user/flow_secret_b", secret_b, true).await;
+
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db2 = db.clone();
+    in_test_worker(
+        db.clone(),
+        async move {
+            // Two sequential steps, each with a transform fetching its own secret.
+            // Step b is pushed from the step-completion path (after step a's
+            // result is processed), where the flow job is not registered as a
+            // running job — the case that requires explicit mask propagation.
+            let flow: FlowValue = serde_json::from_value(json!({
+                "modules": [
+                    {
+                        "id": "a",
+                        "value": {
+                            "type": "rawscript",
+                            "language": "bun",
+                            "content": "export async function main(cmd: string) { console.log(\"step a: \" + cmd); return \"a_done\"; }",
+                            "input_transforms": {
+                                "cmd": {
+                                    "type": "javascript",
+                                    "expr": "`mycli --password=${variable(\"u/test-user/flow_secret_a\")}`"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "id": "b",
+                        "value": {
+                            "type": "rawscript",
+                            "language": "bun",
+                            "content": "export async function main(cmd: string) { console.log(\"step b: \" + cmd); return \"b_done\"; }",
+                            "input_transforms": {
+                                "cmd": {
+                                    "type": "javascript",
+                                    "expr": "`othercli --token=${variable(\"u/test-user/flow_secret_b\")}`"
+                                }
+                            }
+                        }
+                    }
+                ],
+            }))
+            .unwrap();
+
+            let flow_job = RunJob::from(JobPayload::RawFlow {
+                value: flow,
+                path: None,
+                restarted_from: None,
+            })
+            .push(&db2)
+            .await;
+            (&mut completed).find(&flow_job).await;
+            let cflow = completed_job(flow_job, &db2).await;
+            assert!(cflow.success, "flow failed: {:?}", cflow.result);
+
+            // Step a: secret fetched by its transform is masked in its logs
+            let job_a = get_flow_step_job(&db2, flow_job, "a").await;
+            let logs_a = get_job_logs(&db2, job_a).await.expect("step a: no logs");
+            assert!(
+                !logs_a.contains(secret_a),
+                "step a: transform secret leaked in child logs\nLogs:\n{logs_a}"
+            );
+            assert!(
+                logs_a.contains("step a: mycli --password=flo*****4w2"),
+                "step a: transform secret not masked\nLogs:\n{logs_a}"
+            );
+
+            // Step b (pushed from the completion path): same guarantee
+            let job_b = get_flow_step_job(&db2, flow_job, "b").await;
+            let logs_b = get_job_logs(&db2, job_b).await.expect("step b: no logs");
+            assert!(
+                !logs_b.contains(secret_b),
+                "step b: transform secret leaked in child logs\nLogs:\n{logs_b}"
+            );
+            assert!(
+                logs_b.contains("step b: othercli --token=flo*****8q3"),
+                "step b: transform secret not masked\nLogs:\n{logs_b}"
+            );
+
+            // The propagated masks must not appear in plaintext in stored args
+            for (job, secret, step) in [(job_a, secret_a, "a"), (job_b, secret_b, "b")] {
+                let args = get_job_args(&db2, job).await;
+                let masks = args
+                    .get("_secret_masks")
+                    .unwrap_or_else(|| panic!("step {step}: no _secret_masks arg\nargs: {args}"));
+                let masks_str = masks.as_str().unwrap_or_default();
+                assert!(
+                    !masks_str.contains(secret),
+                    "step {step}: _secret_masks stored in plaintext\nargs: {args}"
+                );
+            }
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}

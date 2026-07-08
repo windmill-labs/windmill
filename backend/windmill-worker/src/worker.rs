@@ -3091,6 +3091,12 @@ pub async fn run_worker(
                     let arc_job = Arc::new(job);
 
                     windmill_common::sensitive_log_masks::register_running_job(arc_job.id);
+                    // Register secret masks inherited from a parent flow before the
+                    // job produces any logs. Agent workers (Http connection) cannot
+                    // decrypt them (no DB access to the workspace key).
+                    if let Connection::Sql(db) = conn {
+                        crate::common::register_secret_masks_from_args(&arc_job, db).await;
+                    }
 
                     let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
                     let log_ctx = log_context_for_job(&arc_job, &worker_name, Some(hostname));

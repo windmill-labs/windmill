@@ -129,6 +129,7 @@ pub async fn create_args_and_out_file(
         if let Some(mut x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
             x.remove("_MODULES");
             x.remove("_TEMP_SCRIPT_REFS");
+            x.remove(windmill_common::sensitive_log_masks::SECRET_MASKS_ARG);
             write_file(
                 job_dir,
                 "args.json",
@@ -138,6 +139,7 @@ pub async fn create_args_and_out_file(
             let mut filtered = args.0.clone();
             filtered.remove("_MODULES");
             filtered.remove("_TEMP_SCRIPT_REFS");
+            filtered.remove(windmill_common::sensitive_log_masks::SECRET_MASKS_ARG);
             write_file(
                 job_dir,
                 "args.json",
@@ -150,6 +152,41 @@ pub async fn create_args_and_out_file(
 
     write_file(job_dir, "result.json", "")?;
     Ok(())
+}
+
+/// Register the secret masks a parent flow propagated through the
+/// `_secret_masks` arg (an encrypted JSON array of strings keyed on workspace
+/// key + root job id, produced by `push_next_flow_job`). Call after the job is
+/// registered for mask tracking and before it produces logs. Best-effort:
+/// a failure here only degrades log masking, so it never fails the job.
+pub async fn register_secret_masks_from_args(job: &MiniPulledJob, db: &DB) {
+    let Some(raw) = job.args.as_ref().and_then(|args| {
+        args.0
+            .get(windmill_common::sensitive_log_masks::SECRET_MASKS_ARG)
+    }) else {
+        return;
+    };
+    let Ok(encrypted) = serde_json::from_str::<String>(raw.get()) else {
+        return;
+    };
+    let root_job_id = get_root_job_id(job);
+    let secrets = build_crypt_with_key_suffix(db, &job.workspace_id, &root_job_id.to_string())
+        .await
+        .and_then(|mc| decrypt(&mc, encrypted))
+        .and_then(|s| {
+            serde_json::from_str::<Vec<String>>(&s)
+                .map_err(|e| Error::internal_err(format!("parsing propagated secret masks: {e}")))
+        });
+    match secrets {
+        Ok(secrets) => {
+            for secret in secrets {
+                windmill_common::sensitive_log_masks::register_secret_for_job(job.id, &secret);
+            }
+        }
+        Err(e) => {
+            tracing::warn!(job_id = %job.id, "failed to register propagated secret masks: {e}");
+        }
+    }
 }
 
 pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::Result<File> {

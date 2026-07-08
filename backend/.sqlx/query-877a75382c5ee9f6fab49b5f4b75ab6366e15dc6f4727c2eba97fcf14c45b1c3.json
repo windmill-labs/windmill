@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT args as \"args!: sqlx::types::Json<serde_json::Value>\" FROM v2_job WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "args!: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "877a75382c5ee9f6fab49b5f4b75ab6366e15dc6f4727c2eba97fcf14c45b1c3"
+}

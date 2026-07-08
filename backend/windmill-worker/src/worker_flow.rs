@@ -11,7 +11,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transform_json};
+use crate::common::{
+    cached_result_path, get_root_job_id, register_secret_masks_from_args, save_in_cache,
+    transform_json,
+};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
@@ -53,6 +56,7 @@ use windmill_common::runnable_settings::{
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
+use windmill_common::variables::build_crypt_with_key_suffix;
 use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
@@ -3169,6 +3173,19 @@ async fn push_next_flow_job(
 
     tracing::info!(id = %flow_job.id, root_id = %job_root, step = ?step, "pushing next flow job");
 
+    // Keep the flow job tracked for secret-mask registration while transforms run:
+    // input transforms evaluated below may fetch secret variables through the
+    // embedded server, which registers them against currently tracked jobs only.
+    // On the step-completion path the flow job is not registered as running, so
+    // without this the fetched secrets could not be captured for propagation to
+    // the pushed child jobs. Dropped (and cleaned up if added here) on return.
+    let mask_guard = windmill_common::sensitive_log_masks::track_job_for_masks(flow_job.id);
+    if mask_guard.added {
+        // Seed masks a parent flow propagated to this (sub)flow's own args; on the
+        // completion path the worker-loop registration that normally does this is gone.
+        register_secret_masks_from_args(&flow_job, db).await;
+    }
+
     let mut status_module = match step {
         Step::Step { idx: i, .. } => status
             .modules
@@ -4112,6 +4129,14 @@ async fn push_next_flow_job(
     };
     let len = job_payloads.len();
 
+    // Secrets fetched by this invocation's input transforms (registered against
+    // the flow job) are propagated to each pushed child job so the worker that
+    // picks it up can mask them in its logs. Encrypted with the workspace key +
+    // root job id (the `$encrypted:` args scheme); the encrypted blob is cached
+    // and only rebuilt when per-iteration transforms register new secrets.
+    let secret_masks_root_job = get_root_job_id(&flow_job).to_string();
+    let mut secret_masks_cache: Option<(Vec<String>, Box<RawValue>)> = None;
+
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, payload_tag) in job_payloads.into_iter().enumerate() {
@@ -4303,6 +4328,33 @@ async fn push_next_flow_job(
             push_args.extra.get_or_insert_with(HashMap::new).insert(
                 windmill_common::jobs::WM_TRACEPARENT.to_string(),
                 traceparent.clone(),
+            );
+        }
+
+        // Re-snapshot on every iteration: per-iteration input transforms (for-loop
+        // steps above) can register additional secrets for the flow job.
+        let secrets = windmill_common::sensitive_log_masks::get_secrets_for_job(&flow_job.id);
+        if !secrets.is_empty() {
+            let encrypted_masks = match &secret_masks_cache {
+                Some((prev, encrypted)) if *prev == secrets => encrypted.clone(),
+                _ => {
+                    let mc = build_crypt_with_key_suffix(
+                        db,
+                        &flow_job.workspace_id,
+                        &secret_masks_root_job,
+                    )
+                    .await?;
+                    let encrypted = to_raw_value(&windmill_common::variables::encrypt(
+                        &mc,
+                        to_raw_value(&secrets).get(),
+                    ));
+                    secret_masks_cache = Some((secrets, encrypted.clone()));
+                    encrypted
+                }
+            };
+            push_args.extra.get_or_insert_with(HashMap::new).insert(
+                windmill_common::sensitive_log_masks::SECRET_MASKS_ARG.to_string(),
+                encrypted_masks,
             );
         }
 
