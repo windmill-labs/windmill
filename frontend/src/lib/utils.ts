@@ -1170,11 +1170,12 @@ export function computeSharableHash(args: any, tag?: string) {
 	}
 }
 
-// Tags with interpolation placeholders are resolved by the backend at push time from
-// the run's args/workspace; a job's stored tag is the resolved value, so re-running
-// with it would pin a value that no longer matches edited args
+// `$args[...]` tags are resolved by the backend at push time from the run's args; a
+// job's stored tag is the resolved value, so re-running with it would pin a value
+// that no longer matches edited args. `$workspace` is also interpolated but resolves
+// identically on a re-run (same workspace), so it does not make a tag dynamic here.
 export function isDynamicTag(tag: string | undefined): boolean {
-	return !!tag && (tag.includes('$args[') || tag.includes('$workspace'))
+	return !!tag && tag.includes('$args[')
 }
 
 // Counterpart of computeSharableHash's `tag`: extracts and removes the reserved

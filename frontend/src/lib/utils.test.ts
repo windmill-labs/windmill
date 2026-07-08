@@ -436,13 +436,14 @@ describe('computeSharableHash / extractTagFromSharableHash', () => {
 })
 
 describe('isDynamicTag', () => {
-	it('detects interpolation placeholders', () => {
+	it('detects args interpolation placeholders', () => {
 		expect(isDynamicTag('worker-$args[env]')).toBe(true)
-		expect(isDynamicTag('$workspace-gpu')).toBe(true)
 	})
 
-	it('is false for plain tags and undefined', () => {
+	it('is false for plain tags, $workspace-only tags, and undefined', () => {
 		expect(isDynamicTag('gpu-heavy')).toBe(false)
+		// $workspace resolves identically on a re-run, so pinning the resolved value is fine
+		expect(isDynamicTag('$workspace-gpu')).toBe(false)
 		expect(isDynamicTag('')).toBe(false)
 		expect(isDynamicTag(undefined)).toBe(false)
 	})
