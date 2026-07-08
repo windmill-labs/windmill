@@ -580,6 +580,16 @@
 										on:change={(e) => setPromotionOpenPrs(e.detail)}
 									/>
 								</div>
+							{:else if repoMode === 'promotion' && !repo.isUnsavedConnection}
+								<div class="text-2xs text-secondary mt-2">
+									Opening pull requests from Windmill uses the
+									<a
+										href="https://www.windmill.dev/docs/advanced/git_sync"
+										target="_blank"
+										class="text-blue-500 hover:underline">GitHub App</a
+									>. Token-based repositories can use the
+									<span class="font-mono">open-pr-on-commit</span> workflow instead.
+								</div>
 							{/if}
 						</div>
 
@@ -718,6 +728,16 @@
 											}}
 											on:change={(e) => setForkOpenPrs(e.detail)}
 										/>
+									{:else}
+										<div class="text-2xs text-secondary">
+											Opening pull requests for fork deploys uses the
+											<a
+												href="https://www.windmill.dev/docs/advanced/git_sync"
+												target="_blank"
+												class="text-blue-500 hover:underline">GitHub App</a
+											>. Token-based repositories can use the
+											<span class="font-mono">open-pr-on-fork-commit</span> workflow instead.
+										</div>
 									{/if}
 								</div>
 							{/if}

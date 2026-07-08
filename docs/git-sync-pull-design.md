@@ -253,6 +253,14 @@ every existing installation's org admin):
 | Pull requests: write        | instance-side PR creation (promotion/forks) | 2   |
 | Checks: write               | PR diff preview checks                    | 3     |
 
+App-only features and their fallbacks: instant webhook sync (falls back to
+polling), in-app PR creation for deploy branches (fall back to the
+`open-pr-on-commit` / `open-pr-on-fork-commit` workflows; the toggles are
+hidden for token repos and a set-but-inert toggle logs a warning), and the PR
+diff comment/check + deploy status check (no fallback: they need the Checks
+API and `pull_request` webhook deliveries). Token/PAT repositories keep the
+full pull direction via polling.
+
 Rollout behavior: until an org approves, webhook creation fails with a
 distinguishable error → the instance shows "approval pending" and stays on
 polling. Nothing breaks; latency is the only cost. The self-managed (GHES)
@@ -451,6 +459,10 @@ Frontend:
 
 - Subscribe `pull_request` events; on open/synchronize run the existing
   `dry_run: true` pull and post the diff as a check run (`checks: write`).
+- The same completion hook maintains ONE managed comment on the PR
+  (Cloudflare deploy-preview style: workspace, status, commit, collapsible
+  change list), upserted per synchronize via a hidden `<!-- windmill-diff -->`
+  marker so reviewers see the current diff without opening the Checks tab.
 
 ### Phase 5 — fork sync, configured at the parent (replaces the `push-on-merge-to-forks` GitHub Action) — implemented
 

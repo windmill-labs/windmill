@@ -730,6 +730,14 @@ pub async fn handle_receive_completed_job(
 struct GitSyncCheck {
     check_run_id: i64,
     repo_url: String,
+    #[serde(default)]
+    pr_number: Option<i64>,
+    #[serde(default)]
+    head_sha: Option<String>,
+    /// Whether the PR itself modifies wmill.yaml (None = undetermined); picks
+    /// the wording for a settings difference in the diff summary.
+    #[serde(default)]
+    wmill_yaml_changed: Option<bool>,
 }
 
 /// Parsed diff summary from a (dry-run or real) pull result. `None` when the
@@ -985,8 +993,8 @@ async fn maybe_open_git_sync_deploy_pr(db: &DB, job_id: &uuid::Uuid, workspace_i
     {
         Ok(Some((branch, _))) => branch,
         Ok(None) => {
-            tracing::debug!(
-                "git sync PR: repo {repo_path} in {workspace_id} is not app-backed, skipping"
+            tracing::warn!(
+                "git sync PR: repo {repo_path} in {workspace_id} has a PR-on-deploy toggle set but is not GitHub-App-backed; skipping (connect the repo through the GitHub App, or use the open-pr-on-commit workflow)"
             );
             return;
         }
@@ -1079,7 +1087,7 @@ async fn maybe_post_git_sync_check(
         if !success {
             (
                 "failure",
-                "Deploy failed".to_string(),
+                format!("Deploy to {} failed", workspace_id),
                 "Deploying the latest commit failed. See the job in Windmill for details."
                     .to_string(),
             )
@@ -1087,7 +1095,7 @@ async fn maybe_post_git_sync_check(
             match parse_git_sync_changes(result_raw) {
                 Some((changes, settings_changed)) if changes.is_empty() && !settings_changed => (
                     "success",
-                    "In sync".to_string(),
+                    format!("In sync with {}", workspace_id),
                     format!(
                         "No changes to deploy to `{}` from this commit.",
                         workspace_id
@@ -1105,13 +1113,13 @@ async fn maybe_post_git_sync_check(
                     }
                     (
                         "success",
-                        format!("Deployed {} change(s)", changes.len()),
+                        format!("Deployed {} change(s) to {}", changes.len(), workspace_id),
                         lines.join("\n"),
                     )
                 }
                 None => (
                     "success",
-                    "Deployed".to_string(),
+                    format!("Deployed to {}", workspace_id),
                     format!("Windmill deployed the latest commit to `{}`.", workspace_id),
                 ),
             }
@@ -1139,7 +1147,11 @@ async fn maybe_post_git_sync_check(
                     )];
                     lines.extend(format_change_list(&changes));
                     if settings_changed {
-                        lines.push("\nWorkspace settings would also change.".to_string());
+                        lines.push(match check.wmill_yaml_changed {
+                            Some(true) => "\nThis PR changes wmill.yaml: pulling also applies the updated workspace settings.".to_string(),
+                            Some(false) => "\nIndependent of this PR, the workspace's git-sync settings differ from the repo's wmill.yaml and a pull updates them to match.".to_string(),
+                            None => "\nA pull also updates the workspace's git-sync settings to match the repo's wmill.yaml.".to_string(),
+                        });
                     }
                     (
                         "neutral",
@@ -1168,6 +1180,35 @@ async fn maybe_post_git_sync_check(
     .await
     {
         tracing::error!("git sync-check: failed to update check run: {e:#}");
+    }
+
+    // Phase 4 also maintains ONE managed comment on the PR (Cloudflare
+    // deploy-preview style): upserted on every synchronize, so reviewers see the
+    // current diff without opening the Checks tab.
+    if !is_deploy {
+        if let Some(pr_number) = check.pr_number {
+            let marker = "<!-- windmill-diff -->";
+            let head = check
+                .head_sha
+                .as_deref()
+                .map(|s| &s[..s.len().min(7)])
+                .unwrap_or("latest");
+            let body = format!(
+                "{marker}\n### Windmill deploy preview\n\n                 | | |\n|---|---|\n                 | **Workspace** | `{workspace_id}` |\n                 | **Status** | {title} |\n                 | **Commit** | `{head}` |\n\n                 <details><summary>Details</summary>\n\n{summary}\n\n</details>"
+            );
+            if let Err(e) = windmill_common::git_sync_ee::upsert_pr_comment(
+                db,
+                workspace_id,
+                &check.repo_url,
+                pr_number,
+                marker,
+                &body,
+            )
+            .await
+            {
+                tracing::warn!("git sync-check: failed to upsert PR diff comment: {e:#}");
+            }
+        }
     }
 }
 
