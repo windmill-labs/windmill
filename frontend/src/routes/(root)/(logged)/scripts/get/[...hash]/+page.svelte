@@ -15,7 +15,8 @@
 		truncateHash,
 		copyToClipboard,
 		urlParamsToObject,
-		extractTagFromSharableHash
+		extractTagFromSharableHash,
+		isDynamicTag
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -118,6 +119,9 @@
 	let scheduledForStr: string | undefined = $state(undefined)
 	let invisible_to_owner: boolean | undefined = $state(undefined)
 	let overrideTag: string | undefined = $state(undefined)
+	let overrideTagNote: string | undefined = $state(undefined)
+	// Tag carried over from 'Run again', pending the dynamic-tag check in loadScript
+	let carriedTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 
@@ -259,6 +263,15 @@
 				return
 			}
 		}
+		// A carried tag is the previous run's resolved value; when the script's tag is
+		// dynamic, drop it so the backend re-resolves from the (possibly edited) args
+		if (carriedTag && isDynamicTag(script.tag)) {
+			if (overrideTag === carriedTag) {
+				overrideTag = undefined
+				overrideTagNote = `tag ${script.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`
+			}
+			carriedTag = undefined
+		}
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
@@ -335,7 +348,8 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			overrideTag = extractTagFromSharableHash(searchParams)
+			carriedTag = extractTagFromSharableHash(searchParams)
+			overrideTag = carriedTag
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)
@@ -879,6 +893,7 @@
 								bind:scheduledForStr
 								bind:invisible_to_owner
 								bind:overrideTag
+								{overrideTagNote}
 								viewKeybinding
 								loading={runLoading}
 								autofocus

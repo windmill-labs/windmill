@@ -3,6 +3,7 @@ import {
 	cleanValueProperties,
 	computeSharableHash,
 	extractTagFromSharableHash,
+	isDynamicTag,
 	getQueryStmtCountHeuristic,
 	parseDbInputFromAssetSyntax
 } from './utils'
@@ -431,5 +432,18 @@ describe('computeSharableHash / extractTagFromSharableHash', () => {
 
 	it('carries a tag that itself starts with the value prefix', () => {
 		expect(roundTrip(computeSharableHash({}, 't:odd'))).toEqual({ tag: 't:odd', args: {} })
+	})
+})
+
+describe('isDynamicTag', () => {
+	it('detects interpolation placeholders', () => {
+		expect(isDynamicTag('worker-$args[env]')).toBe(true)
+		expect(isDynamicTag('$workspace-gpu')).toBe(true)
+	})
+
+	it('is false for plain tags and undefined', () => {
+		expect(isDynamicTag('gpu-heavy')).toBe(false)
+		expect(isDynamicTag('')).toBe(false)
+		expect(isDynamicTag(undefined)).toBe(false)
 	})
 })

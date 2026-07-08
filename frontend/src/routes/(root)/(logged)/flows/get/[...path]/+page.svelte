@@ -13,7 +13,8 @@
 		defaultIfEmptyString,
 		emptyString,
 		urlParamsToObject,
-		extractTagFromSharableHash
+		extractTagFromSharableHash,
+		isDynamicTag
 	} from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
@@ -84,6 +85,9 @@
 	let scheduledForStr: string | undefined = $state(undefined)
 	let invisible_to_owner: boolean | undefined = $state(undefined)
 	let overrideTag: string | undefined = $state(undefined)
+	let overrideTagNote: string | undefined = $state(undefined)
+	// Tag carried over from 'Run again', pending the dynamic-tag check in loadFlow
+	let carriedTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 	let deploymentInProgress = $state(false)
@@ -174,6 +178,15 @@
 			})
 			pinnedVersion = undefined
 		}
+		// A carried tag is the previous run's resolved value; when the flow's tag is
+		// dynamic, drop it so the backend re-resolves from the (possibly edited) args
+		if (carriedTag && isDynamicTag(flow.tag)) {
+			if (overrideTag === carriedTag) {
+				overrideTag = undefined
+				overrideTagNote = `tag ${flow.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`
+			}
+			carriedTag = undefined
+		}
 		if (!flow.path.startsWith(`u/${$userStore?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
@@ -252,7 +265,8 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			overrideTag = extractTagFromSharableHash(searchParams)
+			carriedTag = extractTagFromSharableHash(searchParams)
+			overrideTag = carriedTag
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)
@@ -717,6 +731,7 @@
 									bind:scheduledForStr
 									bind:invisible_to_owner
 									bind:overrideTag
+									{overrideTagNote}
 									viewKeybinding
 									{loading}
 									autofocus
