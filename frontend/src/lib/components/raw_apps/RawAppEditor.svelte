@@ -1648,10 +1648,7 @@
 	gateJobIds={false}
 	extraSourceWindow={() => externalPreviewWindow}
 />
-<div
-	bind:clientWidth={rootWidth}
-	class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col"
->
+<div bind:clientWidth={rootWidth} class="max-h-full overflow-hidden h-full min-h-0 flex flex-col">
 	<RawAppEditorHeader
 		bind:jobs
 		bind:jobsById

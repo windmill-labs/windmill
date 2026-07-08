@@ -1902,7 +1902,7 @@
 		</DrawerContent>
 	</Drawer>
 
-	<div class="flex flex-col h-screen">
+	<div class="flex flex-col h-full">
 		<div
 			bind:clientWidth={topbarWidth}
 			class="flex items-center px-4 {condensedHeader ? 'h-9' : 'h-12'}"
