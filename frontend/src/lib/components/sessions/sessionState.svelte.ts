@@ -37,20 +37,11 @@ import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { onUserChange, scopedKey } from '$lib/userScopedStorage'
 
-// Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
-// intentionally not previewable — only code-based 'raw_app' apps are. A
-// 'pipeline' target's `path` is the folder name (not a workspace item path):
-// it hosts the data-pipeline graph editor for that folder, which uses its own
-// fetch/draft model rather than the single-item load slots the other kinds share.
+// A destination the session preview can open as an editor: a workspace item
+// (`path`) for flow/script/raw_app, or — for 'pipeline' — a folder name (not an
+// item path), which resolves to the data-pipeline graph editor for that folder.
+// Legacy drag-and-drop apps aren't previewable; only code-based 'raw_app' apps.
 export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app' | 'pipeline'; path: string }
-
-// Useful for filtering dropdowns / pickers to "items the side panel can open".
-export const EDITOR_TARGET_KINDS: ReadonlySet<SessionTarget['kind']> = new Set([
-	'flow',
-	'script',
-	'raw_app',
-	'pipeline'
-])
 
 // Whether the session points at a workspace that is itself a fork (i.e.
 // has a parent). Used by the sidebar to pick between a root (Building)

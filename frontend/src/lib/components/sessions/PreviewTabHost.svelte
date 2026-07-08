@@ -34,7 +34,7 @@
 		mounted: boolean
 		/** Short tab label, for the iframe title. */
 		label: string
-		/** A link click inside a live editor re-points the session target + tab. */
+		/** A link click inside a live editor re-points the active preview tab. */
 		onNavigate: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void

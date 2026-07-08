@@ -15,9 +15,9 @@ import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
 // The single live owner of a session's preview tabs. Runs behind a small
 // interface both the sessions page (renderer) and the `open_preview` tool cross,
 // so there is exactly one live copy of the tab model instead of three drifting
-// ones synced by effects. Persistence and the session-record `target` write are
-// injected as an adapter, so the class is pure runes with no sessionState / IDB
-// coupling (mirrors PipelineEditorState). Held on SessionRuntime.previewTabs.
+// ones synced by effects. Persistence (and cell pruning) are injected as an
+// adapter, so the class is pure runes with no sessionState / IDB coupling
+// (mirrors PipelineEditorState). Held on SessionRuntime.previewTabs.
 
 export type PreviewTabsSnapshot = {
 	tabs: SessionPreviewTab[]
@@ -64,8 +64,8 @@ export function canonicalizeObservedLoc(loc: string): string {
 }
 
 // The editor target a destination maps to, or undefined when it isn't an item we
-// host live (static pages, legacy drag-and-drop apps). Drives the "set the
-// session target iff the destination is an editable item" rule.
+// host live (static pages, legacy drag-and-drop apps). Drives the open()/navigate()
+// dedupe — one editor tab per (kind, path).
 function editorTargetFor(target: PreviewTarget): SessionTarget | undefined {
 	if (target.type !== 'item') return undefined
 	const item = target.item
