@@ -3218,6 +3218,13 @@ async fn edit_git_sync_repository(
             }
             _ => {}
         }
+        // The request-side license gate above only saw the submitted config; the
+        // preservation can resurrect an enabled auto_pull (None arm), so re-check
+        // the effective state before it gets written and reconciled.
+        #[cfg(feature = "enterprise")]
+        if updated.auto_pull.as_ref().is_some_and(|a| a.enabled) {
+            check_auto_pull_license().await?;
+        }
         *existing_repo = updated;
     } else {
         // Repository doesn't exist, add it as a new repository
@@ -6291,6 +6298,45 @@ async fn attach_dev_workspace(
     .execute(&mut *tx)
     .await?;
 
+    // The attached workspace is now parent-managed like any fork: its own
+    // auto-pull (and webhook), fork PRs, and promotion repos must not stay
+    // live — they'd keep pulling/pushing against its pre-attach tracked
+    // branch. Mirror the fork-creation copy: keep sync repos only, strip the
+    // parent-only fields, and delete any managed webhook after commit.
+    #[allow(unused_mut)]
+    let mut stripped_webhooks: Vec<(String, i64)> = Vec::new();
+    if let Some(git_sync) = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &dev_w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    {
+        if let Ok(mut settings) = serde_json::from_value::<WorkspaceGitSyncSettings>(git_sync) {
+            settings
+                .repositories
+                .retain(|r| !r.use_individual_branch.unwrap_or(false));
+            for r in settings.repositories.iter_mut() {
+                if let Some(hook) = r.auto_pull.as_ref().and_then(|a| a.webhook_id) {
+                    stripped_webhooks.push((r.git_repo_resource_path.clone(), hook));
+                }
+                r.auto_pull = None;
+                r.fork_open_prs = false;
+                r.open_pr_error = None;
+            }
+            let serialized =
+                serde_json::to_value(&settings).map_err(|e| Error::internal_err(e.to_string()))?;
+            sqlx::query!(
+                "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+                serialized,
+                &dev_w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
     if req.lock_prod_deploy || req.lock_prod_forking {
         lock_prod_workspace(
             &mut tx,
@@ -6316,6 +6362,17 @@ async fn attach_dev_workspace(
     // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
     // so per-workspace job tags route to the prod family immediately rather than after the TTL.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    // Best-effort: the hooks captured before the strip above are unreachable now
+    // (their auto_pull is gone), so remove them from GitHub.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    for (path, hook_id) in stripped_webhooks {
+        if let Ok(url) = windmill_common::git_sync_ee::resolve_repo_url(&db, &dev_w_id, &path).await
+        {
+            let _ =
+                windmill_common::git_sync_ee::delete_repo_webhook(&db, &dev_w_id, &url, hook_id)
+                    .await;
+        }
+    }
     // Drop the cached ancestor chains too — the workspace existed BEFORE the attach, so a
     // cached empty chain reads as "not a fork" and its ducklake jobs would write the shared
     // lake until the TTL. Descendants' chains also gained the new root.

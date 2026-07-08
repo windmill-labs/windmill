@@ -1004,6 +1004,58 @@ class TestGitSyncAutoPull(GitSyncTestBase):
                 f"{response.status_code}: {response.content.decode()}",
             )
 
+    def test_attach_dev_workspace_strips_auto_pull(self):
+        """Attaching a workspace as a dev workspace strips its own auto-pull:
+        dev/fork sync is parent-managed, so a pre-attach auto-pull must not
+        keep pulling the old tracked branch."""
+        candidate_id = f"it-dev-cand-{uuid.uuid4().hex[:8]}"
+        self._fork_workspaces_to_cleanup.append(candidate_id)
+        candidate = WindmillClient(workspace=candidate_id)
+
+        repo_name, _ = self._create_test_repo()
+        resource_path = f"u/admin/git_sync_{repo_name.replace('-', '_')}"
+        candidate.create_resource(
+            path=resource_path,
+            resource_type="git_repository",
+            value={
+                "url": self._gitea.get_docker_clone_url(repo_name),
+                "branch": "main",
+                "is_github_app": False,
+            },
+            update_if_exists=True,
+        )
+        candidate.configure_git_sync({
+            "repositories": [{
+                "git_repo_resource_path": f"$res:{resource_path}",
+                "use_individual_branch": False,
+                "group_by_folder": False,
+                "settings": {"include_type": ["script"], "include_path": ["**"]},
+                "auto_pull": {"enabled": True, "mode": "polling"},
+            }],
+        })
+
+        response = self._client._client.post(
+            f"/api/w/{self._client._workspace}/workspaces/attach_dev_workspace",
+            json={"dev_workspace_id": candidate_id, "dev_workspace_label": "dev"},
+        )
+        self.assertEqual(
+            response.status_code // 100,
+            2,
+            f"attach_dev_workspace failed: {response.content.decode()}",
+        )
+
+        repo_settings = None
+        for repo in (candidate.get_workspace_settings().get("git_sync") or {}).get(
+            "repositories", []
+        ):
+            if resource_path in repo.get("git_repo_resource_path", ""):
+                repo_settings = repo
+        self.assertIsNotNone(repo_settings, "candidate lost its sync repo on attach")
+        self.assertIsNone(
+            repo_settings.get("auto_pull"),
+            f"auto_pull survived the attach: {repo_settings}",
+        )
+
     def test_webhook_receiver_ignores_unknown_deliveries(self):
         """An unsolicited webhook delivery (no registered hook) is not an error
         and enqueues nothing."""
