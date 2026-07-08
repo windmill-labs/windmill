@@ -77,7 +77,9 @@
 <svelte:window onhashchange={hashChange} />
 {#if !hideTabs}
 	<ScrollableX class={wrapperClass}>
-		<div class={twMerge('border-b flex flex-row whitespace-nowrap', c)} {style}>
+		<!-- `scrollbar-hidden` is inert on this non-scrolling row (ScrollableX owns the
+			 scroll), but TroubleshootFlowTutorial targets it as a selector hook — keep it. -->
+		<div class={twMerge('border-b flex flex-row whitespace-nowrap scrollbar-hidden', c)} {style}>
 			{@render children?.({ selected })}
 		</div>
 	</ScrollableX>
