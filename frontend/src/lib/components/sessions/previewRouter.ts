@@ -109,6 +109,29 @@ export function previewLocationLabel(url: string): string {
 	return stripBase(url)
 }
 
+/** Tab label for a preview location, preferring the friendly path a raw-app
+ * editor was renamed to while still parked at its throwaway `…/draft_<uuid>`
+ * storage path. `rawAppDraft` is the session's live raw app (its storage `path`
+ * plus the pending `draft_path` the user typed in the editor). When the tab
+ * shows that app at a draft placeholder path, it's labelled by the friendly
+ * leaf rather than the uuid. Display-only — the tab's URL keeps the storage
+ * path. Falls back to `previewLocationLabel` for every other tab. */
+export function previewTabLabel(
+	url: string,
+	rawAppDraft?: { path: string; draft_path?: string }
+): string {
+	const route = parsePreviewItemRoute(url)
+	if (
+		route?.raw_app &&
+		rawAppDraft?.draft_path &&
+		rawAppDraft.path === route.itemPath &&
+		route.itemPath.split('/').pop()?.startsWith('draft_')
+	) {
+		return rawAppDraft.draft_path.split('/').pop() ?? rawAppDraft.draft_path
+	}
+	return previewLocationLabel(url)
+}
+
 export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
 
 // Parse a preview URL/pathname into the workspace item it edits, or null for a

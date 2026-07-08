@@ -39,7 +39,8 @@
 		getOrCreateRuntime,
 		getRuntime,
 		listRuntimes,
-		promoteEditorWarm
+		promoteEditorWarm,
+		type SessionRuntime
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
@@ -49,7 +50,7 @@
 		matchPreviewPage,
 		pageKey,
 		parsePreviewItemRoute,
-		previewLocationLabel,
+		previewTabLabel,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
@@ -251,7 +252,7 @@
 	// Adapt the session tab model to DraggableTabs items (labels derived from the
 	// observed location; every tab closable, none pinned).
 	const previewTabItems = $derived<TabItem[]>(
-		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabel(t.loc) }))
+		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(activeRuntime, t.loc) }))
 	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -436,10 +437,10 @@
 		owner?.navigate(target)
 	}
 
-	// Short tab label: a known page's name, else a run detail, else the item's leaf
-	// name, else path.
-	function tabLabel(url: string): string {
-		return previewLocationLabel(url)
+	// Short tab label. Scoped to the tab's own runtime so a warm session's raw-app
+	// tab is labelled by that session's pending draft path, not another session's.
+	function tabLabelFor(rt: SessionRuntime | undefined, url: string): string {
+		return previewTabLabel(url, rt?.rawApp?.val)
 	}
 
 	// A link click inside a live editor (e.g. a subflow reference) re-points the
@@ -725,7 +726,7 @@
 											runtime={rt}
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
-											label={tabLabel(tab.loc)}
+											label={tabLabelFor(rt, tab.loc)}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 										/>
