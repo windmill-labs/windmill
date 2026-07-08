@@ -213,14 +213,17 @@ export async function createFlow(id: string): Promise<[FlowModule, FlowModuleSta
 }
 
 export async function fork(
-	flowModule: FlowModule
+	flowModule: FlowModule,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
 ): Promise<[FlowModule & { value: RawScript }, FlowModuleState]> {
 	if (flowModule.value.type !== 'script') {
 		throw new Error('Can only fork a script module')
 	}
 	const forkedFlowModule = await createInlineScriptModuleFromPath(
 		flowModule.value.path ?? '',
-		flowModule.id
+		flowModule.id,
+		workspace
 	)
 	const flowModuleState = await loadFlowModuleState(forkedFlowModule)
 	return [forkedFlowModule, flowModuleState]
@@ -228,9 +231,10 @@ export async function fork(
 
 async function createInlineScriptModuleFromPath(
 	path: string,
-	id: string
+	id: string,
+	workspace?: string
 ): Promise<FlowModule & { value: RawScript }> {
-	const { content, language } = await getScriptByPath(path)
+	const { content, language } = await getScriptByPath(path, workspace)
 
 	return {
 		id,

@@ -757,14 +757,14 @@
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
-						const [module, state] = await fork(flowModule)
+						const [module, state] = await fork(flowModule, opWs)
 						flowModule = module
 						flowStateStore.val[module.id] = state
 					}}
 					on:reload={async () => {
 						if (flowModule.value.type == 'script') {
 							if (flowModule.value.hash != undefined) {
-								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path)
+								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path, opWs)
 							}
 							forceReload++
 							await reload(flowModule)

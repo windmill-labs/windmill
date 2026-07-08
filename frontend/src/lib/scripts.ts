@@ -239,9 +239,9 @@ export async function getScriptByPath(
 	}
 }
 
-export async function getLatestHashForScript(path: string): Promise<string> {
+export async function getLatestHashForScript(path: string, workspace?: string): Promise<string> {
 	const script = await ScriptService.getScriptByPath({
-		workspace: get(workspaceStore)!,
+		workspace: workspace ?? get(workspaceStore)!,
 		path: path ?? ''
 	})
 	return script.hash

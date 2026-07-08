@@ -35,15 +35,19 @@ export function createSchemasResource(
 		if (!datatable || !workspace) return []
 
 		const resourcePath = `datatable://${datatable}`
+		// Key the schema cache by workspace too: a datatable of the same name can
+		// exist in both the nav and the acting workspace, so `datatable://<name>`
+		// alone would let one workspace's schema be reused for the other.
+		const cacheKey = `${workspace}:${resourcePath}`
 		const schemas = get(dbSchemas)
-		let dbSchema = schemas[resourcePath]
+		let dbSchema = schemas[cacheKey]
 
 		if (!dbSchema) {
 			try {
-				schemas[resourcePath] = await getDbSchemas('postgresql', resourcePath, workspace, (msg) =>
+				schemas[cacheKey] = await getDbSchemas('postgresql', resourcePath, workspace, (msg) =>
 					console.error('Schema error:', msg)
 				)
-				dbSchema = get(dbSchemas)[resourcePath]
+				dbSchema = get(dbSchemas)[cacheKey]
 			} catch (e) {
 				console.error(`Failed to load schema for ${datatable}:`, e)
 				return []
