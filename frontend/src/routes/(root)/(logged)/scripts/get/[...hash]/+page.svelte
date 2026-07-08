@@ -14,7 +14,8 @@
 		canWrite,
 		truncateHash,
 		copyToClipboard,
-		urlParamsToObject
+		urlParamsToObject,
+		extractTagFromSharableHash
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -334,12 +335,7 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			// `__tag` is a reserved key set by computeSharableHash ('Run again'), not a script arg
-			const tagParam = searchParams.get('__tag')
-			if (tagParam) {
-				overrideTag = tagParam
-				searchParams.delete('__tag')
-			}
+			overrideTag = extractTagFromSharableHash(searchParams)
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)

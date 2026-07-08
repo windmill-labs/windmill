@@ -8,7 +8,13 @@
 		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString, urlParamsToObject } from '$lib/utils'
+	import {
+		canWrite,
+		defaultIfEmptyString,
+		emptyString,
+		urlParamsToObject,
+		extractTagFromSharableHash
+	} from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
@@ -246,12 +252,7 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			// `__tag` is a reserved key set by computeSharableHash ('Run again'), not a flow arg
-			const tagParam = searchParams.get('__tag')
-			if (tagParam) {
-				overrideTag = tagParam
-				searchParams.delete('__tag')
-			}
+			overrideTag = extractTagFromSharableHash(searchParams)
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)

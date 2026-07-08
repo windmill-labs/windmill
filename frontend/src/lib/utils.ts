@@ -1137,11 +1137,22 @@ export function extractCustomProperties(styleStr: string): string {
 	return customStyleStr
 }
 
-// `tag` is carried as the reserved key `__tag` (raw, not JSON-encoded) and must be
-// stripped from the params before they are parsed as args (see scripts/flows get pages)
+function isJsonEncoded(value: string): boolean {
+	try {
+		JSON.parse(value)
+		return true
+	} catch {
+		return false
+	}
+}
+
+// `tag` is carried as the reserved key `__tag`, kept raw (unlike args, which are
+// JSON-encoded) so extractTagFromSharableHash can tell it apart from a genuine arg
+// named `__tag`. A JSON-parseable tag would be ambiguous, so it is not carried,
+// and an arg named `__tag` overwrites (wins over) the reserved key.
 export function computeSharableHash(args: any, tag?: string) {
 	let nargs = {}
-	if (tag) {
+	if (tag && !isJsonEncoded(tag)) {
 		nargs['__tag'] = tag
 	}
 	for (let k in args) {
@@ -1163,6 +1174,18 @@ export function computeSharableHash(args: any, tag?: string) {
 		console.error('Error computing sharable hash', e)
 		return ''
 	}
+}
+
+// Counterpart of computeSharableHash's `tag`: extracts and removes the reserved raw
+// `__tag` key. A JSON-parseable value is a genuine arg named `__tag`, not a carried
+// tag, so it is left in `params` for arg parsing.
+export function extractTagFromSharableHash(params: URLSearchParams): string | undefined {
+	const value = params.get('__tag')
+	if (value != null && !isJsonEncoded(value)) {
+		params.delete('__tag')
+		return value
+	}
+	return undefined
 }
 
 export function toCamel(s: string) {

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
 	cleanValueProperties,
+	computeSharableHash,
+	extractTagFromSharableHash,
 	getQueryStmtCountHeuristic,
 	parseDbInputFromAssetSyntax
 } from './utils'
@@ -388,5 +390,41 @@ describe('cleanValueProperties', () => {
 		const input: any = { summary: 'hi', created_at: '2024-01-01' }
 		cleanValueProperties(input)
 		expect(input).toHaveProperty('created_at')
+	})
+})
+
+describe('computeSharableHash / extractTagFromSharableHash', () => {
+	function roundTrip(hash: string) {
+		const params = new URLSearchParams(hash)
+		const tag = extractTagFromSharableHash(params)
+		const args = Object.fromEntries(
+			[...params.entries()].map(([k, v]) => [k, JSON.parse(v)])
+		)
+		return { tag, args }
+	}
+
+	it('carries the tag as raw __tag alongside JSON-encoded args', () => {
+		const hash = computeSharableHash({ name: 'world' }, 'my-custom-tag')
+		expect(roundTrip(hash)).toEqual({ tag: 'my-custom-tag', args: { name: 'world' } })
+	})
+
+	it('omits __tag when no tag is given', () => {
+		const hash = computeSharableHash({ name: 'world' })
+		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { name: 'world' } })
+	})
+
+	it('preserves an arg named __tag instead of misreading it as a tag', () => {
+		const hash = computeSharableHash({ __tag: 'value', name: 'world' })
+		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { __tag: 'value', name: 'world' } })
+	})
+
+	it('lets an arg named __tag win over a carried tag', () => {
+		const hash = computeSharableHash({ __tag: 'value' }, 'my-custom-tag')
+		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { __tag: 'value' } })
+	})
+
+	it('drops a JSON-parseable tag rather than corrupting args', () => {
+		const hash = computeSharableHash({ name: 'world' }, '123')
+		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { name: 'world' } })
 	})
 })
