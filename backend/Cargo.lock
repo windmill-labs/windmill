@@ -14469,6 +14469,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sqlparser 0.59.0",
  "sqlx",
  "strum",
  "tokio",

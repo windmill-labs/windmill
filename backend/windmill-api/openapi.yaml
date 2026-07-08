@@ -4495,6 +4495,8 @@ paths:
     get:
       summary: list Datatables
       operationId: listDataTables
+      x-mcp-tool: true
+      x-mcp-instructions: "Use this first to discover which data tables (named Postgres databases) exist in the workspace. Returns each data table's name; pass that name as `datatable_name` to the other data table tools."
       tags:
         - workspace
       parameters:
@@ -4540,6 +4542,8 @@ paths:
     get:
       summary: list tables of all connected Datatables
       operationId: listDataTableTables
+      x-mcp-tool: true
+      x-mcp-instructions: "Lists, for every data table in the workspace, its schemas and the tables inside them. Use this to find which tables you can read from or write to before calling getDataTableTableSchema or queryDataTable."
       tags:
         - workspace
       parameters:
@@ -4558,6 +4562,8 @@ paths:
     get:
       summary: get one Datatable table schema
       operationId: getDataTableTableSchema
+      x-mcp-tool: true
+      x-mcp-instructions: "Returns the columns of a single data table table, each with its Postgres type, nullability and default. Call this before queryDataTable/insertDataTable/updateDataTable so you know the exact column names and types."
       tags:
         - workspace
       parameters:
@@ -4584,6 +4590,158 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DataTableTableSchema"
+
+  /w/{workspace}/workspaces/query_datatable:
+    get:
+      summary: query rows from a datatable table
+      operationId: queryDataTable
+      x-mcp-tool: true
+      x-mcp-instructions: "Read rows from a data table table with an optional WHERE predicate. `where_clause` is a raw SQL boolean expression on the table's columns (e.g. `status = 'active' AND age > 18`); use single quotes for string literals. Only the columns you need should be listed in `select`. Results are capped at 1000 rows (default 100) — use `limit`, `offset` and `order_by` to page. Call getDataTableTableSchema first to learn the column names and types."
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          required: true
+          description: "Name of the data table (from listDataTables)"
+          schema:
+            type: string
+        - name: table_name
+          in: query
+          required: true
+          description: "Table to read from"
+          schema:
+            type: string
+        - name: schema_name
+          in: query
+          required: false
+          description: "Postgres schema of the table (defaults to `public`)"
+          schema:
+            type: string
+        - name: select
+          in: query
+          required: false
+          description: "Comma-separated list of columns to return. Defaults to all columns."
+          schema:
+            type: string
+        - name: where_clause
+          in: query
+          required: false
+          description: "Raw SQL predicate on the table's columns (the WHERE clause body, without the `WHERE` keyword)."
+          schema:
+            type: string
+        - name: order_by
+          in: query
+          required: false
+          description: "Raw SQL ORDER BY expression, e.g. `created_at DESC`."
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: "Maximum number of rows to return (1-1000, default 100)."
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          description: "Number of rows to skip, for pagination."
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: rows matching the query, each as a JSON object
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /w/{workspace}/workspaces/insert_datatable:
+    post:
+      summary: insert a row into a datatable table
+      operationId: insertDataTable
+      x-mcp-tool: true
+      x-mcp-instructions: "Insert a single row into a data table table. `values` maps column names to values; Postgres coerces the JSON values to each column's type. Columns you omit keep their table default (so you can leave out serial/auto-generated primary keys). Returns the full inserted row. Call getDataTableTableSchema first to learn the column names and types."
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Row to insert
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [datatable_name, table_name, values]
+              properties:
+                datatable_name:
+                  type: string
+                  description: "Name of the data table (from listDataTables)"
+                table_name:
+                  type: string
+                  description: "Table to insert into"
+                schema_name:
+                  type: string
+                  description: "Postgres schema of the table (defaults to `public`)"
+                values:
+                  type: object
+                  description: "Column name -> value for the row to insert"
+      responses:
+        "200":
+          description: the inserted row as a JSON object
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /w/{workspace}/workspaces/update_datatable:
+    post:
+      summary: update rows of a datatable table
+      operationId: updateDataTable
+      x-mcp-tool: true
+      x-mcp-instructions: "Update rows of a data table table that match a WHERE predicate. `set` maps column names to their new values (types are coerced by Postgres). `where_clause` is a raw SQL predicate selecting which rows to update and is REQUIRED to prevent an accidental full-table update — target rows precisely (e.g. by primary key). Returns the number of updated rows. Call getDataTableTableSchema first to learn the column names and types."
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Update specification
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [datatable_name, table_name, set, where_clause]
+              properties:
+                datatable_name:
+                  type: string
+                  description: "Name of the data table (from listDataTables)"
+                table_name:
+                  type: string
+                  description: "Table to update"
+                schema_name:
+                  type: string
+                  description: "Postgres schema of the table (defaults to `public`)"
+                set:
+                  type: object
+                  description: "Column name -> new value"
+                where_clause:
+                  type: string
+                  description: "Raw SQL predicate selecting the rows to update (required)"
+      responses:
+        "200":
+          description: number of updated rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: integer
 
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:

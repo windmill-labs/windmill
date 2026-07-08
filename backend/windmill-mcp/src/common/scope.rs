@@ -12,6 +12,15 @@ pub struct McpScopeConfig {
     pub flows: Vec<String>,
     /// Endpoint names/patterns allowed by this token
     pub endpoints: Vec<String>,
+    /// Whether the datatable read tools (list/query/get schema) are granted.
+    /// Datatable access is opt-in and off by default — it is never implied by the
+    /// generic endpoint or favorites scopes, only by an explicit `mcp:datatables:`
+    /// scope (or the legacy `mcp:all`).
+    pub datatables_read: bool,
+    /// Whether the datatable write tools (insert/update) are granted. Implies read.
+    pub datatables_write: bool,
+    /// Datatable names/patterns access is restricted to. `*` (or empty) means all.
+    pub datatables: Vec<String>,
     /// Whether this is a legacy "all" scope
     pub all: bool,
     /// Whether this is a "favorites" scope
@@ -37,6 +46,26 @@ impl McpScopeConfig {
         };
 
         is_resource_allowed(path, patterns)
+    }
+
+    /// Whether datatable `name` is within this token's datatable restriction.
+    /// This is only the name filter — whether datatable access is granted at all
+    /// (and at which level) is `datatable_tool_allowed`. An empty list or `*`
+    /// means all datatables.
+    pub fn is_datatable_allowed(&self, name: &str) -> bool {
+        self.datatables.is_empty()
+            || self.datatables.iter().any(|d| d == "*")
+            || is_resource_allowed(name, &self.datatables)
+    }
+
+    /// Whether a datatable tool with the given access level (`"read"` or
+    /// `"write"`) may be exposed/called. Write tools require write access; read
+    /// tools require read (write implies read).
+    pub fn datatable_tool_allowed(&self, access: &str) -> bool {
+        match access {
+            "write" => self.datatables_write,
+            _ => self.datatables_read || self.datatables_write,
+        }
     }
 
     /// Directional subset check: does this config grant at least everything
@@ -73,6 +102,31 @@ impl McpScopeConfig {
                 None => return false,
             }
         }
+        // Datatable containment: the caller must grant at least the requested
+        // access level, and its datatable name list must cover the requested one
+        // (empty list = all datatables, i.e. `*`).
+        if requested.datatables_read && !(self.datatables_read || self.datatables_write) {
+            return false;
+        }
+        if requested.datatables_write && !self.datatables_write {
+            return false;
+        }
+        if requested.datatables_read || requested.datatables_write {
+            let caller = if self.datatables.is_empty() {
+                vec!["*".to_string()]
+            } else {
+                self.datatables.clone()
+            };
+            let req = if requested.datatables.is_empty() {
+                vec!["*".to_string()]
+            } else {
+                requested.datatables.clone()
+            };
+            if !resource_list_covers(&caller, &req) {
+                return false;
+            }
+        }
+
         resource_list_covers(&self.scripts, &requested.scripts)
             && resource_list_covers(&self.flows, &requested.flows)
             && resource_list_covers(&self.endpoints, &requested.endpoints)
@@ -115,11 +169,15 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
         }
 
         if scope == "mcp:all" {
-            // Legacy scope: grant access to everything
+            // Legacy scope: grant access to everything, including datatable
+            // read+write on every datatable.
             config.all = true;
             config.scripts.push("*".to_string());
             config.flows.push("*".to_string());
             config.endpoints.push("*".to_string());
+            config.datatables_read = true;
+            config.datatables_write = true;
+            config.datatables.push("*".to_string());
             continue;
         }
 
@@ -166,12 +224,49 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
             continue;
         }
 
+        if let Some(rest) = scope.strip_prefix("mcp:datatables:") {
+            // Datatable access (opt-in). Forms:
+            //   mcp:datatables:write:<names|*>  -> read+write on those datatables
+            //   mcp:datatables:read:<names|*>   -> read-only
+            //   mcp:datatables:<names|*>        -> read-only (shorthand)
+            let (write, names) = if let Some(n) = rest.strip_prefix("write:") {
+                (true, n)
+            } else if let Some(n) = rest.strip_prefix("read:") {
+                (false, n)
+            } else {
+                (false, rest)
+            };
+            config.datatables_read = true;
+            if write {
+                config.datatables_write = true;
+            }
+            config.datatables.extend(parse_resource_list(names));
+            continue;
+        }
+
         tracing::warn!("Unrecognized MCP scope format: {}", scope);
     }
 
     config.granular = !config.all && !config.favorites;
 
     Ok(config)
+}
+
+/// Classify an MCP endpoint tool as a datatable tool and its required access
+/// level (`"read"` or `"write"`), or `None` if it is not a datatable tool.
+/// Datatable tools are gated by the dedicated `mcp:datatables:` scope rather
+/// than the generic endpoint/all scopes, so both the tool lister and the caller
+/// need this classification.
+pub fn datatable_access_level(tool_name: &str) -> Option<&'static str> {
+    match tool_name {
+        "listDataTables"
+        | "listDataTableTables"
+        | "listDataTableSchemas"
+        | "getDataTableTableSchema"
+        | "queryDataTable" => Some("read"),
+        "insertDataTable" | "updateDataTable" => Some("write"),
+        _ => None,
+    }
 }
 
 /// Parse comma-separated resource list
@@ -350,6 +445,62 @@ mod tests {
         assert!(subtree.contains(&cfg(&["mcp:scripts:f/team/sub"])));
         assert!(subtree.contains(&cfg(&["mcp:scripts:f/team/sub/*"])));
         assert!(!subtree.contains(&cfg(&["mcp:scripts:f/other/x"])));
+    }
+
+    #[test]
+    fn test_datatable_scope_opt_in_and_levels() {
+        // Datatable access is off by default — the generic endpoint/favorites
+        // scopes never grant it.
+        let c = cfg(&["mcp:endpoints:*"]);
+        assert!(!c.datatables_read && !c.datatables_write);
+        assert!(!c.datatable_tool_allowed("read"));
+        assert!(!c.datatable_tool_allowed("write"));
+
+        // mcp:all grants read+write on all datatables.
+        let c = cfg(&["mcp:all"]);
+        assert!(c.datatable_tool_allowed("read"));
+        assert!(c.datatable_tool_allowed("write"));
+        assert!(c.is_datatable_allowed("anything"));
+
+        // Read scope grants read tools only.
+        let c = cfg(&["mcp:datatables:read:*"]);
+        assert!(c.datatable_tool_allowed("read"));
+        assert!(!c.datatable_tool_allowed("write"));
+
+        // Write scope implies read.
+        let c = cfg(&["mcp:datatables:write:main,analytics"]);
+        assert!(c.datatable_tool_allowed("read"));
+        assert!(c.datatable_tool_allowed("write"));
+        assert!(c.is_datatable_allowed("main"));
+        assert!(c.is_datatable_allowed("analytics"));
+        assert!(!c.is_datatable_allowed("secret"));
+
+        // Shorthand (no read/write segment) is read-only.
+        let c = cfg(&["mcp:datatables:main"]);
+        assert!(c.datatable_tool_allowed("read"));
+        assert!(!c.datatable_tool_allowed("write"));
+        assert!(c.is_datatable_allowed("main"));
+        assert!(!c.is_datatable_allowed("other"));
+    }
+
+    #[test]
+    fn test_contains_datatables() {
+        // A write caller covers a read request on a subset.
+        assert!(cfg(&["mcp:datatables:write:main,analytics"])
+            .contains(&cfg(&["mcp:datatables:read:main"])));
+        // A read caller must NOT grant write.
+        assert!(!cfg(&["mcp:datatables:read:*"]).contains(&cfg(&["mcp:datatables:write:main"])));
+        // No datatable caller cannot grant datatable access.
+        assert!(!cfg(&["mcp:endpoints:*"]).contains(&cfg(&["mcp:datatables:read:main"])));
+        // Restricted caller must NOT widen into a sibling or into `*`.
+        assert!(
+            !cfg(&["mcp:datatables:read:main"]).contains(&cfg(&["mcp:datatables:read:analytics"]))
+        );
+        assert!(!cfg(&["mcp:datatables:read:main"]).contains(&cfg(&["mcp:datatables:read:*"])));
+        // `*` caller covers a subset request.
+        assert!(cfg(&["mcp:datatables:write:*"]).contains(&cfg(&["mcp:datatables:read:main"])));
+        // mcp:all covers any datatable request.
+        assert!(cfg(&["mcp:all"]).contains(&cfg(&["mcp:datatables:write:main"])));
     }
 
     #[test]

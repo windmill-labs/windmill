@@ -244,7 +244,16 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         // Add endpoint tools from the generated MCP tools, filtered by scope
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
-            if scope_config.granular && !scope_config.is_allowed("endpoint", &endpoint_tool.name) {
+            // Datatable tools are opt-in via the dedicated `mcp:datatables:` scope,
+            // independent of the generic endpoint/favorites/all scopes.
+            if let Some(access) = crate::common::scope::datatable_access_level(&endpoint_tool.name)
+            {
+                if !scope_config.datatable_tool_allowed(access) {
+                    continue;
+                }
+            } else if scope_config.granular
+                && !scope_config.is_allowed("endpoint", &endpoint_tool.name)
+            {
                 continue;
             }
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
@@ -276,8 +285,21 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in &endpoint_tools {
             if endpoint_tool.name.as_ref() == request.name {
-                // Validate endpoint scope
-                if scope_config.granular
+                // Validate endpoint scope. Datatable tools are gated by the
+                // dedicated datatable scope, not the generic endpoint scope.
+                if let Some(access) =
+                    crate::common::scope::datatable_access_level(&endpoint_tool.name)
+                {
+                    if !scope_config.datatable_tool_allowed(access) {
+                        return Err(ErrorData::internal_error(
+                            format!(
+                                "Access denied: datatable {} access is not in this token's scope (tool '{}')",
+                                access, endpoint_tool.name
+                            ),
+                            None,
+                        ));
+                    }
+                } else if scope_config.granular
                     && !scope_config.is_allowed("endpoint", &endpoint_tool.name)
                 {
                     return Err(ErrorData::internal_error(

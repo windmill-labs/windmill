@@ -46,6 +46,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
+sqlparser = { version = "0.59.0", features = ["visitor"] }
 tokio.workspace = true
 tokio-postgres.workspace = true
 tracing.workspace = true

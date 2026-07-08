@@ -59,6 +59,197 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_field_renames: None,
     },
     EndpointTool {
+        name: Cow::Borrowed("listDataTables"),
+        description: Cow::Borrowed("list Datatables"),
+        instructions: Cow::Borrowed("Use this first to discover which data tables (named Postgres databases) exist in the workspace. Returns each data table's name; pass that name as `datatable_name` to the other data table tools."),
+        path: Cow::Borrowed("/w/{workspace}/workspaces/list_datatables"),
+        method: Cow::Borrowed("GET"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("listDataTableTables"),
+        description: Cow::Borrowed("list tables of all connected Datatables"),
+        instructions: Cow::Borrowed("Lists, for every data table in the workspace, its schemas and the tables inside them. Use this to find which tables you can read from or write to before calling getDataTableTableSchema or queryDataTable."),
+        path: Cow::Borrowed("/w/{workspace}/workspaces/list_datatable_tables"),
+        method: Cow::Borrowed("GET"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("getDataTableTableSchema"),
+        description: Cow::Borrowed("get one Datatable table schema"),
+        instructions: Cow::Borrowed("Returns the columns of a single data table table, each with its Postgres type, nullability and default. Call this before queryDataTable/insertDataTable/updateDataTable so you know the exact column names and types."),
+        path: Cow::Borrowed("/w/{workspace}/workspaces/get_datatable_table_schema"),
+        method: Cow::Borrowed("GET"),
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "datatable_name": {
+                        "type": "string"
+                },
+                "schema_name": {
+                        "type": "string"
+                },
+                "table_name": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "datatable_name",
+                "schema_name",
+                "table_name"
+        ]
+})),
+        body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("queryDataTable"),
+        description: Cow::Borrowed("query rows from a datatable table"),
+        instructions: Cow::Borrowed("Read rows from a data table table with an optional WHERE predicate. `where_clause` is a raw SQL boolean expression on the table's columns (e.g. `status = 'active' AND age > 18`); use single quotes for string literals. Only the columns you need should be listed in `select`. Results are capped at 1000 rows (default 100) — use `limit`, `offset` and `order_by` to page. Call getDataTableTableSchema first to learn the column names and types."),
+        path: Cow::Borrowed("/w/{workspace}/workspaces/query_datatable"),
+        method: Cow::Borrowed("GET"),
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "datatable_name": {
+                        "type": "string",
+                        "description": "Name of the data table (from listDataTables)"
+                },
+                "table_name": {
+                        "type": "string",
+                        "description": "Table to read from"
+                },
+                "schema_name": {
+                        "type": "string",
+                        "description": "Postgres schema of the table (defaults to `public`)"
+                },
+                "select": {
+                        "type": "string",
+                        "description": "Comma-separated list of columns to return. Defaults to all columns."
+                },
+                "where_clause": {
+                        "type": "string",
+                        "description": "Raw SQL predicate on the table's columns (the WHERE clause body, without the `WHERE` keyword)."
+                },
+                "order_by": {
+                        "type": "string",
+                        "description": "Raw SQL ORDER BY expression, e.g. `created_at DESC`."
+                },
+                "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of rows to return (1-1000, default 100)."
+                },
+                "offset": {
+                        "type": "integer",
+                        "description": "Number of rows to skip, for pagination."
+                }
+        },
+        "required": [
+                "datatable_name",
+                "table_name"
+        ]
+})),
+        body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("insertDataTable"),
+        description: Cow::Borrowed("insert a row into a datatable table"),
+        instructions: Cow::Borrowed("Insert a single row into a data table table. `values` maps column names to values; Postgres coerces the JSON values to each column's type. Columns you omit keep their table default (so you can leave out serial/auto-generated primary keys). Returns the full inserted row. Call getDataTableTableSchema first to learn the column names and types."),
+        path: Cow::Borrowed("/w/{workspace}/workspaces/insert_datatable"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "required": [
+                "datatable_name",
+                "table_name",
+                "values"
+        ],
+        "properties": {
+                "datatable_name": {
+                        "type": "string",
+                        "description": "Name of the data table (from listDataTables)"
+                },
+                "table_name": {
+                        "type": "string",
+                        "description": "Table to insert into"
+                },
+                "schema_name": {
+                        "type": "string",
+                        "description": "Postgres schema of the table (defaults to `public`)"
+                },
+                "values": {
+                        "type": "object",
+                        "description": "Column name -> value for the row to insert"
+                }
+        }
+})),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateDataTable"),
+        description: Cow::Borrowed("update rows of a datatable table"),
+        instructions: Cow::Borrowed("Update rows of a data table table that match a WHERE predicate. `set` maps column names to their new values (types are coerced by Postgres). `where_clause` is a raw SQL predicate selecting which rows to update and is REQUIRED to prevent an accidental full-table update — target rows precisely (e.g. by primary key). Returns the number of updated rows. Call getDataTableTableSchema first to learn the column names and types."),
+        path: Cow::Borrowed("/w/{workspace}/workspaces/update_datatable"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "required": [
+                "datatable_name",
+                "table_name",
+                "set",
+                "where_clause"
+        ],
+        "properties": {
+                "datatable_name": {
+                        "type": "string",
+                        "description": "Name of the data table (from listDataTables)"
+                },
+                "table_name": {
+                        "type": "string",
+                        "description": "Table to update"
+                },
+                "schema_name": {
+                        "type": "string",
+                        "description": "Postgres schema of the table (defaults to `public`)"
+                },
+                "set": {
+                        "type": "object",
+                        "description": "Column name -> new value"
+                },
+                "where_clause": {
+                        "type": "string",
+                        "description": "Raw SQL predicate selecting the rows to update (required)"
+                }
+        }
+})),
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
         name: Cow::Borrowed("createVariable"),
         description: Cow::Borrowed("create variable"),
         instructions: Cow::Borrowed(""),

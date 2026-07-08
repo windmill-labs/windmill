@@ -69,6 +69,197 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodyFieldRenames: undefined
     },
     {
+        name: "listDataTables",
+        description: "list Datatables",
+        instructions: "Use this first to discover which data tables (named Postgres databases) exist in the workspace. Returns each data table's name; pass that name as `datatable_name` to the other data table tools.",
+        path: "/w/{workspace}/workspaces/list_datatables",
+        method: "GET",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "listDataTableTables",
+        description: "list tables of all connected Datatables",
+        instructions: "Lists, for every data table in the workspace, its schemas and the tables inside them. Use this to find which tables you can read from or write to before calling getDataTableTableSchema or queryDataTable.",
+        path: "/w/{workspace}/workspaces/list_datatable_tables",
+        method: "GET",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "getDataTableTableSchema",
+        description: "get one Datatable table schema",
+        instructions: "Returns the columns of a single data table table, each with its Postgres type, nullability and default. Call this before queryDataTable/insertDataTable/updateDataTable so you know the exact column names and types.",
+        path: "/w/{workspace}/workspaces/get_datatable_table_schema",
+        method: "GET",
+        pathParamsSchema: undefined,
+        queryParamsSchema: {
+        "type": "object",
+        "properties": {
+                "datatable_name": {
+                        "type": "string"
+                },
+                "schema_name": {
+                        "type": "string"
+                },
+                "table_name": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "datatable_name",
+                "schema_name",
+                "table_name"
+        ]
+},
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "queryDataTable",
+        description: "query rows from a datatable table",
+        instructions: "Read rows from a data table table with an optional WHERE predicate. `where_clause` is a raw SQL boolean expression on the table's columns (e.g. `status = 'active' AND age > 18`); use single quotes for string literals. Only the columns you need should be listed in `select`. Results are capped at 1000 rows (default 100) — use `limit`, `offset` and `order_by` to page. Call getDataTableTableSchema first to learn the column names and types.",
+        path: "/w/{workspace}/workspaces/query_datatable",
+        method: "GET",
+        pathParamsSchema: undefined,
+        queryParamsSchema: {
+        "type": "object",
+        "properties": {
+                "datatable_name": {
+                        "type": "string",
+                        "description": "Name of the data table (from listDataTables)"
+                },
+                "table_name": {
+                        "type": "string",
+                        "description": "Table to read from"
+                },
+                "schema_name": {
+                        "type": "string",
+                        "description": "Postgres schema of the table (defaults to `public`)"
+                },
+                "select": {
+                        "type": "string",
+                        "description": "Comma-separated list of columns to return. Defaults to all columns."
+                },
+                "where_clause": {
+                        "type": "string",
+                        "description": "Raw SQL predicate on the table's columns (the WHERE clause body, without the `WHERE` keyword)."
+                },
+                "order_by": {
+                        "type": "string",
+                        "description": "Raw SQL ORDER BY expression, e.g. `created_at DESC`."
+                },
+                "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of rows to return (1-1000, default 100)."
+                },
+                "offset": {
+                        "type": "integer",
+                        "description": "Number of rows to skip, for pagination."
+                }
+        },
+        "required": [
+                "datatable_name",
+                "table_name"
+        ]
+},
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "insertDataTable",
+        description: "insert a row into a datatable table",
+        instructions: "Insert a single row into a data table table. `values` maps column names to values; Postgres coerces the JSON values to each column's type. Columns you omit keep their table default (so you can leave out serial/auto-generated primary keys). Returns the full inserted row. Call getDataTableTableSchema first to learn the column names and types.",
+        path: "/w/{workspace}/workspaces/insert_datatable",
+        method: "POST",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "required": [
+                "datatable_name",
+                "table_name",
+                "values"
+        ],
+        "properties": {
+                "datatable_name": {
+                        "type": "string",
+                        "description": "Name of the data table (from listDataTables)"
+                },
+                "table_name": {
+                        "type": "string",
+                        "description": "Table to insert into"
+                },
+                "schema_name": {
+                        "type": "string",
+                        "description": "Postgres schema of the table (defaults to `public`)"
+                },
+                "values": {
+                        "type": "object",
+                        "description": "Column name -> value for the row to insert"
+                }
+        }
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "updateDataTable",
+        description: "update rows of a datatable table",
+        instructions: "Update rows of a data table table that match a WHERE predicate. `set` maps column names to their new values (types are coerced by Postgres). `where_clause` is a raw SQL predicate selecting which rows to update and is REQUIRED to prevent an accidental full-table update — target rows precisely (e.g. by primary key). Returns the number of updated rows. Call getDataTableTableSchema first to learn the column names and types.",
+        path: "/w/{workspace}/workspaces/update_datatable",
+        method: "POST",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "required": [
+                "datatable_name",
+                "table_name",
+                "set",
+                "where_clause"
+        ],
+        "properties": {
+                "datatable_name": {
+                        "type": "string",
+                        "description": "Name of the data table (from listDataTables)"
+                },
+                "table_name": {
+                        "type": "string",
+                        "description": "Table to update"
+                },
+                "schema_name": {
+                        "type": "string",
+                        "description": "Postgres schema of the table (defaults to `public`)"
+                },
+                "set": {
+                        "type": "object",
+                        "description": "Column name -> new value"
+                },
+                "where_clause": {
+                        "type": "string",
+                        "description": "Raw SQL predicate selecting the rows to update (required)"
+                }
+        }
+},
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
         name: "createVariable",
         description: "create variable",
         instructions: "",
