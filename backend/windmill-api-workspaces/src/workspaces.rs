@@ -131,6 +131,9 @@ pub fn workspaced_service() -> Router {
             "/get_datatable_table_schema",
             get(get_datatable_table_schema),
         )
+        .route("/query_datatable", get(query_datatable))
+        .route("/insert_datatable", post(insert_datatable))
+        .route("/update_datatable", post(update_datatable))
         .route("/edit_datatable_config", post(edit_datatable_config))
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
@@ -1875,6 +1878,261 @@ fn is_system_pg_schema(schema_name: &str) -> bool {
     ) || schema_name.starts_with("pg_")
 }
 
+// ---------------------------------------------------------------------------
+// Datatable data operations (read/write) — exposed as MCP tools.
+//
+// These connect directly to the datatable's underlying Postgres (same idiom as
+// `get_datatable_schema`) and run a single, structurally-fixed statement. Only
+// the SELECT/INSERT/UPDATE shape is ours; identifiers are always quoted and
+// values are bound through `jsonb_populate_record` so Postgres does the type
+// coercion, never string interpolation. A caller-supplied `where_clause` is the
+// one raw fragment — it is trusted like the DB-manager's predicate, and because
+// `client.query`/`execute` prepare a single statement, it cannot chain a second
+// one.
+// ---------------------------------------------------------------------------
+
+const DATATABLE_QUERY_MAX_LIMIT: i64 = 1000;
+const DATATABLE_QUERY_DEFAULT_LIMIT: i64 = 100;
+
+fn default_public_schema() -> String {
+    "public".to_string()
+}
+
+/// Connect to a datatable's underlying Postgres, spawning the connection driver.
+async fn connect_datatable(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<tokio_postgres::Client> {
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    Ok(client)
+}
+
+/// Quote a Postgres identifier by doubling embedded quotes. Rejects empty
+/// identifiers and NUL bytes so a column/table/schema name can never break out
+/// of the quotes.
+fn quote_pg_ident(ident: &str) -> Result<String> {
+    if ident.is_empty() || ident.contains('\0') {
+        return Err(Error::BadRequest(format!(
+            "Invalid SQL identifier: {:?}",
+            ident
+        )));
+    }
+    Ok(format!("\"{}\"", ident.replace('"', "\"\"")))
+}
+
+fn check_datatable_schema(schema_name: &str) -> Result<()> {
+    if is_system_pg_schema(schema_name) {
+        return Err(Error::BadRequest(format!(
+            "Schema '{}' is a system schema and cannot be used for datatable data operations",
+            schema_name
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct QueryDataTableQuery {
+    datatable_name: String,
+    #[serde(default = "default_public_schema")]
+    schema_name: String,
+    table_name: String,
+    /// Raw SQL predicate AND-ed into the SELECT (e.g. `status = 'active' AND age > 18`).
+    where_clause: Option<String>,
+    /// Comma-separated columns to return. Defaults to all columns.
+    select: Option<String>,
+    /// Raw ORDER BY expression (e.g. `created_at DESC`).
+    order_by: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+/// SELECT rows from a datatable table with an optional WHERE predicate.
+async fn query_datatable(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(q): Query<QueryDataTableQuery>,
+) -> JsonResult<Vec<serde_json::Value>> {
+    check_datatable_schema(&q.schema_name)?;
+
+    let limit = q
+        .limit
+        .unwrap_or(DATATABLE_QUERY_DEFAULT_LIMIT)
+        .clamp(1, DATATABLE_QUERY_MAX_LIMIT);
+    let offset = q.offset.unwrap_or(0).max(0);
+
+    let qualified = format!(
+        "{}.{}",
+        quote_pg_ident(&q.schema_name)?,
+        quote_pg_ident(&q.table_name)?
+    );
+
+    let select_list = match q.select.as_ref().filter(|s| !s.trim().is_empty()) {
+        Some(cols) => cols
+            .split(',')
+            .map(|c| quote_pg_ident(c.trim()))
+            .collect::<Result<Vec<_>>>()?
+            .join(", "),
+        None => "*".to_string(),
+    };
+
+    let mut inner = format!("SELECT {} FROM {}", select_list, qualified);
+    if let Some(w) = q.where_clause.as_ref().filter(|w| !w.trim().is_empty()) {
+        inner.push_str(&format!(" WHERE {}", w));
+    }
+    if let Some(o) = q.order_by.as_ref().filter(|o| !o.trim().is_empty()) {
+        inner.push_str(&format!(" ORDER BY {}", o));
+    }
+    inner.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
+
+    let sql = format!("SELECT to_jsonb(_wm_row) AS row FROM ({}) _wm_row", inner);
+
+    let client = connect_datatable(&db, &w_id, &q.datatable_name).await?;
+    let rows = client
+        .query(&sql, &[])
+        .await
+        .map_err(|e| Error::BadRequest(format!("Datatable query failed: {}", e)))?;
+
+    let out = rows
+        .into_iter()
+        .map(|r| r.get::<_, serde_json::Value>(0))
+        .collect();
+    Ok(Json(out))
+}
+
+#[derive(Deserialize)]
+struct InsertDataTableRequest {
+    datatable_name: String,
+    #[serde(default = "default_public_schema")]
+    schema_name: String,
+    table_name: String,
+    /// Column name -> value. Types are coerced by Postgres from the JSON object;
+    /// columns not listed keep their table default.
+    values: serde_json::Map<String, serde_json::Value>,
+}
+
+/// INSERT a single row into a datatable table, returning the inserted row.
+async fn insert_datatable(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<InsertDataTableRequest>,
+) -> JsonResult<serde_json::Value> {
+    check_datatable_schema(&req.schema_name)?;
+    if req.values.is_empty() {
+        return Err(Error::BadRequest(
+            "`values` must contain at least one column".to_string(),
+        ));
+    }
+
+    let qualified = format!(
+        "{}.{}",
+        quote_pg_ident(&req.schema_name)?,
+        quote_pg_ident(&req.table_name)?
+    );
+
+    let cols = req
+        .values
+        .keys()
+        .map(|k| quote_pg_ident(k))
+        .collect::<Result<Vec<_>>>()?;
+    let col_list = cols.join(", ");
+    let select_list = cols.join(", ");
+
+    let json_obj = serde_json::Value::Object(req.values.clone());
+    let sql = format!(
+        "INSERT INTO {qualified} AS _wm_t ({col_list}) \
+         SELECT {select_list} FROM jsonb_populate_record(NULL::{qualified}, $1::jsonb) \
+         RETURNING to_jsonb(_wm_t)"
+    );
+
+    let client = connect_datatable(&db, &w_id, &req.datatable_name).await?;
+    let row = client
+        .query_one(&sql, &[&json_obj])
+        .await
+        .map_err(|e| Error::BadRequest(format!("Datatable insert failed: {}", e)))?;
+
+    Ok(Json(row.get::<_, serde_json::Value>(0)))
+}
+
+#[derive(Deserialize)]
+struct UpdateDataTableRequest {
+    datatable_name: String,
+    #[serde(default = "default_public_schema")]
+    schema_name: String,
+    table_name: String,
+    /// Column name -> new value. Types are coerced by Postgres from the JSON object.
+    set: serde_json::Map<String, serde_json::Value>,
+    /// Raw SQL predicate selecting which rows to update. Required to prevent an
+    /// accidental full-table update.
+    where_clause: String,
+}
+
+/// UPDATE rows of a datatable table matching a WHERE predicate. Returns the
+/// number of updated rows.
+async fn update_datatable(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<UpdateDataTableRequest>,
+) -> JsonResult<serde_json::Value> {
+    check_datatable_schema(&req.schema_name)?;
+    if req.set.is_empty() {
+        return Err(Error::BadRequest(
+            "`set` must contain at least one column".to_string(),
+        ));
+    }
+    if req.where_clause.trim().is_empty() {
+        return Err(Error::BadRequest(
+            "`where_clause` is required to avoid updating the whole table".to_string(),
+        ));
+    }
+
+    let qualified = format!(
+        "{}.{}",
+        quote_pg_ident(&req.schema_name)?,
+        quote_pg_ident(&req.table_name)?
+    );
+
+    // Each SET value is pulled as a scalar out of a per-column
+    // `jsonb_populate_record` so there is no FROM-join — the WHERE predicate's
+    // bare column names then resolve unambiguously to the target table.
+    let set_clause = req
+        .set
+        .keys()
+        .map(|k| {
+            let col = quote_pg_ident(k)?;
+            Ok(format!(
+                "{col} = (jsonb_populate_record(NULL::{qualified}, $1::jsonb)).{col}"
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join(", ");
+
+    let json_obj = serde_json::Value::Object(req.set.clone());
+    let sql = format!(
+        "UPDATE {qualified} SET {set_clause} WHERE {}",
+        req.where_clause
+    );
+
+    let client = connect_datatable(&db, &w_id, &req.datatable_name).await?;
+    let updated = client
+        .execute(&sql, &[&json_obj])
+        .await
+        .map_err(|e| Error::BadRequest(format!("Datatable update failed: {}", e)))?;
+
+    Ok(Json(serde_json::json!({ "updated": updated })))
+}
+
 fn compact_column_type(
     udt_name: String,
     is_nullable: String,
@@ -1920,6 +2178,24 @@ mod tests {
             compact_column_type("text".to_string(), "NO".to_string(), Some(default)),
             format!("text={}...", "é".repeat(27))
         );
+    }
+
+    #[test]
+    fn quote_pg_ident_wraps_and_escapes() {
+        assert_eq!(quote_pg_ident("id").unwrap(), "\"id\"");
+        assert_eq!(quote_pg_ident("my Table").unwrap(), "\"my Table\"");
+        // A caller injecting a closing quote must be neutralized by doubling it,
+        // not by breaking out of the quotes.
+        assert_eq!(
+            quote_pg_ident("a\"; DROP TABLE t; --").unwrap(),
+            "\"a\"\"; DROP TABLE t; --\""
+        );
+    }
+
+    #[test]
+    fn quote_pg_ident_rejects_empty_and_nul() {
+        assert!(quote_pg_ident("").is_err());
+        assert!(quote_pg_ident("a\0b").is_err());
     }
 }
 
