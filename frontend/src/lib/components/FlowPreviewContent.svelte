@@ -669,6 +669,7 @@
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					bind:flowState={flowStateStore.val}
+					workspaceId={opWs}
 					{jobId}
 					onDone={async ({ job: completedJob }) => {
 						isRunning = false

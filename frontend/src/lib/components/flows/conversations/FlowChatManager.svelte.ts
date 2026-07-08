@@ -187,7 +187,7 @@ export class FlowChatManager {
 	}
 
 	async cancelCurrentJob() {
-		if (!get(workspaceStore)) {
+		if (!this.#workspace()) {
 			return
 		}
 
@@ -215,7 +215,7 @@ export class FlowChatManager {
 
 	// Only used by InfiniteList
 	private async loadConversations(page: number, perPage: number) {
-		if (!get(workspaceStore) || !this.#path) return []
+		if (!this.#workspace() || !this.#path) return []
 
 		try {
 			const response = await FlowConversationsService.listFlowConversations({
@@ -236,7 +236,7 @@ export class FlowChatManager {
 	// Message loading
 	private async loadMessages(reset: boolean, conversationId?: string) {
 		let conversationIdToUse = conversationId ?? this.selectedConversationId
-		if (!get(workspaceStore) || !conversationIdToUse) return
+		if (!this.#workspace() || !conversationIdToUse) return
 
 		if (reset) {
 			if (this.#conversationsCache[conversationIdToUse]) {
@@ -347,7 +347,7 @@ export class FlowChatManager {
 		conversationId: string,
 		options?: { isNewConversation?: boolean; removeTempMessages?: boolean }
 	) {
-		if (!get(workspaceStore)) return
+		if (!this.#workspace()) return
 
 		try {
 			const lastSeq = this.getLastPersistedMessageSeq()

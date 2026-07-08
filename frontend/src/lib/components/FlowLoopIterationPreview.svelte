@@ -186,6 +186,7 @@
 			{#if jobId}
 				<FlowStatusViewer
 					bind:flowState={flowStateStore.val}
+					workspaceId={opWorkspace?.()}
 					{jobId}
 					onJobsLoaded={({ job: newJob }) => {
 						job = newJob
