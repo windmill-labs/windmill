@@ -3445,7 +3445,7 @@ pub async fn start_worker(
     let py_version = if let Some(requirements) = requirements_o {
         PyV::parse_from_requirements(&split_python_requirements(requirements.as_str()))
     } else {
-        tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
+        tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to default python version");
         PyVAlias::default().into()
     };
 
