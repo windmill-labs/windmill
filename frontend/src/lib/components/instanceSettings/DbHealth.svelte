@@ -318,6 +318,12 @@
 									<span class="text-primary text-right font-medium"
 										>{formatNumber(sizing.live_workers)}</span
 									>
+									{#if sizing.live_agent_workers > 0}
+										<span class="text-tertiary">Agent workers (HTTP, excluded)</span>
+										<span class="text-primary text-right font-medium"
+											>{formatNumber(sizing.live_agent_workers)}</span
+										>
+									{/if}
 									<span class="text-tertiary">Est. peak worker connections</span>
 									<span class="text-primary text-right font-medium"
 										>{formatNumber(sizing.estimated_worker_connections)}</span

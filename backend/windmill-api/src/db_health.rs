@@ -105,10 +105,12 @@ pub struct ConnectionPoolInfo {
 
 #[derive(Serialize)]
 pub struct ConnectionSizingInfo {
-    /// Live worker processes (distinct worker_instance pinged recently).
+    /// Live DB-connected worker processes (distinct worker_instance pinged recently).
     pub live_worker_instances: i64,
-    /// Live individual workers across all instances.
+    /// Live individual DB-connected workers across all instances.
     pub live_workers: i64,
+    /// Live agent workers (HTTP-only, hold no postgres connections; excluded from the estimate).
+    pub live_agent_workers: i64,
     /// Effective per-server pool ceiling: DATABASE_CONNECTIONS if set, else DEFAULT_MAX_CONNECTIONS_SERVER.
     pub server_pool_size: i64,
     /// Effective per-worker-instance pool ceiling (single-worker baseline; grows +1 per extra worker unless DATABASE_CONNECTIONS is set).
@@ -424,12 +426,20 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
 
     // Live Windmill worker fleet: each worker pings worker_ping every ~5s; a
     // window of 30s tolerates a missed ping without counting dead workers.
+    // Agent workers (name prefix "ag-") talk to the API over HTTP and hold no
+    // postgres pool, so they're excluded from the connection estimate and only
+    // reported for context; regular DB-connected workers use the "wk-" prefix.
+    let db_worker_pattern = format!("{}-%", windmill_common::utils::WORKER_NAME_PREFIX);
+    let agent_worker_pattern = format!("{}-%", windmill_common::utils::AGENT_WORKER_NAME_PREFIX);
     let fleet = sqlx::query!(
         r#"SELECT
-            COUNT(*) as "live_workers!",
-            COUNT(DISTINCT worker_instance) as "live_instances!"
+            COUNT(*) FILTER (WHERE worker LIKE $1) as "live_workers!",
+            COUNT(DISTINCT worker_instance) FILTER (WHERE worker LIKE $1) as "live_instances!",
+            COUNT(*) FILTER (WHERE worker LIKE $2) as "live_agent_workers!"
         FROM worker_ping
-        WHERE ping_at > now() - interval '30 seconds'"#
+        WHERE ping_at > now() - interval '30 seconds'"#,
+        db_worker_pattern,
+        agent_worker_pattern,
     )
     .fetch_one(db)
     .await?;
@@ -444,6 +454,7 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
     let sizing = compute_connection_sizing(
         fleet.live_workers,
         fleet.live_instances,
+        fleet.live_agent_workers,
         reserved,
         database_connections_override,
     );
@@ -517,9 +528,14 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
 /// best proxy for the fleet's config. Servers do not ping `worker_ping`, so we
 /// can't count them — the recommendation assumes one server and exposes the
 /// per-server increment so the operator can add capacity for the rest.
+///
+/// `live_agent_workers` is reported for context only: agent workers reach the
+/// API over HTTP and open no postgres connections, so they never contribute to
+/// the estimate.
 fn compute_connection_sizing(
     live_workers: i64,
     live_instances: i64,
+    live_agent_workers: i64,
     reserved: i64,
     database_connections_override: Option<i64>,
 ) -> ConnectionSizingInfo {
@@ -564,14 +580,22 @@ fn compute_connection_sizing(
         } else {
             format!("each instance up to {worker_pool_size}, +1 per extra worker")
         };
+        let agent_note = if live_agent_workers > 0 {
+            format!(
+                " ({live_agent_workers} agent worker(s) excluded — they use HTTP, not postgres connections.)"
+            )
+        } else {
+            String::new()
+        };
         format!(
-            "{live_workers} live worker(s) across {live_instances} instance(s) can open up to ~{estimated_worker_connections} connections ({per_instance}; {pool_source}). Each Windmill server adds up to {server_pool}. Recommended max_connections ≥ {recommended} for a single server; add {server_pool} per additional server."
+            "{live_workers} live worker(s) across {live_instances} instance(s) can open up to ~{estimated_worker_connections} connections ({per_instance}; {pool_source}). Each Windmill server adds up to {server_pool}. Recommended max_connections ≥ {recommended} for a single server; add {server_pool} per additional server.{agent_note}"
         )
     };
 
     ConnectionSizingInfo {
         live_worker_instances: live_instances,
         live_workers,
+        live_agent_workers,
         server_pool_size: server_pool,
         worker_pool_size,
         database_connections_override,
@@ -784,9 +808,10 @@ mod tests {
 
     #[test]
     fn no_workers_reports_defaults_and_floors_at_200() {
-        let s = compute_connection_sizing(0, 0, 3, None);
+        let s = compute_connection_sizing(0, 0, 0, 3, None);
         assert_eq!(s.live_workers, 0);
         assert_eq!(s.live_worker_instances, 0);
+        assert_eq!(s.live_agent_workers, 0);
         assert_eq!(s.estimated_worker_connections, 0);
         assert_eq!(s.server_pool_size, 50);
         assert_eq!(s.worker_pool_size, 5);
@@ -799,7 +824,7 @@ mod tests {
 
     #[test]
     fn single_worker_single_instance_floors_at_200() {
-        let s = compute_connection_sizing(1, 1, 3, None);
+        let s = compute_connection_sizing(1, 1, 0, 3, None);
         // (5 - 1) * 1 instance + 1 worker = 5
         assert_eq!(s.estimated_worker_connections, 5);
         // ceil((5 + 50) * 1.20) + 3 = 66 + 3 = 69, floored up to 200.
@@ -809,14 +834,14 @@ mod tests {
     #[test]
     fn multi_worker_instances_sum_per_instance_pools() {
         // Two instances, 5 workers total: pools are (4 + w_i) summed = 4*2 + 5 = 13.
-        let s = compute_connection_sizing(5, 2, 3, None);
+        let s = compute_connection_sizing(5, 2, 0, 3, None);
         assert_eq!(s.estimated_worker_connections, 13);
     }
 
     #[test]
     fn large_fleet_exceeds_floor_with_margin_and_reserve() {
         // 300 workers across 10 instances: (5-1)*10 + 300 = 340 worker connections.
-        let s = compute_connection_sizing(300, 10, 3, None);
+        let s = compute_connection_sizing(300, 10, 0, 3, None);
         assert_eq!(s.estimated_worker_connections, 340);
         // ceil((340 + 50) * 1.20) + 3 = ceil(468.0) + 3 = 471, above the 200 floor.
         assert_eq!(s.recommended_max_connections, 471);
@@ -825,8 +850,8 @@ mod tests {
     #[test]
     fn reserved_above_default_widens_recommendation() {
         // Big enough fleet that the floor doesn't mask the reserved contribution.
-        let base = compute_connection_sizing(300, 10, 3, None);
-        let high = compute_connection_sizing(300, 10, 20, None);
+        let base = compute_connection_sizing(300, 10, 0, 3, None);
+        let high = compute_connection_sizing(300, 10, 0, 20, None);
         assert_eq!(
             high.recommended_max_connections - base.recommended_max_connections,
             17
@@ -837,7 +862,7 @@ mod tests {
     fn database_connections_override_caps_every_process() {
         // DATABASE_CONNECTIONS=100 means each instance opens up to 100, not the
         // default 5-based estimate. 5 instances -> 500 worker connections.
-        let s = compute_connection_sizing(20, 5, 3, Some(100));
+        let s = compute_connection_sizing(20, 5, 0, 3, Some(100));
         assert_eq!(s.server_pool_size, 100);
         assert_eq!(s.worker_pool_size, 100);
         assert_eq!(s.database_connections_override, Some(100));
@@ -846,5 +871,21 @@ mod tests {
         // ceil((500 + 100) * 1.20) + 3 = 720 + 3 = 723.
         assert_eq!(s.recommended_max_connections, 723);
         assert!(s.message.contains("DATABASE_CONNECTIONS=100"));
+    }
+
+    #[test]
+    fn agent_workers_are_excluded_from_the_estimate() {
+        // 50 agent workers alongside 2 DB workers/2 instances: only the DB
+        // workers count toward connections; the agent count is reported.
+        let s = compute_connection_sizing(2, 2, 50, 3, None);
+        assert_eq!(s.live_agent_workers, 50);
+        // (5 - 1) * 2 + 2 = 10, agent workers contribute nothing.
+        assert_eq!(s.estimated_worker_connections, 10);
+        let without_agents = compute_connection_sizing(2, 2, 0, 3, None);
+        assert_eq!(
+            s.recommended_max_connections,
+            without_agents.recommended_max_connections
+        );
+        assert!(s.message.contains("50 agent worker(s) excluded"));
     }
 }
