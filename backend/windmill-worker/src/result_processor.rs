@@ -1134,6 +1134,7 @@ async fn persist_git_sync_open_pr_error(
 /// A one-line description of the repo's sync filters, appended to an "in sync"
 /// PR verdict: a PR that only touches files outside these paths deploys
 /// nothing on merge, which otherwise looks like a wrong verdict.
+#[cfg(all(feature = "enterprise", feature = "private"))]
 fn format_git_sync_scope_note(include: &[String], exclude: &[String]) -> Option<String> {
     if include.is_empty() {
         return None;
