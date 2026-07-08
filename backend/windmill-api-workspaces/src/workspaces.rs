@@ -1939,6 +1939,109 @@ fn check_datatable_schema(schema_name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Datatable data writes resolve credentials through the unchecked resolver
+/// (there is no per-resource ACL on a data table, mirroring the read handlers),
+/// so gate the mutating endpoints to non-operator workspace members — operators
+/// are the workspace's read-mostly tier and must not write shared data.
+fn require_datatable_writer(authed: &ApiAuthed) -> Result<()> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot write to data tables".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Flags any nested `SELECT` (subquery) inside an expression tree.
+struct SubqueryDetector {
+    found: bool,
+}
+impl sqlparser::ast::Visitor for SubqueryDetector {
+    type Break = ();
+    fn pre_visit_query(
+        &mut self,
+        _query: &sqlparser::ast::Query,
+    ) -> std::ops::ControlFlow<Self::Break> {
+        self.found = true;
+        std::ops::ControlFlow::Break(())
+    }
+}
+
+fn expr_has_subquery(expr: &sqlparser::ast::Expr) -> bool {
+    use sqlparser::ast::Visit;
+    let mut det = SubqueryDetector { found: false };
+    let _ = expr.visit(&mut det);
+    det.found
+}
+
+/// Validate a caller-supplied SQL boolean predicate (a `WHERE` body) and return
+/// its canonical, parser-rendered form. Parsing plus re-serialization is what
+/// makes interpolation safe: a fragment that tries to close the surrounding
+/// query and append a `UNION` (`false) _wm_row UNION ALL SELECT …`), smuggle a
+/// comment, or embed a subquery (`… = (SELECT secret …)`) is rejected here, and
+/// the returned string is the parser's own rendering of a single scalar
+/// expression — never the raw bytes. NB: the datatable connection role's own
+/// privileges remain the trust boundary — a permitted expression may still call
+/// any function that role can (e.g. `pg_sleep`), so scope datatable roles
+/// accordingly.
+fn sanitize_sql_predicate(input: &str, field: &str) -> Result<String> {
+    let dialect = sqlparser::dialect::PostgreSqlDialect {};
+    let mut parser = sqlparser::parser::Parser::new(&dialect)
+        .try_with_sql(input)
+        .map_err(|e| Error::BadRequest(format!("Invalid {}: {}", field, e)))?;
+    let expr = parser
+        .parse_expr()
+        .map_err(|e| Error::BadRequest(format!("Invalid {}: {}", field, e)))?;
+    if parser.peek_token().token != sqlparser::tokenizer::Token::EOF {
+        return Err(Error::BadRequest(format!(
+            "{} must be a single boolean expression",
+            field
+        )));
+    }
+    if expr_has_subquery(&expr) {
+        return Err(Error::BadRequest(format!(
+            "subqueries are not allowed in {}",
+            field
+        )));
+    }
+    Ok(expr.to_string())
+}
+
+/// Validate a caller-supplied `ORDER BY` list and return its canonical form.
+/// Same defense as `sanitize_sql_predicate`: it must parse as the ORDER BY of a
+/// plain single `SELECT` (no set operations, no subqueries, no trailing tokens).
+fn sanitize_sql_order_by(input: &str) -> Result<String> {
+    let dialect = sqlparser::dialect::PostgreSqlDialect {};
+    let statements =
+        sqlparser::parser::Parser::parse_sql(&dialect, &format!("SELECT 1 ORDER BY {}", input))
+            .map_err(|e| Error::BadRequest(format!("Invalid order_by: {}", e)))?;
+    let query = match statements.as_slice() {
+        [sqlparser::ast::Statement::Query(q)] => q,
+        _ => return Err(Error::BadRequest("Invalid order_by".to_string())),
+    };
+    if !matches!(query.body.as_ref(), sqlparser::ast::SetExpr::Select(_)) {
+        return Err(Error::BadRequest(
+            "order_by must not contain set operations".to_string(),
+        ));
+    }
+    let exprs = match query.order_by.as_ref().map(|o| &o.kind) {
+        Some(sqlparser::ast::OrderByKind::Expressions(exprs)) => exprs,
+        _ => return Err(Error::BadRequest("Invalid order_by".to_string())),
+    };
+    for oe in exprs {
+        if expr_has_subquery(&oe.expr) {
+            return Err(Error::BadRequest(
+                "subqueries are not allowed in order_by".to_string(),
+            ));
+        }
+    }
+    Ok(exprs
+        .iter()
+        .map(|oe| oe.to_string())
+        .collect::<Vec<_>>()
+        .join(", "))
+}
+
 #[derive(Deserialize)]
 struct QueryDataTableQuery {
     datatable_name: String,
@@ -1987,10 +2090,13 @@ async fn query_datatable(
 
     let mut inner = format!("SELECT {} FROM {}", select_list, qualified);
     if let Some(w) = q.where_clause.as_ref().filter(|w| !w.trim().is_empty()) {
-        inner.push_str(&format!(" WHERE {}", w));
+        inner.push_str(&format!(
+            " WHERE {}",
+            sanitize_sql_predicate(w, "where_clause")?
+        ));
     }
     if let Some(o) = q.order_by.as_ref().filter(|o| !o.trim().is_empty()) {
-        inner.push_str(&format!(" ORDER BY {}", o));
+        inner.push_str(&format!(" ORDER BY {}", sanitize_sql_order_by(o)?));
     }
     inner.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
 
@@ -2022,11 +2128,12 @@ struct InsertDataTableRequest {
 
 /// INSERT a single row into a datatable table, returning the inserted row.
 async fn insert_datatable(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<InsertDataTableRequest>,
 ) -> JsonResult<serde_json::Value> {
+    require_datatable_writer(&authed)?;
     check_datatable_schema(&req.schema_name)?;
     if req.values.is_empty() {
         return Err(Error::BadRequest(
@@ -2080,11 +2187,12 @@ struct UpdateDataTableRequest {
 /// UPDATE rows of a datatable table matching a WHERE predicate. Returns the
 /// number of updated rows.
 async fn update_datatable(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<UpdateDataTableRequest>,
 ) -> JsonResult<serde_json::Value> {
+    require_datatable_writer(&authed)?;
     check_datatable_schema(&req.schema_name)?;
     if req.set.is_empty() {
         return Err(Error::BadRequest(
@@ -2096,6 +2204,7 @@ async fn update_datatable(
             "`where_clause` is required to avoid updating the whole table".to_string(),
         ));
     }
+    let where_clause = sanitize_sql_predicate(&req.where_clause, "where_clause")?;
 
     let qualified = format!(
         "{}.{}",
@@ -2119,10 +2228,7 @@ async fn update_datatable(
         .join(", ");
 
     let json_obj = serde_json::Value::Object(req.set.clone());
-    let sql = format!(
-        "UPDATE {qualified} SET {set_clause} WHERE {}",
-        req.where_clause
-    );
+    let sql = format!("UPDATE {qualified} SET {set_clause} WHERE {}", where_clause);
 
     let client = connect_datatable(&db, &w_id, &req.datatable_name).await?;
     let updated = client
@@ -2196,6 +2302,46 @@ mod tests {
     fn quote_pg_ident_rejects_empty_and_nul() {
         assert!(quote_pg_ident("").is_err());
         assert!(quote_pg_ident("a\0b").is_err());
+    }
+
+    #[test]
+    fn sanitize_predicate_accepts_and_canonicalizes() {
+        assert_eq!(
+            sanitize_sql_predicate("status = 'active' AND age > 18", "where_clause").unwrap(),
+            "status = 'active' AND age > 18"
+        );
+        // A trailing comment is dropped by re-serialization, so it can never
+        // comment out the surrounding LIMIT/paren once interpolated.
+        let out = sanitize_sql_predicate("active = true --", "where_clause").unwrap();
+        assert!(!out.contains("--"));
+    }
+
+    #[test]
+    fn sanitize_predicate_rejects_injection() {
+        // Subquery-closing UNION breakout (the reported P0).
+        assert!(sanitize_sql_predicate(
+            "false) _wm_row UNION ALL SELECT to_jsonb(s) AS row FROM pg_catalog.pg_tables s --",
+            "where_clause"
+        )
+        .is_err());
+        // Error-based / IN subqueries reaching other tables.
+        assert!(
+            sanitize_sql_predicate("1 = (SELECT count(*) FROM users)", "where_clause").is_err()
+        );
+        assert!(sanitize_sql_predicate("id IN (SELECT id FROM other)", "where_clause").is_err());
+        // Anything with trailing tokens beyond one expression.
+        assert!(sanitize_sql_predicate("true) extra", "where_clause").is_err());
+    }
+
+    #[test]
+    fn sanitize_order_by_accepts_and_rejects() {
+        assert_eq!(
+            sanitize_sql_order_by("created_at DESC").unwrap(),
+            "created_at DESC"
+        );
+        assert_eq!(sanitize_sql_order_by("a, b DESC").unwrap(), "a, b DESC");
+        assert!(sanitize_sql_order_by("id) UNION ALL SELECT 1 --").is_err());
+        assert!(sanitize_sql_order_by("(SELECT 1)").is_err());
     }
 }
 
