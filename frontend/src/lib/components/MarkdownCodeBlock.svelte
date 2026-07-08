@@ -77,7 +77,6 @@
 			case 'snowflake':
 			case 'bigquery':
 			case 'oracledb':
-			case 'powershell':
 			case 'postgresql':
 			case 'postgres':
 			case 'sql':
