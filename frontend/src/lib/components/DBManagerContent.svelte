@@ -61,7 +61,7 @@
 
 	let ws = $derived(workspace ?? $workspaceStore)
 
-	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[getDbSchemasPath(input)])
+	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[schemaCacheKey(input)])
 
 	const outOfOrderModal = createAsyncConfirmationModal()
 
@@ -72,6 +72,14 @@
 			case 'ducklake':
 				return 'ducklake://' + input.ducklake
 		}
+	}
+
+	// Scope the shared `dbSchemas` cache by the acting workspace: a datatable of
+	// the same name can exist in both the nav and the acting workspace, so the
+	// bare resource path alone would let one workspace's schema be reused for the
+	// other while DB operations target the acting one.
+	function schemaCacheKey(input: DbInput): string {
+		return `${ws}:${getDbSchemasPath(input)}`
 	}
 
 	let colDefs = resource(
@@ -85,7 +93,7 @@
 		() => [input, ws],
 		async () => {
 			if (!input) return
-			const dbSchemasPath = getDbSchemasPath(input)
+			const dbSchemasPath = schemaCacheKey(input)
 			if (input.type == 'database') {
 				$dbSchemas[dbSchemasPath] = await getDbSchemas(
 					input.resourceType,

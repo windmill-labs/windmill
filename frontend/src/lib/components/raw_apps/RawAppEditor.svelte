@@ -992,6 +992,7 @@
 							// Clear the cached schema so it gets refreshed with the new table
 							const resourcePath = `datatable://${datatableName}`
 							delete $dbSchemas[resourcePath]
+							delete $dbSchemas[`${opWorkspace}:${resourcePath}`]
 						}
 					}
 
