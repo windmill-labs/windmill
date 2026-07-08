@@ -44,9 +44,8 @@ doesn't reflow the parent.
 		disableAutoInline?: boolean
 		/** For `raw_app_file`: the synthesized per-file diff item to render. */
 		rawFile?: RawAppFileItem
-		/** Cap (px) on the rendered diff height so a long item scrolls internally
-		 * instead of growing unbounded and dominating the drawer. Ignored while ≤ 0
-		 * (unmeasured). */
+		/** Cap (px) on the rendered diff height; the drawer owns the rationale.
+		 * Ignored while ≤ 0 (unmeasured). */
 		maxHeight?: number
 	}
 
@@ -67,6 +66,13 @@ doesn't reflow the parent.
 		return `max-height: ${Math.max(0, maxHeight - reserved)}px;`
 	}
 	const maxHeightStyle = $derived(capStyle(0))
+	// FlowDiffViewer enforces its own `min-h-[500px]`; capping the flow below that
+	// makes its pane spill out of the card instead of scrolling, so never cap the
+	// flow diff below that minimum (a very short drawer just scrolls to it).
+	const FLOW_MIN_HEIGHT = 500
+	const flowMaxHeightStyle = $derived(
+		maxHeight && maxHeight > 0 ? `max-height: ${Math.max(FLOW_MIN_HEIGHT, maxHeight)}px;` : ''
+	)
 	// The Content|Metadata tab bar sits above the script editor and eats into the
 	// viewer's height; measure it so the editor's cap leaves room for it and the
 	// whole viewer still fits `maxHeight`.
@@ -129,7 +135,7 @@ doesn't reflow the parent.
 </script>
 
 {#if kind === 'flow'}
-	<div class="h-[600px]" style={maxHeightStyle}>
+	<div class="h-[600px]" style={flowMaxHeightStyle}>
 		<FlowDiffViewer
 			beforeYaml={beforeFlowYaml}
 			afterYaml={afterFlowYaml}

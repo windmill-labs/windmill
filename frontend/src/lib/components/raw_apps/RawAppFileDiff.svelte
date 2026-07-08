@@ -23,8 +23,8 @@ the escape hatch, shown only on demand.
 		isMetadata?: boolean
 		fullYamlOriginal?: string
 		fullYamlCurrent?: string
-		/** Cap (px) on the rendered diff height so a long file scrolls internally
-		 * instead of growing unbounded. Ignored while ≤ 0 (unmeasured). */
+		/** Cap (px) on the rendered diff height; the drawer owns the rationale.
+		 * Ignored while ≤ 0 (unmeasured). */
 		maxHeight?: number
 	}
 

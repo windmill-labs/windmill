@@ -800,12 +800,11 @@
 
 <style>
 	/* Draggable gutter between the chat and the preview: a real (layout-occupying)
-	   10px-wide grab zone, wide enough to grab without overlap tricks that could
-	   cover the chat's scrollbar or the preview's edge. Transparent so no divider
-	   shows at rest; on hover the app-global `.splitpanes__splitter::after` grabber
-	   fades in — a subtle centered line, consistent with every other splitter.
-	   A dedicated class (not the shared `.splitter-hidden`, which force-zeroes the
-	   splitter opacity and would suppress that hover hint). */
+	   10px-wide grab zone, no overlap tricks that could cover the chat's scrollbar
+	   or the preview's edge. Transparent at rest; on hover the app-global
+	   `.splitpanes__splitter::after` grabber fades in. Uses a dedicated class, not
+	   the shared `.splitter-hidden`, which force-zeroes splitter opacity and would
+	   hide that grabber. */
 	:global(.splitpanes--vertical.session-splitter) > :global(.splitpanes__splitter) {
 		background-color: transparent !important;
 		border: none !important;
