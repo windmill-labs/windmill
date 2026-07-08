@@ -10,8 +10,8 @@ import type { DraftSyncCodec } from './useUserDraftSync.svelte'
 // unified to 150ms so a typing burst coalesces into one persist like flow/raw_app).
 const DEBOUNCE_MS = 150
 
-// Each codec closes over one editor cell's store (not the runtime) so that two
-// live editors of the same kind sync to their own drafts without crossing.
+// Each codec closes over one editor cell's store, so two live editors of the
+// same kind sync to their own drafts without crossing.
 export function makeFlowCodec(
 	store: StateStore<Flow>,
 	stateStore: { val: Record<string, any> }

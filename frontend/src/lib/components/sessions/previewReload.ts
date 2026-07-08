@@ -5,13 +5,15 @@ import { stripBase, TRIGGER_PAGES, type TriggerKind } from './previewRouter'
 // (e.g. `/schedules`). This allowlist is the single source of truth for "does
 // this tool change a list page a preview tab might show". A new mutating tool
 // that surfaces on one of these pages must be added here or that tab silently
-// goes stale — do NOT fall back to a name regex (it mis-fired on
-// `update_user_instructions`, a purely local change → reloads nothing).
+// goes stale — match by exact tool name, never a name regex, which mis-classifies
+// purely-local tools (e.g. `update_user_instructions`) as page mutations.
 //
 // Item-editor writes (write_script / write_flow / init_app / write_app_*) are
 // deliberately absent: every editable item is a live in-process editor that
 // self-syncs from the store the chat mutates, so its tab needs no reload — and
 // no list page we preview lists open drafts. They fall through to NO_RELOAD.
+// This "live editors self-sync, only list pages reload" invariant is the reason
+// the callers below and in the sessions page reload nothing for item tabs.
 export type ToolReloadEffect = { pages: string[] }
 const NO_RELOAD: ToolReloadEffect = { pages: [] }
 
@@ -61,9 +63,9 @@ function triggerPages(kind: unknown): string[] {
 }
 
 // The open tabs a page-reload should refresh: those whose observed page path is
-// in `pages`. Item-editor and pipeline tabs are live editors that self-sync, and
-// their route path is never a list page, so they never match. Pure over a tab
-// snapshot so the sessions page can reload by id and this stays unit-testable.
+// in `pages`. Item-editor and pipeline tab routes are never list pages, so they
+// never match (see the self-sync invariant above). Pure over a tab snapshot so
+// the sessions page can reload by id and this stays unit-testable.
 export function tabsToReload(
 	tabs: SessionPreviewTab[],
 	pages: ReadonlySet<string>

@@ -324,9 +324,7 @@
 
 	// Reload the mounted list-page tabs a chat round changed, across all warm
 	// sessions (a hidden preview would otherwise show pre-mutation content on
-	// return). Only tabs whose page is in `pages` reload — so a schedule write
-	// leaves the Resources tab alone; item/pipeline tabs are live editors that
-	// self-sync and never match.
+	// return). tabsToReload picks only the tabs whose page is in `pages`.
 	function reloadTabs(pages: Set<string>) {
 		for (const s of warmSessions) {
 			const owner = getRuntime(s.id)?.previewTabs
