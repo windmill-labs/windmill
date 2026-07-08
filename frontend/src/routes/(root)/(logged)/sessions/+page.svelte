@@ -552,7 +552,7 @@
 		<div class="flex-1 min-h-0 flex flex-row relative" use:splitterPointerCapture>
 			<Splitpanes
 				horizontal={false}
-				class="flex-1 min-h-0 splitter-hidden {previewCollapsed ? 'splitter-off' : ''}"
+				class="flex-1 min-h-0 session-splitter {previewCollapsed ? 'splitter-off' : ''}"
 			>
 				{#if !fullscreen}
 					<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
@@ -799,19 +799,31 @@
 </div>
 
 <style>
-	/* Invisible-but-draggable splitter between the chat and the preview: a real
-	   (layout-occupying) gutter, wide enough to grab. No overlap tricks — the
-	   zone can't cover the chat's scrollbar or the preview's edge. */
-	:global(.splitpanes--vertical.splitter-hidden) > :global(.splitpanes__splitter) {
+	/* Draggable gutter between the chat and the preview: a real (layout-occupying)
+	   10px-wide grab zone, wide enough to grab without overlap tricks that could
+	   cover the chat's scrollbar or the preview's edge. Transparent so no divider
+	   shows at rest; on hover the app-global `.splitpanes__splitter::after` grabber
+	   fades in — a subtle centered line, consistent with every other splitter.
+	   A dedicated class (not the shared `.splitter-hidden`, which force-zeroes the
+	   splitter opacity and would suppress that hover hint). */
+	:global(.splitpanes--vertical.session-splitter) > :global(.splitpanes__splitter) {
 		background-color: transparent !important;
 		border: none !important;
-		opacity: 0 !important;
 		width: 10px !important;
+	}
+	/* Inset the global hover grabber from the pane's top/bottom edges so the line
+	   doesn't run the full height, and round its ends into a pill — a lighter,
+	   more contained hint. */
+	:global(.splitpanes--vertical.session-splitter) > :global(.splitpanes__splitter)::after {
+		top: 8px !important;
+		bottom: 8px !important;
+		height: auto !important;
+		border-radius: 9999px !important;
 	}
 
 	/* Collapsed preview: the pane is resized to 0 but stays mounted, so remove
-	   the (invisible) gutter entirely — it would otherwise leave a dead 10px
-	   drag zone on the chat's right edge. */
+	   the gutter entirely — it would otherwise leave a dead 10px drag zone on the
+	   chat's right edge. */
 	:global(.splitpanes--vertical.splitter-off) > :global(.splitpanes__splitter) {
 		display: none !important;
 	}
