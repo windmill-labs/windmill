@@ -15,7 +15,8 @@
 		path,
 		workspaceId,
 		onNavigate,
-		isActiveSession = true
+		isActiveSession = true,
+		active = true
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -24,8 +25,12 @@
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
+		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
+		active?: boolean
 	} = $props()
 
+	// This tab's own flow cell; each open flow editor binds its own store.
+	const cell = $derived(runtime.flowCell(path))
 	let selectedId = $state('settings-metadata')
 	let diffDrawer: DiffDrawer | undefined = $state()
 
@@ -35,7 +40,7 @@
 	// baseline — useUserDraftSync's inbound effect then syncs the editor preview.
 	// Mirrors ScriptEditorView.
 	async function restoreDeployed() {
-		const saved = runtime.savedFlow.val
+		const saved = cell.saved.val
 		if (!saved) {
 			sendUserToast('Could not restore to deployed', true)
 			return
@@ -61,7 +66,7 @@
 	}
 </script>
 
-{#if runtime.savedFlow.val}
+{#if cell.saved.val}
 	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} isFlow />
 {/if}
 <SessionEditorTarget
@@ -71,7 +76,8 @@
 	{workspaceId}
 	{onNavigate}
 	{isActiveSession}
-	effectivePath={() => runtime.flowStore.val?.path ?? path}
+	isActiveTab={active}
+	effectivePath={() => cell.store.val?.path ?? path}
 >
 	{#snippet editor()}
 		<!-- customUi hides the in-editor "Flow AI Chat" button: the session already
@@ -83,20 +89,21 @@
 		     its intended name in `draft_path`; seed the builder from `draft_path`
 		     (as the full-page editor does) so the Path widget and deploy use the
 		     friendly name rather than creating a flow literally named draft_<uuid>. -->
-		<!-- bind:savedFlow targets runtime.savedFlow.val, reactive state owned by the
-		     SessionRuntime class (created in createRuntime), not by a component
-		     ancestor — so Svelte's ownership check flags a false positive here. -->
+		<!-- bind:savedFlow / flowStore target this tab's editor cell (cell.saved /
+		     cell.store), reactive state owned by the SessionRuntime class (via
+		     flowCell), not by a component ancestor — so Svelte's ownership check
+		     flags a false positive here. -->
 		<!-- svelte-ignore ownership_invalid_binding -->
 		<FlowBuilder
-			flowStore={runtime.flowStore}
-			flowStateStore={runtime.flowStateStore}
-			initialPath={(runtime.savedFlow.val as any)?.draft_path ?? path}
+			flowStore={cell.store}
+			flowStateStore={cell.stateStore}
+			initialPath={(cell.saved.val as any)?.draft_path ?? path}
 			autosaveWorkspace={workspaceId}
 			autosavePath={path}
-			newFlow={!runtime.savedFlow.val || runtime.savedFlow.val.no_deployed === true}
+			newFlow={!cell.saved.val || cell.saved.val.no_deployed === true}
 			{selectedId}
 			loading={false}
-			bind:savedFlow={runtime.savedFlow.val}
+			bind:savedFlow={cell.saved.val}
 			{diffDrawer}
 			{onNavigate}
 			customUi={{ topBar: { aiBuilder: false } }}
