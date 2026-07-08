@@ -18,6 +18,9 @@
 		selectedFileKey?: { s3: string; storage?: string } | undefined
 		folderOnly?: boolean
 		regexFilter?: RegExp | undefined
+		/** Workspace to browse S3 storage in — the acting workspace of the editor that
+		 * opened the picker, else the nav workspace. */
+		workspace?: string | undefined
 		onClose?: () => void
 		onSelectAndClose?: (selected: { s3: string; storage: string | undefined }) => void
 	}
@@ -30,9 +33,12 @@
 		selectedFileKey = $bindable(undefined),
 		folderOnly = false,
 		regexFilter = undefined,
+		workspace = undefined,
 		onClose,
 		onSelectAndClose
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let drawer: Drawer | undefined = $state()
 	let s3FilePickerInner: S3FilePickerInner | undefined = $state()
@@ -55,8 +61,8 @@
 	> = $state({})
 
 	let secondaryStorageNames = resource(
-		() => $workspaceStore,
-		() => SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! }),
+		() => ws,
+		() => SettingService.getSecondaryStorageNames({ workspace: ws! }),
 		{ lazy: true }
 	)
 
@@ -105,6 +111,7 @@
 			bind:uploadModalOpen
 			{folderOnly}
 			{regexFilter}
+			{workspace}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">

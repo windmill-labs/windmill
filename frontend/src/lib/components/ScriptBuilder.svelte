@@ -1151,6 +1151,7 @@
 													autofocus={false}
 													namePlaceholder="script"
 													kind="script"
+													workspaceOverride={opWorkspace}
 												/>
 												{#if initialPath && script.path && script.path !== initialPath}
 													<Alert
@@ -2082,6 +2083,7 @@
 
 		<ScriptEditor
 			{disableAi}
+			workspaceOverride={opWorkspace}
 			sessionOpen={script.path
 				? {
 						target: { kind: 'script', path: script.path },

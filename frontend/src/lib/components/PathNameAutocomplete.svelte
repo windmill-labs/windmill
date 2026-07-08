@@ -101,6 +101,10 @@
 		error?: string | boolean
 		textInputClass?: string
 		onkeyup?: (e: KeyboardEvent) => void
+		/** Workspace whose paths feed the autocomplete. Defaults to the navigation
+		 *  `$workspaceStore`; pass the acting workspace when the editor operates on
+		 *  a workspace other than the one the top nav points at. */
+		workspace?: string
 	}
 
 	let {
@@ -113,8 +117,11 @@
 		size = 'md',
 		error,
 		textInputClass,
-		onkeyup
+		onkeyup,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let inputEl: TextInput | undefined = $state(undefined)
 	export function focus() {
@@ -258,12 +265,12 @@
 	async function loadPaths(workspace: string) {
 		const paths = await fetchWorkspacePaths(workspace)
 		// Guard against workspace changing during the in-flight fetch.
-		if ($workspaceStore === workspace) allPaths = paths
+		if (ws === workspace) allPaths = paths
 	}
 
 	$effect(() => {
-		const ws = $workspaceStore
-		if (ws) void loadPaths(ws)
+		const w = ws
+		if (w) void loadPaths(w)
 	})
 
 	$effect(() => {
@@ -300,7 +307,7 @@
 	function onInputFocus() {
 		hasFocus = true
 		// Opportunistic refresh if the cache is stale.
-		if ($workspaceStore) void loadPaths($workspaceStore)
+		if (ws) void loadPaths(ws)
 	}
 	function onInputBlur() {
 		setTimeout(() => {

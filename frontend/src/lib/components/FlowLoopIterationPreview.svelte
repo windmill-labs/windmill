@@ -73,7 +73,8 @@
 		runPreview(previewArgs, undefined)
 	}
 
-	const { flowStateStore, pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStateStore, pathStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	export async function runPreview(
@@ -82,7 +83,15 @@
 	) {
 		progressBar?.reset()
 		const newFlow = { value: { modules }, summary: '' }
-		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+		jobId = await runFlowPreview(
+			args,
+			newFlow,
+			$pathStore,
+			restartedFrom,
+			undefined,
+			undefined,
+			opWorkspace?.()
+		)
 		isRunning = true
 	}
 
@@ -130,7 +139,7 @@
 					try {
 						jobId &&
 							(await JobService.cancelQueuedJob({
-								workspace: $workspaceStore ?? '',
+								workspace: opWorkspace?.() ?? $workspaceStore ?? '',
 								id: jobId,
 								requestBody: {}
 							}))
@@ -177,6 +186,7 @@
 			{#if jobId}
 				<FlowStatusViewer
 					bind:flowState={flowStateStore.val}
+					workspaceId={opWorkspace?.()}
 					{jobId}
 					onJobsLoaded={({ job: newJob }) => {
 						job = newJob
