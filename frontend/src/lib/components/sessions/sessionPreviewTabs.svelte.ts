@@ -29,9 +29,14 @@ export type PreviewTabsAdapter = {
 	// Write-behind the full tab model onto the durable backing (debounced by the
 	// owner). Fire-and-forget.
 	persist: (snapshot: PreviewTabsSnapshot) => void
-	// Point the session's live editor at `target`. Called atomically with the tab
-	// open/navigate that shows the item, so tab and target can never drift apart.
-	setTarget: (target: SessionTarget) => void
+}
+
+// True when a tab's URL is the live editor for a specific editable item. Every
+// editable route resolves to an editor now, so this doubles as the "same item"
+// dedupe test in open()/navigate().
+function isEditorTabFor(url: string, target: SessionTarget): boolean {
+	const slot = resolvePreviewTab(url)
+	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
 }
 
 // URL a tab should load for a destination: a page's href, or an item's edit route.
@@ -158,21 +163,16 @@ export class SessionPreviewTabs {
 	}
 
 	// Open — or focus, if already shown — a tab for a destination, and reveal the
-	// panel. An editable item is made the session's live editor (setTarget) and
-	// deduped against the tab already hosting it; anything else dedupes on the
-	// tab's observed location.
+	// panel. An editable item dedupes against the tab already hosting that same
+	// (kind, path); anything else dedupes on the tab's observed location.
 	open(target: PreviewTarget): { status: 'opened' | 'focused' } {
 		const editorTarget = editorTargetFor(target)
-		if (editorTarget) this.#adapter.setTarget(editorTarget)
 		// A fresh session starts collapsed, so without this the tab opens behind a
 		// collapsed panel and the user sees nothing change.
 		this.#collapsed = false
 		if (editorTarget) {
-			// resolvePreviewTab(url, target) is 'editor' exactly for the tab showing
-			// `target`'s item, so it doubles as the dedupe test.
-			const existing = this.#tabs.find(
-				(t) => resolvePreviewTab(t.url, editorTarget).kind === 'editor'
-			)
+			// One editor tab per item: focus the tab already hosting this exact item.
+			const existing = this.#tabs.find((t) => isEditorTabFor(t.url, editorTarget))
 			if (existing) {
 				this.#activeId = existing.id
 				this.#flush()
@@ -197,21 +197,16 @@ export class SessionPreviewTabs {
 	}
 
 	// Re-point the active tab at a destination (breadcrumb pick / in-editor link /
-	// iframe-posted editor navigation). Same target rule as open: an editable item
-	// becomes the session's live editor.
+	// iframe-posted editor navigation).
 	navigate(target: PreviewTarget): void {
 		const t = this.#tabs.find((x) => x.id === this.#activeId)
 		if (!t) return
 		const editorTarget = editorTargetFor(target)
 		if (editorTarget) {
-			this.#adapter.setTarget(editorTarget)
-			// Same dedupe as open(): if another tab already hosts `target` as the
-			// live editor, focus it instead of re-pointing this one — two tabs
-			// resolving 'editor' for one target would mount two editor instances
-			// on the same runtime slot.
-			const existing = this.#tabs.find(
-				(x) => resolvePreviewTab(x.url, editorTarget).kind === 'editor'
-			)
+			// Same dedupe as open(): if another tab already hosts this exact item,
+			// focus it instead of re-pointing this one — two tabs for one item would
+			// mount two editors racing the same (kind, path) cell.
+			const existing = this.#tabs.find((x) => isEditorTabFor(x.url, editorTarget))
 			if (existing && existing.id !== t.id) {
 				this.#activeId = existing.id
 				this.#flush()
@@ -316,14 +311,9 @@ export function selectPreviewTabsToClose(
 }
 
 // Human-readable summary of a session's open preview tabs, for the
-// `get_preview_status` AI tool. Pure over the owner's model + the session target
-// so the owner needs no target-read dependency. The "no session" case is the
-// caller's (the tool handler has the session context).
-export function describePreview(
-	tabs: SessionPreviewTab[],
-	activeId: string,
-	target: SessionTarget | undefined
-): string {
+// `get_preview_status` AI tool. Pure over the owner's model. The "no session"
+// case is the caller's (the tool handler has the session context).
+export function describePreview(tabs: SessionPreviewTab[], activeId: string): string {
 	if (tabs.length === 0) return 'No preview tabs are open in the side panel.'
 	const lines = tabs.map((t) => {
 		const where = t.loc || t.url
@@ -334,7 +324,7 @@ export function describePreview(
 			: route
 				? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
 				: stripBase(where)
-		const live = resolvePreviewTab(t.url, target).kind === 'editor' ? ', live editor' : ''
+		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
 		const active = t.id === activeId ? ', active' : ''
 		return `- ${label}${live}${active}`
 	})

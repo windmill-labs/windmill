@@ -39,9 +39,9 @@
 		onLoad: (frame: HTMLIFrameElement) => void
 	} = $props()
 
-	// Editor vs iframe is decided purely from the tab URL + the session's target
-	// (see resolvePreviewTab). Only the target tab of a wrappable kind goes live.
-	const slot = $derived(resolvePreviewTab(tab.url, session?.target))
+	// Editor vs iframe is decided purely from the tab URL (see resolvePreviewTab):
+	// any editable item (script/flow/raw app) mounts its own live editor.
+	const slot = $derived(resolvePreviewTab(tab.url))
 	const workspaceId = $derived(
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
@@ -80,7 +80,14 @@
 {#if slot.kind === 'editor' && mounted && runtime}
 	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
 		{#if slot.editorKind === 'flow'}
-			<FlowEditorView {runtime} path={slot.path} {workspaceId} {onNavigate} {isActiveSession} />
+			<FlowEditorView
+				{runtime}
+				path={slot.path}
+				{workspaceId}
+				{onNavigate}
+				{isActiveSession}
+				{active}
+			/>
 		{:else if slot.editorKind === 'script'}
 			<ScriptEditorView
 				{runtime}
@@ -88,10 +95,18 @@
 				{workspaceId}
 				{onNavigate}
 				{isActiveSession}
+				{active}
 				initialTestPanelCollapsed
 			/>
 		{:else}
-			<RawAppEditorView {runtime} path={slot.path} {workspaceId} {onNavigate} {isActiveSession} />
+			<RawAppEditorView
+				{runtime}
+				path={slot.path}
+				{workspaceId}
+				{onNavigate}
+				{isActiveSession}
+				{active}
+			/>
 		{/if}
 	</div>
 {:else if mounted}

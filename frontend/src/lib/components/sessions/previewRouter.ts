@@ -13,7 +13,6 @@ import {
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
-import type { SessionTarget } from './sessionState.svelte'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
 /** What the preview breadcrumb picker can route to: a static workspace page
@@ -125,16 +124,15 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 	return { kind: 'app', raw_app: false, itemPath }
 }
 
-// How a preview tab should render: as an in-process live editor (sharing the
-// session runtime's store) or as an iframe fallback. Only the three kinds with
-// existing editor wrappers — and only the tab matching the session's target —
-// resolve to 'editor'; everything else (static pages, regular drag-and-drop
-// apps, any other item) stays an iframe.
+// How a preview tab should render: as an in-process live editor (bound to its
+// own per-(kind,path) runtime cell) or as an iframe fallback. Any editable item
+// of a wrappable kind (script, flow, raw app) mounts its editor; everything else
+// (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind; path: string }
 	| { kind: 'iframe' }
 
-export function resolvePreviewTab(url: string, target: SessionTarget | undefined): PreviewSlot {
+export function resolvePreviewTab(url: string): PreviewSlot {
 	const route = parsePreviewItemRoute(url)
 	if (!route) return { kind: 'iframe' }
 	const editorKind: SessionTargetKind | undefined =
@@ -146,11 +144,5 @@ export function resolvePreviewTab(url: string, target: SessionTarget | undefined
 					? 'raw_app'
 					: undefined
 	if (!editorKind) return { kind: 'iframe' }
-	// SessionRuntime holds one load slot per kind, so only the tab pointing at the
-	// session's own target claims it as a live editor; any other item previews as
-	// an iframe (the "one live editor per session" rule).
-	if (!target || target.kind !== editorKind || target.path !== route.itemPath) {
-		return { kind: 'iframe' }
-	}
 	return { kind: 'editor', editorKind, path: route.itemPath }
 }

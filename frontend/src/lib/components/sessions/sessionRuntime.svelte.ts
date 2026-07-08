@@ -38,7 +38,6 @@ import {
 	setSessionChatId,
 	setSessionPreviewCollapsed,
 	setSessionTabs,
-	setSessionTarget,
 	type Session
 } from './sessionState.svelte'
 import {
@@ -92,26 +91,53 @@ export interface LoadSlot {
 
 export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 
+// The live runtime value a raw-app editor cell binds. Legacy drag-and-drop apps
+// are intentionally NOT hosted in the session preview (only code-based raw apps).
+export interface RawAppRuntimeValue {
+	files: Record<string, string>
+	runnables: Record<string, any>
+	data: RawAppData
+	policy: any
+	summary: string
+	path: string
+	custom_path?: string
+	draft_path?: string
+}
+// The deployed baseline a raw-app cell diffs against (topbar Diff drawer).
+export interface RawAppSavedValue {
+	value: {
+		files: Record<string, { code: string }>
+		runnables: Record<string, HiddenRunnable>
+	}
+	draft?: any
+	path: string
+	summary: string
+	policy: any
+	draft_only?: boolean
+	/** No deployed counterpart (draft-only); disables the topbar Diff. */
+	no_deployed?: boolean
+	custom_path?: string
+}
+
 // One editor cell per (kind, path) the session loads: the load slot plus the
 // content/baseline stores that used to be per-kind singletons. Keying by path
-// lets several items of the same kind stay loaded at once (multi-target). The
-// public runtime getters still expose one cell per kind — the active one (see
-// `activePath`) — so consumers are unchanged until the UI mounts N editors.
-interface FlowCell {
+// lets several items of the same kind stay loaded — and mounted as separate live
+// editors — at once. A tab's editor resolves its own cell via the accessors below.
+export interface FlowCell {
 	slot: LoadSlot
 	store: StateStore<Flow>
 	stateStore: { val: Record<string, any> }
 	saved: { val: SavedFlow | undefined }
 }
-interface ScriptCell {
+export interface ScriptCell {
 	slot: LoadSlot
 	store: { val: NewScript | undefined }
 	saved: { val: SavedScript | undefined }
 }
-interface RawAppCell {
+export interface RawAppCell {
 	slot: LoadSlot
-	store: { val: SessionRuntime['rawApp']['val'] }
-	saved: { val: SessionRuntime['savedRawApp']['val'] }
+	store: { val: RawAppRuntimeValue | undefined }
+	saved: { val: RawAppSavedValue | undefined }
 }
 
 export interface SessionRuntime {
@@ -124,54 +150,14 @@ export interface SessionRuntime {
 	// Pipeline target state — persists across editor hide/show (the pane unmounts
 	// on hide, so this can't be component-local) and across session switches.
 	readonly pipelineEditorState: PipelineEditorState
-	// Kind-agnostic accessor over the per-kind load slots, for consumers (the
-	// editor-target gate) that only need load state and not the typed store.
-	slot(kind: SessionTargetKind): LoadSlot
-	// Flow target state
-	readonly flowStore: StateStore<Flow>
-	readonly flowStateStore: { val: Record<string, any> }
-	readonly savedFlow: { val: SavedFlow | undefined }
+	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
+	// on demand. Each editable preview tab resolves its own cell, so several items
+	// stay live at once.
+	flowCell(path: string): FlowCell
 	loadFlow(workspace: string, path: string, force?: boolean): Promise<void>
-	// Script target state (parallel to flow, populated only for script-targeted sessions)
-	readonly scriptStore: { val: NewScript | undefined }
-	readonly savedScript: { val: SavedScript | undefined }
+	scriptCell(path: string): ScriptCell
 	loadScript(workspace: string, path: string, force?: boolean): Promise<void>
-	// Note: legacy drag-and-drop apps are intentionally NOT hosted in the
-	// session preview pane (only code-based raw apps are), so there's no
-	// app target state here.
-	// Raw App (HTML-based) target state
-	readonly rawApp: {
-		val:
-			| {
-					files: Record<string, string>
-					runnables: Record<string, any>
-					data: RawAppData
-					policy: any
-					summary: string
-					path: string
-					custom_path?: string
-					draft_path?: string
-			  }
-			| undefined
-	}
-	readonly savedRawApp: {
-		val:
-			| {
-					value: {
-						files: Record<string, { code: string }>
-						runnables: Record<string, HiddenRunnable>
-					}
-					draft?: any
-					path: string
-					summary: string
-					policy: any
-					draft_only?: boolean
-					/** No deployed counterpart (draft-only); disables the topbar Diff. */
-					no_deployed?: boolean
-					custom_path?: string
-			  }
-			| undefined
-	}
+	rawAppCell(path: string): RawAppCell
 	loadRawApp(
 		workspace: string,
 		path: string,
@@ -227,8 +213,8 @@ function makeScriptCell(): ScriptCell {
 }
 function makeRawAppCell(): RawAppCell {
 	const slot: LoadSlot = $state(emptyLoadSlot())
-	const store: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
-	const saved: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
+	const store: { val: RawAppRuntimeValue | undefined } = $state({ val: undefined })
+	const saved: { val: RawAppSavedValue | undefined } = $state({ val: undefined })
 	return { slot, store, saved }
 }
 
@@ -378,42 +364,16 @@ function createRuntime(session: Session): SessionRuntime {
 		return c
 	}
 
-	// Which loaded path each kind's public getters expose — the single-target shim
-	// (removed when the UI mounts one editor per tab in P2). Flipped only once a
-	// load settles, so a switch keeps the previous editor visible until the new
-	// item lands (SessionEditorTarget's gate). Undefined → the default cell below.
-	const activePath: Record<SessionTargetKind, string | undefined> = $state({
-		flow: undefined,
-		script: undefined,
-		raw_app: undefined
-	})
-	const defaultFlowCell = makeFlowCell()
-	const defaultScriptCell = makeScriptCell()
-	const defaultRawAppCell = makeRawAppCell()
-	function activeFlowCell(): FlowCell {
-		const p = activePath.flow
-		return (p !== undefined ? flowCells.get(p) : undefined) ?? defaultFlowCell
-	}
-	function activeScriptCell(): ScriptCell {
-		const p = activePath.script
-		return (p !== undefined ? scriptCells.get(p) : undefined) ?? defaultScriptCell
-	}
-	function activeRawAppCell(): RawAppCell {
-		const p = activePath.raw_app
-		return (p !== undefined ? rawAppCells.get(p) : undefined) ?? defaultRawAppCell
-	}
-
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
-	// adapter. setSessionTabs / setSessionPreviewCollapsed / setSessionTarget stay
-	// the low-level record writers (a transient session's writes land in the
-	// localStorage draft slot until it materialises).
+	// adapter. setSessionTabs / setSessionPreviewCollapsed stay the low-level record
+	// writers (a transient session's writes land in the localStorage draft slot
+	// until it materialises).
 	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
 		persist: (snap) => {
 			setSessionTabs(session.id, snap.tabs, snap.activeId)
 			setSessionPreviewCollapsed(session.id, snap.collapsed)
-		},
-		setTarget: (target) => setSessionTarget(session.id, target)
+		}
 	})
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
@@ -428,30 +388,12 @@ function createRuntime(session: Session): SessionRuntime {
 		sessionId: session.id,
 		manager,
 		previewTabs,
-		slot(kind: SessionTargetKind): LoadSlot {
-			return kind === 'flow'
-				? activeFlowCell().slot
-				: kind === 'script'
-					? activeScriptCell().slot
-					: activeRawAppCell().slot
-		},
 		pipelineEditorState,
-		get flowStore() {
-			return activeFlowCell().store
-		},
-		get flowStateStore() {
-			return activeFlowCell().stateStore
-		},
-		get savedFlow() {
-			return activeFlowCell().saved
-		},
+		flowCell,
 
 		async loadFlow(workspace: string, path: string, force = false) {
 			const { slot, store, stateStore, saved } = flowCell(path)
-			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) {
-				activePath.flow = path
-				return
-			}
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
 			// See loadScript: forced reload remounts via the render gate. A workspace
 			// retarget (same path, new fork) drops the stale content the same way so
 			// the editor gate shows loading and outbound sync can't write the old
@@ -490,7 +432,6 @@ function createRuntime(session: Session): SessionRuntime {
 					if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
-					activePath.flow = path
 					return
 				}
 
@@ -513,7 +454,6 @@ function createRuntime(session: Session): SessionRuntime {
 				if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
-				activePath.flow = path
 			} catch (err) {
 				console.error('Failed to load flow', err)
 				slot.notFound = true
@@ -522,19 +462,11 @@ function createRuntime(session: Session): SessionRuntime {
 			}
 		},
 
-		get scriptStore() {
-			return activeScriptCell().store
-		},
-		get savedScript() {
-			return activeScriptCell().saved
-		},
+		scriptCell,
 
 		async loadScript(workspace: string, path: string, force = false) {
 			const { slot, store, saved } = scriptCell(path)
-			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) {
-				activePath.script = path
-				return
-			}
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
 			// Forced reload: clearing the slot's loadedPath drops us into
 			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
 			// which unmounts then remounts the editor — avoids the Monaco init race a
@@ -593,7 +525,6 @@ function createRuntime(session: Session): SessionRuntime {
 					store.val = baseline
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
-					activePath.script = path
 					return
 				}
 
@@ -620,7 +551,6 @@ function createRuntime(session: Session): SessionRuntime {
 				store.val = baseline
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
-				activePath.script = path
 			} catch (err) {
 				console.error('Failed to load script', err)
 				slot.notFound = true
@@ -629,19 +559,11 @@ function createRuntime(session: Session): SessionRuntime {
 			}
 		},
 
-		get rawApp() {
-			return activeRawAppCell().store
-		},
-		get savedRawApp() {
-			return activeRawAppCell().saved
-		},
+		rawAppCell,
 
 		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
 			const { slot, store, saved } = rawAppCell(path)
-			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) {
-				activePath.raw_app = path
-				return
-			}
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
 			// See loadScript: forced reload remounts via the render gate.
 			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
 			slot.loading = true
@@ -693,7 +615,6 @@ function createRuntime(session: Session): SessionRuntime {
 					)
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
-					activePath.raw_app = path
 					return
 				}
 
@@ -756,7 +677,6 @@ function createRuntime(session: Session): SessionRuntime {
 				store.val = runtimeValue
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace
-				activePath.raw_app = path
 			} catch (err) {
 				console.error('Failed to load raw app', err)
 				slot.notFound = true
@@ -974,7 +894,7 @@ setGetPreviewStatusHandler((callerSessionId) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return 'No active session; the preview panel is unavailable.'
 	const owner = getOrCreateRuntime(session).previewTabs
-	return describePreview(owner.tabs, owner.activeId, session.target)
+	return describePreview(owner.tabs, owner.activeId)
 })
 
 // close_page dispatches here to close preview tabs in the calling session's
@@ -1008,7 +928,13 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	const runtime = runtimes.get(sessionId)
 	if (!session?.workspace_id || !runtime) return
-	if (runtime.slot(kind).loadedPath !== path) return
+	const cellSlot =
+		kind === 'flow'
+			? runtime.flowCell(path).slot
+			: kind === 'script'
+				? runtime.scriptCell(path).slot
+				: runtime.rawAppCell(path).slot
+	if (cellSlot.loadedPath !== path) return
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
 })
 

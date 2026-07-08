@@ -9,17 +9,15 @@ import {
 	type PreviewTabsSnapshot
 } from './sessionPreviewTabs.svelte'
 import type { PreviewTarget } from './previewRouter'
-import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
+import type { SessionPreviewTab } from './sessionState.svelte'
 
-// In-memory adapter spy: records persisted snapshots + target writes, no IDB.
+// In-memory adapter spy: records persisted snapshots, no IDB.
 function makeAdapter() {
 	const persisted: PreviewTabsSnapshot[] = []
-	const targets: SessionTarget[] = []
 	const adapter: PreviewTabsAdapter = {
-		persist: (snap) => persisted.push(snap),
-		setTarget: (t) => targets.push(t)
+		persist: (snap) => persisted.push(snap)
 	}
-	return { adapter, persisted, targets }
+	return { adapter, persisted }
 }
 
 function owner(initial: Partial<PreviewTabsSnapshot> = {}, adapter?: PreviewTabsAdapter) {
@@ -148,16 +146,14 @@ describe('previewTargetForSessionTarget', () => {
 })
 
 describe('SessionPreviewTabs.open', () => {
-	it('opens an editor item, points the target at it, activates it, and reveals the panel', () => {
-		const { adapter, targets } = makeAdapter()
-		const o = owner({ collapsed: true }, adapter)
+	it('opens an editor item, activates it, and reveals the panel', () => {
+		const o = owner({ collapsed: true })
 		const res = o.open(scriptTarget)
 		expect(res.status).toBe('opened')
 		expect(o.tabs).toHaveLength(1)
 		expect(o.tabs[0].url).toBe('/scripts/edit/u/me/foo')
 		expect(o.activeId).toBe(o.tabs[0].id)
 		expect(o.collapsed).toBe(false)
-		expect(targets).toEqual([{ kind: 'script', path: 'u/me/foo' }])
 	})
 
 	it('focuses the existing tab instead of duplicating when the item is already shown', () => {
@@ -171,27 +167,23 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.activeId).toBe(firstId)
 	})
 
-	it('opens a second tab and repoints the live editor for a different item', () => {
-		const { adapter, targets } = makeAdapter()
-		const o = owner({}, adapter)
+	it('opens a second tab for a different editor item', () => {
+		const o = owner()
 		o.open(scriptTarget)
 		const res = o.open(flowTarget)
 		expect(res.status).toBe('opened')
 		expect(o.tabs).toHaveLength(2)
-		expect(targets.at(-1)).toEqual({ kind: 'flow', path: 'u/me/bar' })
+		expect(o.tabs.at(-1)!.url).toBe('/flows/edit/u/me/bar')
 	})
 
 	it('opens a raw app via its apps_raw route', () => {
-		const { adapter, targets } = makeAdapter()
-		const o = owner({}, adapter)
+		const o = owner()
 		o.open(rawAppTarget)
 		expect(o.tabs[0].url).toBe('/apps_raw/edit/u/me/app')
-		expect(targets).toEqual([{ kind: 'raw_app', path: 'u/me/app' }])
 	})
 
-	it('focuses the tab already showing a page instead of duplicating, and never sets a target', () => {
-		const { adapter, targets } = makeAdapter()
-		const o = owner({}, adapter)
+	it('focuses the tab already showing a page instead of duplicating', () => {
+		const o = owner()
 		o.open(pageTarget)
 		const firstId = o.activeId
 		o.open(scriptTarget)
@@ -199,7 +191,6 @@ describe('SessionPreviewTabs.open', () => {
 		expect(res.status).toBe('focused')
 		expect(o.tabs).toHaveLength(2)
 		expect(o.activeId).toBe(firstId)
-		expect(targets).toEqual([{ kind: 'script', path: 'u/me/foo' }])
 	})
 
 	it('opens a fresh page tab when the original navigated away', () => {
@@ -221,19 +212,16 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.tabs).toHaveLength(1)
 	})
 
-	it('does not set a target for a legacy drag-and-drop app', () => {
-		const { adapter, targets } = makeAdapter()
-		const o = owner({}, adapter)
+	it('opens a legacy drag-and-drop app as an iframe route', () => {
+		const o = owner()
 		o.open(dndAppTarget)
-		expect(targets).toEqual([])
 		expect(o.tabs[0].url).toBe('/apps/edit/u/me/legacy')
 	})
 })
 
 describe('SessionPreviewTabs.navigate', () => {
-	it('retargets the active tab and sets the target for an editor item', () => {
-		const { adapter, targets } = makeAdapter()
-		const o = owner({}, adapter)
+	it('retargets the active tab to an editor item', () => {
+		const o = owner()
 		o.open(pageTarget)
 		const tabId = o.activeId
 		o.navigate(flowTarget)
@@ -241,25 +229,19 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.activeId).toBe(tabId)
 		expect(o.tabs[0].url).toBe('/flows/edit/u/me/bar')
 		expect(o.tabs[0].loc).toBe('/flows/edit/u/me/bar')
-		expect(targets).toEqual([{ kind: 'flow', path: 'u/me/bar' }])
 	})
 
 	it('no-ops with no active tab', () => {
-		const { adapter, targets } = makeAdapter()
-		const o = owner({}, adapter)
+		const o = owner()
 		o.navigate(flowTarget)
 		expect(o.tabs).toHaveLength(0)
-		expect(targets).toEqual([])
 	})
 
-	it('retargets to a page without touching the target', () => {
-		const { adapter, targets } = makeAdapter()
-		const o = owner({}, adapter)
+	it('retargets to a page', () => {
+		const o = owner()
 		o.open(scriptTarget)
-		targets.length = 0
 		o.navigate(pageTarget)
 		expect(o.tabs[0].url).toBe('/runs')
-		expect(targets).toEqual([])
 	})
 
 	it('focuses the tab already hosting the item instead of duplicating the editor', () => {
@@ -389,23 +371,23 @@ describe('SessionPreviewTabs persistence', () => {
 
 describe('describePreview', () => {
 	it('reports no tabs when there are none', () => {
-		expect(describePreview([], '', undefined)).toContain('No preview tabs')
+		expect(describePreview([], '')).toContain('No preview tabs')
 	})
 
 	it('lists tabs, marks the active one, and flags the live editor', () => {
 		const tabs: SessionPreviewTab[] = [
 			{ id: 'a', url: '/scripts/edit/u/me/foo', loc: '/scripts/edit/u/me/foo' }
 		]
-		const out = describePreview(tabs, 'a', { kind: 'script', path: 'u/me/foo' })
+		const out = describePreview(tabs, 'a')
 		expect(out).toContain('1 preview tab')
 		expect(out).toContain('script "u/me/foo"')
 		expect(out).toContain('live editor')
 		expect(out).toContain('active')
 	})
 
-	it('labels a known page and omits the live-editor flag when the target differs', () => {
+	it('labels a known page and omits the live-editor flag for a non-item page', () => {
 		const tabs: SessionPreviewTab[] = [{ id: 'a', url: '/runs', loc: '/runs' }]
-		const out = describePreview(tabs, 'a', { kind: 'script', path: 'u/me/foo' })
+		const out = describePreview(tabs, 'a')
 		expect(out).toContain('page "Runs"')
 		expect(out).not.toContain('live editor')
 	})

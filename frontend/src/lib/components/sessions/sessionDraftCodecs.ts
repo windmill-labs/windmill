@@ -2,35 +2,41 @@ import type { Flow, NewScript } from '$lib/gen'
 import { initFlowState } from '$lib/components/flows/flowState'
 import { flowDraftSig } from './flowDraftSig'
 import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
-import type { SessionRuntime } from './sessionRuntime.svelte'
+import type { RawAppRuntimeValue } from './sessionRuntime.svelte'
+import type { StateStore } from '$lib/utils'
 import type { DraftSyncCodec } from './useUserDraftSync.svelte'
 
 // Outbound debounce, uniform across kinds (script was previously immediate;
 // unified to 150ms so a typing burst coalesces into one persist like flow/raw_app).
 const DEBOUNCE_MS = 150
 
-export function makeFlowCodec(runtime: SessionRuntime): DraftSyncCodec<Flow> {
+// Each codec closes over one editor cell's store (not the runtime) so that two
+// live editors of the same kind sync to their own drafts without crossing.
+export function makeFlowCodec(
+	store: StateStore<Flow>,
+	stateStore: { val: Record<string, any> }
+): DraftSyncCodec<Flow> {
 	return {
 		itemKind: 'flow',
 		sig: flowDraftSig,
 		debounceMs: DEBOUNCE_MS,
 		applyDraftToStore(incoming) {
-			const current = runtime.flowStore.val
+			const current = store.val
 			if (!current) return
-			runtime.flowStore.val = {
+			store.val = {
 				...current,
 				value: incoming.value,
 				schema: incoming.schema ?? current.schema,
 				summary: incoming.summary ?? current.summary,
 				description: incoming.description ?? current.description
 			}
-			// flowStateStore is keyed by module_id; after an AI write the set of
+			// stateStore is keyed by module_id; after an AI write the set of
 			// module ids may differ, so rebuild the UI state. This wipes per-module
 			// test args / preview output — a known v1 trade-off.
-			void initFlowState(runtime.flowStore.val, runtime.flowStateStore)
+			void initFlowState(store.val, stateStore)
 		},
 		storeToDraft() {
-			return runtime.flowStore.val
+			return store.val
 		}
 	}
 }
@@ -40,7 +46,7 @@ export function makeFlowCodec(runtime: SessionRuntime): DraftSyncCodec<Flow> {
 type ScriptDraft = NewScript & { draft_path?: string }
 
 export function makeScriptCodec(
-	runtime: SessionRuntime,
+	store: { val: NewScript | undefined },
 	// The draft's storage key (the URL path). A never-deployed script is parked
 	// here at `…/draft_<uuid>` while the user's typed name lives in `script.path`.
 	storagePath: () => string
@@ -63,7 +69,7 @@ export function makeScriptCodec(
 			}),
 		debounceMs: DEBOUNCE_MS,
 		applyDraftToStore(incoming) {
-			const script = runtime.scriptStore.val
+			const script = store.val
 			if (!script) return
 			if (typeof incoming.content !== 'string') return
 			script.content = incoming.content
@@ -71,7 +77,7 @@ export function makeScriptCodec(
 			if (incoming.summary !== undefined) script.summary = incoming.summary
 		},
 		storeToDraft(current) {
-			const script = runtime.scriptStore.val
+			const script = store.val
 			if (!script) return undefined
 			// Merge over the existing entry so fields the preview doesn't edit
 			// (set by the chat) survive a content-only save.
@@ -89,18 +95,20 @@ export function makeScriptCodec(
 	}
 }
 
-export function makeRawAppCodec(runtime: SessionRuntime): DraftSyncCodec<RawAppDraft> {
+export function makeRawAppCodec(store: {
+	val: RawAppRuntimeValue | undefined
+}): DraftSyncCodec<RawAppDraft> {
 	return {
 		itemKind: 'raw_app',
 		sig: (d) => JSON.stringify(d),
 		debounceMs: DEBOUNCE_MS,
 		applyDraftToStore(incoming) {
-			const current = runtime.rawApp.val
+			const current = store.val
 			if (!current) return
-			runtime.rawApp.val = applyDraftToRuntimeRawApp(current, incoming)
+			store.val = applyDraftToRuntimeRawApp(current, incoming)
 		},
 		storeToDraft() {
-			const raw = runtime.rawApp.val
+			const raw = store.val
 			if (!raw) return undefined
 			return runtimeRawAppToDraft(raw)
 		}
