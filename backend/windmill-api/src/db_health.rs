@@ -109,10 +109,12 @@ pub struct ConnectionSizingInfo {
     pub live_worker_instances: i64,
     /// Live individual workers across all instances.
     pub live_workers: i64,
-    /// Default per-server pool ceiling (DEFAULT_MAX_CONNECTIONS_SERVER, overridable via DATABASE_CONNECTIONS).
-    pub default_server_pool_size: i64,
-    /// Default per-worker-instance pool ceiling with a single worker (DEFAULT_MAX_CONNECTIONS_WORKER).
-    pub default_worker_pool_size: i64,
+    /// Effective per-server pool ceiling: DATABASE_CONNECTIONS if set, else DEFAULT_MAX_CONNECTIONS_SERVER.
+    pub server_pool_size: i64,
+    /// Effective per-worker-instance pool ceiling (single-worker baseline; grows +1 per extra worker unless DATABASE_CONNECTIONS is set).
+    pub worker_pool_size: i64,
+    /// The DATABASE_CONNECTIONS override, if this server has one set (caps every process's pool).
+    pub database_connections_override: Option<i64>,
     /// Estimated peak connections opened by all live worker instances.
     pub estimated_worker_connections: i64,
     /// Recommended max_connections floor (workers + one server + headroom).
@@ -432,7 +434,19 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
     .fetch_one(db)
     .await?;
 
-    let sizing = compute_connection_sizing(fleet.live_workers, fleet.live_instances, reserved);
+    // Matches how db_connect.rs reads it: when DATABASE_CONNECTIONS is set it caps
+    // every process's pool (server, indexer, worker) regardless of worker count.
+    let database_connections_override = std::env::var("DATABASE_CONNECTIONS")
+        .ok()
+        .and_then(|n| n.parse::<i64>().ok())
+        .filter(|n| *n > 0);
+
+    let sizing = compute_connection_sizing(
+        fleet.live_workers,
+        fleet.live_instances,
+        reserved,
+        database_connections_override,
+    );
 
     let pg_max = max_row;
     let pg_total = stats_row.total;
@@ -492,26 +506,40 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
 /// Estimate how many postgres connections the live Windmill fleet can open and
 /// derive a recommended `max_connections` floor.
 ///
-/// Each worker instance (process) shares one pool sized
-/// `DEFAULT_MAX_CONNECTIONS_WORKER + (workers_in_instance - 1)`, so the fleet
-/// ceiling is `(DEFAULT_MAX_CONNECTIONS_WORKER - 1) * instances + workers`.
-/// Each server process opens up to `DEFAULT_MAX_CONNECTIONS_SERVER` (both
-/// overridable via `DATABASE_CONNECTIONS`). Servers do not ping `worker_ping`,
-/// so we can't count them — the recommendation assumes one server and exposes
-/// the per-server increment so the operator can add capacity for the rest.
+/// Pool sizing mirrors `db_connect.rs`: when `DATABASE_CONNECTIONS` is set it
+/// caps *every* process's pool (server, indexer, worker) at that value, so each
+/// worker instance opens up to that many connections. Otherwise each worker
+/// instance shares a pool of `DEFAULT_MAX_CONNECTIONS_WORKER + (workers - 1)`
+/// (fleet ceiling `(worker_pool - 1) * instances + workers`) and each server
+/// opens up to `DEFAULT_MAX_CONNECTIONS_SERVER`.
+///
+/// `database_connections_override` is this server's `DATABASE_CONNECTIONS`, our
+/// best proxy for the fleet's config. Servers do not ping `worker_ping`, so we
+/// can't count them — the recommendation assumes one server and exposes the
+/// per-server increment so the operator can add capacity for the rest.
 fn compute_connection_sizing(
     live_workers: i64,
     live_instances: i64,
     reserved: i64,
+    database_connections_override: Option<i64>,
 ) -> ConnectionSizingInfo {
     // Never recommend below this floor: postgres defaults to 100 and headroom
     // for growth/bursts/psql is cheap, so 200 is a safe baseline for any fleet.
     const MIN_RECOMMENDED_MAX_CONNECTIONS: i64 = 200;
 
-    let server_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_SERVER as i64;
-    let worker_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_WORKER as i64;
+    let default_server_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_SERVER as i64;
+    let default_worker_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_WORKER as i64;
 
-    let estimated_worker_connections = (worker_pool - 1) * live_instances + live_workers;
+    let (server_pool, worker_pool_size, estimated_worker_connections) =
+        match database_connections_override {
+            // Override caps every process identically; per-instance pool is the override.
+            Some(n) => (n, n, n * live_instances),
+            None => (
+                default_server_pool,
+                default_worker_pool,
+                (default_worker_pool - 1) * live_instances + live_workers,
+            ),
+        };
 
     // Workers + one server, plus 20% headroom and the superuser reserve, so the
     // recommendation leaves room for psql/monitoring sessions and bursts, then
@@ -520,21 +548,33 @@ fn compute_connection_sizing(
     let recommended = ((((base as f64) * 1.20).ceil() as i64) + reserved.max(3))
         .max(MIN_RECOMMENDED_MAX_CONNECTIONS);
 
+    let pool_source = if database_connections_override.is_some() {
+        format!("DATABASE_CONNECTIONS={server_pool}")
+    } else {
+        "defaults, configurable via DATABASE_CONNECTIONS".to_string()
+    };
+
     let message = if live_instances == 0 {
         format!(
-            "No live workers detected. Each Windmill server opens up to {server_pool} connections and each worker instance up to {worker_pool} (both configurable via DATABASE_CONNECTIONS). Size max_connections as (servers × {server_pool}) + (worker instances × {worker_pool}) + ~20% headroom, and at least {MIN_RECOMMENDED_MAX_CONNECTIONS}."
+            "No live workers detected. Each Windmill server and worker instance opens up to {server_pool} connections ({pool_source}). Size max_connections as (servers + worker instances) × {server_pool} + ~20% headroom, and at least {MIN_RECOMMENDED_MAX_CONNECTIONS}."
         )
     } else {
+        let per_instance = if database_connections_override.is_some() {
+            format!("each instance up to {worker_pool_size}")
+        } else {
+            format!("each instance up to {worker_pool_size}, +1 per extra worker")
+        };
         format!(
-            "{live_workers} live worker(s) across {live_instances} instance(s) can open up to ~{estimated_worker_connections} connections (each instance up to {worker_pool}, +1 per extra worker). Each Windmill server adds up to {server_pool} (DATABASE_CONNECTIONS). Recommended max_connections ≥ {recommended} for a single server; add {server_pool} per additional server."
+            "{live_workers} live worker(s) across {live_instances} instance(s) can open up to ~{estimated_worker_connections} connections ({per_instance}; {pool_source}). Each Windmill server adds up to {server_pool}. Recommended max_connections ≥ {recommended} for a single server; add {server_pool} per additional server."
         )
     };
 
     ConnectionSizingInfo {
         live_worker_instances: live_instances,
         live_workers,
-        default_server_pool_size: server_pool,
-        default_worker_pool_size: worker_pool,
+        server_pool_size: server_pool,
+        worker_pool_size,
+        database_connections_override,
         estimated_worker_connections,
         recommended_max_connections: recommended,
         per_server_increment: server_pool,
@@ -744,12 +784,13 @@ mod tests {
 
     #[test]
     fn no_workers_reports_defaults_and_floors_at_200() {
-        let s = compute_connection_sizing(0, 0, 3);
+        let s = compute_connection_sizing(0, 0, 3, None);
         assert_eq!(s.live_workers, 0);
         assert_eq!(s.live_worker_instances, 0);
         assert_eq!(s.estimated_worker_connections, 0);
-        assert_eq!(s.default_server_pool_size, 50);
-        assert_eq!(s.default_worker_pool_size, 5);
+        assert_eq!(s.server_pool_size, 50);
+        assert_eq!(s.worker_pool_size, 5);
+        assert_eq!(s.database_connections_override, None);
         assert_eq!(s.per_server_increment, 50);
         // ceil((0 + 50) * 1.20) + 3 = 63, floored up to 200.
         assert_eq!(s.recommended_max_connections, 200);
@@ -758,7 +799,7 @@ mod tests {
 
     #[test]
     fn single_worker_single_instance_floors_at_200() {
-        let s = compute_connection_sizing(1, 1, 3);
+        let s = compute_connection_sizing(1, 1, 3, None);
         // (5 - 1) * 1 instance + 1 worker = 5
         assert_eq!(s.estimated_worker_connections, 5);
         // ceil((5 + 50) * 1.20) + 3 = 66 + 3 = 69, floored up to 200.
@@ -768,14 +809,14 @@ mod tests {
     #[test]
     fn multi_worker_instances_sum_per_instance_pools() {
         // Two instances, 5 workers total: pools are (4 + w_i) summed = 4*2 + 5 = 13.
-        let s = compute_connection_sizing(5, 2, 3);
+        let s = compute_connection_sizing(5, 2, 3, None);
         assert_eq!(s.estimated_worker_connections, 13);
     }
 
     #[test]
     fn large_fleet_exceeds_floor_with_margin_and_reserve() {
         // 300 workers across 10 instances: (5-1)*10 + 300 = 340 worker connections.
-        let s = compute_connection_sizing(300, 10, 3);
+        let s = compute_connection_sizing(300, 10, 3, None);
         assert_eq!(s.estimated_worker_connections, 340);
         // ceil((340 + 50) * 1.20) + 3 = ceil(468.0) + 3 = 471, above the 200 floor.
         assert_eq!(s.recommended_max_connections, 471);
@@ -784,11 +825,26 @@ mod tests {
     #[test]
     fn reserved_above_default_widens_recommendation() {
         // Big enough fleet that the floor doesn't mask the reserved contribution.
-        let base = compute_connection_sizing(300, 10, 3);
-        let high = compute_connection_sizing(300, 10, 20);
+        let base = compute_connection_sizing(300, 10, 3, None);
+        let high = compute_connection_sizing(300, 10, 20, None);
         assert_eq!(
             high.recommended_max_connections - base.recommended_max_connections,
             17
         );
+    }
+
+    #[test]
+    fn database_connections_override_caps_every_process() {
+        // DATABASE_CONNECTIONS=100 means each instance opens up to 100, not the
+        // default 5-based estimate. 5 instances -> 500 worker connections.
+        let s = compute_connection_sizing(20, 5, 3, Some(100));
+        assert_eq!(s.server_pool_size, 100);
+        assert_eq!(s.worker_pool_size, 100);
+        assert_eq!(s.database_connections_override, Some(100));
+        assert_eq!(s.estimated_worker_connections, 500);
+        assert_eq!(s.per_server_increment, 100);
+        // ceil((500 + 100) * 1.20) + 3 = 720 + 3 = 723.
+        assert_eq!(s.recommended_max_connections, 723);
+        assert!(s.message.contains("DATABASE_CONNECTIONS=100"));
     }
 }

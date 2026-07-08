@@ -322,9 +322,21 @@
 									<span class="text-primary text-right font-medium"
 										>{formatNumber(sizing.estimated_worker_connections)}</span
 									>
-									<span class="text-tertiary">Per-server pool (default)</span>
+									<span class="text-tertiary"
+										>Per-server pool {sizing.database_connections_override != null
+											? '(DATABASE_CONNECTIONS)'
+											: '(default)'}</span
+									>
 									<span class="text-primary text-right font-medium"
-										>{formatNumber(sizing.default_server_pool_size)}</span
+										>{formatNumber(sizing.server_pool_size)}</span
+									>
+									<span class="text-tertiary"
+										>Per-worker-instance pool {sizing.database_connections_override != null
+											? '(DATABASE_CONNECTIONS)'
+											: '(default)'}</span
+									>
+									<span class="text-primary text-right font-medium"
+										>{formatNumber(sizing.worker_pool_size)}</span
 									>
 									<span class="text-tertiary">Recommended max_connections</span>
 									<span
