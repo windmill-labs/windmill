@@ -686,9 +686,14 @@ export function createGitSyncContext(workspace: string) {
 			collapsed: false,
 			// New connections default to pulling changes from Git (webhook with a
 			// polling fallback), forks included. Existing repos load without
-			// auto_pull and stay off.
-			auto_pull: { enabled: true, mode: 'auto', sync_forks: true },
-			fork_open_prs: true
+			// auto_pull and stay off. Auto-pull is EE-only (the backend rejects an
+			// enabled setting on CE), so only default it on when licensed.
+			...(get(enterpriseLicense)
+				? {
+						auto_pull: { enabled: true, mode: 'auto', sync_forks: true },
+						fork_open_prs: true
+					}
+				: {})
 		})
 		gitSyncTestJobs.push({
 			jobId: '',

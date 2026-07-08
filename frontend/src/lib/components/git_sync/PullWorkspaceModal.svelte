@@ -12,7 +12,7 @@
 		Edit3
 	} from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
-	import { JobService } from '$lib/gen'
+	import { JobService, ResourceService } from '$lib/gen'
 	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import hubPaths from '$lib/hubPaths.json'
@@ -147,9 +147,29 @@
 			const workspace = $workspaceStore
 			if (!workspace) return
 
-			// A dev workspace pulls from its environment-label branch (dev/staging),
-			// not the resource's tracked branch.
+			// A dev workspace pulls from its environment-label branch (dev/staging)
+			// and a fork from its wm-fork/<tracked>/<id> branch, not the resource's
+			// tracked branch. clone_ref falls back to the tracked branch in the
+			// pull script when the override branch doesn't exist yet.
 			const currentWs = $userWorkspaces?.find((w) => w.id === workspace)
+			const isFork = workspace.startsWith('wm-fork-') || Boolean(currentWs?.parent_workspace_id)
+			let cloneRef: string | undefined = undefined
+			if (currentWs?.is_dev_workspace) {
+				cloneRef = currentWs.dev_workspace_label ?? 'dev'
+			} else if (isFork) {
+				try {
+					const resource = await ResourceService.getResource({
+						workspace,
+						path: gitRepoResourcePath
+					})
+					const trackedBranch = (resource.value as any)?.branch
+					if (trackedBranch) {
+						cloneRef = `wm-fork/${trackedBranch}/${workspace.replace(/^wm-fork-/, '')}`
+					}
+				} catch (e) {
+					console.warn('Could not resolve tracked branch for fork pull:', e)
+				}
+			}
 			const payload = {
 				workspace_id: workspace,
 				repo_url_resource_path: gitRepoResourcePath,
@@ -159,9 +179,7 @@
 				settings_json: JSON.stringify(uiState),
 				use_promotion_overrides:
 					currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true,
-				...(currentWs?.is_dev_workspace
-					? { clone_ref: currentWs.dev_workspace_label ?? 'dev' }
-					: {})
+				...(cloneRef ? { clone_ref: cloneRef } : {})
 			}
 
 			const jobId = await JobService.runScriptByPath({

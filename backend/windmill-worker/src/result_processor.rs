@@ -942,13 +942,34 @@ fn git_sync_deploy_pr_head_branch(
     })
 }
 
+/// Whether the push job's result says a commit was actually pushed. `None`
+/// when the result doesn't carry the flag (hub script versions predating it).
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn git_sync_push_result_pushed(result: &str) -> Option<bool> {
+    serde_json::from_str::<serde_json::Value>(result)
+        .ok()?
+        .get("pushed")?
+        .as_bool()
+}
+
 /// When a git-sync push job carrying `__git_sync_open_pr` succeeds, open (or
 /// reopen) the PR for the branch it pushed: `wm-fork/<base>/<id>` for a fork
 /// deploy, `wm_deploy/**` for a promotion deploy. Runs outbound with the
 /// installation token, so it works regardless of webhook reachability.
 /// Best-effort: failures are logged, never propagated.
 #[cfg(all(feature = "enterprise", feature = "private"))]
-async fn maybe_open_git_sync_deploy_pr(db: &DB, job_id: &uuid::Uuid, workspace_id: &str) {
+async fn maybe_open_git_sync_deploy_pr(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    workspace_id: &str,
+    result: &str,
+) {
+    // A no-op push (workspace already matches the repo — e.g. the deploy was
+    // itself caused by an auto-pull) must not ensure a PR: it would recreate
+    // PRs the user closed and spam creation attempts with no diff.
+    if git_sync_push_result_pushed(result) == Some(false) {
+        return;
+    }
     let row = match sqlx::query!(
         r#"SELECT
             args->'__git_sync_open_pr' as "marker",
@@ -1300,7 +1321,7 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
-            maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id).await;
+            maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id, result.get()).await;
         }
 
         // Asset-trigger fan-out: best-effort, never propagates errors.
@@ -1843,7 +1864,23 @@ pub fn extract_error_value(
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_pr_tests {
-    use super::git_sync_deploy_pr_head_branch;
+    use super::{git_sync_deploy_pr_head_branch, git_sync_push_result_pushed};
+
+    #[test]
+    fn push_result_pushed_flag() {
+        assert_eq!(
+            git_sync_push_result_pushed(r#"{"pushed": true}"#),
+            Some(true)
+        );
+        assert_eq!(
+            git_sync_push_result_pushed(r#"{"pushed": false}"#),
+            Some(false)
+        );
+        // Older hub script versions return null / no flag: undetermined.
+        assert_eq!(git_sync_push_result_pushed("null"), None);
+        assert_eq!(git_sync_push_result_pushed(r#"{"other": 1}"#), None);
+        assert_eq!(git_sync_push_result_pushed("not json"), None);
+    }
 
     #[test]
     fn fork_branch_wins_and_strips_the_id_prefix() {

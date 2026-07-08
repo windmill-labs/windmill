@@ -17,7 +17,7 @@
 	import DetectionFlow from './DetectionFlow.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { fade } from 'svelte/transition'
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -632,6 +632,8 @@
 							{:else}
 								<Toggle
 									checked={repo.auto_pull?.enabled ?? false}
+									disabled={!$enterpriseLicense}
+									eeOnly
 									options={{
 										right: 'Automatically deploy changes from Git',
 										rightTooltip:
@@ -721,6 +723,8 @@
 									{#if isGithubApp}
 										<Toggle
 											checked={repo.fork_open_prs ?? false}
+											disabled={!$enterpriseLicense}
+											eeOnly
 											options={{
 												right: 'Open a pull request when a fork deploys',
 												rightTooltip:

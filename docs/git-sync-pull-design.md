@@ -453,6 +453,11 @@ Frontend:
   branch (fork branch wins, else the `wm_deploy/**` formula) and calls
   `ensure_pull_request`. Outbound with the installation token, so no webhook
   reachability is needed; app-backed repos only.
+- No-op pushes skip PR creation: the push script reports `pushed: false` when
+  nothing was committed (e.g. the deploy was itself caused by an auto-pull, so
+  the workspace already matches the repo), and the hook returns early — a PR
+  the user closed isn't recreated by the sync loop. Results without the flag
+  (older script pins) keep ensuring the PR.
 - Fork-branch routing edge cases (§7) hardened here.
 
 ### Phase 4 — PR diff preview checks (optional)
