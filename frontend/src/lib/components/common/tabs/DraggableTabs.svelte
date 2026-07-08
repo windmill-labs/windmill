@@ -91,7 +91,7 @@
 		return twMerge(
 			'group inline-flex items-center gap-1.5 px-2.5 h-7 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
 			isActive
-				? 'bg-surface-tertiary text-emphasis shadow-sm'
+				? 'bg-surface-tertiary text-emphasis'
 				: 'bg-transparent text-hint hover:text-secondary'
 		)
 	}
