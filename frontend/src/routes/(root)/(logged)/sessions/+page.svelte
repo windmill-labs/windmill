@@ -49,6 +49,9 @@
 		pageKey,
 		parsePreviewItemRoute,
 		previewLocationLabel,
+		stripBase,
+		TRIGGER_PAGES,
+		type TriggerKind,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
@@ -323,10 +326,33 @@
 	const scopeKey = (kind: PreviewKind, path: string) => `${kind}:${path}`
 
 	// What a completed tool call should reload: `scopes` names the item editor
-	// iframe(s) it changed (empty when it touched no previewable item); `reloadPages`
-	// is true for any workspace mutation so open list-page tabs stay fresh.
-	type ToolReloadEffect = { scopes: PreviewScope[]; reloadPages: boolean }
-	const NO_RELOAD: ToolReloadEffect = { scopes: [], reloadPages: false }
+	// iframe(s) it changed (empty when it touched no previewable item); `pages` lists
+	// the exact list-page paths it can change (base-stripped, e.g. `/schedules`), so a
+	// schedule write refreshes only the Schedules tab — not every open list page.
+	type ToolReloadEffect = { scopes: PreviewScope[]; pages: string[] }
+	const NO_RELOAD: ToolReloadEffect = { scopes: [], pages: [] }
+
+	// The list page a non-item workspace item lives on. script/flow/app have their own
+	// editor tab (covered by `scopes`) and no list page we preview → none. A trigger's
+	// page depends on its kind.
+	function pagesForItemType(type: unknown, args: any): string[] {
+		switch (type) {
+			case 'schedule':
+				return ['/schedules']
+			case 'resource':
+				return ['/resources']
+			case 'variable':
+				return ['/variables']
+			case 'trigger':
+				return triggerPages(args?.trigger_kind)
+			default:
+				return []
+		}
+	}
+	function triggerPages(kind: unknown): string[] {
+		const page = TRIGGER_PAGES[kind as TriggerKind]
+		return page ? [page.path] : []
+	}
 
 	// Generic item tools (delete/discard/deploy/rebase) carry a workspace item
 	// `type`; map it to the previewable kind, or undefined when it has no item editor
@@ -346,54 +372,65 @@
 	function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 		const path = typeof args?.path === 'string' ? args.path : undefined
 		switch (name) {
+			// Item-editor writes: the live editor already reflects the change (and an
+			// item-route iframe reloads via its scope). They touch no list page we
+			// preview, so `pages` is empty — editing a script must not refresh Schedules.
 			case 'write_script':
 			case 'edit_script':
-				return { scopes: path ? [{ kind: 'script', path }] : [], reloadPages: true }
+				return { scopes: path ? [{ kind: 'script', path }] : [], pages: [] }
 			case 'write_flow':
 			case 'patch_flow_json':
 			case 'set_flow_module_code':
-				return { scopes: path ? [{ kind: 'flow', path }] : [], reloadPages: true }
+				return { scopes: path ? [{ kind: 'flow', path }] : [], pages: [] }
 			case 'init_app':
-				return { scopes: path ? [{ kind: 'raw_app', path }] : [], reloadPages: true }
+				return { scopes: path ? [{ kind: 'raw_app', path }] : [], pages: [] }
 			// Raw-app file/runnable tools carry the app's workspace path in `args.path`.
 			case 'write_app_file':
 			case 'patch_app_file':
 			case 'delete_app_file':
 			case 'write_app_runnable':
 			case 'delete_app_runnable':
-				return { scopes: path ? [{ kind: 'raw_app', path }] : [], reloadPages: true }
+				return { scopes: path ? [{ kind: 'raw_app', path }] : [], pages: [] }
+			// Generic item tools carry a `type`: reload its editor tab if it has one
+			// (script/flow/app) and its list page if it lives on one (schedule/resource/…).
 			case 'delete_workspace_item':
 			case 'discard_local_draft':
 			case 'deploy_workspace_item':
 			case 'rebase_draft': {
 				const kind = itemTypeToPreviewKind(args?.type)
-				return { scopes: kind && path ? [{ kind, path }] : [], reloadPages: true }
+				return {
+					scopes: kind && path ? [{ kind, path }] : [],
+					pages: pagesForItemType(args?.type, args)
+				}
 			}
-			// Workspace mutations with no item editor tab of their own; they can still
-			// change what a list-page preview (schedules, resources, …) shows.
+			// Non-item mutations: refresh only the specific list page each one changes.
 			case 'write_schedule':
+				return { scopes: [], pages: ['/schedules'] }
 			case 'write_trigger':
+				return { scopes: [], pages: triggerPages(args?.kind) }
 			case 'write_resource':
+				return { scopes: [], pages: ['/resources'] }
 			case 'write_variable':
+				return { scopes: [], pages: ['/variables'] }
 			case 'create_folder':
-				return { scopes: [], reloadPages: true }
+				return { scopes: [], pages: ['/folders'] }
 			default:
 				return NO_RELOAD
 		}
 	}
 
 	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	// Drained each flush: `${kind}:${path}` scope keys touched since the last flush,
-	// and whether any workspace mutation occurred (→ reload list-page tabs).
+	// Drained each flush: `${kind}:${path}` scope keys and the base-stripped list-page
+	// paths (e.g. `/schedules`) touched since the last flush.
 	let pendingScopes = new Set<string>()
-	let pendingReloadPages = false
+	let pendingPages = new Set<string>()
 
 	// Reload the batched-mutation tabs across all warm sessions' mounted tabs (a
 	// hidden preview would otherwise show pre-mutation content on return). An
-	// item-route iframe reloads only when its (kind, path) is in scope; a non-item
-	// page reloads when a workspace mutation occurred; a live-editor slot no-ops in
-	// reload().
-	function reloadTabs(scopes: Set<string>, reloadPages: boolean) {
+	// item-route iframe reloads only when its (kind, path) is in scope; a list-page
+	// iframe reloads only when its own path is in `pages` (so a schedule write leaves
+	// the Resources tab alone); a live-editor slot no-ops in reload().
+	function reloadTabs(scopes: Set<string>, pages: Set<string>) {
 		for (const s of warmSessions) {
 			const tabs = getRuntime(s.id)?.previewTabs?.tabs ?? []
 			for (const tab of tabs) {
@@ -403,7 +440,7 @@
 				if (route) {
 					const kind: PreviewKind = route.raw_app ? 'raw_app' : route.kind
 					if (!scopes.has(scopeKey(kind, route.itemPath))) continue
-				} else if (!reloadPages) {
+				} else if (!pages.has(stripBase(tab.loc || tab.url))) {
 					continue
 				}
 				tabHosts[key]?.reload()
@@ -412,25 +449,25 @@
 	}
 	function flushReload() {
 		const scopes = pendingScopes
-		const reloadPages = pendingReloadPages
+		const pages = pendingPages
 		pendingScopes = new Set()
-		pendingReloadPages = false
-		reloadTabs(scopes, reloadPages)
+		pendingPages = new Set()
+		reloadTabs(scopes, pages)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args) => {
-			const { scopes, reloadPages } = toolReloadEffect(name, args)
-			if (scopes.length === 0 && !reloadPages) return
+			const { scopes, pages } = toolReloadEffect(name, args)
+			if (scopes.length === 0 && pages.length === 0) return
 			for (const { kind, path } of scopes) pendingScopes.add(scopeKey(kind, path))
-			if (reloadPages) pendingReloadPages = true
+			for (const p of pages) pendingPages.add(p)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
 			pendingScopes = new Set()
-			pendingReloadPages = false
+			pendingPages = new Set()
 			setToolCompletionListener(undefined)
 		}
 	})
