@@ -96,7 +96,30 @@ pub struct ConnectionPoolInfo {
     pub pg_total_connections: i64,
     pub pg_active_connections: i64,
     pub pg_idle_connections: i64,
+    pub pg_superuser_reserved_connections: i64,
     pub status: HealthLevel,
+    pub message: String,
+    /// Connection sizing guidance derived from the live Windmill fleet.
+    pub sizing: ConnectionSizingInfo,
+}
+
+#[derive(Serialize)]
+pub struct ConnectionSizingInfo {
+    /// Live worker processes (distinct worker_instance pinged recently).
+    pub live_worker_instances: i64,
+    /// Live individual workers across all instances.
+    pub live_workers: i64,
+    /// Default per-server pool ceiling (DEFAULT_MAX_CONNECTIONS_SERVER, overridable via DATABASE_CONNECTIONS).
+    pub default_server_pool_size: i64,
+    /// Default per-worker-instance pool ceiling with a single worker (DEFAULT_MAX_CONNECTIONS_WORKER).
+    pub default_worker_pool_size: i64,
+    /// Estimated peak connections opened by all live worker instances.
+    pub estimated_worker_connections: i64,
+    /// Recommended max_connections floor (workers + one server + headroom).
+    pub recommended_max_connections: i64,
+    /// Per-additional-server increment to add to the recommendation.
+    pub per_server_increment: i64,
+    /// Human-readable sizing explanation.
     pub message: String,
 }
 
@@ -379,6 +402,13 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
     .fetch_one(db)
     .await?;
 
+    let reserved = sqlx::query_scalar!(
+        r#"SELECT setting::bigint as "v!" FROM pg_settings WHERE name = 'superuser_reserved_connections'"#
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(0);
+
     let stats_row = sqlx::query!(
         r#"SELECT
             COUNT(*) as "total!",
@@ -389,6 +419,20 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
     )
     .fetch_one(db)
     .await?;
+
+    // Live Windmill worker fleet: each worker pings worker_ping every ~5s; a
+    // window of 30s tolerates a missed ping without counting dead workers.
+    let fleet = sqlx::query!(
+        r#"SELECT
+            COUNT(*) as "live_workers!",
+            COUNT(DISTINCT worker_instance) as "live_instances!"
+        FROM worker_ping
+        WHERE ping_at > now() - interval '30 seconds'"#
+    )
+    .fetch_one(db)
+    .await?;
+
+    let sizing = compute_connection_sizing(fleet.live_workers, fleet.live_instances, reserved);
 
     let pg_max = max_row;
     let pg_total = stats_row.total;
@@ -438,9 +482,58 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
         pg_total_connections: pg_total,
         pg_active_connections: pg_active,
         pg_idle_connections: pg_idle,
+        pg_superuser_reserved_connections: reserved,
         status,
         message,
+        sizing,
     })
+}
+
+/// Estimate how many postgres connections the live Windmill fleet can open and
+/// derive a recommended `max_connections` floor.
+///
+/// Each worker instance (process) shares one pool sized
+/// `DEFAULT_MAX_CONNECTIONS_WORKER + (workers_in_instance - 1)`, so the fleet
+/// ceiling is `(DEFAULT_MAX_CONNECTIONS_WORKER - 1) * instances + workers`.
+/// Each server process opens up to `DEFAULT_MAX_CONNECTIONS_SERVER` (both
+/// overridable via `DATABASE_CONNECTIONS`). Servers do not ping `worker_ping`,
+/// so we can't count them — the recommendation assumes one server and exposes
+/// the per-server increment so the operator can add capacity for the rest.
+fn compute_connection_sizing(
+    live_workers: i64,
+    live_instances: i64,
+    reserved: i64,
+) -> ConnectionSizingInfo {
+    let server_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_SERVER as i64;
+    let worker_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_WORKER as i64;
+
+    let estimated_worker_connections = (worker_pool - 1) * live_instances + live_workers;
+
+    // Workers + one server, plus 25% headroom and the superuser reserve, so the
+    // recommendation leaves room for psql/monitoring sessions and bursts.
+    let base = estimated_worker_connections + server_pool;
+    let recommended = (((base as f64) * 1.25).ceil() as i64) + reserved.max(3);
+
+    let message = if live_instances == 0 {
+        format!(
+            "No live workers detected. Each Windmill server opens up to {server_pool} connections and each worker instance up to {worker_pool} (both configurable via DATABASE_CONNECTIONS). Size max_connections as (servers × {server_pool}) + (worker instances × {worker_pool}) + ~25% headroom."
+        )
+    } else {
+        format!(
+            "{live_workers} live worker(s) across {live_instances} instance(s) can open up to ~{estimated_worker_connections} connections (each instance up to {worker_pool}, +1 per extra worker). Each Windmill server adds up to {server_pool} (DATABASE_CONNECTIONS). Recommended max_connections ≥ {recommended} for a single server; add {server_pool} per additional server."
+        )
+    };
+
+    ConnectionSizingInfo {
+        live_worker_instances: live_instances,
+        live_workers,
+        default_server_pool_size: server_pool,
+        default_worker_pool_size: worker_pool,
+        estimated_worker_connections,
+        recommended_max_connections: recommended,
+        per_server_increment: server_pool,
+        message,
+    }
 }
 
 async fn fetch_table_maintenance(
