@@ -1137,23 +1137,17 @@ export function extractCustomProperties(styleStr: string): string {
 	return customStyleStr
 }
 
-function isJsonEncoded(value: string): boolean {
-	try {
-		JSON.parse(value)
-		return true
-	} catch {
-		return false
-	}
-}
+// Value prefix marking the reserved `__tag` key as a carried tag: no JSON-encoded
+// arg value can start with `t:` (JSON strings start with `"`, numbers with a digit
+// or `-`, etc.), so it cannot be confused with a genuine arg named `__tag`
+const SHARABLE_HASH_TAG_PREFIX = 't:'
 
-// `tag` is carried as the reserved key `__tag`, kept raw (unlike args, which are
-// JSON-encoded) so extractTagFromSharableHash can tell it apart from a genuine arg
-// named `__tag`. A JSON-parseable tag would be ambiguous, so it is not carried,
-// and an arg named `__tag` overwrites (wins over) the reserved key.
+// `tag` is carried as the reserved key `__tag` with a SHARABLE_HASH_TAG_PREFIX value;
+// an arg named `__tag` overwrites (wins over) the reserved key in the loop below
 export function computeSharableHash(args: any, tag?: string) {
 	let nargs = {}
-	if (tag && !isJsonEncoded(tag)) {
-		nargs['__tag'] = tag
+	if (tag) {
+		nargs['__tag'] = SHARABLE_HASH_TAG_PREFIX + tag
 	}
 	for (let k in args) {
 		let v = args[k]
@@ -1176,14 +1170,14 @@ export function computeSharableHash(args: any, tag?: string) {
 	}
 }
 
-// Counterpart of computeSharableHash's `tag`: extracts and removes the reserved raw
-// `__tag` key. A JSON-parseable value is a genuine arg named `__tag`, not a carried
-// tag, so it is left in `params` for arg parsing.
+// Counterpart of computeSharableHash's `tag`: extracts and removes the reserved
+// `__tag` key. Only a SHARABLE_HASH_TAG_PREFIX-prefixed value is a carried tag; any
+// other value is a genuine arg named `__tag` and is left in `params` for arg parsing.
 export function extractTagFromSharableHash(params: URLSearchParams): string | undefined {
 	const value = params.get('__tag')
-	if (value != null && !isJsonEncoded(value)) {
+	if (value?.startsWith(SHARABLE_HASH_TAG_PREFIX)) {
 		params.delete('__tag')
-		return value
+		return value.slice(SHARABLE_HASH_TAG_PREFIX.length)
 	}
 	return undefined
 }

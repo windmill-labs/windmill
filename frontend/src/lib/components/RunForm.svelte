@@ -201,6 +201,7 @@
 		jsonEditor?.setCode(code)
 	}
 	$effect(() => {
+		overrideTag
 		Object.keys(args ?? {}).forEach((key) => {
 			args?.[key]
 		})

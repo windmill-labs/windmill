@@ -397,13 +397,11 @@ describe('computeSharableHash / extractTagFromSharableHash', () => {
 	function roundTrip(hash: string) {
 		const params = new URLSearchParams(hash)
 		const tag = extractTagFromSharableHash(params)
-		const args = Object.fromEntries(
-			[...params.entries()].map(([k, v]) => [k, JSON.parse(v)])
-		)
+		const args = Object.fromEntries([...params.entries()].map(([k, v]) => [k, JSON.parse(v)]))
 		return { tag, args }
 	}
 
-	it('carries the tag as raw __tag alongside JSON-encoded args', () => {
+	it('carries the tag under the reserved __tag key alongside JSON-encoded args', () => {
 		const hash = computeSharableHash({ name: 'world' }, 'my-custom-tag')
 		expect(roundTrip(hash)).toEqual({ tag: 'my-custom-tag', args: { name: 'world' } })
 	})
@@ -423,8 +421,15 @@ describe('computeSharableHash / extractTagFromSharableHash', () => {
 		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { __tag: 'value' } })
 	})
 
-	it('drops a JSON-parseable tag rather than corrupting args', () => {
-		const hash = computeSharableHash({ name: 'world' }, '123')
-		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { name: 'world' } })
+	it('carries JSON-parseable tags like 123 or true without corrupting args', () => {
+		expect(roundTrip(computeSharableHash({ name: 'world' }, '123'))).toEqual({
+			tag: '123',
+			args: { name: 'world' }
+		})
+		expect(roundTrip(computeSharableHash({}, 'true'))).toEqual({ tag: 'true', args: {} })
+	})
+
+	it('carries a tag that itself starts with the value prefix', () => {
+		expect(roundTrip(computeSharableHash({}, 't:odd'))).toEqual({ tag: 't:odd', args: {} })
 	})
 })
