@@ -9,7 +9,6 @@ import {
 	stripBase,
 	type PreviewTarget
 } from './previewRouter'
-import { sessionTargetHref } from './sessionMode.svelte'
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
 
 // The single live owner of a session's preview tabs. Runs behind a small
@@ -90,14 +89,12 @@ export function previewTargetForSessionTarget(
 	return { type: 'item', item }
 }
 
-// Build the initial tab model for a session: its saved tabs, else a single tab
-// on its editor target, else empty. Default collapse: collapsed only for a
-// session with nothing to preview.
+// Build the initial tab model for a session: its saved tabs, else empty. Default
+// collapse: collapsed only for a session with nothing to preview.
 export function hydratePreviewTabs(session: {
 	previewTabs?: SessionPreviewTab[]
 	activePreviewTabId?: string
 	previewCollapsed?: boolean
-	target?: SessionTarget
 }): PreviewTabsSnapshot {
 	// Saved tabs come straight from IndexedDB — drop malformed records (missing
 	// id/url) and duplicate ids, which would break the page's keyed {#each}.
@@ -114,14 +111,6 @@ export function hydratePreviewTabs(session: {
 		const wantActive = session.activePreviewTabId
 		const activeId = wantActive && tabs.some((t) => t.id === wantActive) ? wantActive : tabs[0].id
 		return { tabs, activeId, collapsed: session.previewCollapsed ?? false }
-	}
-	const seedUrl = sessionTargetHref(session.target)
-	if (seedUrl) {
-		return {
-			tabs: [{ id: 'session', url: seedUrl, loc: seedUrl }],
-			activeId: 'session',
-			collapsed: session.previewCollapsed ?? false
-		}
 	}
 	return { tabs: [], activeId: '', collapsed: session.previewCollapsed ?? true }
 }

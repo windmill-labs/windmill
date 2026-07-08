@@ -74,15 +74,6 @@ describe('hydratePreviewTabs', () => {
 		expect(snap.activeId).toBe('a')
 	})
 
-	it('seeds a single tab on the editor target when there are no saved tabs', () => {
-		const snap = hydratePreviewTabs({ target: { kind: 'script', path: 'u/me/foo' } })
-		expect(snap.tabs).toEqual([
-			{ id: 'session', url: '/scripts/edit/u/me/foo', loc: '/scripts/edit/u/me/foo' }
-		])
-		expect(snap.activeId).toBe('session')
-		expect(snap.collapsed).toBe(false)
-	})
-
 	it('is empty and collapsed for a session with nothing to preview', () => {
 		const snap = hydratePreviewTabs({})
 		expect(snap.tabs).toEqual([])
@@ -91,10 +82,7 @@ describe('hydratePreviewTabs', () => {
 	})
 
 	it('honours an explicit previewCollapsed override', () => {
-		expect(
-			hydratePreviewTabs({ previewCollapsed: true, target: { kind: 'script', path: 'p' } })
-				.collapsed
-		).toBe(true)
+		expect(hydratePreviewTabs({ previewCollapsed: true }).collapsed).toBe(true)
 		expect(hydratePreviewTabs({ previewCollapsed: false }).collapsed).toBe(false)
 	})
 
@@ -113,13 +101,12 @@ describe('hydratePreviewTabs', () => {
 		expect(snap.activeId).toBe('a')
 	})
 
-	it('falls back to the target seed when every saved tab is malformed', () => {
+	it('is empty when every saved tab is malformed', () => {
 		const snap = hydratePreviewTabs({
-			previewTabs: [{ id: '', url: '', loc: '' }],
-			target: { kind: 'script', path: 'u/me/foo' }
+			previewTabs: [{ id: '', url: '', loc: '' }]
 		})
-		expect(snap.tabs).toHaveLength(1)
-		expect(snap.activeId).toBe('session')
+		expect(snap.tabs).toEqual([])
+		expect(snap.activeId).toBe('')
 	})
 })
 
