@@ -7274,9 +7274,9 @@ workspace related commands
   - \`--branch <branch:string>\` - Git branch to associate (default: workspace name)
 - \`workspace unbind\` - Remove baseUrl and workspaceId from a workspace entry
   - \`--workspace <name:string>\` - Workspace to unbind
-- \`workspace fork [workspace_name:string] [workspace_id:string]\` - Create a forked workspace from the currently active (parent) workspace.
+- \`workspace fork [workspace_name:string] [workspace_id:string]\` - Create a forked workspace from its parent workspace.
 
-Run this while the workspace you want to fork is the active one (switch to it first with \`wmill workspace switch <parent>\`); the fork is created from that parent.
+The parent is resolved from your current git branch, not from the active profile: run this from a git repo checked out on the branch mapped to the parent workspace in wmill.yaml's \`workspaces:\` section (a fork branch of it resolves to the same parent). \`wmill workspace switch\` does not change which workspace is forked.
 
 Arguments (omit both to be prompted interactively):
   [workspace_name]  Friendly display name for the fork, shown in the UI. May contain spaces, so quote it in the shell (e.g. "My Fork"). Max 50 chars. Defaults to "<parent workspace name>'s fork".
