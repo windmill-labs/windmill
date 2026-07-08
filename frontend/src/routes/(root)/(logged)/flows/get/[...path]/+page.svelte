@@ -246,6 +246,12 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
+			// `__tag` is a reserved key set by computeSharableHash ('Run again'), not a flow arg
+			const tagParam = searchParams.get('__tag')
+			if (tagParam) {
+				overrideTag = tagParam
+				searchParams.delete('__tag')
+			}
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)

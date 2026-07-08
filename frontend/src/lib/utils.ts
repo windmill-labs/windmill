@@ -1137,8 +1137,13 @@ export function extractCustomProperties(styleStr: string): string {
 	return customStyleStr
 }
 
-export function computeSharableHash(args: any) {
+// `tag` is carried as the reserved key `__tag` (raw, not JSON-encoded) and must be
+// stripped from the params before they are parsed as args (see scripts/flows get pages)
+export function computeSharableHash(args: any, tag?: string) {
 	let nargs = {}
+	if (tag) {
+		nargs['__tag'] = tag
+	}
 	for (let k in args) {
 		let v = args[k]
 		if (v !== undefined) {
