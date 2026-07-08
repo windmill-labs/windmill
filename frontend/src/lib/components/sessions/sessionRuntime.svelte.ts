@@ -120,9 +120,9 @@ export interface RawAppSavedValue {
 }
 
 // One editor cell per (kind, path) the session loads: the load slot plus the
-// content/baseline stores that used to be per-kind singletons. Keying by path
-// lets several items of the same kind stay loaded — and mounted as separate live
-// editors — at once. A tab's editor resolves its own cell via the accessors below.
+// content/baseline stores for that item. Keying by path lets several items of the
+// same kind stay loaded — and mounted as separate live editors — at once. A tab's
+// editor resolves its own cell via the accessors below.
 export interface FlowCell {
 	slot: LoadSlot
 	store: StateStore<Flow>
@@ -196,8 +196,8 @@ function emptyLoadSlot(): LoadSlot {
 	return { loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false }
 }
 
-// Cell factories — same initial state the per-kind singletons used to hold, so a
-// cell before its first load matches the pre-refactor empty editor.
+// Cell factories — a cell starts in the empty-editor state (empty flow / no
+// script / no app) until its first load populates it.
 function makeFlowCell(): FlowCell {
 	const slot: LoadSlot = $state(emptyLoadSlot())
 	const store: StateStore<Flow> = $state({ val: emptyFlow() })

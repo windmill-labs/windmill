@@ -34,8 +34,8 @@ export type PreviewTabsAdapter = {
 }
 
 // True when a tab's URL is the live editor for a specific editable item. Every
-// editable route resolves to an editor now, so this doubles as the "same item"
-// dedupe test in open()/navigate().
+// editable route resolves to an editor, so this doubles as the "same item" dedupe
+// test in open()/navigate().
 function isEditorTabFor(url: string, target: SessionTarget): boolean {
 	const slot = resolvePreviewTab(url)
 	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
