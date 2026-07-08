@@ -655,6 +655,7 @@
 											enableFlyTransition
 											bind:isOpen={activeTabPickerOpen}
 											openFocus="[data-workspace-picker-search]"
+											contentClasses="flex flex-col overflow-hidden"
 											class="flex items-center shrink-0 cursor-pointer text-tertiary hover:text-primary"
 										>
 											{#snippet trigger()}
@@ -685,6 +686,7 @@
 										bind:isOpen={newTabOpen}
 										enableFlyTransition
 										openFocus="[data-workspace-picker-search]"
+										contentClasses="flex flex-col overflow-hidden"
 										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
 									>
 										{#snippet trigger()}
@@ -753,6 +755,7 @@
 											bind:isOpen={emptyStateNewTabOpen}
 											enableFlyTransition
 											openFocus="[data-workspace-picker-search]"
+											contentClasses="flex flex-col overflow-hidden"
 										>
 											{#snippet trigger()}
 												<span
