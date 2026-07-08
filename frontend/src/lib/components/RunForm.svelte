@@ -160,7 +160,7 @@
 			debounced && clearTimeout(debounced)
 			debounced = setTimeout(() => {
 				const nurl = new URL(window.location.href)
-				nurl.hash = computeSharableHash(args)
+				nurl.hash = computeSharableHash(args, overrideTag)
 
 				try {
 					replaceState(nurl.toString(), page.state)
