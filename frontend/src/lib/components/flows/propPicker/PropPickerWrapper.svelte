@@ -45,6 +45,10 @@
 		 *  container relies on the picker pane for its height and whose connect uses
 		 *  the flow-level config). */
 		forceExpanded?: boolean
+		/** Render the children full-width and expose the picker via a chevron-triggered
+		 *  popover instead of a split pane (used by the loop iterator in the sessions
+		 *  modal, where horizontal space is tight). Takes precedence over the other modes. */
+		pickerPopover?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -60,6 +64,7 @@
 		paneClass = '',
 		noFlowPlugConnect = false,
 		forceExpanded = false,
+		pickerPopover = false,
 		children
 	}: Props = $props()
 
@@ -120,7 +125,7 @@
 </script>
 
 {#snippet pickerBody()}
-	<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface-secondary">
+	<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface">
 		<AnimatedButton
 			animate={!collapseUntilConnect && $propPickerConfig != undefined}
 			baseRadius="4px"
@@ -176,7 +181,13 @@
 		}
 	}}
 >
-	{#if collapseUntilConnect}
+	{#if pickerPopover}
+		<!-- Children full-width; the consumer renders the picker in a popover (the
+		     PropPicker inside it still resolves this component's context). -->
+		<div class="h-full w-full {noPadding ? '' : 'p-2'}">
+			{@render children?.()}
+		</div>
+	{:else if collapseUntilConnect}
 		<!-- Picker collapsed until a connect is active: the right pane animates open
 		     (and back closed) via AnimatedPane, same as the runs page detail pane.
 		     Left pane has no fixed size so it flexes to fill whatever the picker leaves. -->

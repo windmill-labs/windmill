@@ -22,14 +22,12 @@
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
-	import FlowPlugConnect from '$lib/components/FlowPlugConnect.svelte'
 
-	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { emptySchema } from '$lib/utils'
-	import { slide } from 'svelte/transition'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
@@ -168,6 +166,52 @@
 	<Splitpanes horizontal class="h-full">
 		<Pane size={50} minSize={20} class="p-4">
 			{#if mod.value.type === 'forloopflow'}
+				{#if mod.value.iterator.type == 'javascript'}
+					<FlowExpressionEditor
+						bind:code={
+							() => {
+								const it = (mod.value as ForloopFlow).iterator
+								return it.type === 'javascript' ? it.expr : ''
+							},
+							(v) => {
+								;(mod.value as ForloopFlow).iterator = { type: 'javascript', expr: v }
+							}
+						}
+						label="Iterator expression"
+						documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
+						pickableProperties={stepPropPicker.pickableProperties}
+						extraLib={stepPropPicker.extraLib}
+						id="flow-editor-iterator-expression"
+						bind:focused={iteratorFieldFocused}
+						bind:editor
+						{suggestion}
+						onKeyUp={iteratorGen?.onKeyUp}
+					>
+						{#snippet tooltip()}
+							The JavaScript expression that will be evaluated to get the list of items to iterate
+							over. Example : ["banana", "apple", flow_input.my_fruit].
+						{/snippet}
+						{#snippet headerExtra()}
+							{#if enableAi}
+								<IteratorGen
+									bind:this={iteratorGen}
+									focused={iteratorFieldFocused}
+									arg={(mod.value as ForloopFlow).iterator}
+									on:showExpr={(e) => (suggestion = e.detail || undefined)}
+									on:setExpr={(e) => setExpr(e.detail)}
+									pickableProperties={stepPropPicker.pickableProperties}
+								/>
+							{/if}
+						{/snippet}
+					</FlowExpressionEditor>
+				{:else}
+					<Button
+						on:click={() => {
+							if (mod.value.type === 'forloopflow') mod.value.iterator.type = 'javascript'
+						}}
+					/>
+				{/if}
+
 				<div class="flex flex-row gap-6 mt-2 mb-6">
 					<div class="flex-shrink-0">
 						<div class="mb-2 text-xs font-semibold text-emphasis"
@@ -210,222 +254,106 @@
 							disabled={mod.value.squash}
 						/>
 					</div>
-					<div class="flex-shrink-0">
-						<div class="mb-2 text-xs font-semibold text-emphasis"
-							>Parallelism <Tooltip
-								>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
-							>
-						</div>
-						<div class="flex gap-2 items-center">
-							<input
-								type="number"
-								min="1"
-								class="w-20 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-surface"
-								disabled={!mod.value.parallel || parallelismType === 'javascript'}
-								placeholder={parallelismType === 'javascript' ? 'Expression' : ''}
-								bind:value={
-									() => {
-										const parallelismExpr = (mod.value as ForloopFlow).parallelism
+					{#if mod.value.parallel}
+						<div class="flex-shrink-0">
+							<div class="mb-2 text-xs font-semibold text-emphasis"
+								>Parallelism <Tooltip
+									>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
+								>
+							</div>
+							<div class="flex gap-2 items-center">
+								<input
+									type="number"
+									min="1"
+									class="w-20 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-surface"
+									disabled={!mod.value.parallel || parallelismType === 'javascript'}
+									placeholder={parallelismType === 'javascript' ? 'Expression' : ''}
+									bind:value={
+										() => {
+											const parallelismExpr = (mod.value as ForloopFlow).parallelism
 
-										return parallelismExpr && parallelismExpr.type === 'static'
-											? parallelismExpr.value
-											: ''
-									},
-									(value) => {
-										if (value === '' || value === null || value === undefined) {
-											;(mod.value as ForloopFlow).parallelism = undefined
+											return parallelismExpr && parallelismExpr.type === 'static'
+												? parallelismExpr.value
+												: ''
+										},
+										(value) => {
+											if (value === '' || value === null || value === undefined) {
+												;(mod.value as ForloopFlow).parallelism = undefined
+											} else {
+												;(mod.value as ForloopFlow).parallelism = {
+													type: 'static',
+													value
+												}
+											}
+										}
+									}
+								/>
+								<ToggleButtonGroup
+									disabled={!mod.value.parallel}
+									bind:selected={parallelismType}
+									on:selected={(e) => {
+										const forLoopFlow = mod.value as ForloopFlow
+										if (e.detail == parallelismType) return
+										if (e.detail === 'javascript') {
+											if (
+												!forLoopFlow.parallelism ||
+												forLoopFlow.parallelism.type !== 'javascript'
+											) {
+												;(mod.value as ForloopFlow).parallelism = {
+													type: 'javascript',
+													expr: ''
+												}
+											}
 										} else {
-											;(mod.value as ForloopFlow).parallelism = {
-												type: 'static',
-												value
+											if (!forLoopFlow.parallelism || forLoopFlow.parallelism.type !== 'static') {
+												;(mod.value as ForloopFlow).parallelism = {
+													type: 'static',
+													value: 0
+												}
 											}
 										}
-									}
-								}
-							/>
-							<ToggleButtonGroup
-								disabled={!mod.value.parallel}
-								bind:selected={parallelismType}
-								on:selected={(e) => {
-									const forLoopFlow = mod.value as ForloopFlow
-									if (e.detail == parallelismType) return
-									if (e.detail === 'javascript') {
-										if (!forLoopFlow.parallelism || forLoopFlow.parallelism.type !== 'javascript') {
-											;(mod.value as ForloopFlow).parallelism = {
-												type: 'javascript',
-												expr: ''
-											}
-										}
-									} else {
-										if (!forLoopFlow.parallelism || forLoopFlow.parallelism.type !== 'static') {
-											;(mod.value as ForloopFlow).parallelism = {
-												type: 'static',
-												value: 0
-											}
-										}
-									}
-								}}
-							>
-								{#snippet children({ item })}
-									<ToggleButton small label="static" value="static" {item} />
+									}}
+								>
+									{#snippet children({ item })}
+										<ToggleButton small label="static" value="static" {item} />
 
-									<ToggleButton
-										small
-										tooltip="JavaScript expression ('flow_input' or 'results')."
-										value="javascript"
-										icon={FunctionSquare}
-										{item}
-									/>
-								{/snippet}
-							</ToggleButtonGroup>
+										<ToggleButton
+											small
+											tooltip="JavaScript expression ('flow_input' or 'results')."
+											value="javascript"
+											icon={FunctionSquare}
+											{item}
+										/>
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
 						</div>
-					</div>
-				</div>
-
-				{#if mod.value.type === 'forloopflow' && mod.value.parallel && mod.value.parallelism?.type == 'javascript'}
-					<div class="my-2 flex flex-row gap-2 items-center">
-						<div class="text-sm font-bold whitespace-nowrap">
-							Parallelism expression
-							<Tooltip>
-								JavaScript expression that defines the maximum number of parallel executions.
-								Example: flow_input.max_parallel || 3
-							</Tooltip>
-						</div>
-					</div>
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="border rounded-md overflow-auto w-full mb-2 h-full max-h-[250px]"
-						id="flow-editor-parallel-expression"
-						transition:slide={{ duration: 300 }}
-					>
-						<PropPickerWrapper
-							notSelectable
-							noPadding
-							forceExpanded
-							flow_input={stepPropPicker.pickableProperties.flow_input}
-							pickableProperties={stepPropPicker.pickableProperties}
-							on:select={({ detail }) => {
-								parallelismEditor?.insertAtCursor(detail)
-								parallelismEditor?.focus()
-							}}
-						>
-							<SimpleEditor
-								bind:this={parallelismEditor}
-								autofocus
-								lang="javascript"
-								bind:code={
-									() => {
-										const parallelismExpr = (mod.value as ForloopFlow).parallelism
-
-										return parallelismExpr && parallelismExpr.type === 'javascript'
-											? parallelismExpr.expr
-											: ''
-									},
-									(expr) => {
-										;(mod.value as ForloopFlow).parallelism = {
-											type: 'javascript',
-											expr
-										}
-									}
-								}
-								class="h-full"
-								shouldBindKey={false}
-								extraLib={stepPropPicker.extraLib}
-							/>
-						</PropPickerWrapper>
-					</div>
-				{/if}
-				<div class="my-2 flex flex-row gap-2 items-center">
-					<div class="text-xs font-semibold text-emphasis whitespace-nowrap">
-						Iterator expression
-						<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
-							The JavaScript expression that will be evaluated to get the list of items to iterate
-							over. Example : ["banana", "apple", flow_input.my_fruit].
-						</Tooltip>
-					</div>
-					<FlowPlugConnect
-						connecting={$flowPropPickerConfig != undefined}
-						wrapperClasses={$flowPropPickerConfig != undefined ? 'h-6 w-7' : 'h-7 w-8'}
-						on:click={() => {
-							const config = {
-								onSelect: (code) => {
-									setExpr(code)
-									return true
-								},
-								clearFocus: () => {
-									flowPropPickerConfig.set(undefined)
-								}
-							}
-							flowPropPickerConfig.set({
-								...config,
-								clearFocus: () => {
-									flowPropPickerConfig.set(undefined)
-								}
-							})
-						}}
-					/>
-					{#if enableAi}
-						<IteratorGen
-							bind:this={iteratorGen}
-							focused={iteratorFieldFocused}
-							arg={mod.value.iterator}
-							on:showExpr={(e) => (suggestion = e.detail || undefined)}
-							on:setExpr={(e) => {
-								setExpr(e.detail)
-							}}
-							pickableProperties={stepPropPicker.pickableProperties}
-						/>
 					{/if}
 				</div>
 
-				{#if mod.value.iterator.type == 'javascript'}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="border rounded-md overflow-auto w-full"
-						id="flow-editor-iterator-expression"
-						onkeyup={iteratorGen?.onKeyUp}
+				{#if mod.value.type === 'forloopflow' && mod.value.parallel && mod.value.parallelism?.type == 'javascript'}
+					<FlowExpressionEditor
+						bind:code={
+							() => {
+								const p = (mod.value as ForloopFlow).parallelism
+								return p && p.type === 'javascript' ? p.expr : ''
+							},
+							(v) => {
+								;(mod.value as ForloopFlow).parallelism = { type: 'javascript', expr: v }
+							}
+						}
+						label="Parallelism expression"
+						pickableProperties={stepPropPicker.pickableProperties}
+						flow_input={stepPropPicker.pickableProperties.flow_input}
+						extraLib={stepPropPicker.extraLib}
+						bind:editor={parallelismEditor}
+						id="flow-editor-parallel-expression"
 					>
-						<PropPickerWrapper
-							notSelectable
-							forceExpanded
-							pickableProperties={stepPropPicker.pickableProperties}
-							on:select={({ detail }) => {
-								if ($flowPropPickerConfig) {
-									setExpr(detail)
-									flowPropPickerConfig.set(undefined)
-									return
-								}
-								editor?.insertAtCursor(detail)
-								editor?.focus()
-							}}
-							noPadding
-						>
-							<div class="relative w-full h-full overflow-clip">
-								<SimpleEditor
-									small
-									bind:this={editor}
-									on:focus={() => {
-										iteratorFieldFocused = true
-									}}
-									on:blur={() => {
-										iteratorFieldFocused = false
-									}}
-									lang="javascript"
-									bind:code={mod.value.iterator.expr}
-									class="h-full"
-									shouldBindKey={false}
-									extraLib={stepPropPicker.extraLib}
-									{suggestion}
-								/>
-							</div>
-						</PropPickerWrapper>
-					</div>
-				{:else}
-					<Button
-						on:click={() => {
-							if (mod.value.type === 'forloopflow') mod.value.iterator.type = 'javascript'
-						}}
-					/>
+						{#snippet tooltip()}
+							JavaScript expression that defines the maximum number of parallel executions. Example:
+							flow_input.max_parallel || 3
+						{/snippet}
+					</FlowExpressionEditor>
 				{/if}
 			{/if}
 		</Pane>

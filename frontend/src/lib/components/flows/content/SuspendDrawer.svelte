@@ -10,14 +10,15 @@
 
 	interface Props {
 		text?: string
+		variant?: 'default' | 'subtle'
 	}
 
-	let { text = 'Approval Help' }: Props = $props()
+	let { text = 'Approval Help', variant = 'default' }: Props = $props()
 </script>
 
 <Button
 	size="xs"
-	variant="default"
+	{variant}
 	on:click={() => {
 		drawer?.openDrawer()
 	}}
