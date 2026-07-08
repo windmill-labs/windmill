@@ -1922,7 +1922,7 @@ export function getCssColor(
 		format = 'css-var'
 	}: {
 		alpha?: number
-		format?: 'css-var' | 'hex-dark' | 'hex-light'
+		format?: 'css-var' | 'hex-dark' | 'hex-light' | 'hex-github-dark'
 	}
 ): string {
 	if (format === 'hex-light') {
@@ -1930,6 +1930,9 @@ export function getCssColor(
 	}
 	if (format === 'hex-dark') {
 		return tokensFile.tokens[darkModeName][color]
+	}
+	if (format === 'hex-github-dark') {
+		return tokensFile.tokens['github-dark'][color]
 	}
 	return `rgb(var(--color-${color}) / ${alpha})`
 }

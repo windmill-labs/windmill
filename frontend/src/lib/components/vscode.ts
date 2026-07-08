@@ -12,6 +12,15 @@ import {
 import getLanguagesServiceOverride from '@codingame/monaco-vscode-languages-service-override'
 import { getCssColor } from '$lib/utils'
 
+// Monaco theme name matching the current document theme (light / dark / GitHub dark variant).
+export function getEditorTheme(): string {
+	const classes = document.documentElement.classList
+	if (!classes.contains('dark')) {
+		return 'myTheme'
+	}
+	return classes.contains('github-dark') ? 'github-dark' : 'nord'
+}
+
 export function buildWorkerDefinition() {
 	const envEnhanced = getEnhancedMonacoEnvironment()
 	const getWorker = (moduleId: string, label: string) => {
@@ -248,6 +257,47 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				}
 			})
 
+			meditor.defineTheme('github-dark', {
+				base: 'vs-dark',
+				inherit: true,
+				rules: [
+					{ background: '0D1117', token: '' },
+					{ foreground: '8b949e', token: 'comment' },
+					{ foreground: 'a5d6ff', token: 'string' },
+					{ foreground: '79c0ff', token: 'constant.numeric' },
+					{ foreground: '79c0ff', token: 'constant.language' },
+					{ foreground: 'ff7b72', token: 'keyword' },
+					{ foreground: 'ff7b72', token: 'storage' },
+					{ foreground: 'ff7b72', token: 'storage.type' },
+					{ foreground: 'ffa657', token: 'entity.name.class' },
+					{ foreground: 'ffa657', fontStyle: 'bold', token: 'entity.other.inherited-class' },
+					{ foreground: 'd2a8ff', token: 'entity.name.function' },
+					{ foreground: '7ee787', token: 'entity.name.tag' },
+					{ foreground: '79c0ff', token: 'entity.other.attribute-name' },
+					{ foreground: 'd2a8ff', token: 'support.function' },
+					{ foreground: 'f0f6fc', background: 'f85149', token: 'invalid' },
+					{ foreground: 'f0f6fc', background: 'bd561d', token: 'invalid.deprecated' },
+					{ foreground: '79c0ff', token: 'constant.color.other.rgb-value' },
+					{ foreground: '79c0ff', token: 'constant.character.escape' },
+					{ foreground: 'ffa657', token: 'variable.other.constant' },
+					{ token: 'string.value.json', foreground: 'a5d6ff' }, // string values in JSON
+					{ token: 'keyword.json', foreground: '79c0ff' } // true, false, null in JSON
+				],
+				colors: {
+					'editor.foreground': '#e6edf3',
+					'editor.background': getCssColor('surface-input', { format: 'hex-github-dark' }),
+					'editor.selectionBackground': '#3392FF44',
+					'editor.inactiveSelectionBackground': '#3392FF22',
+					'editor.lineHighlightBackground': '#161b22',
+					'editorCursor.foreground': '#e6edf3',
+					'editorWhitespace.foreground': '#484f58',
+					'editorIndentGuide.background1': '#21262d',
+					'editorIndentGuide.activeBackground1': '#30363d',
+					'editorLineNumber.foreground': '#6e7681',
+					'editorLineNumber.activeForeground': '#e6edf3'
+				}
+			})
+
 			meditor.defineTheme('myTheme', {
 				base: 'vs',
 				inherit: true,
@@ -262,11 +312,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				}
 			})
 
-			if (document.documentElement.classList.contains('dark')) {
-				meditor.setTheme('nord')
-			} else {
-				meditor.setTheme('myTheme')
-			}
+			meditor.setTheme(getEditorTheme())
 		} catch (e) {
 			console.error('Failed to initialize monaco services', e)
 		} finally {

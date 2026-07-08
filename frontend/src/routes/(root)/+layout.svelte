@@ -12,6 +12,7 @@
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { deepEqual } from 'fast-equals'
 	interface Props {
 		children?: import('svelte').Snippet
@@ -182,6 +183,8 @@
 	} else {
 		document.documentElement.classList.remove('dark')
 	}
+
+	applyDarkModeVariant()
 </script>
 
 {@render children?.()}

@@ -1204,7 +1204,7 @@
 	// it always matches the editor's current state. Plain rebuilds use
 	// `syncExternalPreview` alone (the theme hasn't changed).
 	function feedExternalPreview() {
-		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
 		syncExternalPreview()
 	}
 
@@ -1318,6 +1318,14 @@
 	})
 
 	let darkMode: boolean = $state(false)
+	// Dark variant forwarded to the UI Builder / preview iframes alongside
+	// `dark`. Reads the `github-dark` class (the runtime source of truth) and is
+	// refreshed on any <html> class mutation via the DarkModeObserver below.
+	let darkVariant: 'default' | 'github' = $state(
+		typeof document !== 'undefined' && document.documentElement.classList.contains('github-dark')
+			? 'github'
+			: 'default'
+	)
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
 	let editorFontSize = $state(12)
@@ -1363,13 +1371,20 @@
 	$effect(() => {
 		// Push dark mode to both children. The UI Builder iframe and the
 		// preview iframe each listen for `setDarkMode` separately.
+		void darkVariant
 		if (iframe && iframeLoaded) {
-			iframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
+			iframe.contentWindow?.postMessage(
+				{ type: 'setDarkMode', dark: darkMode, variant: darkVariant },
+				'*'
+			)
 		}
 		if (previewIframe && previewIframeLoaded) {
-			previewIframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
+			previewIframe.contentWindow?.postMessage(
+				{ type: 'setDarkMode', dark: darkMode, variant: darkVariant },
+				'*'
+			)
 		}
-		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
 	})
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
@@ -1630,7 +1645,12 @@
 </script>
 
 <svelte:window onmessage={listener} onkeydown={handleKeydown} />
-<DarkModeObserver bind:darkMode />
+<DarkModeObserver
+	bind:darkMode
+	on:change={() => {
+		darkVariant = document.documentElement.classList.contains('github-dark') ? 'github' : 'default'
+	}}
+/>
 
 <RawAppBackgroundRunner
 	workspace={opWorkspace ?? ''}

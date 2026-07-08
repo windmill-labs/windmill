@@ -2451,7 +2451,7 @@
 {/snippet}
 
 {#snippet editorContent()}
-	<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative flex flex-col">
+	<div class="h-full !overflow-visible bg-surface dark:bg-surface-secondary relative flex flex-col">
 		{#if supportsModules}
 			<div
 				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0"
