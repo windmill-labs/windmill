@@ -779,7 +779,8 @@
 							flowModule,
 							selectedId,
 							flowStateStore.val[flowModule.id]?.schema,
-							$pathStore
+							$pathStore,
+							opWs
 						)
 						if (flowModule.value.type == 'rawscript') {
 							module.value.input_transforms = flowModule.value.input_transforms

@@ -32,7 +32,7 @@
 		items = await FlowService.listFlows({ workspace: opWs!, withoutDescription: true })
 	}
 	$effect(() => {
-		$workspaceStore && untrack(() => loadFlows())
+		opWs && untrack(() => loadFlows())
 	})
 	let prefilteredItems = $derived(
 		ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items

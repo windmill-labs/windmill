@@ -133,7 +133,8 @@
 		fakeInitialPath,
 		customUi,
 		executionCount,
-		devTempScriptRefs
+		devTempScriptRefs,
+		opWorkspace
 	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 	const dispatch = createEventDispatcher()
 
@@ -200,7 +201,8 @@
 				$pathStore,
 				restartedFrom,
 				conversationId,
-				devTempScriptRefs?.()
+				devTempScriptRefs?.(),
+				opWorkspace?.()
 			)
 			jobId = newJobId
 			isRunning = true

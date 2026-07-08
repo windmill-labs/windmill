@@ -103,8 +103,6 @@
 		workspaceOverride = undefined
 	}: Props = $props()
 
-	// Workspace all path lookups target: the caller-provided acting workspace
-	// when set, else the navigation workspace.
 	let ws = $derived(workspaceOverride ?? $workspaceStore)
 
 	$effect.pre(() => {

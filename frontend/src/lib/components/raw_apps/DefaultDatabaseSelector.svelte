@@ -35,7 +35,10 @@
 
 	// Load available datatables and schemas using shared utilities
 	const datatables = createDatatablesResource(() => opWs)
-	const schemas = createSchemasResource(() => datatable)
+	const schemas = createSchemasResource(
+		() => datatable,
+		() => opWs
+	)
 
 	const datatableItems = $derived(toDatatableItems(datatables.current))
 	const schemaItems = $derived(toSchemaItems(schemas.current))

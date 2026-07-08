@@ -255,7 +255,10 @@ export async function createScriptFromInlineScript(
 	flowModule: FlowModule,
 	suffix: string,
 	schema: Schema | undefined,
-	flowPath: string
+	flowPath: string,
+	// The session's acting workspace when the flow editor runs in an AI session;
+	// falls back to the navigation workspace outside a session.
+	workspace?: string
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const user = get(userStore)
 
@@ -278,7 +281,7 @@ export async function createScriptFromInlineScript(
 	const availablePath = await findNextAvailablePath(path)
 
 	const hash = await ScriptService.createScript({
-		workspace: get(workspaceStore)!,
+		workspace: workspace ?? get(workspaceStore)!,
 		requestBody: {
 			path: availablePath,
 			summary: flowModule.summary ?? '',

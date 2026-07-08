@@ -65,7 +65,10 @@
 	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	const datatables = createDatatablesResource(() => opWs)
-	const schemas = createSchemasResource(() => selectedDatatable)
+	const schemas = createSchemasResource(
+		() => selectedDatatable,
+		() => opWs
+	)
 
 	const availableDatatables = $derived(datatables.current)
 	const availableSchemas = $derived(schemas.current)

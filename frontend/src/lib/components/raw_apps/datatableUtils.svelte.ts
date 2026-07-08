@@ -25,10 +25,13 @@ export function createDatatablesResource(getWorkspace: () => string | undefined)
  * Creates a resource that loads schemas for a given datatable.
  * The getDatatable getter is used as a reactive dependency - when it changes, schemas are refetched.
  */
-export function createSchemasResource(getDatatable: () => string | undefined) {
-	return resource<string[]>([() => getDatatable() ?? ''], async () => {
+export function createSchemasResource(
+	getDatatable: () => string | undefined,
+	getWorkspace: () => string | undefined = () => get(workspaceStore)
+) {
+	return resource<string[]>([() => getDatatable() ?? '', () => getWorkspace() ?? ''], async () => {
 		const datatable = getDatatable()
-		const workspace = get(workspaceStore)
+		const workspace = getWorkspace()
 		if (!datatable || !workspace) return []
 
 		const resourcePath = `datatable://${datatable}`

@@ -73,7 +73,8 @@
 		runPreview(previewArgs, undefined)
 	}
 
-	const { flowStateStore, pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStateStore, pathStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	export async function runPreview(
@@ -82,7 +83,15 @@
 	) {
 		progressBar?.reset()
 		const newFlow = { value: { modules }, summary: '' }
-		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+		jobId = await runFlowPreview(
+			args,
+			newFlow,
+			$pathStore,
+			restartedFrom,
+			undefined,
+			undefined,
+			opWorkspace?.()
+		)
 		isRunning = true
 	}
 
