@@ -231,7 +231,8 @@ fn supported_scopes() -> Vec<String> {
         "mcp:scripts:*".to_string(),
         "mcp:flows:*".to_string(),
         "mcp:endpoints:*".to_string(),
-        "mcp:datatables:*".to_string(),
+        "mcp:datatables:read:*".to_string(),
+        "mcp:datatables:write:*".to_string(),
     ]
 }
 

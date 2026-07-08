@@ -382,16 +382,14 @@ impl McpBackend for WindmillBackend {
             // Filter datatable list responses down to the datatables this token
             // is scoped to, so restricted tokens never even see other names.
             if let Some(config) = &dt_scope {
-                if config.datatables_restricted && !config.all {
-                    if let Some(key) = datatable_list_filter_key(&endpoint_tool.name) {
-                        if let Value::Array(items) = &mut result {
-                            items.retain(|item| {
-                                item.get(key)
-                                    .and_then(|v| v.as_str())
-                                    .map(|n| config.is_datatable_allowed(n))
-                                    .unwrap_or(false)
-                            });
-                        }
+                if let Some(key) = datatable_list_filter_key(&endpoint_tool.name) {
+                    if let Value::Array(items) = &mut result {
+                        items.retain(|item| {
+                            item.get(key)
+                                .and_then(|v| v.as_str())
+                                .map(|n| config.is_datatable_allowed(n))
+                                .unwrap_or(false)
+                        });
                     }
                 }
             }

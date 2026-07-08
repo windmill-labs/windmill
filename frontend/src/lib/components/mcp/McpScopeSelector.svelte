@@ -14,6 +14,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
+	import Toggle from '../Toggle.svelte'
 	import InfoIcon from 'lucide-svelte/icons/info'
 	import { SvelteMap } from 'svelte/reactivity'
 
@@ -26,10 +27,24 @@
 
 	let { workspaceId, scope = $bindable(), initialScope, readOnly = false }: Props = $props()
 
+	// Datatable tools are controlled by the dedicated "Data tables" section, not
+	// the generic API-endpoint picker, so they're excluded from that list.
+	const DATATABLE_TOOL_NAMES = new Set([
+		'listDataTables',
+		'listDataTableTables',
+		'listDataTableSchemas',
+		'getDataTableTableSchema',
+		'queryDataTable',
+		'insertDataTable',
+		'updateDataTable'
+	])
+
 	// Endpoints we can actually advertise to a read-only MCP token. Mirrors the
-	// runner's filter (only GET endpoints).
+	// runner's filter (only GET endpoints) and drops the datatable tools.
 	const visibleEndpointTools = $derived(
-		readOnly ? mcpEndpointTools.filter((e) => e.method === 'GET') : mcpEndpointTools
+		(readOnly ? mcpEndpointTools.filter((e) => e.method === 'GET') : mcpEndpointTools).filter(
+			(e) => !DATATABLE_TOOL_NAMES.has(e.name)
+		)
 	)
 
 	// When read-only flips on, prune already-selected non-GET endpoints so the
@@ -54,6 +69,8 @@
 	let selectedFlows = $state<string[]>(parsedInitial.flows)
 	let selectedEndpoints = $state<string[]>(parsedInitial.endpoints)
 	let selectedDatatables = $state<string[]>(parsedInitial.datatables)
+	let datatablesEnabled = $state(parsedInitial.datatablesEnabled)
+	let datatablesWrite = $state(parsedInitial.datatablesWrite)
 	let allDatatables = $state<string[]>([])
 	let loadingDatatables = $state(false)
 	let customScriptPatterns = $state<string>(parsedInitial.scriptPatterns)
@@ -84,6 +101,8 @@
 		flows: string[]
 		endpoints: string[]
 		datatables: string[]
+		datatablesEnabled: boolean
+		datatablesWrite: boolean
 		scriptPatterns: string
 		flowPatterns: string
 		hubApps: string[]
@@ -97,6 +116,8 @@
 			flows: [],
 			endpoints: [],
 			datatables: [],
+			datatablesEnabled: false,
+			datatablesWrite: false,
 			scriptPatterns: '',
 			flowPatterns: '',
 			hubApps: []
@@ -109,6 +130,9 @@
 		const byKind: Record<string, string[]> = {}
 		let mode: ParsedScope['mode'] = 'custom'
 		const hubApps: string[] = []
+		let datatablesEnabled = false
+		let datatablesWrite = false
+		let datatableNames: string[] = []
 
 		for (const part of parts) {
 			if (part === 'mcp:favorites') {
@@ -124,9 +148,19 @@
 			} else if (part.startsWith('mcp:endpoints:')) {
 				byKind.endpoints = parsePatterns(part.slice('mcp:endpoints:'.length))
 			} else if (part.startsWith('mcp:datatables:')) {
-				byKind.datatables = parsePatterns(part.slice('mcp:datatables:'.length))
+				datatablesEnabled = true
+				let rest = part.slice('mcp:datatables:'.length)
+				if (rest.startsWith('write:')) {
+					datatablesWrite = true
+					rest = rest.slice('write:'.length)
+				} else if (rest.startsWith('read:')) {
+					rest = rest.slice('read:'.length)
+				}
+				// `*` means "all data tables" — an empty explicit selection.
+				datatableNames = parsePatterns(rest).filter((n) => n !== '*')
 			}
 		}
+		const dt = { datatables: datatableNames, datatablesEnabled, datatablesWrite }
 
 		// Detect folder mode: scripts and flows are exclusively `f/X/*` patterns
 		// for the same set of folders, and endpoints is exactly `*`.
@@ -149,7 +183,7 @@
 				scripts: [],
 				flows: [],
 				endpoints: [],
-				datatables: [],
+				...dt,
 				scriptPatterns: '',
 				flowPatterns: '',
 				hubApps
@@ -157,7 +191,7 @@
 		}
 
 		if (mode === 'favorites' || mode === 'all') {
-			return { ...empty, mode, hubApps }
+			return { ...empty, mode, hubApps, ...dt }
 		}
 
 		// Custom mode: split each list into "selectable" entries (later filtered
@@ -171,7 +205,7 @@
 			scripts: [],
 			flows: [],
 			endpoints: byKind.endpoints ?? [],
-			datatables: byKind.datatables ?? [],
+			...dt,
 			scriptPatterns: (byKind.scripts ?? []).join(','),
 			flowPatterns: (byKind.flows ?? []).join(','),
 			hubApps
@@ -202,12 +236,6 @@
 			if (selectedEndpoints.length > 0) {
 				scopeParts.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
 			}
-
-			// Restrict which data tables the datatable tools may touch. Omitting
-			// this leaves datatable access unrestricted (all data tables).
-			if (selectedDatatables.length > 0) {
-				scopeParts.push(`mcp:datatables:${selectedDatatables.join(',')}`)
-			}
 		} else if (selectedMode === 'folder') {
 			const folderPaths = selectedFolders.map((f) => `f/${f}/*`).join(',')
 			if (selectedFolders.length > 0) {
@@ -219,6 +247,14 @@
 
 		if (newMcpApps.length > 0) {
 			scopeParts.push(`mcp:hub:${newMcpApps.join(',')}`)
+		}
+
+		// Data table access is opt-in and independent of the mode. In "all" mode
+		// `mcp:all` already grants full datatable access, so no separate scope.
+		if (datatablesEnabled && selectedMode !== 'all') {
+			const level = datatablesWrite && !readOnly ? 'write' : 'read'
+			const names = selectedDatatables.length > 0 ? selectedDatatables.join(',') : '*'
+			scopeParts.push(`mcp:datatables:${level}:${names}`)
 		}
 
 		scope = scopeParts.join(' ')
@@ -416,10 +452,18 @@
 		}
 	}
 
-	// Load data table names for the custom-mode restriction picker
+	// Load data table names once the Data tables section is enabled.
 	$effect(() => {
-		if (selectedMode === 'custom' && workspaceId) {
+		if (datatablesEnabled && workspaceId) {
 			loadDatatables(workspaceId)
+		}
+	})
+
+	// A read-only token can never expose the write tools, so keep the write
+	// sub-toggle off while read-only is on.
+	$effect(() => {
+		if (readOnly && datatablesWrite) {
+			datatablesWrite = false
 		}
 	})
 
@@ -478,12 +522,6 @@
 	}
 	function clearAllEndpoints() {
 		selectedEndpoints = []
-	}
-	function selectAllDatatables() {
-		selectedDatatables = [...allDatatables]
-	}
-	function clearAllDatatables() {
-		selectedDatatables = []
 	}
 </script>
 
@@ -550,6 +588,53 @@
 		{/if}
 	</div>
 
+	{#if selectedMode !== 'all'}
+		<div class="flex flex-col gap-2 rounded-md border border-surface-hover p-3">
+			<Toggle
+				bind:checked={datatablesEnabled}
+				options={{
+					right: 'Data tables',
+					rightTooltip:
+						'Expose tools to read (and optionally write) the workspace data tables directly via MCP.'
+				}}
+				size="2xs"
+			/>
+			{#if datatablesEnabled}
+				<p class="text-xs text-tertiary">
+					This grants the MCP client <b>full access to the data</b> in the selected data tables (all
+					of them if none is selected). Data tables have no per-user or row-level permissions yet
+					<span class="text-secondary">(coming soon)</span>, so only enable this for trusted or
+					development use.
+				</p>
+
+				{#if !readOnly}
+					<Toggle
+						bind:checked={datatablesWrite}
+						options={{
+							right: 'Write access (insert & update)',
+							rightTooltip:
+								'Also expose the insert and update tools. Leave off for read-only access.'
+						}}
+						size="2xs"
+					/>
+				{/if}
+
+				<span class="block text-xs font-semibold mt-1">Restrict to specific data tables</span>
+				{#if loadingDatatables}
+					<p class="text-xs text-primary">Loading data tables...</p>
+				{:else if allDatatables.length > 0}
+					<MultiSelect
+						items={safeSelectItems(allDatatables)}
+						placeholder="Leave empty to allow all data tables"
+						bind:value={selectedDatatables}
+					/>
+				{:else}
+					<p class="text-xs text-primary">No data tables configured in this workspace.</p>
+				{/if}
+			{/if}
+		</div>
+	{/if}
+
 	{#if selectedMode === 'custom'}
 		{#if loadingRunnables}
 			<div class="flex flex-col gap-2">
@@ -605,28 +690,9 @@
 					/>
 				</div>
 
-				{#if allDatatables.length > 0 || loadingDatatables}
-					<div class="flex flex-col gap-2 mt-2">
-						{@render sectionHeader('Data tables', selectAllDatatables, clearAllDatatables)}
-						{#if loadingDatatables}
-							<p class="text-xs text-primary">Loading data tables...</p>
-						{:else}
-							<MultiSelect
-								items={safeSelectItems(allDatatables)}
-								placeholder="Restrict to specific data tables (leave empty for all)"
-								bind:value={selectedDatatables}
-							/>
-							<p class="text-xs text-tertiary">
-								Applies only to the datatable tools (query/insert/update/list). Leave empty to allow
-								every data table.
-							</p>
-						{/if}
-					</div>
-				{/if}
-
 				<div class="text-xs text-primary mt-2">
 					Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
-					endpoints{#if selectedDatatables.length > 0}, {selectedDatatables.length} data tables{/if}
+					endpoints
 				</div>
 
 				<!-- Wildcard Patterns Section -->
