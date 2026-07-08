@@ -1,5 +1,6 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { get } from 'svelte/store'
+import { base } from '$lib/base'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
@@ -351,6 +352,17 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 		setTarget: (target) => setSessionTarget(session.id, target)
 	})
+
+	// Let the jobs tray open a run in this session's preview panel (as an iframe
+	// tab over the run page). The global side-panel chat leaves this unset and
+	// falls back to a new browser tab.
+	manager.openRunInPreview = ({ jobId, workspace, label }) => {
+		previewTabs.open({
+			type: 'page',
+			href: `${base}/run/${jobId}?workspace=${workspace}`,
+			label
+		})
+	}
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —

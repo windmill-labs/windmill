@@ -17,7 +17,7 @@ vi.mock('$lib/components/flows/flowTree', () => ({
 vi.mock('$lib/gen', () => ({
 	ScriptService: {},
 	FlowService: {},
-	JobService: {},
+	JobService: { getJob: vi.fn() },
 	ScheduleService: {
 		previewSchedule: vi.fn(),
 		createSchedule: vi.fn()
@@ -51,6 +51,12 @@ vi.mock('@leeoniya/ufuzzy', () => ({
 			return [[], [], []]
 		}
 	}
+}))
+
+// deriveChatJobStatus's scheduled branch calls forLater; stub it deterministically
+// (a real one pulls in stores/db-clock drift) — "later" = >5s in the future.
+vi.mock('$lib/forLater', () => ({
+	forLater: (scheduled: string | number | Date) => new Date(scheduled).getTime() > Date.now() + 5000
 }))
 
 describe('createToolDef', () => {
@@ -687,5 +693,186 @@ describe('isActiveUserQuestion', () => {
 		expect(isActiveUserQuestion(undefined)).toBe(false)
 		expect(isActiveUserQuestion(userMessage)).toBe(false)
 		expect(isActiveUserQuestion(assistantMessage)).toBe(false)
+	})
+})
+
+describe('pollJobCompletion detach', () => {
+	function makeCallbacks() {
+		return {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			onJobStatus: vi.fn()
+		}
+	}
+
+	it('detaches immediately (no polling) when detachAfterMs is 0', async () => {
+		const { pollJobCompletion } = await import('./shared')
+		const { JobService } = await import('$lib/gen')
+		const getJob = vi.mocked(JobService.getJob)
+		getJob.mockReset()
+		const cbs = makeCallbacks()
+
+		const outcome = await pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 0 })
+
+		expect(outcome).toBe('detached')
+		expect(getJob).not.toHaveBeenCalled()
+	})
+
+	it('detaches after the inline budget when the job is still running', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const cbs = makeCallbacks()
+
+			// detachAfterMs 2000 → 2 polls at 1s each, then detach.
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 2000 })
+			await vi.advanceTimersByTimeAsync(2000)
+
+			expect(await promise).toBe('detached')
+			// Status is reported as running during the wait (alongside the trimmed
+			// Job snapshot that feeds JobStatusIcon).
+			expect(cbs.onJobStatus).toHaveBeenCalledWith(
+				'job1',
+				expect.objectContaining({ status: 'running' })
+			)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('returns the completed job when it finishes within the inline budget', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			const completed = { type: 'CompletedJob', success: true, result: 42 }
+			getJob.mockResolvedValue(completed as any)
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
+			await vi.advanceTimersByTimeAsync(1000)
+
+			expect(await promise).toBe(completed)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('legacy mode (no detach) throws a timeout error when the job never completes', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any)
+			const assertion = expect(promise).rejects.toThrow('timed out')
+			await vi.advanceTimersByTimeAsync(60000)
+			await assertion
+			expect(cbs.setToolStatus).toHaveBeenCalledWith(
+				'tool1',
+				expect.objectContaining({ error: expect.any(String) })
+			)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
+describe('deriveChatJobStatus', () => {
+	// CompletedJob is discriminated by the presence of a `success` key; the branch
+	// order deliberately mirrors JobStatusIcon so the badge and scalar never drift.
+	it('maps a canceled completed job to canceled (canceled wins over success=false)', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: false, canceled: true } as any)).toBe('canceled')
+	})
+
+	it('maps a successful completed job to success', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: true, canceled: false } as any)).toBe('success')
+	})
+
+	it('maps a non-canceled failed completed job to failure', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: false, canceled: false } as any)).toBe('failure')
+	})
+
+	it('maps a running suspended queued job to suspended', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: true, suspend: 1 } as any)).toBe('suspended')
+	})
+
+	it('maps a running queued job to running', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: true } as any)).toBe('running')
+	})
+
+	it('maps a future-scheduled queued job to scheduled', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		const future = new Date(Date.now() + 3_600_000).toISOString()
+		expect(deriveChatJobStatus({ running: false, scheduled_for: future } as any)).toBe('scheduled')
+	})
+
+	it('maps a plain (non-running, non-scheduled) queued job to queued', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: false } as any)).toBe('queued')
+	})
+})
+
+describe('trimJob', () => {
+	const HEAVY = ['logs', 'args', 'result', 'raw_code', 'raw_flow', 'flow_status']
+
+	it('preserves the ABSENCE of a success key on a queued job (JobStatusIcon in-operator invariant)', async () => {
+		const { trimJob } = await import('./shared')
+		const queued = {
+			id: 'j1',
+			running: true,
+			logs: 'x',
+			args: {},
+			result: 1,
+			raw_code: 'c',
+			raw_flow: {},
+			flow_status: {}
+		}
+		const trimmed = trimJob(queued as any)
+		// The load-bearing invariant: a running/queued job must NOT gain a `success`
+		// key, or deriveChatJobStatus/JobStatusIcon would misread it as completed.
+		expect('success' in trimmed).toBe(false)
+		expect(trimmed.running).toBe(true)
+		expect(trimmed.id).toBe('j1')
+	})
+
+	it('deletes the six heavy fields but keeps the status-discriminant scalar', async () => {
+		const { trimJob } = await import('./shared')
+		const job = {
+			id: 'j1',
+			success: true,
+			logs: 'x',
+			args: { a: 1 },
+			result: [1],
+			raw_code: 'c',
+			raw_flow: { modules: [] },
+			flow_status: { step: 0 }
+		}
+		const trimmed = trimJob(job as any) as Record<string, unknown>
+		for (const k of HEAVY) expect(k in trimmed).toBe(false)
+		expect('success' in trimmed).toBe(true)
+		expect(trimmed.success).toBe(true)
+	})
+
+	it('does not mutate the input job', async () => {
+		const { trimJob } = await import('./shared')
+		const job = { id: 'j1', success: true, result: 42 }
+		trimJob(job as any)
+		expect(job.result).toBe(42)
 	})
 })

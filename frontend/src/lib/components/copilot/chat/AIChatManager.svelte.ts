@@ -1,5 +1,5 @@
 import type { ScriptLang } from '$lib/gen/types.gen'
-import { WorkspaceService } from '$lib/gen'
+import { WorkspaceService, JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -19,7 +19,14 @@ import {
 	type DisplayMessage,
 	type Tool,
 	type ToolCallbacks,
-	type ToolDisplayMessage
+	type ToolDisplayMessage,
+	type ChatJob,
+	type ChatJobInit,
+	type ChatJobStatus,
+	completedJobToolStatus,
+	backgroundJobCompletionNote,
+	deriveChatJobStatus,
+	trimJob
 } from './shared'
 import type {
 	ChatCompletionMessageParam,
@@ -92,6 +99,7 @@ import {
 	type AiSkillListItem,
 	type GlobalToolHelpers
 } from './global/core'
+import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
 import {
 	pipelineTools,
@@ -279,6 +287,35 @@ export class AIChatManager {
 	// the turn finishes (clean completion or user cancel). Ephemeral — never
 	// saved to displayMessages or history.
 	queuedMessage = $state<string>('')
+	// Jobs the chat started that detached into the background (global/sessions
+	// chat only). Rendered in the jobs tray, persisted with the chat, and advanced
+	// by a single background poller. See registerJob / #pollBackgroundJobs.
+	backgroundJobs = $state<ChatJob[]>([])
+	// Completion notes for finished background jobs awaiting delivery to the model.
+	// Drained as a preamble into the next turn — either the user's next message, or,
+	// when the chat is idle, an auto-resume turn started for them (see
+	// #maybeAutoResumeFromJobs). Ephemeral like queuedMessage — not persisted.
+	pendingJobNotes = $state<string[]>([])
+	// Guards #maybeAutoResumeFromJobs against re-entering while its own turn spins up.
+	#autoResuming = false
+	#jobPollTimer: ReturnType<typeof setTimeout> | undefined = undefined
+	#jobPollDelay = 2000
+	// True while a #pollBackgroundJobs pass is executing. #stopJobPoller only clears
+	// the scheduled timer, not an in-flight poll, so without this a refreshBackgroundJobs
+	// mid-poll (cancel / approval close) would start a second concurrent poll chain and
+	// double the poll rate. The guard makes such a refresh coalesce into the running pass.
+	#isPolling = false
+	// Bumped on every conversation switch (clearBackgroundJobs). An in-flight poll
+	// captures it before its awaits and bails if it changed, so a getJob that
+	// resolves after the user switched chats can't mutate the newly-loaded one.
+	#jobPollGeneration = 0
+	// Consecutive getJob failures per background job, so a vanished/404 job can be
+	// drained instead of polled forever. Ephemeral, keyed by jobId.
+	#jobPollFailures = new Map<string, number>()
+	/** Opens a run in the sessions preview pane. Set by the session runtime;
+	 * undefined in the global side-panel chat, where the tray falls back to opening
+	 * the run in a new browser tab. */
+	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
@@ -445,6 +482,326 @@ export class AIChatManager {
 				.catch((e) => console.error('Failed to persist modified-items mask', e))
 		)
 		return this.#maskPersistQueue
+	}
+
+	// ===== Background jobs (global/sessions chat only) =====
+	//
+	// A test-run tool that doesn't finish within the inline wait detaches: it
+	// returns a "still running" handle to the model and registers the job here.
+	// A single poller advances all detached jobs; on completion it fills the tool
+	// card and queues a notify-only note for the model's next turn.
+
+	private isJobNonTerminal(status: ChatJobStatus): boolean {
+		// suspended (awaiting approval) and scheduled are non-terminal — the poller
+		// MUST keep watching them, else an approval would never clear from the tray.
+		return (
+			status === 'queued' ||
+			status === 'running' ||
+			status === 'suspended' ||
+			status === 'scheduled'
+		)
+	}
+
+	/** Record a job the moment it starts, so the tray shows it while it is still
+	 * inline-waiting. Idempotent on jobId. The init carries the serializable
+	 * `resultFormat` (persisted), so completion formatting survives a reload. */
+	registerJob = (init: ChatJobInit) => {
+		if (this.backgroundJobs.some((j) => j.jobId === init.jobId)) return
+		this.backgroundJobs = [
+			...this.backgroundJobs,
+			{ ...init, createdAt: Date.now(), status: 'queued', detached: false, reported: false }
+		]
+	}
+
+	/** Merge a partial update into a tracked job by id. */
+	updateJob = (jobId: string, update: Partial<ChatJob>) => {
+		const idx = this.backgroundJobs.findIndex((j) => j.jobId === jobId)
+		if (idx === -1) return
+		this.backgroundJobs[idx] = { ...this.backgroundJobs[idx], ...update }
+		this.backgroundJobs = [...this.backgroundJobs]
+	}
+
+	/** A job left the inline wait — hand it to the background poller. */
+	markJobDetached = (jobId: string) => {
+		this.updateJob(jobId, { detached: true })
+		this.#ensureJobPoller()
+		void this.#persistBackgroundJobs()
+	}
+
+	/** User-facing cancel from the jobs tray. */
+	cancelJob = async (jobId: string) => {
+		const job = this.backgroundJobs.find((j) => j.jobId === jobId)
+		if (!job) return
+		try {
+			await JobService.cancelQueuedJob({ workspace: job.workspace, id: jobId, requestBody: {} })
+			// Don't mark terminal here: a bare `status: 'canceled'` would (a) leave the
+			// `job` snapshot that drives JobStatusIcon stale (badge stuck on running)
+			// and (b) make isJobNonTerminal false so the poller stops before it can
+			// refresh either. Let the poller observe the canceled CompletedJob and set
+			// status + job together; poke it so the tray converges within a tick.
+			this.refreshBackgroundJobs()
+		} catch (e) {
+			console.error('Failed to cancel job', jobId, e)
+			sendUserToast('Failed to cancel job', true)
+		}
+	}
+
+	/** Remove a finished job from the tray. */
+	dismissJob = (jobId: string) => {
+		this.backgroundJobs = this.backgroundJobs.filter((j) => j.jobId !== jobId)
+		void this.#persistBackgroundJobs()
+	}
+
+	/** Force an immediate background-job poll (e.g. right after an approval) instead
+	 * of waiting for the next scheduled tick. */
+	refreshBackgroundJobs = () => {
+		this.#stopJobPoller()
+		this.#jobPollDelay = 2000
+		void this.#pollBackgroundJobs()
+	}
+
+	#ensureJobPoller() {
+		if (this.#jobPollTimer !== undefined) return
+		// A poll pass is running (it cleared #jobPollTimer on entry). It reschedules
+		// from the current job set when it finishes, so the job that just detached is
+		// already covered. Scheduling here instead would create a second timer that the
+		// end-of-pass reschedule overwrites WITHOUT clearing — orphaning it into a
+		// duplicate, self-perpetuating poll chain. Coalesce into the active pass.
+		if (this.#isPolling) return
+		if (!this.backgroundJobs.some((j) => j.detached && this.isJobNonTerminal(j.status))) return
+		this.#jobPollDelay = 2000
+		this.#scheduleJobPoll()
+	}
+
+	#scheduleJobPoll() {
+		this.#jobPollTimer = setTimeout(() => void this.#pollBackgroundJobs(), this.#jobPollDelay)
+	}
+
+	#stopJobPoller() {
+		if (this.#jobPollTimer !== undefined) {
+			clearTimeout(this.#jobPollTimer)
+			this.#jobPollTimer = undefined
+		}
+	}
+
+	// Guarded entry point for every poll trigger (scheduled tick, #ensureJobPoller,
+	// and refreshBackgroundJobs): if a pass is already running, coalesce into it
+	// instead of starting a second concurrent chain that would double the poll rate.
+	async #pollBackgroundJobs() {
+		if (this.#isPolling) return
+		this.#isPolling = true
+		try {
+			await this.#runBackgroundJobsPoll()
+		} finally {
+			this.#isPolling = false
+		}
+	}
+
+	async #runBackgroundJobsPoll() {
+		this.#jobPollTimer = undefined
+		const gen = this.#jobPollGeneration
+		const pending = this.backgroundJobs.filter((j) => j.detached && this.isJobNonTerminal(j.status))
+		if (pending.length === 0) return
+
+		let anyTerminal = false
+		for (const job of pending) {
+			try {
+				const fetched = await JobService.getJob({
+					workspace: job.workspace,
+					id: job.jobId,
+					noLogs: false,
+					noCode: true
+				})
+				// The user switched conversations while this getJob was in flight; its
+				// result belongs to a chat that's gone. Drop it rather than mutate the
+				// newly-loaded one (which re-armed its own poller on load).
+				if (gen !== this.#jobPollGeneration) return
+				this.#jobPollFailures.delete(job.jobId)
+				if (fetched.type === 'CompletedJob') {
+					anyTerminal = true
+					this.#onBackgroundJobComplete(job, fetched as CompletedJob)
+				} else {
+					// Store the derived status and the trimmed Job together so the tray
+					// badge (JobStatusIcon) and the scalar status can never drift.
+					this.updateJob(job.jobId, {
+						status: deriveChatJobStatus(fetched),
+						job: trimJob(fetched)
+					})
+				}
+			} catch (e) {
+				// Same generation guard as the success path — a switch during the failing
+				// getJob means this result is for a conversation that's gone.
+				if (gen !== this.#jobPollGeneration) return
+				// A vanished job (404) or repeated failures must not keep the poller
+				// alive forever — now that suspended/scheduled are polled too, drain it
+				// as failed so isJobNonTerminal lets the poller stop.
+				const httpStatus = (e as { status?: number })?.status
+				const failures = (this.#jobPollFailures.get(job.jobId) ?? 0) + 1
+				this.#jobPollFailures.set(job.jobId, failures)
+				if (httpStatus === 404 || failures >= 5) {
+					this.#jobPollFailures.delete(job.jobId)
+					// Vanished (404) or unreachable after repeated polls. Mark it failed WITH
+					// a snapshot + tool-card patch (mirroring #onBackgroundJobComplete) so
+					// neither the tray badge nor the launching tool card stays frozen on
+					// "running" — a bare `status: 'failure'` with no `job` would render the
+					// orange queued badge (JobsSegment's `!job.job` fallback). The synthetic
+					// failed CompletedJob keeps the `success`-key discriminant so JobStatusIcon
+					// and deriveChatJobStatus agree. No model note/auto-resume: a vanished job
+					// isn't a meaningful completion to react to (usually transient infra).
+					const gone = {
+						type: 'CompletedJob',
+						id: job.jobId,
+						success: false,
+						canceled: false
+					} as unknown as CompletedJob
+					this.updateJob(job.jobId, { status: 'failure', reported: true, job: trimJob(gone) })
+					this.applyToolStatus(job.toolCallId, {
+						content: 'Background job could not be retrieved (it may have been removed)',
+						error: `Job ${job.jobId} was unreachable`
+					})
+					anyTerminal = true
+				} else {
+					console.error('Failed to poll background job', job.jobId, e)
+				}
+			}
+		}
+
+		if (anyTerminal) {
+			void this.#persistBackgroundJobs()
+		}
+
+		// Reschedule while anything is still in flight, backing off up to 5s.
+		if (this.backgroundJobs.some((j) => j.detached && this.isJobNonTerminal(j.status))) {
+			this.#jobPollDelay = Math.min(this.#jobPollDelay + 1000, 5000)
+			this.#scheduleJobPoll()
+		}
+
+		// Something finished this cycle — if the chat is idle, react to it now
+		// instead of waiting for the user's next message. Fire-and-forget so the
+		// poller loop above isn't blocked by the turn.
+		if (anyTerminal) void this.#maybeAutoResumeFromJobs()
+	}
+
+	#onBackgroundJobComplete(job: ChatJob, completed: CompletedJob) {
+		const status = deriveChatJobStatus(completed)
+		this.updateJob(job.jobId, {
+			status,
+			durationMs: completed.duration_ms,
+			reported: true,
+			job: trimJob(completed)
+		})
+		// If the launching tool stamped a resultFormat, reconstruct its shaped card +
+		// model text so the detached path reports the same contract the inline path
+		// would (row-capped rows, friendly datatable errors) — even after a reload,
+		// since resultFormat is persisted on the job. A canceled job skips formatting:
+		// its card is the neutral "canceled" state, not a result.
+		const formatted =
+			status === 'canceled' || !job.resultFormat
+				? undefined
+				: formatChatJobCompletion(completed, job.resultFormat)
+		// Fill the tool card that launched it (we run outside a turn here).
+		this.applyToolStatus(job.toolCallId, formatted?.card ?? completedJobToolStatus(completed))
+		// A user-canceled job needs no model note or auto-resume: the user stopped it
+		// deliberately, so announcing it (as "FAILED", since a canceled job isn't a
+		// success) or burning a turn on it would be noise.
+		if (status === 'canceled') return
+		// Queue a completion note for the model. Delivered on the next turn —
+		// either the user's next message or an idle auto-resume (fired by the poller).
+		this.pendingJobNotes = [
+			...this.pendingJobNotes,
+			backgroundJobCompletionNote(job.jobId, job.label, completed, formatted?.llmText)
+		]
+	}
+
+	/**
+	 * Stage 2 wake: when a background job finishes and the chat is otherwise idle,
+	 * start a turn on the user's behalf so the model reacts to the result (reports
+	 * it, continues the plan) instead of waiting for the next manual message. The
+	 * rich completion note reaches the model via the pendingJobNotes preamble in
+	 * sendRequest; the visible bubble is just a short, clearly-automated line.
+	 *
+	 * Bounded so it can't run away: fires only when idle (no in-flight turn) and
+	 * only when notes exist — and sendRequest drains the notes, so a turn that
+	 * doesn't spawn a new job leaves nothing to re-trigger on. A turn that DOES
+	 * spawn another job resumes again when that one finishes, which is the point.
+	 */
+	async #maybeAutoResumeFromJobs() {
+		if (this.#autoResuming) return
+		// Global/sessions chat only (the only mode with a jobs tray + preamble).
+		if (this.mode !== AIMode.GLOBAL) return
+		// Mid-turn: the notes will ride that turn's preamble, so don't start another.
+		if (this.loading) return
+		if (this.pendingJobNotes.length === 0) return
+		// Nothing to continue (empty chat), or the user is mid-compose — don't
+		// clobber their draft or auto-send it. Their eventual send carries the notes.
+		if (this.messages.length === 0 || this.instructions.trim()) return
+		this.#autoResuming = true
+		try {
+			const count = this.pendingJobNotes.length
+			this.instructions =
+				count === 1 ? 'A background job just finished.' : `${count} background jobs just finished.`
+			await this.sendRequest()
+		} catch (e) {
+			console.error('Auto-resume after background job failed', e)
+		} finally {
+			this.#autoResuming = false
+		}
+	}
+
+	// Serialized snapshot-at-write persistence, mirroring #persistModifiedItems.
+	// Omits the modified-items mask so a concurrent mask write isn't clobbered
+	// (saveChat keeps the prior mask when it is undefined).
+	#jobPersistQueue: Promise<void> = Promise.resolve()
+	#persistBackgroundJobs(): Promise<void> {
+		this.#jobPersistQueue = this.#jobPersistQueue.then(() =>
+			this.historyManager
+				.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					undefined,
+					$state.snapshot(this.backgroundJobs)
+				)
+				.catch((e) => console.error('Failed to persist background jobs', e))
+		)
+		return this.#jobPersistQueue
+	}
+
+	/** Reset background-job state on conversation switch. */
+	private clearBackgroundJobs() {
+		this.#stopJobPoller()
+		// Invalidate any in-flight poll so its post-await continuation can't write
+		// into the conversation we're switching to.
+		this.#jobPollGeneration++
+		this.backgroundJobs = []
+		this.pendingJobNotes = []
+	}
+
+	/** Merge a status patch into the tool card identified by tool_call_id, or
+	 * create it. Shared by the per-turn setToolStatus callback and the background
+	 * job poller (which runs outside a turn). */
+	applyToolStatus = (id: string, metadata?: Partial<ToolDisplayMessage>) => {
+		const existingIdx = this.displayMessages.findIndex(
+			(m) => m.role === 'tool' && m.tool_call_id === id
+		)
+		if (existingIdx !== -1) {
+			const existing = this.displayMessages[existingIdx] as ToolDisplayMessage
+			if (existing.content.length === 0 && metadata?.error) {
+				this.displayMessages[existingIdx].content = metadata.error
+			}
+			this.displayMessages[existingIdx] = {
+				...existing,
+				...(metadata || {})
+			} as ToolDisplayMessage
+		} else {
+			const newMessage: ToolDisplayMessage = {
+				role: 'tool',
+				tool_call_id: id,
+				content: metadata?.content ?? metadata?.error ?? '',
+				...(metadata || {})
+			}
+			this.displayMessages.push(newMessage)
+		}
 	}
 
 	// Workspace AI skills (name + description) advertised in the GLOBAL system
@@ -1701,9 +2058,18 @@ export class AIChatManager {
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
+			// Deliver background-job completions to the model as a preamble on this
+			// turn (notify-only wake). Folded into the model-facing text only — the
+			// display bubble keeps this.instructions, and no extra message is added, so
+			// the display↔messages index pairing above stays intact. Ephemeral.
+			const jobNotesPreamble =
+				this.mode === AIMode.GLOBAL && this.pendingJobNotes.length > 0
+					? this.pendingJobNotes.join('\n\n') + '\n\n'
+					: ''
+			if (jobNotesPreamble) this.pendingJobNotes = []
 			const modelInstructions =
 				this.mode === AIMode.GLOBAL
-					? this.expandGlobalSkillCommand(oldInstructions)
+					? jobNotesPreamble + this.expandGlobalSkillCommand(oldInstructions)
 					: oldInstructions
 			this.instructions = ''
 
@@ -1862,31 +2228,17 @@ export class AIChatManager {
 						this.currentReasoning = ''
 						this.currentReasoningActive = false
 					},
-					setToolStatus: (id, metadata) => {
-						const existingIdx = this.displayMessages.findIndex(
-							(m) => m.role === 'tool' && m.tool_call_id === id
-						)
-						if (existingIdx !== -1) {
-							// Update existing tool message with metadata
-							const existing = this.displayMessages[existingIdx] as ToolDisplayMessage
-							if (existing.content.length === 0 && metadata?.error) {
-								this.displayMessages[existingIdx].content = metadata.error
+					setToolStatus: this.applyToolStatus,
+					// Job-tracking hooks enable detach-into-background; wire them only in
+					// GLOBAL mode (global chat + sessions). In-editor script/flow/pipeline
+					// chats leave these undefined, so their test runs keep blocking.
+					...(this.mode === AIMode.GLOBAL
+						? {
+								onJobStarted: (job) => this.registerJob(job),
+								onJobStatus: (jobId, update) => this.updateJob(jobId, update),
+								onJobDetached: (jobId) => this.markJobDetached(jobId)
 							}
-							this.displayMessages[existingIdx] = {
-								...existing,
-								...(metadata || {})
-							} as ToolDisplayMessage
-						} else {
-							// Create new tool message with metadata
-							const newMessage: ToolDisplayMessage = {
-								role: 'tool',
-								tool_call_id: id,
-								content: metadata?.content ?? metadata?.error ?? '',
-								...(metadata || {})
-							}
-							this.displayMessages.push(newMessage)
-						}
-					},
+						: {}),
 					removeToolStatus: (id) => {
 						const existingIdx = this.displayMessages.findIndex(
 							(m) => m.role === 'tool' && m.tool_call_id === id
@@ -2061,6 +2413,11 @@ export class AIChatManager {
 				this.queuedMessage = next
 			}
 		}
+		// A background job may have finished mid-turn: its note missed this turn's
+		// preamble (captured at the start) and the poller skipped auto-resume while
+		// we were loading. Now that we're idle, deliver it via an auto-resume. Skips
+		// itself if the queued-message flush above already carried the notes.
+		void this.#maybeAutoResumeFromJobs()
 		return true
 	}
 
@@ -2164,6 +2521,9 @@ export class AIChatManager {
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.
 		this.queuedMessage = ''
+		// The tray + poller belong to the conversation being left; the just-saved
+		// chat keeps its persisted jobs (save() omits the arg → fallback preserves).
+		this.clearBackgroundJobs()
 		await this.historyManager.save(
 			this.displayMessages,
 			this.messages,
@@ -2191,6 +2551,9 @@ export class AIChatManager {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
 			this.queuedMessage = ''
+			// Stop the poller for the conversation being left before swapping in the
+			// loaded chat's jobs below.
+			this.clearBackgroundJobs()
 			// Same isolation as saveAndClear: the ephemeral global chat's attachments belong to
 			// the conversation being left, not the one being loaded; sessions keep them.
 			if (!this.isSessionChat) this.attachedFiles.clear()
@@ -2206,6 +2569,15 @@ export class AIChatManager {
 				const stored = this.historyManager.getModifiedItems(id)
 				this.modifiedItems = new SvelteSet(stored ?? [])
 			}
+			// Rebuild the jobs tray from the loaded chat, and re-attach the poller to
+			// any job that was still in flight when it was last persisted.
+			const storedJobs = this.historyManager.getBackgroundJobs(id)
+			this.backgroundJobs = storedJobs ? storedJobs.map((j) => ({ ...j })) : []
+			for (const j of this.backgroundJobs) {
+				if (this.isJobNonTerminal(j.status)) j.detached = true
+			}
+			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
+			this.#ensureJobPoller()
 			this.#automaticScroll = true
 			this.onChatRotated?.(id)
 		}
