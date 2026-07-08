@@ -434,7 +434,7 @@
 			{#if !emptyString(repo.git_repo_resource_path)}
 				<Button
 					disabled={emptyString(repo.git_repo_resource_path)}
-					variant="accent"
+					variant="default"
 					onclick={runGitSyncTestJob}
 					size="xs"
 				>
@@ -557,7 +557,9 @@
 									<div class="text-sm font-semibold text-emphasis mb-1">
 										Push to Git on deploy (Windmill → Git)
 									</div>
-									<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} active />
+									{#if !isFork}
+										<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} active />
+									{/if}
 								</div>
 								<Button
 									size="xs"
@@ -582,170 +584,202 @@
 								</div>
 							{:else if repoMode === 'promotion' && !repo.isUnsavedConnection}
 								<div class="text-2xs text-secondary mt-2">
-									Opening pull requests from Windmill uses the
+									To open a pull request for each deploy branch, set up the
+									<a
+										href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+										target="_blank"
+										class="text-blue-500 hover:underline font-mono">open-pr-on-commit</a
+									>
+									workflow in the repository (repositories connected through the
 									<a
 										href="https://www.windmill.dev/docs/advanced/git_sync"
 										target="_blank"
 										class="text-blue-500 hover:underline">GitHub App</a
-									>. Token-based repositories can use the
-									<span class="font-mono">open-pr-on-commit</span> workflow instead.
+									> can let Windmill open them automatically).
 								</div>
 							{/if}
-						</div>
-
-						<!-- Direction 2: Git -> Windmill (pull / auto-deploy) -->
-						<div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
-							<div class="flex justify-between items-start gap-4">
-								<div class="text-sm font-semibold text-emphasis">Pull from Git (Git → Windmill)</div
-								>
-								<Button
-									size="xs"
-									variant="default"
-									onclick={() => idx !== null && gitSyncContext.showPullModal(idx)}
-									startIcon={{ icon: Download }}
-								>
-									Pull from repo
-								</Button>
-							</div>
-							{#if isFork}
-								<!-- Fork sync is parent-managed: no control here, only status. -->
-								<div class="text-2xs text-secondary">
-									Automatic sync from Git is managed in the parent workspace's git sync settings.
-									When enabled there, changes to this fork's
-									<span class="font-mono">{forkBranch}</span> branch deploy here automatically.
-								</div>
-								{#if repo.auto_pull?.last_pull_status}
-									<div class="text-2xs text-secondary mt-2">
-										{#if repo.auto_pull.last_pull_status.success}
-											Last synced{repo.auto_pull.last_pull_status.synced_sha
-												? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-												: ''}.
-										{:else}
-											<span class="text-red-600 dark:text-red-400">
-												Last sync failed{repo.auto_pull.last_pull_status.error
-													? `: ${repo.auto_pull.last_pull_status.error}`
-													: ''}.
-											</span>
-										{/if}
-									</div>
-								{/if}
-							{:else}
-								<Toggle
-									checked={repo.auto_pull?.enabled ?? false}
-									disabled={!$enterpriseLicense}
-									eeOnly
-									options={{
-										right: 'Automatically deploy changes from Git',
-										rightTooltip:
-											'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks; others are checked about every minute.'
-									}}
-									on:change={(e) => setAutoPullEnabled(e.detail)}
-								/>
-							{/if}
-							{#if repo.auto_pull?.enabled}
-								{@const viaWebhook = repo.auto_pull?.webhook_id != null}
-								{#if isGithubApp}
-									<div class="mt-3 max-w-sm">
-										<div class="text-2xs font-semibold text-secondary mb-1">Delivery</div>
-										<Select
-											items={[
-												{ label: 'Webhook with polling fallback', value: 'auto' },
-												{ label: 'Polling only (air-gapped)', value: 'polling' }
-											]}
-											bind:value={() => deliveryMode(), (v) => setDeliveryMode(v)}
-											clearable={false}
-											size="sm"
-										/>
-									</div>
-								{:else}
-									<div class="text-2xs text-secondary mt-2">
-										Instant webhook sync requires the
-										<a
-											href="https://www.windmill.dev/docs/advanced/git_sync"
-											target="_blank"
-											class="text-blue-500 hover:underline">GitHub App</a
-										> (managed or GitHub Enterprise Server). Token-based repositories poll instead.
-									</div>
-								{/if}
+							{#if repoMode === 'sync' && isFork}
 								<div class="text-2xs text-secondary mt-2">
-									{#if repo.auto_pull?.last_pull_status}
-										{#if repo.auto_pull.last_pull_status.success}
-											Last synced{repo.auto_pull.last_pull_status.synced_sha
-												? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-												: ''}.
-											{viaWebhook
-												? ' Syncing instantly via webhook.'
-												: ' Checking the tracked branch about every minute.'}
-										{:else}
-											<span class="text-red-600 dark:text-red-400">
-												Last sync failed{repo.auto_pull.last_pull_status.error
-													? `: ${repo.auto_pull.last_pull_status.error}`
-													: ''}.
-											</span>
-										{/if}
-									{:else}
-										{viaWebhook
-											? 'Connected via webhook. New commits to the tracked branch deploy instantly.'
-											: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
-									{/if}
+									Deploys from this workspace are pushed to the
+									<span class="font-mono">{forkBranch}</span> branch of the shared repository, not to
+									the tracked branch.
 								</div>
-								{#if isGithubApp && repo.auto_pull?.webhook_error}
+							{:else if repoMode === 'sync' && !isFork}
+								<div class="text-2xs text-secondary mt-2">
+									These push settings also apply to forks of this workspace: an item deployed in a
+									fork is pushed to the fork's own
+									<span class="font-mono">wm-fork/…</span> branch instead of the tracked branch.
+								</div>
+								{#if isGithubApp}
 									<div class="mt-2">
-										<Alert type="warning" title="Falling back to polling" size="xs">
-											{repo.auto_pull.webhook_error}
-										</Alert>
-									</div>
-								{/if}
-								<div class="mt-2">
-									<Alert type="info" title="Already pulling with a GitHub Action?" size="xs">
-										If you previously set up a GitHub Action to push changes into Windmill, remove
-										it now so the two don't fight over deploys.
-									</Alert>
-								</div>
-							{/if}
-							{#if !isFork && repoMode === 'sync'}
-								<!-- Parent-level fork settings (apply to every fork of this workspace) -->
-								<div
-									class="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-3 dark:border-gray-700"
-								>
-									<div class="text-sm font-semibold text-emphasis">Forks of this workspace</div>
-									<Toggle
-										disabled={!repo.auto_pull?.enabled}
-										checked={!!(repo.auto_pull?.enabled && repo.auto_pull?.sync_forks)}
-										options={{
-											right: 'Automatically deploy fork branches into forks',
-											rightTooltip: repo.auto_pull?.enabled
-												? "When a fork workspace's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. Configured once here, applied to every fork of this workspace."
-												: 'Requires automatic deploy from Git to be enabled above.'
-										}}
-										on:change={(e) => setSyncForks(e.detail)}
-									/>
-									{#if isGithubApp}
 										<Toggle
 											checked={repo.fork_open_prs ?? false}
 											disabled={!$enterpriseLicense}
 											eeOnly
 											options={{
-												right: 'Open a pull request when a fork deploys',
+												right: 'Open a pull request when an item is deployed in a fork',
 												rightTooltip:
-													"When a fork deploys to its wm-fork/** branch, Windmill opens a pull request to the tracked branch of the shared repository. Runs from the fork's deploy itself, so it works without inbound webhooks."
+													"After an item deployed in a fork is pushed to the fork's wm-fork/** branch, Windmill opens a pull request to the tracked branch of the shared repository. Runs from the deploy itself, so it works without inbound webhooks."
 											}}
 											on:change={(e) => setForkOpenPrs(e.detail)}
 										/>
+									</div>
+								{:else}
+									<div class="text-2xs text-secondary mt-2">
+										To open pull requests when an item is deployed in a fork, set up the
+										<a
+											href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+											target="_blank"
+											class="text-blue-500 hover:underline font-mono">open-pr-on-fork-commit</a
+										>
+										workflow in the repository (repositories connected through the
+										<a
+											href="https://www.windmill.dev/docs/advanced/git_sync"
+											target="_blank"
+											class="text-blue-500 hover:underline">GitHub App</a
+										> can let Windmill open them automatically).
+									</div>
+								{/if}
+							{/if}
+							{#if repo.open_pr_error}
+								<div class="mt-2">
+									<Alert type="warning" title="Last pull request couldn't be opened" size="xs">
+										{repo.open_pr_error} If this mentions permissions, the GitHub App installation may
+										not have approved the pull-request permission yet.
+									</Alert>
+								</div>
+							{/if}
+						</div>
+
+						<!-- Direction 2: Git -> Windmill (pull / auto-deploy). Promotion repos
+						     push deploy branches on top of a sync-mode setup; the pull
+						     direction belongs to that sync repo, so it's hidden here. -->
+						{#if repoMode === 'sync'}
+							<div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
+								<div class="flex justify-between items-start gap-4">
+									<div class="text-sm font-semibold text-emphasis"
+										>Pull from Git (Git → Windmill)</div
+									>
+									<Button
+										size="xs"
+										variant="default"
+										onclick={() => idx !== null && gitSyncContext.showPullModal(idx)}
+										startIcon={{ icon: Download }}
+									>
+										Pull from repo
+									</Button>
+								</div>
+								{#if isFork}
+									<!-- Fork sync is parent-managed: no control here, only status. -->
+									<div class="text-2xs text-secondary mt-2">
+										Automatic sync from Git is managed in the parent workspace's git sync settings.
+										When enabled there, changes to this fork's
+										<span class="font-mono">{forkBranch}</span> branch deploy here automatically.
+									</div>
+									{#if repo.auto_pull?.last_pull_status}
+										<div class="text-2xs text-secondary mt-2">
+											{#if repo.auto_pull.last_pull_status.success}
+												Last synced{repo.auto_pull.last_pull_status.synced_sha
+													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
+													: ''}.
+											{:else}
+												<span class="text-red-600 dark:text-red-400">
+													Last sync failed{repo.auto_pull.last_pull_status.error
+														? `: ${repo.auto_pull.last_pull_status.error}`
+														: ''}.
+												</span>
+											{/if}
+										</div>
+									{/if}
+								{:else}
+									<Toggle
+										checked={repo.auto_pull?.enabled ?? false}
+										disabled={!$enterpriseLicense}
+										eeOnly
+										options={{
+											right: 'Automatically deploy changes from Git',
+											rightTooltip:
+												'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks; others are checked about every minute.'
+										}}
+										on:change={(e) => setAutoPullEnabled(e.detail)}
+									/>
+									<div class="mt-1">
+										<Toggle
+											disabled={!repo.auto_pull?.enabled}
+											checked={!!(repo.auto_pull?.enabled && repo.auto_pull?.sync_forks)}
+											options={{
+												right: 'Automatically sync forks with git branches',
+												rightTooltip: repo.auto_pull?.enabled
+													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. Configured once here, applied to every fork of this workspace."
+													: 'Requires automatic deploy from Git to be enabled above.'
+											}}
+											on:change={(e) => setSyncForks(e.detail)}
+										/>
+									</div>
+								{/if}
+								{#if repo.auto_pull?.enabled}
+									{@const viaWebhook = repo.auto_pull?.webhook_id != null}
+									{#if isGithubApp}
+										<div class="mt-3 max-w-sm">
+											<div class="text-2xs font-semibold text-secondary mb-1">Delivery</div>
+											<Select
+												items={[
+													{ label: 'Webhook with polling fallback', value: 'auto' },
+													{ label: 'Polling only (air-gapped)', value: 'polling' }
+												]}
+												bind:value={() => deliveryMode(), (v) => setDeliveryMode(v)}
+												clearable={false}
+												size="sm"
+											/>
+										</div>
 									{:else}
-										<div class="text-2xs text-secondary">
-											Opening pull requests for fork deploys uses the
+										<div class="text-2xs text-secondary mt-2">
+											Instant webhook sync requires the
 											<a
 												href="https://www.windmill.dev/docs/advanced/git_sync"
 												target="_blank"
 												class="text-blue-500 hover:underline">GitHub App</a
-											>. Token-based repositories can use the
-											<span class="font-mono">open-pr-on-fork-commit</span> workflow instead.
+											> (managed or GitHub Enterprise Server). Token-based repositories poll instead.
 										</div>
 									{/if}
-								</div>
-							{/if}
-						</div>
+									<div class="text-2xs text-secondary mt-2">
+										{#if repo.auto_pull?.last_pull_status}
+											{#if repo.auto_pull.last_pull_status.success}
+												Last synced{repo.auto_pull.last_pull_status.synced_sha
+													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
+													: ''}.
+												{viaWebhook
+													? ' Syncing instantly via webhook.'
+													: ' Checking the tracked branch about every minute.'}
+											{:else}
+												<span class="text-red-600 dark:text-red-400">
+													Last sync failed{repo.auto_pull.last_pull_status.error
+														? `: ${repo.auto_pull.last_pull_status.error}`
+														: ''}.
+												</span>
+											{/if}
+										{:else}
+											{viaWebhook
+												? 'Connected via webhook. New commits to the tracked branch deploy instantly.'
+												: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
+										{/if}
+									</div>
+									{#if isGithubApp && repo.auto_pull?.webhook_error}
+										<div class="mt-2">
+											<Alert type="warning" title="Falling back to polling" size="xs">
+												{repo.auto_pull.webhook_error}
+											</Alert>
+										</div>
+									{/if}
+									<div class="mt-2">
+										<Alert type="info" title="Already pulling with a GitHub Action?" size="xs">
+											If you previously set up a GitHub Action to push changes into Windmill, remove
+											it now so the two don't fight over deploys.
+										</Alert>
+									</div>
+								{/if}
+							</div>
+						{/if}
 					{/if}
 				{/if}
 			{/if}

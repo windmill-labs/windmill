@@ -23,9 +23,11 @@
 	{/if}
 	<span>
 		{#if mode === 'promotion'}
-			On deploy, changes are pushed to new branches targeting {#if targetBranch}<span
+			On deploy, changes are pushed to a <span class="font-mono">wm_deploy/…</span>
+			branch{#if repository?.group_by_folder}
+				(grouped by folder){/if}; merging it into {#if targetBranch}<span
 					class="font-medium text-primary">{targetBranch}</span
-				>{:else}the repo's default branch{/if}{#if repository?.group_by_folder}, grouped by folder{/if}.
+				>{:else}the repo's default branch{/if} promotes the change.
 		{:else}
 			Matching changes are committed to {#if targetBranch}<span class="font-medium text-primary"
 					>{targetBranch}</span

@@ -338,6 +338,12 @@ pub struct GitRepositorySettings {
     /// this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
+    /// Server-owned: the last failure opening a PR for a deploy branch of this
+    /// repo (e.g. the GitHub App installation hasn't approved the pull-request
+    /// permission). Written by the deploy completion hook, cleared on the next
+    /// successful PR; never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_pr_error: Option<String>,
 }
 
 impl GitRepositorySettings {

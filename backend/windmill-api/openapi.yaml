@@ -29647,6 +29647,9 @@ components:
           type: boolean
         fork_open_prs:
           type: boolean
+        open_pr_error:
+          type: string
+          description: server-owned, last failure opening a PR for a deploy branch of this repo
       required:
         - git_repo_resource_path
 

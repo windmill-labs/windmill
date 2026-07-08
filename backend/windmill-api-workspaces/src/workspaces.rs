@@ -2885,6 +2885,7 @@ async fn edit_git_sync_config(
             if let Some(ap) = repo.auto_pull.as_mut() {
                 clear_client_supplied_auto_pull_state(ap);
             }
+            repo.open_pr_error = None;
         }
         reject_parent_only_git_sync_settings_on_fork(
             &db,
@@ -2951,14 +2952,17 @@ async fn edit_git_sync_config(
             .unwrap_or_default();
         if let Some(existing) = &existing {
             for repo in git_sync_settings.repositories.iter_mut() {
-                if let (Some(new_ap), Some(old_ap)) = (
-                    repo.auto_pull.as_mut(),
-                    existing
-                        .repositories
-                        .iter()
-                        .find(|r| r.git_repo_resource_path == repo.git_repo_resource_path)
-                        .and_then(|r| r.auto_pull.as_ref()),
-                ) {
+                let Some(old) = existing
+                    .repositories
+                    .iter()
+                    .find(|r| r.git_repo_resource_path == repo.git_repo_resource_path)
+                else {
+                    continue;
+                };
+                repo.open_pr_error = old.open_pr_error.clone();
+                if let (Some(new_ap), Some(old_ap)) =
+                    (repo.auto_pull.as_mut(), old.auto_pull.as_ref())
+                {
                     new_ap.webhook_id = old_ap.webhook_id;
                     new_ap.webhook_secret = old_ap.webhook_secret.clone();
                     new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
@@ -3088,6 +3092,7 @@ async fn edit_git_sync_repository(
     if let Some(ap) = new_config.repository.auto_pull.as_mut() {
         clear_client_supplied_auto_pull_state(ap);
     }
+    new_config.repository.open_pr_error = None;
     reject_parent_only_git_sync_settings_on_fork(
         &db,
         &w_id,
@@ -3199,6 +3204,7 @@ async fn edit_git_sync_repository(
         // (synced sha, last pull status, webhook id/secret) so a settings save
         // from the UI cannot revert what the poller/webhook layer wrote.
         let mut updated = new_config.repository;
+        updated.open_pr_error = existing_repo.open_pr_error.clone();
         match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
             (Some(new_ap), Some(old_ap)) => {
                 new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
@@ -4923,6 +4929,7 @@ async fn update_workspace_settings(
             // (`sync_forks`), which routes the fork's `wm-fork/**` branch into it.
             r.auto_pull = None;
             r.fork_open_prs = false;
+            r.open_pr_error = None;
             r
         })
         .collect();

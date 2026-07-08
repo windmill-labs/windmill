@@ -1055,7 +1055,7 @@ async fn maybe_open_git_sync_deploy_pr(
     // A fork of a dev workspace diverged from the dev's label branch, so its PR
     // merges back there; everything else targets the tracked branch.
     let pr_base = row.parent_dev_workspace_label.as_deref().unwrap_or(&base);
-    if let Err(e) = windmill_common::git_sync_ee::ensure_pull_request(
+    match windmill_common::git_sync_ee::ensure_pull_request(
         db,
         workspace_id,
         &repo_url,
@@ -1065,7 +1065,66 @@ async fn maybe_open_git_sync_deploy_pr(
     )
     .await
     {
-        tracing::warn!("git sync PR: failed to open PR {head} -> {pr_base} for {repo_path}: {e:#}");
+        Ok(()) => {
+            persist_git_sync_open_pr_error(db, workspace_id, &repo_path, None).await;
+        }
+        Err(e) => {
+            tracing::warn!(
+                "git sync PR: failed to open PR {head} -> {pr_base} for {repo_path}: {e:#}"
+            );
+            let msg: String = format!("{e:#}").chars().take(400).collect();
+            persist_git_sync_open_pr_error(db, workspace_id, &repo_path, Some(msg)).await;
+        }
+    }
+}
+
+/// Best-effort: record (or clear) the last PR-creation failure on the repo's
+/// settings so the toggle can explain a silent no-op in the UI (the usual
+/// cause is a GitHub App installation that hasn't approved the pull-request
+/// permission yet). Merges into a fresh read of the row, only writes on change.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn persist_git_sync_open_pr_error(
+    db: &DB,
+    workspace_id: &str,
+    repo_path: &str,
+    error: Option<String>,
+) {
+    let result: error::Result<()> = async {
+        let Some(settings) = sqlx::query_scalar!(
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten() else {
+            return Ok(());
+        };
+        let mut settings: windmill_common::workspaces::WorkspaceGitSyncSettings =
+            serde_json::from_value(settings).map_err(|e| Error::internal_err(e.to_string()))?;
+        let Some(repo) = settings.repositories.iter_mut().find(|r| {
+            r.git_repo_resource_path.trim_start_matches("$res:")
+                == repo_path.trim_start_matches("$res:")
+        }) else {
+            return Ok(());
+        };
+        if repo.open_pr_error == error {
+            return Ok(());
+        }
+        repo.open_pr_error = error;
+        let updated =
+            serde_json::to_value(&settings).map_err(|e| Error::internal_err(e.to_string()))?;
+        sqlx::query!(
+            "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+            updated,
+            workspace_id
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::warn!("git sync PR: failed to persist open_pr_error for {repo_path}: {e:#}");
     }
 }
 
