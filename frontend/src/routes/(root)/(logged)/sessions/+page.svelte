@@ -354,19 +354,13 @@
 				return { scopes: path ? [{ kind: 'flow', path }] : [], reloadPages: true }
 			case 'init_app':
 				return { scopes: path ? [{ kind: 'raw_app', path }] : [], reloadPages: true }
-			// Raw-app file/runnable tools pass a leading-'/' frontend file path (not a
-			// workspace path) and edit the active session's target app → scope to it.
+			// Raw-app file/runnable tools carry the app's workspace path in `args.path`.
 			case 'write_app_file':
 			case 'patch_app_file':
 			case 'delete_app_file':
 			case 'write_app_runnable':
-			case 'delete_app_runnable': {
-				const t = activeSession?.target
-				return {
-					scopes: t?.kind === 'raw_app' ? [{ kind: 'raw_app', path: t.path }] : [],
-					reloadPages: true
-				}
-			}
+			case 'delete_app_runnable':
+				return { scopes: path ? [{ kind: 'raw_app', path }] : [], reloadPages: true }
 			case 'delete_workspace_item':
 			case 'discard_local_draft':
 			case 'deploy_workspace_item':
@@ -629,7 +623,7 @@
 										: 'z-0 opacity-0 pointer-events-none'}"
 									aria-hidden={s.id !== activeSession?.id}
 								>
-									<SessionWrapper sessionId={s.id} hideEditor />
+									<SessionWrapper sessionId={s.id} />
 								</div>
 							{/each}
 						</div>
