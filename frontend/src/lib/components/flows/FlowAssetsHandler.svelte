@@ -184,5 +184,5 @@
 
 {#if flowGraphAssetsCtx}
 	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
-	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
+	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} workspace={opWs} />
 {/if}
