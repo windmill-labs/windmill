@@ -92,6 +92,28 @@ export interface LoadSlot {
 
 export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 
+// One editor cell per (kind, path) the session loads: the load slot plus the
+// content/baseline stores that used to be per-kind singletons. Keying by path
+// lets several items of the same kind stay loaded at once (multi-target). The
+// public runtime getters still expose one cell per kind — the active one (see
+// `activePath`) — so consumers are unchanged until the UI mounts N editors.
+interface FlowCell {
+	slot: LoadSlot
+	store: StateStore<Flow>
+	stateStore: { val: Record<string, any> }
+	saved: { val: SavedFlow | undefined }
+}
+interface ScriptCell {
+	slot: LoadSlot
+	store: { val: NewScript | undefined }
+	saved: { val: SavedScript | undefined }
+}
+interface RawAppCell {
+	slot: LoadSlot
+	store: { val: SessionRuntime['rawApp']['val'] }
+	saved: { val: SessionRuntime['savedRawApp']['val'] }
+}
+
 export interface SessionRuntime {
 	readonly sessionId: string
 	readonly manager: AIChatManager
@@ -182,6 +204,32 @@ function emptyFlow(): Flow {
 		extra_perms: {},
 		schema: emptySchema()
 	}
+}
+
+function emptyLoadSlot(): LoadSlot {
+	return { loadedPath: undefined, loadedWorkspace: undefined, loading: false, notFound: false }
+}
+
+// Cell factories — same initial state the per-kind singletons used to hold, so a
+// cell before its first load matches the pre-refactor empty editor.
+function makeFlowCell(): FlowCell {
+	const slot: LoadSlot = $state(emptyLoadSlot())
+	const store: StateStore<Flow> = $state({ val: emptyFlow() })
+	const stateStore: { val: Record<string, any> } = $state({ val: {} })
+	const saved: { val: SavedFlow | undefined } = $state({ val: undefined })
+	return { slot, store, stateStore, saved }
+}
+function makeScriptCell(): ScriptCell {
+	const slot: LoadSlot = $state(emptyLoadSlot())
+	const store: { val: NewScript | undefined } = $state({ val: undefined })
+	const saved: { val: SavedScript | undefined } = $state({ val: undefined })
+	return { slot, store, saved }
+}
+function makeRawAppCell(): RawAppCell {
+	const slot: LoadSlot = $state(emptyLoadSlot())
+	const store: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
+	const saved: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
+	return { slot, store, saved }
 }
 
 const GENERATED_SUMMARY_TIMEOUT_MS = 15000
@@ -308,36 +356,52 @@ function createRuntime(session: Session): SessionRuntime {
 	}
 	manager.afterFirstTurnSaved = () => generateAndApplySessionSummary(session.id, manager)
 
-	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })
-	const flowStateStore: { val: Record<string, any> } = $state({ val: {} })
-	const savedFlow: { val: SavedFlow | undefined } = $state({
-		val: undefined
-	})
+	// One cell per (kind, path). Created on demand by the load methods and kept
+	// (not evicted yet — deferred to P3); each holds cached content (KB–MB), not a
+	// mounted editor, so accumulation is cheap.
+	const flowCells = new Map<string, FlowCell>()
+	const scriptCells = new Map<string, ScriptCell>()
+	const rawAppCells = new Map<string, RawAppCell>()
+	function flowCell(path: string): FlowCell {
+		let c = flowCells.get(path)
+		if (!c) flowCells.set(path, (c = makeFlowCell()))
+		return c
+	}
+	function scriptCell(path: string): ScriptCell {
+		let c = scriptCells.get(path)
+		if (!c) scriptCells.set(path, (c = makeScriptCell()))
+		return c
+	}
+	function rawAppCell(path: string): RawAppCell {
+		let c = rawAppCells.get(path)
+		if (!c) rawAppCells.set(path, (c = makeRawAppCell()))
+		return c
+	}
 
-	const flowSlot: LoadSlot = $state({
-		loadedPath: undefined,
-		loadedWorkspace: undefined,
-		loading: false,
-		notFound: false
+	// Which loaded path each kind's public getters expose — the single-target shim
+	// (removed when the UI mounts one editor per tab in P2). Flipped only once a
+	// load settles, so a switch keeps the previous editor visible until the new
+	// item lands (SessionEditorTarget's gate). Undefined → the default cell below.
+	const activePath: Record<SessionTargetKind, string | undefined> = $state({
+		flow: undefined,
+		script: undefined,
+		raw_app: undefined
 	})
-
-	const scriptStore: { val: NewScript | undefined } = $state({ val: undefined })
-	const savedScript: { val: SavedScript | undefined } = $state({ val: undefined })
-	const scriptSlot: LoadSlot = $state({
-		loadedPath: undefined,
-		loadedWorkspace: undefined,
-		loading: false,
-		notFound: false
-	})
-
-	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
-	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
-	const rawAppSlot: LoadSlot = $state({
-		loadedPath: undefined,
-		loadedWorkspace: undefined,
-		loading: false,
-		notFound: false
-	})
+	const defaultFlowCell = makeFlowCell()
+	const defaultScriptCell = makeScriptCell()
+	const defaultRawAppCell = makeRawAppCell()
+	function activeFlowCell(): FlowCell {
+		const p = activePath.flow
+		return (p !== undefined ? flowCells.get(p) : undefined) ?? defaultFlowCell
+	}
+	function activeScriptCell(): ScriptCell {
+		const p = activePath.script
+		return (p !== undefined ? scriptCells.get(p) : undefined) ?? defaultScriptCell
+	}
+	function activeRawAppCell(): RawAppCell {
+		const p = activePath.raw_app
+		return (p !== undefined ? rawAppCells.get(p) : undefined) ?? defaultRawAppCell
+	}
 
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
@@ -365,22 +429,36 @@ function createRuntime(session: Session): SessionRuntime {
 		manager,
 		previewTabs,
 		slot(kind: SessionTargetKind): LoadSlot {
-			return kind === 'flow' ? flowSlot : kind === 'script' ? scriptSlot : rawAppSlot
+			return kind === 'flow'
+				? activeFlowCell().slot
+				: kind === 'script'
+					? activeScriptCell().slot
+					: activeRawAppCell().slot
 		},
 		pipelineEditorState,
-		flowStore,
-		flowStateStore,
-		savedFlow,
+		get flowStore() {
+			return activeFlowCell().store
+		},
+		get flowStateStore() {
+			return activeFlowCell().stateStore
+		},
+		get savedFlow() {
+			return activeFlowCell().saved
+		},
 
 		async loadFlow(workspace: string, path: string, force = false) {
-			if (flowSlot.loadedPath === path && flowSlot.loadedWorkspace === workspace && !force) return
+			const { slot, store, stateStore, saved } = flowCell(path)
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) {
+				activePath.flow = path
+				return
+			}
 			// See loadScript: forced reload remounts via the render gate. A workspace
 			// retarget (same path, new fork) drops the stale content the same way so
 			// the editor gate shows loading and outbound sync can't write the old
 			// workspace's content into the new one before the fetch lands.
-			if (force || flowSlot.loadedWorkspace !== workspace) flowSlot.loadedPath = undefined
-			flowSlot.loading = true
-			flowSlot.notFound = false
+			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
+			slot.loading = true
+			slot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (write_flow / patch_flow_json /
@@ -404,21 +482,21 @@ function createRuntime(session: Session): SessionRuntime {
 					// yet on the backend — draft-only flows are a valid state.
 					try {
 						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-						savedFlow.val = result as SavedFlow
+						saved.val = result as SavedFlow
 					} catch {
-						savedFlow.val = undefined
+						saved.val = undefined
 					}
-					await initFlow(aiDraft, flowStore, flowStateStore)
-					if (deployedVersionId != null && flowStore.val)
-						flowStore.val.version_id = deployedVersionId
-					flowSlot.loadedPath = path
-					flowSlot.loadedWorkspace = workspace
+					await initFlow(aiDraft, store, stateStore)
+					if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					activePath.flow = path
 					return
 				}
 
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-				savedFlow.val = result as SavedFlow
+				saved.val = result as SavedFlow
 				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
 				// Seed the per-tab last_sync from the server draft's timestamp so the
 				// seeding save below attaches a matching last_sync and the server can
@@ -431,31 +509,39 @@ function createRuntime(session: Session): SessionRuntime {
 					(result as SavedFlow).draft_saved_at
 				)
 				UserDraft.save('flow', path, flow, { workspace })
-				await initFlow(flow, flowStore, flowStateStore)
-				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
-				flowSlot.loadedPath = path
-				flowSlot.loadedWorkspace = workspace
+				await initFlow(flow, store, stateStore)
+				if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
+				slot.loadedPath = path
+				slot.loadedWorkspace = workspace
+				activePath.flow = path
 			} catch (err) {
 				console.error('Failed to load flow', err)
-				flowSlot.notFound = true
+				slot.notFound = true
 			} finally {
-				flowSlot.loading = false
+				slot.loading = false
 			}
 		},
 
-		scriptStore,
-		savedScript,
+		get scriptStore() {
+			return activeScriptCell().store
+		},
+		get savedScript() {
+			return activeScriptCell().saved
+		},
 
 		async loadScript(workspace: string, path: string, force = false) {
-			if (scriptSlot.loadedPath === path && scriptSlot.loadedWorkspace === workspace && !force)
+			const { slot, store, saved } = scriptCell(path)
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) {
+				activePath.script = path
 				return
+			}
 			// Forced reload: clearing the slot's loadedPath drops us into
 			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
 			// which unmounts then remounts the editor — avoids the Monaco init race a
 			// synchronous {#key} would hit.
-			if (force || scriptSlot.loadedWorkspace !== workspace) scriptSlot.loadedPath = undefined
-			scriptSlot.loading = true
-			scriptSlot.notFound = false
+			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
+			slot.loading = true
+			slot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (write_script / edit_script) and the
@@ -470,16 +556,16 @@ function createRuntime(session: Session): SessionRuntime {
 					// savedScript undefined and skip parent_hash.
 					try {
 						const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-						savedScript.val = result as SavedScript
+						saved.val = result as SavedScript
 					} catch {
-						savedScript.val = undefined
+						saved.val = undefined
 					}
 					// Clone before layering the AI draft on top, else we'd mutate
-					// `savedScript.val` in place and lose the pristine diff baseline.
-					const baseline: NewScript = savedScript.val
+					// `saved.val` in place and lose the pristine diff baseline.
+					const baseline: NewScript = saved.val
 						? (structuredClone(
 								$state.snapshot(
-									(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
+									(saved.val.draft as NewScript | undefined) ?? (saved.val as NewScript)
 								)
 							) as NewScript)
 						: {
@@ -498,21 +584,22 @@ function createRuntime(session: Session): SessionRuntime {
 								schema: emptySchema(),
 								language: (aiDraft.language ?? 'bun') as any
 							}
-					if (savedScript.val?.hash) {
-						baseline.parent_hash = savedScript.val.hash
+					if (saved.val?.hash) {
+						baseline.parent_hash = saved.val.hash
 					}
 					baseline.content = aiDraft.content
 					if (aiDraft.language) baseline.language = aiDraft.language
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
-					scriptStore.val = baseline
-					scriptSlot.loadedPath = path
-					scriptSlot.loadedWorkspace = workspace
+					store.val = baseline
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					activePath.script = path
 					return
 				}
 
 				// No local draft yet — seed from `result.draft ?? result`.
 				const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-				savedScript.val = result as SavedScript
+				saved.val = result as SavedScript
 				// Clone before mutating, else `baseline` aliases `result` and
 				// `baseline.parent_hash` corrupts the diff baseline.
 				const baseline = structuredClone(
@@ -530,27 +617,35 @@ function createRuntime(session: Session): SessionRuntime {
 					(result as SavedScript).draft_saved_at
 				)
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
-				scriptStore.val = baseline
-				scriptSlot.loadedPath = path
-				scriptSlot.loadedWorkspace = workspace
+				store.val = baseline
+				slot.loadedPath = path
+				slot.loadedWorkspace = workspace
+				activePath.script = path
 			} catch (err) {
 				console.error('Failed to load script', err)
-				scriptSlot.notFound = true
+				slot.notFound = true
 			} finally {
-				scriptSlot.loading = false
+				slot.loading = false
 			}
 		},
 
-		rawApp,
-		savedRawApp,
+		get rawApp() {
+			return activeRawAppCell().store
+		},
+		get savedRawApp() {
+			return activeRawAppCell().saved
+		},
 
 		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
-			if (rawAppSlot.loadedPath === path && rawAppSlot.loadedWorkspace === workspace && !force)
+			const { slot, store, saved } = rawAppCell(path)
+			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) {
+				activePath.raw_app = path
 				return
+			}
 			// See loadScript: forced reload remounts via the render gate.
-			if (force || rawAppSlot.loadedWorkspace !== workspace) rawAppSlot.loadedPath = undefined
-			rawAppSlot.loading = true
-			rawAppSlot.notFound = false
+			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
+			slot.loading = true
+			slot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (init_app / write_app_file / ...) and the
@@ -574,7 +669,7 @@ function createRuntime(session: Session): SessionRuntime {
 						})
 						// Top-level fields are the deployed payload — the diff
 						// baseline, since the session has its own `aiDraft`.
-						savedRawApp.val = {
+						saved.val = {
 							summary: result.summary,
 							value: result.value as any,
 							path: result.path,
@@ -583,9 +678,9 @@ function createRuntime(session: Session): SessionRuntime {
 							no_deployed: result.no_deployed
 						}
 					} catch {
-						savedRawApp.val = undefined
+						saved.val = undefined
 					}
-					rawApp.val = applyDraftToRuntimeRawApp(
+					store.val = applyDraftToRuntimeRawApp(
 						{
 							files: {},
 							runnables: {},
@@ -596,8 +691,9 @@ function createRuntime(session: Session): SessionRuntime {
 						},
 						aiDraft
 					)
-					rawAppSlot.loadedPath = path
-					rawAppSlot.loadedWorkspace = workspace
+					slot.loadedPath = path
+					slot.loadedWorkspace = workspace
+					activePath.raw_app = path
 					return
 				}
 
@@ -610,7 +706,7 @@ function createRuntime(session: Session): SessionRuntime {
 					rawApp: true
 				})
 				// Deployed baseline for the diff drawer (top-level fields).
-				savedRawApp.val = {
+				saved.val = {
 					summary: result.summary,
 					value: result.value as any,
 					path: result.path,
@@ -657,14 +753,15 @@ function createRuntime(session: Session): SessionRuntime {
 					(result as any).draft_saved_at as string | undefined
 				)
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
-				rawApp.val = runtimeValue
-				rawAppSlot.loadedPath = path
-				rawAppSlot.loadedWorkspace = workspace
+				store.val = runtimeValue
+				slot.loadedPath = path
+				slot.loadedWorkspace = workspace
+				activePath.raw_app = path
 			} catch (err) {
 				console.error('Failed to load raw app', err)
-				rawAppSlot.notFound = true
+				slot.notFound = true
 			} finally {
-				rawAppSlot.loading = false
+				slot.loading = false
 			}
 		},
 
