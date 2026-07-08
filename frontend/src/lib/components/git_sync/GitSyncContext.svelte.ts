@@ -1,5 +1,5 @@
 import { getContext, setContext } from 'svelte'
-import { enterpriseLicense } from '$lib/stores'
+import { enterpriseLicense, userWorkspaces } from '$lib/stores'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/toast'
 import { JobService, WorkspaceService, ResourceService } from '$lib/gen'
@@ -664,6 +664,14 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
+	// Mirrors the card's fork detection: wm-fork- id prefix, or a parent
+	// workspace id (dev workspaces are prefix-less).
+	function isForkOrDevWorkspace(): boolean {
+		if (workspace.startsWith('wm-fork-')) return true
+		const ws = get(userWorkspaces)?.find((w) => w.id === workspace)
+		return !!ws?.parent_workspace_id
+	}
+
 	function addSyncRepository() {
 		if (!get(enterpriseLicense) && repositories && repositories.length >= 1) {
 			sendUserToast('Multiple repositories requires Enterprise Edition', true)
@@ -687,8 +695,10 @@ export function createGitSyncContext(workspace: string) {
 			// New connections default to pulling changes from Git (webhook with a
 			// polling fallback), forks included. Existing repos load without
 			// auto_pull and stay off. Auto-pull is EE-only (the backend rejects an
-			// enabled setting on CE), so only default it on when licensed.
-			...(get(enterpriseLicense)
+			// enabled setting on CE) and parent-managed on fork/dev workspaces
+			// (the backend rejects it there too), so only default it on when
+			// licensed and not a fork.
+			...(get(enterpriseLicense) && !isForkOrDevWorkspace()
 				? {
 						auto_pull: { enabled: true, mode: 'auto', sync_forks: true },
 						fork_open_prs: true
