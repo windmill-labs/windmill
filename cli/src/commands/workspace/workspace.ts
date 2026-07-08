@@ -821,7 +821,15 @@ const command = new Command()
   .option("--workspace <name:string>", "Workspace to unbind")
   .action((opts) => bind(opts as any, false))
   .command("fork")
-  .description("Create a forked workspace")
+  .description(
+    `Create a forked workspace from the currently active (parent) workspace.
+
+Run this while the workspace you want to fork is the active one (switch to it first with \`wmill workspace switch <parent>\`); the fork is created from that parent.
+
+Arguments (omit both to be prompted interactively):
+  [workspace_name]  Friendly display name for the fork, shown in the UI. May contain spaces, so quote it in the shell (e.g. "My Fork"). Max 50 chars. Defaults to the id.
+  [workspace_id]    Id for the fork. Must be a slug (no spaces or special characters) and is automatically prefixed with \`wm-fork-\`, so pass just the bare slug (e.g. \`my-fork\` becomes \`wm-fork-my-fork\`). This id also determines the fork's git branch name. Defaults to a slug derived from the name.`
+  )
   .arguments("[workspace_name:string] [workspace_id:string]")
   .option(
     "--create-workspace-name <workspace_name:string>",

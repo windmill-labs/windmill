@@ -145,7 +145,7 @@ async function createWorkspaceFork(
       log.info(`Naming the fork after the current branch: \`${workspaceName}\``);
     } else {
       workspaceName = await Input.prompt({
-        message: "Name this forked workspace:",
+        message: "Friendly name for the forked workspace (shown in the UI, may contain spaces):",
         default: branchDefaultId,
       });
     }
@@ -159,7 +159,7 @@ async function createWorkspaceFork(
       workspaceId = idDefault;
     } else {
       workspaceId = await Input.prompt({
-        message: `Enter the ID of this forked workspace, it will then be prefixed by ${WM_FORK_PREFIX}. It will also determine the branch name`,
+        message: `Id for the forked workspace (a slug: no spaces or special characters). It will be prefixed with '${WM_FORK_PREFIX}-' and also determines the git branch name. The suggested default is normalized from the name`,
         default: idDefault,
         suggestions: [idDefault],
       });
