@@ -3,6 +3,7 @@
 	import type { Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -60,7 +61,10 @@
 	let preWhitelistedTables = $state<DataTableRef[]>([])
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 
-	const datatables = createDatatablesResource(() => $workspaceStore)
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+
+	const datatables = createDatatablesResource(() => opWs)
 	const schemas = createSchemasResource(() => selectedDatatable)
 
 	const availableDatatables = $derived(datatables.current)
@@ -115,11 +119,11 @@
 	async function start(withPrompt: boolean) {
 		const template = templates[selectedTemplateIndex]
 
-		if (schemaMode === 'new' && newSchemaName && selectedDatatable && $workspaceStore) {
+		if (schemaMode === 'new' && newSchemaName && selectedDatatable && opWs) {
 			try {
 				const { dbSchemaOpsWithPreviewScripts } = await import('$lib/components/dbOps')
 				const dbOps = dbSchemaOpsWithPreviewScripts({
-					workspace: $workspaceStore,
+					workspace: opWs,
 					input: {
 						type: 'database',
 						resourceType: 'postgresql',

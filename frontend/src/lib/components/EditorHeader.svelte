@@ -214,6 +214,7 @@
 								{kind}
 								size="sm"
 								drawerOffset={4000}
+								workspaceOverride={workspaceId}
 							/>
 							{#if savedPath && path && path !== savedPath}
 								<Alert

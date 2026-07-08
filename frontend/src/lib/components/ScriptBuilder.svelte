@@ -1146,6 +1146,7 @@
 													autofocus={false}
 													namePlaceholder="script"
 													kind="script"
+													workspaceOverride={opWorkspace}
 												/>
 												{#if initialPath && script.path && script.path !== initialPath}
 													<Alert

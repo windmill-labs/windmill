@@ -78,6 +78,11 @@
 		disableEditing?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
+		/** Workspace the folder list and path-existence checks run against.
+		 *  Defaults to the navigation `$workspaceStore`; pass the session's acting
+		 *  workspace when the editor operates on a workspace other than the one the
+		 *  top nav points at (see the sessions preview / dev-workspace flows). */
+		workspaceOverride?: string
 	}
 
 	let {
@@ -94,8 +99,13 @@
 		hideUser = false,
 		disableEditing = false,
 		size = 'md',
-		drawerOffset = 0
+		drawerOffset = 0,
+		workspaceOverride = undefined
 	}: Props = $props()
+
+	// Workspace all path lookups target: the caller-provided acting workspace
+	// when set, else the navigation workspace.
+	let ws = $derived(workspaceOverride ?? $workspaceStore)
 
 	$effect.pre(() => {
 		if (path == undefined) {
@@ -203,7 +213,7 @@
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
-					workspace: $workspaceStore!
+					workspace: ws!
 				})
 			)
 				.filter((x) => !excludedFolders.includes(x))
@@ -244,74 +254,74 @@
 	async function pathExists(path: string, kind: PathKind): Promise<boolean> {
 		if (!path.length) return false
 		if (kind == 'flow') {
-			return await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path })
+			return await FlowService.existsFlowByPath({ workspace: ws!, path: path })
 		} else if (kind == 'script') {
 			return await ScriptService.existsScriptByPath({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'resource') {
 			return await ResourceService.existsResource({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'variable') {
 			return await VariableService.existsVariable({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'schedule') {
-			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
+			return await ScheduleService.existsSchedule({ workspace: ws!, path: path })
 		} else if (kind == 'app') {
-			return await AppService.existsApp({ workspace: $workspaceStore!, path: path })
+			return await AppService.existsApp({ workspace: ws!, path: path })
 		} else if (kind == 'http_trigger') {
 			return await HttpTriggerService.existsHttpTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'websocket_trigger') {
 			return await WebsocketTriggerService.existsWebsocketTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'kafka_trigger') {
 			return await KafkaTriggerService.existsKafkaTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'postgres_trigger') {
 			return await PostgresTriggerService.existsPostgresTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'nats_trigger') {
 			return await NatsTriggerService.existsNatsTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'mqtt_trigger') {
 			return await MqttTriggerService.existsMqttTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'sqs_trigger') {
 			return await SqsTriggerService.existsSqsTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'gcp_trigger') {
 			return await GcpTriggerService.existsGcpTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'azure_trigger') {
 			return await AzureTriggerService.existsAzureTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'email_trigger') {
 			return await EmailTriggerService.existsEmailTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else {
@@ -398,7 +408,7 @@
 		})
 	})
 	$effect.pre(() => {
-		if ($workspaceStore && $userStore) {
+		if (ws && $userStore) {
 			untrack(() => {
 				loadFolders()
 				initPath()
@@ -412,30 +422,30 @@
 	)
 	let pathUsageInFlowsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-			$workspaceStore &&
+			ws &&
 			initialPath &&
 			FlowService.listFlowPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: initialPath,
 				runnableKind: kind
 			})
 	)
 	let pathUsageInAppsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-			$workspaceStore &&
+			ws &&
 			initialPath &&
 			AppService.listAppPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: initialPath,
 				runnableKind: kind
 			})
 	)
 	let pathUsageInScriptsPromise = $derived(
 		kind == 'script' &&
-			$workspaceStore &&
+			ws &&
 			initialPath &&
 			ScriptService.listScriptPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: initialPath
 			})
 	)
@@ -525,6 +535,7 @@
 					bind:this={inputP}
 					bind:value={meta.name}
 					prefix={`${meta.ownerKind?.charAt(0) ?? ''}/${meta.owner ?? ''}/`}
+					workspace={ws}
 					{size}
 					{error}
 					{autofocus}

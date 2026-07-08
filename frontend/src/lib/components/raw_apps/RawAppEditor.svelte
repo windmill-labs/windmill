@@ -14,6 +14,7 @@
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { setRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
 		genWmillTs,
@@ -170,6 +171,9 @@
 	// embedded in a session preview (autosaveWorkspace), else the navigation
 	// workspace. Deploy/save/background-runner must target it, not $workspaceStore.
 	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	// Expose it to the sidebar sub-components (inline scripts, datatable/shared-UI
+	// drawers, DB selector) so their lookups target the app's workspace too.
+	setRawAppOperatingWorkspace(() => opWorkspace)
 
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
