@@ -44,6 +44,10 @@ doesn't reflow the parent.
 		disableAutoInline?: boolean
 		/** For `raw_app_file`: the synthesized per-file diff item to render. */
 		rawFile?: RawAppFileItem
+		/** Cap (px) on the rendered diff height so a long item scrolls internally
+		 * instead of growing unbounded and dominating the drawer. Ignored while ≤ 0
+		 * (unmeasured). */
+		maxHeight?: number
 	}
 
 	let {
@@ -52,8 +56,22 @@ doesn't reflow the parent.
 		currentRaw,
 		inlineDiff = false,
 		disableAutoInline = false,
-		rawFile
+		rawFile,
+		maxHeight
 	}: Props = $props()
+
+	// Applied alongside each block's content-sized `height` so the block never
+	// exceeds the drawer's visible height — Monaco then scrolls internally.
+	function capStyle(reserved: number): string {
+		if (!maxHeight || maxHeight <= 0) return ''
+		return `max-height: ${Math.max(0, maxHeight - reserved)}px;`
+	}
+	const maxHeightStyle = $derived(capStyle(0))
+	// The Content|Metadata tab bar sits above the script editor and eats into the
+	// viewer's height; measure it so the editor's cap leaves room for it and the
+	// whole viewer still fits `maxHeight`.
+	let tabsChromeH = $state(0)
+	const contentMaxHeightStyle = $derived(capStyle(tabsChromeH))
 
 	type Prepared = { lang?: string; content?: string; metadata: string }
 
@@ -111,7 +129,7 @@ doesn't reflow the parent.
 </script>
 
 {#if kind === 'flow'}
-	<div class="h-[600px]">
+	<div class="h-[600px]" style={maxHeightStyle}>
 		<FlowDiffViewer
 			beforeYaml={beforeFlowYaml}
 			afterYaml={afterFlowYaml}
@@ -131,14 +149,17 @@ doesn't reflow the parent.
 		fullYamlCurrent={rawFile.fullYamlCurrent}
 		{inlineDiff}
 		{disableAutoInline}
+		{maxHeight}
 	/>
 {:else if hasContent}
 	<div class="flex flex-col">
-		<Tabs bind:selected={contentTab}>
-			<Tab value="content" label="Content" />
-			<Tab value="metadata" label="Metadata" />
-		</Tabs>
-		<div style="height: {activeTabHeight}">
+		<div bind:clientHeight={tabsChromeH}>
+			<Tabs bind:selected={contentTab}>
+				<Tab value="content" label="Content" />
+				<Tab value="metadata" label="Metadata" />
+			</Tabs>
+		</div>
+		<div style="height: {activeTabHeight}; {contentMaxHeightStyle}">
 			{#if contentTab === 'content'}
 				{#await import('$lib/components/DiffEditor.svelte')}
 					<div class="p-3"><Loader2 class="w-3.5 h-3.5 animate-spin" /></div>
@@ -178,7 +199,7 @@ doesn't reflow the parent.
 	{#await import('$lib/components/DiffEditor.svelte')}
 		<div class="p-3"><Loader2 class="w-3.5 h-3.5 animate-spin" /></div>
 	{:then Module}
-		<div style="height: {metadataHeight}">
+		<div style="height: {metadataHeight}; {maxHeightStyle}">
 			<Module.default
 				open={true}
 				automaticLayout
