@@ -153,7 +153,15 @@ async function createWorkspaceFork(
   } catch {
     // Non-fatal: keep the local profile name / id as the fallback.
   }
-  const defaultForkName = `${parentName || workspace.workspaceId}'s fork`;
+  // Cap the auto default at the workspace.name limit (varchar(50)): a valid
+  // parent name can be up to 50 chars, so appending "'s fork" would otherwise
+  // push the default over the limit and trip the length guard below.
+  const forkSuffix = "'s fork";
+  const nameBase = parentName || workspace.workspaceId;
+  const defaultForkName =
+    nameBase.length + forkSuffix.length <= 50
+      ? `${nameBase}${forkSuffix}`
+      : `${nameBase.slice(0, 50 - forkSuffix.length).trimEnd()}${forkSuffix}`;
 
   // The fork branch (and thus the id) stays named after the work you already
   // have when converting the current branch into the fork branch
