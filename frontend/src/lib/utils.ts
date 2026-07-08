@@ -1143,11 +1143,12 @@ export function extractCustomProperties(styleStr: string): string {
 const SHARABLE_HASH_TAG_PREFIX = 't:'
 
 // `tag` is carried as the reserved key `__tag` with a SHARABLE_HASH_TAG_PREFIX value;
-// an arg named `__tag` overwrites (wins over) the reserved key in the loop below
+// entry pairs allow a duplicate `__tag` key so an arg with that name can coexist with
+// the carried tag (they are told apart by the value prefix)
 export function computeSharableHash(args: any, tag?: string) {
-	let nargs = {}
+	let entries: [string, string][] = []
 	if (tag) {
-		nargs['__tag'] = SHARABLE_HASH_TAG_PREFIX + tag
+		entries.push(['__tag', SHARABLE_HASH_TAG_PREFIX + tag])
 	}
 	for (let k in args) {
 		let v = args[k]
@@ -1158,11 +1159,11 @@ export function computeSharableHash(args: any, tag?: string) {
 				console.error(`Value at key ${k} too big (${size}) to be shared`)
 				return ''
 			}
-			nargs[k] = JSON.stringify(v)
+			entries.push([k, JSON.stringify(v)])
 		}
 	}
 	try {
-		let r = new URLSearchParams(nargs).toString()
+		let r = new URLSearchParams(entries).toString()
 		return r.length > 1000000 ? '' : r
 	} catch (e) {
 		console.error('Error computing sharable hash', e)
@@ -1178,16 +1179,22 @@ export function isDynamicTag(tag: string | undefined): boolean {
 	return !!tag && tag.includes('$args[')
 }
 
-// Counterpart of computeSharableHash's `tag`: extracts and removes the reserved
-// `__tag` key. Only a SHARABLE_HASH_TAG_PREFIX-prefixed value is a carried tag; any
-// other value is a genuine arg named `__tag` and is left in `params` for arg parsing.
+// Counterpart of computeSharableHash's `tag`: extracts and removes the carried tag.
+// Only SHARABLE_HASH_TAG_PREFIX-prefixed `__tag` values are carried tags; any other
+// `__tag` value is a genuine arg with that name and is left in `params` for arg parsing.
 export function extractTagFromSharableHash(params: URLSearchParams): string | undefined {
-	const value = params.get('__tag')
-	if (value?.startsWith(SHARABLE_HASH_TAG_PREFIX)) {
-		params.delete('__tag')
-		return value.slice(SHARABLE_HASH_TAG_PREFIX.length)
+	const values = params.getAll('__tag')
+	const carried = values.find((v) => v.startsWith(SHARABLE_HASH_TAG_PREFIX))
+	if (carried == undefined) {
+		return undefined
 	}
-	return undefined
+	params.delete('__tag')
+	for (const v of values) {
+		if (!v.startsWith(SHARABLE_HASH_TAG_PREFIX)) {
+			params.append('__tag', v)
+		}
+	}
+	return carried.slice(SHARABLE_HASH_TAG_PREFIX.length)
 }
 
 export function toCamel(s: string) {

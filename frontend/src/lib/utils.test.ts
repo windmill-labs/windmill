@@ -417,9 +417,12 @@ describe('computeSharableHash / extractTagFromSharableHash', () => {
 		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { __tag: 'value', name: 'world' } })
 	})
 
-	it('lets an arg named __tag win over a carried tag', () => {
-		const hash = computeSharableHash({ __tag: 'value' }, 'my-custom-tag')
-		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { __tag: 'value' } })
+	it('carries a tag alongside an arg named __tag, preserving both', () => {
+		const hash = computeSharableHash({ __tag: 'value', name: 'world' }, 'my-custom-tag')
+		expect(roundTrip(hash)).toEqual({
+			tag: 'my-custom-tag',
+			args: { __tag: 'value', name: 'world' }
+		})
 	})
 
 	it('carries JSON-parseable tags like 123 or true without corrupting args', () => {
