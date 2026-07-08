@@ -100,6 +100,7 @@
 			{diffDrawer}
 			{onNavigate}
 			customUi={{ topBar: { aiBuilder: false } }}
+			allowModalPanel
 			onDeploy={() => {
 				// FlowBuilder has no deploy toast and the session stays put, so toast
 				// here, then sync the preview to deployed (pulls the new locks + version_id).

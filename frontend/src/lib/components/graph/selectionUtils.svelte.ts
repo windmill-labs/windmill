@@ -4,6 +4,7 @@ export class SelectionManager {
 	#selectedNodes = $state<Node[] | { id: string }[]>([])
 	#selectionMode = $state<'normal' | 'rect-select'>('normal')
 	#clearGraphSelection: () => void = () => {}
+	#onSelectIntent: ((id: string) => void) | undefined = undefined
 
 	constructor() {}
 
@@ -11,7 +12,15 @@ export class SelectionManager {
 		this.#clearGraphSelection = clearGraphSelection
 	}
 
+	/** Fires on every `selectId` call, BEFORE the same-id dedup early-return — so a
+	 * consumer can react even when the id is re-selected (e.g. clicking the already
+	 * selected "Settings" toolbar button to re-open a modal panel). */
+	setOnSelectIntent(cb: ((id: string) => void) | undefined) {
+		this.#onSelectIntent = cb
+	}
+
 	selectId(id: string) {
+		this.#onSelectIntent?.(id)
 		if (this.#selectedNodes.length === 1 && this.#selectedNodes[0].id === id) {
 			return
 		}

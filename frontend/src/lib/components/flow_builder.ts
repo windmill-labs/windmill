@@ -22,6 +22,11 @@ export type FlowBuilderProps = {
 	customUi?: FlowBuilderWhitelabelCustomUi
 	disableAi?: boolean
 	disabledFlowInputs?: boolean
+	/** Opt into the responsive modal panel: when the flow editor mounts narrower
+	 *  than the breakpoint, the right (step-details) pane starts as a modal opened
+	 *  by double-clicking a graph node. Only the sessions embed sets this; the
+	 *  full-page editor leaves it false and always shows the split pane. */
+	allowModalPanel?: boolean
 	savedPrimarySchedule?: ScheduleTrigger | undefined // used to set the primary schedule in the legacy primaryScheduleStore
 	version?: number | undefined
 	/** flow_version the draft was forked from; when set, the deploy-time staleness

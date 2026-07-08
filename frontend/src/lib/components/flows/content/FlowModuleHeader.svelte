@@ -16,6 +16,7 @@
 		Save
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
+	import DropdownV2 from '../../DropdownV2.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { sendUserToast } from '$lib/utils'
 	import { getLatestHashForScript } from '$lib/scripts'
@@ -197,14 +198,16 @@
 			tag={module.value.tag}
 			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>
-		<Button
-			unifiedSize="sm"
-			variant="subtle"
-			startIcon={{ icon: Save }}
-			on:click={() => dispatch('createScriptFromInlineScript')}
-			iconOnly={false}
-		>
-			Save to workspace
-		</Button>
+		<DropdownV2
+			size="sm"
+			placement="bottom-end"
+			items={[
+				{
+					displayName: 'Save to workspace',
+					icon: Save,
+					action: () => dispatch('createScriptFromInlineScript')
+				}
+			]}
+		/>
 	{/if}
 </div>

@@ -23,11 +23,11 @@
 	import { clickOutside } from '$lib/utils'
 	import { createEventDispatcher, getContext, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
-
 
 	interface Props {
 		pickableProperties: PickableProperties | undefined
@@ -64,10 +64,15 @@
 	const inputMatches = writable<{ word: string; value: string }[] | undefined>(undefined)
 	const dispatch = createEventDispatcher()
 
-	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const { flowPropPickerConfig } = propPickerContext
 	flowPropPickerConfig.set(undefined)
 
-
+	// Collapse-until-connect mode (sessions modal panel): the picker stays hidden and
+	// slides in only while a connect is active. Elsewhere it's always the split pane.
+	const collapseUntilConnect = $derived(
+		propPickerContext.collapsePropPickerUntilConnect?.() ?? false
+	)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
@@ -108,6 +113,51 @@
 	let rightPaneHeight: number = $state(0)
 </script>
 
+{#snippet pickerBody()}
+	<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface-secondary">
+		<AnimatedButton
+			animate={!collapseUntilConnect && $propPickerConfig != undefined}
+			baseRadius="4px"
+			wrapperClasses="prop-picker-inputs h-full w-full pt-1"
+			marginWidth="3px"
+			ringColor="transparent"
+			animationDuration="4s"
+		>
+			{#if result != undefined && !pickableProperties}
+				<PropPickerResult
+					{result}
+					{extraResults}
+					{flow_input}
+					allowCopy={!notSelectable && !$propPickerConfig}
+					on:select={({ detail }) => {
+						dispatch('select', detail)
+						if ($propPickerConfig?.onSelect(detail)) {
+							$propPickerConfig?.clearFocus()
+						}
+					}}
+				/>
+			{:else if pickableProperties}
+				<PropPicker
+					{result}
+					{extraResults}
+					{displayContext}
+					{error}
+					previousId={pickableProperties?.previousId}
+					{pickableProperties}
+					allowCopy={!notSelectable && !$propPickerConfig}
+					on:select={({ detail }) => {
+						// console.log('selecting', detail)
+						dispatch('select', detail)
+						if ($propPickerConfig?.onSelect(detail)) {
+							$propPickerConfig?.clearFocus()
+						}
+					}}
+				/>
+			{/if}
+		</AnimatedButton>
+	</div>
+{/snippet}
+
 <div
 	class="h-full w-full"
 	data-prop-picker-root
@@ -120,55 +170,35 @@
 		}
 	}}
 >
-	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
-		<Pane minSize={20} size={60} class={'relative !transition-none'}>
-			<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
-				{@render children?.()}
-			</div>
-		</Pane>
-		<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
-			<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface-secondary">
-				<AnimatedButton
-					animate={$propPickerConfig != undefined}
-					baseRadius="4px"
-					wrapperClasses="prop-picker-inputs h-full w-full pt-1"
-					marginWidth="3px"
-					ringColor="transparent"
-					animationDuration="4s"
-				>
-					{#if result != undefined && !pickableProperties}
-						<PropPickerResult
-							{result}
-							{extraResults}
-							{flow_input}
-							allowCopy={!notSelectable && !$propPickerConfig}
-							on:select={({ detail }) => {
-								dispatch('select', detail)
-								if ($propPickerConfig?.onSelect(detail)) {
-									$propPickerConfig?.clearFocus()
-								}
-							}}
-						/>
-					{:else if pickableProperties}
-						<PropPicker
-							{result}
-							{extraResults}
-							{displayContext}
-							{error}
-							previousId={pickableProperties?.previousId}
-							{pickableProperties}
-							allowCopy={!notSelectable && !$propPickerConfig}
-							on:select={({ detail }) => {
-								// console.log('selecting', detail)
-								dispatch('select', detail)
-								if ($propPickerConfig?.onSelect(detail)) {
-									$propPickerConfig?.clearFocus()
-								}
-							}}
-						/>
-					{/if}
-				</AnimatedButton>
-			</div>
-		</Pane>
-	</Splitpanes>
+	{#if collapseUntilConnect}
+		<!-- Picker collapsed until a connect is active: the right pane animates open
+		     (and back closed) via AnimatedPane, same as the runs page detail pane.
+		     Left pane has no fixed size so it flexes to fill whatever the picker leaves. -->
+		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
+			<Pane minSize={20} class="relative !transition-none">
+				<div class="h-full {noPadding ? '' : 'p-2'}">
+					{@render children?.()}
+				</div>
+			</Pane>
+			<AnimatedPane
+				size={40}
+				minSize={15}
+				opened={$propPickerConfig != undefined}
+				class="!transition-none z-1000 relative {paneClass}"
+			>
+				{@render pickerBody()}
+			</AnimatedPane>
+		</Splitpanes>
+	{:else}
+		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
+			<Pane minSize={20} size={60} class={'relative !transition-none'}>
+				<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
+					{@render children?.()}
+				</div>
+			</Pane>
+			<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
+				{@render pickerBody()}
+			</Pane>
+		</Splitpanes>
+	{/if}
 </div>

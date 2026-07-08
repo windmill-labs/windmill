@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { Check, Loader2, Wand2 } from 'lucide-svelte'
-	import Button from '../common/button/Button.svelte'
 	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
@@ -17,9 +15,7 @@
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import { copilotInfo } from '$lib/aiStore'
-	import { AIBtnClasses } from './chat/AIButtonStyle'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -29,7 +25,6 @@
 		schemaProperty: SchemaProperty
 		pickableProperties?: PickableProperties | undefined
 		argName: string
-		btnClass?: string
 	}
 
 	let {
@@ -37,8 +32,7 @@
 		arg,
 		schemaProperty,
 		pickableProperties = undefined,
-		argName,
-		btnClass = ''
+		argName
 	}: Props = $props()
 
 	let empty = $state(false)
@@ -49,14 +43,11 @@
 			(arg.type === 'javascript' && !arg.expr)
 	})
 
-	let btnFocused = $state(false)
-
 	let abortController = new AbortController()
 	let newFlowInput = $state('')
 
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
-	const { stepInputsLoading, generatedExprs } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+	const { generatedExprs } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
 	function createFlowInput() {
 		if (!newFlowInput) {
@@ -185,8 +176,7 @@ Only return the expression without any wrapper.`
 
 	function cancelOnOutOfFocus() {
 		setTimeout(() => {
-			if (!focused && !btnFocused) {
-				// only cancel if out of focus is not due to click on btn
+			if (!focused) {
 				cancel()
 			}
 		}, 150)
@@ -216,11 +206,13 @@ Only return the expression without any wrapper.`
 		dispatch('showExpr', $generatedExprs?.[argName] || '')
 	})
 
-	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 	let openInputsModal = $state(false)
 </script>
 
 {#if $copilotInfo.enabled && $stepInputCompletionEnabled}
+	<!-- The autocompletion runs headless: the focus effect generates the ghost-text
+	     suggestion and `onKeyUp` accepts it with Tab. The on-screen Wand/TAB button and
+	     its spinner were removed as intrusive. -->
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			createFlowInput()
@@ -228,54 +220,4 @@ Only return the expression without any wrapper.`
 		bind:open={openInputsModal}
 		inputs={[newFlowInput]}
 	/>
-	<Button
-		size="xs"
-		variant="default"
-		btnClasses={twMerge(
-			AIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
-			btnClass
-		)}
-		on:click={() => {
-			if (!loading && generatedContent.length > 0) {
-				dispatch('setExpr', generatedContent)
-				if (newFlowInput) {
-					openInputsModal = true
-				}
-				generatedContent = ''
-			}
-		}}
-		on:mouseenter={(ev) => {
-			if (out) {
-				out = false
-				generateStepInput()
-			}
-		}}
-		on:mouseleave={() => {
-			out = true
-			cancel()
-		}}
-		endIcon={{
-			icon:
-				loading || ($stepInputsLoading && empty)
-					? Loader2
-					: generatedContent.length > 0
-						? Check
-						: Wand2,
-			classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
-		}}
-		on:focus={() => {
-			btnFocused = true
-		}}
-		on:blur={() => {
-			btnFocused = false
-		}}
-	>
-		{#if focused}
-			{#if loading}
-				ESC
-			{:else if generatedContent.length > 0}
-				TAB
-			{/if}
-		{/if}
-	</Button>
 {/if}
