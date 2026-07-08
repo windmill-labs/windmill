@@ -485,6 +485,16 @@
 	// Visible height of the scroll area, used to size the trailing spacer so the
 	// last item can always be scrolled until its header reaches the top.
 	let mainHeight = $state(0)
+	// Height of a card's sticky header (measured — all cards share it), so the diff
+	// cap can reserve exactly that plus a small gap and the whole card (header +
+	// diff) fits the viewport instead of overflowing it.
+	let cardHeaderH = $state(0)
+	// Cap each diff block so a long one (a big script/app file) scrolls inside
+	// Monaco instead of stretching its card past a screenful: the visible height
+	// less the card header and an inter-card gap so a whole card fits the viewport.
+	// 0 (unmeasured) means "no cap" so nothing collapses before mainHeight lands.
+	const CARD_GAP = 24
+	const maxHeight = $derived(mainHeight > 0 ? mainHeight - cardHeaderH - CARD_GAP : 0)
 	// The trailing spacer only needs to cover the gap the last item can't fill on
 	// its own: viewport − lastItemHeight (0 when the item already fills the view).
 	// Reserving the full viewport would let you scroll a whole item-height into
@@ -830,6 +840,7 @@
 							rawFile={sub as RawAppFileItem}
 							{inlineDiff}
 							disableAutoInline
+							{maxHeight}
 						/>
 					{:else}
 						{@const runnable = sub as RawAppRunnableItem}
@@ -839,6 +850,7 @@
 							currentRaw={runnable.currentRaw}
 							{inlineDiff}
 							disableAutoInline
+							{maxHeight}
 						/>
 					{/if}
 				</div>
@@ -851,6 +863,7 @@
 			currentRaw={loaded.after}
 			{inlineDiff}
 			disableAutoInline
+			{maxHeight}
 		/>
 	{/if}
 {/snippet}
@@ -983,6 +996,7 @@
 											: 'ring-0 ring-transparent'}"
 									>
 										<div
+											bind:clientHeight={cardHeaderH}
 											class="sticky top-0 z-30 bg-surface-tertiary rounded-t-md flex items-center gap-2 px-3 py-2 border-b border-transparent"
 										>
 											<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
