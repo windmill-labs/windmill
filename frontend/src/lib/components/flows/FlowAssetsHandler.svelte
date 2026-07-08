@@ -7,6 +7,7 @@
 		let s = $state({
 			val: {
 				selectedAsset: undefined,
+				workspace: undefined,
 				s3FilePicker: undefined,
 				resourceEditorDrawer: undefined,
 				resourceMetadataCache: {},
@@ -63,6 +64,11 @@
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 	const { selectionManager, opWorkspace } = getContext<FlowEditorContext>('FlowEditorContext') || {}
 	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	// Expose the acting workspace to the asset explore controls (ExploreAssetButton
+	// reads it from this context; the DB manager / S3 picker act on it).
+	$effect(() => {
+		if (flowGraphAssetsCtx) flowGraphAssetsCtx.val.workspace = opWs
+	})
 	let selectedId = $derived(selectionManager?.getSelectedId())
 
 	let allModules = $derived(getAllModules(modules))
@@ -183,6 +189,6 @@
 </script>
 
 {#if flowGraphAssetsCtx}
-	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
+	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} workspace={opWs} readOnlyMode />
 	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} workspace={opWs} />
 {/if}
