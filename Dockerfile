@@ -210,7 +210,7 @@ RUN if [ "$WITH_HELM" = "true" ]; then \
     chmod +x /usr/local/bin/helm; \
     else \
     # Stub lives in /usr/bin (last in PATH) so any real helm installed later via an
-    # init script — to /usr/local/bin, ~/.local/bin, /tmp/.local/bin, etc. — shadows it.
+    # init script (to /usr/local/bin, ~/.local/bin, /tmp/.local/bin, etc.) shadows it.
     # The suggested command mirrors the WITH_HELM=true branch: ${HELM_VERSION} is baked in
     # at build time and $arch is resolved at run time so the hint is correct on any arch.
     printf '%s\n' \
