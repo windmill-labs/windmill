@@ -121,6 +121,8 @@
 		actions: actions_render = undefined
 	}: Props = $props()
 
+	let ws = $derived(workspace ?? $workspaceStore)
+
 	const dispatch = createEventDispatcher()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -502,7 +504,7 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 		extraField="path"
 		loadItems={async () =>
-			(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+			(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
 				name: x.path,
 				...x
 			}))}

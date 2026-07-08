@@ -2072,6 +2072,7 @@
 
 		<ScriptEditor
 			{disableAi}
+			workspaceOverride={opWorkspace}
 			sessionOpen={script.path
 				? {
 						target: { kind: 'script', path: script.path },

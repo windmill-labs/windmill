@@ -61,7 +61,8 @@
 	} = $props()
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
-	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	const { selectionManager, opWorkspace } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 	let selectedId = $derived(selectionManager?.getSelectedId())
 
 	let allModules = $derived(getAllModules(modules))
@@ -79,7 +80,7 @@
 				let truncatedPath = asset.path.split('?table=')[0]
 				if (truncatedPath in resMetadataCache) continue
 				resMetadataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
-				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+				ResourceService.getResource({ path: truncatedPath, workspace: opWs! })
 					.then((r) => (resMetadataCache[truncatedPath] = { resource_type: r.resource_type }))
 					.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
 			}
@@ -88,7 +89,7 @@
 
 	// Fetch transitive assets (path scripts and flows)
 	$effect(() => {
-		if (!$workspaceStore || !flowGraphAssetsCtx || !enablePathScriptAndFlowAssets) return
+		if (!opWs || !flowGraphAssetsCtx || !enablePathScriptAndFlowAssets) return
 		let usages: { path: string; kind: AssetUsageKind }[] = []
 		let modIds: string[] = []
 		for (const mod of allModules) {
@@ -101,7 +102,7 @@
 		}
 		if (usages.length) {
 			AssetService.listAssetsByUsage({
-				workspace: $workspaceStore,
+				workspace: opWs,
 				requestBody: { usages }
 			}).then((result) => {
 				result.forEach((assets, idx) => {

@@ -20,7 +20,8 @@
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		path: string
@@ -44,6 +45,9 @@
 		language = $bindable(undefined)
 	}: Props = $props()
 
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+
 	let code: string | undefined = $state()
 	let previousCode: string | undefined = $state()
 	let lock: string | undefined = $state(undefined)
@@ -51,7 +55,7 @@
 	let notFound = $state(false)
 
 	function getCachedKey(path: string, hash: string | undefined) {
-		return `${$workspaceStore}-${path}-${hash ?? ''}`
+		return `${opWs}-${path}-${hash ?? ''}`
 	}
 	function getCachedValues(path: string, hash: string | undefined) {
 		const key = getCachedKey(path, hash)
@@ -64,12 +68,15 @@
 		notFound = cachedValues[key]?.notFound ?? false
 	}
 
-	getCachedValues(untrack(() => path), untrack(() => hash))
+	getCachedValues(
+		untrack(() => path),
+		untrack(() => hash)
+	)
 
 	async function loadPreviousCode(previousHash: string) {
 		try {
 			const previousScript = await ScriptService.getScriptByHash({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				hash: previousHash
 			})
 			previousCode = previousScript.content
@@ -93,8 +100,8 @@
 			const script = path.startsWith('hub/')
 				? await getScriptByPath(path!)
 				: hash
-				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
-				: await getScriptByPath(path!)
+					? await ScriptService.getScriptByHash({ workspace: opWs!, hash })
+					: await getScriptByPath(path!)
 			code = script.content
 
 			language = script.language

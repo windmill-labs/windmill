@@ -13,20 +13,24 @@
 		orderedJsonStringify,
 		sendUserToast
 	} from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
+	import type { FlowEditorContext } from '../types'
 
 	let scriptEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	export async function openDrawer(hash: string, cb: () => void): Promise<void> {
 		script = undefined
 		closeAnyway = false
 		scriptEditorDrawer?.openDrawer?.()
 		script = await ScriptService.getScriptByHash({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			hash
 		})
 		savedScript = structuredClone($state.snapshot(script))
@@ -89,7 +93,7 @@
 				}
 
 				await ScriptService.createScript({
-					workspace: $workspaceStore!,
+					workspace: opWs!,
 					requestBody: {
 						...script,
 						language: script.language!,

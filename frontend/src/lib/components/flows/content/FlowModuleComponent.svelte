@@ -94,10 +94,12 @@
 		pathStore,
 		saveDraft,
 		customUi,
-		executionCount
+		executionCount,
+		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const selectedId = $derived(selectionManager.getSelectedId())
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	interface Props {
 		flowModule: FlowModule
@@ -398,7 +400,7 @@
 
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
 		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId],
-		() => $workspaceStore
+		() => opWs
 	)
 
 	// Debug mode state
@@ -532,16 +534,12 @@
 			resetDAPClient()
 			dapClient = getDAPClient(dapServerUrl)
 
-			const env = await fetchContextualVariables($workspaceStore ?? '')
+			const env = await fetchContextualVariables(opWs ?? '')
 			const code = flowModule.value.content
 
 			let signedPayload
 			try {
-				signedPayload = await signDebugRequest(
-					$workspaceStore ?? '',
-					code ?? '',
-					rawScriptLang ?? 'python3'
-				)
+				signedPayload = await signDebugRequest(opWs ?? '', code ?? '', rawScriptLang ?? 'python3')
 				debugSessionJobId = signedPayload.job_id
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
@@ -903,7 +901,7 @@
 															},
 															{}
 														)}
-														key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+														key={`flow-inline-${opWs}-${$pathStore}-${flowModule.id}`}
 														moduleId={flowModule.id}
 														preparedAssetsSqlQueries={preparedSqlQueries.current}
 														customTag={flowModule.value.tag}
@@ -915,7 +913,7 @@
 													client={dapClient}
 													currentFrameId={currentDebugFrameId}
 													onClose={() => (showDebugConsole = false)}
-													workspace={$workspaceStore}
+													workspace={opWs}
 													jobId={debugSessionJobId ?? undefined}
 												/>
 											</Pane>
@@ -966,7 +964,7 @@
 													},
 													{}
 												)}
-												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+												key={`flow-inline-${opWs}-${$pathStore}-${flowModule.id}`}
 												moduleId={flowModule.id}
 												preparedAssetsSqlQueries={preparedSqlQueries.current}
 												customTag={flowModule.value.tag}

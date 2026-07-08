@@ -223,6 +223,11 @@
 		// built by the pipeline page from the resolved graph. Absent outside the
 		// pipeline editor — the check still runs, just without suppression.
 		schemaContractContext?: SchemaContractGraphContext
+		// Workspace to scope this editor's calls to. Defaults to the nav
+		// `$workspaceStore`; an AI-session live editor passes the session's
+		// acting workspace (a fork) so tests, captures and toolbar lookups hit
+		// the right workspace instead of the nav one.
+		workspaceOverride?: string
 	}
 
 	let {
@@ -266,8 +271,11 @@
 		onTestJob,
 		initialTestPanelCollapsed = false,
 		sessionOpen = undefined,
-		schemaContractContext = undefined
+		schemaContractContext = undefined,
+		workspaceOverride = undefined
 	}: Props = $props()
+
+	let opWs = $derived(workspaceOverride ?? $workspaceStore)
 
 	$effect(() => {
 		onTestStateChange?.(testIsLoading)
@@ -596,7 +604,7 @@
 	let inferAssetsRes = resource([() => lang, () => code, () => code], () => inferAssets(lang, code))
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
 		() => inferAssetsRes.current?.sql_queries,
-		() => $workspaceStore
+		() => opWs
 	)
 	// Asset-parse validity for the editor badge. `undefined` while loading (so
 	// the badge doesn't flicker red); only an explicit parser error counts as
@@ -648,7 +656,7 @@
 	let contractCheckSeq = 0
 	watch([() => inferAssetsRes.current, () => schemaContractContext], () => {
 		const res = inferAssetsRes.current
-		const workspace = $workspaceStore
+		const workspace = opWs
 		const seq = ++contractCheckSeq
 		if (!workspace || !res || res.status === 'error') {
 			contractMarkers = []
@@ -908,7 +916,7 @@
 	async function loadPastTests(): Promise<void> {
 		pastPreviewsRequest?.cancel()
 		const req = JobService.listCompletedJobs({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			jobKinds: 'preview',
 			createdBy: $userStore?.username,
 			scriptPathExact: path,
@@ -1210,12 +1218,12 @@
 			dapClient = getDAPClient(dapServerUrl)
 
 			// Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) from backend
-			const env = await fetchContextualVariables($workspaceStore ?? '')
+			const env = await fetchContextualVariables(opWs ?? '')
 
 			// Sign the debug request (creates audit log entry)
 			let signedPayload
 			try {
-				signedPayload = await signDebugRequest($workspaceStore ?? '', code ?? '', lang ?? 'python3')
+				signedPayload = await signDebugRequest(opWs ?? '', code ?? '', lang ?? 'python3')
 				debugSessionJobId = signedPayload.job_id
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
@@ -1435,11 +1443,11 @@
 	// what's there" affordance, not a user action. Skipped when a test is
 	// already running so a live job's stream is never clobbered.
 	async function loadLastRunIntoTestPanel(): Promise<void> {
-		if (!path || !$workspaceStore) return
+		if (!path || !opWs) return
 		if (testIsLoading || testJob !== undefined) return
 		try {
 			const jobs = await JobService.listCompletedJobs({
-				workspace: $workspaceStore,
+				workspace: opWs,
 				scriptPathExact: path,
 				hasNullParent: true,
 				perPage: 1,
@@ -1471,7 +1479,7 @@
 
 		let token: string | undefined
 		try {
-			token = await signMultiplayerRequest($workspaceStore ?? '')
+			token = await signMultiplayerRequest(opWs ?? '')
 		} catch (e) {
 			console.error('Failed to sign multiplayer request:', e)
 			sendUserToast('Failed to authorize multiplayer session', true)
@@ -1486,7 +1494,7 @@
 
 		wsProvider = new WebsocketProvider(
 			buildWsUrl('/ws_mp/'),
-			$workspaceStore + '/' + (path ?? 'no-room-name'),
+			opWs + '/' + (path ?? 'no-room-name'),
 			ydoc,
 			{ connect: false, params: { token } }
 		)
@@ -1554,7 +1562,7 @@
 		let url = new URL(window.location.toString().split('#')[0])
 		url.search = ''
 		return (
-			`${url}?collab=1&workspace=${encodeURIComponent($workspaceStore ?? '')}&lang=${encodeURIComponent(lang ?? '')}` +
+			`${url}?collab=1&workspace=${encodeURIComponent(opWs ?? '')}&lang=${encodeURIComponent(lang ?? '')}` +
 			(edit ? '' : `&path=${path}`)
 		)
 	}
@@ -1725,6 +1733,7 @@
 
 <JobLoader
 	noCode={true}
+	workspaceOverride={opWs}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
@@ -1760,6 +1769,7 @@
 	<div class="flex justify-between space-x-2">
 		{#if args}
 			<EditorBar
+				workspace={opWs}
 				scriptPath={edit ? path : undefined}
 				on:toggleCollabMode={() => {
 					if (wsProvider?.shouldConnect) {
@@ -1978,7 +1988,7 @@
 						     it visually pinned to the top edge without
 						     relying on cross-browser overflow behaviour. -->
 							<div class="relative h-full pt-9 flex flex-col">
-								{#if testJob?.id && testJob.type === 'CompletedJob' && $workspaceStore}
+								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
 									<!-- Right-side affordances when we're displaying a *completed*
 									     job (either the user just ran a test, or the on-mount
 									     last-run loader populated the panel). The job-id link
@@ -1989,7 +1999,7 @@
 									<div class="absolute top-1 right-2 z-10 flex items-center gap-2">
 										<a
 											class="text-3xs text-blue-600 hover:underline font-mono"
-											href={`${base}/run/${testJob.id}?workspace=${$workspaceStore}`}
+											href={`${base}/run/${testJob.id}?workspace=${opWs}`}
 											target="_blank"
 											rel="noopener noreferrer"
 											title="Open this run"
@@ -1997,7 +2007,7 @@
 											{testJob.id.slice(0, 8)}… ↗
 										</a>
 										<DispatchEventsButton
-											workspace={testJob.workspace_id ?? $workspaceStore}
+											workspace={testJob.workspace_id ?? opWs}
 											jobId={testJob.id}
 										/>
 									</div>
@@ -2142,6 +2152,7 @@
 									>
 										{#key argsRender}
 											<SchemaForm
+												workspace={opWs}
 												helperScript={{
 													source: 'inline',
 													code,
@@ -2211,6 +2222,7 @@
 													{#key argsRender}
 														{#if activeModuleTab !== null}
 															<SchemaForm
+																workspace={opWs}
 																helperScript={{
 																	source: 'inline',
 																	code: editorCode,
@@ -2227,6 +2239,7 @@
 															/>
 														{:else}
 															<SchemaForm
+																workspace={opWs}
 																helperScript={{
 																	source: 'inline',
 																	code,
@@ -2331,6 +2344,7 @@
 			<div class="h-full p-2">
 				<CaptureTable
 					bind:this={captureTable}
+					workspace={opWs}
 					{hasPreprocessor}
 					canHavePreprocessor={canHavePreprocessor(lang)}
 					isFlow={false}
@@ -2649,7 +2663,7 @@
 							client={dapClient}
 							currentFrameId={currentDebugFrameId}
 							onClose={() => (showDebugConsole = false)}
-							workspace={$workspaceStore}
+							workspace={opWs}
 							jobId={debugSessionJobId ?? undefined}
 						/>
 					</Pane>

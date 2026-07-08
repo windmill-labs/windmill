@@ -32,7 +32,8 @@
 
 	let { noEditor }: Props = $props()
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, opWorkspace } = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	if (!flowStore.val.value.flow_env) {
 		flowStore.val.value.flow_env = {}
@@ -244,8 +245,10 @@
 				Flow envs can be referenced in any flow step input using the syntax{' '}
 				<code>flow_env.VARIABLE_NAME</code> or <code>flow_env["VARIABLE_NAME"]</code>. These
 				variables are available in the property picker and can be used in JavaScript expressions and
-				input bindings. String values can link to workspace variables using the <DollarSign size={12}
-					class="inline" /> button. Resource type references workspace resources resolved at runtime.
+				input bindings. String values can link to workspace variables using the <DollarSign
+					size={12}
+					class="inline"
+				/> button. Resource type references workspace resources resolved at runtime.
 			</Alert>
 
 			{#if flowEnvEntries.length === 0}
@@ -300,10 +303,7 @@
 
 							<Label label="Value">
 								{#if entry.type === 'resource'}
-									<ResourcePicker
-										bind:value={resourcePaths[entry.key]}
-										disabled={noEditor}
-									/>
+									<ResourcePicker bind:value={resourcePaths[entry.key]} disabled={noEditor} />
 								{:else if entry.type === 'json'}
 									<div class="w-full">
 										<JsonEditor
@@ -320,8 +320,7 @@
 										<input
 											type="text"
 											value={entry.displayValue}
-											oninput={(e) =>
-												updateEnvValue(entry.key, e.currentTarget.value, 'string')}
+											oninput={(e) => updateEnvValue(entry.key, e.currentTarget.value, 'string')}
 											disabled={noEditor}
 											class="input w-full"
 											placeholder="Variable value"
@@ -346,8 +345,7 @@
 											Linked to variable <a
 												href="/variables#{entry.value.slice(5)}"
 												target="_blank"
-												class="text-accent underline font-normal"
-												>{entry.value.slice(5)}</a
+												class="text-accent underline font-normal">{entry.value.slice(5)}</a
 											>
 										</div>
 									{/if}
@@ -379,7 +377,7 @@
 	itemName="Variable"
 	extraField="path"
 	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+		(await VariableService.listVariable({ workspace: opWs ?? '' })).map((x) => ({
 			name: x.path,
 			...x
 		}))}

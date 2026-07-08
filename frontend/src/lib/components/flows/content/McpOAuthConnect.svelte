@@ -12,7 +12,8 @@
 	import Path from '$lib/components/Path.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { onDestroy } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		onConnected: (resourcePath: string, resourceName: string) => void
@@ -20,6 +21,9 @@
 	}
 
 	let { onConnected, onCancel }: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	let serverUrl = $state('')
 	let discoveryResult = $state<DiscoverMcpOauthResponse | null>(null)
@@ -112,7 +116,7 @@
 			let accountId: number | undefined
 			if (data.expires_in && data.refresh_token) {
 				const accountIdStr = await OauthService.createAccount({
-					workspace: $workspaceStore!,
+					workspace: opWs!,
 					requestBody: {
 						refresh_token: data.refresh_token,
 						expires_in: data.expires_in,
@@ -124,7 +128,7 @@
 			}
 
 			await VariableService.createVariable({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				requestBody: {
 					path: resourcePath,
 					value: data.access_token,
@@ -136,7 +140,7 @@
 			})
 
 			await ResourceService.createResource({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				requestBody: {
 					resource_type: 'mcp',
 					path: resourcePath,

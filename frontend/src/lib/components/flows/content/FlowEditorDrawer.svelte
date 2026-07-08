@@ -7,14 +7,18 @@
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { emptySchema, type StateStore } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import type { FlowEditorContext } from '../types'
 
 	let flowEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	export async function openDrawer(path: string, cb: () => void): Promise<void> {
 		flowPath = path
@@ -25,7 +29,7 @@
 
 		try {
 			const backendFlow = await FlowService.getFlowByPath({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				path
 			})
 

@@ -53,6 +53,15 @@ export class FlowChatManager {
 	#useStreaming = $state(false)
 	#path = $state<string | undefined>(undefined)
 
+	// When the flow editor runs as an AI-session live editor, it acts on a workspace
+	// that can differ from the nav store. FlowChat.svelte wires this to
+	// FlowEditorContext.opWorkspace so workspace-scoped calls hit the acting workspace.
+	operatingWorkspace?: () => string | undefined
+
+	#workspace(): string | undefined {
+		return this.operatingWorkspace?.() ?? get(workspaceStore)
+	}
+
 	initialize(
 		onRunFlow: (
 			userMessage: string,
@@ -112,7 +121,7 @@ export class FlowChatManager {
 		// Create a new conversation object and add it to the top of the list
 		const newConversation: ConversationWithDraft = {
 			id: newConversationId,
-			workspace_id: get(workspaceStore)!,
+			workspace_id: this.#workspace()!,
 			flow_path: this.#path!,
 			title: 'New chat',
 			created_at: new Date().toISOString(),
@@ -160,7 +169,7 @@ export class FlowChatManager {
 		try {
 			this.deletingConversationId = conversationId
 			await FlowConversationsService.deleteFlowConversation({
-				workspace: get(workspaceStore)!,
+				workspace: this.#workspace()!,
 				conversationId
 			})
 			if (this.selectedConversationId === conversationId) {
@@ -185,7 +194,7 @@ export class FlowChatManager {
 		try {
 			if (this.currentJobId) {
 				await JobService.cancelQueuedJob({
-					workspace: get(workspaceStore)!,
+					workspace: this.#workspace()!,
 					id: this.currentJobId,
 					requestBody: {}
 				})
@@ -210,7 +219,7 @@ export class FlowChatManager {
 
 		try {
 			const response = await FlowConversationsService.listFlowConversations({
-				workspace: get(workspaceStore)!,
+				workspace: this.#workspace()!,
 				flowPath: this.#path,
 				page: page,
 				perPage: perPage
@@ -245,7 +254,7 @@ export class FlowChatManager {
 			const previousScrollHeight = this.messagesContainer?.scrollHeight || 0
 
 			const response = await FlowConversationsService.listConversationMessages({
-				workspace: get(workspaceStore)!,
+				workspace: this.#workspace()!,
 				conversationId: conversationIdToUse,
 				page: pageToFetch,
 				perPage: this.#perPage
@@ -343,7 +352,7 @@ export class FlowChatManager {
 		try {
 			const lastSeq = this.getLastPersistedMessageSeq()
 			const response = await FlowConversationsService.listConversationMessages({
-				workspace: get(workspaceStore)!,
+				workspace: this.#workspace()!,
 				conversationId: conversationId,
 				page: 1,
 				perPage: 50,
@@ -488,7 +497,7 @@ export class FlowChatManager {
 			}
 
 			// Build the EventSource URL
-			const streamUrl = `/api/w/${get(workspaceStore)}/jobs_u/getupdate_sse/${jobId}`
+			const streamUrl = `/api/w/${this.#workspace()}/jobs_u/getupdate_sse/${jobId}`
 			const url = new URL(streamUrl, window.location.origin)
 			url.searchParams.set('poll_delay_ms', '50')
 			url.searchParams.set('fast', 'true')
