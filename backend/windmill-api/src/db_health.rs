@@ -731,3 +731,51 @@ async fn fetch_datatables(db: &DB) -> windmill_common::error::Result<Vec<Datatab
     result.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::compute_connection_sizing;
+
+    #[test]
+    fn no_workers_reports_defaults_and_no_worker_demand() {
+        let s = compute_connection_sizing(0, 0, 3);
+        assert_eq!(s.live_workers, 0);
+        assert_eq!(s.live_worker_instances, 0);
+        assert_eq!(s.estimated_worker_connections, 0);
+        assert_eq!(s.default_server_pool_size, 50);
+        assert_eq!(s.default_worker_pool_size, 5);
+        assert_eq!(s.per_server_increment, 50);
+        // ceil((0 + 50) * 1.25) + max(3,3) = 63 + 3
+        assert_eq!(s.recommended_max_connections, 66);
+        assert!(s.message.contains("No live workers"));
+    }
+
+    #[test]
+    fn single_worker_single_instance() {
+        let s = compute_connection_sizing(1, 1, 3);
+        // (5 - 1) * 1 instance + 1 worker = 5
+        assert_eq!(s.estimated_worker_connections, 5);
+        // ceil((5 + 50) * 1.25) + 3 = 69 + 3
+        assert_eq!(s.recommended_max_connections, 72);
+    }
+
+    #[test]
+    fn multi_worker_instances_sum_per_instance_pools() {
+        // Two instances, 5 workers total: pools are (4 + w_i) summed = 4*2 + 5 = 13.
+        let s = compute_connection_sizing(5, 2, 3);
+        assert_eq!(s.estimated_worker_connections, 13);
+        // ceil((13 + 50) * 1.25) + 3 = ceil(78.75) + 3 = 79 + 3
+        assert_eq!(s.recommended_max_connections, 82);
+    }
+
+    #[test]
+    fn reserved_below_floor_is_clamped_to_three() {
+        let low = compute_connection_sizing(1, 1, 0);
+        let base = compute_connection_sizing(1, 1, 3);
+        // reserved=0 is clamped to 3, matching reserved=3.
+        assert_eq!(
+            low.recommended_max_connections,
+            base.recommended_max_connections
+        );
+    }
+}
