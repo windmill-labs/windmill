@@ -16,7 +16,8 @@
 		effectivePath,
 		editor,
 		onNavigate,
-		isActiveSession = true
+		isActiveSession = true,
+		isActiveTab = true
 	}: {
 		runtime: SessionRuntime
 		kind: SessionTargetKind
@@ -31,12 +32,14 @@
 		/** The heavy editor for this kind; remounted on a data-ready target swap. */
 		editor: Snippet
 		onNavigate?: (item: WorkspaceItem) => void
-		/**
-		 * Only the visible session claims the workspace's single live-editor slot
-		 * (one per (workspace, kind)); a warm-but-hidden session must not, else
-		 * chat actions on the visible session resolve to the hidden one's path.
-		 */
+		/** A warm-but-hidden session must not claim the live-editor slot. */
 		isActiveSession?: boolean
+		/**
+		 * Only the visible editor tab claims the workspace's single live-editor slot
+		 * (one per (workspace, kind)); with several editors open at once, a hidden
+		 * tab must not, else chat actions resolve to the wrong item's path.
+		 */
+		isActiveTab?: boolean
 	} = $props()
 
 	// Mark this subtree as the session side panel: editors below detect the
@@ -47,7 +50,15 @@
 	// rely on its presence, not its identity.
 	setContext('aiChatManager', runtime.manager)
 
-	const slot = $derived(runtime.slot(kind))
+	// This tab's own editor cell (per (kind, path)); several tabs can be live at once.
+	const cell = $derived(
+		kind === 'flow'
+			? runtime.flowCell(path)
+			: kind === 'script'
+				? runtime.scriptCell(path)
+				: runtime.rawAppCell(path)
+	)
+	const slot = $derived(cell.slot)
 
 	function triggerLoad(): Promise<void> {
 		if (kind === 'flow') return runtime.loadFlow(workspaceId, path)
@@ -56,10 +67,15 @@
 	}
 
 	function buildCodec(): DraftSyncCodec<any> {
-		if (kind === 'flow') return makeFlowCodec(runtime)
-		if (kind === 'script') return makeScriptCodec(runtime, () => path)
-		return makeRawAppCodec(runtime)
+		if (kind === 'flow')
+			return makeFlowCodec(runtime.flowCell(path).store, runtime.flowCell(path).stateStore)
+		if (kind === 'script') return makeScriptCodec(runtime.scriptCell(path).store, () => path)
+		return makeRawAppCodec(runtime.rawAppCell(path).store)
 	}
+	// Rebuilds when `path` changes so the sync always binds this tab's current
+	// cell: retargeting the tab (in-editor link / breadcrumb) swaps `path` without
+	// remounting, and each codec closes over one cell's store.
+	const codec = $derived(buildCodec())
 
 	$effect(() => {
 		if (workspaceId && path) {
@@ -69,11 +85,11 @@
 
 	// Mark this editor as the live editor draft for the session's workspace so
 	// the chat's `isLiveDraft` hint / `discard_local_draft` tool resolve to this
-	// path — same registration the regular edit pages do. Gated on
-	// `isActiveSession` (see prop doc).
+	// path — same registration the regular edit pages do. Only the visible tab of
+	// the active session claims the (workspace, kind) slot (see prop docs).
 	$effect(() => {
 		if (!workspaceId || !path) return
-		if (!isActiveSession) return
+		if (!isActiveSession || !isActiveTab) return
 		UserDraft.setLiveEditorDraft({
 			workspace: workspaceId,
 			itemKind: kind,
@@ -87,7 +103,7 @@
 		path: () => path,
 		workspace: () => workspaceId,
 		ready: () => slot.loadedPath === path,
-		codec: buildCodec()
+		codec: () => codec
 	})
 
 	// Debounced loading affordance for a breadcrumb swap: while the loaded path

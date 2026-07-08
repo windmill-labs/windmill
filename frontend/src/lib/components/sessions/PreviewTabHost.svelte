@@ -13,6 +13,7 @@
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import FlowEditorView from './FlowEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
+	import PipelineEditorView from './PipelineEditorView.svelte'
 
 	let {
 		tab,
@@ -33,15 +34,16 @@
 		mounted: boolean
 		/** Short tab label, for the iframe title. */
 		label: string
-		/** A link click inside a live editor re-points the session target + tab. */
+		/** A link click inside a live editor re-points the active preview tab. */
 		onNavigate: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void
 	} = $props()
 
-	// Editor vs iframe is decided purely from the tab URL + the session's target
-	// (see resolvePreviewTab). Only the target tab of a wrappable kind goes live.
-	const slot = $derived(resolvePreviewTab(tab.url, session?.target))
+	// Editor vs iframe is decided purely from the tab URL (see resolvePreviewTab):
+	// any editable item (script/flow/raw app) or a pipeline folder mounts its own
+	// live editor.
+	const slot = $derived(resolvePreviewTab(tab.url))
 	const workspaceId = $derived(
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
@@ -80,7 +82,14 @@
 {#if slot.kind === 'editor' && mounted && runtime}
 	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
 		{#if slot.editorKind === 'flow'}
-			<FlowEditorView {runtime} path={slot.path} {workspaceId} {onNavigate} {isActiveSession} />
+			<FlowEditorView
+				{runtime}
+				path={slot.path}
+				{workspaceId}
+				{onNavigate}
+				{isActiveSession}
+				{active}
+			/>
 		{:else if slot.editorKind === 'script'}
 			<ScriptEditorView
 				{runtime}
@@ -88,10 +97,20 @@
 				{workspaceId}
 				{onNavigate}
 				{isActiveSession}
+				{active}
 				initialTestPanelCollapsed
 			/>
+		{:else if slot.editorKind === 'pipeline'}
+			<PipelineEditorView {runtime} path={slot.path} {workspaceId} {isActiveSession} {active} />
 		{:else}
-			<RawAppEditorView {runtime} path={slot.path} {workspaceId} {onNavigate} {isActiveSession} />
+			<RawAppEditorView
+				{runtime}
+				path={slot.path}
+				{workspaceId}
+				{onNavigate}
+				{isActiveSession}
+				{active}
+			/>
 		{/if}
 	</div>
 {:else if mounted}

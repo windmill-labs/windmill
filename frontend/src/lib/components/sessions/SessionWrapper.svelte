@@ -19,21 +19,12 @@
 		ArrowUpRight,
 		EllipsisVertical,
 		ExternalLink,
-		PanelRightClose,
-		PanelRightOpen,
 		Pencil,
 		Settings,
 		Trash2
 	} from 'lucide-svelte'
 	import { type Item } from '$lib/utils'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
-	import type { WorkspaceItem } from '$lib/components/workspacePicker'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import WorkspaceItemDrillPicker from '$lib/components/WorkspaceItemDrillPicker.svelte'
-	import FlowEditorView from './FlowEditorView.svelte'
-	import ScriptEditorView from './ScriptEditorView.svelte'
-	import RawAppEditorView from './RawAppEditorView.svelte'
-	import PipelineEditorView from './PipelineEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import {
@@ -49,36 +40,22 @@
 		selectSession,
 		sessionState,
 		setSessionArchived,
-		setSessionTarget,
-		syncWorkspaceTo,
-		type SessionTarget
+		syncWorkspaceTo
 	} from './sessionState.svelte'
-	import { editorWarmIds, getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
+	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$app/paths'
-	import { slide } from 'svelte/transition'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
-	// hideEditor: never mount the inline editor pane. Used by the sessions page,
-	// where the edited item is shown in a live page preview (iframe) beside the
-	// chat instead, so the wrapper contributes only its chat column.
 	// headerInset: extra left padding on the chat header so it clears a floating
 	// control (the collapsed-rail launcher) sitting at the screen's top-left.
 	let {
 		sessionId,
-		hideEditor = false,
 		headerInset = false
 	}: {
 		sessionId: string
-		hideEditor?: boolean
 		headerInset?: boolean
 	} = $props()
-
-	// LRU-warm sessions get their editor pane mounted; others render
-	// chat-only. Reading from the reactive Set keeps SessionWrapper in
-	// sync with promoteEditorWarm without an explicit prop round-trip
-	// through the page route.
-	const mountEditor = $derived(editorWarmIds.has(sessionId))
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
 	// Captured at script-init so we can synchronously bind context.
@@ -248,43 +225,6 @@
 		runtime?.manager.displayMessages.some((m) => m.role === 'user') ?? false
 	)
 
-	// Effective workspace for routing editor views — committed if set,
-	// otherwise the pending pick, otherwise the current active workspace.
-	const effectiveWorkspaceId = $derived(
-		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
-	)
-
-	// Core mutation: assign a target via the canonical setter, then re-open
-	// the editor pane. Shared by every code path that swaps the session's
-	// editor target (drill picker, fork-bar dropdown, …).
-	function applyEditorTarget(target: SessionTarget, summary?: string) {
-		if (!session) return
-		setSessionTarget(session.id, target, summary)
-		// Picking a target also re-opens the editor pane (the user just chose
-		// what to view).
-		editorVisible = true
-	}
-
-	function pickEditorTarget(item: WorkspaceItem) {
-		// Legacy drag-and-drop apps aren't hosted in the session preview pane —
-		// open them in the standalone app editor instead. Only code-based raw
-		// apps (item.raw_app) are previewable here.
-		if (item.kind === 'app' && !item.raw_app) {
-			goto(`/apps/edit/${item.path}?workspace=${effectiveWorkspaceId}`)
-			return
-		}
-		// WorkspaceItem.kind is 'flow'|'script'|'app'; any 'app' reaching here is
-		// a raw app. The diff-API uses 'raw_app' as its kind so we align
-		// SessionTarget on the same canonical string.
-		const kind: SessionTarget['kind'] = item.kind === 'app' ? 'raw_app' : item.kind
-		applyEditorTarget({ kind, path: item.path }, item.summary)
-	}
-
-	// Editor pane visibility. Toggling this just hides/shows the pane via CSS
-	// — the editor stays mounted, so re-opening doesn't pay a remount cost
-	// and xy-flow / Monaco keep their viewport state.
-	let editorVisible = $state(true)
-
 	// Focus the chat input whenever this session is the active one.
 	// The textarea is disabled until copilotInfo loads (otherwise focus is
 	// a silent no-op), so we wait for that too. Triggers on initial mount,
@@ -333,13 +273,6 @@
 {#if !session || !runtime}
 	<div class="p-8 text-secondary text-sm">Session not found</div>
 {:else}
-	{@const hasTarget =
-		session.target?.kind === 'flow' ||
-		session.target?.kind === 'script' ||
-		session.target?.kind === 'raw_app' ||
-		session.target?.kind === 'pipeline'}
-	{@const hasEditor = mountEditor && hasTarget && editorVisible && !hideEditor}
-
 	{#snippet inputPreface()}
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
@@ -386,11 +319,9 @@
 	     sessions have their own empty-state affordances above. -->
 	{#snippet sessionEmptyHint()}{/snippet}
 
-	<!-- Undefined pane sizes (not an explicit `size`): Splitpanes auto-distributes —
-	     a lone chat pane fills 100%, and when the editor pane mounts the two split
-	     50/50. A reactive `size={hasEditor ? 50 : 100}` here instead races the
-	     sibling pane appearing on reload → "Could not resize panes due to constraints"
-	     and a wrong split. -->
+	<!-- The wrapper contributes only the chat column; edited items are shown in the
+	     page's preview tabs (PreviewTabHost) beside it, not a second pane here. The
+	     single Pane fills 100% (no explicit `size`, so Splitpanes auto-distributes). -->
 	<div class="flex-1 min-h-0 flex flex-col" use:splitterPointerCapture>
 		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 			<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
@@ -476,55 +407,6 @@
 							</NameIdTooltip>
 						</div>
 					{/if}
-					{#if !hideEditor && !session.target && hasFirstUserMessage}
-						<!-- Drill-picker for sessions that have started but haven't
-				     picked an editor target yet. Hidden on fresh sessions
-				     (no messages yet) — the workspace bar is the only
-				     header affordance during the empty state. -->
-						<div class="ml-auto">
-							<Popover
-								placement="bottom-end"
-								usePointerDownOutside
-								disableFocusTrap
-								enableFlyTransition
-								class="inline-flex"
-							>
-								{#snippet trigger()}
-									<Button variant="default" unifiedSize="xs" startIcon={{ icon: PanelRightOpen }}>
-										Open editor
-									</Button>
-								{/snippet}
-								{#snippet content()}
-									<WorkspaceItemDrillPicker
-										onPick={(item: WorkspaceItem) => pickEditorTarget(item)}
-									/>
-								{/snippet}
-							</Popover>
-						</div>
-					{:else if !hideEditor && hasTarget && mountEditor && !editorVisible}
-						<div class="ml-auto">
-							<Button
-								variant="subtle"
-								unifiedSize="xs"
-								startIcon={{ icon: PanelRightOpen }}
-								onclick={() => (editorVisible = true)}
-							>
-								Show editor
-							</Button>
-						</div>
-					{:else if hasEditor}
-						<div class="ml-auto flex flex-row items-center gap-1">
-							<button
-								type="button"
-								onclick={() => (editorVisible = false)}
-								title="Close editor"
-								aria-label="Close editor"
-								class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-							>
-								<PanelRightClose size={14} />
-							</button>
-						</div>
-					{/if}
 				</header>
 				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
 					<AIChat
@@ -545,48 +427,6 @@
 					/>
 				</div>
 			</Pane>
-			{#if hasEditor && session.target}
-				<Pane minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
-					<div
-						transition:slide={{ axis: 'x', duration: 200 }}
-						class="flex flex-col flex-1 min-h-0 rounded-md border border-light overflow-hidden relative"
-					>
-						{#if session.target.kind === 'flow'}
-							<FlowEditorView
-								{runtime}
-								path={session.target.path}
-								workspaceId={effectiveWorkspaceId}
-								onNavigate={pickEditorTarget}
-								isActiveSession={sessionState.currentSessionId === sessionId}
-							/>
-						{:else if session.target.kind === 'script'}
-							<ScriptEditorView
-								{runtime}
-								path={session.target.path}
-								workspaceId={effectiveWorkspaceId}
-								onNavigate={pickEditorTarget}
-								initialTestPanelCollapsed
-								isActiveSession={sessionState.currentSessionId === sessionId}
-							/>
-						{:else if session.target.kind === 'raw_app'}
-							<RawAppEditorView
-								{runtime}
-								path={session.target.path}
-								workspaceId={effectiveWorkspaceId}
-								onNavigate={pickEditorTarget}
-								isActiveSession={sessionState.currentSessionId === sessionId}
-							/>
-						{:else if session.target.kind === 'pipeline'}
-							<PipelineEditorView
-								{runtime}
-								path={session.target.path}
-								workspaceId={effectiveWorkspaceId}
-								isActiveSession={sessionState.currentSessionId === sessionId}
-							/>
-						{/if}
-					</div>
-				</Pane>
-			{/if}
 		</Splitpanes>
 	</div>
 
