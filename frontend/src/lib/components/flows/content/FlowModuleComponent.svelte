@@ -796,6 +796,7 @@
 					<div class="shadow-sm px-1 border-b-1 border-gray-200 dark:border-gray-700">
 						<EditorBar
 							customUi={customUi?.editorBar}
+							workspace={opWs}
 							{validCode}
 							{editor}
 							lang={flowModule.value['language'] ?? 'deno'}

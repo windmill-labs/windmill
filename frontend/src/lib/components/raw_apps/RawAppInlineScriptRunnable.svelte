@@ -192,6 +192,7 @@
 
 <JobLoader
 	noCode={true}
+	workspaceOverride={opWs}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
@@ -303,6 +304,7 @@
 										</div>
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
+											workspace={opWs}
 											disabledArgs={Object.entries(runnable?.fields ?? {})
 												.filter(([_, v]) => v.type == 'static')
 												.map(([k]) => k)}

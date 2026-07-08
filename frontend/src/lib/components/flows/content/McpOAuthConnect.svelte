@@ -232,6 +232,7 @@
 			initialPath=""
 			namePlaceholder={resourceName}
 			kind="resource"
+			workspaceOverride={opWs}
 		/>
 
 		<Button size="sm" onClick={startOAuth} disabled={!resourcePath || pathError !== ''}>
