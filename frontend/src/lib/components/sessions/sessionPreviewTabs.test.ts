@@ -47,6 +47,12 @@ const dndAppTarget: PreviewTarget = {
 	item: { kind: 'app', path: 'u/me/legacy', summary: '' }
 }
 const pageTarget: PreviewTarget = { type: 'page', href: '/runs', label: 'Runs' }
+const pipelineTarget: PreviewTarget = { type: 'page', href: `${base}/pipeline/crm`, label: 'crm' }
+const pipelineTarget2: PreviewTarget = {
+	type: 'page',
+	href: `${base}/pipeline/sales`,
+	label: 'sales'
+}
 
 beforeEach(() => {
 	vi.useFakeTimers()
@@ -248,6 +254,31 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.tabs).toHaveLength(2)
 		// The page tab must keep its own url — only focus moved.
 		expect(o.tabs.find((t) => t.id === pageTabId)?.url).toBe('/runs')
+	})
+
+	it('retargets the one pipeline tab instead of turning the active tab into a second', () => {
+		const o = owner()
+		o.open(pipelineTarget)
+		const pipelineTabId = o.activeId
+		o.open(scriptTarget) // a second, non-pipeline tab is now active
+		const scriptTabId = o.activeId
+		o.navigate(pipelineTarget2)
+		// No second pipeline editor: the existing one is retargeted and focused.
+		expect(o.tabs).toHaveLength(2)
+		expect(o.activeId).toBe(pipelineTabId)
+		expect(o.tabs.find((t) => t.id === pipelineTabId)?.url).toBe(`${base}/pipeline/sales`)
+		// The script tab is untouched.
+		expect(o.tabs.find((t) => t.id === scriptTabId)?.url).toBe('/scripts/edit/u/me/foo')
+	})
+
+	it('retargets the active pipeline tab in place to a new folder', () => {
+		const o = owner()
+		o.open(pipelineTarget)
+		const tabId = o.activeId
+		o.navigate(pipelineTarget2)
+		expect(o.tabs).toHaveLength(1)
+		expect(o.activeId).toBe(tabId)
+		expect(o.tabs[0].url).toBe(`${base}/pipeline/sales`)
 	})
 })
 

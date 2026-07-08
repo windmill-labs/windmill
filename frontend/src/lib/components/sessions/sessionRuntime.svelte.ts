@@ -159,6 +159,10 @@ export interface SessionRuntime {
 	scriptCell(path: string): ScriptCell
 	loadScript(workspace: string, path: string, force?: boolean): Promise<void>
 	rawAppCell(path: string): RawAppCell
+	// Non-creating peek at an editor cell's settled path (undefined when no cell
+	// exists yet for this (kind, path)), so callers can check load state without
+	// the cell accessors' create-on-miss side effect.
+	loadedEditorPath(kind: SessionTargetKind, path: string): string | undefined
 	loadRawApp(
 		workspace: string,
 		path: string,
@@ -365,6 +369,15 @@ function createRuntime(session: Session): SessionRuntime {
 		if (!c) rawAppCells.set(path, (c = makeRawAppCell()))
 		return c
 	}
+	function loadedEditorPath(kind: SessionTargetKind, path: string): string | undefined {
+		const cell =
+			kind === 'flow'
+				? flowCells.get(path)
+				: kind === 'script'
+					? scriptCells.get(path)
+					: rawAppCells.get(path)
+		return cell?.slot.loadedPath
+	}
 	// Drop every editor cell no open preview tab still points at. Called on each
 	// tab-set change: a closed or navigated-away item's cell (and its cached
 	// content) is reclaimed. Deduping keeps at most one editor tab per item, so an
@@ -420,6 +433,7 @@ function createRuntime(session: Session): SessionRuntime {
 		previewTabs,
 		pipelineEditorState,
 		flowCell,
+		loadedEditorPath,
 
 		async loadFlow(workspace: string, path: string, force = false) {
 			const { slot, store, stateStore, saved } = flowCell(path)
@@ -936,13 +950,9 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	const runtime = runtimes.get(sessionId)
 	if (!session?.workspace_id || !runtime) return
-	const cellSlot =
-		kind === 'flow'
-			? runtime.flowCell(path).slot
-			: kind === 'script'
-				? runtime.scriptCell(path).slot
-				: runtime.rawAppCell(path).slot
-	if (cellSlot.loadedPath !== path) return
+	// Peek without creating a cell: a deploy for an item with no open editor tab
+	// must not allocate an empty cell that lingers until the next prune.
+	if (runtime.loadedEditorPath(kind, path) !== path) return
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
 })
 

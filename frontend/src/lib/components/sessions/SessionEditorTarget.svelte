@@ -72,6 +72,10 @@
 		if (kind === 'script') return makeScriptCodec(runtime.scriptCell(path).store, () => path)
 		return makeRawAppCodec(runtime.rawAppCell(path).store)
 	}
+	// Rebuilds when `path` changes so the sync always binds this tab's current
+	// cell: retargeting the tab (in-editor link / breadcrumb) swaps `path` without
+	// remounting, and each codec closes over one cell's store.
+	const codec = $derived(buildCodec())
 
 	$effect(() => {
 		if (workspaceId && path) {
@@ -99,7 +103,7 @@
 		path: () => path,
 		workspace: () => workspaceId,
 		ready: () => slot.loadedPath === path,
-		codec: buildCodec()
+		codec: () => codec
 	})
 
 	// Debounced loading affordance for a breadcrumb swap: while the loaded path

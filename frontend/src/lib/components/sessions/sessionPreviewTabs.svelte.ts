@@ -227,6 +227,21 @@ export class SessionPreviewTabs {
 			}
 		}
 		const url = targetUrl(target)
+		// Keep at most one pipeline tab (all share runtime.pipelineEditorState): if a
+		// *different* tab already hosts a pipeline, retarget and focus it rather than
+		// turning the active tab into a second pipeline editor racing the shared
+		// state. Same invariant as open(); a no-op when the active tab is that tab.
+		const pipelineFolder = parsePipelineRoute(url)
+		if (pipelineFolder) {
+			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) !== null)
+			if (existing && existing.id !== t.id) {
+				existing.url = url
+				existing.loc = url
+				this.#activeId = existing.id
+				this.#flush()
+				return
+			}
+		}
 		t.url = url
 		t.loc = url
 		this.#flush()
