@@ -167,7 +167,7 @@
 
 <div class={twMerge('flex items-center bg-surface', c)}>
 	<!-- 4px bar to match the strip's `pb-1` reserve. -->
-	<ScrollableX class="flex-1 min-w-0 pt-1 pl-1 pb-1" style="--wm-scrollx-size: 4px;">
+	<ScrollableX class="flex-1 min-w-0 pt-1 pl-1 pb-1" style="--wm-scrollbar-size: 4px;">
 		<div class="flex items-center" role="tablist">
 			{#each pinnedLeft as tab (tab.id)}
 				{@render tabButton(tab)}

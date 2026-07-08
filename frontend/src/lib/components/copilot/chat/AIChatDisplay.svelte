@@ -591,7 +591,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 
 	{#if messages.length > 0}
 		<div class="flex-1 min-h-0 relative">
-			<div class="absolute inset-0 overflow-y-scroll pt-2" bind:this={scrollEl} onscroll={onScroll}>
+			<div
+				class="absolute inset-0 overflow-y-scroll pt-2 scrollbar-subtle"
+				bind:this={scrollEl}
+				onscroll={onScroll}
+			>
 				<div
 					class={wideLayout
 						? 'w-full max-w-3xl mx-auto px-7 flex flex-col pb-2'
