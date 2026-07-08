@@ -236,9 +236,7 @@
 	}
 
 	let forceReload = $state(0)
-	let editorPanelSize = $state(
-		untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 50
-	)
+	let editorPanelSize = $state(untrack(() => noEditor) ? 0 : 30)
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 

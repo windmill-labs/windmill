@@ -66,7 +66,7 @@
 </script>
 
 {#snippet groupTitle(title: string)}
-	<div class="text-xs text-secondary capitalize">{title}</div>
+	<div class="text-2xs text-secondary uppercase tracking-wide">{title}</div>
 {/snippet}
 
 {#snippet rowLabel(text: string, tip?: string, doc?: string)}
