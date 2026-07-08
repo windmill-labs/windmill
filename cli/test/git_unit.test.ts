@@ -186,6 +186,19 @@ describe("computeGitSyncDeployBranch", () => {
       })
     ).toBe("wm-fork/main/myfork");
   });
+
+  test("prefix-less fork (parent set, no label) beats the wm_deploy derivation", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        workspaceId: "mydev",
+        parentWorkspaceId: "prod",
+        clonedBranchName: "main",
+        groupByFolder: false,
+        useIndividualBranch: true,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("wm-fork/main/mydev");
+  });
 });
 
 describe("forkBranchName", () => {
@@ -360,6 +373,12 @@ describe("isForkWorkspace", () => {
     expect(isForkWorkspace("prod")).toBe(false);
     // "wm-fork" without the trailing dash is the BRANCH prefix, not a ws id
     expect(isForkWorkspace("wm-fork")).toBe(false);
+  });
+
+  test("a parent workspace id marks prefix-less ids (dev workspaces) as forks", () => {
+    expect(isForkWorkspace("mydev", "prod")).toBe(true);
+    expect(isForkWorkspace("mydev", undefined)).toBe(false);
+    expect(isForkWorkspace("wm-fork-abc", undefined)).toBe(true);
   });
 });
 

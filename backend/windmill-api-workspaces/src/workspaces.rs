@@ -775,6 +775,51 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.last_pull_status = None;
 }
 
+/// A dev workspace deploys to a branch named after its environment label. If a
+/// git-sync repository's tracked branch carries that same name, dev deploys
+/// would write straight into the branch the workspace (or its prod) syncs
+/// from — the CLI refuses that push, so every deploy job would fail. Reject
+/// the label up front instead.
+async fn reject_dev_label_matching_tracked_branch(
+    db: &DB,
+    label: Option<&str>,
+    workspace_ids: &[&str],
+) -> Result<()> {
+    let label_branch = windmill_common::workspaces::dev_workspace_branch(label);
+    for w_id in workspace_ids {
+        let Some(settings) = sqlx::query_scalar!(
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok()) else {
+            continue;
+        };
+        for repo in &settings.repositories {
+            let path = repo.git_repo_resource_path.trim_start_matches("$res:");
+            let branch: Option<String> = sqlx::query_scalar!(
+                "SELECT value->>'branch' FROM resource WHERE workspace_id = $1 AND path = $2",
+                w_id,
+                path
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten();
+            if branch.as_deref() == Some(label_branch.as_str()) {
+                return Err(Error::BadRequest(format!(
+                    "The environment label '{label_branch}' matches the tracked branch of git-sync \
+                     repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
+                     to the '{label_branch}' branch and would overwrite the branch that repository \
+                     syncs from. Use the other label or change the repository's tracked branch."
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Reject parent-only git-sync settings on a fork workspace. Auto-pull, fork
 /// PRs, and promotion mode are all configured at the parent: repo → fork sync is
 /// routed by the parent's webhook/poller (`sync_forks`), a fork-owned auto-pull
@@ -5704,7 +5749,8 @@ async fn create_workspace_fork_branch(
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
         // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
-        normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
+        let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
+        reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
         ensure_dev_parent_is_root(&db, &w_id).await?;
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
@@ -5938,7 +5984,10 @@ async fn create_workspace_fork(
     validate_workspace_name(&nw.name)?;
     // Cosmetic label only applies to dev workspaces; a non-dev fork stores NULL.
     let dev_workspace_label = if nw.is_dev_workspace {
-        normalize_dev_workspace_label(nw.dev_workspace_label.clone())?
+        let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
+        reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
+            .await?;
+        label
     } else {
         None
     };
@@ -6216,6 +6265,14 @@ async fn attach_dev_workspace(
     // The id is interpolated into a `wm-fork/<branch>/<id>` branch name like any fork.
     validate_dev_workspace_id(&dev_w_id)?;
     let dev_workspace_label = normalize_dev_workspace_label(req.dev_workspace_label.clone())?;
+    // The attached workspace keeps its own sync repos and prod keeps its config;
+    // the label branch must not collide with either side's tracked branch.
+    reject_dev_label_matching_tracked_branch(
+        &db,
+        dev_workspace_label.as_deref(),
+        &[&prod_w_id, &dev_w_id],
+    )
+    .await?;
 
     let dev = sqlx::query!(
         r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
@@ -6432,8 +6489,14 @@ async fn detach_dev_workspace(
     }
 
     let mut tx = db.begin().await?;
+    // A wm-fork- workspace re-designated as dev returns to being a plain fork
+    // (keeps its parent); a standalone workspace that was attached returns to
+    // being standalone — with the parent kept it would still classify as a
+    // fork and deploy to wm-fork/** branches forever.
     sqlx::query!(
-        "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+        "UPDATE workspace SET is_dev_workspace = false,
+         parent_workspace_id = CASE WHEN id LIKE 'wm-fork-%' THEN parent_workspace_id ELSE NULL END
+         WHERE id = $1",
         &dev_w_id
     )
     .execute(&mut *tx)
@@ -6460,6 +6523,20 @@ async fn detach_dev_workspace(
     tx.commit().await?;
 
     windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
+    // The parent link may just have been cleared (standalone workspace that was
+    // attached): drop the caches that resolved it, mirroring attach.
+    windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&dev_w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+        windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+    }
+    #[cfg(feature = "cloud")]
+    {
+        windmill_common::workspaces::invalidate_billing_workspace_cache(&dev_w_id);
+        for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+            windmill_common::workspaces::invalidate_billing_workspace_cache(&id);
+        }
+    }
 
     Ok(format!(
         "Detached dev workspace {} from {}",
