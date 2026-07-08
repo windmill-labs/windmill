@@ -1289,6 +1289,13 @@
 			updateCurrentLineDecoration(undefined)
 		} else {
 			debugMode = true
+			// The debug UI mounts inside the test pane, which is collapsed to 0 in
+			// AI sessions. Must stay a one-shot expand at the toggle, not a reactive
+			// effect: an effect would reopen the pane whenever the user collapsed it
+			// while debugging.
+			if (testPanelSize === 0) {
+				expandTestPanel()
+			}
 		}
 	}
 
@@ -1621,14 +1628,22 @@
 	)
 	const codePanelSize = $derived(100 - testPanelSize)
 
+	function expandTestPanel() {
+		rawTestPanelSize = Math.max(storedTestPanelSize, testPaneMinPercent)
+	}
+
+	function collapseTestPanel() {
+		// Store the raw (unclamped) preference so reopening on a wider screen
+		// restores the user's intent, not the pixel-min that inflated the pane.
+		storedTestPanelSize = rawTestPanelSize
+		rawTestPanelSize = 0
+	}
+
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
-			// Store the raw (unclamped) preference so reopening on a wider screen
-			// restores the user's intent, not the pixel-min that inflated the pane.
-			storedTestPanelSize = rawTestPanelSize
-			rawTestPanelSize = 0
+			collapseTestPanel()
 		} else {
-			rawTestPanelSize = Math.max(storedTestPanelSize, testPaneMinPercent)
+			expandTestPanel()
 		}
 	}
 
