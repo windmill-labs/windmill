@@ -21,8 +21,18 @@
 		/** Called after a migration is run via the DDL guard, so the schema view
 		 * can be refreshed to reflect the applied change. */
 		onSchemaChange?: () => void
+		/** Workspace the REPL queries and DDL migrations run against; defaults to
+		 * the nav workspace. */
+		workspace?: string | undefined
 	}
-	let { input, onData, placeholderTableName, onSchemaChange }: Props = $props()
+	let {
+		input,
+		onData,
+		placeholderTableName,
+		onSchemaChange,
+		workspace = undefined
+	}: Props = $props()
+	let ws = $derived(workspace ?? $workspaceStore)
 	let dbType = $derived(getDbType(input))
 
 	// A datatable REPL targets `datatable://<name>`; surface DDL statements as
@@ -47,7 +57,7 @@
 	let runHistory: (StepHistoryData & { code: string; result: Record<string, any>[] })[] = $state([])
 
 	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
-		if (isRunning || !$workspaceStore) return
+		if (isRunning || !ws) return
 		const READ_OPS = ['SELECT', 'WITH', 'SHOW', 'EXPLAIN', 'DESCRIBE']
 
 		// On a datatable, intercept DDL statements and offer to make them
@@ -91,7 +101,7 @@
 
 			let { job, result } = (await runScriptAndPollResult(
 				{
-					workspace: $workspaceStore,
+					workspace: ws,
 					requestBody: {
 						language: getLanguageByResourceType(dbType),
 						content: transformedCode,
@@ -181,6 +191,6 @@
 	</Pane>
 </Splitpanes>
 
-{#if datatableName && $workspaceStore}
-	<DdlMigrationGuard bind:this={ddlGuard} workspace={$workspaceStore} datatable={datatableName} />
+{#if datatableName && ws}
+	<DdlMigrationGuard bind:this={ddlGuard} workspace={ws} datatable={datatableName} />
 {/if}

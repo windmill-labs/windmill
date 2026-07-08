@@ -845,7 +845,7 @@
 					? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 					: (args ?? {})
 		const testSchema = activeModuleTab !== null ? testPanelSchema : schema
-		const testArgs = await processSecretArgs(rawTestArgs, testSchema)
+		const testArgs = await processSecretArgs(rawTestArgs, testSchema, opWs)
 		if (showPsCommonParams) {
 			for (const [k, v] of Object.entries(psCommonParams)) {
 				if (v !== undefined && v !== false && v !== '') {

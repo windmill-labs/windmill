@@ -227,6 +227,7 @@
 					{runnableId}
 					{runnableType}
 					args={previewArgs ?? {}}
+					workspace={ws}
 					disabled={!previewArgs || !runnableId || !isValid || jsonView}
 					on:update={() => {
 						refresh()

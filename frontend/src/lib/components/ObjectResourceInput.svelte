@@ -58,7 +58,7 @@
 <!-- {JSON.stringify({ value })} -->
 <div class="flex flex-row w-full flex-wrap gap-x-2 gap-y-0.5">
 	{#if format === 'resource-s3_object'}
-		<S3ObjectPicker bind:value />
+		<S3ObjectPicker bind:value {workspace} />
 	{:else if value == undefined || typeof value === 'string'}
 		<ResourcePicker
 			{datatableAsPgResource}

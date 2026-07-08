@@ -341,6 +341,7 @@
 						{can_write}
 						{edit}
 						onLoadSecret={loadSecret}
+						{workspace}
 					/>
 				{/key}
 			{/if}

@@ -196,7 +196,7 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
-			args = await processSecretArgs(args, flowStore.val.schema as any)
+			args = await processSecretArgs(args, flowStore.val.schema as any, opWs)
 			newJobId = await runFlowPreview(
 				args,
 				newFlow,

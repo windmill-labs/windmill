@@ -216,6 +216,7 @@
 			<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
 				<SqlRepl
 					{input}
+					{workspace}
 					onData={(data) => {
 						replResultData = data
 					}}

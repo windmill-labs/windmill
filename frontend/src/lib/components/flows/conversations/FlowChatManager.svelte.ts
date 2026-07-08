@@ -327,7 +327,7 @@ export class FlowChatManager {
 	// Polling
 	private async pollJobResult(jobId: string) {
 		try {
-			await waitJob(jobId)
+			await waitJob(jobId, this.#workspace())
 		} catch (error) {
 			console.error('Error polling job result:', error)
 		} finally {
