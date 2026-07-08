@@ -89,9 +89,10 @@
 		     its intended name in `draft_path`; seed the builder from `draft_path`
 		     (as the full-page editor does) so the Path widget and deploy use the
 		     friendly name rather than creating a flow literally named draft_<uuid>. -->
-		<!-- bind:savedFlow targets runtime.savedFlow.val, reactive state owned by the
-		     SessionRuntime class (created in createRuntime), not by a component
-		     ancestor — so Svelte's ownership check flags a false positive here. -->
+		<!-- bind:savedFlow / flowStore target this tab's editor cell (cell.saved /
+		     cell.store), reactive state owned by the SessionRuntime class (via
+		     flowCell), not by a component ancestor — so Svelte's ownership check
+		     flags a false positive here. -->
 		<!-- svelte-ignore ownership_invalid_binding -->
 		<FlowBuilder
 			flowStore={cell.store}
