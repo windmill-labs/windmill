@@ -182,7 +182,7 @@ async function createWorkspaceFork(
     const idDefault = branchDefaultId ?? branchToForkId(idBasis);
     if (interactive) {
       workspaceId = await Input.prompt({
-        message: `Id for the forked workspace (a slug: no spaces or special characters). It will be prefixed with '${WM_FORK_PREFIX}-' and also determines the git branch name. The suggested default is normalized from the name`,
+        message: `Id for the forked workspace (a slug: no spaces or special characters). It will be prefixed with '${WM_FORK_PREFIX}-' and also determines the git branch name. The suggested default is normalized from the name (or the branch when converting one into the fork branch)`,
         default: idDefault,
         suggestions: [idDefault],
       });

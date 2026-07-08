@@ -771,7 +771,7 @@ The parent is resolved from your current git branch, not from the active profile
 
 Arguments (omit both to be prompted interactively):
   [workspace_name]  Friendly display name for the fork, shown in the UI. May contain spaces, so quote it in the shell (e.g. "My Fork"). Max 50 chars. Defaults to "<parent workspace name>'s fork".
-  [workspace_id]    Id for the fork. Must be a slug (no spaces or special characters) and is automatically prefixed with `wm-fork-`, so pass just the bare slug (e.g. `my-fork` becomes `wm-fork-my-fork`). This id also determines the fork's git branch name. Defaults to a slug derived from the name.
+  [workspace_id]    Id for the fork. Must be a slug (no spaces or special characters) and is automatically prefixed with `wm-fork-`, so pass just the bare slug (e.g. `my-fork` becomes `wm-fork-my-fork`). This id also determines the fork's git branch name. Defaults to a slug derived from the name — or, when you are converting an existing branch into the fork branch, from that branch.
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
   - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
