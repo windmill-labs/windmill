@@ -1215,7 +1215,7 @@ async fn maybe_post_git_sync_check(
                 .map(|s| &s[..s.len().min(7)])
                 .unwrap_or("latest");
             let body = format!(
-                "{marker}\n### Windmill deploy preview\n\n                 | | |\n|---|---|\n                 | **Workspace** | `{workspace_id}` |\n                 | **Status** | {title} |\n                 | **Commit** | `{head}` |\n\n                 <details><summary>Details</summary>\n\n{summary}\n\n</details>"
+                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
             );
             if let Err(e) = windmill_common::git_sync_ee::upsert_pr_comment(
                 db,

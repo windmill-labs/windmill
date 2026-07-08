@@ -180,6 +180,9 @@ jobs:
           DENO_PATH: deno
           BUN_PATH: bun
           NODE_BIN_PATH: node
+          # The auto-pull poller's SSRF guard rejects localhost git remotes;
+          # the tests' Gitea runs on localhost.
+          ALLOW_LOCAL_GIT_REMOTES: "true"
         run: |
           ./target/debug/windmill &
           echo "Waiting for Windmill to be ready..."

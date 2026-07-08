@@ -19,7 +19,12 @@ def unique_name(prefix: str = "git-sync-test") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
-class TestGitSync(unittest.TestCase):
+class GitSyncTestBase(unittest.TestCase):
+    """Shared fixture + helpers for git sync e2e tests (no tests of its own).
+
+    setUpClass binds the client and cleanup lists on each concrete subclass,
+    so every test class gets its own Windmill client and cleanup scope."""
+
     _client: WindmillClient
     _gitea: GiteaClient
     _repos_to_cleanup: list
@@ -167,6 +172,56 @@ class TestGitSync(unittest.TestCase):
         except Exception:
             pass
 
+    def _wait_until(self, predicate, timeout: int, interval: int = 5, message: str = ""):
+        """Poll predicate() until it returns truthy or timeout (seconds) elapses.
+        Exceptions from the predicate count as 'not yet' (transient API errors)."""
+        start = time.time()
+        last_error = None
+        while time.time() - start < timeout:
+            try:
+                if predicate():
+                    return
+                last_error = None
+            except Exception as e:
+                last_error = e
+            time.sleep(interval)
+        suffix = f" (last error: {last_error})" if last_error else ""
+        self.fail(f"Timed out after {timeout}s: {message}{suffix}")
+
+    def _find_repo_settings(self, resource_path: str) -> dict:
+        """Return this workspace's stored git sync settings for the given resource."""
+        settings = self._client.get_workspace_settings()
+        for repo in (settings.get("git_sync") or {}).get("repositories", []):
+            if resource_path in repo.get("git_repo_resource_path", ""):
+                return repo
+        return None
+
+    def _deploy_seed_script(self, name_prefix: str) -> str:
+        """Deploy a script and wait for its push to git. Returns the script path."""
+        initial_count = self._client.count_deployment_callback_jobs()
+        script_path = f"u/admin/{unique_name(name_prefix)}"
+        self._client.create_script(
+            path=script_path,
+            content=ts_script("return 'seed'"),
+            language="bun",
+        )
+        self._client.wait_for_sync_jobs(initial_count, min_new=1)
+        time.sleep(3)
+        return script_path
+
+    def _repo_script_file(self, repo_name: str, script_path: str, branch: str = None) -> str:
+        """Find the .ts file for a deployed script in the repo."""
+        repo_dir = self._clone_repo(repo_name, branch=branch)
+        files = self._list_repo_files(repo_dir)
+        matching = [f for f in files if script_path in f and f.endswith(".ts")]
+        self.assertTrue(
+            len(matching) > 0,
+            f"Expected '{script_path}' .ts file in repo files: {files}",
+        )
+        return matching[0]
+
+
+class TestGitSync(GitSyncTestBase):
     # ──────────────────────────────────────────────────
     # Core happy-path tests
     # ──────────────────────────────────────────────────
@@ -734,4 +789,243 @@ class TestGitSync(unittest.TestCase):
         self.assertTrue(
             len(fork_branches) > 0,
             f"Expected a wm-fork branch in the repo after forking, got: {branches}",
+        )
+
+
+class TestGitSyncAutoPull(GitSyncTestBase):
+    """Auto-pull (git → Windmill, EE): polling, fork-branch routing, settings
+    semantics. Webhook delivery and PR features need a GitHub App and are
+    covered by manual verification instead."""
+
+    # The poller visits repos about once a minute; a pull then runs as a job.
+    # Two poll cycles + job execution, with slack for a loaded CI runner.
+    PULL_TIMEOUT = 240
+
+    def _seed_wmill_yaml(self, repo_name: str, branch: str = "main"):
+        """Commit a minimal wmill.yaml: the pull CLI requires one in the repo.
+        Real setups get it from the init/settings-push flow; pushes alone
+        don't write it."""
+        self._gitea.create_file(
+            repo_name,
+            "wmill.yaml",
+            "defaultTs: bun\n"
+            "includes:\n"
+            '  - "**"\n'
+            "excludes: []\n"
+            "codebases: []\n"
+            "skipVariables: true\n"
+            "skipResources: true\n"
+            "skipResourceTypes: true\n"
+            "skipSecrets: true\n"
+            "includeSchedules: false\n"
+            "includeTriggers: false\n",
+            branch=branch,
+        )
+
+    def _configure_auto_pull(self, resource_path: str, sync_forks: bool = False):
+        """Single sync repo with auto-pull enabled in polling mode."""
+        auto_pull = {"enabled": True, "mode": "polling"}
+        if sync_forks:
+            auto_pull["sync_forks"] = True
+        self._client.configure_git_sync({
+            "repositories": [{
+                "git_repo_resource_path": f"$res:{resource_path}",
+                "use_individual_branch": False,
+                "group_by_folder": False,
+                "settings": {
+                    "include_type": ["script"],
+                    "include_path": ["**"],
+                },
+                "auto_pull": auto_pull,
+            }],
+        })
+
+    def test_polling_applies_remote_commit(self):
+        """A commit pushed to the tracked branch is deployed into the workspace
+        by the poller, the pull status is recorded, and the resulting no-op
+        push callback does not add a commit (no sync loop)."""
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+        self._configure_single_repo_sync(resource_path, include_type=["script"])
+
+        # Seed the repo through a normal deploy, then find the script's file.
+        script_path = self._deploy_seed_script("autopull")
+        script_file = self._repo_script_file(repo_name, script_path)
+        self._seed_wmill_yaml(repo_name)
+
+        self._configure_auto_pull(resource_path)
+
+        # External commit on the tracked branch (not [WM]-prefixed).
+        self._gitea.create_file(
+            repo_name, script_file, ts_script("return 'pulled from git'")
+        )
+
+        self._wait_until(
+            lambda: "pulled from git" in self._client.get_script_content(script_path),
+            timeout=self.PULL_TIMEOUT,
+            message=f"workspace script {script_path} was not updated from git",
+        )
+
+        # Pull status is recorded on the repo settings.
+        repo_settings = self._find_repo_settings(resource_path)
+        status = (repo_settings.get("auto_pull") or {}).get("last_pull_status") or {}
+        self.assertTrue(
+            status.get("success"),
+            f"Expected successful last_pull_status, got: {repo_settings.get('auto_pull')}",
+        )
+
+        # The pull-caused deploy triggers a push callback; since the workspace
+        # now matches the repo it must not create a commit (loop safety).
+        time.sleep(10)
+        repo_dir = self._clone_repo(repo_name)
+        last_msg = self._get_last_commit_message(repo_dir)
+        self.assertIn(
+            script_file,
+            last_msg,
+            f"Expected the external commit to stay the branch head (no [WM] "
+            f"loop commit), got: {last_msg!r}",
+        )
+
+        # A whole-config resave without server-owned fields (what a UI/CLI
+        # round-trip sends) must not clobber the recorded pull state.
+        self._configure_auto_pull(resource_path)
+        repo_settings = self._find_repo_settings(resource_path)
+        status = (repo_settings.get("auto_pull") or {}).get("last_pull_status") or {}
+        self.assertTrue(
+            status.get("success"),
+            f"Expected last_pull_status to survive a config resave, got: "
+            f"{repo_settings.get('auto_pull')}",
+        )
+
+    def test_fork_branch_commit_deploys_into_fork(self):
+        """With sync_forks on the parent, a commit on a fork's wm-fork/** branch
+        is deployed into the fork workspace and leaves the parent untouched."""
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+        self._configure_single_repo_sync(resource_path, include_type=["script"])
+
+        script_path = self._deploy_seed_script("forkpull")
+        script_file = self._repo_script_file(repo_name, script_path)
+        # Seed before the fork branch is created so the branch inherits it.
+        self._seed_wmill_yaml(repo_name)
+
+        self._configure_auto_pull(resource_path, sync_forks=True)
+
+        # Create the fork (branch first, then workspace), like the UI does.
+        fork_id = f"wm-fork-{uuid.uuid4().hex[:8]}"
+        self._fork_workspaces_to_cleanup.append(fork_id)
+        job_ids = self._client.create_workspace_fork_branch(fork_id, f"Fork {fork_id}")
+        if job_ids:
+            self._client.wait_for_jobs_by_ids(job_ids, timeout=90)
+            time.sleep(3)
+        self._client.create_workspace_fork(fork_id, f"Fork {fork_id}")
+
+        fork_branch = f"wm-fork/main/{fork_id[len('wm-fork-'):]}"
+        self._gitea.create_file(
+            repo_name, script_file, ts_script("return 'fork only'"),
+            branch=fork_branch,
+        )
+
+        fork_client = WindmillClient(workspace=fork_id)
+        self._wait_until(
+            lambda: "fork only" in fork_client.get_script_content(script_path),
+            timeout=self.PULL_TIMEOUT,
+            message=f"fork workspace {fork_id} did not receive the fork-branch commit",
+        )
+
+        # The parent workspace must not see the fork-branch content.
+        self.assertNotIn(
+            "fork only",
+            self._client.get_script_content(script_path),
+            "Parent workspace received a commit from a fork branch",
+        )
+
+    def test_settings_normalization_and_redaction(self):
+        """Webhook mode on a token repo is persisted as polling; server-owned
+        webhook fields are never exposed; legacy repos gain no auto_pull key."""
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+
+        # Token-based repos can't register webhooks: a webhook-mode save is
+        # normalized to polling and that normalization is persisted.
+        self._client.configure_git_sync({
+            "repositories": [{
+                "git_repo_resource_path": f"$res:{resource_path}",
+                "use_individual_branch": False,
+                "group_by_folder": False,
+                "settings": {"include_type": ["script"], "include_path": ["**"]},
+                "auto_pull": {"enabled": True, "mode": "webhook"},
+            }],
+        })
+        repo_settings = self._find_repo_settings(resource_path)
+        auto_pull = repo_settings.get("auto_pull") or {}
+        self.assertEqual(
+            auto_pull.get("mode"),
+            "polling",
+            f"Expected webhook mode to normalize to polling on a token repo: {auto_pull}",
+        )
+        self.assertNotIn("webhook_secret", auto_pull)
+        self.assertIsNone(auto_pull.get("webhook_id"))
+
+        # A repo saved without auto_pull stays without it (legacy round-trip).
+        self._configure_single_repo_sync(resource_path, include_type=["script"])
+        repo_settings = self._find_repo_settings(resource_path)
+        self.assertIsNone(
+            repo_settings.get("auto_pull"),
+            f"Legacy repo config unexpectedly gained auto_pull: {repo_settings}",
+        )
+
+    def test_fork_rejects_parent_only_git_sync_settings(self):
+        """Fork workspaces cannot enable auto-pull, promotion mode, or
+        fork-PR creation on their own git sync settings."""
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+        self._configure_single_repo_sync(resource_path, include_type=["script"])
+
+        fork_id = f"wm-fork-{uuid.uuid4().hex[:8]}"
+        self._fork_workspaces_to_cleanup.append(fork_id)
+        self._client.create_workspace_fork(fork_id, f"Fork {fork_id}")
+        fork_client = WindmillClient(workspace=fork_id)
+
+        base_repo = {"git_repo_resource_path": f"$res:{resource_path}"}
+        rejected = [
+            {**base_repo, "auto_pull": {"enabled": True, "mode": "polling"}},
+            {**base_repo, "use_individual_branch": True},
+            {**base_repo, "fork_open_prs": True},
+        ]
+        for repo in rejected:
+            response = fork_client.edit_git_sync_repository(
+                f"$res:{resource_path}", repo
+            )
+            self.assertEqual(
+                response.status_code,
+                400,
+                f"Expected 400 saving {repo} on a fork, got "
+                f"{response.status_code}: {response.content.decode()}",
+            )
+
+    def test_webhook_receiver_ignores_unknown_deliveries(self):
+        """An unsolicited webhook delivery (no registered hook) is not an error
+        and enqueues nothing."""
+        initial_count = self._client.count_deployment_callback_jobs()
+        response = self._client._client.post(
+            f"/api/w/{self._client._workspace}/github_app/webhook",
+            json={"ref": "refs/heads/main", "after": "0" * 40},
+            headers={
+                "X-GitHub-Event": "push",
+                "X-GitHub-Hook-ID": "999999999",
+                "X-Hub-Signature-256": "sha256=" + "0" * 64,
+            },
+        )
+        self.assertLess(
+            response.status_code,
+            500,
+            f"Webhook receiver errored on unknown delivery: "
+            f"{response.status_code} {response.content.decode()}",
+        )
+        time.sleep(3)
+        self.assertEqual(
+            self._client.count_deployment_callback_jobs(),
+            initial_count,
+            "Unknown webhook delivery enqueued a job",
         )

@@ -2521,6 +2521,13 @@ async fn validate_git_url(url: &str) -> Result<()> {
     let host = extract_host_from_git_url(url)
         .ok_or_else(|| Error::BadRequest("Could not parse hostname from git URL".to_string()))?;
 
+    // CI/dev escape hatch: integration tests run their git remote (a Gitea
+    // container) on localhost, which the network-target checks below reject.
+    // Scheme and option-injection validation above still applies.
+    if std::env::var("ALLOW_LOCAL_GIT_REMOTES").is_ok_and(|v| v == "true" || v == "1") {
+        return Ok(());
+    }
+
     if host == "localhost" || host.ends_with(".local") || host == "[::1]" {
         return Err(Error::BadRequest(
             "Git URLs targeting localhost or local network are not allowed".to_string(),
