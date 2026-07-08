@@ -1,4 +1,4 @@
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 import { get } from 'svelte/store'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
@@ -47,7 +47,7 @@ import {
 	previewTargetForSessionTarget,
 	selectPreviewTabsToClose
 } from './sessionPreviewTabs.svelte'
-import { matchPreviewPage, previewLocationLabel } from './previewRouter'
+import { matchPreviewPage, parsePreviewItemRoute, previewLocationLabel } from './previewRouter'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -342,9 +342,10 @@ function createRuntime(session: Session): SessionRuntime {
 	}
 	manager.afterFirstTurnSaved = () => generateAndApplySessionSummary(session.id, manager)
 
-	// One cell per (kind, path). Created on demand by the load methods and kept
-	// (not evicted yet — deferred to P3); each holds cached content (KB–MB), not a
-	// mounted editor, so accumulation is cheap.
+	// One cell per (kind, path). Created on demand by the load methods; each holds
+	// cached content (KB–MB), not a mounted editor. Bounded to the items open
+	// preview tabs reference: pruneEditorCells (below) drops the rest when the tab
+	// set changes, so re-pointing one tab through many items can't leak cells.
 	const flowCells = new Map<string, FlowCell>()
 	const scriptCells = new Map<string, ScriptCell>()
 	const rawAppCells = new Map<string, RawAppCell>()
@@ -363,6 +364,22 @@ function createRuntime(session: Session): SessionRuntime {
 		if (!c) rawAppCells.set(path, (c = makeRawAppCell()))
 		return c
 	}
+	// Drop every editor cell no open preview tab still points at. Called on each
+	// tab-set change: a closed or navigated-away item's cell (and its cached
+	// content) is reclaimed. Deduping keeps at most one editor tab per item, so an
+	// item absent from the open tabs has no live editor to strand.
+	function pruneEditorCells(): void {
+		const keep = { flow: new Set<string>(), script: new Set<string>(), raw_app: new Set<string>() }
+		for (const t of previewTabs.tabs) {
+			const route = parsePreviewItemRoute(t.url)
+			if (!route) continue
+			const kind = route.raw_app ? 'raw_app' : route.kind
+			if (kind === 'flow' || kind === 'script' || kind === 'raw_app') keep[kind].add(route.itemPath)
+		}
+		for (const p of [...flowCells.keys()]) if (!keep.flow.has(p)) flowCells.delete(p)
+		for (const p of [...scriptCells.keys()]) if (!keep.script.has(p)) scriptCells.delete(p)
+		for (const p of [...rawAppCells.keys()]) if (!keep.raw_app.has(p)) rawAppCells.delete(p)
+	}
 
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
@@ -373,7 +390,8 @@ function createRuntime(session: Session): SessionRuntime {
 		persist: (snap) => {
 			setSessionTabs(session.id, snap.tabs, snap.activeId)
 			setSessionPreviewCollapsed(session.id, snap.collapsed)
-		}
+		},
+		onTabsChanged: pruneEditorCells
 	})
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
@@ -799,31 +817,12 @@ export type SessionChatStatus =
 	| 'draft'
 	| 'error'
 
-// MRU set of session ids whose FlowEditorView is currently mounted. Capped at
-// MAX_WARM_EDITORS — sessions outside the set show chat-only. Module-scoped so
-// both the page (which mutates) and the sidebar (which reads for the dev clue)
-// see the same state.
-const MAX_WARM_EDITORS = 3
-export const editorWarmIds = new SvelteSet<string>()
-
-// Full session teardown: dispose the runtime, drop the LRU entry, and remove
-// from sessionState in one call. Callers (sidebar / header dropdowns) just
-// invoke this; navigation away from a deleted active session is the caller's
-// responsibility.
+// Full session teardown: dispose the runtime and remove from sessionState in one
+// call. Callers (sidebar / header dropdowns) just invoke this; navigation away
+// from a deleted active session is the caller's responsibility.
 export function removeSession(sessionId: string): void {
 	disposeRuntime(sessionId)
-	editorWarmIds.delete(sessionId)
 	deleteSessionState(sessionId)
-}
-
-export function promoteEditorWarm(sessionId: string): void {
-	editorWarmIds.delete(sessionId)
-	editorWarmIds.add(sessionId)
-	while (editorWarmIds.size > MAX_WARM_EDITORS) {
-		const oldest = editorWarmIds.values().next().value
-		if (oldest === undefined) break
-		editorWarmIds.delete(oldest)
-	}
 }
 
 // Register the global open_preview tool handler once at module load. It
@@ -846,7 +845,6 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}
 	const result = getOrCreateRuntime(session).previewTabs.open(target)
-	promoteEditorWarm(sessionId)
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`
 		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
@@ -874,12 +872,10 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 			owner.select(existing.id)
 			owner.navigate({ type: 'page', href, label })
 			owner.setCollapsed(false)
-			promoteEditorWarm(sessionId)
 			return `Updated the ${label} preview tab with the new filters.`
 		}
 	}
 	const result = owner.open({ type: 'page', href, label })
-	promoteEditorWarm(sessionId)
 	return result.status === 'focused'
 		? `A preview tab is already showing ${label} — focused it and applied the filters.`
 		: `Opened ${label} in a new preview tab in the side panel.`

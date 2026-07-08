@@ -29,6 +29,9 @@ export type PreviewTabsAdapter = {
 	// Write-behind the full tab model onto the durable backing (debounced by the
 	// owner). Fire-and-forget.
 	persist: (snapshot: PreviewTabsSnapshot) => void
+	// Fired synchronously on every tab-set change, so the runtime can drop editor
+	// cells no open tab references anymore (a closed / navigated-away item).
+	onTabsChanged?: () => void
 }
 
 // True when a tab's URL is the live editor for a specific editable item. Every
@@ -274,6 +277,9 @@ export class SessionPreviewTabs {
 	}
 
 	#flush(): void {
+		// Prune cells promptly (cheap, synchronous) even though the durable persist
+		// stays debounced — a closed tab's editor cell should be reclaimable now.
+		this.#adapter.onTabsChanged?.()
 		clearTimeout(this.#flushHandle)
 		this.#flushHandle = setTimeout(() => {
 			this.#flushHandle = undefined

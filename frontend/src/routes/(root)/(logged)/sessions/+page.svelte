@@ -38,8 +38,7 @@
 	import {
 		getOrCreateRuntime,
 		getRuntime,
-		listRuntimes,
-		promoteEditorWarm
+		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
@@ -131,14 +130,6 @@
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
 	)
-
-	// Promote the active session in the LRU. Mutations untracked so the effect
-	// only re-runs when activeSession changes, not on its own writes.
-	$effect(() => {
-		const id = activeSession?.id
-		if (!id) return
-		untrack(() => promoteEditorWarm(id))
-	})
 
 	// Mark the active session "seen" up to its current message count: arrive →
 	// clear unread; AI streams a new message while we're here → clear again. The
