@@ -69,7 +69,7 @@ use windmill_types::s3::LargeFileStorage;
 
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::secret_backend::{
     get_secret_backend, is_external_stored_value, is_vault_backend_configured,
@@ -1930,6 +1930,38 @@ mod tests {
             compact_column_type("text".to_string(), "NO".to_string(), Some(default)),
             format!("text={}...", "é".repeat(27))
         );
+    }
+
+    // A real NUL can't live in Rust source, so build `{"k":"<n backslashes>u0000"}`
+    // by repeating backslashes: an ODD run before `u0000` is a genuine NUL escape,
+    // an EVEN run is an escaped backslash then the literal text "u0000".
+    fn nul_json(backslashes: usize) -> String {
+        format!(r#"{{"k":"{}u0000"}}"#, "\\".repeat(backslashes))
+    }
+
+    #[test]
+    fn nul_escape_detected_only_for_odd_backslash_runs() {
+        // 1 backslash: `\u0000` — a genuine NUL escape.
+        assert!(json_text_has_nul_escape(&nul_json(1)));
+        // 3 backslashes: escaped backslash + genuine NUL escape.
+        assert!(json_text_has_nul_escape(&nul_json(3)));
+        // 2 backslashes: escaped backslash then literal "u0000" (e.g. minified JS) — safe.
+        assert!(!json_text_has_nul_escape(&nul_json(2)));
+        // 0 backslashes: the bare token "u0000" — safe.
+        assert!(!json_text_has_nul_escape(&nul_json(0)));
+    }
+
+    #[test]
+    fn nul_escape_ignores_clean_values() {
+        assert!(!json_text_has_nul_escape(
+            r#"{"files":{"/index.tsx":"hello"}}"#
+        ));
+        assert!(!json_text_has_nul_escape(""));
+        // A later genuine NUL is still caught even after an earlier even (safe) run.
+        assert!(json_text_has_nul_escape(&format!(
+            r#"{{"a":"x{b}{b}u0000y","b":"z{b}u0000"}}"#,
+            b = "\\"
+        )));
     }
 }
 
@@ -5540,6 +5572,94 @@ async fn enforce_fork_depth(
     Ok(())
 }
 
+/// True if `raw` (the text form of a `json` value) contains a genuine `\u0000`
+/// NUL escape: a `u0000` preceded by an ODD run of backslashes. Mirrors the
+/// parity rule in `strip_null_chars` (windmill-api `apps.rs`) — an even run
+/// (`\\u0000`) is an escaped backslash then the literal text "u0000" (common in
+/// minified JS) and is jsonb-safe. A genuine NUL is exactly what the
+/// `json`→`jsonb` re-encode in `clone_apps` / `clone_flows` rejects with
+/// SQLSTATE 22P05.
+fn json_text_has_nul_escape(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    let mut search_from = 0;
+    while let Some(rel) = raw[search_from..].find("u0000") {
+        let at = search_from + rel;
+        let mut backslashes = 0;
+        let mut j = at;
+        while j > 0 && bytes[j - 1] == b'\\' {
+            backslashes += 1;
+            j -= 1;
+        }
+        if backslashes % 2 == 1 {
+            return true;
+        }
+        search_from = at + 5;
+    }
+    false
+}
+
+/// SQLSTATE 22P05 (`untranslatable_character`) is what Postgres raises for
+/// "unsupported Unicode escape sequence" when a `json` value carrying a genuine
+/// `\u0000` is re-encoded to `jsonb` — the exact failure the per-row `json`
+/// clones (`clone_apps`, `clone_flows`) hit when a source item holds a NUL.
+fn is_unsupported_unicode_escape(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::SqlErr { error, .. }
+            if error.as_database_error().and_then(|d| d.code()).as_deref() == Some("22P05")
+    )
+}
+
+/// After a fork clone aborts on a NUL escape, locate the offending source items
+/// so the error can name them. Reads the committed source workspace on the pool
+/// (the clone transaction is already poisoned and unusable). Only the `json`
+/// columns re-encoded to `jsonb` during the clone can trigger the failure:
+/// `app_version.value` (clone_apps) and `flow_version.schema` (clone_flows).
+/// Best-effort — returns an empty list rather than erroring if a probe query
+/// fails, so the caller can still surface a generic message.
+async fn find_nul_escape_locations(db: &DB, workspace_id: &str) -> Vec<String> {
+    let mut apps: std::collections::BTreeSet<String> = Default::default();
+    if let Ok(rows) = sqlx::query(
+        "SELECT a.path AS path, av.value::text AS value
+         FROM app_version av JOIN app a ON a.id = av.app_id
+         WHERE a.workspace_id = $1 AND av.value IS NOT NULL",
+    )
+    .bind(workspace_id)
+    .fetch_all(db)
+    .await
+    {
+        for row in rows {
+            let value: String = row.get("value");
+            if json_text_has_nul_escape(&value) {
+                apps.insert(row.get::<String, _>("path"));
+            }
+        }
+    }
+
+    let mut flows: std::collections::BTreeSet<String> = Default::default();
+    if let Ok(rows) = sqlx::query(
+        "SELECT fv.path AS path, fv.schema::text AS schema
+         FROM flow_version fv
+         WHERE fv.workspace_id = $1 AND fv.schema IS NOT NULL",
+    )
+    .bind(workspace_id)
+    .fetch_all(db)
+    .await
+    {
+        for row in rows {
+            let schema: String = row.get("schema");
+            if json_text_has_nul_escape(&schema) {
+                flows.insert(row.get::<String, _>("path"));
+            }
+        }
+    }
+
+    apps.into_iter()
+        .map(|p| format!("app: {p}"))
+        .chain(flows.into_iter().map(|p| format!("flow: {p}")))
+        .collect()
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5690,14 +5810,33 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(
-        &mut tx,
-        &db,
-        &parent_workspace_id,
-        &forked_id,
-        &authed.email,
-    )
-    .await?;
+    if let Err(e) =
+        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed.email).await
+    {
+        // A genuine `\u0000` in a source `json` value (`app_version.value` /
+        // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
+        // Postgres raises 22P05 with only "unsupported Unicode escape sequence"
+        // and no hint at which item. Pinpoint the offenders so the user can fix
+        // them — re-saving strips the NUL, and the usual source is a binary file
+        // (e.g. `.DS_Store`) accidentally bundled into a raw app.
+        if is_unsupported_unicode_escape(&e) {
+            drop(tx); // release the poisoned connection before probing on the pool
+            let locations = find_nul_escape_locations(&db, &parent_workspace_id).await;
+            let where_clause = if locations.is_empty() {
+                "The offending item could not be pinpointed — check recently edited apps and flows."
+                    .to_string()
+            } else {
+                format!("Offending item(s):\n  - {}", locations.join("\n  - "))
+            };
+            return Err(Error::BadRequest(format!(
+                "Cannot fork workspace '{parent_workspace_id}': an item contains a NUL character \
+                 (\\u0000) that Postgres cannot store as jsonb. Re-save the item to remove it \
+                 (the editor strips NUL automatically), or delete the offending binary/character \
+                 from its source (often a file like .DS_Store bundled into a raw app). {where_clause}"
+            )));
+        }
+        return Err(e);
+    }
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
