@@ -4062,12 +4062,16 @@ async fn push_next_flow_job(
                     }),
                     _ => None,
                 };
-                let defer_variables = matches!(
-                    &value,
-                    Ok(FlowModuleValue::Script { .. }
-                        | FlowModuleValue::RawScript { .. }
-                        | FlowModuleValue::FlowScript { .. })
-                );
+                // cache_ttl steps must keep eager values: the result-cache key
+                // hashes raw args, and a stable `$var:`/`$interpolate` reference
+                // would serve stale cached results across variable rotations.
+                let defer_variables = module.cache_ttl.is_none()
+                    && matches!(
+                        &value,
+                        Ok(FlowModuleValue::Script { .. }
+                            | FlowModuleValue::RawScript { .. }
+                            | FlowModuleValue::FlowScript { .. })
+                    );
                 transform_input(
                     arc_flow_job_args.clone(),
                     flow_env,
@@ -4304,7 +4308,8 @@ async fn push_next_flow_job(
                         resume.clone(),
                         approvers.clone(),
                         None,
-                        // simple loop modules are always leaf scripts
+                        // simple loop modules are always leaf scripts without
+                        // cache_ttl (see `is_simple_modules`)
                         true,
                         &ctx,
                         client,

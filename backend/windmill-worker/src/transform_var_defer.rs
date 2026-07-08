@@ -67,6 +67,13 @@ pub fn classify_deferable_variables(expr: &str) -> Option<DeferPlan> {
     if !parser.take_errors().is_empty() {
         return None;
     }
+    // `parse_expr` does not require EOF and records no error for unconsumed
+    // trailing tokens; eager evaluation of such an expression fails, so it
+    // must not classify as deferable.
+    let end = (ast.span().hi.0.saturating_sub(fm.start_pos.0)) as usize;
+    if !expr.get(end..).is_some_and(|rest| rest.trim().is_empty()) {
+        return None;
+    }
 
     let snippet = |e: &dyn Spanned| cm.span_to_snippet(e.span()).ok();
 
@@ -237,6 +244,23 @@ mod tests {
         ] {
             assert_eq!(classify_deferable_variables(expr), None, "expr: {expr}");
         }
+    }
+
+    #[test]
+    fn trailing_tokens_stay_eager() {
+        for expr in [
+            r#"variable("f/pw") garbage"#,
+            r#"variable("f/pw"))"#,
+            r#"variable("f/pw");"#,
+            "`x=${variable(\"f/pw\")}` extra",
+        ] {
+            assert_eq!(classify_deferable_variables(expr), None, "expr: {expr}");
+        }
+        // trailing whitespace is fine
+        assert_eq!(
+            classify_deferable_variables("variable(\"f/pw\")  \n"),
+            Some(DeferPlan::WholeVar(PathSpec::Literal("f/pw".to_string())))
+        );
     }
 
     #[test]
