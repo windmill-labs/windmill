@@ -137,6 +137,10 @@
 		onOpenYamlEditor?: () => void
 		sidebarCollapsed?: boolean
 		onToggleSidebar?: () => void
+		/** Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+		 * EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+		 * session preview to save vertical room. */
+		condensedHeader?: boolean
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
 		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
@@ -194,6 +198,7 @@
 		onOpenYamlEditor = undefined,
 		sidebarCollapsed = false,
 		onToggleSidebar = undefined,
+		condensedHeader = false,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
 		autosaveWorkspace = undefined,
@@ -281,6 +286,10 @@
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
 
 	async function publishToHub() {
 		if (!app) return
@@ -771,7 +780,9 @@
 
 <div
 	bind:clientWidth={topbarWidth}
-	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto shrink-0 {condensedHeader
+		? 'max-h-9 h-9'
+		: 'max-h-12 h-12'}"
 >
 	<!-- Identity block: shrinks/truncates first so the cloud indicator and the
 	     action buttons stay visible. Without min-w-0 the breadcrumb + summary
@@ -795,6 +806,7 @@
 				savedPath={appPath || newPath || undefined}
 				kind="app"
 				raw_app
+				hidePath={condensedHeader}
 				workspaceId={autosaveWorkspace}
 				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 			/>
@@ -823,7 +835,7 @@
 			{#snippet buttonReplacement()}
 				<Button
 					nonCaptureEvent
-					unifiedSize="md"
+					unifiedSize={headerBtnSize}
 					variant="subtle"
 					startIcon={{ icon: EllipsisVertical }}
 					iconOnly
@@ -844,7 +856,7 @@
 		>
 			<Button
 				variant="default"
-				unifiedSize="md"
+				unifiedSize={headerBtnSize}
 				on:click={() => openDiffDrawer()}
 				disabled={!savedApp || newApp || savedApp?.no_deployed === true}
 				btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
@@ -866,7 +878,7 @@
 					jobsDrawerOpen = true
 				}}
 				color="light"
-				unifiedSize="md"
+				unifiedSize={headerBtnSize}
 				variant="default"
 				btnClasses="relative"
 			>
@@ -901,7 +913,7 @@
 		>
 			{#snippet fallback()}
 				<Button
-					unifiedSize="md"
+					unifiedSize={headerBtnSize}
 					variant="default"
 					onClick={() => aiChatManager.toggleOpen()}
 					startIcon={{ icon: WandSparkles }}
@@ -916,7 +928,7 @@
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
-			unifiedSize="md"
+			unifiedSize={headerBtnSize}
 			variant="accent"
 			dropdownItems={appPath != ''
 				? () => [

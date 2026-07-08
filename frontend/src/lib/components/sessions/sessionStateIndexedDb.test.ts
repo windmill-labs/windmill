@@ -123,7 +123,6 @@ describe('sessionState IndexedDB persistence', () => {
 			session({
 				id: 't1b',
 				transient: true,
-				target: { kind: 'script', path: 'u/me/foo' },
 				previewTabs: [{ id: 'session', url: '/x', loc: '/x' }],
 				activePreviewTabId: 'session',
 				previewCollapsed: false
@@ -132,7 +131,6 @@ describe('sessionState IndexedDB persistence', () => {
 		await rehydrate(user)
 		await flush()
 		const restored = sessionState.sessions.find((s) => s.id === 't1b')
-		expect(restored?.target).toEqual({ kind: 'script', path: 'u/me/foo' })
 		expect(restored?.previewTabs).toEqual([{ id: 'session', url: '/x', loc: '/x' }])
 		expect(restored?.activePreviewTabId).toBe('session')
 		expect(restored?.previewCollapsed).toBe(false)

@@ -43,6 +43,10 @@
 		 * inline. Breadcrumb navigation still works — only the rename UI is
 		 * gated. */
 		pathEditable?: boolean
+		/** When true, the whole path/breadcrumb row (and its pen popover) is
+		 * dropped, leaving only the summary. Used by the condensed session-
+		 * preview top bar to save vertical room. */
+		hidePath?: boolean
 		/** Workspace whose items the breadcrumb picker lists. Session live
 		 * editors pass their acting workspace so the picker isn't scoped to the
 		 * navigation workspace; falls back to $workspaceStore in the picker. */
@@ -60,6 +64,7 @@
 		penVisibility = 'hover',
 		summaryEditable = true,
 		pathEditable = true,
+		hidePath = false,
 		workspaceId
 	}: Props = $props()
 
@@ -135,110 +140,112 @@
 
 <div class="inline-block max-w-full align-top group px-2 py-0.5 leading-tight">
 	<!-- Path row -->
-	<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
-		<nav aria-label="Breadcrumb" class="contents">
-			<BreadcrumbSegment
-				label={KIND_LABEL_LOWER[kind]}
-				initialScope={undefined}
-				initialHighlight={kindKey(kind)}
-				isCurrent={!segments}
-				{currentItem}
-				{workspaceId}
-				onPick={handlePickerSelect}
-			/>
-			{#if segments}
-				{#each segments.dirs as dir, i (dir.fullPath)}
-					{@const dKey = dirKey('all', dir.fullPath)}
-					<BreadcrumbSegment
-						label={dir.name}
-						withChevron
-						extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
-						initialScope={i === 0
-							? { kind: 'all' }
-							: { kind: 'all', dir: segments.dirs[i - 1].fullPath }}
-						initialHighlight={dKey}
-						{currentItem}
-						{workspaceId}
-						onPick={handlePickerSelect}
-					/>
-				{/each}
-				{@const leafKey = leafKeyFor(kind, segments.leaf.fullPath)}
-				{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
+	{#if !hidePath}
+		<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
+			<nav aria-label="Breadcrumb" class="contents">
 				<BreadcrumbSegment
-					label={segments.leaf.name}
-					withChevron
-					extraClass="gap-0.5 min-w-0"
-					initialScope={leafParent ? { kind: 'all', dir: leafParent } : { kind: 'all' }}
-					initialHighlight={leafKey}
-					isCurrent
+					label={KIND_LABEL_LOWER[kind]}
+					initialScope={undefined}
+					initialHighlight={kindKey(kind)}
+					isCurrent={!segments}
 					{currentItem}
 					{workspaceId}
 					onPick={handlePickerSelect}
 				/>
-			{/if}
-		</nav>
-
-		<!-- Pen → path-edit popover. Skipped entirely when path editing is
-		     disabled so the user doesn't see an inert button. -->
-		{#if pathEditable}
-			<Popover
-				placement="bottom-start"
-				contentClasses="p-4"
-				usePointerDownOutside
-				excludeSelectors=".drawer"
-				disableFocusTrap
-				closeOnOtherPopoverOpen
-				bind:isOpen={() => pathPopoverOpen, setPathPopoverOpen}
-			>
-				{#snippet trigger()}
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						iconOnly
-						startIcon={{ icon: Pencil }}
-						title="Edit path"
-						aria-label="Edit path"
-						btnClasses={penVisibility === 'hover' && !pathPopoverOpen
-							? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
-							: ''}
+				{#if segments}
+					{#each segments.dirs as dir, i (dir.fullPath)}
+						{@const dKey = dirKey('all', dir.fullPath)}
+						<BreadcrumbSegment
+							label={dir.name}
+							withChevron
+							extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
+							initialScope={i === 0
+								? { kind: 'all' }
+								: { kind: 'all', dir: segments.dirs[i - 1].fullPath }}
+							initialHighlight={dKey}
+							{currentItem}
+							{workspaceId}
+							onPick={handlePickerSelect}
+						/>
+					{/each}
+					{@const leafKey = leafKeyFor(kind, segments.leaf.fullPath)}
+					{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
+					<BreadcrumbSegment
+						label={segments.leaf.name}
+						withChevron
+						extraClass="gap-0.5 min-w-0"
+						initialScope={leafParent ? { kind: 'all', dir: leafParent } : { kind: 'all' }}
+						initialHighlight={leafKey}
+						isCurrent
+						{currentItem}
+						{workspaceId}
+						onPick={handlePickerSelect}
 					/>
-				{/snippet}
-				{#snippet content()}
-					<div class="flex flex-col gap-6 w-[480px]">
-						{#if own}
-							<Path
-								autofocus
-								bind:path
-								initialPath={snapshotPath ?? path ?? ''}
-								namePlaceholder={kind}
-								{kind}
-								size="sm"
-								drawerOffset={4000}
-								workspaceOverride={workspaceId}
-							/>
-							{#if savedPath && path && path !== savedPath}
-								<Alert
-									type="info"
-									size="xs"
-									title="Deploy the {kind} to make the path change effective."
+				{/if}
+			</nav>
+
+			<!-- Pen → path-edit popover. Skipped entirely when path editing is
+		     disabled so the user doesn't see an inert button. -->
+			{#if pathEditable}
+				<Popover
+					placement="bottom-start"
+					contentClasses="p-4"
+					usePointerDownOutside
+					excludeSelectors=".drawer"
+					disableFocusTrap
+					closeOnOtherPopoverOpen
+					bind:isOpen={() => pathPopoverOpen, setPathPopoverOpen}
+				>
+					{#snippet trigger()}
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							iconOnly
+							startIcon={{ icon: Pencil }}
+							title="Edit path"
+							aria-label="Edit path"
+							btnClasses={penVisibility === 'hover' && !pathPopoverOpen
+								? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
+								: ''}
+						/>
+					{/snippet}
+					{#snippet content()}
+						<div class="flex flex-col gap-6 w-[480px]">
+							{#if own}
+								<Path
+									autofocus
+									bind:path
+									initialPath={snapshotPath ?? path ?? ''}
+									namePlaceholder={kind}
+									{kind}
+									size="sm"
+									drawerOffset={4000}
+									workspaceOverride={workspaceId}
 								/>
+								{#if savedPath && path && path !== savedPath}
+									<Alert
+										type="info"
+										size="xs"
+										title="Deploy the {kind} to make the path change effective."
+									/>
+								{/if}
+								{#if onBehalfOfEmail}
+									<Alert type="info" title="Run on behalf of" size="xs">
+										This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+									</Alert>
+								{/if}
+							{:else}
+								<Label label="Path">
+									<span class="text-xs font-mono text-secondary">{path}</span>
+									<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
+								</Label>
 							{/if}
-							{#if onBehalfOfEmail}
-								<Alert type="info" title="Run on behalf of" size="xs">
-									This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
-								</Alert>
-							{/if}
-						{:else}
-							<Label label="Path">
-								<span class="text-xs font-mono text-secondary">{path}</span>
-								<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
-							</Label>
-						{/if}
-					</div>
-				{/snippet}
-			</Popover>
-		{/if}
-	</div>
+						</div>
+					{/snippet}
+				</Popover>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Summary -->
 	<div class="max-w-full -mt-[2px]" title={summary}>
