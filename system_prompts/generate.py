@@ -340,13 +340,54 @@ def extract_description(section: str) -> str | None:
     return ''.join(_unquote_js_string(p) for p in parts).strip() or None
 
 
-def parse_command_block(content: str, file_path: Path | None = None) -> dict:
+def extract_named_command_block(content: str, var_name: str) -> str | None:
+    """Return the chained-call body of `const <var_name> = new Command() ...`,
+    from just after `new Command()` up to the next top-level statement.
+
+    Returns None when the var isn't a *direct* `new Command()` (e.g. it's wrapped
+    in a helper call like `auditListOptions(new Command()...)`), so callers can
+    fall back to a looser match.
+    """
+    m = re.search(
+        r'const\s+' + re.escape(var_name) + r'\s*=\s*new\s+Command\(\)'
+        r'([\s\S]*?)(?=\n(?:const|let|var|async|function|export)\b)',
+        content,
+    )
+    return m.group(1) if m else None
+
+
+def extract_exported_command_block(content: str) -> str | None:
+    """Return the chained-call body of the command that is `export default`ed.
+
+    A command file may define helper `new Command()` groups (assigned to local
+    consts and mounted as nested subcommands via `.command("x", localCmd)`)
+    *before* the exported command. Anchoring on the first `new Command()` in the
+    file would merge those helpers into the top-level command, so resolve the
+    exported variable first and only then fall back to the first `new Command()`
+    (which covers inline/wrapped exports).
+    """
+    export_match = re.search(r'export\s+default\s+(\w+)\s*;', content)
+    if export_match:
+        block = extract_named_command_block(content, export_match.group(1))
+        if block is not None:
+            return block
+    command_match = re.search(
+        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
+        content,
+    )
+    return command_match.group(1) if command_match else None
+
+
+def parse_command_block(
+    content: str, file_path: Path | None = None, block: str | None = None
+) -> dict:
     """
     Parse a Cliffy Command() definition block and extract metadata.
     Returns a dict with: description, options, subcommands, arguments, alias
 
     If file_path is provided, imported subcommands will be resolved by parsing
-    the imported files.
+    the imported files. `block` may be passed to parse a specific pre-extracted
+    command body (used to recurse into locally-defined nested command groups).
     """
     result = {
         'description': '',
@@ -357,14 +398,10 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     }
 
     # Find the command block
-    command_match = re.search(
-        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
-        content
-    )
-    if not command_match:
+    if block is None:
+        block = extract_exported_command_block(content)
+    if block is None:
         return result
-
-    block = command_match.group(1)
 
     # Find where subcommands start
     first_subcommand_pos = block.find('.command(')
@@ -451,11 +488,30 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
                             'name': cmd_name,
                             'description': imported_cmd.get('description', ''),
                             'arguments': imported_cmd.get('arguments', ''),
-                            'options': imported_cmd.get('options', [])
+                            'options': imported_cmd.get('options', []),
+                            'subcommands': imported_cmd.get('subcommands', []),
                         })
                         continue
                     except Exception as e:
                         print(f"  Warning: Could not parse imported command {second_arg}: {e}")
+            cmd_desc = ''
+        elif second_arg and re.search(
+            r'const\s+' + re.escape(second_arg) + r'\s*=\s*new\s+Command\(\)', content
+        ):
+            # Locally-defined command group mounted as a subcommand
+            # (e.g. `.command("migrate", migrateCommand)`): recurse into its
+            # definition so its own subcommands/options are captured.
+            nested_block = extract_named_command_block(content, second_arg)
+            if nested_block is not None:
+                nested = parse_command_block(content, file_path, block=nested_block)
+                result['subcommands'].append({
+                    'name': cmd_name,
+                    'description': nested.get('description', ''),
+                    'arguments': nested.get('arguments', ''),
+                    'options': nested.get('options', []),
+                    'subcommands': nested.get('subcommands', []),
+                })
+                continue
             cmd_desc = ''
         else:
             cmd_desc = ''
@@ -627,6 +683,16 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
                     if sub.get('options'):
                         for opt in sub['options']:
                             md += f"  - `{opt['flag']}` - {opt['description']}\n"
+
+                    # Nested sub-subcommands (e.g. `datatable migrate new`)
+                    for subsub in sub.get('subcommands', []):
+                        ss_args = f" {subsub['arguments']}" if subsub.get('arguments') else ""
+                        md += f"  - `{cmd['name']} {sub_name} {subsub['name']}{ss_args}`"
+                        if subsub.get('description'):
+                            md += f" - {subsub['description']}"
+                        md += "\n"
+                        for opt in subsub.get('options', []):
+                            md += f"    - `{opt['flag']}` - {opt['description']}\n"
 
                 md += "\n"
 

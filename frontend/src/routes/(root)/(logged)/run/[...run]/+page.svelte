@@ -378,7 +378,8 @@
 
 			const commonArgs = {
 				workspace: $workspaceStore!,
-				requestBody: args
+				requestBody: args,
+				tag: job?.tag
 			}
 			if (job?.job_kind == 'script' || job?.job_kind == 'script_hub' || job?.job_kind == 'flow') {
 				let id
@@ -723,7 +724,7 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={() => {
-						goto(viewHref + `#${computeSharableHash(job?.args)}`)
+						goto(viewHref + `#${computeSharableHash(job?.args, job?.tag)}`)
 					}}
 					unifiedSize="md"
 					variant="default"

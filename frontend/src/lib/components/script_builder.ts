@@ -92,4 +92,8 @@ export interface ScriptBuilderProps {
 	othersDraftsCount?: number
 	// Wired by the route to flip the OtherUsersDraftsModal open.
 	onOpenOthersDrafts?: () => void
+	// Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+	// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+	// session preview to save vertical room.
+	condensedHeader?: boolean
 }

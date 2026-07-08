@@ -8,11 +8,14 @@
 	} from 'lucide-svelte'
 	import type { SessionChatStatus } from './sessionRuntime.svelte'
 
+	// The fork icon is deliberately sync-state-agnostic (no ahead/behind/
+	// diverged variants — that detail lives in the fork bar). Its only special
+	// state is detached: the session's fork workspace no longer exists.
 	let {
 		status,
 		isFork,
-		unavailable = false
-	}: { status: SessionChatStatus; isFork: boolean; unavailable?: boolean } = $props()
+		forkDetached = false
+	}: { status: SessionChatStatus; isFork: boolean; forkDetached?: boolean } = $props()
 
 	const statusTooltip: Record<SessionChatStatus, string> = {
 		idle: 'No chat activity',
@@ -32,7 +35,7 @@
 
 	const persistentTitle = $derived(
 		isFork
-			? unavailable
+			? forkDetached
 				? 'Fork — no longer available'
 				: 'Fork session'
 			: 'Root workspace session'
@@ -44,16 +47,16 @@
 <span class="inline-flex items-center justify-center w-4 h-3 shrink-0" {title}>
 	{#if status === 'streaming'}
 		<span class="inline-flex items-end gap-0.5">
-			<span class="w-1 h-1 rounded-full bg-blue-500 typing-dot"></span>
-			<span class="w-1 h-1 rounded-full bg-blue-500 typing-dot dot-2"></span>
-			<span class="w-1 h-1 rounded-full bg-blue-500 typing-dot dot-3"></span>
+			<span class="w-[3px] h-[3px] rounded-full bg-blue-500 typing-dot"></span>
+			<span class="w-[3px] h-[3px] rounded-full bg-blue-500 typing-dot dot-2"></span>
+			<span class="w-[3px] h-[3px] rounded-full bg-blue-500 typing-dot dot-3"></span>
 		</span>
 	{:else if status === 'needs-confirmation'}
 		<AlertCircle class="w-3 h-3 text-amber-500" />
 	{:else if status === 'error'}
 		<AlertTriangle class="w-3 h-3 text-red-500" />
 	{:else if isFork}
-		{#if unavailable}
+		{#if forkDetached}
 			<GitPullRequestClosed class="w-3 h-3 text-red-500" />
 		{:else}
 			<GitFork class="w-3 h-3 text-tertiary" />

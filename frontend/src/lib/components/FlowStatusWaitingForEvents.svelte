@@ -16,9 +16,12 @@
 		workspaceId: string | undefined
 		job: Job
 		light?: boolean
+		/** Fired after a successful resume/reject, before the next poll observes it —
+		 * lets a host (e.g. the AI chat jobs tray) close its modal optimistically. */
+		onAction?: (approved: boolean) => void
 	}
 
-	let { isOwner: _isOwner, workspaceId, job, light = false }: Props = $props()
+	let { isOwner: _isOwner, workspaceId, job, light = false, onAction }: Props = $props()
 
 	let default_payload: object = $state({})
 	let description: any = $state(undefined)
@@ -71,6 +74,7 @@
 				}
 			})
 			actionTaken = true
+			onAction?.(approve)
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed', true)
 		} finally {

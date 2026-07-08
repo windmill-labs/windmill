@@ -304,8 +304,10 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 
 // Resolves the completion token cap for a model: the workspace's per-model
 // override when set, otherwise the built-in default. Shared by the OpenAI and
-// Anthropic request paths so both honor the same limit.
-function resolveMaxTokens(modelProvider: AIProviderModel): number {
+// Anthropic request paths so both honor the same limit. `cap` bounds the result
+// (used by short metadata completions, see METADATA_MAX_TOKENS) — a hard ceiling
+// that wins over both the workspace override and the default.
+function resolveMaxTokens(modelProvider: AIProviderModel, cap?: number): number {
 	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	let customMaxTokensStore: Record<string, number> | undefined
@@ -314,14 +316,23 @@ function resolveMaxTokens(modelProvider: AIProviderModel): number {
 	} catch {
 		// copilotInfo store may not be initialized in vitest
 	}
-	return customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	const resolved = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	return cap !== undefined ? Math.min(resolved, cap) : resolved
 }
+
+// Token cap for metadata completions (session titles, cron/predicate/step-input
+// generation). These outputs are short, and the Anthropic SDK refuses a
+// non-streaming request whose max_tokens implies a >10-minute worst case
+// (60min × max_tokens / 128000): the model defaults (sonnet/haiku 64000, opus
+// 32000) all trip it. Capping keeps every provider's metadata call non-streaming.
+export const METADATA_MAX_TOKENS = 4096
 
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	maxTokensCap?: number
 ) {
-	const maxTokens = resolveMaxTokens(modelProvider)
+	const maxTokens = resolveMaxTokens(modelProvider, maxTokensCap)
 	if (
 		(modelProvider.provider === 'openai' ||
 			modelProvider.provider === 'azure_openai' ||
@@ -501,6 +512,7 @@ interface AnthropicCompletionParams {
 	apiKey?: string
 	workspace?: string
 	resourcePath?: string
+	maxTokensCap?: number
 }
 
 function buildAnthropicProxyRequest({
@@ -508,7 +520,8 @@ function buildAnthropicProxyRequest({
 	modelProvider,
 	apiKey,
 	workspace,
-	resourcePath
+	resourcePath,
+	maxTokensCap
 }: Omit<AnthropicCompletionParams, 'abortController'>) {
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
@@ -535,7 +548,7 @@ function buildAnthropicProxyRequest({
 
 	const body = {
 		model: modelProvider.model,
-		max_tokens: resolveMaxTokens(modelProvider),
+		max_tokens: resolveMaxTokens(modelProvider, maxTokensCap),
 		messages: anthropicMessages,
 		...(system && { system })
 	}
@@ -777,12 +790,14 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,
 	tools,
-	forceModelProvider
+	forceModelProvider,
+	maxTokensCap
 }: {
 	messages: ChatCompletionMessageParam[]
 	stream: K
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 	forceModelProvider?: AIProviderModel
+	maxTokensCap?: number
 }): {
 	provider: AIProvider
 	config: K extends true
@@ -796,7 +811,7 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 		provider: modelProvider.provider,
 		config: {
 			...providerConfig,
-			...getModelSpecificConfig(modelProvider, tools),
+			...getModelSpecificConfig(modelProvider, tools, maxTokensCap),
 			messages: processedMessages,
 			stream
 		} as any
@@ -811,6 +826,7 @@ export async function getNonStreamingCompletion(
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
 		workspace?: string // use a specific workspace proxy when testing a workspace resource
 		forceModelProvider?: AIProviderModel
+		maxTokensCap?: number // hard ceiling on output tokens (see METADATA_MAX_TOKENS)
 	}
 ) {
 	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
@@ -822,7 +838,8 @@ export async function getNonStreamingCompletion(
 			abortController,
 			apiKey: options?.apiKey,
 			workspace: options?.workspace,
-			resourcePath: options?.resourcePath
+			resourcePath: options?.resourcePath,
+			maxTokensCap: options?.maxTokensCap
 		})
 	}
 
@@ -830,7 +847,8 @@ export async function getNonStreamingCompletion(
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
@@ -887,7 +905,8 @@ export async function getNonStreamingMetadataCompletion(
 	abortController: AbortController
 ) {
 	return getNonStreamingCompletion(messages, abortController, {
-		forceModelProvider: getMetadataModel()
+		forceModelProvider: getMetadataModel(),
+		maxTokensCap: METADATA_MAX_TOKENS
 	})
 }
 

@@ -405,7 +405,9 @@ export async function validateBranchConfiguration(
 
   let currentBranch: string | null;
   if (originalBranchIfForked) {
-    log.info(
+    // The fork targeting itself is announced by tryResolveBranchWorkspace;
+    // this validation detail stays at debug to avoid a near-duplicate line.
+    log.debug(
       `Workspace fork detected from branch name \`${rawBranch}\`. Validating workspace configuration using original branch \`${originalBranchIfForked}\``
     );
     currentBranch = originalBranchIfForked;
@@ -563,7 +565,7 @@ export async function getEffectiveSettings(
 
     const branch = originalBranchIfForked ?? rawGitBranch;
     if (originalBranchIfForked) {
-      log.info(
+      log.debug(
         `Using overrides from original branch \`${originalBranchIfForked}\``
       );
     }

@@ -7,6 +7,8 @@
 
 	import { AppService, type Policy } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import {
@@ -135,6 +137,10 @@
 		onOpenYamlEditor?: () => void
 		sidebarCollapsed?: boolean
 		onToggleSidebar?: () => void
+		/** Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+		 * EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+		 * session preview to save vertical room. */
+		condensedHeader?: boolean
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
 		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
@@ -192,6 +198,7 @@
 		onOpenYamlEditor = undefined,
 		sidebarCollapsed = false,
 		onToggleSidebar = undefined,
+		condensedHeader = false,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
 		autosaveWorkspace = undefined,
@@ -213,7 +220,7 @@
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
-	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	$effect(() => {
@@ -240,8 +247,8 @@
 	)
 
 	$effect(() => {
-		if (liveEditorDraftStoragePath === undefined || !$workspaceStore) return
-		const workspace = $workspaceStore
+		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
+		const workspace = opWorkspace
 		UserDraft.setLiveEditorDraft({
 			workspace,
 			itemKind: 'raw_app',
@@ -279,6 +286,10 @@
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
 
 	async function publishToHub() {
 		if (!app) return
@@ -331,7 +342,7 @@
 		try {
 			const { js, css } = await getBundle()
 			await AppService.createAppRaw({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				formData: {
 					app: {
 						value: app,
@@ -349,7 +360,7 @@
 			})
 			// New path now exists server-side — drop the autocomplete cache so
 			// it shows up immediately instead of after the 60s TTL.
-			invalidateWorkspacePaths($workspaceStore!)
+			invalidateWorkspacePaths(opWorkspace!)
 			savedApp = {
 				summary: summary,
 				value: structuredClone(stateSnapshot(app)),
@@ -413,7 +424,7 @@
 
 	async function syncWithDeployed() {
 		const deployedApp = await AppService.getAppByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath!,
 			withStarredInfo: true
 		})
@@ -452,7 +463,7 @@
 			policy.execution_mode = 'publisher'
 		}
 		await AppService.updateAppRaw({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath!,
 			formData: {
 				app: {
@@ -472,7 +483,7 @@
 				css
 			}
 		})
-		invalidateWorkspacePaths($workspaceStore!)
+		invalidateWorkspacePaths(opWorkspace!)
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
@@ -482,7 +493,7 @@
 			labels: $state.snapshot(labels)
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: npath
 		})
 		version = appHistory[0]?.version
@@ -506,7 +517,7 @@
 	async function setPublishState(message?: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath,
 			requestBody: { policy }
 		})
@@ -531,7 +542,7 @@
 		}
 		try {
 			const appVersion = await AppService.getAppLatestVersion({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				path: appPath
 			})
 			onLatest = appVersion?.version === undefined || version === appVersion?.version
@@ -768,9 +779,15 @@
 
 <div
 	bind:clientWidth={topbarWidth}
-	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto shrink-0 {condensedHeader
+		? 'max-h-9 h-9'
+		: 'max-h-12 h-12'}"
 >
-	<div class="flex flex-row gap-2 items-center min-w-[200px]">
+	<!-- Identity block: shrinks/truncates first so the cloud indicator and the
+	     action buttons stay visible. Without min-w-0 the breadcrumb + summary
+	     overflow this box on narrow widths and get overlapped by the (formerly
+	     un-pinned) action group, hiding the autosave cloud. -->
+	<div class="flex flex-row gap-2 items-center min-w-0">
 		{#if onToggleSidebar}
 			<Button
 				unifiedSize="sm"
@@ -781,17 +798,21 @@
 				on:click={() => onToggleSidebar?.()}
 			/>
 		{/if}
-		<EditorHeader
-			bind:summary
-			bind:path={newEditedPath}
-			savedPath={appPath || newPath || undefined}
-			kind="app"
-			raw_app
-			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
-		/>
-		{#if indicatorWorkspace && indicatorPath !== undefined}
+		<div class="min-w-0 overflow-hidden">
+			<EditorHeader
+				bind:summary
+				bind:path={newEditedPath}
+				savedPath={appPath || newPath || undefined}
+				kind="app"
+				raw_app
+				hidePath={condensedHeader}
+				workspaceId={autosaveWorkspace}
+				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
+			/>
+		</div>
+		{#if opWorkspace && indicatorPath !== undefined}
 			<AutosaveIndicator
-				workspace={indicatorWorkspace}
+				workspace={opWorkspace}
 				itemKind="raw_app"
 				path={indicatorPath}
 				draftOnly={newApp}
@@ -804,14 +825,16 @@
 	</div>
 
 	{#if $enterpriseLicense && appPath != ''}
-		<Awareness />
+		<div class="shrink-0">
+			<Awareness />
+		</div>
 	{/if}
-	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
+	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
 		<DropdownV2 items={moreItems} class="h-auto">
 			{#snippet buttonReplacement()}
 				<Button
 					nonCaptureEvent
-					unifiedSize="md"
+					unifiedSize={headerBtnSize}
 					variant="subtle"
 					startIcon={{ icon: EllipsisVertical }}
 					iconOnly
@@ -832,7 +855,7 @@
 		>
 			<Button
 				variant="default"
-				unifiedSize="md"
+				unifiedSize={headerBtnSize}
 				on:click={() => openDiffDrawer()}
 				disabled={!savedApp || newApp || savedApp?.no_deployed === true}
 				btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
@@ -854,7 +877,7 @@
 					jobsDrawerOpen = true
 				}}
 				color="light"
-				unifiedSize="md"
+				unifiedSize={headerBtnSize}
 				variant="default"
 				btnClasses="relative"
 			>
@@ -869,23 +892,42 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-		{#if !inSessionPane}
-			<Button
-				unifiedSize="md"
-				variant="default"
-				onClick={() => aiChatManager.toggleOpen()}
-				startIcon={{ icon: WandSparkles }}
-				iconOnly
-				btnClasses={AIBtnClasses('default')}
-			>
-				AI
-			</Button>
-		{/if}
+		<OpenInSessionButton
+			source={appPath
+				? {
+						target: { kind: 'raw_app', path: appPath },
+						workspaceId: opWorkspace ?? undefined,
+						// Flush the autosaved draft so the session preview opens the app
+						// exactly as it is in the editor right now.
+						beforeOpen: () =>
+							opWorkspace && indicatorPath !== undefined
+								? UserDraftDbSyncer.flush({
+										workspace: opWorkspace,
+										itemKind: 'raw_app',
+										path: indicatorPath
+									})
+								: undefined
+					}
+				: undefined}
+		>
+			{#snippet fallback()}
+				<Button
+					unifiedSize={headerBtnSize}
+					variant="default"
+					onClick={() => aiChatManager.toggleOpen()}
+					startIcon={{ icon: WandSparkles }}
+					iconOnly
+					btnClasses={AIBtnClasses('default')}
+				>
+					AI
+				</Button>
+			{/snippet}
+		</OpenInSessionButton>
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
-			unifiedSize="md"
+			unifiedSize={headerBtnSize}
 			variant="accent"
 			dropdownItems={appPath != ''
 				? () => [
@@ -895,10 +937,10 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						},
-						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
+						...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 							? [
 									{
-										label: editInForkLabel($workspaceStore, $userWorkspaces),
+										label: editInForkLabel(opWorkspace, $userWorkspaces),
 										onClick: () => {
 											window.open(buildForkEditUrl('raw_app', appPath))
 										}
