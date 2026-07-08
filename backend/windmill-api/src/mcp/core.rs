@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use windmill_common::{db::UserDB, utils::StripPath, DB};
 use windmill_mcp::common::schema::enrich_resource_schemas;
+use windmill_mcp::common::scope::{parse_mcp_scopes, McpScopeConfig};
 use windmill_mcp::common::transform::apply_key_transformation;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
@@ -46,6 +47,39 @@ use axum::{
 use windmill_common::{auth::hash_token, db::GatewayWorkspaceId, error::JsonResult};
 
 // McpAuth impl for ApiAuthed is in windmill-api-auth (same crate as the type)
+
+/// Datatable MCP tools that take a `datatable_name` argument and must be gated
+/// per-datatable by the `mcp:datatables:` scope.
+const DATATABLE_NAME_ARG_TOOLS: &[&str] = &[
+    "getDataTableTableSchema",
+    "queryDataTable",
+    "insertDataTable",
+    "updateDataTable",
+];
+
+/// Datatable list tools whose array response must be filtered to the allowed
+/// datatables, keyed by the JSON field naming each item's datatable.
+fn datatable_list_filter_key(tool_name: &str) -> Option<&'static str> {
+    match tool_name {
+        "listDataTables" => Some("name"),
+        "listDataTableTables" | "listDataTableSchemas" => Some("datatable_name"),
+        _ => None,
+    }
+}
+
+/// Per-datatable scope enforcement for MCP endpoint tools.
+///
+/// The proxied JWT minted for the HTTP call is route-scoped and no longer
+/// carries the `mcp:` scopes, so the restriction has to be applied here, where
+/// the original MCP token's scopes are still available. `None` means the token
+/// has no MCP scopes (not an MCP path) — no datatable gating applies.
+fn datatable_scope_config(auth: &ApiAuthed) -> Option<McpScopeConfig> {
+    let scopes = auth.scopes.as_deref()?;
+    if !scopes.iter().any(|s| s.starts_with("mcp:")) {
+        return None;
+    }
+    parse_mcp_scopes(scopes).ok()
+}
 
 /// Windmill's MCP backend implementation
 #[derive(Clone)]
@@ -281,6 +315,26 @@ impl McpBackend for WindmillBackend {
             }
         };
 
+        // Enforce per-datatable access for datatable tools that name a datatable
+        // in their args. Runs before the request so a disallowed datatable never
+        // reaches the DB.
+        let dt_scope = datatable_scope_config(auth);
+        if let Some(config) = &dt_scope {
+            if DATATABLE_NAME_ARG_TOOLS.contains(&endpoint_tool.name.as_ref()) {
+                if let Some(name) = args_map.get("datatable_name").and_then(|v| v.as_str()) {
+                    if !config.is_datatable_allowed(name) {
+                        return Err(ErrorData::invalid_params(
+                            format!(
+                                "Access denied: datatable '{}' is not in this token's scope",
+                                name
+                            ),
+                            None,
+                        ));
+                    }
+                }
+            }
+        }
+
         // Build URL with path substitutions
         let path_template = substitute_path_params(
             &endpoint_tool.path,
@@ -323,8 +377,25 @@ impl McpBackend for WindmillBackend {
         })?;
 
         if status.is_success() {
-            Ok(serde_json::from_str(&response_text)
-                .unwrap_or_else(|_| Value::String(response_text)))
+            let mut result: Value = serde_json::from_str(&response_text)
+                .unwrap_or_else(|_| Value::String(response_text));
+            // Filter datatable list responses down to the datatables this token
+            // is scoped to, so restricted tokens never even see other names.
+            if let Some(config) = &dt_scope {
+                if config.datatables_restricted && !config.all {
+                    if let Some(key) = datatable_list_filter_key(&endpoint_tool.name) {
+                        if let Value::Array(items) = &mut result {
+                            items.retain(|item| {
+                                item.get(key)
+                                    .and_then(|v| v.as_str())
+                                    .map(|n| config.is_datatable_allowed(n))
+                                    .unwrap_or(false)
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(result)
         } else {
             Err(ErrorData::internal_error(
                 format!(

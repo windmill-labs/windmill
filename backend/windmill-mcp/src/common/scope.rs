@@ -12,6 +12,12 @@ pub struct McpScopeConfig {
     pub flows: Vec<String>,
     /// Endpoint names/patterns allowed by this token
     pub endpoints: Vec<String>,
+    /// Datatable names/patterns this token may read/write. Only meaningful when
+    /// `datatables_restricted` is set; otherwise datatable access is unrestricted.
+    pub datatables: Vec<String>,
+    /// Whether any `mcp:datatables:` scope was present. Absent = opt-out (all
+    /// datatables allowed, backward compatible); present = restrict to the list.
+    pub datatables_restricted: bool,
     /// Whether this is a legacy "all" scope
     pub all: bool,
     /// Whether this is a "favorites" scope
@@ -33,10 +39,22 @@ impl McpScopeConfig {
             "script" => &self.scripts,
             "flow" => &self.flows,
             "endpoint" => &self.endpoints,
+            "datatable" => &self.datatables,
             _ => return false,
         };
 
         is_resource_allowed(path, patterns)
+    }
+
+    /// Whether the token may touch datatable `name`. Datatable filtering is
+    /// opt-in: a token with no `mcp:datatables:` scope (`datatables_restricted`
+    /// false) may reach every datatable, so existing tokens keep working. Once a
+    /// restriction is present, only the listed names/patterns (or `*`) pass.
+    pub fn is_datatable_allowed(&self, name: &str) -> bool {
+        if self.all || !self.datatables_restricted {
+            return true;
+        }
+        is_resource_allowed(name, &self.datatables)
     }
 
     /// Directional subset check: does this config grant at least everything
@@ -73,6 +91,25 @@ impl McpScopeConfig {
                 None => return false,
             }
         }
+        // Datatable containment: an unrestricted request grants every datatable,
+        // so a restricted caller (without `*`) cannot cover it. A restricted
+        // request must be covered by the caller's list — treating an unrestricted
+        // caller as `*`.
+        if !requested.datatables_restricted {
+            if self.datatables_restricted && !self.datatables.iter().any(|d| d == "*") {
+                return false;
+            }
+        } else {
+            let caller = if self.datatables_restricted {
+                self.datatables.clone()
+            } else {
+                vec!["*".to_string()]
+            };
+            if !resource_list_covers(&caller, &requested.datatables) {
+                return false;
+            }
+        }
+
         resource_list_covers(&self.scripts, &requested.scripts)
             && resource_list_covers(&self.flows, &requested.flows)
             && resource_list_covers(&self.endpoints, &requested.endpoints)
@@ -120,6 +157,7 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
             config.scripts.push("*".to_string());
             config.flows.push("*".to_string());
             config.endpoints.push("*".to_string());
+            config.datatables.push("*".to_string());
             continue;
         }
 
@@ -163,6 +201,13 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
         if let Some(resources) = scope.strip_prefix("mcp:endpoints:") {
             // New granular endpoint scope: mcp:endpoints:name1,name2
             config.endpoints.extend(parse_resource_list(resources));
+            continue;
+        }
+
+        if let Some(resources) = scope.strip_prefix("mcp:datatables:") {
+            // Datatable restriction: mcp:datatables:name1,name2 or mcp:datatables:*
+            config.datatables_restricted = true;
+            config.datatables.extend(parse_resource_list(resources));
             continue;
         }
 
@@ -350,6 +395,46 @@ mod tests {
         assert!(subtree.contains(&cfg(&["mcp:scripts:f/team/sub"])));
         assert!(subtree.contains(&cfg(&["mcp:scripts:f/team/sub/*"])));
         assert!(!subtree.contains(&cfg(&["mcp:scripts:f/other/x"])));
+    }
+
+    #[test]
+    fn test_datatable_scope_parsing_and_allow() {
+        // No datatable scope => unrestricted (opt-in), every datatable allowed.
+        let c = cfg(&["mcp:endpoints:queryDataTable"]);
+        assert!(!c.datatables_restricted);
+        assert!(c.is_datatable_allowed("main"));
+        assert!(c.is_datatable_allowed("anything"));
+
+        // mcp:all grants all datatables.
+        assert!(cfg(&["mcp:all"]).is_datatable_allowed("main"));
+
+        // Explicit restriction to specific names.
+        let c = cfg(&["mcp:datatables:main,analytics"]);
+        assert!(c.datatables_restricted);
+        assert!(c.is_datatable_allowed("main"));
+        assert!(c.is_datatable_allowed("analytics"));
+        assert!(!c.is_datatable_allowed("secret"));
+
+        // Wildcard restriction allows all.
+        let c = cfg(&["mcp:datatables:*"]);
+        assert!(c.datatables_restricted);
+        assert!(c.is_datatable_allowed("anything"));
+    }
+
+    #[test]
+    fn test_contains_datatables() {
+        // Unrestricted caller covers a restricted request.
+        assert!(cfg(&["mcp:endpoints:*"]).contains(&cfg(&["mcp:datatables:main"])));
+        // Restricted caller covers a subset request.
+        assert!(cfg(&["mcp:datatables:main,analytics"]).contains(&cfg(&["mcp:datatables:main"])));
+        // Restricted caller must NOT widen into a sibling or into unrestricted.
+        assert!(!cfg(&["mcp:datatables:main"]).contains(&cfg(&["mcp:datatables:analytics"])));
+        assert!(!cfg(&["mcp:datatables:main"]).contains(&cfg(&["mcp:endpoints:queryDataTable"])));
+        // `*` restriction covers both a subset and an unrestricted request.
+        assert!(cfg(&["mcp:datatables:*"]).contains(&cfg(&["mcp:datatables:main"])));
+        assert!(cfg(&["mcp:datatables:*"]).contains(&cfg(&[])));
+        // mcp:all covers any datatable request.
+        assert!(cfg(&["mcp:all"]).contains(&cfg(&["mcp:datatables:main"])));
     }
 
     #[test]

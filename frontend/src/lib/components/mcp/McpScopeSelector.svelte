@@ -6,7 +6,13 @@
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { FlowService, FolderService, IntegrationService, ScriptService } from '$lib/gen'
+	import {
+		FlowService,
+		FolderService,
+		IntegrationService,
+		ScriptService,
+		WorkspaceService
+	} from '$lib/gen'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
 	import InfoIcon from 'lucide-svelte/icons/info'
 	import { SvelteMap } from 'svelte/reactivity'
@@ -47,6 +53,9 @@
 	let selectedScripts = $state<string[]>(parsedInitial.scripts)
 	let selectedFlows = $state<string[]>(parsedInitial.flows)
 	let selectedEndpoints = $state<string[]>(parsedInitial.endpoints)
+	let selectedDatatables = $state<string[]>(parsedInitial.datatables)
+	let allDatatables = $state<string[]>([])
+	let loadingDatatables = $state(false)
 	let customScriptPatterns = $state<string>(parsedInitial.scriptPatterns)
 	let customFlowPatterns = $state<string>(parsedInitial.flowPatterns)
 	let newMcpApps = $state<string[]>(parsedInitial.hubApps)
@@ -74,6 +83,7 @@
 		scripts: string[]
 		flows: string[]
 		endpoints: string[]
+		datatables: string[]
 		scriptPatterns: string
 		flowPatterns: string
 		hubApps: string[]
@@ -86,6 +96,7 @@
 			scripts: [],
 			flows: [],
 			endpoints: [],
+			datatables: [],
 			scriptPatterns: '',
 			flowPatterns: '',
 			hubApps: []
@@ -112,6 +123,8 @@
 				byKind.flows = parsePatterns(part.slice('mcp:flows:'.length))
 			} else if (part.startsWith('mcp:endpoints:')) {
 				byKind.endpoints = parsePatterns(part.slice('mcp:endpoints:'.length))
+			} else if (part.startsWith('mcp:datatables:')) {
+				byKind.datatables = parsePatterns(part.slice('mcp:datatables:'.length))
 			}
 		}
 
@@ -136,6 +149,7 @@
 				scripts: [],
 				flows: [],
 				endpoints: [],
+				datatables: [],
 				scriptPatterns: '',
 				flowPatterns: '',
 				hubApps
@@ -157,6 +171,7 @@
 			scripts: [],
 			flows: [],
 			endpoints: byKind.endpoints ?? [],
+			datatables: byKind.datatables ?? [],
 			scriptPatterns: (byKind.scripts ?? []).join(','),
 			flowPatterns: (byKind.flows ?? []).join(','),
 			hubApps
@@ -186,6 +201,12 @@
 
 			if (selectedEndpoints.length > 0) {
 				scopeParts.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
+			}
+
+			// Restrict which data tables the datatable tools may touch. Omitting
+			// this leaves datatable access unrestricted (all data tables).
+			if (selectedDatatables.length > 0) {
+				scopeParts.push(`mcp:datatables:${selectedDatatables.join(',')}`)
 			}
 		} else if (selectedMode === 'folder') {
 			const folderPaths = selectedFolders.map((f) => `f/${f}/*`).join(',')
@@ -377,6 +398,31 @@
 		}
 	})
 
+	let datatablesCache = new Map<string, string[]>()
+	async function loadDatatables(workspace: string) {
+		if (datatablesCache.has(workspace)) {
+			allDatatables = datatablesCache.get(workspace)!
+			return
+		}
+		try {
+			loadingDatatables = true
+			const names = (await WorkspaceService.listDataTables({ workspace })).map((d) => d.name)
+			datatablesCache.set(workspace, names)
+			allDatatables = names
+		} catch {
+			allDatatables = []
+		} finally {
+			loadingDatatables = false
+		}
+	}
+
+	// Load data table names for the custom-mode restriction picker
+	$effect(() => {
+		if (selectedMode === 'custom' && workspaceId) {
+			loadDatatables(workspaceId)
+		}
+	})
+
 	// One-shot: once allScripts/allFlows are loaded, split the
 	// initial pattern text into known paths (selectedScripts/Flows) vs
 	// remaining wildcards/unknowns (kept in pattern textbox).
@@ -432,6 +478,12 @@
 	}
 	function clearAllEndpoints() {
 		selectedEndpoints = []
+	}
+	function selectAllDatatables() {
+		selectedDatatables = [...allDatatables]
+	}
+	function clearAllDatatables() {
+		selectedDatatables = []
 	}
 </script>
 
@@ -553,9 +605,28 @@
 					/>
 				</div>
 
+				{#if allDatatables.length > 0 || loadingDatatables}
+					<div class="flex flex-col gap-2 mt-2">
+						{@render sectionHeader('Data tables', selectAllDatatables, clearAllDatatables)}
+						{#if loadingDatatables}
+							<p class="text-xs text-primary">Loading data tables...</p>
+						{:else}
+							<MultiSelect
+								items={safeSelectItems(allDatatables)}
+								placeholder="Restrict to specific data tables (leave empty for all)"
+								bind:value={selectedDatatables}
+							/>
+							<p class="text-xs text-tertiary">
+								Applies only to the datatable tools (query/insert/update/list). Leave empty to allow
+								every data table.
+							</p>
+						{/if}
+					</div>
+				{/if}
+
 				<div class="text-xs text-primary mt-2">
 					Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
-					endpoints
+					endpoints{#if selectedDatatables.length > 0}, {selectedDatatables.length} data tables{/if}
 				</div>
 
 				<!-- Wildcard Patterns Section -->
