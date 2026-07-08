@@ -33,19 +33,13 @@
 	// relative imports resolve from not-yet-deployed local content. Same
 	// treatment: badge, not a noisy table row.
 	const TEMP_SCRIPT_REFS_ARG = '_TEMP_SCRIPT_REFS'
-	// Encrypted secret masks a parent flow propagated so this job's worker
-	// masks them in the logs. Same treatment: badge, not a noisy table row.
-	const SECRET_MASKS_ARG = '_secret_masks'
-	const INTERNAL_ARGS = [SKIP_ASSET_DISPATCH_ARG, TEMP_SCRIPT_REFS_ARG, SECRET_MASKS_ARG]
+	const INTERNAL_ARGS = [SKIP_ASSET_DISPATCH_ARG, TEMP_SCRIPT_REFS_ARG]
 
 	let skippedAssetDispatch = $derived(
 		args != undefined && typeof args === 'object' && args[SKIP_ASSET_DISPATCH_ARG] === true
 	)
 	let hasTempScriptRefs = $derived(
 		args != undefined && typeof args === 'object' && args[TEMP_SCRIPT_REFS_ARG] != undefined
-	)
-	let hasSecretMasks = $derived(
-		args != undefined && typeof args === 'object' && args[SECRET_MASKS_ARG] != undefined
 	)
 	let displayArgs = $derived(
 		args != undefined && typeof args === 'object'
@@ -125,15 +119,6 @@ ${Object.entries(displayArgs)
 								title="This preview carried {TEMP_SCRIPT_REFS_ARG} so relative imports resolve from local (not-yet-deployed) script content"
 							>
 								local import refs
-							</Badge>
-						{/if}
-						{#if hasSecretMasks}
-							<Badge
-								color="gray"
-								verySmall
-								title="This job carried {SECRET_MASKS_ARG} (encrypted) so secrets fetched by the parent flow's input transforms are masked in its logs"
-							>
-								secret masks
 							</Badge>
 						{/if}
 					</Cell>

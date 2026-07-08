@@ -11,10 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{
-    cached_result_path, get_root_job_id, register_secret_masks_from_args, save_in_cache,
-    transform_json,
-};
+use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transform_json};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
@@ -56,7 +53,6 @@ use windmill_common::runnable_settings::{
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
-use windmill_common::variables::build_crypt_with_key_suffix;
 use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
@@ -69,7 +65,7 @@ use windmill_common::{
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Step, Suspend},
-    min_version::MIN_VERSION_IS_AT_LEAST_1_595,
+    min_version::{MIN_VERSION_IS_AT_LEAST_1_595, MIN_VERSION_SUPPORTS_INTERPOLATED_ARGS},
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
@@ -2731,6 +2727,10 @@ async fn transform_input(
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
     failure_context: Option<FailureContext>,
+    // Defer `variable()` fetches to the child job when the expression allows it
+    // (see `transform_var_defer`). Only enabled for leaf script steps: a subflow's
+    // args become its `flow_input`, whose readers expect resolved values.
+    defer_variables: bool,
     by_id: &IdContext,
     client: &AuthedClient,
 ) -> windmill_common::error::Result<HashMap<String, Box<RawValue>>> {
@@ -2762,21 +2762,31 @@ async fn transform_input(
                 mapped.insert(key.to_string(), to_raw_value(&value));
             }
             InputTransform::Javascript { expr } => {
-                let v = eval_timeout(
-                    expr.to_string(),
-                    env.clone(),
-                    Some(flow_args.clone()),
-                    flow_env,
-                    Some(client),
-                    Some(by_id),
-                    None,
-                )
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
-                    ))
-                })?;
+                let deferred = if defer_variables {
+                    defer_variable_transform(expr, &env, &flow_args, flow_env, by_id, client)
+                        .await?
+                } else {
+                    None
+                };
+                let v = if let Some(v) = deferred {
+                    v
+                } else {
+                    eval_timeout(
+                        expr.to_string(),
+                        env.clone(),
+                        Some(flow_args.clone()),
+                        flow_env,
+                        Some(client),
+                        Some(by_id),
+                        None,
+                    )
+                    .await
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
+                        ))
+                    })?
+                };
                 mapped.insert(key.to_string(), v);
             }
             InputTransform::Ai => (),
@@ -2784,6 +2794,114 @@ async fn transform_input(
     }
 
     Ok(mapped)
+}
+
+/// Compile a transform whose `variable()` calls are all deferable (see
+/// `transform_var_defer`) into a `$var:<path>` or `{"$interpolate": [...]}` arg
+/// that the child job's worker resolves and masks at start, so the raw value is
+/// never fetched here nor stored in the child's args. Returns `None` when the
+/// expression must be evaluated eagerly instead.
+async fn defer_variable_transform(
+    expr: &str,
+    env: &HashMap<String, Arc<Box<RawValue>>>,
+    flow_args: &Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    by_id: &IdContext,
+    client: &AuthedClient,
+) -> windmill_common::error::Result<Option<Box<RawValue>>> {
+    use crate::transform_var_defer::{
+        classify_deferable_variables, DeferPlan, InterpolatePart, PathSpec,
+    };
+
+    let Some(plan) = classify_deferable_variables(expr) else {
+        return Ok(None);
+    };
+
+    // Evaluate a sub-expression of the transform eagerly, with the same context
+    // the full expression would have had.
+    let eval_sub = |sub: String| {
+        eval_timeout(
+            sub,
+            env.clone(),
+            Some(flow_args.clone()),
+            flow_env,
+            Some(client),
+            Some(by_id),
+            None,
+        )
+    };
+
+    // Resolve a variable path spec to the path string. A dynamic path expression
+    // that does not evaluate to a string is left to eager evaluation so the
+    // resulting error (or coercion) is identical to the non-deferred behavior.
+    async fn resolve_path<F, Fut>(spec: PathSpec, eval_sub: &F) -> anyhow::Result<Option<String>>
+    where
+        F: Fn(String) -> Fut,
+        Fut: std::future::Future<Output = anyhow::Result<Box<RawValue>>>,
+    {
+        match spec {
+            PathSpec::Literal(path) => Ok(Some(path)),
+            PathSpec::Expr(src) => {
+                let v = eval_sub(src).await?;
+                Ok(serde_json::from_str::<String>(v.get()).ok())
+            }
+        }
+    }
+
+    let map_eval_err = |e: anyhow::Error| {
+        Error::ExecutionErr(format!(
+            "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
+        ))
+    };
+
+    match plan {
+        DeferPlan::WholeVar(spec) => {
+            match resolve_path(spec, &eval_sub).await.map_err(map_eval_err)? {
+                Some(path) => Ok(Some(to_raw_value(&format!("$var:{path}")))),
+                None => Ok(None),
+            }
+        }
+        DeferPlan::Interpolate(parts) => {
+            // Old workers cannot resolve `$interpolate` args; until the whole
+            // fleet is recent enough, keep evaluating these transforms eagerly.
+            if !MIN_VERSION_SUPPORTS_INTERPOLATED_ARGS.met().await {
+                return Ok(None);
+            }
+            let mut out: Vec<serde_json::Value> = Vec::new();
+            let push_literal = |out: &mut Vec<serde_json::Value>, s: String| {
+                if let Some(serde_json::Value::String(prev)) = out.last_mut() {
+                    prev.push_str(&s);
+                } else if !s.is_empty() {
+                    out.push(serde_json::Value::String(s));
+                }
+            };
+            for part in parts {
+                match part {
+                    InterpolatePart::Literal(s) => push_literal(&mut out, s),
+                    InterpolatePart::Var(spec) => {
+                        match resolve_path(spec, &eval_sub).await.map_err(map_eval_err)? {
+                            Some(path) => out.push(serde_json::json!({ "$var": path })),
+                            None => return Ok(None),
+                        }
+                    }
+                    InterpolatePart::Expr(src) => {
+                        // Wrap the slot in its own template literal so it keeps
+                        // the exact JS stringification semantics of the original.
+                        let v = eval_sub(format!("`${{{src}}}`"))
+                            .await
+                            .map_err(map_eval_err)?;
+                        let Ok(s) = serde_json::from_str::<String>(v.get()) else {
+                            return Ok(None);
+                        };
+                        push_literal(&mut out, s);
+                    }
+                }
+            }
+            Ok(Some(to_raw_value(
+                &serde_json::json!({ "$interpolate": out }),
+            )))
+        }
+    }
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -3172,19 +3290,6 @@ async fn push_next_flow_job(
     let mut step = Step::from_i32_and_len(status.step, flow.modules.len());
 
     tracing::info!(id = %flow_job.id, root_id = %job_root, step = ?step, "pushing next flow job");
-
-    // Keep the flow job tracked for secret-mask registration while transforms run:
-    // input transforms evaluated below may fetch secret variables through the
-    // embedded server, which registers them against currently tracked jobs only.
-    // On the step-completion path the flow job is not registered as running, so
-    // without this the fetched secrets could not be captured for propagation to
-    // the pushed child jobs. Dropped (and cleaned up if added here) on return.
-    let mask_guard = windmill_common::sensitive_log_masks::track_job_for_masks(flow_job.id);
-    if mask_guard.added {
-        // Seed masks a parent flow propagated to this (sub)flow's own args; on the
-        // completion path the worker-loop registration that normally does this is gone.
-        register_secret_masks_from_args(&flow_job, db).await;
-    }
 
     let mut status_module = match step {
         Step::Step { idx: i, .. } => status
@@ -3957,6 +4062,12 @@ async fn push_next_flow_job(
                     }),
                     _ => None,
                 };
+                let defer_variables = matches!(
+                    &value,
+                    Ok(FlowModuleValue::Script { .. }
+                        | FlowModuleValue::RawScript { .. }
+                        | FlowModuleValue::FlowScript { .. })
+                );
                 transform_input(
                     arc_flow_job_args.clone(),
                     flow_env,
@@ -3966,6 +4077,7 @@ async fn push_next_flow_job(
                     resume.clone(),
                     approvers.clone(),
                     failure_context,
+                    defer_variables,
                     by_id,
                     client,
                 )
@@ -4129,14 +4241,6 @@ async fn push_next_flow_job(
     };
     let len = job_payloads.len();
 
-    // Secrets fetched by this invocation's input transforms (registered against
-    // the flow job) are propagated to each pushed child job so the worker that
-    // picks it up can mask them in its logs. Encrypted with the workspace key +
-    // root job id (the `$encrypted:` args scheme); the encrypted blob is cached
-    // and only rebuilt when per-iteration transforms register new secrets.
-    let secret_masks_root_job = get_root_job_id(&flow_job).to_string();
-    let mut secret_masks_cache: Option<(Vec<String>, Box<RawValue>)> = None;
-
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, payload_tag) in job_payloads.into_iter().enumerate() {
@@ -4200,6 +4304,8 @@ async fn push_next_flow_job(
                         resume.clone(),
                         approvers.clone(),
                         None,
+                        // simple loop modules are always leaf scripts
+                        true,
                         &ctx,
                         client,
                     )
@@ -4255,6 +4361,8 @@ async fn push_next_flow_job(
                             resume.clone(),
                             approvers.clone(),
                             None,
+                            // simple loop modules are always leaf scripts
+                            true,
                             &ctx,
                             client,
                         )
@@ -4328,33 +4436,6 @@ async fn push_next_flow_job(
             push_args.extra.get_or_insert_with(HashMap::new).insert(
                 windmill_common::jobs::WM_TRACEPARENT.to_string(),
                 traceparent.clone(),
-            );
-        }
-
-        // Re-snapshot on every iteration: per-iteration input transforms (for-loop
-        // steps above) can register additional secrets for the flow job.
-        let secrets = windmill_common::sensitive_log_masks::get_secrets_for_job(&flow_job.id);
-        if !secrets.is_empty() {
-            let encrypted_masks = match &secret_masks_cache {
-                Some((prev, encrypted)) if *prev == secrets => encrypted.clone(),
-                _ => {
-                    let mc = build_crypt_with_key_suffix(
-                        db,
-                        &flow_job.workspace_id,
-                        &secret_masks_root_job,
-                    )
-                    .await?;
-                    let encrypted = to_raw_value(&windmill_common::variables::encrypt(
-                        &mc,
-                        to_raw_value(&secrets).get(),
-                    ));
-                    secret_masks_cache = Some((secrets, encrypted.clone()));
-                    encrypted
-                }
-            };
-            push_args.extra.get_or_insert_with(HashMap::new).insert(
-                windmill_common::sensitive_log_masks::SECRET_MASKS_ARG.to_string(),
-                encrypted_masks,
             );
         }
 

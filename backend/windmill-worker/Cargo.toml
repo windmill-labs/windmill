@@ -57,6 +57,9 @@ windmill-mcp = { workspace = true, optional = true }
 windmill-macros.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
+swc_common.workspace = true
+swc_ecma_parser.workspace = true
+swc_ecma_ast.workspace = true
 windmill-parser-go.workspace = true
 windmill-parser-rust = { workspace = true, optional = true }
 windmill-parser-csharp = { workspace = true, optional = true }

@@ -492,11 +492,12 @@ async fn get_job_args(db: &Pool<Postgres>, job_id: Uuid) -> serde_json::Value {
     .0
 }
 
-/// Secrets fetched via `variable(...)` inside flow input transform expressions
-/// must be masked in the logs of the child step jobs the transforms feed into.
-/// The masks travel to the child via the `_secret_masks` arg, encrypted with
-/// the workspace key + root job id so the raw values never appear in the
-/// child's stored args.
+/// Flow input transforms that embed `variable(...)` calls (either as the whole
+/// expression or inside a template literal) are compiled to `$var:<path>` /
+/// `{"$interpolate": [...]}` args instead of being fetched at push time. The
+/// child job's worker resolves them at start, which both registers the value
+/// for log masking and keeps the raw secret out of the child's stored args.
+/// Expressions that compute on the variable value keep eager evaluation.
 ///
 /// Requires a JS expression evaluator for the transforms, hence the
 /// deno_core/quickjs gate.
@@ -520,10 +521,11 @@ async fn test_flow_transform_secret_masking(db: Pool<Postgres>) -> anyhow::Resul
     in_test_worker(
         db.clone(),
         async move {
-            // Two sequential steps, each with a transform fetching its own secret.
-            // Step b is pushed from the step-completion path (after step a's
-            // result is processed), where the flow job is not registered as a
-            // running job — the case that requires explicit mask propagation.
+            // Three sequential steps:
+            //  a: template-literal embedding      -> $interpolate arg
+            //  b: whole-value call (dynamic path) -> $var: arg; also exercises the
+            //     step-completion push path (pushed after step a's result lands)
+            //  c: computes on the value           -> eager evaluation fallback
             let flow: FlowValue = serde_json::from_value(json!({
                 "modules": [
                     {
@@ -549,7 +551,21 @@ async fn test_flow_transform_secret_masking(db: Pool<Postgres>) -> anyhow::Resul
                             "input_transforms": {
                                 "cmd": {
                                     "type": "javascript",
-                                    "expr": "`othercli --token=${variable(\"u/test-user/flow_secret_b\")}`"
+                                    "expr": "variable(\"u/test-user/flow_secret_\" + \"b\")"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "id": "c",
+                        "value": {
+                            "type": "rawscript",
+                            "language": "bun",
+                            "content": "export async function main(n: number) { console.log(\"step c: \" + n); return n; }",
+                            "input_transforms": {
+                                "n": {
+                                    "type": "javascript",
+                                    "expr": "variable(\"u/test-user/flow_secret_a\").length"
                                 }
                             }
                         }
@@ -569,42 +585,56 @@ async fn test_flow_transform_secret_masking(db: Pool<Postgres>) -> anyhow::Resul
             let cflow = completed_job(flow_job, &db2).await;
             assert!(cflow.success, "flow failed: {:?}", cflow.result);
 
-            // Step a: secret fetched by its transform is masked in its logs
+            // Step a: template embedding -> $interpolate arg, no plaintext at rest
             let job_a = get_flow_step_job(&db2, flow_job, "a").await;
+            let args_a = get_job_args(&db2, job_a).await;
+            assert_eq!(
+                args_a["cmd"],
+                json!({"$interpolate": ["mycli --password=", {"$var": "u/test-user/flow_secret_a"}]}),
+                "step a: expected an $interpolate arg\nargs: {args_a}"
+            );
             let logs_a = get_job_logs(&db2, job_a).await.expect("step a: no logs");
             assert!(
                 !logs_a.contains(secret_a),
-                "step a: transform secret leaked in child logs\nLogs:\n{logs_a}"
+                "step a: secret leaked in child logs\nLogs:\n{logs_a}"
             );
             assert!(
                 logs_a.contains("step a: mycli --password=flo*****4w2"),
-                "step a: transform secret not masked\nLogs:\n{logs_a}"
+                "step a: secret not masked\nLogs:\n{logs_a}"
             );
 
-            // Step b (pushed from the completion path): same guarantee
+            // Step b: whole-value call with a dynamic path -> $var: arg
             let job_b = get_flow_step_job(&db2, flow_job, "b").await;
+            let args_b = get_job_args(&db2, job_b).await;
+            assert_eq!(
+                args_b["cmd"],
+                json!("$var:u/test-user/flow_secret_b"),
+                "step b: expected a $var: arg\nargs: {args_b}"
+            );
             let logs_b = get_job_logs(&db2, job_b).await.expect("step b: no logs");
             assert!(
                 !logs_b.contains(secret_b),
-                "step b: transform secret leaked in child logs\nLogs:\n{logs_b}"
+                "step b: secret leaked in child logs\nLogs:\n{logs_b}"
             );
             assert!(
-                logs_b.contains("step b: othercli --token=flo*****8q3"),
-                "step b: transform secret not masked\nLogs:\n{logs_b}"
+                logs_b.contains("step b: flo*****8q3"),
+                "step b: secret not masked\nLogs:\n{logs_b}"
             );
 
-            // The propagated masks must not appear in plaintext in stored args
-            for (job, secret, step) in [(job_a, secret_a, "a"), (job_b, secret_b, "b")] {
-                let args = get_job_args(&db2, job).await;
-                let masks = args
-                    .get("_secret_masks")
-                    .unwrap_or_else(|| panic!("step {step}: no _secret_masks arg\nargs: {args}"));
-                let masks_str = masks.as_str().unwrap_or_default();
-                assert!(
-                    !masks_str.contains(secret),
-                    "step {step}: _secret_masks stored in plaintext\nargs: {args}"
-                );
-            }
+            // Step c: computes on the value -> eager evaluation, correct result
+            let job_c = get_flow_step_job(&db2, flow_job, "c").await;
+            let args_c = get_job_args(&db2, job_c).await;
+            assert_eq!(
+                args_c["n"],
+                json!(secret_a.len()),
+                "step c: eager fallback should compute on the real value\nargs: {args_c}"
+            );
+            let cjob_c = completed_job(job_c, &db2).await;
+            assert_eq!(
+                cjob_c.json_result().unwrap(),
+                json!(secret_a.len()),
+                "step c: wrong result"
+            );
         },
         port,
     )

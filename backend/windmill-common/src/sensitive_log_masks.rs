@@ -20,12 +20,6 @@ const MIN_SECRET_LENGTH: usize = 8;
 const MASKED_NOTICE: &str =
     "[windmill] secret value was masked for security reasons, use string transformations to display full value";
 
-/// Job-args key under which a flow propagates its accumulated secret masks to
-/// child step jobs. The value is a JSON string holding an encrypted JSON array
-/// of secrets (workspace key + root job id, same scheme as `$encrypted:` args)
-/// so the raw values never land in the child's stored args.
-pub const SECRET_MASKS_ARG: &str = "_secret_masks";
-
 lazy_static::lazy_static! {
     /// Map of job_id -> set of secret values that should be masked in that job's logs.
     static ref SENSITIVE_MASKS: RwLock<HashMap<Uuid, HashSet<String>>> =
@@ -113,52 +107,6 @@ pub fn snapshot(job_id: &Uuid) -> Option<MaskSnapshot> {
         .expect("failed to build aho-corasick automaton");
 
     Some(MaskSnapshot { ac, replacements, notice_shown: std::cell::Cell::new(false) })
-}
-
-/// Snapshot of the secrets currently registered for a job, sorted for
-/// deterministic comparison across snapshots. Empty if the job is not tracked.
-pub fn get_secrets_for_job(job_id: &Uuid) -> Vec<String> {
-    let masks = SENSITIVE_MASKS.read().unwrap_or_else(|e| e.into_inner());
-    let mut secrets: Vec<String> = masks
-        .get(job_id)
-        .map(|s| s.iter().cloned().collect())
-        .unwrap_or_default();
-    secrets.sort();
-    secrets
-}
-
-/// Guard returned by [`track_job_for_masks`]. Removes the tracking entry on drop
-/// if (and only if) it was added by this guard.
-pub struct MaskTrackingGuard {
-    job_id: Uuid,
-    /// Whether this guard added the tracking entry (false if the job was
-    /// already tracked, e.g. registered as running by the worker loop).
-    pub added: bool,
-}
-
-impl Drop for MaskTrackingGuard {
-    fn drop(&mut self) {
-        if self.added {
-            unregister_running_job(self.job_id);
-        }
-    }
-}
-
-/// Track `job_id` for secret registration (like `register_running_job`) for the
-/// lifetime of the returned guard, unless it is already tracked (then the guard
-/// is a no-op). Lets a flow job capture secrets fetched by input transforms
-/// evaluated on the step-completion path, where the flow job is not registered
-/// as running on the worker.
-pub fn track_job_for_masks(job_id: Uuid) -> MaskTrackingGuard {
-    let added = {
-        let mut jobs = RUNNING_JOBS.write().unwrap_or_else(|e| e.into_inner());
-        jobs.insert(job_id)
-    };
-    if added {
-        let mut masks = SENSITIVE_MASKS.write().unwrap_or_else(|e| e.into_inner());
-        masks.entry(job_id).or_default();
-    }
-    MaskTrackingGuard { job_id, added }
 }
 
 /// Register a job as currently running. Call this before `handle_queued_job`.

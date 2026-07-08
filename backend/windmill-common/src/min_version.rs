@@ -3,6 +3,8 @@ use semver::Version;
 
 // ============ Feature Definitions ============
 
+pub const MIN_VERSION_SUPPORTS_INTERPOLATED_ARGS: VC =
+    vc(1, 750, 0, "Interpolated variable args in flow transforms");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

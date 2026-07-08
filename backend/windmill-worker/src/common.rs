@@ -129,7 +129,6 @@ pub async fn create_args_and_out_file(
         if let Some(mut x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
             x.remove("_MODULES");
             x.remove("_TEMP_SCRIPT_REFS");
-            x.remove(windmill_common::sensitive_log_masks::SECRET_MASKS_ARG);
             write_file(
                 job_dir,
                 "args.json",
@@ -139,7 +138,6 @@ pub async fn create_args_and_out_file(
             let mut filtered = args.0.clone();
             filtered.remove("_MODULES");
             filtered.remove("_TEMP_SCRIPT_REFS");
-            filtered.remove(windmill_common::sensitive_log_masks::SECRET_MASKS_ARG);
             write_file(
                 job_dir,
                 "args.json",
@@ -154,41 +152,6 @@ pub async fn create_args_and_out_file(
     Ok(())
 }
 
-/// Register the secret masks a parent flow propagated through the
-/// `_secret_masks` arg (an encrypted JSON array of strings keyed on workspace
-/// key + root job id, produced by `push_next_flow_job`). Call after the job is
-/// registered for mask tracking and before it produces logs. Best-effort:
-/// a failure here only degrades log masking, so it never fails the job.
-pub async fn register_secret_masks_from_args(job: &MiniPulledJob, db: &DB) {
-    let Some(raw) = job.args.as_ref().and_then(|args| {
-        args.0
-            .get(windmill_common::sensitive_log_masks::SECRET_MASKS_ARG)
-    }) else {
-        return;
-    };
-    let Ok(encrypted) = serde_json::from_str::<String>(raw.get()) else {
-        return;
-    };
-    let root_job_id = get_root_job_id(job);
-    let secrets = build_crypt_with_key_suffix(db, &job.workspace_id, &root_job_id.to_string())
-        .await
-        .and_then(|mc| decrypt(&mc, encrypted))
-        .and_then(|s| {
-            serde_json::from_str::<Vec<String>>(&s)
-                .map_err(|e| Error::internal_err(format!("parsing propagated secret masks: {e}")))
-        });
-    match secrets {
-        Ok(secrets) => {
-            for secret in secrets {
-                windmill_common::sensitive_log_masks::register_secret_for_job(job.id, &secret);
-            }
-        }
-        Err(e) => {
-            tracing::warn!(job_id = %job.id, "failed to register propagated secret masks: {e}");
-        }
-    }
-}
-
 pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
     let mut file = File::create(&path).await?;
@@ -198,12 +161,13 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:|"\$interpolate""#).unwrap();
 }
 
 /// Returns true if any value in `vs` contains a `$var:`/`$jsonvar:`/`$res:`/`$encrypted:`
-/// reference that would need interpolation by `transform_json`. Cheap pre-check that
-/// callers can use to skip the DB roundtrip + clone path when nothing requires resolution.
+/// reference or an `$interpolate` object that would need interpolation by
+/// `transform_json`. Cheap pre-check that callers can use to skip the DB
+/// roundtrip + clone path when nothing requires resolution.
 pub(crate) fn map_needs_resolution(vs: &HashMap<String, Box<RawValue>>) -> bool {
     vs.values().any(|v| (*RE_RES_VAR).is_match(v.get()))
 }
@@ -300,6 +264,47 @@ pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
 // object/array structure here, but a finite cap guards against pathological
 // inputs regardless of the API-side guard.
 const MAX_INTERPOLATION_DEPTH: u8 = 50;
+
+/// Resolve the parts of an `$interpolate` arg into the final string. Returns
+/// `Ok(None)` when a part has a shape the transform compiler never emits, so
+/// the caller falls back to treating the object as plain data.
+async fn resolve_interpolate_parts(
+    name: &str,
+    client: &AuthedClient,
+    parts: &[Value],
+) -> error::Result<Option<String>> {
+    enum Part<'a> {
+        Literal(&'a str),
+        Var(&'a str),
+    }
+    // Validate the full shape before fetching anything.
+    let mut validated = Vec::with_capacity(parts.len());
+    for part in parts {
+        match part {
+            Value::String(s) => validated.push(Part::Literal(s)),
+            Value::Object(o) if o.len() == 1 => {
+                let Some(Value::String(path)) = o.get("$var") else {
+                    return Ok(None);
+                };
+                validated.push(Part::Var(path));
+            }
+            _ => return Ok(None),
+        }
+    }
+    let mut out = String::new();
+    for part in validated {
+        match part {
+            Part::Literal(s) => out.push_str(s),
+            Part::Var(path) => {
+                let value = client.get_variable_value(path).await.map_err(|e| {
+                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
+                })?;
+                out.push_str(&value);
+            }
+        }
+    }
+    Ok(Some(out))
+}
 
 #[async_recursion]
 pub async fn transform_json_value(
@@ -423,6 +428,19 @@ pub async fn transform_json_value(
             Ok(Value::Array(arr))
         }
         Value::Object(mut m) => {
+            // `{"$interpolate": ["literal", {"$var": "path"}, ...]}` args are produced
+            // by flow input transforms that embed `variable()` calls in a template
+            // literal (see `transform_var_defer`): the variable is fetched here, on the
+            // job's own worker, so it gets registered for log masking and its raw value
+            // never appears in the job's stored args. Shapes the compiler never emits
+            // (non-string/non-`$var` parts) are treated as plain data below instead.
+            if m.len() == 1 {
+                if let Some(Value::Array(parts)) = m.get("$interpolate") {
+                    if let Some(out) = resolve_interpolate_parts(name, client, parts).await? {
+                        return Ok(Value::String(out));
+                    }
+                }
+            }
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
