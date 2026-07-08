@@ -37,7 +37,7 @@
 
 	// Path typed in the editor header, surfaced when it differs from the stored
 	// path. Mirror it into the runtime draft as `draft_path` so the rename
-	// mutates runtime.rawApp.val → the autosave sig changes → the draft is saved
+	// mutates this cell's store → the autosave sig changes → the draft is saved
 	// (and the home/review/Drafts lists show the friendly name). Mirrors the
 	// full-page /apps_raw/edit route.
 	let pendingDraftPath = $state<string | undefined>(undefined)
