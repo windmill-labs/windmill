@@ -673,7 +673,7 @@
 										</Popover>
 									{/if}
 								{/snippet}
-								{#snippet trailing()}
+								{#snippet afterTabs()}
 									<Popover
 										placement="bottom-start"
 										usePointerDownOutside

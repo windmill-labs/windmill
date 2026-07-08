@@ -36,7 +36,11 @@
 		onReorder?: (newOrder: TabItem[]) => void
 		/** Extra classes for the outer tab strip. */
 		class?: string
-		/** Render after the right-pinned tabs (e.g. a "Split with Preview" toggle). */
+		/** Render inside the scroll row, right after the last tab (e.g. a "+" new-tab
+		 * button) — scrolls with the tabs, unlike `trailing`. */
+		afterTabs?: import('svelte').Snippet
+		/** Render after the right-pinned tabs, outside the scroll area so it stays
+		 * pinned (e.g. a "Split with Preview" toggle). */
 		trailing?: import('svelte').Snippet
 		/** Render inside each tab, after the label and before the close button (e.g. a
 		 * per-tab chevron/breadcrumb picker). Receives the tab and whether it's active. */
@@ -50,6 +54,7 @@
 		onClose,
 		onReorder,
 		class: c = '',
+		afterTabs,
 		trailing,
 		tabAccessory
 	}: Props = $props()
@@ -189,6 +194,10 @@
 			{#each pinnedRight as tab (tab.id)}
 				{@render tabButton(tab)}
 			{/each}
+
+			{#if afterTabs}
+				{@render afterTabs()}
+			{/if}
 		</div>
 	</ScrollableX>
 
