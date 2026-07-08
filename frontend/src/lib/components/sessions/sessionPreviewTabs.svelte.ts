@@ -240,6 +240,25 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	// Reorder the tabs to the given id order (drag-and-drop). Ids absent from the
+	// current set are ignored; any current tab the caller omitted is kept at the
+	// end so a stale/partial order can never drop a tab. No-op if unchanged.
+	reorder(orderedIds: string[]): void {
+		const byId = new Map(this.#tabs.map((t) => [t.id, t]))
+		const next: SessionPreviewTab[] = []
+		for (const id of orderedIds) {
+			const t = byId.get(id)
+			if (t) {
+				next.push(t)
+				byId.delete(id)
+			}
+		}
+		for (const t of this.#tabs) if (byId.has(t.id)) next.push(t)
+		if (next.length === this.#tabs.length && next.every((t, i) => t === this.#tabs[i])) return
+		this.#tabs = next
+		this.#flush()
+	}
+
 	close(id: string): void {
 		const idx = this.#tabs.findIndex((t) => t.id === id)
 		if (idx < 0) return

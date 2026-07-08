@@ -38,9 +38,21 @@
 		class?: string
 		/** Render after the right-pinned tabs (e.g. a "Split with Preview" toggle). */
 		trailing?: import('svelte').Snippet
+		/** Render inside each tab, after the label and before the close button (e.g. a
+		 * per-tab chevron/breadcrumb picker). Receives the tab and whether it's active. */
+		tabAccessory?: import('svelte').Snippet<[TabItem, boolean]>
 	}
 
-	let { tabs, activeId, onSelect, onClose, onReorder, class: c = '', trailing }: Props = $props()
+	let {
+		tabs,
+		activeId,
+		onSelect,
+		onClose,
+		onReorder,
+		class: c = '',
+		trailing,
+		tabAccessory
+	}: Props = $props()
 
 	const pinnedLeft = $derived(tabs.filter((t) => t.pinned === 'left'))
 	const middle = $derived(tabs.filter((t) => !t.pinned))
@@ -123,6 +135,15 @@
 			<Icon size={12} class={tab.iconClass} />
 		{/if}
 		<span class={twMerge('truncate max-w-[180px]', tab.labelClass)}>{tab.label}</span>
+		{#if tabAccessory}
+			<!-- The accessory is its own control (e.g. a picker): a click on it must not
+				 also select/re-select the tab, mirroring the close button below. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<span class="inline-flex items-center" onclick={(e) => e.stopPropagation()}>
+				{@render tabAccessory(tab, isActive)}
+			</span>
+		{/if}
 		{#if tab.closable !== false}
 			<button
 				type="button"
