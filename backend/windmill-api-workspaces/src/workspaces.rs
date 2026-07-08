@@ -71,6 +71,9 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
+use windmill_common::secret_backend::{
+    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
+};
 use windmill_common::utils::not_found_if_none;
 
 lazy_static::lazy_static! {
@@ -4041,6 +4044,7 @@ async fn create_workspace(
 // their drafts would dangle as orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
+    db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed_email: &str,
@@ -4063,8 +4067,8 @@ async fn clone_workspace_data(
     // Clone resources
     clone_resources(tx, source_workspace_id, target_workspace_id).await?;
 
-    // Clone variables with re-encryption
-    clone_variables(tx, source_workspace_id, target_workspace_id).await?;
+    // Clone variables (including external secret backend replication)
+    clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
 
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
@@ -4569,6 +4573,7 @@ async fn clone_resources(
 
 async fn clone_variables(
     tx: &mut Transaction<'_, Postgres>,
+    db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
@@ -4582,6 +4587,56 @@ async fn clone_variables(
     )
     .execute(&mut **tx)
     .await?;
+
+    // With an external secret backend (Vault / Azure KV / AWS SM), the copied
+    // `value` is only a `$vault:`/`$azure_kv:`/`$aws_sm:` marker: the actual
+    // secret lives in the external store under a key derived from
+    // (workspace_id, path). The row copy above therefore leaves the fork's
+    // markers pointing at keys that don't exist — replicate each secret under
+    // the fork's workspace id.
+    if is_vault_backend_configured(db).await? {
+        let secret_variables = sqlx::query!(
+            "SELECT path, value FROM variable
+             WHERE workspace_id = $1 AND is_secret = true AND value != ''",
+            target_workspace_id,
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+
+        let backend = get_secret_backend(db).await?;
+        for variable in secret_variables
+            .into_iter()
+            .filter(|v| is_external_stored_value(&v.value))
+        {
+            match backend
+                .get_secret(source_workspace_id, &variable.path)
+                .await
+            {
+                Ok(plain_value) => {
+                    backend
+                        .set_secret(target_workspace_id, &variable.path, &plain_value)
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to replicate secret variable {} to the external secret backend for the forked workspace: {e}",
+                                variable.path
+                            ))
+                        })?;
+                }
+                // The source secret is unreadable (e.g. deleted out-of-band from
+                // the external store), so the variable is equally broken in the
+                // source workspace — don't let it block forking.
+                Err(e) => {
+                    tracing::warn!(
+                        workspace_id = %source_workspace_id,
+                        path = %variable.path,
+                        error = %e,
+                        "Could not read secret variable from the external secret backend while forking; the forked variable will not resolve"
+                    );
+                }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -5543,7 +5598,14 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
+    clone_workspace_data(
+        &mut tx,
+        &db,
+        &parent_workspace_id,
+        &forked_id,
+        &authed.email,
+    )
+    .await?;
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
