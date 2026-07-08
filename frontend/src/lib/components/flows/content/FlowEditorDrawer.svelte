@@ -90,6 +90,7 @@
 				{flowStore}
 				{flowStateStore}
 				initialPath={flowPath}
+				autosaveWorkspace={opWs}
 				newFlow={false}
 				selectedId="settings-metadata"
 				loading={false}

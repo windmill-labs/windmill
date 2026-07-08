@@ -204,6 +204,7 @@
 		{#if script && displayEditor}
 			{#key script.hash}
 				<ScriptEditor
+					workspaceOverride={opWs}
 					showCaptures={false}
 					on:saveDraft={() => {
 						saveScript()
@@ -220,7 +221,10 @@
 				>
 					{#snippet editorBarRight()}
 						<div>
-							<WorkerTagSelect bind:tag={() => script?.tag, (v) => script && (script.tag = v)} />
+							<WorkerTagSelect
+								bind:tag={() => script?.tag, (v) => script && (script.tag = v)}
+								workspaceId={opWs}
+							/>
 						</div>
 					{/snippet}
 				</ScriptEditor>
