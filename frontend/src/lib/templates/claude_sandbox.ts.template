@@ -1,7 +1,6 @@
 // sandbox
 // volume: claude .claude
-// Requires the Claude Code CLI at /usr/bin/claude — not in the default image. Install it via a
-// worker init script: curl -fsSL https://claude.ai/install.sh | bash && cp /root/.local/share/claude/versions/* /usr/bin/claude
+// Needs the Claude Code CLI at /usr/bin/claude — install via a worker init script if absent
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as fs from "fs";
