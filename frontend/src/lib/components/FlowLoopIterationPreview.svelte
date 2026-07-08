@@ -139,7 +139,7 @@
 					try {
 						jobId &&
 							(await JobService.cancelQueuedJob({
-								workspace: $workspaceStore ?? '',
+								workspace: opWorkspace?.() ?? $workspaceStore ?? '',
 								id: jobId,
 								requestBody: {}
 							}))

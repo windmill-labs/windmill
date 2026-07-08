@@ -278,7 +278,7 @@ export async function createScriptFromInlineScript(
 	const forkedDescription = wasForked ? `as a fork of ${originalScriptPath}` : ''
 	const description = `This script was edited in place of flow ${flowPath} ${forkedDescription} by ${user?.username}.`
 
-	const availablePath = await findNextAvailablePath(path)
+	const availablePath = await findNextAvailablePath(path, workspace)
 
 	const hash = await ScriptService.createScript({
 		workspace: workspace ?? get(workspaceStore)!,

@@ -113,6 +113,7 @@
 				bind:this={resourcePicker}
 				resourceType="mcp"
 				bind:value={tool.value.resource_path}
+				workspace={opWs}
 			/>
 		</Label>
 	</div>

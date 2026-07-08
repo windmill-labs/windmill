@@ -101,7 +101,7 @@
 				? await getScriptByPath(path!)
 				: hash
 					? await ScriptService.getScriptByHash({ workspace: opWs!, hash })
-					: await getScriptByPath(path!)
+					: await getScriptByPath(path!, opWs)
 			code = script.content
 
 			language = script.language

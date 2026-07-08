@@ -303,7 +303,11 @@
 
 							<Label label="Value">
 								{#if entry.type === 'resource'}
-									<ResourcePicker bind:value={resourcePaths[entry.key]} disabled={noEditor} />
+									<ResourcePicker
+										bind:value={resourcePaths[entry.key]}
+										disabled={noEditor}
+										workspace={opWs}
+									/>
 								{:else if entry.type === 'json'}
 									<div class="w-full">
 										<JsonEditor
