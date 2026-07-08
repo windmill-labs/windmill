@@ -20,6 +20,7 @@ import {
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayMessage,
+	type UserQuestionDisplay,
 	type ChatJob,
 	type ChatJobInit,
 	type ChatJobStatus,
@@ -389,7 +390,7 @@ export class AIChatManager {
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
-	private userQuestionCallbacks = new Map<string, (choice: string | undefined) => void>()
+	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
@@ -1240,35 +1241,40 @@ export class AIChatManager {
 
 	requestUserQuestion = (
 		toolId: string,
-		_question: { question: string; choices: string[] }
-	): Promise<string | undefined> => {
+		_question: UserQuestionDisplay
+	): Promise<string[] | undefined> => {
 		return new Promise((resolve) => {
 			this.userQuestionCallbacks.set(toolId, resolve)
 		})
 	}
 
-	handleUserQuestionAnswer = (toolId: string, choice: string) => {
+	handleUserQuestionAnswer = (toolId: string, choices: string[]) => {
 		const callback = this.userQuestionCallbacks.get(toolId)
 		if (!callback) {
 			return
 		}
 
+		// Display-only readback for the collapsed tool-header: a compact comma list.
+		// The model-facing return (bare string / newline-bulleted) is built by the
+		// tool fn from the resolved choices below.
+		const answerSummary = choices.join(', ')
+
 		this.displayMessages = this.displayMessages.map((message) => {
 			if (message.role === 'tool' && message.tool_call_id === toolId && message.userQuestion) {
 				return {
 					...message,
-					content: `User answered question: ${choice}`,
+					content: `User answered question: ${answerSummary}`,
 					isLoading: false,
 					userQuestion: {
 						...message.userQuestion,
-						selectedChoice: choice
+						selectedChoices: choices
 					}
 				}
 			}
 			return message
 		})
 
-		callback(choice)
+		callback(choices)
 		this.userQuestionCallbacks.delete(toolId)
 	}
 

@@ -651,7 +651,18 @@ describe('isActiveUserQuestion', () => {
 		expect(isActiveUserQuestion(toolMessage())).toBe(true)
 	})
 
-	it('is false once a choice has been selected', async () => {
+	it('is false once choices have been selected', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoices: ['a'] }
+				})
+			)
+		).toBe(false)
+	})
+
+	it('is false once a legacy scalar selectedChoice is present', async () => {
 		const { isActiveUserQuestion } = await import('./shared')
 		expect(
 			isActiveUserQuestion(
@@ -660,6 +671,17 @@ describe('isActiveUserQuestion', () => {
 				})
 			)
 		).toBe(false)
+	})
+
+	it('stays active when selectedChoices is present but empty', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoices: [] }
+				})
+			)
+		).toBe(true)
 	})
 
 	it('is false when the question was canceled', async () => {
