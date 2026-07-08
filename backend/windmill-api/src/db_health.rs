@@ -504,19 +504,25 @@ fn compute_connection_sizing(
     live_instances: i64,
     reserved: i64,
 ) -> ConnectionSizingInfo {
+    // Never recommend below this floor: postgres defaults to 100 and headroom
+    // for growth/bursts/psql is cheap, so 200 is a safe baseline for any fleet.
+    const MIN_RECOMMENDED_MAX_CONNECTIONS: i64 = 200;
+
     let server_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_SERVER as i64;
     let worker_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_WORKER as i64;
 
     let estimated_worker_connections = (worker_pool - 1) * live_instances + live_workers;
 
-    // Workers + one server, plus 25% headroom and the superuser reserve, so the
-    // recommendation leaves room for psql/monitoring sessions and bursts.
+    // Workers + one server, plus 20% headroom and the superuser reserve, so the
+    // recommendation leaves room for psql/monitoring sessions and bursts, then
+    // floored at MIN_RECOMMENDED_MAX_CONNECTIONS.
     let base = estimated_worker_connections + server_pool;
-    let recommended = (((base as f64) * 1.25).ceil() as i64) + reserved.max(3);
+    let recommended = ((((base as f64) * 1.20).ceil() as i64) + reserved.max(3))
+        .max(MIN_RECOMMENDED_MAX_CONNECTIONS);
 
     let message = if live_instances == 0 {
         format!(
-            "No live workers detected. Each Windmill server opens up to {server_pool} connections and each worker instance up to {worker_pool} (both configurable via DATABASE_CONNECTIONS). Size max_connections as (servers × {server_pool}) + (worker instances × {worker_pool}) + ~25% headroom."
+            "No live workers detected. Each Windmill server opens up to {server_pool} connections and each worker instance up to {worker_pool} (both configurable via DATABASE_CONNECTIONS). Size max_connections as (servers × {server_pool}) + (worker instances × {worker_pool}) + ~20% headroom, and at least {MIN_RECOMMENDED_MAX_CONNECTIONS}."
         )
     } else {
         format!(
@@ -737,7 +743,7 @@ mod tests {
     use super::compute_connection_sizing;
 
     #[test]
-    fn no_workers_reports_defaults_and_no_worker_demand() {
+    fn no_workers_reports_defaults_and_floors_at_200() {
         let s = compute_connection_sizing(0, 0, 3);
         assert_eq!(s.live_workers, 0);
         assert_eq!(s.live_worker_instances, 0);
@@ -745,18 +751,18 @@ mod tests {
         assert_eq!(s.default_server_pool_size, 50);
         assert_eq!(s.default_worker_pool_size, 5);
         assert_eq!(s.per_server_increment, 50);
-        // ceil((0 + 50) * 1.25) + max(3,3) = 63 + 3
-        assert_eq!(s.recommended_max_connections, 66);
+        // ceil((0 + 50) * 1.20) + 3 = 63, floored up to 200.
+        assert_eq!(s.recommended_max_connections, 200);
         assert!(s.message.contains("No live workers"));
     }
 
     #[test]
-    fn single_worker_single_instance() {
+    fn single_worker_single_instance_floors_at_200() {
         let s = compute_connection_sizing(1, 1, 3);
         // (5 - 1) * 1 instance + 1 worker = 5
         assert_eq!(s.estimated_worker_connections, 5);
-        // ceil((5 + 50) * 1.25) + 3 = 69 + 3
-        assert_eq!(s.recommended_max_connections, 72);
+        // ceil((5 + 50) * 1.20) + 3 = 66 + 3 = 69, floored up to 200.
+        assert_eq!(s.recommended_max_connections, 200);
     }
 
     #[test]
@@ -764,18 +770,25 @@ mod tests {
         // Two instances, 5 workers total: pools are (4 + w_i) summed = 4*2 + 5 = 13.
         let s = compute_connection_sizing(5, 2, 3);
         assert_eq!(s.estimated_worker_connections, 13);
-        // ceil((13 + 50) * 1.25) + 3 = ceil(78.75) + 3 = 79 + 3
-        assert_eq!(s.recommended_max_connections, 82);
     }
 
     #[test]
-    fn reserved_below_floor_is_clamped_to_three() {
-        let low = compute_connection_sizing(1, 1, 0);
-        let base = compute_connection_sizing(1, 1, 3);
-        // reserved=0 is clamped to 3, matching reserved=3.
+    fn large_fleet_exceeds_floor_with_margin_and_reserve() {
+        // 300 workers across 10 instances: (5-1)*10 + 300 = 340 worker connections.
+        let s = compute_connection_sizing(300, 10, 3);
+        assert_eq!(s.estimated_worker_connections, 340);
+        // ceil((340 + 50) * 1.20) + 3 = ceil(468.0) + 3 = 471, above the 200 floor.
+        assert_eq!(s.recommended_max_connections, 471);
+    }
+
+    #[test]
+    fn reserved_above_default_widens_recommendation() {
+        // Big enough fleet that the floor doesn't mask the reserved contribution.
+        let base = compute_connection_sizing(300, 10, 3);
+        let high = compute_connection_sizing(300, 10, 20);
         assert_eq!(
-            low.recommended_max_connections,
-            base.recommended_max_connections
+            high.recommended_max_connections - base.recommended_max_connections,
+            17
         );
     }
 }
