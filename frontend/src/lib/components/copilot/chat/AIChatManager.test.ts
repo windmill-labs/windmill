@@ -1654,50 +1654,54 @@ describe('AIChatManager background job completion', () => {
 		await vi.waitFor(() => expect(manager.backgroundJobs[0]?.reported).toBe(true))
 	}
 
-	it('runs a detached job completion through its launching tool formatter', async () => {
+	// A ChatJob carrying only its serializable resultFormat (no in-memory closure) —
+	// exactly the shape a job has after being rehydrated from IndexedDB on reload.
+	const datatableJob = {
+		jobId: 'job-1',
+		toolCallId: 'tc-1',
+		kind: 'script' as const,
+		label: 'SQL · main',
+		workspace: 'ws',
+		resultFormat: { kind: 'datatable' as const, datatableName: 'main' }
+	}
+
+	it('reconstructs the datatable result contract from the persisted resultFormat', async () => {
 		const manager = new AIChatManager()
-		const formatCompletion = vi.fn(() => ({
-			llmText: '{"success":true,"rowCount":1}',
-			card: { content: 'Query returned 1 row(s)', result: '[{"n":1}]' }
-		}))
-		manager.registerJob(
-			{ jobId: 'job-1', toolCallId: 'tc-1', kind: 'script', label: 'SQL · main', workspace: 'ws' },
-			formatCompletion
-		)
+		manager.registerJob(datatableJob)
 		const applyToolStatus = vi.spyOn(manager, 'applyToolStatus')
-		mocks.getJob.mockResolvedValue(completed())
+		mocks.getJob.mockResolvedValue(completed({ result: [{ n: 1 }, { n: 2 }] }))
 
 		await completeDetachedJob(manager)
 
-		// The formatter shaped both the tool card and the model-visible note, so the
-		// detached path carries the same contract the inline path would have.
-		expect(formatCompletion).toHaveBeenCalledTimes(1)
+		// No live closure is involved: the descriptor alone reshapes both the tool card
+		// and the model note, so a job that detached and survived a reload still reports
+		// the SQL contract (row count + shaped rows) rather than generic job output.
 		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
-			content: 'Query returned 1 row(s)',
-			result: '[{"n":1}]'
+			content: 'Query returned 2 row(s)',
+			result: JSON.stringify([{ n: 1 }, { n: 2 }], null, 2)
 		})
 		expect(manager.pendingJobNotes).toHaveLength(1)
-		expect(manager.pendingJobNotes[0]).toContain('{"success":true,"rowCount":1}')
+		expect(manager.pendingJobNotes[0]).toContain('"rowCount": 2')
 	})
 
-	it('skips the formatter and emits no note for a canceled detached job', async () => {
+	it('skips reconstruction and emits no note for a canceled detached job', async () => {
 		const manager = new AIChatManager()
-		const formatCompletion = vi.fn()
-		manager.registerJob(
-			{ jobId: 'job-1', toolCallId: 'tc-1', kind: 'script', label: 'SQL · main', workspace: 'ws' },
-			formatCompletion
-		)
+		manager.registerJob(datatableJob)
+		const applyToolStatus = vi.spyOn(manager, 'applyToolStatus')
 		mocks.getJob.mockResolvedValue(completed({ success: false, canceled: true }))
 
 		await completeDetachedJob(manager)
 
 		// A user cancel isn't a result to shape or a completion to announce.
-		expect(formatCompletion).not.toHaveBeenCalled()
 		expect(manager.pendingJobNotes).toHaveLength(0)
 		expect(manager.backgroundJobs[0]?.status).toBe('canceled')
+		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
+			content: 'Background job canceled',
+			logs: expect.anything()
+		})
 	})
 
-	it('falls back to the generic note when the job had no formatter', async () => {
+	it('falls back to the generic note when the job has no resultFormat', async () => {
 		const manager = new AIChatManager()
 		manager.registerJob({
 			jobId: 'job-1',

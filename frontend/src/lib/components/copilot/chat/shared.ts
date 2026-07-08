@@ -786,6 +786,12 @@ export type ChatJobStatus =
 	| 'failure'
 	| 'canceled'
 
+/** Serializable identity of a tool's terminal result formatter, stored on a ChatJob
+ * so a detached job that survives a reload can still reconstruct the shaped result
+ * its launching tool would have produced (see formatChatJobCompletion). A closure
+ * can't be persisted to IndexedDB; this discriminant can. */
+export type ChatJobResultFormat = { kind: 'datatable'; datatableName: string }
+
 /** A job the chat started and is tracking. Rendered in the jobs tray, persisted
  * with the chat, and advanced by a single background poller on the manager. */
 export type ChatJob = {
@@ -808,6 +814,10 @@ export type ChatJob = {
 	 * exactly. Always written together with `status` from the SAME job so the two
 	 * can't drift. Undefined only before the first fetch. */
 	job?: Job
+	/** Set by tools that shape their result (e.g. exec_datatable_sql). Persisted, so
+	 * a detached job that finishes after a reload still reports through the tool's
+	 * result contract rather than generic job output. */
+	resultFormat?: ChatJobResultFormat
 }
 
 /** Derive the tray status from a fetched Job. Deliberately mirrors the branch
@@ -843,7 +853,10 @@ export function trimJob(job: Job): Job {
 }
 
 /** The subset supplied when a job first starts; the manager fills in the rest. */
-export type ChatJobInit = Pick<ChatJob, 'jobId' | 'toolCallId' | 'kind' | 'label' | 'workspace'>
+export type ChatJobInit = Pick<
+	ChatJob,
+	'jobId' | 'toolCallId' | 'kind' | 'label' | 'workspace' | 'resultFormat'
+>
 
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
@@ -852,7 +865,7 @@ export interface ToolCallbacks {
 	 * Their presence is what enables detach-into-background in executeTestRun; when
 	 * absent (in-editor script/flow/pipeline chats), test runs stay blocking with a
 	 * 60s cap. */
-	onJobStarted?: (job: ChatJobInit, formatCompletion?: BackgroundJobFormatter) => void
+	onJobStarted?: (job: ChatJobInit) => void
 	onJobStatus?: (jobId: string, update: Partial<ChatJob>) => void
 	onJobDetached?: (jobId: string) => void
 	/** Streamed reasoning/thinking deltas, rendered as a collapsible block in the chat. */
@@ -1124,15 +1137,21 @@ export interface TestRunConfig {
 	/** Overrides the default "…test started, waiting for completion" status while the
 	 * job runs inline (e.g. an SQL tool shows "SQL running…"). */
 	runningMessage?: string
-	/** Custom terminal formatting for callers whose result isn't a plain test-run
-	 * summary (e.g. exec_datatable_sql shaping rows). Returns the string handed to
-	 * the model plus the tool-card patch. When omitted, the default summary is used. */
+	/** Custom terminal formatting for the INLINE completion path (callers whose
+	 * result isn't a plain test-run summary, e.g. exec_datatable_sql shaping rows).
+	 * Returns the string handed to the model plus the tool-card patch. When omitted,
+	 * the default summary is used. For the DETACHED/rehydrated path, supply
+	 * `resultFormat` too so the completion can be reconstructed without this closure. */
 	formatCompletion?: BackgroundJobFormatter
+	/** Serializable twin of `formatCompletion`, stored on the ChatJob so a detached
+	 * job that finishes after a reload still reports through the tool's result
+	 * contract (see AIChatManager.#onBackgroundJobComplete). */
+	resultFormat?: ChatJobResultFormat
 }
 
 /** Terminal formatter a tool supplies so its result keeps the same model-visible
  * contract whether the job finishes inline or completes after detaching into the
- * background (see AIChatManager's #jobFormatters). */
+ * background. */
 export type BackgroundJobFormatter = (job: CompletedJob) => {
 	llmText: string
 	card: Partial<ToolDisplayMessage>
@@ -1336,19 +1355,18 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
 
-		// Register the job so the tray shows it from the moment it is queued. Hand the
-		// terminal formatter along too so a job that later detaches keeps the same
-		// model-visible result contract this inline path applies below.
-		config.toolCallbacks.onJobStarted?.(
-			{
-				jobId,
-				toolCallId: config.toolId,
-				kind: config.contextName,
-				label,
-				workspace: config.workspace
-			},
-			config.formatCompletion
-		)
+		// Register the job so the tray shows it from the moment it is queued. Carry the
+		// serializable resultFormat so a job that later detaches (and may outlive a
+		// reload) can reconstruct the same model-visible contract this inline path
+		// applies below.
+		config.toolCallbacks.onJobStarted?.({
+			jobId,
+			toolCallId: config.toolId,
+			kind: config.contextName,
+			label,
+			workspace: config.workspace,
+			resultFormat: config.resultFormat
+		})
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: config.runningMessage ?? `${contextName} test started, waiting for completion...`

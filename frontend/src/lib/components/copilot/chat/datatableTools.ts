@@ -1,8 +1,14 @@
 import { z } from 'zod'
-import { WorkspaceService } from '$lib/gen'
+import { WorkspaceService, type CompletedJob } from '$lib/gen'
 import type { DataTableTables } from '$lib/gen/types.gen'
 import { runScript } from '$lib/components/jobs/utils'
-import { createToolDef, executeTestRun, type Tool } from './shared'
+import {
+	createToolDef,
+	executeTestRun,
+	type Tool,
+	type ToolDisplayMessage,
+	type ChatJobResultFormat
+} from './shared'
 
 /**
  * Workspace-scoped datatable tools, with no app whitelist and no creation policy.
@@ -137,6 +143,72 @@ const getExecDatatableSqlToolDef = memo(() =>
 const MAX_ROWS = 100
 
 /**
+ * Shape a finished datatable SQL job into the model-visible result + tool card:
+ * SELECT rows capped at MAX_ROWS, DDL/DML reported as zero rows, and the "datatable
+ * not configured" backend error rewritten as the actionable blocking message.
+ *
+ * Pure and keyed only on the datatable name so it can run from BOTH the inline
+ * completion path (executeTestRun.formatCompletion) AND a detached/rehydrated job
+ * reconstructed from its persisted ChatJobResultFormat (see formatChatJobCompletion).
+ */
+export function formatDatatableSqlCompletion(
+	job: CompletedJob,
+	datatableName: string
+): { llmText: string; card: Partial<ToolDisplayMessage> } {
+	if (job.success) {
+		// Successful runs always carry a `result` array (empty for DDL/DML),
+		// so SELECT rows and zero-row statements share one reporting path.
+		const rows = Array.isArray(job.result) ? (job.result as Record<string, any>[]) : []
+		const rowCount = rows.length
+		const payload =
+			rowCount > MAX_ROWS
+				? {
+						success: true,
+						rowCount,
+						result: rows.slice(0, MAX_ROWS),
+						note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
+					}
+				: { success: true, rowCount, result: rows }
+		return {
+			llmText: JSON.stringify(payload, null, 2),
+			card: {
+				content: `Query returned ${rowCount} row(s)`,
+				result: JSON.stringify(job.result, null, 2)
+			}
+		}
+	}
+	const raw =
+		(job.result as any)?.error?.message ??
+		(typeof job.result === 'string' ? job.result : JSON.stringify(job.result)) ??
+		// JSON.stringify(undefined) is `undefined` (not a string), so a failed
+		// job with no result would otherwise yield an empty error message.
+		'Unknown error'
+	const errorMsg = isDatatableNotConfiguredError(raw)
+		? datatableNotConfiguredMessage(datatableName)
+		: raw
+	return {
+		llmText: JSON.stringify({ success: false, error: errorMsg }),
+		card: { content: `Error: ${errorMsg}`, error: errorMsg }
+	}
+}
+
+/**
+ * Reconstruct a tool's terminal formatter from the serializable descriptor stored
+ * on a ChatJob. Lets a background job that detached (and may have survived a reload,
+ * losing any in-memory closure) still report through its launching tool's result
+ * contract. Dispatches on `kind`; extend as more tools gain persisted formatters.
+ */
+export function formatChatJobCompletion(
+	job: CompletedJob,
+	resultFormat: ChatJobResultFormat
+): { llmText: string; card: Partial<ToolDisplayMessage> } {
+	switch (resultFormat.kind) {
+		case 'datatable':
+			return formatDatatableSqlCompletion(job, resultFormat.datatableName)
+	}
+}
+
+/**
  * The unrestricted workspace datatable tools, for registration in global mode.
  * Helper-free: each tool reads `workspace` directly from the tool call params.
  */
@@ -241,43 +313,10 @@ export function getDatatableTools(): Tool<{}>[] {
 							: Math.max(0, parsedArgs.wait_seconds) * 1000,
 					startMessage: `Executing SQL on "${name}"...`,
 					runningMessage: `SQL running on "${name}"...`,
-					formatCompletion: (job) => {
-						if (job.success) {
-							// Successful runs always carry a `result` array (empty for DDL/DML),
-							// so SELECT rows and zero-row statements share one reporting path.
-							const rows = Array.isArray(job.result) ? (job.result as Record<string, any>[]) : []
-							const rowCount = rows.length
-							const payload =
-								rowCount > MAX_ROWS
-									? {
-											success: true,
-											rowCount,
-											result: rows.slice(0, MAX_ROWS),
-											note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
-										}
-									: { success: true, rowCount, result: rows }
-							return {
-								llmText: JSON.stringify(payload, null, 2),
-								card: {
-									content: `Query returned ${rowCount} row(s)`,
-									result: JSON.stringify(job.result, null, 2)
-								}
-							}
-						}
-						const raw =
-							(job.result as any)?.error?.message ??
-							(typeof job.result === 'string' ? job.result : JSON.stringify(job.result)) ??
-							// JSON.stringify(undefined) is `undefined` (not a string), so a failed
-							// job with no result would otherwise yield an empty error message.
-							'Unknown error'
-						const errorMsg = isDatatableNotConfiguredError(raw)
-							? datatableNotConfiguredMessage(name)
-							: raw
-						return {
-							llmText: JSON.stringify({ success: false, error: errorMsg }),
-							card: { content: `Error: ${errorMsg}`, error: errorMsg }
-						}
-					}
+					// Inline path shapes the result here; the descriptor mirrors it so a
+					// detached/rehydrated completion reconstructs the same contract.
+					formatCompletion: (job) => formatDatatableSqlCompletion(job, name),
+					resultFormat: { kind: 'datatable', datatableName: name }
 				})
 			}
 		}
