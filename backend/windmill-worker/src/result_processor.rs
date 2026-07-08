@@ -1089,34 +1089,30 @@ async fn persist_git_sync_open_pr_error(
     repo_path: &str,
     error: Option<String>,
 ) {
+    // Single targeted update (like the EE auto-pull status writer): a full
+    // read-modify-write of the column would race the poller's concurrent
+    // last_synced_sha/last_pull_status writes and silently clobber them.
+    let bare_path = repo_path.trim_start_matches("$res:");
     let result: error::Result<()> = async {
-        let Some(settings) = sqlx::query_scalar!(
-            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
-            workspace_id
-        )
-        .fetch_optional(db)
-        .await?
-        .flatten() else {
-            return Ok(());
-        };
-        let mut settings: windmill_common::workspaces::WorkspaceGitSyncSettings =
-            serde_json::from_value(settings).map_err(|e| Error::internal_err(e.to_string()))?;
-        let Some(repo) = settings.repositories.iter_mut().find(|r| {
-            r.git_repo_resource_path.trim_start_matches("$res:")
-                == repo_path.trim_start_matches("$res:")
-        }) else {
-            return Ok(());
-        };
-        if repo.open_pr_error == error {
-            return Ok(());
-        }
-        repo.open_pr_error = error;
-        let updated =
-            serde_json::to_value(&settings).map_err(|e| Error::internal_err(e.to_string()))?;
         sqlx::query!(
-            "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
-            updated,
-            workspace_id
+            r#"
+            UPDATE workspace_settings
+            SET git_sync = jsonb_set(
+                git_sync,
+                '{repositories}',
+                (SELECT jsonb_agg(
+                    CASE WHEN elem->>'git_repo_resource_path' IN ($2, '$res:' || $2)
+                        THEN CASE WHEN $3::text IS NULL THEN elem - 'open_pr_error'
+                             ELSE jsonb_set(elem, '{open_pr_error}', to_jsonb($3::text), true) END
+                        ELSE elem END)
+                 FROM jsonb_array_elements(git_sync->'repositories') AS elem)
+            )
+            WHERE workspace_id = $1
+              AND jsonb_typeof(git_sync->'repositories') = 'array'
+            "#,
+            workspace_id,
+            bare_path,
+            error.as_deref(),
         )
         .execute(db)
         .await?;
