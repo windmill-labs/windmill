@@ -7,6 +7,7 @@
 		graphql,
 		javascript,
 		php,
+		plaintext,
 		python,
 		rust,
 		shell,
@@ -37,24 +38,38 @@
 
 	const astNode = getAstNode()
 
-	function getSmartLang(lang: string) {
+	// Map a fence language to a known highlighter key, or undefined when the fence
+	// is unlabeled/unrecognized — those render as plaintext rather than being
+	// mis-colored as TypeScript (this renderer runs on all user markdown).
+	function getSmartLang(lang: string | undefined) {
 		switch (lang) {
 			case 'python':
 			case 'python3':
+			case 'py':
 				return 'python'
 			case 'deno':
 			case 'nativets':
 			case 'bun':
 			case 'bunnative':
 			case 'typescript':
+			case 'ts':
+			case 'tsx':
 				return 'typescript'
 			case 'go':
+			case 'golang':
 				return 'go'
 			case 'shell':
 			case 'bash':
+			case 'sh':
+			case 'zsh':
+			case 'console':
 				return 'shell'
 			case 'frontend':
 			case 'javascript':
+			case 'js':
+			case 'jsx':
+			case 'mjs':
+			case 'cjs':
 				return 'javascript'
 			case 'graphql':
 				return 'graphql'
@@ -64,19 +79,23 @@
 			case 'oracledb':
 			case 'powershell':
 			case 'postgresql':
+			case 'postgres':
 			case 'sql':
 				return 'sql'
 			case 'php':
 				return 'php'
 			case 'rust':
+			case 'rs':
 				return 'rust'
 			case 'csharp':
+			case 'cs':
 				return 'csharp'
 			case 'ansible':
 			case 'yaml':
+			case 'yml':
 				return 'yaml'
 			default:
-				return 'typescript'
+				return undefined
 		}
 	}
 
@@ -99,6 +118,9 @@
 	let language = $derived(
 		(astNode.current.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
 	)
+
+	let smartLang = $derived(getSmartLang(language))
+	let highlightLanguage = $derived(smartLang ? SMART_LANG_TO_HIGHLIGHT_LANG[smartLang] : plaintext)
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-md relative not-prose !text-xs">
@@ -109,7 +131,7 @@
 			<HighlightCode
 				className="px-3 py-2.5 !text-xs"
 				code={code ?? ''}
-				highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language as string)]}
+				{highlightLanguage}
 				language={undefined}
 				{onApplyCode}
 				{showApplyButton}

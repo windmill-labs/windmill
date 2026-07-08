@@ -12,13 +12,6 @@
 	}: { class?: string; style?: string; children: Snippet } = $props()
 </script>
 
-<div class="wm-scrollx scrollbar-subtle {c}" {style}>
+<div class="overflow-x-auto overflow-y-hidden scrollbar-subtle {c}" {style}>
 	{@render children()}
 </div>
-
-<style>
-	.wm-scrollx {
-		overflow-x: auto;
-		overflow-y: hidden;
-	}
-</style>

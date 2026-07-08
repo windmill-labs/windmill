@@ -38,6 +38,13 @@ const block = 'code block'
 console.log(block)
 \`\`\`
 
+An unlabeled fence should render plain (no forced syntax colors):
+
+\`\`\`
+just some plain text
+no language, no coloring
+\`\`\`
+
 | Column A | Column B |
 | -------- | -------- |
 | one      | two      |

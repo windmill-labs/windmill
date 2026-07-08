@@ -19,6 +19,7 @@
 	import { Button } from './common'
 	import CopyButton from './common/button/CopyButton.svelte'
 	import ScrollableX from './common/ScrollableX.svelte'
+	import { copyToClipboard } from '$lib/utils'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import { json, type LanguageType } from 'svelte-highlight/languages'
@@ -119,10 +120,23 @@
 <HighlightTheme />
 
 <div class="relative group">
-	<CopyButton
-		value={code}
-		class="absolute top-2 right-2 z-20 bg-surface rounded-md {hoverButtonClasses}"
-	/>
+	{#if buttonsOnHover}
+		<!-- Chat/markdown code blocks: subtle CopyButton on a surface chip. -->
+		<CopyButton
+			value={code}
+			class="absolute top-2 right-2 z-20 bg-surface rounded-md {hoverButtonClasses}"
+		/>
+	{:else}
+		<Button
+			wrapperClasses="absolute top-2 right-2 z-20"
+			onclick={() => copyToClipboard(code)}
+			color="light"
+			size="xs2"
+			startIcon={{ icon: ClipboardCopy }}
+			iconOnly
+			title="Copy to clipboard"
+		/>
+	{/if}
 	{#if showApplyButton}
 		<Button
 			wrapperClasses="absolute top-2 right-10 z-20 {hoverButtonClasses}"
