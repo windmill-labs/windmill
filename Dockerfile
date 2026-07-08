@@ -206,6 +206,8 @@ RUN if [ "$WITH_HELM" = "true" ]; then \
     mv linux-$arch/helm /usr/local/bin/helm &&\
     chmod +x /usr/local/bin/helm; \
     else \
+    # Stub lives in /usr/bin (last in PATH) so any real helm installed later via an
+    # init script — to /usr/local/bin, ~/.local/bin, /tmp/.local/bin, etc. — shadows it.
     printf '%s\n' \
     '#!/bin/sh' \
     '# helm has been removed from the default Windmill image to keep it lean.' \
@@ -214,7 +216,7 @@ RUN if [ "$WITH_HELM" = "true" ]; then \
     'echo "  curl -fsSL https://get.helm.sh/helm-v3.14.3-linux-amd64.tar.gz | tar -xz -C /tmp && mv /tmp/linux-amd64/helm /usr/local/bin/helm" >&2' \
     'echo "See https://www.windmill.dev/docs/core_concepts/worker_groups#init-scripts for details." >&2' \
     'exit 127' \
-    > /usr/local/bin/helm && chmod +x /usr/local/bin/helm; \
+    > /usr/bin/helm && chmod +x /usr/bin/helm; \
     echo 'Building the image without helm (installed a stub pointing to init scripts)'; fi
 
 RUN if [ "$WITH_KUBECTL" = "true" ]; then \
