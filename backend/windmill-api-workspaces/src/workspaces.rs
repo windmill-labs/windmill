@@ -2753,6 +2753,23 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 #[cfg(not(feature = "enterprise"))]
 const CE_GIT_SYNC_MAX_USERS: i64 = 2;
 
+/// Auto-pull is licensed per plan, not just per build: the poller only serves
+/// Enterprise plans at runtime, so the save path must reject the setting too —
+/// otherwise an EE binary without the plan could still register a webhook and
+/// receive webhook-driven pulls.
+#[cfg(feature = "enterprise")]
+async fn check_auto_pull_license() -> Result<()> {
+    if !matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Enterprise
+    ) {
+        return Err(Error::BadRequest(
+            "Automatic pull from git requires an Enterprise license".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(feature = "enterprise")]
 async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
     Ok(())
@@ -2885,6 +2902,14 @@ async fn edit_git_sync_config(
             return Err(Error::BadRequest(
                 "Automatic pull from git is an Enterprise Edition feature".to_string(),
             ));
+        }
+        #[cfg(feature = "enterprise")]
+        if git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.auto_pull.as_ref().is_some_and(|a| a.enabled))
+        {
+            check_auto_pull_license().await?;
         }
         // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
         // status) that the redacted GET response omits — otherwise a whole-config
@@ -3082,6 +3107,15 @@ async fn edit_git_sync_repository(
         return Err(Error::BadRequest(
             "Automatic pull from git is an Enterprise Edition feature".to_string(),
         ));
+    }
+    #[cfg(feature = "enterprise")]
+    if new_config
+        .repository
+        .auto_pull
+        .as_ref()
+        .is_some_and(|a| a.enabled)
+    {
+        check_auto_pull_license().await?;
     }
 
     // Promotion mode: EE only

@@ -920,6 +920,11 @@ fn git_sync_deploy_pr_head_branch(
     if !use_individual_branch {
         return None;
     }
+    // Mirrors the CLI's computeGitSyncDeployBranch: user/group objects are
+    // pushed to the base branch and never get their own wm_deploy branch.
+    if path_type == "user" || path_type == "group" {
+        return None;
+    }
     let git_ref = if !item_path.is_empty() {
         item_path
     } else {
@@ -1865,6 +1870,26 @@ pub fn extract_error_value(
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_pr_tests {
     use super::{git_sync_deploy_pr_head_branch, git_sync_push_result_pushed};
+
+    #[test]
+    fn user_and_group_items_get_no_promotion_branch() {
+        for path_type in ["user", "group"] {
+            assert_eq!(
+                git_sync_deploy_pr_head_branch(
+                    "ws",
+                    None,
+                    None,
+                    "main",
+                    true,
+                    false,
+                    "u/someone",
+                    "",
+                    path_type
+                ),
+                None
+            );
+        }
+    }
 
     #[test]
     fn push_result_pushed_flag() {
