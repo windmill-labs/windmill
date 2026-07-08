@@ -106,6 +106,7 @@
 			bind:savedFlow={cell.saved.val}
 			{diffDrawer}
 			{onNavigate}
+			condensedHeader={true}
 			customUi={{ topBar: { aiBuilder: false } }}
 			onDeploy={() => {
 				// FlowBuilder has no deploy toast and the session stays put, so toast

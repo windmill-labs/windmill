@@ -109,6 +109,7 @@
 				neverShowMeta={true}
 				fullyLoaded={!cell.slot.loading}
 				disableHistoryChange={true}
+				condensedHeader={true}
 				{diffDrawer}
 				{onNavigate}
 				{initialTestPanelCollapsed}

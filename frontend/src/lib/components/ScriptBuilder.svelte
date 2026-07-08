@@ -140,8 +140,13 @@
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		condensedHeader = false
 	}: ScriptBuilderProps = $props()
+
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -1898,7 +1903,10 @@
 	</Drawer>
 
 	<div class="flex flex-col h-full">
-		<div bind:clientWidth={topbarWidth} class="flex h-12 items-center px-4">
+		<div
+			bind:clientWidth={topbarWidth}
+			class="flex items-center px-4 {condensedHeader ? 'h-9' : 'h-12'}"
+		>
 			<div class="flex gap-2 lg:gap-2 w-full items-center">
 				<div class="flex flex-row items-center gap-2 min-w-0 shrink">
 					<button
@@ -1908,7 +1916,7 @@
 							metadataOpen = true
 						}}
 					>
-						<LanguageIcon lang={script.language} size={24} />
+						<LanguageIcon lang={script.language} size={condensedHeader ? 18 : 24} />
 					</button>
 					{#if customUi?.topBar?.path != false}
 						<div class="min-w-0 overflow-hidden">
@@ -1919,6 +1927,7 @@
 								kind="script"
 								summaryEditable={customUi?.topBar?.editableSummary != false}
 								pathEditable={customUi?.topBar?.editablePath != false}
+								hidePath={condensedHeader}
 								workspaceId={autosaveWorkspace}
 								onNavigate={(item) => onNavigate?.(item)}
 							/>
@@ -1954,7 +1963,7 @@
 							aiId="script-builder-settings"
 							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
 							variant="default"
-							unifiedSize="md"
+							unifiedSize={headerBtnSize}
 							on:click={() => (metadataOpen = true)}
 							startIcon={{ icon: Settings }}
 							iconOnly={compactTopbar}
@@ -1977,7 +1986,7 @@
 						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
 							<Button
 								variant="default"
-								unifiedSize="md"
+								unifiedSize={headerBtnSize}
 								on:click={() => openDiffDrawer()}
 								disabled={diffDisabled}
 								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
@@ -1995,7 +2004,7 @@
 						{#snippet buttonReplacement()}
 							<Button
 								nonCaptureEvent
-								unifiedSize="md"
+								unifiedSize={headerBtnSize}
 								variant="subtle"
 								startIcon={{ icon: EllipsisVertical }}
 								iconOnly
@@ -2015,6 +2024,7 @@
 										nullTag={script.language}
 										placeholder={customUi?.tagSelectPlaceholder}
 										bind:tag={script.tag}
+										size={headerBtnSize}
 										workspaceId={opWorkspace}
 									/>
 								</div>
@@ -2027,6 +2037,7 @@
 				<DeployButton
 					loading={!fullyLoaded}
 					{loadingSave}
+					unifiedSize={headerBtnSize}
 					dropdownItems={computeDropdownItems(initialPath, savedScript)}
 					on:save={({ detail }) => handleEditScript(false, detail)}
 				/>

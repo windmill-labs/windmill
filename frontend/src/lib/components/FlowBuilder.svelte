@@ -136,8 +136,13 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onTestJob
+		onTestJob,
+		condensedHeader = false
 	}: FlowBuilderProps = $props()
+
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the global store, so
@@ -1101,7 +1106,9 @@
 			<!-- Nav between steps-->
 			<div
 				bind:clientWidth={topbarWidth}
-				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
+				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
+					? 'max-h-9'
+					: 'max-h-12'}"
 			>
 				<div class="flex flex-row items-center gap-2 min-w-0">
 					<div class="min-w-0 overflow-hidden">
@@ -1110,6 +1117,7 @@
 							bind:path={$pathStore}
 							savedPath={initialPath}
 							onBehalfOfEmail={$savedOnBehalfOfEmail}
+							hidePath={condensedHeader}
 							workspaceId={autosaveWorkspace}
 							onNavigate={(item) => onNavigate?.(item)}
 						/>
@@ -1132,7 +1140,7 @@
 						<Awareness />
 					{/if}
 					<div class="relative">
-						<Dropdown items={getMoreItems} />
+						<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
 						{#if $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial')) || $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))}
 							<span
 								class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
@@ -1152,7 +1160,7 @@
 						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
 							<Button
 								variant="default"
-								unifiedSize="md"
+								unifiedSize={headerBtnSize}
 								on:click={() => openDiffDrawer()}
 								disabled={diffDisabled}
 								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
@@ -1172,6 +1180,7 @@
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}
 						{loading}
 						{loadingSave}
+						unifiedSize={headerBtnSize}
 						{dropdownItems}
 					/>
 				</div>
@@ -1182,6 +1191,7 @@
 			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}
+					unifiedSize={headerBtnSize}
 					on:openTriggers={(e) => {
 						select('Trigger')
 						handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
