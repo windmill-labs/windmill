@@ -91,6 +91,9 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from './sessions/OpenInSessionButton.svelte'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -212,6 +215,9 @@
 		// regular /scripts/edit route keeps its current open-by-default UX;
 		// the session preview opts in to save vertical real estate.
 		initialTestPanelCollapsed?: boolean
+		// Lets the AI toolbar button open the script in a fresh AI session
+		// instead of the inline chat panel (see OpenInSessionButton for gating).
+		sessionOpen?: OpenInSessionSource
 		// Producer-side facts for the live schema-contract diagnostics
 		// (`on_schema_change=ignore` suppression + scd2 `_current` fallback),
 		// built by the pipeline page from the resolved graph. Absent outside the
@@ -259,6 +265,7 @@
 		onTestStateChange,
 		onTestJob,
 		initialTestPanelCollapsed = false,
+		sessionOpen = undefined,
 		schemaContractContext = undefined
 	}: Props = $props()
 
@@ -793,7 +800,17 @@
 		args = nargs
 	}
 
-	export async function runTest(opts?: { cascade?: boolean }) {
+	export async function runTest(opts?: { cascade?: boolean; skipDdlGuard?: boolean }) {
+		// Intercept DDL statements (offer to turn them into data table migrations)
+		// on every run path, not just the editor's Cmd+Enter. `skipDdlGuard` is set
+		// by the Cmd+Enter action, which already guarded before calling us.
+		if (!opts?.skipDdlGuard) {
+			if ((await editor?.guardDdlBeforeRun()) === false) return
+			// The guard may have rewritten the code (migrated statements stripped);
+			// `editorCode` is kept in sync by the editor binding, so mirror the
+			// on:change handler and pull it into `code` before we run.
+			if (activeModuleTab === null) code = editorCode
+		}
 		// When the caller forces a cascade choice (e.g. the canvas runnable
 		// menu's "Run + trigger N downstream"), also flip the persistent
 		// `cascadeDownstream` state so the split button's label/icon reflect
@@ -2582,37 +2599,41 @@
 				{/if}
 				{#if !aiChatManager.open && !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-						<HideButton
-							hidden={true}
-							direction="right"
-							panelName="AI"
-							shortcut="L"
-							unifiedSize="sm"
-							usePopoverOverride={!$copilotInfo.enabled}
-							customHiddenIcon={{
-								icon: WandSparkles
-							}}
-							btnClasses="!text-ai"
-							variant="default"
-							on:click={() => {
-								if (!aiChatManager.open) {
-									aiChatManager.changeMode(AIMode.SCRIPT)
-								}
-								aiChatManager.toggleOpen()
-							}}
-						>
-							{#snippet popoverOverride()}
-								<div class="text-sm">
-									Enable Windmill AI in the <a
-										href="{base}/workspace_settings?tab=ai"
-										target="_blank"
-										class="inline-flex flex-row items-center gap-1"
-									>
-										workspace settings <ExternalLink size={16} />
-									</a>
-								</div>
+						<OpenInSessionButton source={sessionOpen}>
+							{#snippet fallback()}
+								<HideButton
+									hidden={true}
+									direction="right"
+									panelName="AI"
+									shortcut="L"
+									unifiedSize="sm"
+									usePopoverOverride={!$copilotInfo.enabled}
+									customHiddenIcon={{
+										icon: WandSparkles
+									}}
+									btnClasses="!text-ai"
+									variant="default"
+									on:click={() => {
+										if (!aiChatManager.open) {
+											aiChatManager.changeMode(AIMode.SCRIPT)
+										}
+										aiChatManager.toggleOpen()
+									}}
+								>
+									{#snippet popoverOverride()}
+										<div class="text-sm">
+											Enable Windmill AI in the <a
+												href="{base}/workspace_settings?tab=ai"
+												target="_blank"
+												class="inline-flex flex-row items-center gap-1"
+											>
+												workspace settings <ExternalLink size={16} />
+											</a>
+										</div>
+									{/snippet}
+								</HideButton>
 							{/snippet}
-						</HideButton>
+						</OpenInSessionButton>
 					{/if}
 				{/if}
 			</div>
@@ -2677,7 +2698,8 @@
 				} else {
 					await inferModuleSchema()
 				}
-				runTest()
+				// The Editor already ran the DDL guard before invoking this action.
+				runTest({ skipDdlGuard: true })
 			}}
 			formatAction={async () => {
 				if (activeModuleTab === null) {

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.751.0
+  version: 1.752.0
   title: Windmill API
 
   contact:
@@ -4605,12 +4605,329 @@ paths:
               properties:
                 settings:
                   $ref: "#/components/schemas/DataTableSettings"
+                renames:
+                  description: data tables renamed in this save, so their migrations cascade
+                  type: array
+                  items:
+                    type: object
+                    required: [from, to]
+                    properties:
+                      from:
+                        type: string
+                      to:
+                        type: string
+                deleted_datatables:
+                  description: data tables removed in this save, so their migrations are deleted
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: status
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/workspaces/run_datatable_migrations/{datatable_name}:
+    post:
+      summary: run pending datatable migrations against a datatable
+      operationId: runDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: up_to
+          in: query
+          required: false
+          description: only apply pending migrations up to and including this version
+          schema:
+            type: integer
+            format: int64
+        - name: only
+          in: query
+          required: false
+          description: apply only this specific migration version, ignoring others
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: applied migrations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [applied]
+                properties:
+                  applied:
+                    type: array
+                    items:
+                      type: object
+                      required: [version, name]
+                      properties:
+                        version:
+                          type: integer
+                          format: int64
+                        name:
+                          type: string
+
+  /w/{workspace}/workspaces/rollback_datatable_migrations/{datatable_name}:
+    post:
+      summary: roll back the most recently applied migration on a datatable
+      operationId: rollbackDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: only
+          in: query
+          required: false
+          description: roll back this specific applied migration version instead of the latest
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: rolled back migrations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rolled_back]
+                properties:
+                  rolled_back:
+                    type: array
+                    items:
+                      type: object
+                      required: [version, name]
+                      properties:
+                        version:
+                          type: integer
+                          format: int64
+                        name:
+                          type: string
+
+  /w/{workspace}/workspaces/list_datatable_migrations:
+    get:
+      summary: list datatable migrations for a workspace
+      operationId: listDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: datatable migrations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DatatableMigration"
+
+  /w/{workspace}/workspaces/datatable_migrations_status/{datatable_name}:
+    get:
+      summary: list a datatable's migrations with their applied status
+      operationId: getDatatableMigrationsStatus
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: migrations with status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, migrations]
+                properties:
+                  enabled:
+                    type: boolean
+                  migrations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DatatableMigrationWithStatus"
+                  error:
+                    type: string
+
+  /w/{workspace}/workspaces/enable_datatable_migrations/{datatable_name}:
+    post:
+      summary: opt a datatable in to migrations (admins / super admins only)
+      operationId: enableDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/disable_datatable_migrations/{datatable_name}:
+    post:
+      summary: opt a datatable out of migrations, deleting all of them (admins / super admins only)
+      operationId: disableDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/create_datatable_migration/{datatable_name}:
+    post:
+      summary: create a single datatable migration (version generated server-side)
+      operationId: createDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, code_up]
+              properties:
+                name:
+                  type: string
+                code_up:
+                  type: string
+                code_down:
+                  type: string
+      responses:
+        "200":
+          description: created migration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatableMigration"
+
+  /w/{workspace}/workspaces/delete_datatable_migration/{datatable_name}/{timestamp}:
+    delete:
+      summary: delete a single datatable migration definition
+      operationId: deleteDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: timestamp
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/upsert_datatable_migration/{datatable_name}:
+    post:
+      summary: insert or update a single datatable migration at an explicit version
+      operationId: upsertDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [timestamp, name, code_up]
+              properties:
+                timestamp:
+                  type: integer
+                  format: int64
+                name:
+                  type: string
+                code_up:
+                  type: string
+                code_down:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/generate_initial_datatable_migration/{datatable_name}:
+    post:
+      summary: snapshot the current schema as an already-installed initial migration
+      operationId: generateInitialDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: created migration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatableMigration"
 
   /w/{workspace}/workspaces/create_pg_database:
     post:
@@ -29041,6 +29358,9 @@ components:
                     type: string
                 required:
                   - resource_type
+              migrations_enabled:
+                type: boolean
+                description: Whether the SQL migrations feature is opted in for this data table
               forked_from:
                 type: object
                 description: Fork origin info with schema snapshot
@@ -29049,6 +29369,40 @@ components:
                     type: object
                     description: Schema snapshot at fork time
                     additionalProperties: true
+    DatatableMigration:
+      type: object
+      required: [datatable, timestamp, name, code_up]
+      properties:
+        datatable:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+        name:
+          type: string
+        code_up:
+          type: string
+        code_down:
+          type: string
+    DatatableMigrationWithStatus:
+      type: object
+      required: [timestamp, name, code_up, status]
+      properties:
+        timestamp:
+          type: integer
+          format: int64
+        name:
+          type: string
+        code_up:
+          type: string
+        code_down:
+          type: string
+        status:
+          type: string
+          enum:
+            - ran
+            - not_run
+            - unknown
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
@@ -29819,6 +30173,7 @@ components:
         - folders_changed
         - schedules_changed
         - triggers_changed
+        - datatable_migrations_changed
         - conflicts
       properties:
         total_diffs:
@@ -29857,6 +30212,9 @@ components:
         triggers_changed:
           type: integer
           description: Number of triggers with differences (sum across all trigger kinds)
+        datatable_migrations_changed:
+          type: integer
+          description: Number of data table migrations with differences
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)

@@ -10,6 +10,8 @@
 		 * FlowGraphDiffViewer show its own user-facing toggle (matches the
 		 * pre-fork-diff-drawer behavior). */
 		inlineDiff?: boolean
+		/** Forward Monaco's auto-inline opt-out to the YAML-mode DiffEditor. */
+		disableAutoInline?: boolean
 		/** Forwarded to FlowGraphDiffViewer — render an empty surface
 		 * placeholder for the "before" / "after" pane when the item is
 		 * added / removed. */
@@ -21,6 +23,7 @@
 		beforeYaml,
 		afterYaml,
 		inlineDiff = undefined,
+		disableAutoInline = false,
 		beforeMissing = false,
 		afterMissing = false
 	}: Props = $props()
@@ -46,6 +49,7 @@
 					defaultOriginal={beforeYaml}
 					defaultModified={afterYaml}
 					{inlineDiff}
+					{disableAutoInline}
 					readOnly
 				/>
 			{/await}

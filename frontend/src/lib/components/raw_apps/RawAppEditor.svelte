@@ -166,6 +166,11 @@
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
+	// Workspace this editor operates on: the session's acting workspace when
+	// embedded in a session preview (autosaveWorkspace), else the navigation
+	// workspace. Deploy/save/background-runner must target it, not $workspaceStore.
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let dataTableWhitelist = $derived(buildDataTableWhitelist(dataTableRefsObjects))
@@ -275,6 +280,8 @@
 
 	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
+	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
+	let runtimeError = $state<string | undefined>(undefined)
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
@@ -518,6 +525,24 @@
 		'boolean'
 	)
 
+	// Auto-compact when the editor opens in a narrow container (e.g. the session
+	// preview pane): drop to the merged single-pane view and retract the file
+	// sidebar. Applied once, on the first measured layout — later resizes are the
+	// user's call. The sidebar is set without persisting so a transient narrow
+	// open never overrides the user's saved expand/collapse preference.
+	let rootWidth = $state(0)
+	const NARROW_PX = 900
+	let appliedNarrowDefault = false
+	$effect(() => {
+		const w = rootWidth
+		if (appliedNarrowDefault || w <= 0) return
+		appliedNarrowDefault = true
+		if (w < NARROW_PX) {
+			splitWithPreview = false
+			sidebarCollapsed.setWithoutPersist(true)
+		}
+	})
+
 	function handleYamlApply(update: RawAppYamlUpdate) {
 		if (update.summary !== undefined) {
 			summary = update.summary
@@ -600,10 +625,10 @@
 	let sharedUiLoaded = $state(false)
 
 	async function loadSharedUi() {
-		if (!$workspaceStore) return
+		if (!opWorkspace) return
 		try {
 			const res = (await WorkspaceService.getSharedUi({
-				workspace: $workspaceStore
+				workspace: opWorkspace
 			})) as { files?: Record<string, string>; version?: number }
 			sharedUiFiles = res.files ?? {}
 			sharedUiVersion = res.version ?? 0
@@ -887,12 +912,12 @@
 				handleHistorySelect(id)
 			},
 			listDatatableTables: async (): Promise<AppDatatableMetadata[]> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return []
 				}
 
 				const tables = await WorkspaceService.listDataTableTables({
-					workspace: $workspaceStore
+					workspace: opWorkspace
 				})
 				return filterDatatableTables(tables)
 			},
@@ -901,7 +926,7 @@
 				schemaName: string,
 				tableName: string
 			): Promise<Record<string, string>> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return {}
 				}
 
@@ -915,7 +940,7 @@
 				}
 
 				const schema = await WorkspaceService.getDataTableTableSchema({
-					workspace: $workspaceStore,
+					workspace: opWorkspace,
 					datatableName,
 					schemaName,
 					tableName
@@ -931,13 +956,13 @@
 				sql: string,
 				newTable?: { schema: string; name: string }
 			): Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }> => {
-				if (!$workspaceStore) {
+				if (!opWorkspace) {
 					return { success: false, error: 'Workspace not available' }
 				}
 
 				try {
 					const result = await runScriptAndPollResult({
-						workspace: $workspaceStore,
+						workspace: opWorkspace,
 						requestBody: {
 							language: 'postgresql',
 							content: sql,
@@ -1034,10 +1059,7 @@
 		// the preview iframe so it renders the new app.
 		if (fromUiBuilder && e.data.type === 'preview') {
 			lastBuild = { css: e.data.css, js: e.data.js }
-			previewIframe?.contentWindow?.postMessage(
-				{ type: 'preview', css: e.data.css, js: e.data.js },
-				'*'
-			)
+			feedPreviewIframe(lastBuild)
 			syncExternalPreview()
 			return
 		}
@@ -1064,6 +1086,16 @@
 
 		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
 			resolvePendingRuntimeLogRequest(e.data.requestId, normalizeRawAppRuntimeLogs(e.data.logs))
+			return
+		}
+
+		// Uncaught error/rejection from the rendered app — surfaced in the preview
+		// overlay so a runtime crash isn't a silent blank error.
+		if (fromPreview && e.data.type === 'runtimeError') {
+			runtimeError =
+				typeof e.data.message === 'string' && e.data.message
+					? e.data.message
+					: 'Unknown runtime error'
 			return
 		}
 
@@ -1154,6 +1186,17 @@
 		if (lastBuild) {
 			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
 		}
+	}
+
+	// Feed a build into the inline preview iframe. Clears any prior runtime-error
+	// overlay first: a fresh render supersedes the old crash, and if the new
+	// render throws again app-preview.html re-posts `runtimeError`.
+	function feedPreviewIframe(build: { css: string; js: string }) {
+		runtimeError = undefined
+		previewIframe?.contentWindow?.postMessage(
+			{ type: 'preview', css: build.css, js: build.js },
+			'*'
+		)
 	}
 
 	// Full (re)feed of the detached window: theme first, then the build. Used
@@ -1300,10 +1343,7 @@
 			// Replay the last build so the preview repopulates without
 			// waiting for the user to trigger another bundle.
 			if (lastBuild) {
-				previewIframe?.contentWindow?.postMessage(
-					{ type: 'preview', css: lastBuild.css, js: lastBuild.js },
-					'*'
-				)
+				feedPreviewIframe(lastBuild)
 			}
 			// Escape inside the preview exits inspect mode — the keydown fires in
 			// the iframe's document, so the parent window listener can't see it.
@@ -1523,9 +1563,9 @@
 	// Force an immediate flush. No toast — the AutosaveIndicator narrates the
 	// result, and `flush` never rejects (postSave routes errors to the failures map).
 	function flushDraft() {
-		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		if (!opWorkspace || !liveEditorDraftStoragePath) return
 		void UserDraftDbSyncer.flush({
-			workspace: $workspaceStore,
+			workspace: opWorkspace,
 			itemKind: 'raw_app',
 			path: liveEditorDraftStoragePath
 		})
@@ -1593,7 +1633,7 @@
 <DarkModeObserver bind:darkMode />
 
 <RawAppBackgroundRunner
-	workspace={$workspaceStore ?? ''}
+	workspace={opWorkspace ?? ''}
 	editor
 	iframe={previewIframe}
 	bind:jobs
@@ -1603,7 +1643,10 @@
 	gateJobIds={false}
 	extraSourceWindow={() => externalPreviewWindow}
 />
-<div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">
+<div
+	bind:clientWidth={rootWidth}
+	class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col"
+>
 	<RawAppEditorHeader
 		bind:jobs
 		bind:jobsById
@@ -1854,14 +1897,7 @@
 												aria-label="Rebuild"
 												onclick={() => {
 													if (lastBuild) {
-														previewIframe?.contentWindow?.postMessage(
-															{
-																type: 'preview',
-																css: lastBuild.css,
-																js: lastBuild.js
-															},
-															'*'
-														)
+														feedPreviewIframe(lastBuild)
 													}
 												}}
 											>
@@ -1908,6 +1944,18 @@
 										>
 											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
 												>{buildError}</pre
+											>
+										</Alert>
+									</div>
+								{:else if runtimeError}
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="error"
+											title="Runtime error"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
+												>{runtimeError}</pre
 											>
 										</Alert>
 									</div>

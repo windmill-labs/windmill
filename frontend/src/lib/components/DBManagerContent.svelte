@@ -20,6 +20,10 @@
 	import type { SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import { resource } from 'runed'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from './common/confirmationModal/asyncConfirmationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { outOfOrderRunMessage } from './workspaceSettings/datatableMigrationUtils'
 
 	interface Props {
 		input?: DbInput
@@ -51,6 +55,8 @@
 	}: Props = $props()
 
 	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[getDbSchemasPath(input)])
+
+	const outOfOrderModal = createAsyncConfirmationModal()
 
 	function getDbSchemasPath(input: DbInput): string {
 		switch (input.type) {
@@ -163,7 +169,13 @@
 					})}
 				dbSchemaOps={dbSchemaOpsWithPreviewScripts({
 					input: _input,
-					workspace: $workspaceStore
+					workspace: $workspaceStore,
+					confirmRunOutOfOrder: (pending) =>
+						outOfOrderModal.ask({
+							title: 'Run migration out of order',
+							confirmationText: 'Run anyway',
+							children: outOfOrderRunMessage(pending)
+						})
 				})}
 				initialTableKey={input.specificTable}
 				initialSchemaKey={input.specificSchema}
@@ -192,6 +204,7 @@
 					onData={(data) => {
 						replResultData = data
 					}}
+					onSchemaChange={() => refresh()}
 					placeholderTableName={sortArray(
 						Object.keys(
 							dbSchema?.schema[
@@ -214,3 +227,9 @@
 		</Pane>
 	</Splitpanes>
 {/if}
+
+<Portal>
+	<!-- Stacks above the DB table editor's own preview confirmation (z-[9999]),
+		which is still open when applyDdl asks for out-of-order confirmation. -->
+	<ConfirmationModal {...outOfOrderModal.props} zIndexClass="z-[10000]" />
+</Portal>

@@ -232,20 +232,20 @@
 
 {#if isMuted}
 	<!-- Muted-read badge, centered on the read link. Bell-off = this input is
-	     read but its auto cascade trigger is suppressed (`// mute`). -->
-	<foreignObject x={labelX - 30} y={labelY - 9} width="60" height="18" class="overflow-visible">
+	     read but its auto cascade trigger is suppressed (`// mute`). Icon-only;
+	     the tooltip carries the explanation. -->
+	<foreignObject x={labelX - 9} y={labelY - 9} width="18" height="18" class="overflow-visible">
 		<div
 			xmlns="http://www.w3.org/1999/xhtml"
 			class="w-full h-full flex items-center justify-center"
 			style="pointer-events: none;"
 		>
 			<div
-				class="flex items-center gap-0.5 px-1 py-0.5 rounded-sm border shadow-sm text-3xs leading-none font-mono cursor-default bg-surface border-amber-300 dark:border-amber-900/60 text-amber-700 dark:text-amber-300"
+				class="flex items-center px-1 py-0.5 rounded-sm border shadow-sm leading-none cursor-default bg-surface border-amber-300 dark:border-amber-900/60 text-amber-700 dark:text-amber-300"
 				style="pointer-events: all;"
 				title={mutedBadgeTitle}
 			>
 				<BellOff size={10} />
-				<span>muted</span>
 			</div>
 		</div>
 	</foreignObject>

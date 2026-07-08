@@ -16,7 +16,8 @@
 		nullTag = undefined,
 		disabled = false,
 		placeholder,
-		inputClass
+		inputClass,
+		workspaceId = undefined
 	}: {
 		tag: string | undefined
 		noLabel?: boolean
@@ -26,12 +27,25 @@
 		language?: string
 		class?: string
 		inputClass?: string
+		// Workspace to read custom tags and worker availability from. Defaults to
+		// $workspaceStore. Session editors act on a workspace that differs from the
+		// navigation one, so they pass their effective workspace to keep the tag
+		// list and availability dots matching the deploy target.
+		workspaceId?: string
 	} = $props()
 
 	let loading = $state(false)
 	let visible = $state(false)
 	let timeout: number | undefined = undefined
 	let tagsToWorkerExists = $state<Record<string, boolean> | undefined>(undefined)
+
+	// The shared `workerTags` store caches tags for the navigation workspace. When
+	// this select targets a different workspace, read/write a local list instead so
+	// it neither shows the navigation workspace's tags nor clobbers the shared cache.
+	let effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
+	let usesLocal = $derived(workspaceId != undefined && workspaceId !== $workspaceStore)
+	let localWorkerTags = $state<string[] | undefined>(undefined)
+	let currentTags = $derived(usesLocal ? localWorkerTags : $workerTags)
 
 	onMount(() => {
 		visible = true
@@ -51,19 +65,31 @@
 	async function loadWorkerGroups(force = false) {
 		loading = true
 		try {
-			if (!$workerTags || force) {
-				$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
+			if (usesLocal) {
+				if (!localWorkerTags || force) {
+					localWorkerTags = await WorkerService.getCustomTagsForWorkspace({
+						workspace: effectiveWorkspace!
+					})
+				}
+			} else if (!$workerTags || force) {
+				$workerTags = await WorkerService.getCustomTagsForWorkspace({
+					workspace: effectiveWorkspace!
+				})
 			}
 		} catch (e) {
-			$workerTags = []
+			if (usesLocal) {
+				localWorkerTags = []
+			} else {
+				$workerTags = []
+			}
 			sendUserToast('Error loading custom tags', true)
 		}
 		loading = false
 	}
 	let items = $derived([
 		// ...(tag ? ['reset to default'] : [nullTag ? `default: ${nullTag}` : '']),
-		...(tag && tag != '' && !($workerTags ?? []).includes(tag) ? [tag] : []),
-		...($workerTags ?? [])
+		...(tag && tag != '' && !(currentTags ?? []).includes(tag) ? [tag] : []),
+		...(currentTags ?? [])
 	])
 
 	let lastCheck: number | undefined = undefined
@@ -77,7 +103,7 @@
 		if (open) {
 			tagsToWorkerExists = await WorkerService.existsWorkersWithTags({
 				tags: tags.join(','),
-				workspace: $workspaceStore
+				workspace: effectiveWorkspace
 			})
 			lastCheck = Date.now()
 			if (visible) {
@@ -103,8 +129,8 @@
 	// )
 
 	$effect(() => {
-		if ($workerTags && open) {
-			loadTagsToWorkerExists($workerTags)
+		if (currentTags && open) {
+			loadTagsToWorkerExists(currentTags)
 		}
 	})
 
