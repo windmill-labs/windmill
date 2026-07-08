@@ -11,11 +11,11 @@
 		PanelRightOpen,
 		ChevronDown,
 		MonitorPlay,
-		Loader2,
-		X
+		Loader2
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { Button } from '$lib/components/common'
+	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PreviewRouterPicker, {
 		type Scope
@@ -38,8 +38,7 @@
 	import {
 		getOrCreateRuntime,
 		getRuntime,
-		listRuntimes,
-		promoteEditorWarm
+		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
@@ -52,6 +51,7 @@
 		previewLocationLabel,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
+	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
 	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
@@ -131,14 +131,6 @@
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
 	)
-
-	// Promote the active session in the LRU. Mutations untracked so the effect
-	// only re-runs when activeSession changes, not on its own writes.
-	$effect(() => {
-		const id = activeSession?.id
-		if (!id) return
-		untrack(() => promoteEditorWarm(id))
-	})
 
 	// Mark the active session "seen" up to its current message count: arrive →
 	// clear unread; AI streams a new message while we're here → clear again. The
@@ -245,6 +237,14 @@
 		const sid = activeRuntime?.sessionId
 		if (sid) mountedTabKeys.delete(tabKey(sid, id))
 	}
+	function reorderTabs(next: TabItem[]) {
+		owner?.reorder(next.map((t) => t.id))
+	}
+	// Adapt the session tab model to DraggableTabs items (labels derived from the
+	// observed location; every tab closable, none pinned).
+	const previewTabItems = $derived<TabItem[]>(
+		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabel(t.loc) }))
+	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
 	// same time as the tab-strip "+" popover, so sharing one flag would open both
@@ -309,61 +309,49 @@
 		}
 	}
 
-	// Reload mounted preview tabs affected by a mutating chat tool (write_/patch_/
-	// delete_/deploy_/…; read/test/navigate tools don't match). Scoped to the changed
-	// item so editing one item never blank-reboots an unrelated item's preview iframe
-	// (a full-page /apps_raw/edit reload is jarring).
+	// Reload mounted preview tabs affected by a mutating chat tool. Item and pipeline
+	// tabs are live editors that self-sync from the store the chat mutates, so nothing
+	// reloads them. Only list-page tabs (schedules, resources, …) are iframes, and each
+	// reloads only when a tool actually changed *its* page (toolReloadEffect) — so a
+	// schedule write leaves the Resources tab alone, and a purely local tool (saving
+	// user instructions) reloads nothing.
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
-	const MUTATING_TOOL_RE = /^(write_|patch_|delete_|deploy_|discard_|set_|create_|update_|remove_)/
-	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	// Drained each flush: item paths touched since the last flush, and a flag for an
-	// unresolved mutation that forces a full reload (safe fallback).
-	let pendingReloadPaths = new Set<string>()
-	let pendingReloadAll = false
 
-	// Reload the batched-mutation tabs across all warm sessions' mounted tabs (a
-	// hidden preview would otherwise show pre-mutation content on return). `null`
-	// reloads all; otherwise an item-route iframe reloads only when its item was
-	// touched. Non-item pages always reload; a live-editor slot no-ops in reload().
-	function reloadTabs(paths: Set<string> | null) {
+	let reloadHandle: ReturnType<typeof setTimeout> | undefined
+	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
+	// the last flush — see toolReloadEffect for how tools map to pages.
+	let pendingPages = new Set<string>()
+
+	// Reload the mounted list-page tabs a chat round changed, across all warm
+	// sessions (a hidden preview would otherwise show pre-mutation content on
+	// return). tabsToReload picks only the tabs whose page is in `pages`.
+	function reloadTabs(pages: Set<string>) {
 		for (const s of warmSessions) {
-			const tabs = getRuntime(s.id)?.previewTabs?.tabs ?? []
-			for (const tab of tabs) {
+			const owner = getRuntime(s.id)?.previewTabs
+			if (!owner) continue
+			for (const tab of tabsToReload(owner.tabs, pages)) {
 				const key = tabKey(s.id, tab.id)
-				if (!mountedTabKeys.has(key)) continue
-				if (paths) {
-					const route = parsePreviewItemRoute(tab.url)
-					if (route && !paths.has(route.itemPath)) continue
-				}
-				tabHosts[key]?.reload()
+				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
 			}
 		}
 	}
 	function flushReload() {
-		const paths = pendingReloadAll ? null : pendingReloadPaths
-		pendingReloadPaths = new Set()
-		pendingReloadAll = false
-		reloadTabs(paths)
+		const pages = pendingPages
+		pendingPages = new Set()
+		reloadTabs(pages)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args) => {
-			if (!MUTATING_TOOL_RE.test(name)) return
-			// A workspace item path scopes the reload to that item. The raw-app file
-			// tools (write_app_file, …) pass a leading-'/' frontend file path and edit
-			// the active session's target app, so scope to the target. Anything else is
-			// unresolved → reload everything (safe fallback).
-			const p = typeof args?.path === 'string' ? args.path : undefined
-			if (p && !p.startsWith('/')) pendingReloadPaths.add(p)
-			else if (p && activeSession?.target?.path) pendingReloadPaths.add(activeSession.target.path)
-			else pendingReloadAll = true
+			const { pages } = toolReloadEffect(name, args)
+			if (pages.length === 0) return
+			for (const p of pages) pendingPages.add(p)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
-			pendingReloadPaths = new Set()
-			pendingReloadAll = false
+			pendingPages = new Set()
 			setToolCompletionListener(undefined)
 		}
 	})
@@ -557,7 +545,7 @@
 										: 'z-0 opacity-0 pointer-events-none'}"
 									aria-hidden={s.id !== activeSession?.id}
 								>
-									<SessionWrapper sessionId={s.id} hideEditor />
+									<SessionWrapper sessionId={s.id} />
 								</div>
 							{/each}
 						</div>
@@ -587,7 +575,7 @@
 									onclick={() => owner?.setCollapsed(true)}
 									title="Collapse preview"
 									aria-label="Collapse preview"
-									class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									<PanelRightClose size={14} />
 								</button>
@@ -603,7 +591,7 @@
 									)}
 									title="Open in workspace"
 									aria-label="Open in workspace"
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									<ExternalLink size={14} />
 								</a>
@@ -612,7 +600,7 @@
 									onclick={() => (fullscreen = !fullscreen)}
 									title={fullscreen ? 'Exit full screen' : 'Full screen'}
 									aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
 								>
 									{#if fullscreen}
 										<Minimize2 size={14} />
@@ -622,96 +610,80 @@
 								</button>
 							</div>
 
-							<!-- Tab strip: open preview pages. "+" opens the router picker to
-								     add more. -->
-							<div
-								class="flex items-center gap-1 h-8 border-b border-light shrink-0 bg-surface-secondary overflow-x-auto {fullscreen
+							<!-- Tab strip: open preview pages, shared with the raw-app editor
+								     (DraggableTabs). The active tab hosts its own breadcrumb picker via
+								     the accessory chevron; the "+" trailing opens the router picker.
+								     Left/right padding clears the floating collapse/fullscreen buttons. -->
+							<DraggableTabs
+								tabs={previewTabItems}
+								activeId={owner?.activeId ?? ''}
+								onSelect={selectTab}
+								onClose={closeTab}
+								onReorder={reorderTabs}
+								class="h-8 border-b border-light bg-surface-secondary/50 {fullscreen
 									? 'pl-1.5'
 									: 'pl-9'} pr-16"
 							>
-								{#each owner?.tabs ?? [] as tab (tab.id)}
-									<div
-										class="group/tab flex items-center gap-1 shrink-0 max-w-[14rem] h-6 pl-2 pr-1 rounded-md text-xs border transition-colors {tab.id ===
-										owner?.activeId
-											? 'bg-surface text-primary border-light'
-											: 'text-secondary border-transparent hover:bg-surface-hover'}"
-									>
-										{#if tab.id === owner?.activeId}
-											<!-- Active tab doubles as its own breadcrumb picker. -->
-											<Popover
-												placement="bottom-start"
-												usePointerDownOutside
-												excludeSelectors=".drawer"
-												disableFocusTrap
-												closeOnOtherPopoverOpen
-												enableFlyTransition
-												bind:isOpen={activeTabPickerOpen}
-												openFocus="[data-workspace-picker-search]"
-												class="flex items-center gap-1.5 min-w-0 cursor-pointer"
-											>
-												{#snippet trigger()}
-													<span class="truncate">{tabLabel(tab.loc)}</span>
-													<ChevronDown size={12} class="shrink-0 text-tertiary" />
-												{/snippet}
-												{#snippet content()}
-													<PreviewRouterPicker
-														initialScope={activePickerScope}
-														initialHighlight={activePickerHighlight}
-														{currentItem}
-														workspaceId={previewWorkspace}
-														onPick={(t) => {
-															activeTabPickerOpen = false
-															navigatePreviewTo(t)
-														}}
-													/>
-												{/snippet}
-											</Popover>
-										{:else}
-											<button
-												type="button"
-												class="flex items-center gap-1.5 min-w-0"
-												onclick={() => selectTab(tab.id)}
-												title={tabLabel(tab.loc)}
-											>
-												<span class="truncate">{tabLabel(tab.loc)}</span>
-											</button>
-										{/if}
-										<button
-											type="button"
-											onclick={() => closeTab(tab.id)}
-											title="Close tab"
-											aria-label="Close tab"
-											class="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded text-tertiary hover:text-primary hover:bg-surface-hover opacity-0 group-hover/tab:opacity-100"
+								{#snippet tabAccessory(_tab, isActive)}
+									{#if isActive}
+										<Popover
+											placement="bottom-start"
+											usePointerDownOutside
+											excludeSelectors=".drawer"
+											disableFocusTrap
+											closeOnOtherPopoverOpen
+											enableFlyTransition
+											bind:isOpen={activeTabPickerOpen}
+											openFocus="[data-workspace-picker-search]"
+											contentClasses="flex flex-col overflow-hidden"
+											class="flex items-center shrink-0 cursor-pointer text-tertiary hover:text-primary"
 										>
-											<X size={11} />
-										</button>
-									</div>
-								{/each}
-								<Popover
-									placement="bottom-start"
-									usePointerDownOutside
-									excludeSelectors=".drawer"
-									disableFocusTrap
-									closeOnOtherPopoverOpen
-									bind:isOpen={newTabOpen}
-									enableFlyTransition
-									openFocus="[data-workspace-picker-search]"
-									class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
-								>
-									{#snippet trigger()}
-										<Plus size={14} />
-									{/snippet}
-									{#snippet content()}
-										<PreviewRouterPicker
-											workspaceId={previewWorkspace}
-											onPick={(t) => {
-												newTabOpen = false
-												openInNewTab(t)
-											}}
-										/>
-									{/snippet}
-								</Popover>
-							</div>
+											{#snippet trigger()}
+												<ChevronDown size={12} />
+											{/snippet}
+											{#snippet content()}
+												<PreviewRouterPicker
+													initialScope={activePickerScope}
+													initialHighlight={activePickerHighlight}
+													{currentItem}
+													workspaceId={previewWorkspace}
+													onPick={(t) => {
+														activeTabPickerOpen = false
+														navigatePreviewTo(t)
+													}}
+												/>
+											{/snippet}
+										</Popover>
+									{/if}
+								{/snippet}
+								{#snippet afterTabs()}
+									<Popover
+										placement="bottom-start"
+										usePointerDownOutside
+										excludeSelectors=".drawer"
+										disableFocusTrap
+										closeOnOtherPopoverOpen
+										bind:isOpen={newTabOpen}
+										enableFlyTransition
+										openFocus="[data-workspace-picker-search]"
+										contentClasses="flex flex-col overflow-hidden"
+										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
+									>
+										{#snippet trigger()}
+											<Plus size={14} />
+										{/snippet}
+										{#snippet content()}
+											<PreviewRouterPicker
+												workspaceId={previewWorkspace}
+												onPick={(t) => {
+													newTabOpen = false
+													openInNewTab(t)
+												}}
+											/>
+										{/snippet}
+									</Popover>
+								{/snippet}
+							</DraggableTabs>
 
 							<!-- One host per tab of every warm session, stacked and
 								     visibility-toggled so switching tabs or sessions never reloads
@@ -763,6 +735,7 @@
 											bind:isOpen={emptyStateNewTabOpen}
 											enableFlyTransition
 											openFocus="[data-workspace-picker-search]"
+											contentClasses="flex flex-col overflow-hidden"
 										>
 											{#snippet trigger()}
 												<span

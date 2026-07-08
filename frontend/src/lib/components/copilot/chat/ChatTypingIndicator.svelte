@@ -42,14 +42,16 @@
 	aria-label="AI is generating a response"
 >
 	<span class={compact ? 'inline-flex items-end gap-0.5' : 'inline-flex items-end gap-1'}>
-		<span class={(compact ? 'w-1 h-1' : 'w-1.5 h-1.5') + ' rounded-full bg-accent chat-typing-dot'}
+		<span
+			class={(compact ? 'w-[3px] h-[3px]' : 'w-[5px] h-[5px]') +
+				' rounded-full bg-accent chat-typing-dot'}
 		></span>
 		<span
-			class={(compact ? 'w-1 h-1' : 'w-1.5 h-1.5') +
+			class={(compact ? 'w-[3px] h-[3px]' : 'w-[5px] h-[5px]') +
 				' rounded-full bg-accent chat-typing-dot chat-typing-dot-2'}
 		></span>
 		<span
-			class={(compact ? 'w-1 h-1' : 'w-1.5 h-1.5') +
+			class={(compact ? 'w-[3px] h-[3px]' : 'w-[5px] h-[5px]') +
 				' rounded-full bg-accent chat-typing-dot chat-typing-dot-3'}
 		></span>
 	</span>

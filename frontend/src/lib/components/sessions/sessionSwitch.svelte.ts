@@ -7,7 +7,6 @@ import {
 	sessionInCurrentFamily,
 	sessionState,
 	setSessionPendingWorkspace,
-	setSessionTarget,
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref } from './sessionMode.svelte'
@@ -66,8 +65,8 @@ export async function exitSessionMode(): Promise<void> {
 	await goto(target)
 }
 
-// Open a fresh AI session pre-targeted at an editor (flow/script/raw_app), then
-// route into session mode. The session preview loads that editor via its target,
+// Open a fresh AI session showing an editor (flow/script/raw_app) in its preview,
+// then route into session mode. The preview loads the item from its live draft,
 // so the caller MUST persist any unsaved edits first (e.g. save a draft) for the
 // preview to reflect the live state. `workspaceId` scopes the session to the
 // editor's workspace (instead of createSession's root default) so it opens the
@@ -76,16 +75,14 @@ export async function openEditorInSession(
 	target: SessionTarget,
 	workspaceId?: string
 ): Promise<void> {
-	// createSession() reuses an existing transient draft, which may still be
-	// pointed at a *different* item — and its preview tabs (persisted with the
-	// draft and/or held by a live runtime) keep showing that old target unless
-	// the tab model is reset along with the target field.
+	// createSession() reuses an existing transient draft, whose preview tabs
+	// (persisted with the draft and/or held by a live runtime) may still show a
+	// different item — so seed the preview with a single tab on `target`, resetting
+	// whatever it was showing.
 	const session = createSession()
-	const retargeted = session.target?.kind !== target.kind || session.target?.path !== target.path
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
-	setSessionTarget(session.id, target)
 	const url = sessionTargetHref(target)
-	if (url && retargeted) {
+	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its
 		// node-run unit tests.
