@@ -189,7 +189,10 @@
 </div>
 
 <style>
-	:global(.splitter-hidden .splitpanes__splitter) {
+	/* Direct child only: a descendant selector leaks into nested Splitpanes (e.g. the
+	   sessions preview reuses `.splitter-hidden`, which would otherwise hide the flow
+	   editor / modal splitters too). */
+	:global(.splitter-hidden > .splitpanes__splitter) {
 		background-color: transparent !important;
 		border: none !important;
 		opacity: 0 !important;

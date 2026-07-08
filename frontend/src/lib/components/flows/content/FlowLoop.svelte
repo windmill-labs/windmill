@@ -143,7 +143,7 @@
 <FlowCard {noEditor} title="For loop">
 	{#snippet header()}
 		<div class="grow">
-			<div class="my-2 flex flex-row gap-2 items-center">
+			<div class="flex flex-row gap-2 items-center">
 				<div>
 					<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
 						Add steps inside the loop and specify an iterator expression that defines the sequence
@@ -170,7 +170,7 @@
 			{#if mod.value.type === 'forloopflow'}
 				<div class="flex flex-row gap-6 mt-2 mb-6">
 					<div class="flex-shrink-0">
-						<div class="mb-2 text-sm font-bold"
+						<div class="mb-2 text-xs font-semibold text-emphasis"
 							>Skip failures <Tooltip
 								documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
 								>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
@@ -179,16 +179,10 @@
 								(Workspace error handlers will NOT be used to process errors if enabled.)</Tooltip
 							></div
 						>
-						<Toggle
-							bind:checked={mod.value.skip_failures}
-							options={{
-								right: 'Skip failures'
-							}}
-							class="whitespace-nowrap"
-						/>
+						<Toggle bind:checked={mod.value.skip_failures} />
 					</div>
 					<div class="flex-shrink-0">
-						<div class="mb-2 text-sm font-bold"
+						<div class="mb-2 text-xs font-semibold text-emphasis"
 							>Squash
 							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
 								Squashing a for loop runs all iterations on the same worker, using a single runner
@@ -201,15 +195,11 @@
 							on:change={({ detail }) => {
 								;(mod.value as ForloopFlow).squash = detail
 							}}
-							options={{
-								right: 'Squash'
-							}}
-							class="whitespace-nowrap"
 							disabled={mod.value.parallel}
 						/>
 					</div>
 					<div class="flex-shrink-0">
-						<div class="mb-2 text-sm font-bold">Run in parallel</div>
+						<div class="mb-2 text-xs font-semibold text-emphasis">Run in parallel</div>
 						<Toggle
 							bind:checked={mod.value.parallel}
 							on:change={({ detail }) => {
@@ -217,15 +207,11 @@
 									;(mod.value as ForloopFlow).parallelism = undefined
 								}
 							}}
-							options={{
-								right: 'All iterations run in parallel'
-							}}
-							class="whitespace-nowrap"
 							disabled={mod.value.squash}
 						/>
 					</div>
 					<div class="flex-shrink-0">
-						<div class="mb-2 text-sm font-bold"
+						<div class="mb-2 text-xs font-semibold text-emphasis"
 							>Parallelism <Tooltip
 								>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
 							>
@@ -315,6 +301,7 @@
 						<PropPickerWrapper
 							notSelectable
 							noPadding
+							forceExpanded
 							flow_input={stepPropPicker.pickableProperties.flow_input}
 							pickableProperties={stepPropPicker.pickableProperties}
 							on:select={({ detail }) => {
@@ -349,7 +336,7 @@
 					</div>
 				{/if}
 				<div class="my-2 flex flex-row gap-2 items-center">
-					<div class="text-sm font-bold whitespace-nowrap">
+					<div class="text-xs font-semibold text-emphasis whitespace-nowrap">
 						Iterator expression
 						<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
 							The JavaScript expression that will be evaluated to get the list of items to iterate
@@ -358,6 +345,7 @@
 					</div>
 					<FlowPlugConnect
 						connecting={$flowPropPickerConfig != undefined}
+						wrapperClasses={$flowPropPickerConfig != undefined ? 'h-6 w-7' : 'h-7 w-8'}
 						on:click={() => {
 							const config = {
 								onSelect: (code) => {
@@ -399,6 +387,7 @@
 					>
 						<PropPickerWrapper
 							notSelectable
+							forceExpanded
 							pickableProperties={stepPropPicker.pickableProperties}
 							on:select={({ detail }) => {
 								if ($flowPropPickerConfig) {

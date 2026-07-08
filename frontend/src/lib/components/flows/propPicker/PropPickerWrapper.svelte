@@ -40,6 +40,11 @@
 		noPadding?: boolean
 		paneClass?: string
 		noFlowPlugConnect?: boolean
+		/** Opt out of the sessions-modal collapse-until-connect behavior and always
+		 *  show the picker split pane (e.g. the loop iterator, whose auto-height
+		 *  container relies on the picker pane for its height and whose connect uses
+		 *  the flow-level config). */
+		forceExpanded?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -54,6 +59,7 @@
 		noPadding = false,
 		paneClass = '',
 		noFlowPlugConnect = false,
+		forceExpanded = false,
 		children
 	}: Props = $props()
 
@@ -71,7 +77,7 @@
 	// Collapse-until-connect mode (sessions modal panel): the picker stays hidden and
 	// slides in only while a connect is active. Elsewhere it's always the split pane.
 	const collapseUntilConnect = $derived(
-		propPickerContext.collapsePropPickerUntilConnect?.() ?? false
+		!forceExpanded && (propPickerContext.collapsePropPickerUntilConnect?.() ?? false)
 	)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {

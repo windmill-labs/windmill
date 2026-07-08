@@ -201,7 +201,7 @@
 		</span>
 	{/if}
 	{#if title}
-		<div class="text-sm font-bold text-primary pr-2">{title}</div>
+		<div class="text-sm font-semibold text-emphasis pr-2">{title}</div>
 	{/if}
 	{@render children?.()}
 	{@render action?.()}
