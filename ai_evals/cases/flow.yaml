@@ -359,6 +359,8 @@
       - request_approval
       - finalize_purchase
     topLevelStepTypes:
+      - id: request_approval
+        type: [rawscript, script]
       - id: finalize_purchase
         type: rawscript
     schemaRequiredPaths:
@@ -373,6 +375,7 @@
   judgeChecklist:
     - "the flow includes an approval step named `request_approval`"
     - "`request_approval` pauses the flow and asks the approver for a comment"
+    - "`request_approval` is a real script step that generates approval/resume URLs (e.g. via `getResumeUrls`) so approvers receive an actionable link, not a no-op passthrough (identity) step"
     - one approval is enough to continue
     - "the flow includes a final step named `finalize_purchase`"
     - "`finalize_purchase` returns an approved status object after approval"

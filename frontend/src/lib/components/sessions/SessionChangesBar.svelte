@@ -19,6 +19,7 @@
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { badgeCounts, buildDeployItems } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
+	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 
 	// Unified session bar: surfaces what the CURRENT chat changed — pending
 	// drafts and deployed items — as one count badge per status that opens the
@@ -170,35 +171,26 @@
 			(dockItems.length > 0 || deletionOnly) &&
 			(!isFork || (forksAllowed && !!sessionWorkspace && !!parentWorkspace && !!parentWorkspaceId))
 	)
+
+	// Background jobs the chat started (rendered as the Jobs segment). The session
+	// bar shows if there are edits OR jobs; each segment hides when its side is empty.
+	const hasJobs = $derived((runtime?.manager.backgroundJobs.length ?? 0) > 0)
 </script>
 
 {#snippet dock()}
 	<!-- One count badge per row status, same vocabulary/colors as the drawer's
-	     badges (draft/deployed) so the bar reads at a glance. -->
+	     badges (draft/deployed) so the bar reads at a glance. Display-only: the
+	     enclosing Edits segment button opens the drawer. -->
 	<div class="flex items-center gap-1 shrink-0">
 		{#if dockCounts.draft > 0}
-			<Badge small clickable color="indigo" onclick={openDrawer}>
+			<Badge small color="indigo">
 				{dockCounts.draft} draft{dockCounts.draft === 1 ? '' : 's'}
 			</Badge>
 		{/if}
 		{#if dockCounts.deployed > 0}
-			<Badge small clickable color="green" onclick={openDrawer}>
+			<Badge small color="green">
 				{dockCounts.deployed} deployed
 			</Badge>
-		{/if}
-		{#if deletionOnly && compareHref}
-			<!-- Deleted items have no dock row; the pending fork→parent removal is
-			     reviewed on the compare page, so keep that doorway on the bar. -->
-			<a
-				href={compareHref}
-				target="_blank"
-				rel="noopener noreferrer"
-				title="This chat's edits were deletions — review and promote them on the compare page"
-				class="inline-flex items-center gap-1 text-2xs font-medium text-accent hover:underline shrink-0"
-			>
-				Review deletions on compare page
-				<ExternalLink class="w-3 h-3" />
-			</a>
 		{/if}
 	</div>
 {/snippet}
@@ -248,17 +240,59 @@
 			</Button>
 		</div>
 	</div>
-{:else if showBar && committedId}
-	<!-- The "Edits" bar: what the AI changed this session. Fork identity / sync
-	     status lives inside the modal, not here. -->
+{:else if committedId && (showBar || hasJobs)}
+	<!-- Segmented session bar: an Edits segment (what the AI changed this session)
+	     and a Jobs segment (background jobs it started), sharing one border box.
+	     The Edits segment (or, in its absence, a flex-1 spacer) fills the left so the
+	     Jobs segment stays pinned to the right whether or not there are edits. Fork
+	     identity / sync status lives inside the modal. -->
 	<div
-		class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
+		class="flex h-[38px] items-stretch overflow-hidden rounded-md border bg-surface-tertiary text-xs"
 	>
-		<div class="flex items-center gap-1.5 min-w-0" title="Edited by the chat during this session">
-			<Pencil class="w-3.5 h-3.5 shrink-0 text-secondary" />
-			<span class="truncate text-secondary font-medium">Edits</span>
-		</div>
-		{@render dock()}
+		{#if showBar}
+			{#if deletionOnly && compareHref}
+				<!-- Deleted items have no drawer row; the pending fork→parent removal is
+				     reviewed on the compare page, so the segment links there instead. -->
+				<a
+					href={compareHref}
+					target="_blank"
+					rel="noopener noreferrer"
+					title="This chat's edits were deletions — review and promote them on the compare page"
+					class="flex min-w-0 flex-1 items-center gap-1.5 px-3 hover:bg-surface-hover"
+				>
+					<Pencil class="h-3.5 w-3.5 shrink-0 text-secondary" />
+					<span class="shrink-0 font-normal text-primary">Edits</span>
+					<span
+						class="ml-auto inline-flex items-center gap-1 truncate text-2xs font-medium text-accent"
+					>
+						Review deletions <ExternalLink class="h-3 w-3 shrink-0" />
+					</span>
+				</a>
+			{:else}
+				<!-- Raw <button> (like the other clickable session rows/segments, e.g.
+				     SessionPicker/WorkspaceFamilyPicker): a full-width bar segment, not a
+				     discrete design-system action control. aria-haspopup marks the drawer. -->
+				<button
+					type="button"
+					class="flex min-w-0 flex-1 items-center gap-1.5 px-3 hover:bg-surface-hover"
+					title="Edited by the chat during this session"
+					aria-haspopup="dialog"
+					onclick={openDrawer}
+				>
+					<Pencil class="h-3.5 w-3.5 shrink-0 text-secondary" />
+					<span class="shrink-0 font-normal text-primary">Edits</span>
+					<span class="ml-auto">{@render dock()}</span>
+				</button>
+			{/if}
+		{:else}
+			<!-- No edits: a spacer fills the left so the Jobs segment stays right-aligned. -->
+			<div class="flex-1"></div>
+		{/if}
+		{#if hasJobs}
+			<!-- standalone={false}: renders just the chip trigger as a full-height
+			     segment; the border box above provides the chrome. -->
+			<JobsSegment />
+		{/if}
 	</div>
 {/if}
 

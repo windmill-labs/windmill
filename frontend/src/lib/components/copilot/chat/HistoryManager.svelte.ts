@@ -1,5 +1,5 @@
 import { type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
-import type { DisplayMessage } from './shared'
+import type { ChatJob, DisplayMessage } from './shared'
 import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
@@ -31,6 +31,10 @@ interface ChatSchema extends IDBSchema {
 			// chats predating this feature → consumers fall back to showing all
 			// workspace drafts; a defined array (even empty) means "tracked".
 			modifiedItems?: string[]
+			// Jobs this chat started that detached into the background, so an
+			// in-flight job's tray row and completion survive a reload. Absent on
+			// chats predating this feature. Persisted out-of-band like modifiedItems.
+			backgroundJobs?: ChatJob[]
 		}
 	}
 }
@@ -130,6 +134,7 @@ export default class HistoryManager {
 			sessionId?: string
 			contextUsage?: PersistedContextUsage
 			modifiedItems?: string[]
+			backgroundJobs?: ChatJob[]
 		}
 	> = $state({})
 
@@ -207,11 +212,16 @@ export default class HistoryManager {
 		return this.savedChats[id]?.modifiedItems
 	}
 
+	getBackgroundJobs(id: string): ChatJob[] | undefined {
+		return this.savedChats[id]?.backgroundJobs
+	}
+
 	async saveChat(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
 		contextUsage?: number,
-		modifiedItems?: string[]
+		modifiedItems?: string[],
+		backgroundJobs?: ChatJob[]
 	) {
 		if (displayMessages.length > 0) {
 			// Compaction replaces the original first message with a summary boundary.
@@ -246,10 +256,21 @@ export default class HistoryManager {
 				// pass a defined array and persist it. Since `put` replaces the whole
 				// record, a caller that omits the argument must not ERASE a tracked
 				// chat's stored mask — fall back to the previously saved field.
+				// Snapshot the fallback: savedChats is $state, so the stored value is a
+				// proxy that structuredClone (used by IndexedDB put) cannot clone.
 				...(modifiedItems !== undefined
 					? { modifiedItems }
 					: this.savedChats[this.currentChatId]?.modifiedItems !== undefined
-						? { modifiedItems: this.savedChats[this.currentChatId].modifiedItems }
+						? { modifiedItems: $state.snapshot(this.savedChats[this.currentChatId].modifiedItems) }
+						: {}),
+				// Same "don't erase on omit" guard as modifiedItems: a turn-end save
+				// that doesn't pass backgroundJobs must keep the tray's stored jobs.
+				...(backgroundJobs !== undefined
+					? { backgroundJobs }
+					: this.savedChats[this.currentChatId]?.backgroundJobs !== undefined
+						? {
+								backgroundJobs: $state.snapshot(this.savedChats[this.currentChatId].backgroundJobs)
+							}
 						: {})
 			}
 			this.savedChats = {
@@ -266,9 +287,10 @@ export default class HistoryManager {
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
 		contextUsage?: number,
-		modifiedItems?: string[]
+		modifiedItems?: string[],
+		backgroundJobs?: ChatJob[]
 	) {
-		await this.saveChat(displayMessages, messages, contextUsage, modifiedItems)
+		await this.saveChat(displayMessages, messages, contextUsage, modifiedItems, backgroundJobs)
 		this.currentChatId = createLongHash()
 	}
 

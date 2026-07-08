@@ -201,11 +201,13 @@
 	}
 	// Mount the active session's active tab whenever either changes. Background
 	// sessions' activeId changes (a chat tool opening a tab) don't mount — their
-	// tabs boot lazily on first visible activation.
+	// tabs boot lazily on first visible activation. A collapsed preview mounts
+	// nothing: the pane is zero-width, so booting a full Windmill app the user
+	// can't see is wasted — it mounts on expand, when previewCollapsed flips.
 	$effect(() => {
 		const sid = activeRuntime?.sessionId
 		const activeId = owner?.activeId
-		if (!sid || !activeId) return
+		if (!sid || !activeId || previewCollapsed) return
 		untrack(() => mountTab(tabKey(sid, activeId)))
 	})
 	// A disposed runtime unmounts its hosts; drop its keys too, else a later
@@ -780,6 +782,11 @@
 									{@const rt = getRuntime(s.id)}
 									{@const tabs = rt?.previewTabs}
 									{#each tabs?.tabs ?? [] as tab (tab.id)}
+										<!-- tabHosts is an imperative ref-bag (only tabHosts[key]?.reload() in
+										     reloadTabs); it is intentionally a plain object so component
+										     instances aren't proxied. Nothing reads it reactively, so the
+										     non-reactive binding is fine. -->
+										<!-- svelte-ignore binding_property_non_reactive -->
 										<PreviewTabHost
 											bind:this={tabHosts[tabKey(s.id, tab.id)]}
 											{tab}

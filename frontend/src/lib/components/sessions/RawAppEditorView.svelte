@@ -104,6 +104,10 @@
 			     savedApp but no deployed row, so it must deploy via createApp — keying
 			     on !savedApp alone would updateApp a never-deployed path and 404
 			     "not found". -->
+			<!-- These bind: targets live on runtime.rawApp.val, reactive state owned by
+			     the SessionRuntime class (created in createRuntime), not by a component
+			     ancestor — so Svelte's ownership check flags a false positive here. -->
+			<!-- svelte-ignore ownership_invalid_binding -->
 			<RawAppEditor
 				bind:files={cell.store.val.files}
 				bind:runnables={cell.store.val.runnables}
