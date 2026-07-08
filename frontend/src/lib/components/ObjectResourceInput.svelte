@@ -20,6 +20,8 @@
 		disabled?: boolean
 		datatableAsPgResource?: boolean
 		onClear?: () => void
+		/** Workspace the resource picker lists from; defaults to the nav workspace. */
+		workspace?: string
 	}
 
 	let {
@@ -32,7 +34,8 @@
 		editor = $bindable(undefined),
 		disabled = false,
 		datatableAsPgResource = false,
-		onClear = undefined
+		onClear = undefined,
+		workspace = undefined
 	}: Props = $props()
 
 	function isResource() {
@@ -63,6 +66,7 @@
 			{selectFirst}
 			{disablePortal}
 			{onClear}
+			{workspace}
 			bind:value={
 				() => valueToPath(),
 				(v) => {

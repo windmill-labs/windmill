@@ -29,6 +29,12 @@
 		wsSpecific: boolean
 	}
 
+	// The "current" workspace this editor defaults New/Edit actions to. Session
+	// editors pass their acting workspace so secrets are created/updated there
+	// rather than in the navigation workspace. Defaults to $workspaceStore.
+	let { workspace = undefined }: { workspace?: string } = $props()
+	let curWs = $derived(workspace ?? $workspaceStore)
+
 	let editPath: string | undefined = $state(undefined)
 
 	// Per-workspace handles are driven by `useMany`. We track the workspace
@@ -119,9 +125,7 @@
 	// that case.
 	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
 	const otherDirty = $derived(
-		dirtyWorkspaces.length == 1
-			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
-			: dirtyWorkspaces
+		dirtyWorkspaces.length == 1 ? dirtyWorkspaces.filter((ws) => ws !== curWs) : dirtyWorkspaces
 	)
 	const dirtyValid = $derived(
 		dirtyWorkspaces.every((ws) => {
@@ -198,7 +202,7 @@
 	export function initNew(): void {
 		reset()
 		editPath = undefined
-		const ws = $workspaceStore!
+		const ws = curWs!
 		const s: VariableState = {
 			path: '',
 			variable: { value: '', is_secret: true, description: '' },
@@ -215,7 +219,7 @@
 	export function editVariable(edit_path: string): void {
 		reset()
 		editPath = edit_path
-		selected = $workspaceStore!
+		selected = curWs!
 		drawer?.openDrawer()
 	}
 
@@ -342,13 +346,8 @@
 			{/if}
 		</div>
 		{#snippet actions()}
-			{#if edit && $workspaceStore}
-				<WsSpecificVersions
-					kind="variable"
-					workspaceId={$workspaceStore}
-					{initialPath}
-					bind:selected
-				/>
+			{#if edit && curWs}
+				<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
 			{/if}
 			<Button
 				on:click={save}

@@ -523,5 +523,5 @@
 		{/snippet}
 	</ItemPicker>
 
-	<VariableEditor bind:this={variableEditor} />
+	<VariableEditor bind:this={variableEditor} workspace={ws} />
 {/if}

@@ -1085,6 +1085,7 @@
 			<ObjectResourceInput
 				datatableAsPgResource={label === 'database'}
 				{disabled}
+				{workspace}
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst && required}
 				{disablePortal}
@@ -1430,6 +1431,7 @@
 			<ResourcePicker
 				selectFirst={noDefaultOnSelectFirst}
 				{disablePortal}
+				{workspace}
 				bind:value
 				initialValue={defaultValue}
 				resourceType={format && format.split('-').length > 1

@@ -821,8 +821,12 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		loadItems={async () => await ResourceService.listResourceType({ workspace: ws ?? 'NO_W' })}
 	/>
 {/if}
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
-<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
+<ResourceEditorDrawer
+	bind:this={resourceEditor}
+	workspace={ws}
+	on:refresh={resourcePicker.openDrawer}
+/>
+<VariableEditor bind:this={variableEditor} workspace={ws} on:create={variablePicker.openDrawer} />
 
 {#if showDucklakePicker}
 	<ItemPicker
