@@ -143,7 +143,8 @@ ARG GO_VERSION=1.26.0
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
-ARG WITH_HELM=true
+# helm is no longer bundled in the default image; opt back in with WITH_HELM=true
+ARG WITH_HELM=false
 ARG WITH_GIT=true
 ARG features=""
 
@@ -204,7 +205,17 @@ RUN if [ "$WITH_HELM" = "true" ]; then \
     tar -zxvf "helm-v${HELM_VERSION}-linux-$arch.tar.gz"  && \
     mv linux-$arch/helm /usr/local/bin/helm &&\
     chmod +x /usr/local/bin/helm; \
-    else echo 'Building the image without helm'; fi
+    else \
+    printf '%s\n' \
+    '#!/bin/sh' \
+    '# helm has been removed from the default Windmill image to keep it lean.' \
+    'echo "helm is no longer bundled in the default Windmill image." >&2' \
+    'echo "Install it at worker startup with a worker init script, e.g.:" >&2' \
+    'echo "  curl -fsSL https://get.helm.sh/helm-v3.14.3-linux-amd64.tar.gz | tar -xz -C /tmp && mv /tmp/linux-amd64/helm /usr/local/bin/helm" >&2' \
+    'echo "See https://www.windmill.dev/docs/core_concepts/worker_groups#init-scripts for details." >&2' \
+    'exit 127' \
+    > /usr/local/bin/helm && chmod +x /usr/local/bin/helm; \
+    echo 'Building the image without helm (installed a stub pointing to init scripts)'; fi
 
 RUN if [ "$WITH_KUBECTL" = "true" ]; then \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
