@@ -45,6 +45,10 @@ just some plain text
 no language, no coloring
 \`\`\`
 
+Raw sanitized HTML (via rehypeRaw) must keep its content, not render empty:
+
+<pre>raw pre content stays visible</pre>
+
 | Column A | Column B |
 | -------- | -------- |
 | one      | two      |

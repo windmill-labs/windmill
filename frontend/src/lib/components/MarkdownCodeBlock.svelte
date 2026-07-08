@@ -112,7 +112,13 @@
 		yaml: yaml
 	}
 
-	let code = $derived(astNode.current.children?.[0]?.children?.[0]?.value)
+	// Fenced code is `<pre><code>text</code></pre>` (text nested under <code>).
+	// Sanitized raw HTML through rehypeRaw is `<pre>text</pre>` — the text is a
+	// direct child of <pre> with no <code>, so fall back to it or the block would
+	// render empty now that this renderer handles every <pre>.
+	let code = $derived(
+		astNode.current.children?.[0]?.children?.[0]?.value ?? astNode.current.children?.[0]?.value
+	)
 
 	let language = $derived(
 		(astNode.current.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
