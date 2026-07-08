@@ -21,6 +21,8 @@
 		noButton?: boolean
 		jsonView?: boolean
 		limitPayloadSize?: boolean
+		/** Workspace to read/write saved inputs from; defaults to the nav workspace. */
+		workspace?: string
 	}
 
 	let {
@@ -30,8 +32,11 @@
 		isValid = false,
 		noButton = false,
 		jsonView = false,
-		limitPayloadSize = false
+		limitPayloadSize = false,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -58,7 +63,7 @@
 
 		try {
 			await InputService.updateInput({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				requestBody: {
 					id: input.id,
 					name: input.name,
@@ -76,7 +81,7 @@
 	function initLoadInputs() {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.listInputs({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				runnableId,
 				runnableType,
 				page,
@@ -104,7 +109,7 @@
 
 		const deleteInputFn = async (id: string) => {
 			await InputService.deleteInput({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				input: id
 			})
 		}
@@ -119,7 +124,7 @@
 		if (!id) return
 		return await InputService.getArgsFromHistoryOrSavedInput({
 			jobOrInputId: id,
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			input,
 			allowLarge
 		})
@@ -198,7 +203,7 @@
 	}
 
 	$effect(() => {
-		$workspaceStore &&
+		ws &&
 			runnableId &&
 			runnableType &&
 			(infiniteList && untrack(() => initLoadInputs()), (draft = false))

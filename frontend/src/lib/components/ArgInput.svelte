@@ -1070,7 +1070,14 @@
 				{/if}
 			</div>
 		{:else if inputCat == 'dynamic'}
-			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
+			<DynamicInput
+				name={label}
+				{otherArgs}
+				{helperScript}
+				{workspace}
+				bind:value
+				format={format ?? ''}
+			/>
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-primary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}

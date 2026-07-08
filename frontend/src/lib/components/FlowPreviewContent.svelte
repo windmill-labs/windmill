@@ -518,6 +518,7 @@
 						runnableId={$initialPathStore}
 						stablePathForCaptures={$initialPathStore || fakeInitialPath}
 						runnableType={'FlowPath'}
+						workspace={opWs}
 						previewArgs={previewArgs.val}
 						on:openTriggers
 						on:select={(e) => {
@@ -566,6 +567,7 @@
 									<SchemaForm
 										noVariablePicker
 										compact
+										workspace={opWs}
 										schema={flowStore.val.schema}
 										bind:args={previewArgs.val}
 										on:change={() => {
