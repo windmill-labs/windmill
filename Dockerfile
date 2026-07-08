@@ -143,10 +143,10 @@ ARG GO_VERSION=1.26.0
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
-# helm is no longer bundled in the default image; opt back in with WITH_HELM=true
+# Default images omit helm to stay lean; set WITH_HELM=true to bundle it
 ARG WITH_HELM=false
-# the Claude Code CLI (~245MB, used only by the claude sandbox template) is no longer
-# bundled in the default image; opt back in with WITH_CLAUDE_CODE=true
+# Default images omit the Claude Code CLI (~245MB, used only by the claude sandbox
+# template) to stay lean; set WITH_CLAUDE_CODE=true to bundle it
 ARG WITH_CLAUDE_CODE=false
 ARG WITH_GIT=true
 ARG features=""
@@ -211,12 +211,14 @@ RUN if [ "$WITH_HELM" = "true" ]; then \
     else \
     # Stub lives in /usr/bin (last in PATH) so any real helm installed later via an
     # init script — to /usr/local/bin, ~/.local/bin, /tmp/.local/bin, etc. — shadows it.
+    # The suggested command mirrors the WITH_HELM=true branch: ${HELM_VERSION} is baked in
+    # at build time and $arch is resolved at run time so the hint is correct on any arch.
     printf '%s\n' \
     '#!/bin/sh' \
-    '# helm has been removed from the default Windmill image to keep it lean.' \
-    'echo "helm is no longer bundled in the default Windmill image." >&2' \
+    'echo "helm is not included in the default Windmill image." >&2' \
     'echo "Install it at worker startup with a worker init script, e.g.:" >&2' \
-    'echo "  curl -fsSL https://get.helm.sh/helm-v3.14.3-linux-amd64.tar.gz | tar -xz -C /tmp && mv /tmp/linux-amd64/helm /usr/local/bin/helm" >&2' \
+    'arch="$(dpkg --print-architecture)"; arch="${arch##*-}"' \
+    "echo \"  wget https://get.helm.sh/helm-v${HELM_VERSION}-linux-\$arch.tar.gz && tar -zxvf helm-v${HELM_VERSION}-linux-\$arch.tar.gz && mv linux-\$arch/helm /usr/local/bin/helm\" >&2" \
     'echo "See https://www.windmill.dev/docs/core_concepts/worker_groups#init-scripts for details." >&2' \
     'exit 127' \
     > /usr/bin/helm && chmod +x /usr/bin/helm; \
@@ -302,10 +304,10 @@ COPY --from=oven/bun:1.3.10 /usr/local/bin/bun /usr/bin/bun
 RUN bun install -g windmill-cli \
     && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
 
-# Claude Code CLI (used only by the claude sandbox script template). Not bundled by
-# default to keep the image lean (~245MB); opt in with --build-arg WITH_CLAUDE_CODE=true,
-# or install it at worker startup via an init script. When absent, the claude sandbox
-# template fails fast with instructions (frontend/src/lib/templates/claude_sandbox.ts.template).
+# Claude Code CLI (~245MB), used only by the claude sandbox script template. Omitted from
+# the default image to stay lean; opt in with --build-arg WITH_CLAUDE_CODE=true, or install
+# it at worker startup via an init script. When absent, the agent SDK reports a missing
+# /usr/bin/claude at run time (the template header comment names the init-script install).
 # The installer puts the binary in ~/.local/bin/claude (symlink to ~/.local/share/claude/versions/*);
 # copy it to /usr/bin/claude so it's reachable inside the nsjail sandbox (which mounts /usr but not /root).
 RUN if [ "$WITH_CLAUDE_CODE" = "true" ]; then \
