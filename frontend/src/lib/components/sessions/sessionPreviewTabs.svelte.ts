@@ -3,6 +3,7 @@ import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 import {
 	matchPreviewPage,
+	parsePipelineRoute,
 	parsePreviewItemRoute,
 	previewLocationLabel,
 	resolvePreviewTab,
@@ -75,13 +76,16 @@ function editorTargetFor(target: PreviewTarget): SessionTarget | undefined {
 }
 
 // Adapt a session editor target (`open_preview` tool arg) to a preview
-// destination. Pipeline targets have no full-page route, so they can't be
-// previewed as a tab (returns undefined).
+// destination. A pipeline target's `path` is a folder name, not a workspace
+// item — it maps to the `/pipeline/<folder>` route, which resolvePreviewTab
+// mounts as the in-process graph editor.
 export function previewTargetForSessionTarget(
 	kind: SessionTarget['kind'],
 	path: string
 ): PreviewTarget | undefined {
-	if (kind === 'pipeline') return undefined
+	if (kind === 'pipeline') {
+		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(path)}`, label: path }
+	}
 	const item: WorkspaceItem =
 		kind === 'raw_app'
 			? { kind: 'app', raw_app: true, path, summary: '' }
@@ -172,6 +176,23 @@ export class SessionPreviewTabs {
 			}
 		}
 		const url = targetUrl(target)
+		// Pipeline previews all share one runtime.pipelineEditorState, so keep at
+		// most one pipeline tab: re-point the existing one to the requested folder
+		// rather than opening a second pipeline editor that would fight over the
+		// shared state (`focused` when it already showed this folder, else `opened`
+		// since the view now shows a different pipeline).
+		const pipelineFolder = parsePipelineRoute(url)
+		if (pipelineFolder) {
+			const existing = this.#tabs.find((t) => parsePipelineRoute(t.url) !== null)
+			if (existing) {
+				const same = existing.url === url
+				existing.url = url
+				existing.loc = url
+				this.#activeId = existing.id
+				this.#flush()
+				return { status: same ? 'focused' : 'opened' }
+			}
+		}
 		// Focus the tab currently *showing* this destination instead of opening a
 		// duplicate. Matched on the observed `loc`, not `url`: a tab that was
 		// opened here but navigated away no longer counts as showing it.
@@ -313,12 +334,15 @@ export function describePreview(tabs: SessionPreviewTab[], activeId: string): st
 	const lines = tabs.map((t) => {
 		const where = t.loc || t.url
 		const page = matchPreviewPage(where)
+		const pipelineFolder = parsePipelineRoute(where)
 		const route = parsePreviewItemRoute(where)
 		const label = page
 			? `page "${page.label}"`
-			: route
-				? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
-				: stripBase(where)
+			: pipelineFolder
+				? `pipeline "${pipelineFolder}"`
+				: route
+					? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
+					: stripBase(where)
 		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
 		const active = t.id === activeId ? ', active' : ''
 		return `- ${label}${live}${active}`

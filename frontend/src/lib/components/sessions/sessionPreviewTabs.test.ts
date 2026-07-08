@@ -10,6 +10,7 @@ import {
 } from './sessionPreviewTabs.svelte'
 import type { PreviewTarget } from './previewRouter'
 import type { SessionPreviewTab } from './sessionState.svelte'
+import { base } from '$lib/base'
 
 // In-memory adapter spy: records persisted snapshots, no IDB.
 function makeAdapter() {
@@ -127,8 +128,12 @@ describe('previewTargetForSessionTarget', () => {
 			item: { kind: 'flow', path: 'p', summary: '' }
 		})
 	})
-	it('returns undefined for pipeline (no full-page route)', () => {
-		expect(previewTargetForSessionTarget('pipeline', 'p')).toBeUndefined()
+	it('maps pipeline to its folder route page target', () => {
+		expect(previewTargetForSessionTarget('pipeline', 'my_folder')).toEqual({
+			type: 'page',
+			href: `${base}/pipeline/my_folder`,
+			label: 'my_folder'
+		})
 	})
 })
 

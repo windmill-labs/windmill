@@ -103,6 +103,8 @@ export function previewLocationLabel(url: string): string {
 	if (trigger) return trigger
 	const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
 	if (run) return `Run ${decodeURIComponent(run[1]).slice(0, 8)}`
+	const pipelineFolder = parsePipelineRoute(url)
+	if (pipelineFolder) return pipelineFolder
 	const parsed = parsePreviewItemRoute(url)
 	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
 	return stripBase(url)
@@ -124,15 +126,27 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 	return { kind: 'app', raw_app: false, itemPath }
 }
 
-// How a preview tab should render: as an in-process live editor (bound to its
-// own per-(kind,path) runtime cell) or as an iframe fallback. Any editable item
-// of a wrappable kind (script, flow, raw app) mounts its editor; everything else
-// (static pages, regular drag-and-drop apps, any other route) stays an iframe.
+// A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
+// (the folder is a single path segment, not a workspace item path). The bare
+// `/pipeline` list page is not an editor. Returns the folder name, or null.
+export function parsePipelineRoute(fullPath: string): string | null {
+	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
+	return m ? decodeURIComponent(m[1]) : null
+}
+
+// How a preview tab should render: as an in-process live editor or an iframe
+// fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
+// its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
+// data-pipeline graph editor (single, shared runtime.pipelineEditorState — `path`
+// is the folder); everything else (static pages, regular drag-and-drop apps, any
+// other route) stays an iframe.
 export type PreviewSlot =
-	| { kind: 'editor'; editorKind: SessionTargetKind; path: string }
+	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
+	const pipelineFolder = parsePipelineRoute(url)
+	if (pipelineFolder) return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
 	const route = parsePreviewItemRoute(url)
 	if (!route) return { kind: 'iframe' }
 	const editorKind: SessionTargetKind | undefined =

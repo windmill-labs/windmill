@@ -13,6 +13,7 @@
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import FlowEditorView from './FlowEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
+	import PipelineEditorView from './PipelineEditorView.svelte'
 
 	let {
 		tab,
@@ -40,7 +41,8 @@
 	} = $props()
 
 	// Editor vs iframe is decided purely from the tab URL (see resolvePreviewTab):
-	// any editable item (script/flow/raw app) mounts its own live editor.
+	// any editable item (script/flow/raw app) or a pipeline folder mounts its own
+	// live editor.
 	const slot = $derived(resolvePreviewTab(tab.url))
 	const workspaceId = $derived(
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
@@ -98,6 +100,8 @@
 				{active}
 				initialTestPanelCollapsed
 			/>
+		{:else if slot.editorKind === 'pipeline'}
+			<PipelineEditorView {runtime} path={slot.path} {workspaceId} {isActiveSession} {active} />
 		{:else}
 			<RawAppEditorView
 				{runtime}

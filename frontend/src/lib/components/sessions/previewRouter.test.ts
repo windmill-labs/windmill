@@ -64,4 +64,16 @@ describe('resolvePreviewTab', () => {
 	it('never routes a regular drag-and-drop app to an editor (no wrapper exists)', () => {
 		expect(resolvePreviewTab('/apps/edit/f/a/b')).toEqual({ kind: 'iframe' })
 	})
+
+	it('routes a pipeline folder to the pipeline editor kind', () => {
+		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
+			kind: 'editor',
+			editorKind: 'pipeline',
+			path: 'my_folder'
+		})
+	})
+
+	it('routes the bare pipeline list page to the iframe fallback', () => {
+		expect(resolvePreviewTab('/pipeline')).toEqual({ kind: 'iframe' })
+	})
 })
