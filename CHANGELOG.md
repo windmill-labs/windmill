@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.753.0](https://github.com/windmill-labs/windmill/compare/v1.752.0...v1.753.0) (2026-07-08)
+
+
+### Features
+
+* AI chat background jobs tray with detach, approval and preview ([#9982](https://github.com/windmill-labs/windmill/issues/9982)) ([286da00](https://github.com/windmill-labs/windmill/commit/286da005ef2faad1d193640f74f8e96999358707))
+* condensed top bar for session preview editors ([#10011](https://github.com/windmill-labs/windmill/issues/10011)) ([b847ca2](https://github.com/windmill-labs/windmill/commit/b847ca2bc7f06f494aa802d4350d6f032ba2bb58))
+* **db-health:** add connection sizing guidance ([#10014](https://github.com/windmill-labs/windmill/issues/10014)) ([f28ea9c](https://github.com/windmill-labs/windmill/commit/f28ea9cb991bbda32ed1b7a37a5f1b3552a589a8))
+* **sessions:** scoped preview refresh + multi-target live editors + pipeline preview ([#10006](https://github.com/windmill-labs/windmill/issues/10006)) ([32c398f](https://github.com/windmill-labs/windmill/commit/32c398f27de8cd5b1478ef60d247c13705b6b50f))
+* shared tab system, universal markdown code blocks, subtle scrollbars ([#10003](https://github.com/windmill-labs/windmill/issues/10003)) ([a00ee51](https://github.com/windmill-labs/windmill/commit/a00ee5196b2c013e9672ab029f5477079ac5da21))
+
+
+### Bug Fixes
+
+* bump bundled Go CLIs to patched versions to clear image CVEs ([#9996](https://github.com/windmill-labs/windmill/issues/9996)) ([d467161](https://github.com/windmill-labs/windmill/commit/d467161117444d7d9b18def627e90d9622512e02))
+* name the offending item when a fork fails on a NUL escape ([#10013](https://github.com/windmill-labs/windmill/issues/10013)) ([99d0047](https://github.com/windmill-labs/windmill/commit/99d00475156def6faad255c4e728923253f9169f))
+* preserve worker group tag override on 'Run again' ([#10004](https://github.com/windmill-labs/windmill/issues/10004)) ([c4cb2f3](https://github.com/windmill-labs/windmill/commit/c4cb2f373b6361f0f3ce6b1c8e32a4c010207760))
+* replicate external secret backend secrets when forking a workspace ([#10007](https://github.com/windmill-labs/windmill/issues/10007)) ([f65fe7b](https://github.com/windmill-labs/windmill/commit/f65fe7bf585d353f7d88746e947d68e2f351e516))
+* session preview editors and picker dropdown overflow ([#10010](https://github.com/windmill-labs/windmill/issues/10010)) ([fb12b23](https://github.com/windmill-labs/windmill/commit/fb12b23e0169ba2cdcf454a27dcf814a2caf26b3))
+
 ## [1.752.0](https://github.com/windmill-labs/windmill/compare/v1.751.0...v1.752.0) (2026-07-07)
 
 
