@@ -38,8 +38,9 @@ import {
 	archiveSessionsForWorkspace,
 	deleteSessionsForWorkspace,
 	materializeTransient,
-	peekTransientDraftPrompt,
-	queueTransientDraftPrompt,
+	getSessionDraftPrompt,
+	setSessionDraftPrompt,
+	setSessionTabs,
 	reconcileSessionsLifecycle,
 	setSessionArchived,
 	setSessionPreviewSize,
@@ -94,49 +95,43 @@ describe('sessionState IndexedDB persistence', () => {
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s2', 's1']))
 	})
 
-	it('keeps a transient session as a user-scoped localStorage draft, not in IndexedDB', async () => {
+	it('does not persist a transient (untouched) session — it is in-memory only', async () => {
 		const user = freshUser()
 		userStore.set(user)
 		await flush()
 
-		await putSession(session({ id: 't1', transient: true }))
-		// Same user reload: the draft is restored, still transient (i.e. it came
-		// from the localStorage slot — an IndexedDB record would have the flag
-		// stripped by materialisation).
-		await rehydrate(user)
-		await flush()
-		expect(sessionState.sessions.map((s) => ({ id: s.id, transient: s.transient }))).toEqual([
-			{ id: 't1', transient: true }
-		])
-
-		// The slot is user-scoped: another user sees nothing.
-		await rehydrate(freshUser())
-		await flush()
-		expect(sessionState.sessions).toEqual([])
+		const s = session({ id: 't1', transient: true, pending_workspace_id: 'wsA' })
+		sessionState.sessions = [s]
+		// putSession no-ops for a transient session: nothing reaches IndexedDB.
+		await putSession(s)
+		const db = await openDB(`windmill-sessions::${user.email}`, 1)
+		const all = (await db.getAll('sessions' as never)) as Session[]
+		db.close()
+		expect(all).toEqual([])
 	})
 
-	it('round-trips a transient session preview state through the draft slot', async () => {
+	it('persists a pending session to IndexedDB on first touch, keeping its pending workspace and tabs', async () => {
 		const user = freshUser()
 		userStore.set(user)
 		await flush()
 
-		await putSession(
-			session({
-				id: 't1b',
-				transient: true,
-				previewTabs: [{ id: 'session', url: '/x', loc: '/x' }],
-				activePreviewTabId: 'session',
-				previewCollapsed: false,
-				previewSize: 70
-			})
-		)
-		await rehydrate(user)
-		await flush()
-		const restored = sessionState.sessions.find((s) => s.id === 't1b')
-		expect(restored?.previewTabs).toEqual([{ id: 'session', url: '/x', loc: '/x' }])
-		expect(restored?.activePreviewTabId).toBe('session')
-		expect(restored?.previewCollapsed).toBe(false)
-		expect(restored?.previewSize).toBe(70)
+		const s = session({ id: 't1b', transient: true, pending_workspace_id: 'wsA' })
+		sessionState.sessions = [s]
+		// A genuine touch (opening a preview tab) promotes the draft out of the
+		// in-memory-only state and writes it through.
+		setSessionTabs('t1b', [{ id: 'session', url: '/x', loc: '/x' }], 'session')
+		expect(s.transient).toBeUndefined()
+
+		const db = await openDB(`windmill-sessions::${user.email}`, 1)
+		const rec = await vi.waitFor(async () => {
+			const r = (await db.get('sessions' as never, 't1b')) as Session | undefined
+			expect(r).toBeTruthy()
+			return r!
+		})
+		db.close()
+		expect(rec.transient).toBeUndefined()
+		expect(rec.pending_workspace_id).toBe('wsA')
+		expect(rec.previewTabs).toEqual([{ id: 'session', url: '/x', loc: '/x' }])
 	})
 
 	it('setSessionPreviewSize persists a dragged width and round-trips it', async () => {
@@ -156,52 +151,46 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(sessionState.sessions.find((x) => x.id === 'ps1')?.previewSize).toBe(42)
 	})
 
-	it('materializeTransient promotes the draft to IndexedDB and clears the slot', async () => {
+	it('materializeTransient promotes an in-memory draft to a persisted IndexedDB record', async () => {
 		const user = freshUser()
 		userStore.set(user)
 		await flush()
 
 		const s = session({ id: 't2', transient: true })
 		sessionState.sessions = [s]
-		await putSession(s)
-		expect(localStorage.getItem(`wm_session_transient_draft::${user.email}`)).not.toBeNull()
-
 		materializeTransient('t2')
-		await flush()
-		expect(localStorage.getItem(`wm_session_transient_draft::${user.email}`)).toBeNull()
+		expect(s.transient).toBeUndefined()
 
 		await rehydrate(user)
 		await vi.waitFor(() => expect(sessionState.sessions.map((x) => x.id)).toEqual(['t2']))
 		expect(sessionState.sessions[0].transient).toBeUndefined()
 	})
 
-	it('round-trips the unsent prompt through the draft slot', async () => {
+	it('round-trips the unsent draft prompt on the session record', async () => {
 		const user = freshUser()
 		userStore.set(user)
 		await flush()
 
-		const s = session({ id: 't3', transient: true })
+		const s = session({ id: 't3', transient: true, pending_workspace_id: 'wsA' })
 		sessionState.sessions = [s]
-		await putSession(s)
-		queueTransientDraftPrompt('t3', 'draft prompt')
-		// The prompt write-behind debounces 400ms.
-		await new Promise((r) => setTimeout(r, 450))
+		// Typing is a touch: it sets draftPrompt and persists (debounced 400ms).
+		setSessionDraftPrompt('t3', 'draft prompt')
+		await new Promise((r) => setTimeout(r, 500))
 
 		await rehydrate(user)
-		await flush()
-		expect(sessionState.sessions.map((x) => x.id)).toEqual(['t3'])
-		expect(peekTransientDraftPrompt('t3')).toBe('draft prompt')
+		await vi.waitFor(() => expect(sessionState.sessions.map((x) => x.id)).toEqual(['t3']))
+		expect(getSessionDraftPrompt('t3')).toBe('draft prompt')
 	})
 
-	it('deleteSession discards the transient draft', async () => {
+	it('deleteSession removes an in-memory transient draft', async () => {
 		const user = freshUser()
 		userStore.set(user)
 		await flush()
 
 		const s = session({ id: 't4', transient: true })
 		sessionState.sessions = [s]
-		await putSession(s)
 		deleteSession('t4')
+		expect(sessionState.sessions).toEqual([])
 
 		await rehydrate(user)
 		await flush()
@@ -248,8 +237,7 @@ describe('sessionState IndexedDB persistence', () => {
 		// A starts an unsent draft — transient, in-memory only, never persisted.
 		sessionState.sessions = [session({ id: 'a-draft', transient: true }), ...sessionState.sessions]
 
-		// Switch to B: A's transient must not bleed into B's list (it would
-		// otherwise be reused by createSession and inherit A's pending state).
+		// Switch to B: A's in-memory draft must not bleed into B's list.
 		userStore.set(b)
 		await vi.waitFor(() => {
 			expect(sessionState.sessions.some((s) => s.id === 'a-draft')).toBe(false)
@@ -456,6 +444,52 @@ describe('sessionState IndexedDB persistence', () => {
 			const sub = sessionState.sessions.find((s) => s.id === 'sub')!
 			expect(sub.workspace_root_id).toBe('wm-fork-fork-1')
 		})
+	})
+
+	it('deletes a persisted pending draft when its pending workspace is deleted', async () => {
+		const user = freshUser()
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [{ id: 'pending-ws', name: 'pending', disabled: false }] as never
+		})
+		userStore.set(user)
+		await flush()
+		// A touched (persisted) but still-unsent draft scoped to its pre-send workspace.
+		await putSession(session({ id: 'draft', createdAt: 1, pending_workspace_id: 'pending-ws' }))
+
+		// Reconcile keyed on pending_workspace_id: a deleted pre-send workspace deletes
+		// the draft. Read the DB directly — reconcile works off it, not in-memory state.
+		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
+			'pending-ws': 'deleted'
+		} as never)
+		await reconcileSessionsLifecycle()
+
+		const db = await openDB(`windmill-sessions::${user.email}`, 1)
+		const rec = await db.get('sessions' as never, 'draft')
+		db.close()
+		expect(rec).toBeUndefined()
+	})
+
+	it('archives a persisted pending draft (tagged) when its pending workspace is archived', async () => {
+		const user = freshUser()
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [{ id: 'pending-ws2', name: 'pending', disabled: false }] as never
+		})
+		userStore.set(user)
+		await flush()
+		await putSession(session({ id: 'draft2', createdAt: 1, pending_workspace_id: 'pending-ws2' }))
+
+		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
+			'pending-ws2': 'archived'
+		} as never)
+		await reconcileSessionsLifecycle()
+
+		const db = await openDB(`windmill-sessions::${user.email}`, 1)
+		const rec = (await db.get('sessions' as never, 'draft2')) as Session
+		db.close()
+		expect(rec.archived).toBe(true)
+		expect(rec.archivedByWorkspace).toBe(true)
 	})
 
 	it('clears the in-memory list on logout', async () => {
