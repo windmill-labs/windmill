@@ -641,7 +641,7 @@
 									<div class="text-2xs text-secondary mt-2">
 										To open pull requests when an item is deployed in a fork, set up the
 										<a
-											href="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
+											href="https://www.windmill.dev/docs/advanced/git_sync#github-actions"
 											target="_blank"
 											class="text-blue-500 hover:underline font-mono">open-pr-on-fork-commit</a
 										>
