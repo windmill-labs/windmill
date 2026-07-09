@@ -3,8 +3,13 @@ use semver::Version;
 
 // ============ Feature Definitions ============
 
+// MUST equal the first release version that contains the child-side
+// `$interpolate` resolution (in `transform_json_value`). Setting it below the
+// release lets a new flow worker emit `$interpolate` args that a genuinely older
+// worker (which lacks the resolver) cannot resolve, breaking the child job. Bump
+// this to match the actual release version before merging if `main` has advanced.
 pub const MIN_VERSION_SUPPORTS_INTERPOLATED_ARGS: VC =
-    vc(1, 750, 0, "Interpolated variable args in flow transforms");
+    vc(1, 754, 0, "Interpolated variable args in flow transforms");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");
