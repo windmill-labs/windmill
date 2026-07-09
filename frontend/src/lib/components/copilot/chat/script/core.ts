@@ -909,7 +909,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		})
 	},
 	requiresConfirmation: true,
-	confirmationMessage: 'Run a test of your draft',
+	confirmationMessage: 'Run a test of the current script',
 	showDetails: true,
 	autoCollapseDetails: false
 }

@@ -2454,8 +2454,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunScriptByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: (args) =>
-			`Run a test of your draft of ${pathLeaf(args?.path, 'the script')}`,
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2466,8 +2465,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: (args) =>
-			`Run a test of your draft of ${pathLeaf(args?.path, 'the flow')}`,
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2479,7 +2477,7 @@ export const globalTools: Tool<{}>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: (args) =>
-			`Run a test of step "${args?.stepId ?? ''}" in your draft of ${pathLeaf(args?.path, 'the flow')}`,
+			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
