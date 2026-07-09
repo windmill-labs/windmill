@@ -121,7 +121,7 @@
 			<Plug size={13} />
 		{/snippet}
 		{#snippet content()}
-			<div class="max-h-80 w-72 overflow-auto p-1">
+			<div class="max-h-80 w-72 overflow-auto p-2">
 				<PropPicker
 					{pickableProperties}
 					previousId={pickableProperties?.previousId}

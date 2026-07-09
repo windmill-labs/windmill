@@ -6,26 +6,17 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
-	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
-	// import FlowRetries from './FlowRetries.svelte'
-	import { Button, Drawer, Tab, TabContent } from '$lib/components/common'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { Button, Drawer } from '$lib/components/common'
 	import { getStepPropPicker } from '../previousResults'
-	import { enterpriseLicense } from '$lib/stores'
 
-	import FlowModuleSleep from './FlowModuleSleep.svelte'
-	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { Play, FunctionSquare } from 'lucide-svelte'
 	import type { FlowModule, ForloopFlow, Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
-	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
-	import FlowModuleSkip from './FlowModuleSkip.svelte'
+	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 
 	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
-	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { emptySchema } from '$lib/utils'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -52,7 +43,7 @@
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let parallelismEditor: SimpleEditor | undefined = $state(undefined)
-	let selected: string = $state('early-stop')
+	let advancedSettings: FlowModuleAdvancedSettings | undefined = $state(undefined)
 	let parallelismType: 'static' | 'javascript' | undefined = $state(
 		mod.value.type === 'forloopflow'
 			? mod.value.parallelism?.type === 'javascript'
@@ -76,10 +67,11 @@
 		}
 	}
 
-	// UI Intent handling for AI tool control
+	// UI Intent handling for AI tool control: forward the requested tab to the
+	// matching Run-settings accordion row (keys match the old tab names).
 	useUiIntent(`forloopflow-${mod.id}`, {
 		openTab: (tab) => {
-			selected = tab
+			advancedSettings?.openSetting(tab)
 		}
 	})
 
@@ -163,9 +155,9 @@
 		</div>
 	{/snippet}
 
-	<Splitpanes horizontal class="h-full">
-		<Pane size={50} minSize={20} class="p-4">
-			{#if mod.value.type === 'forloopflow'}
+	<div class="flex h-full min-h-0 flex-col gap-6 overflow-auto p-4">
+		{#if mod.value.type === 'forloopflow'}
+			<section>
 				{#if mod.value.iterator.type == 'javascript'}
 					<FlowExpressionEditor
 						bind:code={
@@ -211,8 +203,10 @@
 						}}
 					/>
 				{/if}
+			</section>
 
-				<div class="flex flex-row gap-6 mt-2 mb-6">
+			<section class="flex flex-col gap-4">
+				<div class="flex flex-row flex-wrap gap-6">
 					<div class="flex-shrink-0">
 						<div class="mb-2 text-xs font-semibold text-emphasis"
 							>Skip failures <Tooltip
@@ -254,81 +248,76 @@
 							disabled={mod.value.squash}
 						/>
 					</div>
-					{#if mod.value.parallel}
-						<div class="flex-shrink-0">
-							<div class="mb-2 text-xs font-semibold text-emphasis"
-								>Parallelism <Tooltip
-									>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
-								>
-							</div>
-							<div class="flex gap-2 items-center">
-								<input
-									type="number"
-									min="1"
-									class="w-20 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-surface"
-									disabled={!mod.value.parallel || parallelismType === 'javascript'}
-									placeholder={parallelismType === 'javascript' ? 'Expression' : ''}
-									bind:value={
-										() => {
-											const parallelismExpr = (mod.value as ForloopFlow).parallelism
+					<div class="flex-shrink-0" class:opacity-50={!mod.value.parallel}>
+						<div class="mb-2 text-xs font-semibold text-emphasis"
+							>Parallelism <Tooltip
+								>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
+							>
+						</div>
+						<div class="flex gap-2 items-center">
+							<input
+								type="number"
+								min="1"
+								class="w-20 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-surface"
+								disabled={!mod.value.parallel || parallelismType === 'javascript'}
+								placeholder={parallelismType === 'javascript' ? 'Expression' : ''}
+								bind:value={
+									() => {
+										const parallelismExpr = (mod.value as ForloopFlow).parallelism
 
-											return parallelismExpr && parallelismExpr.type === 'static'
-												? parallelismExpr.value
-												: ''
-										},
-										(value) => {
-											if (value === '' || value === null || value === undefined) {
-												;(mod.value as ForloopFlow).parallelism = undefined
-											} else {
-												;(mod.value as ForloopFlow).parallelism = {
-													type: 'static',
-													value
-												}
+										return parallelismExpr && parallelismExpr.type === 'static'
+											? parallelismExpr.value
+											: ''
+									},
+									(value) => {
+										if (value === '' || value === null || value === undefined) {
+											;(mod.value as ForloopFlow).parallelism = undefined
+										} else {
+											;(mod.value as ForloopFlow).parallelism = {
+												type: 'static',
+												value
 											}
 										}
 									}
-								/>
-								<ToggleButtonGroup
-									disabled={!mod.value.parallel}
-									bind:selected={parallelismType}
-									on:selected={(e) => {
-										const forLoopFlow = mod.value as ForloopFlow
-										if (e.detail == parallelismType) return
-										if (e.detail === 'javascript') {
-											if (
-												!forLoopFlow.parallelism ||
-												forLoopFlow.parallelism.type !== 'javascript'
-											) {
-												;(mod.value as ForloopFlow).parallelism = {
-													type: 'javascript',
-													expr: ''
-												}
-											}
-										} else {
-											if (!forLoopFlow.parallelism || forLoopFlow.parallelism.type !== 'static') {
-												;(mod.value as ForloopFlow).parallelism = {
-													type: 'static',
-													value: 0
-												}
+								}
+							/>
+							<ToggleButtonGroup
+								disabled={!mod.value.parallel}
+								bind:selected={parallelismType}
+								on:selected={(e) => {
+									const forLoopFlow = mod.value as ForloopFlow
+									if (e.detail == parallelismType) return
+									if (e.detail === 'javascript') {
+										if (!forLoopFlow.parallelism || forLoopFlow.parallelism.type !== 'javascript') {
+											;(mod.value as ForloopFlow).parallelism = {
+												type: 'javascript',
+												expr: ''
 											}
 										}
-									}}
-								>
-									{#snippet children({ item })}
-										<ToggleButton small label="static" value="static" {item} />
+									} else {
+										if (!forLoopFlow.parallelism || forLoopFlow.parallelism.type !== 'static') {
+											;(mod.value as ForloopFlow).parallelism = {
+												type: 'static',
+												value: 0
+											}
+										}
+									}
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton small label="static" value="static" {item} />
 
-										<ToggleButton
-											small
-											tooltip="JavaScript expression ('flow_input' or 'results')."
-											value="javascript"
-											icon={FunctionSquare}
-											{item}
-										/>
-									{/snippet}
-								</ToggleButtonGroup>
-							</div>
+									<ToggleButton
+										small
+										tooltip="JavaScript expression ('flow_input' or 'results')."
+										value="javascript"
+										icon={FunctionSquare}
+										{item}
+									/>
+								{/snippet}
+							</ToggleButtonGroup>
 						</div>
-					{/if}
+					</div>
 				</div>
 
 				{#if mod.value.type === 'forloopflow' && mod.value.parallel && mod.value.parallelism?.type == 'javascript'}
@@ -355,59 +344,19 @@
 						{/snippet}
 					</FlowExpressionEditor>
 				{/if}
-			{/if}
-		</Pane>
-		<Pane size={40} minSize={20} class="flex flex-col flex-1">
-			<TabsV2 bind:selected>
-				<!-- <Tab value="retries">Retries</Tab> -->
-				<Tab value="early-stop" label="Early Stop/Break" />
-				<Tab value="skip" label="Skip" />
-				<Tab value="suspend" label="Suspend/Approval/Prompt" />
-				<Tab value="sleep" label="Sleep" />
-				<Tab value="mock" label="Mock" />
-				<Tab value="lifetime" label="Lifetime" />
+			</section>
 
-				{#snippet content()}
-					<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
-						<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
-									<div class="p-4 overflow-y-auto">
-										<FlowRetries bind:flowModule={mod} />
-									</div>
-								</TabContent> -->
-
-						<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
-							<div class="p-4 overflow-y-auto">
-								<FlowModuleEarlyStop bind:flowModule={mod} />
-							</div>
-						</TabContent>
-						<TabContent value="skip" class="flex flex-col flex-1 h-full">
-							<div class="p-4 overflow-y-auto">
-								<FlowModuleSkip bind:flowModule={mod} {parentModule} {previousModule} />
-							</div>
-						</TabContent>
-						<TabContent value="suspend" class="flex flex-col flex-1 h-full">
-							<div class="p-4 overflow-y-auto">
-								<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule={mod} />
-							</div>
-						</TabContent>
-						<TabContent value="sleep" class="flex flex-col flex-1 h-full">
-							<div class="p-4 overflow-y-auto">
-								<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule={mod} />
-							</div>
-						</TabContent>
-						<TabContent value="mock" class="flex flex-col flex-1 h-full">
-							<div class="p-4 overflow-y-auto">
-								<FlowModuleMock bind:flowModule={mod} />
-							</div>
-						</TabContent>
-						<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
-							<div class="p-4 overflow-y-auto">
-								<FlowModuleDeleteAfterUse bind:flowModule={mod} disabled={!$enterpriseLicense} />
-							</div>
-						</TabContent>
-					</div>
-				{/snippet}
-			</TabsV2>
-		</Pane>
-	</Splitpanes>
+			<section>
+				<FlowModuleAdvancedSettings
+					embedded
+					loopSubset
+					bind:this={advancedSettings}
+					bind:flowModule={mod}
+					{parentModule}
+					{previousModule}
+					selectedId={mod.id}
+				/>
+			</section>
+		{/if}
+	</div>
 </FlowCard>

@@ -45,13 +45,20 @@
 		parentModule?: FlowModule | undefined
 		previousModule?: FlowModule | undefined
 		selectedId: string
+		/** Lay out for embedding inside another scroll container (no own scroll/padding). */
+		embedded?: boolean
+		/** For loop modules: keep only the subset of settings loops support
+		 *  (Flow control rows + Lifetime), hiding the rest of Execution policy. */
+		loopSubset?: boolean
 	}
 
 	let {
 		flowModule = $bindable(),
 		parentModule = undefined,
 		previousModule = undefined,
-		selectedId
+		selectedId,
+		embedded = false,
+		loopSubset = false
 	}: Props = $props()
 
 	// Accordion: at most one row open at a time.
@@ -214,7 +221,10 @@
 	</button>
 {/snippet}
 
-<div bind:clientWidth={panelWidth} class="flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-5">
+<div
+	bind:clientWidth={panelWidth}
+	class="flex flex-col gap-5 {embedded ? '' : 'flex-1 min-h-0 overflow-auto p-4'}"
+>
 	{#if !isFailure}
 		<section>
 			{@render sectionHeader('Flow control')}
@@ -265,177 +275,179 @@
 		<div
 			class="divide-y divide-border-light/50 overflow-hidden rounded-md border border-border-light/50 bg-surface-tertiary"
 		>
-			<div>
-				{@render rowHeader('retries', RefreshCw, 'Retries', retriesSummary)}
-				{#if expanded === 'retries'}
-					<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-						<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
-					</div>
-				{/if}
-			</div>
-
-			<div>
-				{@render rowHeader('error-handling', ShieldAlert, 'Error handling', errorHandlingSummary)}
-				{#if expanded === 'error-handling'}
-					<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-						<Toggle
-							size="xs"
-							textClass="text-xs font-normal text-primary"
-							bind:checked={flowModule.continue_on_error}
-							options={{
-								right: 'Continue to the next step even if this step fails',
-								rightTooltip:
-									"The flow continues to the next step even if this step fails (after exhausting retries, if any). The step's error becomes its return, so a following branch can handle it."
-							}}
-						/>
-					</div>
-				{/if}
-			</div>
-
-			<div>
-				{@render rowHeader('timeout', Timer, 'Timeout', timeoutSummary)}
-				{#if expanded === 'timeout'}
-					<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-						<FlowModuleTimeout previousModuleId={previousModule?.id} bind:flowModule />
-					</div>
-				{/if}
-			</div>
-
-			{#if isRawScript}
+			{#if !loopSubset}
 				<div>
-					{@render rowHeader('concurrency', Gauge, 'Concurrency limit', concurrencySummary)}
-					{#if expanded === 'concurrency'}
+					{@render rowHeader('retries', RefreshCw, 'Retries', retriesSummary)}
+					{#if expanded === 'retries'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-							{#if flowModule.value.type === 'rawscript'}
-								<div class="flex flex-col gap-3">
-									<Toggle
-										size="xs"
-										textClass="text-xs font-normal text-primary"
-										eeOnly
-										disabled={!$enterpriseLicense}
-										checked={Boolean(flowModule.value.concurrent_limit)}
-										on:change={() => {
-											if (flowModule.value.type !== 'rawscript') return
-											if (flowModule.value.concurrent_limit) {
-												flowModule.value.concurrent_limit = undefined
-											} else {
-												flowModule.value.concurrent_limit = 1
+							<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
+						</div>
+					{/if}
+				</div>
+
+				<div>
+					{@render rowHeader('error-handling', ShieldAlert, 'Error handling', errorHandlingSummary)}
+					{#if expanded === 'error-handling'}
+						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								bind:checked={flowModule.continue_on_error}
+								options={{
+									right: 'Continue to the next step even if this step fails',
+									rightTooltip:
+										"The flow continues to the next step even if this step fails (after exhausting retries, if any). The step's error becomes its return, so a following branch can handle it."
+								}}
+							/>
+						</div>
+					{/if}
+				</div>
+
+				<div>
+					{@render rowHeader('timeout', Timer, 'Timeout', timeoutSummary)}
+					{#if expanded === 'timeout'}
+						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
+							<FlowModuleTimeout previousModuleId={previousModule?.id} bind:flowModule />
+						</div>
+					{/if}
+				</div>
+
+				{#if isRawScript}
+					<div>
+						{@render rowHeader('concurrency', Gauge, 'Concurrency limit', concurrencySummary)}
+						{#if expanded === 'concurrency'}
+							<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
+								{#if flowModule.value.type === 'rawscript'}
+									<div class="flex flex-col gap-3">
+										<Toggle
+											size="xs"
+											textClass="text-xs font-normal text-primary"
+											eeOnly
+											disabled={!$enterpriseLicense}
+											checked={Boolean(flowModule.value.concurrent_limit)}
+											on:change={() => {
+												if (flowModule.value.type !== 'rawscript') return
+												if (flowModule.value.concurrent_limit) {
+													flowModule.value.concurrent_limit = undefined
+												} else {
+													flowModule.value.concurrent_limit = 1
+												}
+											}}
+											options={{
+												right: 'Limit the number of concurrent executions',
+												rightTooltip: 'Allowed concurrency within a given timeframe.',
+												rightDocumentationLink:
+													'https://www.windmill.dev/docs/flows/concurrency_limit'
+											}}
+										/>
+										<Label label="Max number of executions within the time window">
+											<input
+												disabled={!$enterpriseLicense}
+												bind:value={flowModule.value.concurrent_limit}
+												type="number"
+												class="!w-24"
+											/>
+										</Label>
+										<Label label="Time window in seconds">
+											<SecondsInput
+												disabled={concurrencyOff}
+												bind:seconds={flowModule.value.concurrency_time_window_s}
+												clearable
+											/>
+										</Label>
+										<Label label="Custom concurrency key (optional)">
+											{#snippet header()}
+												<Tooltip>
+													Concurrency keys are global, you can have them be workspace specific using
+													the variable `$workspace`. You can also use an argument's value using
+													`$args[name_of_arg]`</Tooltip
+												>
+											{/snippet}
+											<input
+												type="text"
+												disabled={concurrencyOff}
+												bind:value={flowModule.value.custom_concurrency_key}
+												placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
+											/>
+										</Label>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				<div>
+					{@render rowHeader('priority', ChevronsUp, 'Priority', prioritySummary)}
+					{#if expanded === 'priority'}
+						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
+							<div class="flex flex-col gap-3">
+								<Toggle
+									size="xs"
+									textClass="text-xs font-normal text-primary"
+									eeOnly
+									disabled={!$enterpriseLicense || isCloudHosted()}
+									checked={flowModule.priority !== undefined && flowModule.priority > 0}
+									on:change={() => {
+										if (flowModule.priority) {
+											flowModule.priority = undefined
+										} else {
+											flowModule.priority = 100
+										}
+									}}
+									options={{
+										right: 'Run this step as a high priority job',
+										rightTooltip:
+											'Jobs scheduled from this step take precedence over other jobs in the queue when the flow runs.'
+									}}
+								/>
+								<Label label="Priority number">
+									{#snippet header()}
+										<Tooltip>The higher the number, the higher the priority.</Tooltip>
+									{/snippet}
+									<input
+										type="number"
+										class="!w-24"
+										disabled={flowModule.priority === undefined}
+										bind:value={flowModule.priority}
+										onchange={() => {
+											if (flowModule.priority && flowModule.priority > 100) {
+												flowModule.priority = 100
+											} else if (flowModule.priority && flowModule.priority < 0) {
+												flowModule.priority = 0
 											}
 										}}
-										options={{
-											right: 'Limit the number of concurrent executions',
-											rightTooltip: 'Allowed concurrency within a given timeframe.',
-											rightDocumentationLink:
-												'https://www.windmill.dev/docs/flows/concurrency_limit'
-										}}
 									/>
-									<Label label="Max number of executions within the time window">
-										<input
-											disabled={!$enterpriseLicense}
-											bind:value={flowModule.value.concurrent_limit}
-											type="number"
-											class="!w-24"
-										/>
-									</Label>
-									<Label label="Time window in seconds">
-										<SecondsInput
-											disabled={concurrencyOff}
-											bind:seconds={flowModule.value.concurrency_time_window_s}
-											clearable
-										/>
-									</Label>
-									<Label label="Custom concurrency key (optional)">
-										{#snippet header()}
-											<Tooltip>
-												Concurrency keys are global, you can have them be workspace specific using
-												the variable `$workspace`. You can also use an argument's value using
-												`$args[name_of_arg]`</Tooltip
-											>
-										{/snippet}
-										<input
-											type="text"
-											disabled={concurrencyOff}
-											bind:value={flowModule.value.custom_concurrency_key}
-											placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
-										/>
-									</Label>
-								</div>
-							{/if}
+								</Label>
+								{#if !$enterpriseLicense || isCloudHosted()}
+									<Alert type="warning" title="Limitation" size="xs">
+										Setting priority is only available for enterprise edition and not available on
+										the cloud.
+									</Alert>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
+
+				<div>
+					{@render rowHeader('cache', Database, 'Cache results', cacheSummary)}
+					{#if expanded === 'cache'}
+						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
+							<FlowModuleCache bind:flowModule />
+						</div>
+					{/if}
+				</div>
+
+				<div>
+					{@render rowHeader('debounce', Combine, 'Debounce', debounceSummary)}
+					{#if expanded === 'debounce'}
+						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
+							<FlowModuleDebounce bind:flowModule {selectedId} />
 						</div>
 					{/if}
 				</div>
 			{/if}
-
-			<div>
-				{@render rowHeader('priority', ChevronsUp, 'Priority', prioritySummary)}
-				{#if expanded === 'priority'}
-					<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-						<div class="flex flex-col gap-3">
-							<Toggle
-								size="xs"
-								textClass="text-xs font-normal text-primary"
-								eeOnly
-								disabled={!$enterpriseLicense || isCloudHosted()}
-								checked={flowModule.priority !== undefined && flowModule.priority > 0}
-								on:change={() => {
-									if (flowModule.priority) {
-										flowModule.priority = undefined
-									} else {
-										flowModule.priority = 100
-									}
-								}}
-								options={{
-									right: 'Run this step as a high priority job',
-									rightTooltip:
-										'Jobs scheduled from this step take precedence over other jobs in the queue when the flow runs.'
-								}}
-							/>
-							<Label label="Priority number">
-								{#snippet header()}
-									<Tooltip>The higher the number, the higher the priority.</Tooltip>
-								{/snippet}
-								<input
-									type="number"
-									class="!w-24"
-									disabled={flowModule.priority === undefined}
-									bind:value={flowModule.priority}
-									onchange={() => {
-										if (flowModule.priority && flowModule.priority > 100) {
-											flowModule.priority = 100
-										} else if (flowModule.priority && flowModule.priority < 0) {
-											flowModule.priority = 0
-										}
-									}}
-								/>
-							</Label>
-							{#if !$enterpriseLicense || isCloudHosted()}
-								<Alert type="warning" title="Limitation" size="xs">
-									Setting priority is only available for enterprise edition and not available on the
-									cloud.
-								</Alert>
-							{/if}
-						</div>
-					</div>
-				{/if}
-			</div>
-
-			<div>
-				{@render rowHeader('cache', Database, 'Cache results', cacheSummary)}
-				{#if expanded === 'cache'}
-					<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-						<FlowModuleCache bind:flowModule />
-					</div>
-				{/if}
-			</div>
-
-			<div>
-				{@render rowHeader('debounce', Combine, 'Debounce', debounceSummary)}
-				{#if expanded === 'debounce'}
-					<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-						<FlowModuleDebounce bind:flowModule {selectedId} />
-					</div>
-				{/if}
-			</div>
 
 			<div>
 				{@render rowHeader('lifetime', Trash2, 'Lifetime', lifetimeSummary)}
