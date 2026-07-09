@@ -401,7 +401,7 @@
 	</div>
 
 	{#if tab == 'workspace'}
-		<ItemsList bind:filter={getFilter, setFilter} bind:subtab showEditButtons={showCreateButtons} />
+		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
 

@@ -21,44 +21,38 @@
 		ChevronsUpDown,
 		Code2,
 		LayoutDashboard,
-		ListFilterPlus,
 		SearchCode,
 		Tag
 	} from 'lucide-svelte'
 
-	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
+	import { HOME_SEARCH_SHOW_FLOW } from '$lib/consts'
 
 	import SearchItems from '../SearchItems.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance,
+		type FilterSchemaRec
+	} from '$lib/components/FilterSearchbar.svelte'
 	import ListFilters from './ListFilters.svelte'
 	import NoItemFound from './NoItemFound.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { page } from '$app/state'
-	import { setQuery } from '$lib/navigation'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
 	import { NetworkIcon } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	interface Props {
-		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
 		showEditButtons?: boolean
 	}
 
-	let {
-		filter = $bindable(''),
-		subtab = $bindable('script'),
-		showEditButtons = true
-	}: Props = $props()
+	let { subtab = $bindable('script'), showEditButtons = true }: Props = $props()
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -119,10 +113,6 @@
 	let raw_apps: TableRawApp[] | undefined = $state()
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
-
-	let itemKind = $state(
-		(page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
-	)
 
 	let loading = $state(true)
 
@@ -268,11 +258,7 @@
 		}
 	}
 
-	let archived = $state(false)
-
 	const TREE_VIEW_SETTING_NAME = 'treeView'
-	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
-	const INCLUDE_WITHOUT_MAIN_SETTING_NAME = 'includeWithoutMain'
 	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
 	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
 		$userStore?.non_member
@@ -281,7 +267,50 @@
 				? 'u/username and f/*'
 				: undefined
 	)
-	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
+
+	// FilterSearchbar schema — `_default_` is the free-text search (same fuzzy match
+	// as before); the rest are the relevant list filters. The library / user-folder
+	// filters only apply to the roles that had those toggles.
+	let searchFilterSchema = $derived({
+		_default_: { type: 'string' as const, hidden: true },
+		path: { type: 'string' as const, label: 'Path' },
+		summary: { type: 'string' as const, label: 'Summary' },
+		kind: {
+			type: 'oneof' as const,
+			label: 'Kind',
+			options: [
+				{ value: 'script', label: 'Script' },
+				...(HOME_SEARCH_SHOW_FLOW ? [{ value: 'flow', label: 'Flow' }] : []),
+				{ value: 'app', label: 'App' }
+			]
+		},
+		draft_only: { type: 'boolean' as const, label: 'Draft only' },
+		draft: { type: 'boolean' as const, label: 'Draft', description: 'Includes draft-only items' },
+		archived: { type: 'boolean' as const, label: 'Only archived' },
+		...($userStore && !$userStore.operator
+			? { include_library: { type: 'boolean' as const, label: 'Include library scripts' } }
+			: {}),
+		...(filterUserFoldersType
+			? {
+					only_user_folders: {
+						type: 'boolean' as const,
+						label:
+							filterUserFoldersType === 'only f/*'
+								? 'Only f/*'
+								: `Only u/${$userStore?.username} and f/*`
+					}
+				}
+			: {})
+	} satisfies FilterSchemaRec)
+
+	// Single URL-synced source of truth for these filters (loop-safe primitive).
+	let filterValues = useUrlSyncedFilterInstance(untrack(() => searchFilterSchema))
+
+	let itemKind = $derived((filterValues.val.kind ?? 'all') as 'script' | 'flow' | 'app' | 'all')
+	let filter = $derived((filterValues.val._default_ ?? '') as string)
+	let archived = $derived(!!filterValues.val.archived)
+	let includeWithoutMain = $derived((filterValues.val.include_library ?? true) as boolean)
+	let filterUserFolders = $derived(!!filterValues.val.only_user_folders)
 
 	// Pipeline entries are rendered independently of the item list, so apply the
 	// same gates the items get — otherwise a pipeline would still show under the
@@ -301,12 +330,6 @@
 			)
 		)
 	})
-	let includeWithoutMain = $state(
-		getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME)
-			? getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME) == 'true'
-			: true
-	)
-
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
@@ -396,21 +419,23 @@
 		}
 		prevWorkspace = ws
 	})
+	let pathFilter = $derived((filterValues.val.path ?? '').toLowerCase())
+	let summaryFilter = $derived((filterValues.val.summary ?? '').toLowerCase())
+	// `draft_only`/`is_draft` aren't on every item type in the union — read defensively.
+	const isDraftOnly = (x: any) => x?.draft_only === true
+	const hasDraft = (x: any) => x?.is_draft === true || x?.draft_only === true
 	let preFilteredItems = $derived(
-		ownerFilter != undefined
-			? combinedItems?.filter(
-					(x) =>
-						x.path.startsWith(ownerFilter + '/') &&
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
-				)
-			: combinedItems?.filter(
-					(x) =>
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
-				)
+		combinedItems?.filter(
+			(x) =>
+				(ownerFilter == undefined || x.path.startsWith(ownerFilter + '/')) &&
+				(x.type == itemKind || itemKind == 'all') &&
+				filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
+				(labelFilter == undefined || itemLabels(x).includes(labelFilter)) &&
+				(!pathFilter || x.path.toLowerCase().includes(pathFilter)) &&
+				(!summaryFilter || (x.summary ?? '').toLowerCase().includes(summaryFilter)) &&
+				(!filterValues.val.draft_only || isDraftOnly(x)) &&
+				(!filterValues.val.draft || hasDraft(x))
+		)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
 	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
@@ -420,12 +445,6 @@
 
 	$effect(() => {
 		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
-	})
-	$effect(() => {
-		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
-	})
-	$effect(() => {
-		storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
 	})
 </script>
 
@@ -465,12 +484,13 @@
 	>
 		<div class="flex justify-start">
 			<ToggleButtonGroup
-				bind:selected={itemKind}
+				selected={itemKind}
 				onSelected={(v) => {
-					if (itemKind != 'all') {
+					// Shortcut into the shared filter object; `all` clears the kind filter.
+					filterValues.val.kind = v === 'all' ? null : v
+					if (v != 'all') {
 						subtab = v
 					}
-					setQuery(page.url, 'kind', v)
 				}}
 			>
 				{#snippet children({ item })}
@@ -498,38 +518,13 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<div class="relative text-primary grow min-w-[100px]">
-			<!-- svelte-ignore a11y_autofocus -->
-			<TextInput
-				inputProps={{
-					autofocus: true,
-					placeholder: HOME_SEARCH_PLACEHOLDER,
-					id: 'home-search-input'
-				}}
-				size="md"
-				bind:value={filter}
-				class="!pr-10"
+		<div class="relative text-primary grow min-w-[200px]">
+			<FilterSearchbar
+				schema={searchFilterSchema}
+				bind:value={filterValues.val}
+				placeholder="Filter scripts, flows and apps..."
+				autofocus
 			/>
-			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-2 mr-4">
-				<svg
-					class="h-4 w-4 fill-current"
-					xmlns="http://www.w3.org/2000/svg"
-					xmlns:xlink="http://www.w3.org/1999/xlink"
-					version="1.1"
-					id="Capa_1"
-					x="0px"
-					y="0px"
-					viewBox="0 0 56.966 56.966"
-					style="enable-background:new 0 0 56.966 56.966;"
-					xml:space="preserve"
-					width="512px"
-					height="512px"
-				>
-					<path
-						d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
-					/>
-				</svg>
-			</button>
 		</div>
 		<Button
 			on:click={() => openSearchWithPrefilledText('#')}
@@ -573,45 +568,6 @@
 		{/if}
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
-				<Popover floatingConfig={{ placement: 'bottom-end' }}>
-					{#snippet trigger()}
-						<Button
-							startIcon={{
-								icon: ListFilterPlus
-							}}
-							nonCaptureEvent
-							iconOnly
-							size="xs"
-							color="light"
-							variant="default"
-							spacingSize="xs2"
-						/>
-					{/snippet}
-					{#snippet content()}
-						<div class="p-4">
-							<span class="text-sm font-semibold text-emphasis">Filters</span>
-							<div class="flex flex-col gap-2 mt-2">
-								<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
-								{#if $userStore && !$userStore.operator}
-									<Toggle
-										size="xs"
-										bind:checked={includeWithoutMain}
-										options={{ right: 'Include library scripts' }}
-									/>
-								{/if}
-							</div>
-						</div>
-					{/snippet}
-				</Popover>
-				{#if filterUserFoldersType === 'only f/*'}
-					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-				{:else if filterUserFoldersType === 'u/username and f/*'}
-					<Toggle
-						size="xs"
-						bind:checked={filterUserFolders}
-						options={{ right: `Only u/${$userStore?.username} and f/*` }}
-					/>
-				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
