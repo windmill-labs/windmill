@@ -223,6 +223,24 @@
 	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
+	// "Open in AI session" persist hook. The session preview loads the app by its
+	// URL draft path (`appPath` === `indicatorPath` in the full-page editor) via
+	// getAppByPath — so besides flushing pending edits, a never-deployed app needs
+	// its draft materialized first: an untouched new app never triggered autosave,
+	// so no draft row exists yet and the preview would 404. Safe to force only
+	// because a never-deployed app has no deployed baseline to discard against.
+	async function persistDraftForSession(): Promise<void> {
+		if (!opWorkspace || indicatorPath === undefined) return
+		await UserDraftDbSyncer.flush({
+			workspace: opWorkspace,
+			itemKind: 'raw_app',
+			path: indicatorPath
+		})
+		if (newApp) {
+			await UserDraft.forcePersist('raw_app', indicatorPath, { workspace: opWorkspace })
+		}
+	}
+
 	$effect(() => {
 		const typed = newEditedPath
 		const baseline = savedApp?.path ?? ''
@@ -898,16 +916,9 @@
 				? {
 						target: { kind: 'raw_app', path: appPath },
 						workspaceId: opWorkspace ?? undefined,
-						// Flush the autosaved draft so the session preview opens the app
-						// exactly as it is in the editor right now.
-						beforeOpen: () =>
-							opWorkspace && indicatorPath !== undefined
-								? UserDraftDbSyncer.flush({
-										workspace: opWorkspace,
-										itemKind: 'raw_app',
-										path: indicatorPath
-									})
-								: undefined
+						// Persist the draft (and materialize a brand-new one) so the session
+						// preview opens the app exactly as it is in the editor right now.
+						beforeOpen: persistDraftForSession
 					}
 				: undefined}
 		>

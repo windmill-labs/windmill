@@ -305,6 +305,19 @@
 		})
 	}
 
+	// "Open in AI session" persist hook. The session preview loads the flow by its
+	// URL draft path (`liveEditorDraftStoragePath`) via getFlowByPath — so besides
+	// flushing pending edits, a never-deployed flow needs its draft materialized
+	// first: an untouched new flow never triggered autosave, so no draft row exists
+	// yet and the preview would 404. Safe to force only because a never-deployed
+	// flow has no deployed baseline to discard against.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && liveEditorDraftStoragePath && newFlow) {
+			await UserDraft.forcePersist('flow', liveEditorDraftStoragePath, { workspace: opWorkspace })
+		}
+	}
+
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
 			getAllModules(flow.value.modules, flow.value.failure_module)
@@ -1257,14 +1270,17 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={$pathStore
+					sessionOpen={liveEditorDraftStoragePath
 						? {
-								target: { kind: 'flow', path: $pathStore },
+								// The session preview opens `/flows/edit/<liveEditorDraftStoragePath>`,
+								// so the target MUST be the URL draft path the editor loads/saves
+								// by — NOT the live-edited `$pathStore` (for a new flow that's the
+								// friendly deploy name, which has no flow/draft row → "not found").
+								target: { kind: 'flow', path: liveEditorDraftStoragePath },
 								workspaceId: opWorkspace ?? undefined,
-								// Persist unsaved edits so the session preview
-								// (/flows/edit/<path>) opens the flow exactly as it is in the
-								// editor right now.
-								beforeOpen: saveDraft
+								// Persist the draft (and materialize a brand-new one) so the
+								// preview opens the flow exactly as it is in the editor right now.
+								beforeOpen: persistDraftForSession
 							}
 						: undefined}
 					onOpenPreview={flowPreviewButtons?.openPreview}
