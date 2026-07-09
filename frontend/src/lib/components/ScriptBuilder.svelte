@@ -397,13 +397,10 @@
 	let pathError = $state('')
 	let loadingSave = $state(false)
 
-	// Lifts the route's `?new_draft=true` autosave suspension (`UserDraft.stopSync`)
-	// once the bootstrap settles. Resumes only after the stores-gated `initPath →
-	// reset → onMetaChange → bind:path` auto-naming chain — and, for an empty seed,
-	// the async `initContent` (gated via the returned `markContentReady`) — otherwise
-	// the auto-generated path or template seed posts as the user's first "edit". The
-	// `restarted` guard makes the conditional `$effect` self-cleaning on cold reload
-	// (auth stores loading after mount) and a post-unmount call harmless.
+	// Lifts the route's `?new_draft=true` `stopSync` suspension, but only after the
+	// stores-gated bind:path cascade (and, for an empty seed, `initContent` via
+	// `markContentReady`) settles — resuming earlier posts the seed/auto-generated
+	// path as the user's first "edit". `restarted` keeps re-entry idempotent.
 	function scheduleRestartSync(
 		path: string,
 		opts?: { waitForContent?: boolean }
@@ -460,11 +457,9 @@
 		const restarter = scheduleRestartSync(userDraftPath, { waitForContent: true })
 		initContent(script.language, script.kind, template).finally(() => restarter.markContentReady())
 	} else if (userDraftPath && untrack(() => searchParams).get('new_draft') == 'true') {
-		// Pre-filled new-draft seed (fork "Copy of X", hub fork, URL/YAML import): the
-		// route already suspended autosave before mount so the seed write wouldn't POST
-		// as the user's first edit. There's no template to seed here (content is
-		// non-empty), but we MUST still lift that suspension or autosave stays dead for
-		// the session and the draft is never persisted (never shows up in the list).
+		// Pre-filled new-draft seed (fork "Copy of X", hub fork, URL/YAML import): no
+		// template to seed, but the route still suspended autosave — lift it or the
+		// draft never persists (autosave stays dead for the session).
 		scheduleRestartSync(userDraftPath)
 	}
 
