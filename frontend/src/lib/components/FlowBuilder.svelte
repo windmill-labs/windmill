@@ -640,7 +640,9 @@
 		for (const mod of restoredModules) {
 			if (mod) {
 				try {
-					loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
+					loadFlowModuleState(mod, opWorkspace).then(
+						(state) => (flowStateStore.val[mod.id] = state)
+					)
 				} catch (e) {
 					console.error('Error loading state for restored node', e)
 				}

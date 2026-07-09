@@ -14,7 +14,10 @@ const DEBOUNCE_MS = 150
 // same kind sync to their own drafts without crossing.
 export function makeFlowCodec(
 	store: StateStore<Flow>,
-	stateStore: { val: Record<string, any> }
+	stateStore: { val: Record<string, any> },
+	// The session's workspace, so schema rebuilds after an AI write resolve
+	// path-referenced scripts/subflows against it rather than the nav workspace.
+	workspace?: string
 ): DraftSyncCodec<Flow> {
 	return {
 		itemKind: 'flow',
@@ -33,7 +36,7 @@ export function makeFlowCodec(
 			// stateStore is keyed by module_id; after an AI write the set of
 			// module ids may differ, so rebuild the UI state. This wipes per-module
 			// test args / preview output — a known v1 trade-off.
-			void initFlowState(store.val, stateStore)
+			void initFlowState(store.val, stateStore, workspace)
 		},
 		storeToDraft() {
 			return store.val
