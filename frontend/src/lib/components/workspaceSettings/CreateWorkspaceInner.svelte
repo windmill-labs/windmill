@@ -14,18 +14,13 @@
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
-	import {
-		superadmin,
-		usersWorkspaceStore,
-		userWorkspaces,
-		workspaceStore,
-		type UserWorkspace
-	} from '$lib/stores'
+	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		workspaceIsFork,
 		findWorkspaceRoot,
 		findWorkspaceDescendants
 	} from '$lib/utils/workspaceHierarchy'
+	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { resource } from 'runed'
 	import { Badge, Button } from '$lib/components/common'
 	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
@@ -89,35 +84,15 @@
 	// a fork here (rather than the root) yields a fork of a fork.
 	let baseWorkspaceId = $state<string | undefined>(undefined)
 
-	// A superadmin can visit a workspace they don't belong to; it won't be in `$userWorkspaces`, which
-	// would leave the base picker empty and block forking it. Fetch that one workspace's metadata as
-	// superadmin so it can still be forked (its wider family stays unreachable client-side).
-	const superadminCurrentWorkspace = resource(
-		() =>
-			isFork &&
-			$superadmin &&
-			$workspaceStore &&
-			!$userWorkspaces.some((w) => w.id === $workspaceStore)
-				? $workspaceStore
-				: undefined,
-		async (ws) =>
-			ws ? await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws }) : undefined
-	)
-	let forkableWorkspaces = $derived.by<UserWorkspace[]>(() => {
-		const w = superadminCurrentWorkspace.current
-		if (!w) return $userWorkspaces
-		return [
-			...$userWorkspaces,
-			{
-				id: w.id,
-				name: w.name,
-				username: '',
-				color: w.color ?? undefined,
-				parent_workspace_id: w.parent_workspace_id,
-				disabled: false
-			}
-		]
+	// Fold in a superadmin-visited workspace absent from `$userWorkspaces` (see useForkableWorkspaces),
+	// so its family stays a forkable base instead of leaving the picker empty.
+	const forkable = useForkableWorkspaces({
+		workspaces: () => $userWorkspaces,
+		currentWorkspaceId: () => $workspaceStore,
+		isSuperadmin: () => !!$superadmin,
+		enabled: () => isFork
 	})
+	let forkableWorkspaces = $derived(forkable.current)
 
 	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))

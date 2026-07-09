@@ -3,9 +3,11 @@
 	import {
 		enterpriseLicense,
 		isPremiumStore,
+		superadmin,
 		userStore,
 		userWorkspaces,
-		workspaceStore
+		workspaceStore,
+		type UserWorkspace
 	} from '$lib/stores'
 	import {
 		findWorkspaceDescendants,
@@ -13,6 +15,7 @@
 		findWorkspaceRoot,
 		buildWorkspaceHierarchy
 	} from '$lib/utils/workspaceHierarchy'
+	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { getUserExt } from '$lib/user'
@@ -65,6 +68,10 @@
 		// and target href.
 		settingsHref,
 		settingsLabel,
+		// Pre-resolved forkable list from a parent that already computed it (e.g.
+		// WorkspaceScopeHeader), so the superadmin lookup isn't duplicated. Omitted
+		// by standalone consumers, which then resolve it themselves.
+		forkableWorkspaces: forkableWorkspacesProp,
 		trigger
 	}: {
 		selectedId?: string
@@ -77,18 +84,30 @@
 		class?: string
 		settingsHref?: string
 		settingsLabel?: string
+		forkableWorkspaces?: UserWorkspace[]
 		trigger: Snippet<[{ open: boolean }]>
 	} = $props()
 
 	const WM_FORK_PREFIX = 'wm-fork-'
 
 	const effectiveId = $derived(selectedId ?? $workspaceStore ?? undefined)
-	const root = $derived(findWorkspaceRoot(effectiveId, $userWorkspaces))
-	const forks = $derived(root ? findWorkspaceDescendants(root.id, $userWorkspaces) : [])
+	// Resolve the visited workspace's family, folding in a superadmin-visited workspace absent from
+	// `$userWorkspaces` (see useForkableWorkspaces). Skip the lookup when a parent already supplied it.
+	const ownForkable = useForkableWorkspaces({
+		workspaces: () => $userWorkspaces,
+		currentWorkspaceId: () => effectiveId,
+		isSuperadmin: () => !!$superadmin,
+		enabled: () => forkableWorkspacesProp === undefined
+	})
+	const forkableWorkspaces = $derived(forkableWorkspacesProp ?? ownForkable.current)
+	const root = $derived(findWorkspaceRoot(effectiveId, forkableWorkspaces))
+	const forks = $derived(root ? findWorkspaceDescendants(root.id, forkableWorkspaces) : [])
 
 	// The family's canonical dev workspace, if any — still used for gating (a forking-locked root can be
 	// forked via its dev) and as a selectable base with a "dev" badge.
-	const devOfRoot = $derived(root ? findCanonicalDevWorkspace(root.id, $userWorkspaces) : undefined)
+	const devOfRoot = $derived(
+		root ? findCanonicalDevWorkspace(root.id, forkableWorkspaces) : undefined
+	)
 	const createForkLabel = 'Create new fork…'
 	// Candidate bases ("targets") for a new fork: the root plus every fork/dev in the family, so a fork
 	// can itself be the base — i.e. a fork of a fork. Root first, matching the list order below.
@@ -108,7 +127,7 @@
 	// forks of forks under their parent the same way. `forks` is a DFS of descendants (parent before
 	// child), so indenting each row by its depth nests it under its parent.
 	const familyDepths = $derived(
-		new Map(buildWorkspaceHierarchy($userWorkspaces).map((h) => [h.workspace.id, h.depth]))
+		new Map(buildWorkspaceHierarchy(forkableWorkspaces).map((h) => [h.workspace.id, h.depth]))
 	)
 	// Extra left padding (on top of the row's base px-3) to nest a workspace one step per depth level,
 	// matching the sidebar menu's `depth * 16px`.
