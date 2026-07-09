@@ -709,6 +709,7 @@
 			{onLatest}
 			{savedApp}
 			rawApp
+			operatingWorkspace={opWorkspace}
 			bind:summary
 			bind:customPath
 			bind:deploymentMsg
