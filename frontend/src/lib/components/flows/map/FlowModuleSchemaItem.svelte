@@ -4,23 +4,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { classNames, type Item, type StateStore } from '$lib/utils'
-	import {
-		Bed,
-		Database,
-		Gauge,
-		EllipsisVertical,
-		PhoneIncoming,
-		Repeat,
-		Square,
-		SkipForward,
-		Pin,
-		X,
-		Play,
-		Loader2,
-		TriangleAlert,
-		Timer,
-		Maximize2
-	} from 'lucide-svelte'
+	import { EllipsisVertical, X, Play, Loader2, TriangleAlert, Maximize2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
@@ -55,12 +39,6 @@
 		selected?: boolean
 		deletable?: boolean
 		moduleAction: ModuleActionInfo | undefined
-		retry?: boolean
-		cache?: boolean
-		earlyStop?: boolean
-		skip?: boolean
-		suspend?: boolean
-		sleep?: boolean
 		mock?:
 			| {
 					enabled?: boolean
@@ -72,12 +50,7 @@
 		label: string
 		path?: string
 		nodeState?: FlowNodeState
-		concurrency?: boolean
-		// TODO: Implement for this one. See how concurrency is implemented.
-		debouncing?: boolean
-		retries?: number | undefined
 		warningMessage?: string | undefined
-		isTrigger?: boolean
 		editMode?: boolean
 		alwaysShowOutputPicker?: boolean
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
@@ -97,23 +70,13 @@
 		selected = false,
 		deletable = false,
 		moduleAction = undefined,
-		retry = false,
-		cache = false,
-		earlyStop = false,
-		skip = false,
-		suspend = false,
-		sleep = false,
 		mock = { enabled: false },
 		bold = false,
 		id = undefined,
 		label,
 		path = '',
 		nodeState,
-		concurrency = false,
-		debouncing = false,
-		retries = undefined,
 		warningMessage = undefined,
-		isTrigger = false,
 		editMode = false,
 		alwaysShowOutputPicker = false,
 		loopStatus = undefined,
@@ -300,135 +263,6 @@
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
 			style={`width: 275px; height: 34px;`}
 		></div>
-		<div
-			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
-			style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
-		>
-			{#if retry}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
-						<Repeat size={12} />
-					</div>
-					{#snippet text()}
-						Retries
-					{/snippet}
-				</Popover>
-			{/if}
-
-			{#if concurrency}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Gauge size={12} />
-					</div>
-					{#snippet text()}
-						Concurrency Limits
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if debouncing}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Timer size={12} />
-					</div>
-					{#snippet text()}
-						Debouncing
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if cache}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Database size={12} />
-					</div>
-					{#snippet text()}
-						Cached
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if earlyStop}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Square size={12} />
-					</div>
-					{#snippet text()}
-						{isTrigger ? 'Stop early if there are no new events' : 'Early stop/break'}
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if skip}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<SkipForward size={12} />
-					</div>
-					{#snippet text()}
-						Skip
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if suspend}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<PhoneIncoming size={12} />
-					</div>
-					{#snippet text()}
-						Suspend
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if sleep}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Bed size={12} />
-					</div>
-					{#snippet text()}
-						Sleep
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if mock?.enabled}
-				<Popover notClickable>
-					<button
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-						onclick={() => {
-							outputPicker?.toggleOpen()
-						}}
-						data-popover
-					>
-						<Pin size={12} />
-					</button>
-					{#snippet text()}
-						Pinned
-					{/snippet}
-				</Popover>
-			{/if}
-		</div>
-
 		<div class="flex flex-col w-full">
 			<FlowModuleSchemaItemViewer
 				{label}
