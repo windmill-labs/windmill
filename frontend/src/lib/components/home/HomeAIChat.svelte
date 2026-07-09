@@ -82,10 +82,11 @@
 			inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
 		/>
 		<Button
-			endIcon={{ icon: ArrowRight }}
+			endIcon={starting ? {} : { icon: ArrowRight }}
 			wrapperClasses="absolute right-2 bottom-3.5"
 			variant={value.trim() ? 'accent' : 'default'}
 			iconOnly
+			loading={starting}
 			disabled={!value.trim() || starting}
 			onclick={start}
 		></Button>

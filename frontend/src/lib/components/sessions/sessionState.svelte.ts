@@ -341,6 +341,24 @@ export function peekTransientDraftPrompt(sessionId: string): string | undefined 
 	return transientPrompt?.sessionId === sessionId ? transientPrompt.text : undefined
 }
 
+// One-shot intent to auto-send a prompt as soon as a freshly-created session's
+// chat is ready (set by startSessionWithPrompt for the home composer). Held in
+// memory only — deliberately NOT persisted, so a reload never re-fires a send
+// the user didn't just trigger. Consumed once via takeAutoSendPrompt.
+let autoSendPrompt: { sessionId: string; text: string } | undefined
+export function queueAutoSendPrompt(sessionId: string, text: string): void {
+	autoSendPrompt = { sessionId, text }
+}
+
+// Take (read-and-clear) the auto-send prompt for a session. One-shot: the second
+// caller — a re-mount, or a different session — gets undefined.
+export function takeAutoSendPrompt(sessionId: string): string | undefined {
+	if (autoSendPrompt?.sessionId !== sessionId) return undefined
+	const text = autoSendPrompt.text
+	autoSendPrompt = undefined
+	return text
+}
+
 // Write-behind a single session record. Transient (unsent) sessions are not
 // written to IndexedDB — they live in memory plus a single localStorage draft
 // slot until materializeTransient() promotes them at first send.
