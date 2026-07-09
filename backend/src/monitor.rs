@@ -3251,9 +3251,10 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                     // Parent-managed fork sync: list the fork branches' heads in
                     // the same poll tick (one extra ls-remote / API call) and
                     // route each into its fork workspace. Needs the concrete
-                    // tracked branch name to scope `wm-fork/<branch>/*`, which
-                    // the ls-remote path lacks when the resource has no explicit
-                    // branch (`HEAD`).
+                    // tracked branch name to scope `wm-fork/<branch>/*`; a
+                    // branch-less resource resolves its default branch via
+                    // `ls-remote --symref`, so "HEAD" only remains when that
+                    // resolution failed.
                     if auto_pull.sync_forks && git_ref != "HEAD" {
                         poll_git_fork_branches(
                             db,

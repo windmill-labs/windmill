@@ -2868,15 +2868,63 @@ pub async fn get_git_repo_head_for_autopull(
         ));
     }
 
-    let ref_spec = git_resource
-        .branch
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .unwrap_or("HEAD")
-        .to_string();
+    if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
+        let branch = branch.to_string();
+        let sha = get_repo_latest_commit_hash(&git_resource, None).await?;
+        return Ok(Some((branch, sha)));
+    }
 
-    let sha = get_repo_latest_commit_hash(&git_resource, None).await?;
-    Ok(Some((ref_spec, sha)))
+    // No explicit branch: resolve the remote's default-branch NAME along with
+    // its head in one call. Fork sync needs the concrete name to scope
+    // `wm-fork/<branch>/*`, so a bare "HEAD" ref would silently disable it.
+    validate_git_url(&git_resource.url).await?;
+    let mut git_cmd = Command::new("git");
+    git_cmd.args(["ls-remote", "--symref", &git_resource.url, "HEAD"]);
+    git_cmd.stderr(Stdio::piped());
+    let output = git_cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)
+            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        return Err(Error::BadRequest(format!(
+            "Error resolving git repo HEAD: {}",
+            stderr
+        )));
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("Failed to decode git output: {}", e)))?;
+    let (branch, sha) = parse_ls_remote_symref_head(&stdout);
+    let sha = sha.ok_or_else(|| {
+        Error::BadRequest(format!(
+            "No HEAD found in repository '{}'",
+            git_resource.url
+        ))
+    })?;
+    Ok(Some((branch.unwrap_or_else(|| "HEAD".to_string()), sha)))
+}
+
+/// Parse `git ls-remote --symref <url> HEAD` output: the `ref:` line names the
+/// default branch, the plain line carries its head sha.
+fn parse_ls_remote_symref_head(stdout: &str) -> (Option<String>, Option<String>) {
+    let mut branch = None;
+    let mut sha = None;
+    for line in stdout.lines() {
+        let mut parts = line.split_whitespace();
+        match (parts.next(), parts.next()) {
+            (Some("ref:"), Some(target)) => {
+                if let Some(name) = target.strip_prefix("refs/heads/") {
+                    branch = Some(name.to_string());
+                }
+            }
+            (Some(hash), Some("HEAD")) => {
+                sha = Some(hash.to_string());
+            }
+            _ => {}
+        }
+    }
+    (branch, sha)
 }
 
 /// List the head sha of every `wm-fork/<base_branch>/*` branch — plus any
@@ -3008,6 +3056,28 @@ mod tests {
     use serde_json::json;
     use windmill_common::audit::AuditAuthor;
     use windmill_common::db::DbWithOptAuthed;
+
+    #[test]
+    fn parse_symref_head_resolves_default_branch() {
+        let out = "ref: refs/heads/main\tHEAD\n7ddb8cec9a0000000000000000000000000000aa\tHEAD\n";
+        assert_eq!(
+            parse_ls_remote_symref_head(out),
+            (
+                Some("main".to_string()),
+                Some("7ddb8cec9a0000000000000000000000000000aa".to_string())
+            )
+        );
+        // Detached/unknown symref: sha still parses, branch stays None.
+        let out2 = "1234567890000000000000000000000000000000\tHEAD\n";
+        assert_eq!(
+            parse_ls_remote_symref_head(out2),
+            (
+                None,
+                Some("1234567890000000000000000000000000000000".to_string())
+            )
+        );
+        assert_eq!(parse_ls_remote_symref_head(""), (None, None));
+    }
 
     fn test_db_with_opt_authed(db: DB) -> DbWithOptAuthed<'static, ApiAuthed> {
         DbWithOptAuthed::DB {

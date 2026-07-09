@@ -77,7 +77,8 @@ class GitSyncTestBase(unittest.TestCase):
 
     def _setup_git_sync_resource(self, repo_name: str, branch: str = "main") -> str:
         """Create a git_repository resource pointing to the Gitea repo.
-        Returns the resource path."""
+        An empty branch leaves the field unset (repo default). Returns the
+        resource path."""
         resource_path = f"u/admin/git_sync_{repo_name.replace('-', '_')}"
         docker_url = self._gitea.get_docker_clone_url(repo_name)
         self._client.create_resource(
@@ -85,7 +86,7 @@ class GitSyncTestBase(unittest.TestCase):
             resource_type="git_repository",
             value={
                 "url": docker_url,
-                "branch": branch,
+                **({"branch": branch} if branch else {}),
                 "is_github_app": False,
             },
             update_if_exists=True,
@@ -845,7 +846,9 @@ class TestGitSyncAutoPull(GitSyncTestBase):
         by the poller, the pull status is recorded, and the resulting no-op
         push callback does not add a commit (no sync loop)."""
         repo_name, _ = self._create_test_repo()
-        resource_path = self._setup_git_sync_resource(repo_name)
+        # Branch-less resource: the poller resolves the repo's default branch
+        # via ls-remote --symref (a bare HEAD ref would disable fork scoping).
+        resource_path = self._setup_git_sync_resource(repo_name, branch="")
         self._configure_single_repo_sync(resource_path, include_type=["script"])
 
         # Seed the repo through a normal deploy, then find the script's file.
