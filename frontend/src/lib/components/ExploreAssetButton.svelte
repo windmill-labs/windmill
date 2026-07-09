@@ -33,7 +33,8 @@
 		noText = false,
 		buttonVariant = 'default',
 		btnClasses = '',
-		disabled = false
+		disabled = false,
+		workspace = undefined
 	}: {
 		asset: Asset
 		_resourceMetadata?: { resource_type?: string }
@@ -44,9 +45,12 @@
 		buttonVariant?: ButtonType.Variant
 		btnClasses?: string
 		disabled?: boolean
+		/** Workspace the explored asset lives in; defaults to the nav workspace. */
+		workspace?: string
 	} = $props()
 
 	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
+	let ws = $derived(workspace ?? $workspaceStore)
 	const assetUri = $derived(formatAsset(asset))
 </script>
 
@@ -60,18 +64,20 @@
 	on:click={async () => {
 		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type)) {
 			let [resourcePath, specificTable] = asset.path.split('?table=')
-			dbManagerDrawer?.openDrawer({
-				type: 'database',
-				resourceType: _resourceMetadata.resource_type,
-				resourcePath,
-				specificTable
-			})
+			dbManagerDrawer?.openDrawer(
+				{
+					type: 'database',
+					resourceType: _resourceMetadata.resource_type,
+					resourcePath,
+					specificTable
+				},
+				ws
+			)
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
 			s3FilePicker?.open(assetUri)
 		} else if (asset.kind === 'volume') {
-			const storage =
-				(await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
-			s3FilePicker?.open({ s3: `volumes/${$workspaceStore}/${asset.path}/`, storage })
+			const storage = (await VolumeService.getVolumeStorage({ workspace: ws! })) ?? undefined
+			s3FilePicker?.open({ s3: `volumes/${ws}/${asset.path}/`, storage })
 		} else if (asset.kind === 'ducklake') {
 			let ducklake = asset.path.split('/')[0]
 			let specificTableSplit = asset.path.split('/')[1]?.split('.') as string[] | undefined
@@ -79,7 +85,7 @@
 				specificTableSplit?.length === 2
 					? [specificTableSplit[0], specificTableSplit[1]]
 					: [undefined, specificTableSplit?.[0]]
-			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake, specificSchema, specificTable })
+			dbManagerDrawer?.openDrawer({ type: 'ducklake', ducklake, specificSchema, specificTable }, ws)
 		} else if (asset.kind === 'datatable') {
 			let datatable = asset.path.split('/')[0]
 			let specificTableSplit = asset.path.split('/')[1]?.split('.') as string[] | undefined
@@ -87,13 +93,16 @@
 				specificTableSplit?.length === 2
 					? [specificTableSplit[0], specificTableSplit[1]]
 					: [undefined, specificTableSplit?.[0]]
-			dbManagerDrawer?.openDrawer({
-				type: 'database',
-				resourceType: 'postgresql',
-				resourcePath: `datatable://${datatable}`,
-				specificTable,
-				specificSchema
-			})
+			dbManagerDrawer?.openDrawer(
+				{
+					type: 'database',
+					resourceType: 'postgresql',
+					resourcePath: `datatable://${datatable}`,
+					specificTable,
+					specificSchema
+				},
+				ws
+			)
 		}
 		onClick?.()
 	}}

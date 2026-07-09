@@ -311,8 +311,8 @@
 		// A new session opened from a Windmill page adopts that page as its first
 		// preview tab (resetSessionPreviewTabs handles a reused transient whose
 		// tabs still show a previous destination). Skip when already on the
-		// sessions page (nothing meaningful to capture) so the preview seeds from
-		// the session's editor target (or stays empty) instead.
+		// sessions page (nothing meaningful to capture) so the preview starts
+		// empty until the chat opens something.
 		if (!onSessionsPage) {
 			const url = page.url.pathname + page.url.search
 			resetSessionPreviewTabs(fresh.id, url)

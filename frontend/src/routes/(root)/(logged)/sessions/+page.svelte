@@ -39,7 +39,7 @@
 		getOrCreateRuntime,
 		getRuntime,
 		listRuntimes,
-		promoteEditorWarm
+		type SessionRuntime
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
@@ -49,9 +49,10 @@
 		matchPreviewPage,
 		pageKey,
 		parsePreviewItemRoute,
-		previewLocationLabel,
+		previewTabLabel,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
+	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
 	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
@@ -131,14 +132,6 @@
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
 	)
-
-	// Promote the active session in the LRU. Mutations untracked so the effect
-	// only re-runs when activeSession changes, not on its own writes.
-	$effect(() => {
-		const id = activeSession?.id
-		if (!id) return
-		untrack(() => promoteEditorWarm(id))
-	})
 
 	// Mark the active session "seen" up to its current message count: arrive →
 	// clear unread; AI streams a new message while we're here → clear again. The
@@ -251,7 +244,7 @@
 	// Adapt the session tab model to DraggableTabs items (labels derived from the
 	// observed location; every tab closable, none pinned).
 	const previewTabItems = $derived<TabItem[]>(
-		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabel(t.loc) }))
+		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(activeRuntime, t.loc) }))
 	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -317,61 +310,49 @@
 		}
 	}
 
-	// Reload mounted preview tabs affected by a mutating chat tool (write_/patch_/
-	// delete_/deploy_/…; read/test/navigate tools don't match). Scoped to the changed
-	// item so editing one item never blank-reboots an unrelated item's preview iframe
-	// (a full-page /apps_raw/edit reload is jarring).
+	// Reload mounted preview tabs affected by a mutating chat tool. Item and pipeline
+	// tabs are live editors that self-sync from the store the chat mutates, so nothing
+	// reloads them. Only list-page tabs (schedules, resources, …) are iframes, and each
+	// reloads only when a tool actually changed *its* page (toolReloadEffect) — so a
+	// schedule write leaves the Resources tab alone, and a purely local tool (saving
+	// user instructions) reloads nothing.
 	const tabHosts: Record<string, PreviewTabHost | undefined> = {}
-	const MUTATING_TOOL_RE = /^(write_|patch_|delete_|deploy_|discard_|set_|create_|update_|remove_)/
-	let reloadHandle: ReturnType<typeof setTimeout> | undefined
-	// Drained each flush: item paths touched since the last flush, and a flag for an
-	// unresolved mutation that forces a full reload (safe fallback).
-	let pendingReloadPaths = new Set<string>()
-	let pendingReloadAll = false
 
-	// Reload the batched-mutation tabs across all warm sessions' mounted tabs (a
-	// hidden preview would otherwise show pre-mutation content on return). `null`
-	// reloads all; otherwise an item-route iframe reloads only when its item was
-	// touched. Non-item pages always reload; a live-editor slot no-ops in reload().
-	function reloadTabs(paths: Set<string> | null) {
+	let reloadHandle: ReturnType<typeof setTimeout> | undefined
+	// Base-stripped list-page paths (e.g. `/schedules`) a chat round touched since
+	// the last flush — see toolReloadEffect for how tools map to pages.
+	let pendingPages = new Set<string>()
+
+	// Reload the mounted list-page tabs a chat round changed, across all warm
+	// sessions (a hidden preview would otherwise show pre-mutation content on
+	// return). tabsToReload picks only the tabs whose page is in `pages`.
+	function reloadTabs(pages: Set<string>) {
 		for (const s of warmSessions) {
-			const tabs = getRuntime(s.id)?.previewTabs?.tabs ?? []
-			for (const tab of tabs) {
+			const owner = getRuntime(s.id)?.previewTabs
+			if (!owner) continue
+			for (const tab of tabsToReload(owner.tabs, pages)) {
 				const key = tabKey(s.id, tab.id)
-				if (!mountedTabKeys.has(key)) continue
-				if (paths) {
-					const route = parsePreviewItemRoute(tab.url)
-					if (route && !paths.has(route.itemPath)) continue
-				}
-				tabHosts[key]?.reload()
+				if (mountedTabKeys.has(key)) tabHosts[key]?.reload()
 			}
 		}
 	}
 	function flushReload() {
-		const paths = pendingReloadAll ? null : pendingReloadPaths
-		pendingReloadPaths = new Set()
-		pendingReloadAll = false
-		reloadTabs(paths)
+		const pages = pendingPages
+		pendingPages = new Set()
+		reloadTabs(pages)
 	}
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args) => {
-			if (!MUTATING_TOOL_RE.test(name)) return
-			// A workspace item path scopes the reload to that item. The raw-app file
-			// tools (write_app_file, …) pass a leading-'/' frontend file path and edit
-			// the active session's target app, so scope to the target. Anything else is
-			// unresolved → reload everything (safe fallback).
-			const p = typeof args?.path === 'string' ? args.path : undefined
-			if (p && !p.startsWith('/')) pendingReloadPaths.add(p)
-			else if (p && activeSession?.target?.path) pendingReloadPaths.add(activeSession.target.path)
-			else pendingReloadAll = true
+			const { pages } = toolReloadEffect(name, args)
+			if (pages.length === 0) return
+			for (const p of pages) pendingPages.add(p)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
 		})
 		return () => {
 			clearTimeout(reloadHandle)
-			pendingReloadPaths = new Set()
-			pendingReloadAll = false
+			pendingPages = new Set()
 			setToolCompletionListener(undefined)
 		}
 	})
@@ -436,10 +417,13 @@
 		owner?.navigate(target)
 	}
 
-	// Short tab label: a known page's name, else a run detail, else the item's leaf
-	// name, else path.
-	function tabLabel(url: string): string {
-		return previewLocationLabel(url)
+	// Short tab label. For a raw-app tab, feed its own per-path cell so the tab is
+	// labelled by that app's pending draft path (a rename parked at `draft_<uuid>`),
+	// scoped to the tab's own runtime rather than another session's.
+	function tabLabelFor(rt: SessionRuntime | undefined, url: string): string {
+		const route = parsePreviewItemRoute(url)
+		const rawAppDraft = rt && route?.raw_app ? rt.rawAppCell(route.itemPath).store.val : undefined
+		return previewTabLabel(url, rawAppDraft)
 	}
 
 	// A link click inside a live editor (e.g. a subflow reference) re-points the
@@ -551,7 +535,7 @@
 		<div class="flex-1 min-h-0 flex flex-row relative" use:splitterPointerCapture>
 			<Splitpanes
 				horizontal={false}
-				class="flex-1 min-h-0 splitter-hidden {previewCollapsed ? 'splitter-off' : ''}"
+				class="flex-1 min-h-0 session-splitter {previewCollapsed ? 'splitter-off' : ''}"
 			>
 				{#if !fullscreen}
 					<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
@@ -565,7 +549,7 @@
 										: 'z-0 opacity-0 pointer-events-none'}"
 									aria-hidden={s.id !== activeSession?.id}
 								>
-									<SessionWrapper sessionId={s.id} hideEditor />
+									<SessionWrapper sessionId={s.id} />
 								</div>
 							{/each}
 						</div>
@@ -655,6 +639,7 @@
 											enableFlyTransition
 											bind:isOpen={activeTabPickerOpen}
 											openFocus="[data-workspace-picker-search]"
+											contentClasses="flex flex-col overflow-hidden"
 											class="flex items-center shrink-0 cursor-pointer text-tertiary hover:text-primary"
 										>
 											{#snippet trigger()}
@@ -685,6 +670,7 @@
 										bind:isOpen={newTabOpen}
 										enableFlyTransition
 										openFocus="[data-workspace-picker-search]"
+										contentClasses="flex flex-col overflow-hidden"
 										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover cursor-pointer"
 									>
 										{#snippet trigger()}
@@ -725,7 +711,7 @@
 											runtime={rt}
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
-											label={tabLabel(tab.loc)}
+											label={tabLabelFor(rt, tab.loc)}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 										/>
@@ -753,6 +739,7 @@
 											bind:isOpen={emptyStateNewTabOpen}
 											enableFlyTransition
 											openFocus="[data-workspace-picker-search]"
+											contentClasses="flex flex-col overflow-hidden"
 										>
 											{#snippet trigger()}
 												<span
@@ -798,19 +785,30 @@
 </div>
 
 <style>
-	/* Invisible-but-draggable splitter between the chat and the preview: a real
-	   (layout-occupying) gutter, wide enough to grab. No overlap tricks — the
-	   zone can't cover the chat's scrollbar or the preview's edge. */
-	:global(.splitpanes--vertical.splitter-hidden) > :global(.splitpanes__splitter) {
+	/* Draggable gutter between the chat and the preview: a real (layout-occupying)
+	   10px-wide grab zone, no overlap tricks that could cover the chat's scrollbar
+	   or the preview's edge. Transparent at rest; on hover the app-global
+	   `.splitpanes__splitter::after` grabber fades in. Uses a dedicated class, not
+	   the shared `.splitter-hidden`, which force-zeroes splitter opacity and would
+	   hide that grabber. */
+	:global(.splitpanes--vertical.session-splitter) > :global(.splitpanes__splitter) {
 		background-color: transparent !important;
 		border: none !important;
-		opacity: 0 !important;
 		width: 10px !important;
+	}
+	/* Inset the global hover grabber from the pane's top/bottom edges so the line
+	   doesn't run the full height, and round its ends into a pill — a lighter,
+	   more contained hint. */
+	:global(.splitpanes--vertical.session-splitter) > :global(.splitpanes__splitter)::after {
+		top: 8px !important;
+		bottom: 8px !important;
+		height: auto !important;
+		border-radius: 9999px !important;
 	}
 
 	/* Collapsed preview: the pane is resized to 0 but stays mounted, so remove
-	   the (invisible) gutter entirely — it would otherwise leave a dead 10px
-	   drag zone on the chat's right edge. */
+	   the gutter entirely — it would otherwise leave a dead 10px drag zone on the
+	   chat's right edge. */
 	:global(.splitpanes--vertical.splitter-off) > :global(.splitpanes__splitter) {
 		display: none !important;
 	}

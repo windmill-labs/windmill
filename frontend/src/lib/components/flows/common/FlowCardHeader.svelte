@@ -16,7 +16,8 @@
 	import { ScriptService, type FlowModuleValue, type PathScript } from '$lib/gen'
 	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
 	import { Flag, Lock, RefreshCw, Unlock } from 'lucide-svelte'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
@@ -47,6 +48,9 @@
 
 	let latestHash: string | undefined = $state(undefined)
 
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+
 	// Extract version_id from hub path (format: hub/{version_id}/{app}/{summary})
 	let hubVersionId = $derived(
 		flowModuleValue?.type === 'script' && flowModuleValue.path?.startsWith('hub/')
@@ -55,7 +59,7 @@
 	)
 
 	function getCachedKey(path: string) {
-		return `${$workspaceStore}-${path}`
+		return `${opWs}-${path}`
 	}
 	function getCachedValues(path: string) {
 		const key = getCachedKey(path)
@@ -68,7 +72,7 @@
 
 	async function loadLatestHash(value: PathScript) {
 		let script = await ScriptService.getScriptByPath({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			path: value.path
 		})
 		const key = getCachedKey(value.path)

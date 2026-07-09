@@ -766,7 +766,13 @@ workspace related commands
   - `--branch <branch:string>` - Git branch to associate (default: workspace name)
 - `workspace unbind` - Remove baseUrl and workspaceId from a workspace entry
   - `--workspace <name:string>` - Workspace to unbind
-- `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
+- `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace from its parent workspace.
+
+The parent is resolved from your current git branch, not from the active profile: run this from a git repo checked out on the branch mapped to the parent workspace in wmill.yaml's `workspaces:` section (a fork branch of it resolves to the same parent). `wmill workspace switch` does not change which workspace is forked.
+
+Arguments (omit both to be prompted interactively):
+  [workspace_name]  Friendly display name for the fork, shown in the UI. May contain spaces, so quote it in the shell (e.g. "My Fork"). Max 50 chars. Defaults to "<parent workspace name>'s fork".
+  [workspace_id]    Id for the fork. Must be a slug (no spaces or special characters) and is automatically prefixed with `wm-fork-`, so pass just the bare slug (e.g. `my-fork` becomes `wm-fork-my-fork`). This id also determines the fork's git branch name. Defaults to a slug derived from the name — or, when you are converting an existing branch into the fork branch, from that branch.
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
   - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)

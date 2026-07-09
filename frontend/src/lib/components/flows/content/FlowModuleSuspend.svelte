@@ -17,7 +17,9 @@
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
-	const { selectionManager, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectionManager, flowStateStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 	let editor: SimpleEditor | undefined = $state(undefined)
 
@@ -36,7 +38,7 @@
 	let isSuspendEnabled = $derived(Boolean(flowModule.suspend))
 
 	async function loadGroups(): Promise<void> {
-		allUserGroups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
+		allUserGroups = await GroupService.listGroupNames({ workspace: opWs! })
 		schema.properties['groups'] = {
 			type: 'array',
 			items: {

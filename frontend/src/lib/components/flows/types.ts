@@ -106,6 +106,10 @@ export type FlowEditorContext = {
 
 export type FlowGraphAssetContext = StateStore<{
 	selectedAsset: Asset | undefined
+	// The workspace asset explore controls (DB manager, S3/volume picker, resource
+	// editor) act on — the flow's acting workspace in an AI session, else the nav
+	// workspace. Set by FlowAssetsHandler.
+	workspace: string | undefined
 	s3FilePicker: S3FilePicker | undefined
 	resourceEditorDrawer: ResourceEditorDrawer | undefined
 	// Maps resource paths to their metadata. undefined is for error
