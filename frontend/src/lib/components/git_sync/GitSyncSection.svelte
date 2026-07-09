@@ -95,7 +95,7 @@
 {:else}
 	<SettingsPageHeader
 		title="Git Sync"
-		description="Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows, and apps to the repository on each deploy."
+		description="Connect the Windmill workspace to a Git repository: each deploy commits scripts, flows, and apps to the repository, and new commits to the repository can automatically deploy into the workspace."
 		link="https://www.windmill.dev/docs/advanced/git_sync"
 	>
 		{#snippet actions()}

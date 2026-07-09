@@ -266,9 +266,9 @@
 	const displayDescription = $derived(
 		variant === 'primary-sync' || variant === 'primary-promotion'
 			? mode === 'sync'
-				? `Changes will be committed directly to the ${targetOrDefaultBranch} branch`
+				? `Deploys are committed to the ${targetOrDefaultBranch} branch, and new commits to it can deploy back into this workspace automatically`
 				: mode === 'promotion'
-					? `Changes will be made to new branches whose promotion target is the ${targetOrDefaultBranch} branch of the repo to promote to. Remember to also setup Git Sync between the promotion workspace and repo for changes to be deployed when these branches are merged.`
+					? `Each deploy in this workspace pushes its changes to a dedicated wm_deploy/** branch of the repository instead of committing to ${targetOrDefaultBranch} directly. Merging that branch into ${targetOrDefaultBranch} promotes the change: the workspace that syncs ${targetOrDefaultBranch} deploys it on merge, so set up Git Sync there. Windmill can open the pull request for each deploy branch (toggle below), or use the open-pr-on-commit workflow.`
 					: null
 			: null
 	)
@@ -851,7 +851,14 @@
 					</div>
 				</div>
 				{#if displayDescription}
-					<p class="text-xs text-secondary">{displayDescription}</p>
+					<p class="text-xs text-secondary"
+						>{displayDescription}
+						{#if mode === 'promotion'}
+							<a target="_blank" href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+								>Learn more about Git Promotion</a
+							>
+						{/if}</p
+					>
 				{/if}
 			</div>
 			{@render repositoryContent()}
