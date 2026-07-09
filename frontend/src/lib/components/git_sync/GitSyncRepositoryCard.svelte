@@ -733,9 +733,9 @@
 										/>
 									</div>
 								{/if}
-								{#if !isGithubApp && !loadingResourceInfo && !repo.auto_pull?.enabled}
+								{#if !isGithubApp && !loadingResourceInfo}
 									<div class="mt-2">
-										<Alert type="warning" title="Instant pull recommended" size="xs">
+										<Alert type="info" title="Instant pull recommended" size="xs">
 											Pull for this repository checks the tracked branch about every minute;
 											longer gaps make drift and merge conflicts more likely. For instant pull,
 											connect the repository through the
@@ -750,22 +750,13 @@
 												href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
 												target="_blank"
 												class="text-blue-500 hover:underline">sync GitHub workflow</a
-											>.
+											>. If you already push changes with a GitHub Action, keep either the
+											Action or automatic pull, not both, so they don't fight over deploys.
 										</Alert>
 									</div>
 								{/if}
 								{#if repo.auto_pull?.enabled}
 									{@const viaWebhook = repo.auto_pull?.webhook_id != null}
-									{#if !isGithubApp}
-										<div class="text-2xs text-secondary mt-2">
-											Instant webhook sync requires the
-											<a
-												href="https://www.windmill.dev/docs/advanced/git_sync"
-												target="_blank"
-												class="text-blue-500 hover:underline">GitHub App</a
-											> (managed or GitHub Enterprise Server). Token-based repositories poll instead.
-										</div>
-									{/if}
 									<div class="text-2xs text-secondary mt-2">
 										{#if repo.auto_pull?.last_pull_status}
 											{#if repo.auto_pull.last_pull_status.success}
@@ -795,12 +786,6 @@
 											</Alert>
 										</div>
 									{/if}
-									<div class="mt-2">
-										<Alert type="info" title="Already pulling with a GitHub Action?" size="xs">
-											If you previously set up a GitHub Action to push changes into Windmill, remove
-											it now so the two don't fight over deploys.
-										</Alert>
-									</div>
 								{/if}
 							</div>
 						{/if}
