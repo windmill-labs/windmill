@@ -18,8 +18,8 @@
 	let { isCollapsed = false }: { isCollapsed?: boolean } = $props()
 
 	const effectiveId = $derived($workspaceStore ?? undefined)
-	// Resolve once here and pass down to the picker, so a superadmin-visited workspace absent from
-	// `$userWorkspaces` (see useForkableWorkspaces) is folded in without a duplicate lookup.
+	// Resolve once here and pass to the picker + trigger below, avoiding a duplicate lookup (see
+	// useForkableWorkspaces).
 	const forkable = useForkableWorkspaces({
 		workspaces: () => $userWorkspaces,
 		currentWorkspaceId: () => effectiveId,
@@ -69,6 +69,7 @@
 		{#snippet trigger()}
 			<WorkspaceScopeTrigger
 				workspaceId={effectiveId}
+				{forkableWorkspaces}
 				{isCollapsed}
 				{rootLabel}
 				wrap

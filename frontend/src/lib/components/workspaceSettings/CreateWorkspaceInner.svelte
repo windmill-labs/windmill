@@ -84,8 +84,7 @@
 	// a fork here (rather than the root) yields a fork of a fork.
 	let baseWorkspaceId = $state<string | undefined>(undefined)
 
-	// Fold in a superadmin-visited workspace absent from `$userWorkspaces` (see useForkableWorkspaces),
-	// so its family stays a forkable base instead of leaving the picker empty.
+	// Base list for forking, folding in a superadmin-visited workspace (see useForkableWorkspaces).
 	const forkable = useForkableWorkspaces({
 		workspaces: () => $userWorkspaces,
 		currentWorkspaceId: () => $workspaceStore,

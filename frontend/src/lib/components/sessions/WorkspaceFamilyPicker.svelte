@@ -91,8 +91,7 @@
 	const WM_FORK_PREFIX = 'wm-fork-'
 
 	const effectiveId = $derived(selectedId ?? $workspaceStore ?? undefined)
-	// Resolve the visited workspace's family, folding in a superadmin-visited workspace absent from
-	// `$userWorkspaces` (see useForkableWorkspaces). Skip the lookup when a parent already supplied it.
+	// Resolve the family (see useForkableWorkspaces); skip the lookup when a parent already supplied it.
 	const ownForkable = useForkableWorkspaces({
 		workspaces: () => $userWorkspaces,
 		currentWorkspaceId: () => effectiveId,
