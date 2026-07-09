@@ -2838,14 +2838,31 @@ const CE_GIT_SYNC_MAX_USERS: i64 = 2;
 /// otherwise an EE binary without the plan could still register a webhook and
 /// receive webhook-driven pulls.
 #[cfg(feature = "enterprise")]
-async fn check_auto_pull_license() -> Result<()> {
+async fn check_git_sync_ee_license(feature: &str) -> Result<()> {
     if !matches!(
         windmill_common::ee_oss::get_license_plan().await,
         windmill_common::ee_oss::LicensePlan::Enterprise
     ) {
-        return Err(Error::BadRequest(
-            "Automatic pull from git requires an Enterprise license".to_string(),
-        ));
+        return Err(Error::BadRequest(format!(
+            "{feature} requires an Enterprise license"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+async fn check_auto_pull_license() -> Result<()> {
+    check_git_sync_ee_license("Automatic pull from git").await
+}
+
+/// In-app PR creation (promotion/fork deploy branches) drives GitHub API calls
+/// from the deploy completion hook; runtime-gate it like auto-pull.
+#[cfg(feature = "enterprise")]
+async fn check_open_prs_license<'a>(
+    mut repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
+) -> Result<()> {
+    if repos.any(|r| r.promotion_open_prs || r.fork_open_prs) {
+        check_git_sync_ee_license("Opening pull requests from Windmill").await?;
     }
     Ok(())
 }
@@ -2992,6 +3009,8 @@ async fn edit_git_sync_config(
         {
             check_auto_pull_license().await?;
         }
+        #[cfg(feature = "enterprise")]
+        check_open_prs_license(git_sync_settings.repositories.iter()).await?;
         // Preserve server-owned auto-pull state (webhook id/secret, synced sha, last
         // status) that the redacted GET response omits — otherwise a whole-config
         // save from the UI would drop the webhook secret (breaking delivery) or
@@ -3202,6 +3221,8 @@ async fn edit_git_sync_repository(
     {
         check_auto_pull_license().await?;
     }
+    #[cfg(feature = "enterprise")]
+    check_open_prs_license(std::iter::once(&new_config.repository)).await?;
 
     // Promotion mode: EE only
     #[cfg(not(feature = "enterprise"))]

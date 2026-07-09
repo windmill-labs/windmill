@@ -1004,6 +1004,18 @@ async fn maybe_open_git_sync_deploy_pr(
     if row.marker.is_none() {
         return;
     }
+    // Runtime Enterprise gate, like the poller: the toggles may have been set
+    // while a license was active (or written directly), and this hook drives
+    // GitHub API calls with the installation token.
+    if !matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Enterprise
+    ) {
+        tracing::warn!(
+            "git sync PR: skipping PR creation for {workspace_id}: requires an Enterprise license"
+        );
+        return;
+    }
     let Some(repo_path) = row.repo_path else {
         return;
     };
