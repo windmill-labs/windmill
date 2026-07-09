@@ -222,7 +222,7 @@
 
 	function selectAdvanced(subtab: string) {
 		selected = 'advanced'
-		tick().then(() => advancedSettings?.scrollToSection(subtab))
+		tick().then(() => advancedSettings?.openSetting(subtab))
 	}
 
 	function setOmitOutputFromConversation(omit: boolean) {
@@ -1002,7 +1002,7 @@
 											/>
 										{/if}
 										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="advanced" label="Advanced" />
+											<Tab value="advanced" label="Run settings" />
 										{/if}
 									</Tabs>
 									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
@@ -1107,7 +1107,6 @@
 											{parentModule}
 											{previousModule}
 											{selectedId}
-											{editor}
 										/>
 									{/if}
 								</div>

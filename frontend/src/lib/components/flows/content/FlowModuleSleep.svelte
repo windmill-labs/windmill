@@ -66,36 +66,34 @@
 			rightDocumentationLink: 'https://www.windmill.dev/docs/flows/sleep'
 		}}
 	/>
-	{#if flowModule.sleep}
-		<Label label="Sleep for duration">
-			{#if schema.properties['sleep']}
-				<div class="border rounded-md overflow-auto">
-					<PropPickerWrapper
-						noFlowPlugConnect={true}
-						flow_input={stepPropPicker.pickableProperties.flow_input}
-						notSelectable
-						{result}
-						displayContext={false}
-						pickableProperties={undefined}
-						on:select={({ detail }) => {
-							editor?.insertAtCursor(detail)
-							editor?.focus()
-						}}
-					>
-						<InputTransformForm
-							bind:arg={flowModule.sleep}
-							argName="sleep"
-							{schema}
-							{previousModuleId}
-							argExtra={{ seconds: true, clearable: false }}
-							bind:editor
-						/>
-					</PropPickerWrapper>
-				</div>
-			{:else}
-				<SecondsInput disabled />
-				<div class="text-secondary text-xs">OR use a dynamic expression</div>
-			{/if}
-		</Label>
-	{/if}
+	<Label label="Sleep for duration">
+		{#if flowModule.sleep && schema.properties['sleep']}
+			<div class="border rounded-md overflow-auto">
+				<PropPickerWrapper
+					noFlowPlugConnect={true}
+					flow_input={stepPropPicker.pickableProperties.flow_input}
+					notSelectable
+					{result}
+					displayContext={false}
+					pickableProperties={undefined}
+					on:select={({ detail }) => {
+						editor?.insertAtCursor(detail)
+						editor?.focus()
+					}}
+				>
+					<InputTransformForm
+						bind:arg={flowModule.sleep}
+						argName="sleep"
+						{schema}
+						{previousModuleId}
+						argExtra={{ seconds: true, clearable: false }}
+						bind:editor
+					/>
+				</PropPickerWrapper>
+			</div>
+		{:else}
+			<SecondsInput disabled />
+			<div class="text-secondary text-xs">OR use a dynamic expression</div>
+		{/if}
+	</Label>
 </div>

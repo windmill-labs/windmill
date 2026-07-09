@@ -38,6 +38,12 @@
 		headerExtra?: Snippet
 		/** Forwarded to the editor container (e.g. the loop iterator's AI onKeyUp). */
 		onKeyUp?: (e: KeyboardEvent) => void
+		/** Always use the collapsed plug-popover picker (auto-height editor), regardless of
+		 *  the sessions-modal context. For expression inputs that live in a tight column. */
+		forceCollapsePicker?: boolean
+		/** Render read-only and hide the prop-picker connect affordance. Used when the
+		 *  owning setting is toggled off but its params are still shown for reference. */
+		disabled?: boolean
 	}
 
 	let {
@@ -55,11 +61,15 @@
 		editor = $bindable(undefined),
 		suggestion = undefined,
 		headerExtra,
-		onKeyUp
+		onKeyUp,
+		forceCollapsePicker = false,
+		disabled = false
 	}: Props = $props()
 
 	const propPickerContext = getContext<PropPickerContext | undefined>('PropPickerContext')
-	const modalMode = $derived(propPickerContext?.collapsePropPickerUntilConnect?.() ?? false)
+	const modalMode = $derived(
+		forceCollapsePicker || (propPickerContext?.collapsePropPickerUntilConnect?.() ?? false)
+	)
 
 	let pickerPopover: Popover | undefined = $state()
 
@@ -81,6 +91,7 @@
 			autoHeight={modalMode}
 			class={modalMode ? 'w-full' : 'h-full'}
 			shouldBindKey={false}
+			{disabled}
 			{extraLib}
 			{suggestion}
 		/>
@@ -88,7 +99,7 @@
 {/snippet}
 
 {#snippet header(connect)}
-	<div class="my-2 flex flex-row gap-2 items-center">
+	<div class="mb-2 flex flex-row gap-2 items-center">
 		<div class="text-xs font-semibold text-emphasis whitespace-nowrap">
 			{label}
 			{#if tooltip}<Tooltip {documentationLink}>{@render tooltip()}</Tooltip>{/if}
@@ -104,10 +115,10 @@
 		placement="bottom-start"
 		closeOnOutsideClick
 		contentClasses="rounded-md border bg-surface shadow-lg overflow-hidden"
-		class="flex h-7 w-8 items-center justify-center rounded-md border bg-surface text-secondary hover:bg-surface-hover hover:text-primary"
+		class="flex h-7 items-center justify-center rounded-md border bg-surface px-2 font-normal text-secondary hover:bg-surface-hover hover:text-primary"
 	>
 		{#snippet trigger()}
-			<Plug size={14} />
+			<Plug size={13} />
 		{/snippet}
 		{#snippet content()}
 			<div class="max-h-80 w-72 overflow-auto p-1">
@@ -139,7 +150,7 @@
 		on:select={({ detail }) => insert(detail)}
 		noPadding
 	>
-		{@render header(plugPopover)}
+		{@render header(disabled ? undefined : plugPopover)}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="border rounded-md overflow-auto w-full" {id} onkeyup={onKeyUp}>
 			{@render editorNode()}

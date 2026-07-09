@@ -39,22 +39,21 @@
 				rightDocumentationLink: 'https://www.windmill.dev/docs/flows/cache'
 			}}
 		/>
-		{#if flowModule.cache_ttl}
-			<Label label="How long to keep cache valid">
-				<SecondsInput bind:seconds={flowModule.cache_ttl} />
-			</Label>
-			<Toggle
-				size="2xs"
-				bind:checked={
-					() => flowModule.cache_ignore_s3_path,
-					(v) => (flowModule.cache_ignore_s3_path = v || undefined)
-				}
-				options={{
-					right: 'Ignore S3 Object paths for caching purposes',
-					rightTooltip:
-						'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
-				}}
-			/>
-		{/if}
+		<Label label="How long to keep cache valid">
+			<SecondsInput disabled={!flowModule.cache_ttl} bind:seconds={flowModule.cache_ttl} />
+		</Label>
+		<Toggle
+			size="2xs"
+			disabled={!flowModule.cache_ttl}
+			bind:checked={
+				() => flowModule.cache_ignore_s3_path,
+				(v) => (flowModule.cache_ignore_s3_path = v || undefined)
+			}
+			options={{
+				right: 'Ignore S3 Object paths for caching purposes',
+				rightTooltip:
+					'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+			}}
+		/>
 	{/if}
 </div>

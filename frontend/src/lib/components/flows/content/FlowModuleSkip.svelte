@@ -4,7 +4,6 @@
 	import type { FlowModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import { slide } from 'svelte/transition'
 	import { getStepPropPicker } from '../previousResults'
 
 	const { flowStateStore, flowStore, previewArgs } =
@@ -56,20 +55,20 @@
 		}}
 	/>
 
-	{#if flowModule.skip_if}
-		<div class="w-full" transition:slide={{ duration: 120 }}>
-			<FlowExpressionEditor
-				label="Skip condition expression"
-				bind:code={
-					() => flowModule.skip_if?.expr ?? '',
-					(v) => {
-						if (flowModule.skip_if) flowModule.skip_if.expr = v
-					}
+	<div class="w-full">
+		<FlowExpressionEditor
+			forceCollapsePicker
+			disabled={!isSkipEnabled}
+			label="Skip condition expression"
+			bind:code={
+				() => flowModule.skip_if?.expr ?? '',
+				(v) => {
+					if (flowModule.skip_if) flowModule.skip_if.expr = v
 				}
-				pickableProperties={stepPropPicker.pickableProperties}
-				{result}
-				extraLib={stepPropPicker.extraLib}
-			/>
-		</div>
-	{/if}
+			}
+			pickableProperties={stepPropPicker.pickableProperties}
+			{result}
+			extraLib={stepPropPicker.extraLib}
+		/>
+	</div>
 </div>

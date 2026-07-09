@@ -36,9 +36,11 @@
 			rightTooltip: tip
 		}}
 	/>
-	{#if enabled}
-		<div class="mt-2">
-			<SecondsInput bind:seconds={flowModule.delete_after_secs} {disabled} size="sm" />
-		</div>
-	{/if}
+	<div class="mt-2">
+		<SecondsInput
+			bind:seconds={flowModule.delete_after_secs}
+			disabled={disabled || !enabled}
+			size="sm"
+		/>
+	</div>
 </div>

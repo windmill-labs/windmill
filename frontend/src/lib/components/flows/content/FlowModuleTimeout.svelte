@@ -75,44 +75,42 @@
 				"The custom timeout is used instead of the instance timeout for the step. The step's timeout cannot be greater than the instance timeout."
 		}}
 	/>
-	{#if flowModule.timeout}
-		<Label label="Timeout duration" class="mt-2">
-			{#if schema.properties['timeout']}
-				<div class="border">
-					<PropPickerWrapper
-						flow_input={stepPropPicker.pickableProperties.flow_input}
-						notSelectable
-						pickableProperties={stepPropPicker.pickableProperties}
-						on:select={({ detail }) => {
-							editor?.insertAtCursor(detail)
-							editor?.focus()
-						}}
-					>
-						<InputTransformForm
-							bind:arg={flowModule.timeout}
-							argName="timeout"
-							{schema}
-							{previousModuleId}
-							argExtra={{ seconds: true }}
-							bind:editor
-						/>
-					</PropPickerWrapper>
-				</div>
-			{:else}
-				<SecondsInput disabled />
-				<div class="text-secondary text-sm">OR use a dynamic expression</div>
-			{/if}
-		</Label>
-
-		{#if flowModule.timeout.type !== 'static'}
-			<div class="mt-4">
-				<Alert title="Dynamic timeout only used when testing the full flow" type="info">
-					<p class="text-xs">
-						A dynamic timeout expression is evaluated when running the full flow. It is ignored when
-						running "Test this step" — only a static timeout value applies there.
-					</p>
-				</Alert>
+	<Label label="Timeout duration" class="mt-2">
+		{#if flowModule.timeout && schema.properties['timeout']}
+			<div class="border">
+				<PropPickerWrapper
+					flow_input={stepPropPicker.pickableProperties.flow_input}
+					notSelectable
+					pickableProperties={stepPropPicker.pickableProperties}
+					on:select={({ detail }) => {
+						editor?.insertAtCursor(detail)
+						editor?.focus()
+					}}
+				>
+					<InputTransformForm
+						bind:arg={flowModule.timeout}
+						argName="timeout"
+						{schema}
+						{previousModuleId}
+						argExtra={{ seconds: true }}
+						bind:editor
+					/>
+				</PropPickerWrapper>
 			</div>
+		{:else}
+			<SecondsInput disabled />
+			<div class="text-secondary text-sm">OR use a dynamic expression</div>
 		{/if}
+	</Label>
+
+	{#if flowModule.timeout && flowModule.timeout.type !== 'static'}
+		<div class="mt-4">
+			<Alert title="Dynamic timeout only used when testing the full flow" type="info">
+				<p class="text-xs">
+					A dynamic timeout expression is evaluated when running the full flow. It is ignored when
+					running "Test this step" — only a static timeout value applies there.
+				</p>
+			</Alert>
+		</div>
 	{/if}
 </div>
