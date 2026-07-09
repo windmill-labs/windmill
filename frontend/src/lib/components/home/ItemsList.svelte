@@ -16,7 +16,7 @@
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { ChevronsDownUp, ChevronsUpDown, Code2, LayoutDashboard, SearchCode } from 'lucide-svelte'
+	import { ChevronsDownUp, ChevronsUpDown, Code2, LayoutDashboard } from 'lucide-svelte'
 
 	import { HOME_SEARCH_SHOW_FLOW } from '$lib/consts'
 
@@ -35,7 +35,8 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import { getContext, untrack } from 'svelte'
+	import { untrack } from 'svelte'
+	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { NetworkIcon } from 'lucide-svelte'
 	import { base } from '$lib/base'
@@ -276,6 +277,11 @@
 		},
 		draft_only: { type: 'boolean' as const, label: 'Draft only' },
 		draft: { type: 'boolean' as const, label: 'Draft', description: 'Includes draft-only items' },
+		content: {
+			type: 'string' as const,
+			label: 'Content',
+			description: 'Full-text search across item content (EE)'
+		},
 		archived: { type: 'boolean' as const, label: 'Only archived' },
 		...($userStore && !$userStore.operator
 			? { include_library: { type: 'boolean' as const, label: 'Include library scripts' } }
@@ -317,9 +323,14 @@
 		if (!pf) return pipelineFolders
 		return new Set([...pipelineFolders].filter((f) => `f/${f}`.toLowerCase().includes(pf)))
 	})
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
-		'openSearchWithPrefilledText'
-	)
+
+	// Content-filter view: reuse the Ctrl-K "Content" search (full-text, EE-gated).
+	// It loads its own dataset via `.open()`, then filters client-side by `search`.
+	let contentSearchEl: ContentSearchInner | undefined = $state()
+	$effect(() => {
+		const el = contentSearchEl
+		if (el) untrack(() => el.open())
+	})
 
 	let viewCodeDrawer: Drawer | undefined = $state()
 	let viewCodeTitle: string | undefined = $state()
@@ -468,9 +479,12 @@
 			<ToggleButtonGroup
 				selected={itemKind}
 				onSelected={(v) => {
-					// Shortcut into the shared filter object; `all` clears the kind filter.
-					filterValues.val.kind = v === 'all' ? null : v
-					if (v != 'all') {
+					// Shortcut into the shared filter object; `all` clears the kind filter
+					// entirely (delete, not null — otherwise it shows as a `kind: null` tag).
+					if (v === 'all') {
+						delete filterValues.val.kind
+					} else {
+						filterValues.val.kind = v
 						subtab = v
 					}
 				}}
@@ -509,16 +523,6 @@
 				autofocus
 			/>
 		</div>
-		<Button
-			on:click={() => openSearchWithPrefilledText('#')}
-			variant="default"
-			unifiedSize="md"
-			endIcon={{
-				icon: SearchCode
-			}}
-		>
-			Content
-		</Button>
 	</div>
 	<div class="relative">
 		{#if filteredItems?.length == 0}
@@ -547,7 +551,15 @@
 		{/if}
 	</div>
 	<div>
-		{#if filteredItems == undefined}
+		{#if filterValues.val.content}
+			<!-- Content filter: swap the normal list/tree for the full-text content-match
+			     view (the same one used by the Ctrl-K "Content" modal). It searches item
+			     contents via the indexer and shows the matching snippets; when the instance
+			     isn't EE it renders its own warning + a limited fallback search. -->
+			<div class="mt-2">
+				<ContentSearchInner bind:this={contentSearchEl} search={filterValues.val.content} />
+			</div>
+		{:else if filteredItems == undefined}
 			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}
