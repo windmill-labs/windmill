@@ -69,7 +69,6 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
-		keyboardSelected?: boolean
 	}
 
 	let {
@@ -83,8 +82,7 @@
 		showCode,
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true),
-		keyboardSelected = false
+		showEditButton = $bindable(true)
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -154,7 +152,6 @@
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
 	{depth}
-	{keyboardSelected}
 >
 	{#snippet badges()}
 		{#if script.lock_error_logs}

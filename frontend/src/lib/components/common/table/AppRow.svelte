@@ -47,7 +47,6 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
-		keyboardSelected?: boolean
 	}
 
 	let {
@@ -59,8 +58,7 @@
 		deleteConfirmedCallback = $bindable(),
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true),
-		keyboardSelected = false
+		showEditButton = $bindable(true)
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -111,7 +109,6 @@
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only}
 	{depth}
-	{keyboardSelected}
 >
 	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}

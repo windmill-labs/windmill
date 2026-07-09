@@ -18,7 +18,6 @@
 		deploymentDrawer: DeployWorkspaceDrawer
 		depth?: number
 		menuOpen?: boolean
-		keyboardSelected?: boolean
 	}
 
 	let {
@@ -27,8 +26,7 @@
 		shareModal,
 		deploymentDrawer,
 		depth = 0,
-		menuOpen = $bindable(false),
-		keyboardSelected = false
+		menuOpen = $bindable(false)
 	}: Props = $props()
 </script>
 
@@ -41,7 +39,6 @@
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={true}
 	{depth}
-	{keyboardSelected}
 >
 	{#snippet badges()}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />

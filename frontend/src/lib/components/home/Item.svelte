@@ -24,15 +24,13 @@
 		depth?: number
 		showCode: (path: string, summary: string) => void
 		showEditButton?: boolean
-		keyboardSelected?: boolean
 	}
 
 	let {
 		item,
 		depth = 0,
 		showCode,
-		showEditButton = true,
-		keyboardSelected = false
+		showEditButton = true
 	}: Props = $props()
 </script>
 
@@ -53,7 +51,6 @@
 		bind:menuOpen
 		{showCode}
 		{showEditButton}
-		{keyboardSelected}
 	/>
 {:else if item.type == 'flow'}
 	<FlowRow
@@ -71,7 +68,6 @@
 		{depth}
 		bind:menuOpen
 		{showEditButton}
-		{keyboardSelected}
 	/>
 {:else if item.type == 'app'}
 	<AppRow
@@ -85,7 +81,6 @@
 		{depth}
 		bind:menuOpen
 		{showEditButton}
-		{keyboardSelected}
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow
@@ -95,7 +90,6 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
-		{keyboardSelected}
 	/>
 {/if}
 
