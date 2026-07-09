@@ -315,6 +315,7 @@
 	{#key `${gitRepoResourcePath}-${commitHash}`}
 		<S3FilePickerInner
 			bind:this={s3FilePicker}
+			workspace={ws}
 			readOnlyMode
 			hideS3SpecificDetails
 			rootPath={`gitrepos/${ws}/${gitRepoResourcePath}/${commitHash}/`}
