@@ -273,14 +273,6 @@
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full">
-		{#if $workspaceStore == 'admins'}
-			<div class="my-4"></div>
-
-			<Alert title="Admins workspace">
-				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
-				Windmill instance, such as keeping resource types up to date.
-			</Alert>
-		{/if}
 		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
 			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
 				Home
@@ -315,6 +307,14 @@
 				{/if}
 			</div>
 		</div>
+
+		{#if $workspaceStore == 'admins'}
+			<Alert title="Admins workspace">
+				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
+				Windmill instance, such as keeping resource types up to date.
+			</Alert>
+			<div class="my-4"></div>
+		{/if}
 
 		<TutorialBanner />
 
