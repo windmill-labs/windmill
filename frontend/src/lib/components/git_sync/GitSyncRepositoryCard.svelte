@@ -22,7 +22,6 @@
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
-	import Select from '$lib/components/select/Select.svelte'
 	import { ResourceService, VariableService } from '$lib/gen'
 
 	let {
@@ -67,15 +66,6 @@
 		} else if (repo.auto_pull) {
 			repo.auto_pull = { ...repo.auto_pull, enabled: false }
 		}
-	}
-
-	// Delivery mode shown in the selector. The backend also has a webhook-only
-	// mode; it's surfaced as "auto" (webhook with polling fallback) here.
-	function deliveryMode(): 'auto' | 'polling' {
-		return repo?.auto_pull?.mode === 'polling' ? 'polling' : 'auto'
-	}
-	function setDeliveryMode(mode: 'auto' | 'polling') {
-		if (repo?.auto_pull) repo.auto_pull = { ...repo.auto_pull, mode }
 	}
 
 	// Parent-level fork auto-sync (phase 5). Configured on the parent workspace's
@@ -141,7 +131,7 @@
 		const abortController = new AbortController()
 
 		async function loadResourceInfo() {
-			if (repo?.git_repo_resource_path && !repo.isUnsavedConnection && $workspaceStore) {
+			if (repo?.git_repo_resource_path && $workspaceStore) {
 				loadingResourceInfo = true
 				resourceInfo = null
 				// Clear stale app state up front so a resource change or a failed
@@ -157,6 +147,25 @@
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
 						isGithubApp = value?.is_github_app === true
+						// A newly added connection defaults to pulling from Git only when
+						// the repository is app-backed (instant webhook delivery). Polling
+						// is opt-in for token repositories. Fork/dev workspaces never get
+						// the parent-only defaults (the backend rejects them), and both
+						// features are EE-only.
+						if (
+							repo.isUnsavedConnection &&
+							isGithubApp &&
+							!isFork &&
+							$enterpriseLicense &&
+							repo.auto_pull === undefined
+						) {
+							repo.auto_pull = { enabled: true, mode: 'auto', sync_forks: true }
+							repo.fork_open_prs = repo.fork_open_prs ?? true
+						}
+						// Webhook with polling fallback is the only delivery for app repos.
+						if (isGithubApp && repo.auto_pull?.mode === 'polling') {
+							repo.auto_pull = { ...repo.auto_pull, mode: 'auto' }
+						}
 						let gitUrl = value?.url || value?.git_url
 
 						if (gitUrl && typeof gitUrl === 'string') {
@@ -591,12 +600,12 @@
 										target="_blank"
 										class="text-blue-500 hover:underline font-mono">open-pr-on-commit</a
 									>
-									workflow in the repository (repositories connected through the
+									workflow in the repository. Recommended: connect the repository through the
 									<a
 										href="https://www.windmill.dev/docs/advanced/git_sync"
 										target="_blank"
 										class="text-blue-500 hover:underline">GitHub App</a
-									> can let Windmill open them automatically).
+									> and Windmill opens them automatically.
 								</div>
 							{/if}
 							{#if repoMode === 'sync' && isFork}
@@ -636,12 +645,12 @@
 											target="_blank"
 											class="text-blue-500 hover:underline font-mono">open-pr-on-fork-commit</a
 										>
-										workflow in the repository (repositories connected through the
+										workflow in the repository. Recommended: connect the repository through the
 										<a
 											href="https://www.windmill.dev/docs/advanced/git_sync"
 											target="_blank"
 											class="text-blue-500 hover:underline">GitHub App</a
-										> can let Windmill open them automatically).
+										> and Windmill opens them automatically.
 									</div>
 								{/if}
 							{/if}
@@ -702,7 +711,7 @@
 										options={{
 											right: 'Automatically deploy changes from Git',
 											rightTooltip:
-												'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks; others are checked about every minute.'
+												'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks with a polling fallback; token-based repositories are checked about every minute.'
 										}}
 										on:change={(e) => setAutoPullEnabled(e.detail)}
 									>
@@ -724,22 +733,30 @@
 										/>
 									</div>
 								{/if}
+								{#if !isGithubApp && !loadingResourceInfo && !repo.auto_pull?.enabled}
+									<div class="mt-2">
+										<Alert type="warning" title="Instant pull recommended" size="xs">
+											Pull for this repository checks the tracked branch about every minute;
+											longer gaps make drift and merge conflicts more likely. For instant pull,
+											connect the repository through the
+											<a
+												href="https://www.windmill.dev/docs/advanced/git_sync"
+												target="_blank"
+												class="text-blue-500 hover:underline">GitHub App</a
+											>
+											(which also lets Windmill manage pull requests), or push changes into
+											Windmill with the
+											<a
+												href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+												target="_blank"
+												class="text-blue-500 hover:underline">sync GitHub workflow</a
+											>.
+										</Alert>
+									</div>
+								{/if}
 								{#if repo.auto_pull?.enabled}
 									{@const viaWebhook = repo.auto_pull?.webhook_id != null}
-									{#if isGithubApp}
-										<div class="mt-3 max-w-sm">
-											<div class="text-2xs font-semibold text-secondary mb-1">Delivery</div>
-											<Select
-												items={[
-													{ label: 'Webhook with polling fallback', value: 'auto' },
-													{ label: 'Polling only (air-gapped)', value: 'polling' }
-												]}
-												bind:value={() => deliveryMode(), (v) => setDeliveryMode(v)}
-												clearable={false}
-												size="sm"
-											/>
-										</div>
-									{:else}
+									{#if !isGithubApp}
 										<div class="text-2xs text-secondary mt-2">
 											Instant webhook sync requires the
 											<a

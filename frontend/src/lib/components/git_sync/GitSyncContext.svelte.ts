@@ -1,5 +1,5 @@
 import { getContext, setContext } from 'svelte'
-import { enterpriseLicense, userWorkspaces } from '$lib/stores'
+import { enterpriseLicense } from '$lib/stores'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/toast'
 import { JobService, WorkspaceService, ResourceService } from '$lib/gen'
@@ -45,7 +45,7 @@ export type GitSyncSettings = {
 export type ModalState = {
 	push: { idx: number; repo: GitSyncRepository; open: boolean } | null
 	pull: { idx: number; repo: GitSyncRepository; open: boolean; settingsOnly?: boolean } | null
-	success: { open: boolean; savedWithoutInit?: boolean } | null
+	success: { open: boolean; savedWithoutInit?: boolean; autoPullOn?: boolean } | null
 }
 
 export type ValidationState = {
@@ -282,8 +282,8 @@ export function createGitSyncContext(workspace: string) {
 		closeModal('pull')
 	}
 
-	function showSuccessModal(savedWithoutInit?: boolean) {
-		activeModals.success = { open: true, savedWithoutInit }
+	function showSuccessModal(savedWithoutInit?: boolean, autoPullOn?: boolean) {
+		activeModals.success = { open: true, savedWithoutInit, autoPullOn }
 	}
 
 	function closeSuccessModal() {
@@ -528,7 +528,7 @@ export function createGitSyncContext(workspace: string) {
 			repoToSave.detectionState = undefined
 			repoToSave.extractedSettings = undefined
 			// Show success modal for new connections
-			showSuccessModal(savedWithoutInit)
+			showSuccessModal(savedWithoutInit, repoToSave.auto_pull?.enabled === true)
 		}
 	}
 
@@ -664,14 +664,6 @@ export function createGitSyncContext(workspace: string) {
 		}
 	}
 
-	// Mirrors the card's fork detection: wm-fork- id prefix, or a parent
-	// workspace id (dev workspaces are prefix-less).
-	function isForkOrDevWorkspace(): boolean {
-		if (workspace.startsWith('wm-fork-')) return true
-		const ws = get(userWorkspaces)?.find((w) => w.id === workspace)
-		return !!ws?.parent_workspace_id
-	}
-
 	function addSyncRepository() {
 		if (!get(enterpriseLicense) && repositories && repositories.length >= 1) {
 			sendUserToast('Multiple repositories requires Enterprise Edition', true)
@@ -691,19 +683,10 @@ export function createGitSyncContext(workspace: string) {
 			exclude_types_override: [],
 			legacyImported: false,
 			isUnsavedConnection: true,
-			collapsed: false,
-			// New connections default to pulling changes from Git (webhook with a
-			// polling fallback), forks included. Existing repos load without
-			// auto_pull and stay off. Auto-pull is EE-only (the backend rejects an
-			// enabled setting on CE) and parent-managed on fork/dev workspaces
-			// (the backend rejects it there too), so only default it on when
-			// licensed and not a fork.
-			...(get(enterpriseLicense) && !isForkOrDevWorkspace()
-				? {
-						auto_pull: { enabled: true, mode: 'auto', sync_forks: true },
-						fork_open_prs: true
-					}
-				: {})
+			collapsed: false
+			// Pull-from-Git defaults are applied by the repository card once the
+			// selected resource resolves: only app-backed repos (instant webhook
+			// delivery) default to auto-pull on; polling is opt-in for token repos.
 		})
 		gitSyncTestJobs.push({
 			jobId: '',

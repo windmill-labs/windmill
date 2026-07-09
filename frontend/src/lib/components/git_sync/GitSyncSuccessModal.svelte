@@ -5,9 +5,10 @@
 	interface Props {
 		open: boolean
 		savedWithoutInit?: boolean
+		autoPullOn?: boolean
 	}
 
-	let { open = $bindable(false), savedWithoutInit = false }: Props = $props()
+	let { open = $bindable(false), savedWithoutInit = false, autoPullOn = false }: Props = $props()
 </script>
 
 <Modal bind:open title="Git Sync Connection Saved" class="sm:max-w-4xl" cancelText="Close">
@@ -37,15 +38,27 @@
 		{/if}
 
 		<!-- Optional setup section -->
-		<div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
-			<h4 class="font-medium text-amber-900 mb-2 flex items-center gap-2">
-				<ArrowRight class="h-4 w-4" />
-				Deploy changes from Git back to Windmill
-			</h4>
-			<p class="text-sm text-amber-800 mb-3">
-				Turn on "Automatically deploy changes from Git" on the repository to have Windmill pull new
-				commits into this workspace for you.
-			</p>
+		{#if autoPullOn}
+			<div class="bg-green-50 border border-green-200 rounded-lg p-4">
+				<h4 class="font-medium text-green-900 mb-2 flex items-center gap-2">
+					<ArrowRight class="h-4 w-4" />
+					Pull from Git is on
+				</h4>
+				<p class="text-sm text-green-800">
+					New commits to the tracked branch deploy into this workspace automatically. You can
+					adjust this anytime on the repository card.
+				</p>
+			</div>
+		{:else}
+			<div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+				<h4 class="font-medium text-amber-900 mb-2 flex items-center gap-2">
+					<ArrowRight class="h-4 w-4" />
+					Deploy changes from Git back to Windmill
+				</h4>
+				<p class="text-sm text-amber-800 mb-3">
+					Turn on "Automatically deploy changes from Git" on the repository to have Windmill pull
+					new commits into this workspace for you.
+				</p>
 			<div class="flex flex-col gap-2">
 				<p class="text-sm text-amber-700">
 					Prefer to control deployment from your own pipeline (tests, custom gating, deploy on PR
@@ -60,8 +73,9 @@
 						<ExternalLink class="h-3 w-3" />
 						Learn more about CI-based deployment
 					</a>
+					</div>
 				</div>
 			</div>
-		</div>
+		{/if}
 	</div>
 </Modal>
