@@ -64,6 +64,11 @@ pub struct DraftListItem {
     /// so it defaults to `false` when read from the row.
     #[sqlx(default)]
     pub can_write: bool,
+    /// `true` when this draft is identical (jsonb-equal) to the parent's draft at
+    /// the same (path, kind, owner). `None` unless the request passed a valid
+    /// `compare_to_workspace`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unchanged_from_parent: Option<bool>,
     /// The listed row belongs to the authed user (own draft or the legacy
     /// no-owner row) and is therefore actionable by them. Always `true` in the
     /// default (own-drafts) listing; only meaningful with `all_users=true`,
@@ -77,6 +82,10 @@ pub struct ListDraftsQuery {
     /// List every draft in the workspace (all users), not just the authed
     /// user's own + legacy rows. Other users' rows come back with `mine=false`.
     pub all_users: Option<bool>,
+    /// A fork passes its parent workspace id here to have each row flagged with
+    /// `unchanged_from_parent`. Honored only when it is this workspace's actual
+    /// `parent_workspace_id` (enforced in `list_drafts`).
+    pub compare_to_workspace: Option<String>,
 }
 
 /// Every draft the authed user has in this workspace, across all kinds — the
@@ -97,9 +106,31 @@ async fn list_drafts(
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
+    // Only honor `compare_to_workspace` when it is genuinely this workspace's
+    // parent (a fork comparing against its source). Any other value is dropped
+    // so the value-equality subquery can't be used to probe an unrelated
+    // workspace's draft contents.
+    let compare_to_workspace = match &query.compare_to_workspace {
+        Some(candidate) => {
+            let parent: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+            )
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+            if parent.as_deref() == Some(candidate.as_str()) {
+                Some(candidate.clone())
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
     let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query(all_users))
         .bind(&w_id)
         .bind(&authed.email)
+        .bind(&compare_to_workspace)
         .fetch_all(&db)
         .await?;
     // Per-row permission gating:
@@ -145,8 +176,10 @@ async fn list_drafts(
 /// `deployed_table()` (shared single source — can't drift from the access
 /// check). Table names come from the closed enum, never user input. Kinds
 /// with no path-keyed table get no arm and fall to `ELSE true`.
-/// `$1` = workspace_id, `$2` = email. With `all_users` the owner filter is
-/// dropped so every workspace draft is listed (others' rows get `mine=false`).
+/// `$1` = workspace_id, `$2` = email, `$3` = the parent workspace to compare
+/// against (nullable; drives `unchanged_from_parent`). With `all_users` the
+/// owner filter is dropped so every workspace draft is listed (others' rows get
+/// `mine=false`).
 fn list_drafts_query(all_users: bool) -> String {
     let mut case = String::from("CASE d.typ::text\n");
     for kind in UserDraftItemKind::ALL {
@@ -217,7 +250,18 @@ fn list_drafts_query(all_users: bool) -> String {
                   ) AS draft_path,
                   (d.email IS NULL) AS legacy_draft,
                   (d.email = $2 OR d.email IS NULL) AS mine,
-                  {case} AS draft_only
+                  {case} AS draft_only,
+                  -- value is a `json` column (no `=` operator), so compare as jsonb.
+                  CASE WHEN $3::text IS NULL THEN NULL::bool
+                       ELSE EXISTS(
+                         SELECT 1 FROM draft pd
+                         WHERE pd.workspace_id = $3
+                           AND pd.path = d.path
+                           AND pd.typ = d.typ
+                           AND pd.email IS NOT DISTINCT FROM d.email
+                           AND pd.value::jsonb = d.value::jsonb
+                       )
+                  END AS unchanged_from_parent
            FROM draft d
            WHERE d.workspace_id = $1{owner_filter}
            ORDER BY d.path, d.typ,
