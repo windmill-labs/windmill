@@ -397,6 +397,46 @@
 	let pathError = $state('')
 	let loadingSave = $state(false)
 
+	// Lifts the route's `?new_draft=true` autosave suspension (`UserDraft.stopSync`)
+	// once the bootstrap settles. Resumes only after the stores-gated `initPath →
+	// reset → onMetaChange → bind:path` auto-naming chain — and, for an empty seed,
+	// the async `initContent` (gated via the returned `markContentReady`) — otherwise
+	// the auto-generated path or template seed posts as the user's first "edit". The
+	// `restarted` guard makes the conditional `$effect` self-cleaning on cold reload
+	// (auth stores loading after mount) and a post-unmount call harmless.
+	function scheduleRestartSync(
+		path: string,
+		opts?: { waitForContent?: boolean }
+	): { markContentReady: () => void } {
+		let contentReady = !opts?.waitForContent
+		let storesReady = !!($userStore && $workspaceStore)
+		let restarted = false
+		async function tryRestart() {
+			if (restarted || !contentReady || !storesReady) return
+			// 500ms covers the bind:path cascade even on cold reload; two ticks
+			// weren't enough (bind:path fired ~100ms after restart, posting an edit).
+			await new Promise((r) => setTimeout(r, 500))
+			if (restarted) return
+			restarted = true
+			UserDraft.restartSync('script', path)
+		}
+		if (!storesReady) {
+			$effect(() => {
+				if ($userStore && $workspaceStore) {
+					storesReady = true
+					untrack(() => void tryRestart())
+				}
+			})
+		}
+		void tryRestart()
+		return {
+			markContentReady() {
+				contentReady = true
+				void tryRestart()
+			}
+		}
+	}
+
 	if (script.content == '') {
 		// Suspend autosave around the bootstrap mutations: seeding the template
 		// content is a programmatic write, not the user's first edit. The handle
@@ -417,36 +457,15 @@
 				}
 			}
 		}
-		// Sync resumes only after two cascades settle: the async `initContent`,
-		// and the stores-gated `initPath → reset → onMetaChange → bind:path`
-		// auto-naming chain. Whichever lands last calls `tryRestart`; otherwise
-		// the auto-generated path posts as the first "user edit".
-		let initContentDone = false
-		let storesReady = !!($userStore && $workspaceStore)
-		let restarted = false
-		async function tryRestart() {
-			if (restarted || !initContentDone || !storesReady) return
-			// 500ms covers the bind:path cascade even on cold reload; two ticks
-			// weren't enough (bind:path fired ~100ms after restart, posting an edit).
-			await new Promise((r) => setTimeout(r, 500))
-			if (restarted) return
-			restarted = true
-			UserDraft.restartSync('script', userDraftPath)
-		}
-		initContent(script.language, script.kind, template).finally(() => {
-			initContentDone = true
-			void tryRestart()
-		})
-		// Cold reload: auth stores may load after mount; the `restarted` guard
-		// makes the effect self-cleaning.
-		if (!storesReady) {
-			$effect(() => {
-				if ($userStore && $workspaceStore) {
-					storesReady = true
-					untrack(() => void tryRestart())
-				}
-			})
-		}
+		const restarter = scheduleRestartSync(userDraftPath, { waitForContent: true })
+		initContent(script.language, script.kind, template).finally(() => restarter.markContentReady())
+	} else if (userDraftPath && untrack(() => searchParams).get('new_draft') == 'true') {
+		// Pre-filled new-draft seed (fork "Copy of X", hub fork, URL/YAML import): the
+		// route already suspended autosave before mount so the seed write wouldn't POST
+		// as the user's first edit. There's no template to seed here (content is
+		// non-empty), but we MUST still lift that suspension or autosave stays dead for
+		// the session and the draft is never persisted (never shows up in the list).
+		scheduleRestartSync(userDraftPath)
 	}
 
 	async function isTemplateScript() {
