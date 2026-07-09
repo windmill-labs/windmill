@@ -121,7 +121,10 @@ export type Session = {
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
 // last observed location (see the sessions page for the url/loc split).
-export type SessionPreviewTab = { id: string; url: string; loc: string }
+// `friendlyLabel` is a transient display override the live editor stamps for a
+// never-deployed item parked at `…/draft_<uuid>` (its typed/auto name); not
+// persisted (hydrate rebuilds tabs field-by-field), recomputed on next mount.
+export type SessionPreviewTab = { id: string; url: string; loc: string; friendlyLabel?: string }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
 // `sessions` store keyed by `id`. IndexedDB is the sole store — no localStorage

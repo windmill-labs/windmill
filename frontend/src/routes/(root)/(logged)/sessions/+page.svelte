@@ -38,8 +38,7 @@
 	import {
 		getOrCreateRuntime,
 		getRuntime,
-		listRuntimes,
-		type SessionRuntime
+		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
@@ -49,7 +48,7 @@
 		matchPreviewPage,
 		pageKey,
 		parsePreviewItemRoute,
-		previewTabLabel,
+		previewLocationLabel,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
@@ -244,7 +243,7 @@
 	// Adapt the session tab model to DraggableTabs items (labels derived from the
 	// observed location; every tab closable, none pinned).
 	const previewTabItems = $derived<TabItem[]>(
-		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(activeRuntime, t.loc) }))
+		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(t) }))
 	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -417,13 +416,12 @@
 		owner?.navigate(target)
 	}
 
-	// Short tab label. For a raw-app tab, feed its own per-path cell so the tab is
-	// labelled by that app's pending draft path (a rename parked at `draft_<uuid>`),
-	// scoped to the tab's own runtime rather than another session's.
-	function tabLabelFor(rt: SessionRuntime | undefined, url: string): string {
-		const route = parsePreviewItemRoute(url)
-		const rawAppDraft = rt && route?.raw_app ? rt.rawAppCell(route.itemPath).store.val : undefined
-		return previewTabLabel(url, rawAppDraft)
+	// Short tab label. A never-deployed item parked at `…/draft_<uuid>` carries a
+	// `friendlyLabel` its live editor stamped (the page can't read the runtime cell
+	// reactively; the editor mirrors the typed/auto name onto the tab model). Falls
+	// back to the plain location label for deployed items and non-item pages.
+	function tabLabelFor(tab: SessionPreviewTab): string {
+		return tab.friendlyLabel ?? previewLocationLabel(tab.loc)
 	}
 
 	// A link click inside a live editor (e.g. a subflow reference) re-points the
@@ -711,7 +709,7 @@
 											runtime={rt}
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
-											label={tabLabelFor(rt, tab.loc)}
+											label={tabLabelFor(tab)}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 										/>

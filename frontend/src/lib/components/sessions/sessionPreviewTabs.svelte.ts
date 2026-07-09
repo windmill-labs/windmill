@@ -310,6 +310,17 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	// Stamp the friendly display label for the editor tab hosting `target` (the
+	// live editor knows the item's typed/auto name once its cell loads, which the
+	// page can't read reactively from the runtime cell). Matched on the tab's
+	// commanded `url` — the stable per-(kind,path) editor identity. Transient, so
+	// no persist/flush: it's recomputed when the tab remounts.
+	setEditorFriendlyLabel(target: SessionTarget, label: string | undefined): void {
+		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
+		if (!t || t.friendlyLabel === label) return
+		t.friendlyLabel = label
+	}
+
 	// Persist a pending write immediately, cancelling the debounce. Called on
 	// page hide — a mutation inside the debounce window would otherwise be lost
 	// to a reload/navigation. No-op when nothing is pending.

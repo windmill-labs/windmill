@@ -6,6 +6,7 @@
 	import type { SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
 	import { useUserDraftSync, type DraftSyncCodec } from './useUserDraftSync.svelte'
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
+	import { draftFriendlyLeaf } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 
 	let {
@@ -104,6 +105,18 @@
 		workspace: () => workspaceId,
 		ready: () => slot.loadedPath === path,
 		codec: () => codec
+	})
+
+	// Stamp the tab's friendly label once this editor's cell knows the item's
+	// typed/auto name. The page can't read the runtime cell reactively (it lives
+	// outside the page's reactive root), but this editor — handed `runtime` as a
+	// prop — can, so it mirrors the name onto the tab model the page does observe.
+	// Only for a never-deployed item still parked at a `…/draft_<uuid>` storage
+	// path; a deployed/real path keeps the plain location label.
+	$effect(() => {
+		const v = cell.store.val as { path?: string; draft_path?: string } | undefined
+		const label = draftFriendlyLeaf(path, v?.draft_path ?? v?.path)
+		runtime.previewTabs.setEditorFriendlyLabel({ kind, path }, label)
 	})
 
 	// Debounced loading affordance for a breadcrumb swap: while the loaded path
