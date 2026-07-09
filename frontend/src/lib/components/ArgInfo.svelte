@@ -20,6 +20,19 @@
 		return typeof value === 'string' || value instanceof String
 	}
 
+	// `{ $interpolate: ["literal", { $var: "path" }, ...] }` args are produced by flow
+	// input transforms that embed variable() in a template literal: the variable is
+	// resolved (and masked) on the child job, so the arg holds a reference, not the value.
+	function isInterpolate(value: any): boolean {
+		return (
+			value != undefined &&
+			typeof value === 'object' &&
+			!Array.isArray(value) &&
+			Object.keys(value).length === 1 &&
+			Array.isArray(value['$interpolate'])
+		)
+	}
+
 	async function getResource(path: string) {
 		jsonViewerContent = await ResourceService.getResourceValue({
 			workspace: $workspaceStore!,
@@ -99,6 +112,17 @@
 			>
 		{/if}
 	</span>
+{:else if isInterpolate(value)}
+	<span class="text-xs break-all"
+		>{#each value['$interpolate'] as part, i (i)}{#if isString(part)}<span>{part}</span
+				>{:else if part != undefined && typeof part === 'object' && isString(part['$var'])}<button
+					class="text-accent"
+					onclick={async () => {
+						await getVariable(part['$var'])
+						jsonViewer?.toggleDrawer()
+					}}>$var:{part['$var']}</button
+				>{/if}{/each}</span
+	>
 {:else}
 	<div class="relative">
 		{#if JSON.stringify(value).length > 120}
