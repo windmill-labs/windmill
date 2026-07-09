@@ -23,6 +23,7 @@
 	import { goto } from '$lib/navigation'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
+	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import {
 		createSession,
 		getEffectiveWorkspaceId,
@@ -57,6 +58,10 @@
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
 	const globalEnabled = isGlobalAiEnabled()
+
+	// One observer shared by every tab host, which mirrors it into page iframes
+	// (see PreviewTabHost).
+	const isDarkMode = useIsDarkMode()
 
 	// The sessions page hosts preview iframes that load Windmill pages. If one of
 	// those iframes navigates back to /sessions, mounting the full UI again would
@@ -712,6 +717,7 @@
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
 											label={tabLabelFor(rt, tab.loc)}
+											darkMode={isDarkMode.val}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 										/>
