@@ -14,6 +14,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Flow } from '$lib/gen'
 	import { copilotInfo } from '$lib/aiStore'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 
 	let loading = $state(false)
 	interface Props {
@@ -96,12 +97,12 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 		{#snippet trigger()}
 			<Button
 				color={loading ? 'red' : 'light'}
-				size="xs"
+				unifiedSize="sm"
 				nonCaptureEvent={!loading}
 				startIcon={{ icon: Wand2 }}
 				iconOnly
 				title="AI Assistant"
-				btnClasses="min-h-[30px] text-ai bg-violet-100 dark:bg-gray-700"
+				btnClasses={AIBtnClasses()}
 				{loading}
 				clickableWhileLoading
 				on:click={loading ? () => abortController?.abort() : () => {}}
@@ -121,11 +122,11 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				}}
 			/>
 			<Button
-				size="xs"
+				unifiedSize="sm"
 				color="light"
 				variant="contained"
 				buttonType="button"
-				btnClasses="!p-1 !w-[38px] !ml-2 text-ai bg-violet-100 dark:bg-gray-700"
+				btnClasses={'!ml-2 ' + AIBtnClasses()}
 				title="Generate predicate from prompt"
 				aria-label="Generate"
 				iconOnly

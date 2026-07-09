@@ -54,21 +54,14 @@
 			{/if}
 
 			<section>
-				<h3 class="mb-4">
+				<div class="mb-2 text-[11px] font-medium uppercase tracking-[0.04em] text-tertiary">
 					{value.branches.length + 1} branch{value.branches.length + 1 > 1 ? 'es' : ''}
-				</h3>
-				<div class="py-2">
-					<div class="flex flex-row gap-2 text-sm p-2">
-						<Badge large={true} color="blue">Default branch</Badge>
-						<p class="italic text-primary"
-							>If none of the predicates' expressions evaluated in-order match, this branch is
-							chosen</p
-						>
-					</div>
+				</div>
+				<div class="flex flex-col gap-2">
 					{#each value.branches as branch, i}
-						<div class="flex flex-col gap-x-2 items-center">
-							<div class="w-full flex gap-2 px-2 pt-4 pb-2">
-								<Badge large={true} color="blue">Branch {i + 1}</Badge>
+						<div class="flex flex-col gap-3 rounded-md border bg-surface-tertiary p-3">
+							<div class="flex items-center gap-2">
+								<Badge color="blue" class="text-xs">Branch {i + 1}</Badge>
 								<input
 									class="w-full"
 									type="text"
@@ -76,23 +69,27 @@
 									placeholder="Summary"
 								/>
 							</div>
-							<div class="w-full border">
-								<BranchPredicateEditor
-									{branch}
-									on:updateSummary={(e) => {
-										if (!branch.summary) {
-											branch.summary = e.detail
-										}
-									}}
-									parentModule={flowModule}
-									{previousModule}
-									{enableAi}
-								/>
-							</div>
+							<BranchPredicateEditor
+								{branch}
+								on:updateSummary={(e) => {
+									if (!branch.summary) {
+										branch.summary = e.detail
+									}
+								}}
+								parentModule={flowModule}
+								{previousModule}
+								{enableAi}
+							/>
 						</div>
 					{/each}
+					<div class="flex items-center gap-2 rounded-md border bg-surface-tertiary p-3">
+						<Badge color="blue" class="text-xs">Default</Badge>
+						<p class="text-xs italic text-tertiary"
+							>If none of the predicates match, this branch is chosen</p
+						>
+					</div>
 				</div>
-				<p class="text-sm">Add branches and steps directly on the graph.</p>
+				<p class="mt-2 text-xs text-tertiary">Add branches and steps directly on the graph.</p>
 			</section>
 
 			<section>
