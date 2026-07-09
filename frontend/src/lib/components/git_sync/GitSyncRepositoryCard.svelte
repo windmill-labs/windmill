@@ -21,6 +21,7 @@
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { ResourceService, VariableService } from '$lib/gen'
 
@@ -615,14 +616,17 @@
 										<Toggle
 											checked={repo.fork_open_prs ?? false}
 											disabled={!$enterpriseLicense}
-											eeOnly
 											options={{
 												right: 'Open a pull request when an item is deployed in a fork',
 												rightTooltip:
 													"After an item deployed in a fork is pushed to the fork's wm-fork/** branch, Windmill opens a pull request to the tracked branch of the shared repository. Runs from the deploy itself, so it works without inbound webhooks."
 											}}
 											on:change={(e) => setForkOpenPrs(e.detail)}
-										/>
+										>
+											{#snippet right()}
+												{#if !$enterpriseLicense}<EEOnly />{/if}
+											{/snippet}
+										</Toggle>
 									</div>
 								{:else}
 									<div class="text-2xs text-secondary mt-2">
@@ -695,14 +699,17 @@
 									<Toggle
 										checked={repo.auto_pull?.enabled ?? false}
 										disabled={!$enterpriseLicense}
-										eeOnly
 										options={{
 											right: 'Automatically deploy changes from Git',
 											rightTooltip:
 												'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks; others are checked about every minute.'
 										}}
 										on:change={(e) => setAutoPullEnabled(e.detail)}
-									/>
+									>
+										{#snippet right()}
+											{#if !$enterpriseLicense}<EEOnly />{/if}
+										{/snippet}
+									</Toggle>
 									<div class="mt-1">
 										<Toggle
 											disabled={!repo.auto_pull?.enabled}
