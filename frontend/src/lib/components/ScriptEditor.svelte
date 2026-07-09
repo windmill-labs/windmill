@@ -15,6 +15,7 @@
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
+	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -51,6 +52,7 @@
 		Play,
 		PlayIcon,
 		Plus,
+		Target,
 		Terminal,
 		Pencil,
 		WandSparkles,
@@ -89,6 +91,9 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from './sessions/OpenInSessionButton.svelte'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -102,6 +107,12 @@
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { canHavePreprocessor } from '$lib/script_helpers'
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
+	import type { ColumnLineage } from './assets/AssetGraph/parsePipelineAnnotations'
+	import {
+		computeContractMarkers,
+		type ContractMarker,
+		type SchemaContractGraphContext
+	} from './assets/AssetGraph/schemaContracts'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 	import GitRepoViewer from './GitRepoViewer.svelte'
@@ -156,6 +167,15 @@
 		// succeeded.
 		requireValidAssets?: boolean
 		args: Record<string, any>
+		// Emitted with the test-form's full-schema validity whenever it changes, so
+		// a host (the pipeline editor) can gate a data-upload entry's readiness on
+		// whether every required field is filled, not just the S3 file. A callback
+		// rather than a bindable so we don't hit the `$bindable(default)` ban.
+		onIsValidChange?: (isValid: boolean) => void
+		// Custom timeout (in seconds) from the script settings. Forwarded to the
+		// preview run so "Test" honors the same timeout a deployed run would,
+		// instead of silently falling back to the instance default.
+		timeout?: number
 		selectedTab?: 'main' | 'preprocessor' | 'diagram'
 		hasPreprocessor?: boolean
 		captureTable?: CaptureTable | undefined
@@ -165,6 +185,11 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
+		// Body-inferred column lineage (DuckDB SQL AST), surfaced alongside
+		// `assets` so the pipeline editor can render inferred column lineage on
+		// the live graph. Empty/undefined for non-DuckDB or when the parser
+		// build predates the inference.
+		inferredColumnLineage?: ColumnLineage[]
 		modules?: { [key: string]: ScriptModule } | null
 		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
@@ -190,6 +215,19 @@
 		// regular /scripts/edit route keeps its current open-by-default UX;
 		// the session preview opts in to save vertical real estate.
 		initialTestPanelCollapsed?: boolean
+		// Lets the AI toolbar button open the script in a fresh AI session
+		// instead of the inline chat panel (see OpenInSessionButton for gating).
+		sessionOpen?: OpenInSessionSource
+		// Producer-side facts for the live schema-contract diagnostics
+		// (`on_schema_change=ignore` suppression + scd2 `_current` fallback),
+		// built by the pipeline page from the resolved graph. Absent outside the
+		// pipeline editor — the check still runs, just without suppression.
+		schemaContractContext?: SchemaContractGraphContext
+		// Workspace to scope this editor's calls to. Defaults to the nav
+		// `$workspaceStore`; an AI-session live editor passes the session's
+		// acting workspace (a fork) so tests, captures and toolbar lookups hit
+		// the right workspace instead of the nav one.
+		workspaceOverride?: string
 	}
 
 	let {
@@ -213,6 +251,8 @@
 		customUi = undefined,
 		requireValidAssets = false,
 		args = $bindable(),
+		onIsValidChange,
+		timeout = undefined,
 		selectedTab = $bindable('main'),
 		hasPreprocessor = $bindable(false),
 		captureTable = $bindable(undefined),
@@ -222,14 +262,20 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
+		inferredColumnLineage = $bindable(),
 		modules = $bindable(undefined),
 		editorBarRight,
 		enablePreprocessorSnippet = false,
 		previewLayout = 'right',
 		onTestStateChange,
 		onTestJob,
-		initialTestPanelCollapsed = false
+		initialTestPanelCollapsed = false,
+		sessionOpen = undefined,
+		schemaContractContext = undefined,
+		workspaceOverride = undefined
 	}: Props = $props()
+
+	let opWs = $derived(workspaceOverride ?? $workspaceStore)
 
 	$effect(() => {
 		onTestStateChange?.(testIsLoading)
@@ -267,6 +313,7 @@
 		if (activeModuleTab === null && code !== lastSyncedCode) {
 			editorCode = code
 			lastSyncedCode = code
+			editor?.setCode(editorCode) // immediate sync, don't wait for the 800ms debounce
 			untrack(() => inferSchema(code))
 		}
 	})
@@ -557,7 +604,7 @@
 	let inferAssetsRes = resource([() => lang, () => code, () => code], () => inferAssets(lang, code))
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
 		() => inferAssetsRes.current?.sql_queries,
-		() => $workspaceStore
+		() => opWs
 	)
 	// Asset-parse validity for the editor badge. `undefined` while loading (so
 	// the badge doesn't flicker red); only an explicit parser error counts as
@@ -577,7 +624,13 @@
 	watch(
 		() => inferAssetsRes.current,
 		() => {
-			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') return
+			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') {
+				// Clear stale lineage on parse error / unset, so a script switch
+				// whose new body fails to parse can't leave the previous script's
+				// inferred column lineage bound to the new path.
+				if (inferredColumnLineage !== undefined) inferredColumnLineage = undefined
+				return
+			}
 			let newAssets = inferAssetsRes.current.assets as AssetWithAltAccessType[]
 			for (const asset of newAssets) {
 				const old = assets?.find((a) => assetEq(a, asset))
@@ -585,8 +638,42 @@
 			}
 			const normalizedAssets = newAssets.length > 0 ? newAssets : undefined
 			if (!deepEqual(assets, normalizedAssets)) assets = normalizedAssets
+
+			const newLineage = inferAssetsRes.current.column_lineage
+			const normalizedLineage = newLineage && newLineage.length > 0 ? newLineage : undefined
+			if (!deepEqual(inferredColumnLineage, normalizedLineage))
+				inferredColumnLineage = normalizedLineage
 		}
 	)
+
+	// Live schema-contract diagnostics (pipelines gap #2b): diff the buffer's
+	// asset refs against the captured producer schemas and surface mismatches
+	// as Monaco warning squiggles — the as-you-type mirror of the authoritative
+	// save-time check. The result is a prop on Editor (not an imperative call)
+	// because this can resolve before Monaco initializes on mount. Sequenced so
+	// a slow schema fetch can't overwrite the markers of a newer keystroke.
+	let contractMarkers: ContractMarker[] = $state([])
+	let contractCheckSeq = 0
+	watch([() => inferAssetsRes.current, () => schemaContractContext], () => {
+		const res = inferAssetsRes.current
+		const workspace = opWs
+		const seq = ++contractCheckSeq
+		if (!workspace || !res || res.status === 'error') {
+			contractMarkers = []
+			return
+		}
+		const bufferCode = code
+		computeContractMarkers(
+			workspace,
+			bufferCode,
+			(res.assets ?? []) as AssetWithAltAccessType[],
+			schemaContractContext
+		)
+			.then((markers) => {
+				if (seq === contractCheckSeq) contractMarkers = markers
+			})
+			.catch((e) => console.error('schema-contract diagnostics failed', e))
+	})
 
 	watch([() => code, () => lang], () => {
 		if (lang !== 'ansible') return
@@ -612,6 +699,10 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	let isValid: boolean = $state(true)
+	// Mirror the test-form validity out to an optional host callback.
+	$effect(() => {
+		onIsValidChange?.(isValid)
+	})
 	let scriptProgress = $state(undefined)
 
 	let logPanel: LogPanel | undefined = $state(undefined)
@@ -717,7 +808,17 @@
 		args = nargs
 	}
 
-	export async function runTest(opts?: { cascade?: boolean }) {
+	export async function runTest(opts?: { cascade?: boolean; skipDdlGuard?: boolean }) {
+		// Intercept DDL statements (offer to turn them into data table migrations)
+		// on every run path, not just the editor's Cmd+Enter. `skipDdlGuard` is set
+		// by the Cmd+Enter action, which already guarded before calling us.
+		if (!opts?.skipDdlGuard) {
+			if ((await editor?.guardDdlBeforeRun()) === false) return
+			// The guard may have rewritten the code (migrated statements stripped);
+			// `editorCode` is kept in sync by the editor binding, so mirror the
+			// on:change handler and pull it into `code` before we run.
+			if (activeModuleTab === null) code = editorCode
+		}
 		// When the caller forces a cascade choice (e.g. the canvas runnable
 		// menu's "Run + trigger N downstream"), also flip the persistent
 		// `cascadeDownstream` state so the split button's label/icon reflect
@@ -744,7 +845,7 @@
 					? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 					: (args ?? {})
 		const testSchema = activeModuleTab !== null ? testPanelSchema : schema
-		const testArgs = await processSecretArgs(rawTestArgs, testSchema)
+		const testArgs = await processSecretArgs(rawTestArgs, testSchema, opWs)
 		if (showPsCommonParams) {
 			for (const [k, v] of Object.entries(psCommonParams)) {
 				if (v !== undefined && v !== false && v !== '') {
@@ -788,7 +889,9 @@
 				}
 			},
 			undefined,
-			activeModuleTab !== null ? undefined : modules
+			activeModuleTab !== null ? undefined : modules,
+			undefined,
+			timeout
 		)
 		if (job) {
 			onTestJob?.({ jobId: job })
@@ -813,7 +916,7 @@
 	async function loadPastTests(): Promise<void> {
 		pastPreviewsRequest?.cancel()
 		const req = JobService.listCompletedJobs({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			jobKinds: 'preview',
 			createdBy: $userStore?.username,
 			scriptPathExact: path,
@@ -878,16 +981,67 @@
 				// we reapply initial args as the schema form might have cleared them between mount and the schema inference
 				args = initialArgs
 			}
+			injectPartitionArg(nschema, args, nlang ?? lang, code)
 			schema = nschema
 		} catch (e) {
 			validCode = false
 		}
 	}
 
+	// A `// partitioned` pipeline script is materialized one slice at a time and
+	// receives the slice as a runtime `partition` arg (the cascade injects it in
+	// production). It isn't a code parameter, so schema inference doesn't see it —
+	// surface it in the test form so a partitioned script can be run manually.
+	function injectPartitionArg(
+		s: any,
+		a: Record<string, any> | undefined,
+		l: string | undefined,
+		c: string
+	) {
+		try {
+			if (l !== 'duckdb' || !s?.properties) return
+			const part = parsePipelineAnnotations(c).partition
+			if (!part) return
+			// Date-based partition kinds render a date / datetime picker; a dynamic
+			// key is a free-form string.
+			const format =
+				part.kind === 'hourly'
+					? 'date-time'
+					: part.kind === 'daily' || part.kind === 'weekly' || part.kind === 'monthly'
+						? 'date'
+						: undefined
+			if (!s.properties['partition']) {
+				s.properties['partition'] = {
+					type: 'string',
+					...(format ? { format } : {}),
+					// ISO output so partition keys sort lexicographically (the date
+					// picker defaults to dd-MM-yyyy otherwise).
+					...(format === 'date' ? { dateFormat: 'yyyy-MM-dd' } : {}),
+					description:
+						part.kind === 'dynamic'
+							? 'Partition key value to materialize.'
+							: `Partition (${part.kind}) to materialize.`
+				}
+				if (Array.isArray(s.order) && !s.order.includes('partition')) {
+					s.order = ['partition', ...s.order]
+				}
+			}
+			// Pre-fill the *test* arg with the current slice for date kinds — a
+			// convenience default, kept on the args (not baked into the schema,
+			// where it would persist to the deployed script and go stale).
+			if (format && a && (a['partition'] == null || a['partition'] === '')) {
+				const now = new Date()
+				a['partition'] =
+					format === 'date' ? now.toISOString().slice(0, 10) : now.toISOString().slice(0, 16)
+			}
+		} catch (e) {}
+	}
+
 	async function inferModuleSchema() {
 		if (activeModuleTab === null) return
 		try {
 			await inferArgs(effectiveLang, editorCode, testPanelSchema)
+			injectPartitionArg(testPanelSchema, testPanelArgs, effectiveLang, editorCode)
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
 		} catch (e) {
 			// Module code may be in-progress; silently ignore
@@ -1064,12 +1218,12 @@
 			dapClient = getDAPClient(dapServerUrl)
 
 			// Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) from backend
-			const env = await fetchContextualVariables($workspaceStore ?? '')
+			const env = await fetchContextualVariables(opWs ?? '')
 
 			// Sign the debug request (creates audit log entry)
 			let signedPayload
 			try {
-				signedPayload = await signDebugRequest($workspaceStore ?? '', code ?? '', lang ?? 'python3')
+				signedPayload = await signDebugRequest(opWs ?? '', code ?? '', lang ?? 'python3')
 				debugSessionJobId = signedPayload.job_id
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
@@ -1289,11 +1443,11 @@
 	// what's there" affordance, not a user action. Skipped when a test is
 	// already running so a live job's stream is never clobbered.
 	async function loadLastRunIntoTestPanel(): Promise<void> {
-		if (!path || !$workspaceStore) return
+		if (!path || !opWs) return
 		if (testIsLoading || testJob !== undefined) return
 		try {
 			const jobs = await JobService.listCompletedJobs({
-				workspace: $workspaceStore,
+				workspace: opWs,
 				scriptPathExact: path,
 				hasNullParent: true,
 				perPage: 1,
@@ -1325,7 +1479,7 @@
 
 		let token: string | undefined
 		try {
-			token = await signMultiplayerRequest($workspaceStore ?? '')
+			token = await signMultiplayerRequest(opWs ?? '')
 		} catch (e) {
 			console.error('Failed to sign multiplayer request:', e)
 			sendUserToast('Failed to authorize multiplayer session', true)
@@ -1340,7 +1494,7 @@
 
 		wsProvider = new WebsocketProvider(
 			buildWsUrl('/ws_mp/'),
-			$workspaceStore + '/' + (path ?? 'no-room-name'),
+			opWs + '/' + (path ?? 'no-room-name'),
 			ydoc,
 			{ connect: false, params: { token } }
 		)
@@ -1408,7 +1562,7 @@
 		let url = new URL(window.location.toString().split('#')[0])
 		url.search = ''
 		return (
-			`${url}?collab=1&workspace=${encodeURIComponent($workspaceStore ?? '')}&lang=${encodeURIComponent(lang ?? '')}` +
+			`${url}?collab=1&workspace=${encodeURIComponent(opWs ?? '')}&lang=${encodeURIComponent(lang ?? '')}` +
 			(edit ? '' : `&path=${path}`)
 		)
 	}
@@ -1539,18 +1693,29 @@
 	let error = $derived(getError(testJob))
 
 	$effect(() => {
-		const options: ScriptOptions = {
-			code,
-			lang: lang as ScriptLang,
-			error,
-			args: args ?? {},
-			path,
+		;[
+			editor,
 			lastSavedCode,
 			lastDeployedCode,
 			diffMode,
-			workflowAsCode: workflowAsCodeAiContext
-		}
+			workflowAsCodeAiContext,
+			args,
+			error,
+			lang,
+			path
+		]
 		untrack(() => {
+			const options: ScriptOptions = {
+				getCode: () => code,
+				lang: lang as ScriptLang,
+				error,
+				args: args ?? {},
+				path,
+				lastSavedCode,
+				lastDeployedCode,
+				diffMode,
+				workflowAsCode: workflowAsCodeAiContext
+			}
 			aiChatManager.scriptEditorOptions = options
 			aiChatManager.scriptEditorApplyCode = async (code: string, opts?: ReviewChangesOpts) => {
 				hideDiffMode()
@@ -1568,6 +1733,7 @@
 
 <JobLoader
 	noCode={true}
+	workspaceOverride={opWs}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
@@ -1603,6 +1769,7 @@
 	<div class="flex justify-between space-x-2">
 		{#if args}
 			<EditorBar
+				workspace={opWs}
 				scriptPath={edit ? path : undefined}
 				on:toggleCollabMode={() => {
 					if (wsProvider?.shouldConnect) {
@@ -1821,7 +1988,7 @@
 						     it visually pinned to the top edge without
 						     relying on cross-browser overflow behaviour. -->
 							<div class="relative h-full pt-9 flex flex-col">
-								{#if testJob?.id && testJob.type === 'CompletedJob' && $workspaceStore}
+								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
 									<!-- Right-side affordances when we're displaying a *completed*
 									     job (either the user just ran a test, or the on-mount
 									     last-run loader populated the panel). The job-id link
@@ -1832,7 +1999,7 @@
 									<div class="absolute top-1 right-2 z-10 flex items-center gap-2">
 										<a
 											class="text-3xs text-blue-600 hover:underline font-mono"
-											href={`${base}/run/${testJob.id}?workspace=${$workspaceStore}`}
+											href={`${base}/run/${testJob.id}?workspace=${opWs}`}
 											target="_blank"
 											rel="noopener noreferrer"
 											title="Open this run"
@@ -1840,7 +2007,7 @@
 											{testJob.id.slice(0, 8)}… ↗
 										</a>
 										<DispatchEventsButton
-											workspace={testJob.workspace_id ?? $workspaceStore}
+											workspace={testJob.workspace_id ?? opWs}
 											jobId={testJob.id}
 										/>
 									</div>
@@ -1848,15 +2015,18 @@
 								<div class="absolute top-1 left-2 z-10">
 									{#if testIsLoading}
 										{@render cancelTestButton('sm', 'shadow-md')}
-									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0}
+									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 || customUi?.previewPanel?.onBoundedRun}
 										<!-- Split button: primary "Test" runs just this step
 									     (skips the asset-trigger cascade); the caret
 									     opens a popover with the cascade option labelled
 									     by the downstream count. The active mode is
 									     reflected in both the button label and the
 									     check-mark on the menu item so the user always
-									     knows whether the next run will fan out. -->
-										{@const downstream = customUi!.previewPanel!.downstreamSubscribers!}
+									     knows whether the next run will fan out. A
+									     pure-reader-only root has no subscriber downstream
+									     but still gets `onBoundedRun`, so the split button
+									     also opens for it (with the cascade item hidden). -->
+										{@const downstream = customUi?.previewPanel?.downstreamSubscribers ?? 0}
 										<div class="flex items-stretch shadow-md rounded-md overflow-hidden">
 											<Button
 												on:click={() => runTest()}
@@ -1919,31 +2089,55 @@
 																>
 															</div>
 														</button>
-														<button
-															type="button"
-															class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
-															onclick={() => {
-																cascadeDownstream = true
-																close()
-																void runTest()
-															}}
-														>
-															<Zap
-																size={14}
-																class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
-															/>
-															<div class="flex flex-col min-w-0">
-																<span class="font-medium">
-																	Test + trigger {downstream} downstream {cascadeDownstream
-																		? '(current)'
-																		: ''}
-																</span>
-																<span class="text-2xs text-secondary">
-																	Let the asset-trigger cascade fan out to the {downstream}
-																	subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
-																</span>
-															</div>
-														</button>
+														{#if downstream > 0}
+															<button
+																type="button"
+																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+																onclick={() => {
+																	cascadeDownstream = true
+																	close()
+																	void runTest()
+																}}
+															>
+																<Zap
+																	size={14}
+																	class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+																/>
+																<div class="flex flex-col min-w-0">
+																	<span class="font-medium">
+																		Test + trigger {downstream} downstream {cascadeDownstream
+																			? '(current)'
+																			: ''}
+																	</span>
+																	<span class="text-2xs text-secondary">
+																		Let the asset-trigger cascade fan out to the {downstream}
+																		subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
+																	</span>
+																</div>
+															</button>
+														{/if}
+														{#if customUi?.previewPanel?.onBoundedRun}
+															<button
+																type="button"
+																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
+																onclick={() => {
+																	close()
+																	customUi!.previewPanel!.onBoundedRun!()
+																}}
+															>
+																<Target
+																	size={14}
+																	class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400"
+																/>
+																<div class="flex flex-col min-w-0">
+																	<span class="font-medium">Run downstream up to…</span>
+																	<span class="text-2xs text-secondary">
+																		Pick end node(s) on the graph, then run only the cascade between
+																		this script and them.
+																	</span>
+																</div>
+															</button>
+														{/if}
 													</div>
 												{/snippet}
 											</Popover>
@@ -1958,6 +2152,7 @@
 									>
 										{#key argsRender}
 											<SchemaForm
+												workspace={opWs}
 												helperScript={{
 													source: 'inline',
 													code,
@@ -2027,6 +2222,7 @@
 													{#key argsRender}
 														{#if activeModuleTab !== null}
 															<SchemaForm
+																workspace={opWs}
 																helperScript={{
 																	source: 'inline',
 																	code: editorCode,
@@ -2043,6 +2239,7 @@
 															/>
 														{:else}
 															<SchemaForm
+																workspace={opWs}
 																helperScript={{
 																	source: 'inline',
 																	code,
@@ -2147,6 +2344,7 @@
 			<div class="h-full p-2">
 				<CaptureTable
 					bind:this={captureTable}
+					workspace={opWs}
 					{hasPreprocessor}
 					canHavePreprocessor={canHavePreprocessor(lang)}
 					isFlow={false}
@@ -2415,37 +2613,41 @@
 				{/if}
 				{#if !aiChatManager.open && !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-						<HideButton
-							hidden={true}
-							direction="right"
-							panelName="AI"
-							shortcut="L"
-							unifiedSize="sm"
-							usePopoverOverride={!$copilotInfo.enabled}
-							customHiddenIcon={{
-								icon: WandSparkles
-							}}
-							btnClasses="!text-ai"
-							variant="default"
-							on:click={() => {
-								if (!aiChatManager.open) {
-									aiChatManager.changeMode(AIMode.SCRIPT)
-								}
-								aiChatManager.toggleOpen()
-							}}
-						>
-							{#snippet popoverOverride()}
-								<div class="text-sm">
-									Enable Windmill AI in the <a
-										href="{base}/workspace_settings?tab=ai"
-										target="_blank"
-										class="inline-flex flex-row items-center gap-1"
-									>
-										workspace settings <ExternalLink size={16} />
-									</a>
-								</div>
+						<OpenInSessionButton source={sessionOpen}>
+							{#snippet fallback()}
+								<HideButton
+									hidden={true}
+									direction="right"
+									panelName="AI"
+									shortcut="L"
+									unifiedSize="sm"
+									usePopoverOverride={!$copilotInfo.enabled}
+									customHiddenIcon={{
+										icon: WandSparkles
+									}}
+									btnClasses="!text-ai"
+									variant="default"
+									on:click={() => {
+										if (!aiChatManager.open) {
+											aiChatManager.changeMode(AIMode.SCRIPT)
+										}
+										aiChatManager.toggleOpen()
+									}}
+								>
+									{#snippet popoverOverride()}
+										<div class="text-sm">
+											Enable Windmill AI in the <a
+												href="{base}/workspace_settings?tab=ai"
+												target="_blank"
+												class="inline-flex flex-row items-center gap-1"
+											>
+												workspace settings <ExternalLink size={16} />
+											</a>
+										</div>
+									{/snippet}
+								</HideButton>
 							{/snippet}
-						</HideButton>
+						</OpenInSessionButton>
 					{/if}
 				{/if}
 			</div>
@@ -2461,7 +2663,7 @@
 							client={dapClient}
 							currentFrameId={currentDebugFrameId}
 							onClose={() => (showDebugConsole = false)}
-							workspace={$workspaceStore}
+							workspace={opWs}
 							jobId={debugSessionJobId ?? undefined}
 						/>
 					</Pane>
@@ -2485,6 +2687,7 @@
 			bind:code={editorCode}
 			bind:websocketAlive
 			bind:this={editor}
+			schemaContractMarkers={contractMarkers}
 			{yContent}
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {
@@ -2509,7 +2712,8 @@
 				} else {
 					await inferModuleSchema()
 				}
-				runTest()
+				// The Editor already ran the DDL guard before invoking this action.
+				runTest({ skipDdlGuard: true })
 			}}
 			formatAction={async () => {
 				if (activeModuleTab === null) {

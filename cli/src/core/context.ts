@@ -57,7 +57,7 @@ async function selectFromMultipleProfiles(
       (p) => p.name === lastUsedProfileName
     );
     if (lastUsedProfile) {
-      log.info(
+      log.infoStderr(
         colors.green(
           `Using last used profile '${lastUsedProfile.name}' for ${context}`
         )
@@ -69,7 +69,7 @@ async function selectFromMultipleProfiles(
   // No last used or it no longer exists - prompt for selection
   if (!!!process.stdin.isTTY || !!!process.stdout.isTTY) {
     const selectedProfile = profiles[0];
-    log.info(
+    log.infoStderr(
       colors.yellow(
         `Multiple profiles found for ${context}. Using first available profile: '${selectedProfile.name}'`
       )
@@ -87,7 +87,7 @@ async function selectFromMultipleProfiles(
     return selectedProfile;
   }
 
-  log.info(
+  log.infoStderr(
     colors.yellow(`\nMultiple workspace profiles found for ${context}:`)
   );
 
@@ -125,14 +125,14 @@ async function createWorkspaceProfileInteractively(
 ): Promise<Workspace | undefined> {
   // Log appropriate message based on context
   if (!context.isForked) {
-    log.info(
+    log.infoStderr(
       colors.yellow(
         `\nNo workspace profile found for branch '${context.rawBranch}'\n` +
           `(${normalizedBaseUrl}, ${workspaceId})`
       )
     );
   } else {
-    log.info(
+    log.infoStderr(
       colors.yellow(
         `\nNo workspace profile was found for this forked workspace\n` +
           `(${normalizedBaseUrl}, ${workspaceId})`
@@ -141,7 +141,7 @@ async function createWorkspaceProfileInteractively(
   }
 
   if (!!!process.stdin.isTTY || !!!process.stdout.isTTY) {
-    log.info(
+    log.infoStderr(
       "Not a TTY, cannot create profile interactively. Use 'wmill workspace add' first."
     );
     return undefined;
@@ -187,12 +187,12 @@ async function createWorkspaceProfileInteractively(
     opts.configDir
   );
 
-  log.info(
+  log.infoStderr(
     colors.green(
       `✓ Created profile '${profileName}' for ${workspaceId} on ${normalizedBaseUrl}`
     )
   );
-  log.info(colors.green(`✓ Profile '${profileName}' is now active`));
+  log.infoStderr(colors.green(`✓ Profile '${profileName}' is now active`));
 
   return newWorkspace;
 }
@@ -244,7 +244,7 @@ async function tryResolveWorkspace(
               `workspace '${opts.workspace}'`,
               opts.configDir
             );
-        log.info(
+        log.infoStderr(
           colors.green(
             `Using workspace profile '${selected.name}' for workspace '${opts.workspace}' (${workspaceId} on ${normalizedBaseUrl})`
           )
@@ -254,7 +254,7 @@ async function tryResolveWorkspace(
       }
 
       // No matching profile — offer to create one
-      log.info(
+      log.infoStderr(
         `No profile found for workspace '${opts.workspace}' (${workspaceId} on ${normalizedBaseUrl})`
       );
       const ws = await createWorkspaceProfileInteractively(
@@ -309,7 +309,7 @@ export async function tryResolveBranchWorkspace(
     wsEntry = config.workspaces?.[workspaceNameOverride] as WorkspaceEntryConfig | undefined;
     if (wsEntry) {
       wsName = workspaceNameOverride;
-      log.info(`Using workspace override: ${workspaceNameOverride}`);
+      log.infoStderr(`Using workspace override: ${workspaceNameOverride}`);
     }
   } else {
     // Only try branch-based resolution if in a Git repository
@@ -326,12 +326,9 @@ export async function tryResolveBranchWorkspace(
     workspaceIdIfForked =
       getWorkspaceIdForWorkspaceForkFromBranchName(rawBranch);
 
+    // The "matched via fork branch" reason logged below already explains the
+    // base-branch lookup, so no extra message here.
     const branchToLookup = originalBranchIfForked ?? rawBranch;
-    if (originalBranchIfForked) {
-      log.info(
-        `Using original branch \`${originalBranchIfForked}\` for finding workspace from workspaces section in wmill.yaml`
-      );
-    }
 
     const match = findWorkspaceByGitBranch(config.workspaces, branchToLookup);
     if (match) {
@@ -346,7 +343,7 @@ export async function tryResolveBranchWorkspace(
   if (!wsEntry.baseUrl) {
     if (workspaceNameOverride) {
       // User explicitly asked for this workspace but it has no baseUrl
-      log.warn(
+      log.warnStderr(
         `⚠️  Workspace '${wsName}' has no baseUrl configured. Cannot resolve a profile.\n` +
         `   Add baseUrl to workspace '${wsName}' in wmill.yaml, or use --base-url flag.`
       );
@@ -370,9 +367,9 @@ export async function tryResolveBranchWorkspace(
     reason = `matched current git branch '${rawBranch}'`;
   }
 
-  log.info(
-    `Using workspace '${wsName}' (${reason}) → ${workspaceId} on ${baseUrl}`
-  );
+  // Printed as part of the single final targeting line on the happy paths;
+  // logged up front only when an interactive flow needs the context first.
+  const workspaceLine = `Using workspace '${wsName}' (${reason}) → ${workspaceId} on ${baseUrl}`;
 
   let normalizedBaseUrl: string;
   try {
@@ -390,27 +387,34 @@ export async function tryResolveBranchWorkspace(
     (w) => w.remote === normalizedBaseUrl && w.workspaceId === workspaceId
   );
 
+  // Every branch below must flow into the shared fork handling at the end —
+  // returning a profile directly would hand back the parent workspace profile
+  // on a fork branch.
+  let selectedProfile: Workspace;
+  let profileNote: string;
+  // Set when workspaceLine was already printed as context for the interactive
+  // profile-creation flow, so it isn't printed a second time at the end.
+  let workspaceLinePrinted = false;
+
   if (matchingProfiles.length === 0) {
     // No matching profile exists - prompt to create one
-    return await createWorkspaceProfileInteractively(
+    log.infoStderr(workspaceLine);
+    workspaceLinePrinted = true;
+    const created = await createWorkspaceProfileInteractively(
       normalizedBaseUrl,
       workspaceId,
       wsName,
       opts,
       { rawBranch: rawBranch ?? wsName, isForked: !!originalBranchIfForked }
     );
-  }
-
-  // Handle multiple profiles
-  let selectedProfile: Workspace;
-
-  if (matchingProfiles.length === 1) {
+    if (!created) {
+      return undefined;
+    }
+    selectedProfile = created;
+    profileNote = `profile '${selectedProfile.name}'`;
+  } else if (matchingProfiles.length === 1) {
     selectedProfile = matchingProfiles[0];
-    log.info(
-      colors.green(
-        `Using workspace profile '${selectedProfile.name}' for workspace '${wsName}' with workspace id \`${workspaceId}\``
-      )
-    );
+    profileNote = `profile '${selectedProfile.name}'`;
   } else {
     const lastUsedName = await getLastUsedProfile(
       wsName,
@@ -418,50 +422,45 @@ export async function tryResolveBranchWorkspace(
       workspaceId,
       opts.configDir
     );
+    const lastUsedProfile = lastUsedName
+      ? matchingProfiles.find((p) => p.name === lastUsedName)
+      : undefined;
 
-    if (lastUsedName) {
-      const lastUsedProfile = matchingProfiles.find(
-        (p) => p.name === lastUsedName
+    if (lastUsedProfile) {
+      selectedProfile = lastUsedProfile;
+      profileNote = `last used profile '${selectedProfile.name}'`;
+    } else {
+      // selectFromMultipleProfiles prints its own context header, and the
+      // final summary line below names the chosen profile.
+      selectedProfile = await selectFromMultipleProfiles(
+        matchingProfiles,
+        normalizedBaseUrl,
+        workspaceId,
+        `workspace '${wsName}'`,
+        opts.configDir
       );
-      if (lastUsedProfile) {
-        log.info(
-          colors.green(
-            `Using workspace profile '${lastUsedProfile.name}' for workspace '${wsName}' (last used)`
-          )
-        );
-        return lastUsedProfile;
-      }
+
+      await setLastUsedProfile(
+        wsName,
+        normalizedBaseUrl,
+        workspaceId,
+        selectedProfile.name,
+        opts.configDir
+      );
+      profileNote = `profile '${selectedProfile.name}'`;
     }
-
-    selectedProfile = await selectFromMultipleProfiles(
-      matchingProfiles,
-      normalizedBaseUrl,
-      workspaceId,
-      `workspace '${wsName}'`,
-      opts.configDir
-    );
-
-    await setLastUsedProfile(
-      wsName,
-      normalizedBaseUrl,
-      workspaceId,
-      selectedProfile.name,
-      opts.configDir
-    );
-
-    log.info(
-      colors.green(
-        `Using workspace profile '${selectedProfile.name}' for workspace '${wsName}'`
-      )
-    );
   }
 
   if (workspaceIdIfForked) {
     selectedProfile.name = `${selectedProfile.name}/${workspaceIdIfForked}`;
     selectedProfile.workspaceId = workspaceIdIfForked;
-    log.info(
-      `Using fork workspace \`${workspaceIdIfForked}\` (parent: \`${workspaceId}\`) from branch \`${rawBranch}\``
+    log.infoStderr(
+      colors.green(
+        `Automatically targeting fork workspace \`${workspaceIdIfForked}\` (fork of \`${workspaceId}\` on ${baseUrl}, ${profileNote}), resolved from git branch \`${rawBranch}\`. Use --workspace to override.`
+      )
     );
+  } else if (!workspaceLinePrinted) {
+    log.infoStderr(`${workspaceLine} (${profileNote})`);
   }
 
   return selectedProfile;
@@ -480,7 +479,7 @@ export async function resolveWorkspace(
       try {
         normalizedBaseUrl = new URL(opts.baseUrl).toString();
       } catch (error) {
-        log.info(colors.red(`Invalid base URL: ${opts.baseUrl}`));
+        log.infoStderr(colors.red(`Invalid base URL: ${opts.baseUrl}`));
         return process.exit(-1);
       }
 
@@ -514,7 +513,7 @@ export async function resolveWorkspace(
 
         if (existingWorkspace) {
           if (existingWorkspace.remote !== normalizedBaseUrl) {
-            log.info(
+            log.infoStderr(
               colors.red(
                 `Base URL mismatch: --base-url is ${normalizedBaseUrl} but workspace profile "${opts.workspace}" uses ${existingWorkspace.remote}`
               )
@@ -535,7 +534,7 @@ export async function resolveWorkspace(
         token: opts.token,
       };
     } else {
-      log.info(
+      log.infoStderr(
         colors.red(
           "If you specify a base URL with --base-url, you must also specify a workspace (--workspace) and token (--token)."
         )
@@ -555,8 +554,8 @@ export async function resolveWorkspace(
     if (workspaceNameOverride || opts.workspace || !branch || !branch.startsWith(WM_FORK_PREFIX)) {
       return workspace;
     } else {
-      log.info(
-        `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\`. Use --workspace to override.`
+      log.infoStderr(
+        `You are on fork branch \`${branch}\`, which takes precedence over the active workspace profile \`${workspace.name}\`: resolving the fork workspace from the branch name instead. Use --workspace to override.`
       );
     }
   } else if (opts.workspace) {
@@ -572,9 +571,9 @@ export async function resolveWorkspace(
     if (suggestions.length > 0) {
       msg += ` Did you mean: ${suggestions.map((s) => `"${s.name}"`).join(", ")}?`;
     }
-    log.info(colors.red.bold(msg));
+    log.infoStderr(colors.red.bold(msg));
     if (profiles.length > 0) {
-      log.info("\nAvailable workspaces:");
+      log.infoStderr("\nAvailable workspaces:");
       new Table()
         .header(["name", "remote", "workspace id"])
         .padding(2)
@@ -620,12 +619,12 @@ export async function resolveWorkspace(
 
     if (wsNames.length === 1) {
       pickedWsName = wsNames[0];
-      log.info(
+      log.infoStderr(
         `Auto-selected workspace '${pickedWsName}' (only workspace in config).\n` +
         `Use --workspace to override or 'wmill workspace bind' to add more workspaces.`
       );
     } else if (process.stdin.isTTY) {
-      log.info(
+      log.infoStderr(
         `Multiple workspaces configured but none matched the current context.\n` +
         `Configured workspaces:\n${wsListStr}\n` +
         `Use --workspace to skip this prompt.`
@@ -675,7 +674,7 @@ export async function resolveWorkspace(
     try {
       normalizedBaseUrl = new URL(envBaseUrl).toString();
     } catch {
-      log.info(colors.red(`Invalid BASE_INTERNAL_URL: ${envBaseUrl}`));
+      log.infoStderr(colors.red(`Invalid BASE_INTERNAL_URL: ${envBaseUrl}`));
       return process.exit(-1);
     }
     log.debug(
@@ -691,7 +690,7 @@ export async function resolveWorkspace(
     return ws;
   }
 
-  log.info(colors.red.bold("No workspace given and no default set. Run 'wmill workspace add' to configure one."));
+  log.infoStderr(colors.red.bold("No workspace given and no default set. Run 'wmill workspace add' to configure one."));
   return process.exit(-1);
 }
 
@@ -746,7 +745,7 @@ export async function tryResolveVersion(
 
 export function validatePath(path: string): boolean {
   if (!(path.startsWith("g") || path.startsWith("u") || path.startsWith("f"))) {
-    log.info(
+    log.infoStderr(
       colors.red(
         "Given remote path looks invalid. Remote paths are typically of the form <u|g|f>/<username|group|folder>/..."
       )

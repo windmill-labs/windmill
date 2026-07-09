@@ -412,7 +412,7 @@ leaves and ignores the current scope.
 	bind:this={pickerRoot}
 	class={flush
 		? 'flex flex-col w-full h-full'
-		: 'flex flex-col w-[min(420px,calc(100vw-20px))] max-h-[60vh]'}
+		: 'flex flex-col w-[min(420px,calc(100vw-20px))] max-h-[60vh] min-h-0'}
 	onkeydown={handleSearchKeydown}
 	onmousemove={() => (mouseActive = true)}
 >

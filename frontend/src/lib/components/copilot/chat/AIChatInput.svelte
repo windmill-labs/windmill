@@ -6,6 +6,7 @@
 	import type { ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -41,6 +42,10 @@
 		loading?: boolean
 		// Called when the user clicks Stop. Defaults to `aiChatManager.cancel()`.
 		onCancel?: () => void
+		// Observe the composer draft as it changes (the text is local state —
+		// `aiChatManager.instructions` only carries programmatic prompts). Used by
+		// sessions to persist the typed-but-unsent prompt with the session draft.
+		onDraftChange?: (text: string) => void
 	}
 
 	let {
@@ -60,7 +65,8 @@
 		bottomRightSnippet,
 		onKeyDown = undefined,
 		loading,
-		onCancel
+		onCancel,
+		onDraftChange = undefined
 	}: Props = $props()
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
@@ -117,6 +123,10 @@
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
 	let instructions = $state(untrack(() => initialInstructions))
+	$effect(() => {
+		const text = instructions
+		untrack(() => onDraftChange?.(text))
+	})
 	// Collapsed big-paste blobs referenced by tokens in `instructions`.
 	let pastes = $state<PasteAttachment[]>(untrack(() => initialPastes ?? []))
 
@@ -196,6 +206,13 @@
 		focusInput()
 	}
 
+	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
+	export function insertFileMention(name: string) {
+		const sep = instructions.length === 0 || instructions.endsWith(' ') ? '' : ' '
+		instructions = `${instructions}${sep}${formatMention(name)} `
+		focusInput()
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			if (node && !node.contains(event.target as Node)) {
@@ -222,7 +239,9 @@
 		// Workspace items are fetched on-demand and not in availableContext,
 		// so skip the availableContext check for them
 		const isWorkspaceItem =
-			contextElement.type === 'workspace_script' || contextElement.type === 'workspace_flow'
+			contextElement.type === 'workspace_script' ||
+			contextElement.type === 'workspace_flow' ||
+			contextElement.type === 'workspace_app'
 		if (
 			!isWorkspaceItem &&
 			!availableContext.find(

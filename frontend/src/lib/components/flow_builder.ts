@@ -24,6 +24,9 @@ export type FlowBuilderProps = {
 	disabledFlowInputs?: boolean
 	savedPrimarySchedule?: ScheduleTrigger | undefined // used to set the primary schedule in the legacy primaryScheduleStore
 	version?: number | undefined
+	/** flow_version the draft was forked from; when set, the deploy-time staleness
+	 *  check compares it (not the load-time head `version`) against the latest. */
+	draftBaseVersion?: number | undefined
 	draftTriggersFromUrl?: Trigger[] | undefined
 	selectedTriggerIndexFromUrl?: number | undefined
 	children?: import('svelte').Snippet
@@ -59,4 +62,8 @@ export type FlowBuilderProps = {
 	// Fired whenever a test run is started from the flow editor, with the
 	// preview job id. Used by whitelabel embedders to track test jobs.
 	onTestJob?: (e: { jobId: string }) => void
+	// Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+	// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+	// session preview to save vertical room.
+	condensedHeader?: boolean
 }

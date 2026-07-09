@@ -7,8 +7,13 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { onMount, setContext } from 'svelte'
-	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '../types'
+	import { getContext, onMount, setContext } from 'svelte'
+	import {
+		EMBED_NAV_CONTEXT_KEY,
+		IS_APP_PUBLIC_CONTEXT_KEY,
+		type EditorBreakpoint,
+		type EmbedNav
+	} from '../types'
 	import { UserService, type AppWithLastVersion, type GlobalWhoamiResponse } from '$lib/gen'
 	import { urlParamsToObject } from '$lib/utils'
 	import { goto } from '$app/navigation'
@@ -24,7 +29,9 @@
 		jwtError,
 		onLoginSuccess,
 		app,
-		workspace
+		workspace,
+		inWorkspace = false,
+		hideRefreshBar = false
 	}: {
 		notExists: boolean
 		noPermission: boolean
@@ -32,12 +39,27 @@
 		onLoginSuccess: () => void
 		app: (AppWithLastVersion & { value: any; workspace_id?: string }) | undefined
 		workspace: string | undefined
+		/**
+		 * In-workspace rendering (`/apps/get`, `/app_embed`): keep exact parity
+		 * with the pre-sandbox member viewer — no "Powered by Windmill" badge, no
+		 * user overlay, no HTML-result approval gate, column flex wrapper.
+		 */
+		inWorkspace?: boolean
+		hideRefreshBar?: boolean
 	} = $props()
 
 	// Use workspace from props or from app.workspace_id (for custom path responses)
 	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
 
-	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
+	// HTML results from runnables only need viewer approval on the public
+	// surfaces (untrusted distribution); the in-workspace viewer never gated them.
+	setContext(IS_APP_PUBLIC_CONTEXT_KEY, !inWorkspace)
+
+	// WIN-2006: inside the opaque viewer iframe, navigations to other routes
+	// (navbar "app" items) must happen on the TOP page — the iframe is cookieless,
+	// so navigating it would just show a login screen. PublicAppFrame provides the
+	// relay; outside the opaque viewer this is undefined and goto works directly.
+	const embedNav = getContext<EmbedNav | undefined>(EMBED_NAV_CONTEXT_KEY)
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
@@ -71,27 +93,29 @@
 	})
 </script>
 
-<div
-	class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()
-		? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
-		: ''}"
->
-	<a href="https://windmill.dev" class="whitespace-nowrap text-primary inline-flex items-center"
-		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
+{#if !inWorkspace}
+	<div
+		class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()
+			? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
+			: ''}"
 	>
-</div>
+		<a href="https://windmill.dev" class="whitespace-nowrap text-primary inline-flex items-center"
+			>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
+		>
+	</div>
 
-{#snippet userInfo(child)}
-	<div class="flex gap-1 items-center"><User size={14} />{child}</div>
-{/snippet}
+	{#snippet userInfo(child)}
+		<div class="flex gap-1 items-center"><User size={14} />{child}</div>
+	{/snippet}
 
-<div class="z-50 text-2xs text-primary absolute top-3 left-2"
-	>{#if $userStore}
-		{@render userInfo($userStore.username)}
-	{:else if globalUser}
-		{@render userInfo(globalUser.email)}
-	{:else}<UserRoundX size={14} />{/if}
-</div>
+	<div class="z-50 text-2xs text-primary absolute top-3 left-2"
+		>{#if $userStore}
+			{@render userInfo($userStore.username)}
+		{:else if globalUser}
+			{@render userInfo(globalUser.email)}
+		{:else}<UserRoundX size={14} />{/if}
+	</div>
+{/if}
 
 {#if notExists}
 	<div class="px-4 mt-20"
@@ -132,7 +156,11 @@
 		{:else}
 			<div
 				class={twMerge(
-					'min-h-screen h-full w-full flex',
+					// `flex-col` matches the pre-sandbox in-workspace viewer exactly;
+					// the public viewer always used a plain `flex` wrapper.
+					inWorkspace
+						? 'min-h-screen h-full w-full flex flex-col'
+						: 'min-h-screen h-full w-full flex',
 					app?.value?.['css']?.['app']?.['viewer']?.class,
 					'wm-app-viewer'
 				)}
@@ -140,6 +168,7 @@
 			>
 				<AppPreview
 					noBackend={false}
+					{hideRefreshBar}
 					context={{
 						email: $userStore?.email,
 						name: $userStore?.name,
@@ -156,7 +185,7 @@
 					policy={app.policy}
 					isEditor={false}
 					replaceStateFn={(path) => goto(path)}
-					gotoFn={(path, opt) => goto(path, opt)}
+					gotoFn={(path, opt) => (embedNav ? embedNav.navigateTop(path) : goto(path, opt))}
 				/>
 			</div>
 		{/if}

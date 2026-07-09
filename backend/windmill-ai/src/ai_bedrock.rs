@@ -857,20 +857,89 @@ pub fn bedrock_stream_event_is_block_stop(event: &ConverseStreamOutput) -> bool 
     matches!(event, ConverseStreamOutput::ContentBlockStop(_))
 }
 
-/// Convert accumulated streaming tool calls to OpenAI format
-pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec<OpenAIToolCall> {
+/// Convert accumulated streaming tool calls to OpenAI format.
+///
+/// When thinking is enabled, `reasoning` carries the turn's Claude reasoning
+/// block; it is attached to the first tool call so the next request replays it
+/// before `toolUse` (required by Claude when thinking is enabled — see
+/// [`convert_message`]). When `None` (thinking off), tool calls carry no extra
+/// content, byte-identical to the pre-feature output.
+pub fn streaming_tool_calls_to_openai(
+    tool_calls: Vec<StreamingToolCall>,
+    reasoning: Option<crate::ai_types::BedrockExtraContent>,
+) -> Vec<OpenAIToolCall> {
+    let mut reasoning = reasoning;
     tool_calls
         .into_iter()
-        .map(|tc| OpenAIToolCall {
-            id: tc.id,
-            function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
-            r#type: FUNCTION_TYPE.to_string(),
-            // Worker agent requests never enable thinking, so there is no
-            // reasoning block to round-trip here (the chat proxy path does —
-            // see providers/bedrock.rs).
-            extra_content: None,
+        .map(|tc| {
+            // `take` so only the first tool call carries the reasoning block.
+            let extra_content = reasoning.take().map(|block| crate::ai_types::ExtraContent {
+                bedrock: Some(block),
+                ..Default::default()
+            });
+            OpenAIToolCall {
+                id: tc.id,
+                function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
+                r#type: FUNCTION_TYPE.to_string(),
+                extra_content,
+            }
         })
         .collect()
+}
+
+/// Fold a Bedrock `ReasoningContent` stream delta into an accumulating reasoning
+/// block (text + signature, or redacted bytes). Returns the readable text delta
+/// when the event carried one, so the caller can stream it as reasoning content.
+/// Mirrors the proxy path's accumulation in `providers/bedrock.rs`.
+pub fn bedrock_stream_event_to_reasoning_delta(
+    event: &ConverseStreamOutput,
+    reasoning: &mut Option<crate::ai_types::BedrockExtraContent>,
+) -> Option<String> {
+    let ConverseStreamOutput::ContentBlockDelta(delta_event) = event else {
+        return None;
+    };
+    let aws_sdk_bedrockruntime::types::ContentBlockDelta::ReasoningContent(rc) =
+        delta_event.delta()?
+    else {
+        return None;
+    };
+
+    let entry = reasoning.get_or_insert_with(Default::default);
+    match rc {
+        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Text(text) => {
+            entry
+                .reasoning_text
+                .get_or_insert_with(String::new)
+                .push_str(text);
+            Some(text.clone())
+        }
+        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Signature(signature) => {
+            entry
+                .signature
+                .get_or_insert_with(String::new)
+                .push_str(signature);
+            None
+        }
+        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::RedactedContent(blob) => {
+            // Base64 of concatenated fragments != concatenated base64 fragments,
+            // so accumulate raw bytes and re-encode.
+            let mut bytes = entry
+                .redacted_content
+                .as_deref()
+                .and_then(|existing| {
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, existing)
+                        .ok()
+                })
+                .unwrap_or_default();
+            bytes.extend_from_slice(blob.as_ref());
+            entry.redacted_content = Some(base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                bytes,
+            ));
+            None
+        }
+        _ => None,
+    }
 }
 
 // ============================================================================
@@ -1026,6 +1095,101 @@ mod tests {
             other => panic!("expected reasoning block first, got {:?}", other),
         }
         assert!(matches!(&content[1], ContentBlock::ToolUse(_)));
+    }
+
+    #[test]
+    fn streaming_tool_calls_to_openai_attaches_reasoning_to_first_call_only() {
+        let calls = vec![
+            StreamingToolCall {
+                id: "call_1".to_string(),
+                name: "a".to_string(),
+                arguments: "{}".to_string(),
+            },
+            StreamingToolCall {
+                id: "call_2".to_string(),
+                name: "b".to_string(),
+                arguments: "{}".to_string(),
+            },
+        ];
+        let reasoning = crate::ai_types::BedrockExtraContent {
+            reasoning_text: Some("thinking".to_string()),
+            signature: Some("sig".to_string()),
+            redacted_content: None,
+        };
+
+        let openai = streaming_tool_calls_to_openai(calls, Some(reasoning));
+
+        let with_reasoning = openai
+            .iter()
+            .filter(|tc| {
+                tc.extra_content
+                    .as_ref()
+                    .and_then(|e| e.bedrock.as_ref())
+                    .is_some()
+            })
+            .count();
+        assert_eq!(
+            with_reasoning, 1,
+            "exactly one tool call carries the reasoning block"
+        );
+        let block = openai[0]
+            .extra_content
+            .as_ref()
+            .and_then(|e| e.bedrock.as_ref())
+            .expect("first tool call carries reasoning");
+        assert_eq!(block.reasoning_text.as_deref(), Some("thinking"));
+        assert_eq!(block.signature.as_deref(), Some("sig"));
+    }
+
+    #[test]
+    fn streaming_tool_calls_to_openai_without_reasoning_has_no_extra_content() {
+        let calls = vec![StreamingToolCall {
+            id: "call_1".to_string(),
+            name: "a".to_string(),
+            arguments: "{}".to_string(),
+        }];
+
+        let openai = streaming_tool_calls_to_openai(calls, None);
+
+        assert!(openai[0].extra_content.is_none());
+    }
+
+    #[test]
+    fn bedrock_reasoning_delta_accumulates_text_and_signature() {
+        use aws_sdk_bedrockruntime::types::{
+            ContentBlockDelta, ContentBlockDeltaEvent, ConverseStreamOutput,
+            ReasoningContentBlockDelta,
+        };
+
+        let mut reasoning = None;
+        let text_event = ConverseStreamOutput::ContentBlockDelta(
+            ContentBlockDeltaEvent::builder()
+                .content_block_index(0)
+                .delta(ContentBlockDelta::ReasoningContent(
+                    ReasoningContentBlockDelta::Text("let me ".to_string()),
+                ))
+                .build()
+                .unwrap(),
+        );
+        assert_eq!(
+            bedrock_stream_event_to_reasoning_delta(&text_event, &mut reasoning).as_deref(),
+            Some("let me ")
+        );
+
+        let sig_event = ConverseStreamOutput::ContentBlockDelta(
+            ContentBlockDeltaEvent::builder()
+                .content_block_index(0)
+                .delta(ContentBlockDelta::ReasoningContent(
+                    ReasoningContentBlockDelta::Signature("sig".to_string()),
+                ))
+                .build()
+                .unwrap(),
+        );
+        assert!(bedrock_stream_event_to_reasoning_delta(&sig_event, &mut reasoning).is_none());
+
+        let block = reasoning.expect("reasoning accumulated");
+        assert_eq!(block.reasoning_text.as_deref(), Some("let me "));
+        assert_eq!(block.signature.as_deref(), Some("sig"));
     }
 
     #[test]

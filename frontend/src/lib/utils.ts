@@ -1137,8 +1137,19 @@ export function extractCustomProperties(styleStr: string): string {
 	return customStyleStr
 }
 
-export function computeSharableHash(args: any) {
-	let nargs = {}
+// Value prefix marking the reserved `__tag` key as a carried tag: no JSON-encoded
+// arg value can start with `t:` (JSON strings start with `"`, numbers with a digit
+// or `-`, etc.), so it cannot be confused with a genuine arg named `__tag`
+const SHARABLE_HASH_TAG_PREFIX = 't:'
+
+// `tag` is carried as the reserved key `__tag` with a SHARABLE_HASH_TAG_PREFIX value;
+// entry pairs allow a duplicate `__tag` key so an arg with that name can coexist with
+// the carried tag (they are told apart by the value prefix)
+export function computeSharableHash(args: any, tag?: string) {
+	let entries: [string, string][] = []
+	if (tag) {
+		entries.push(['__tag', SHARABLE_HASH_TAG_PREFIX + tag])
+	}
 	for (let k in args) {
 		let v = args[k]
 		if (v !== undefined) {
@@ -1148,16 +1159,42 @@ export function computeSharableHash(args: any) {
 				console.error(`Value at key ${k} too big (${size}) to be shared`)
 				return ''
 			}
-			nargs[k] = JSON.stringify(v)
+			entries.push([k, JSON.stringify(v)])
 		}
 	}
 	try {
-		let r = new URLSearchParams(nargs).toString()
+		let r = new URLSearchParams(entries).toString()
 		return r.length > 1000000 ? '' : r
 	} catch (e) {
 		console.error('Error computing sharable hash', e)
 		return ''
 	}
+}
+
+// `$args[...]` tags are resolved by the backend at push time from the run's args; a
+// job's stored tag is the resolved value, so re-running with it would pin a value
+// that no longer matches edited args. `$workspace` is also interpolated but resolves
+// identically on a re-run (same workspace), so it does not make a tag dynamic here.
+export function isDynamicTag(tag: string | undefined): boolean {
+	return !!tag && tag.includes('$args[')
+}
+
+// Counterpart of computeSharableHash's `tag`: extracts and removes the carried tag.
+// Only SHARABLE_HASH_TAG_PREFIX-prefixed `__tag` values are carried tags; any other
+// `__tag` value is a genuine arg with that name and is left in `params` for arg parsing.
+export function extractTagFromSharableHash(params: URLSearchParams): string | undefined {
+	const values = params.getAll('__tag')
+	const carried = values.find((v) => v.startsWith(SHARABLE_HASH_TAG_PREFIX))
+	if (carried == undefined) {
+		return undefined
+	}
+	params.delete('__tag')
+	for (const v of values) {
+		if (!v.startsWith(SHARABLE_HASH_TAG_PREFIX)) {
+			params.append('__tag', v)
+		}
+	}
+	return carried.slice(SHARABLE_HASH_TAG_PREFIX.length)
 }
 
 export function toCamel(s: string) {
@@ -1190,8 +1227,10 @@ export function isCodeInjection(expr: string | undefined): boolean {
 // app logic via the `query` context. Only params we actually own are listed
 // here — the `wm_` prefix is a naming convention, not a reserved namespace, so
 // we don't strip it wholesale (that would break apps reading their own `wm_*`
-// params). `wm_coep` is a transport flag for cross-origin isolation headers.
-export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep'])
+// params). `wm_coep` is a transport flag for cross-origin isolation headers;
+// `wm_embed`/`wm_embedder_origin` are the opaque app viewer transport params
+// (see PublicAppFrame).
+export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep', 'wm_embed', 'wm_embedder_origin'])
 
 export function urlParamsToObject(
 	params: URLSearchParams,
@@ -2118,22 +2157,27 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 
 export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
 	const [p1, _p2] = path.split('://')
-	const [p2, _p3] = _p2.split('/')
-	const [p3, p4] = _p3.split('.')
+	const [p2, _p3] = (_p2 ?? '').split('/')
+	// `_p3` is undefined for a catalog-only path (e.g. `ducklake://main`, no
+	// table segment) — guard the split so the helper returns a table-less input
+	// instead of throwing.
+	const [p3, p4] = (_p3 ?? '').split('.')
+	const specificTable = p4 || p3 || undefined
+	const specificSchema = p4 ? p3 : undefined
 	return p1 === 'ducklake'
 		? {
 				type: 'ducklake',
 				ducklake: p2 || 'main',
-				specificTable: p4 ?? p3,
-				specificSchema: p4 ? p3 : undefined
+				specificTable,
+				specificSchema
 			}
 		: p1 === 'datatable'
 			? {
 					type: 'database',
 					resourcePath: `datatable://${p2 || 'main'}`,
 					resourceType: 'postgresql',
-					specificTable: p4 ?? p3,
-					specificSchema: p4 ? p3 : undefined
+					specificTable,
+					specificSchema
 				}
 			: null
 }

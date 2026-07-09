@@ -1,0 +1,918 @@
+import { expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import {
+  buildLocalPipelineGraph,
+  parseMuteAnnotations,
+} from "../src/commands/pipeline/localGraph.ts";
+
+// Build a throwaway workspace tree with `f/<folder>/<file>` scripts and a
+// wmill.yaml at the root, then assert the graph the wasm-backed builder derives.
+function withFolder(
+  files: Record<string, string>,
+  fn: (root: string, folder: string) => Promise<void> | void,
+) {
+  const root = mkdtempSync(join(tmpdir(), "wm-pl-"));
+  writeFileSync(join(root, "wmill.yaml"), "defaultTs: bun\n");
+  const folder = "mypipe";
+  mkdirSync(join(root, "f", folder), { recursive: true });
+  for (const [name, content] of Object.entries(files)) {
+    writeFileSync(join(root, "f", folder, name), content);
+  }
+  return Promise.resolve(fn(root, folder)).finally(() =>
+    rmSync(root, { recursive: true, force: true }),
+  );
+}
+
+test("only `// pipeline` scripts become nodes; `// on` asset triggers wire edges", async () => {
+  await withFolder(
+    {
+      // a source: pipeline member, subscribes to nothing, but is annotated.
+      "raw.bun.ts":
+        `// pipeline\nimport * as wmill from "windmill-client"\nexport async function main() {}\n`,
+      // a transform: pipeline member, subscribes to raw.
+      "staged.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/raw\nINSERT INTO main.staged SELECT 1;\n`,
+      // not a pipeline member — must be excluded.
+      "helper.bun.ts":
+        `export async function main() {}\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      const paths = graph.runnables.map((r) => r.path).sort();
+      expect(paths).toEqual(["f/mypipe/raw", "f/mypipe/staged"]);
+      // helper is excluded
+      expect(paths).not.toContain("f/mypipe/helper");
+      expect(scripts.map((s) => s.path).sort()).toEqual(paths);
+
+      // staged subscribes to datatable://main/raw via an asset trigger
+      const assetTriggers = graph.triggers.filter((t) => t.trigger_kind === "asset");
+      expect(assetTriggers).toHaveLength(1);
+      const at = assetTriggers[0] as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >;
+      expect(at.asset_kind).toBe("datatable");
+      expect(at.asset_path).toBe("main/raw");
+      expect(at.runnable_path).toBe("f/mypipe/staged");
+
+      // the referenced asset exists in the asset set
+      expect(graph.assets).toContainEqual({ kind: "datatable", path: "main/raw" });
+    },
+  );
+});
+
+test("native triggers surface as trigger rows (no deploy needed)", async () => {
+  await withFolder(
+    {
+      "ingest.bun.ts":
+        `// pipeline\n// on data_upload\nimport * as wmill from "windmill-client"\nexport async function main() {}\n`,
+      "upload_trigger.duckdb.sql": `-- pipeline\n-- on data_upload\nSELECT 1;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const native = graph.triggers.filter((t) => t.trigger_kind !== "asset");
+      expect(
+        native
+          .filter((t) => t.trigger_kind === "data_upload")
+          .map((t) => t.runnable_path)
+          .sort(),
+      ).toEqual(["f/mypipe/ingest", "f/mypipe/upload_trigger"]);
+    },
+  );
+});
+
+test("retry delay metadata strips the optional `delay=` prefix", async () => {
+  await withFolder(
+    {
+      "retry.duckdb.sql": `-- pipeline\n-- retry 2 delay=10s\nSELECT 1;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/retry")?.retry).toEqual({
+        count: 2,
+        delay: "10s",
+      });
+    },
+  );
+});
+
+test("empty / no-pipeline folder yields an empty graph", async () => {
+  await withFolder(
+    { "plain.bun.ts": `export async function main() {}\n` },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.runnables).toHaveLength(0);
+      expect(graph.assets).toHaveLength(0);
+    },
+  );
+});
+
+test("`// materialize <asset>` producer connects to its `// on` consumer", async () => {
+  // The wasm asset parser doesn't surface `// materialize`; the CLI-side scan
+  // must still emit the producer's write edge so it links to the consumer.
+  await withFolder(
+    {
+      "load.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/users\nSELECT 1 AS id;\n`,
+      "consume.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/users\nSELECT count(*) FROM users;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      // the materialize target is a shared asset
+      expect(graph.assets).toContainEqual({ kind: "ducklake", path: "main/users" });
+
+      // the producer carries its materialize_target and a write edge
+      const load = graph.runnables.find((r) => r.path === "f/mypipe/load");
+      expect(load?.materialize_target).toEqual({ kind: "ducklake", path: "main/users" });
+      expect(graph.edges).toContainEqual({
+        runnable_kind: "script",
+        runnable_path: "f/mypipe/load",
+        asset_kind: "ducklake",
+        asset_path: "main/users",
+        access_type: "w",
+      });
+
+      // the consumer subscribes to the same asset (the connecting trigger)
+      const at = graph.triggers.find(
+        (t) => t.trigger_kind === "asset" && t.runnable_path === "f/mypipe/consume",
+      ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      expect(at?.asset_path).toBe("main/users");
+    },
+  );
+});
+
+test("HD-1: `// data_test relationships` adds a producer → tested-script ordering edge", async () => {
+  // Mirror of the deployed graph's `test_edges` (backend `asset_graph`): the
+  // referenced dimension's in-pipeline producer must materialize before the
+  // tested script runs, so a cold cascade orders it first. The wasm emits the
+  // parsed `relationships` test; the local builder resolves its producer.
+  await withFolder(
+    {
+      "dim_customers.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/dim_customers\nSELECT 1 AS id;\n`,
+      "fct_orders_daily.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/orders\n-- data_test relationships customer_id -> ducklake://main/dim_customers.id\nSELECT customer_id FROM main.orders;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.test_edges).toEqual([
+        {
+          producer_kind: "script",
+          producer_path: "f/mypipe/dim_customers",
+          runnable_kind: "script",
+          runnable_path: "f/mypipe/fct_orders_daily",
+          asset_kind: "ducklake",
+          asset_path: "main/dim_customers",
+        },
+      ]);
+    },
+  );
+});
+
+test("HD-1: a relationships ref to an asset with no in-pipeline producer adds no edge", async () => {
+  // No producer (external / not-yet-in-pipeline table) ⇒ no ordering edge — the
+  // runtime error stands, exactly like the backend (`test_edges` stays empty and
+  // is omitted from the graph).
+  await withFolder(
+    {
+      "fct.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/orders\n-- data_test relationships customer_id -> ducklake://main/external_dim.id\nSELECT customer_id FROM main.orders;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.test_edges).toBeUndefined();
+    },
+  );
+});
+
+test("HD-1: a self-test (relationships on the script's own materialize output) is dropped", async () => {
+  // The tested script produces the very asset it references — the backend's
+  // self-edge guard drops it, and so must the local builder (no self-ordering).
+  await withFolder(
+    {
+      "dim.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/dim\n-- data_test relationships id -> ducklake://main/dim.id\nSELECT 1 AS id;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.test_edges).toBeUndefined();
+    },
+  );
+});
+
+test("HD-1: a custom `// data_test <script>` whose body reads an in-pipeline asset orders it (best-effort)", async () => {
+  // Escape-hatch test: the tested member declares `// data_test f/mypipe/test_dim`;
+  // that script reads `s3://demo/dim.parquet`, which a pipeline member produces.
+  // The producer must run before the tested script, so the custom test resolves
+  // to a producer → tested-script edge through the shared asset (mirrors the
+  // backend resolving custom tests against the script's parsed reads).
+  await withFolder(
+    {
+      // producer writes the S3 asset the custom test reads
+      "export_dim.duckdb.sql":
+        `-- pipeline\nCOPY (SELECT 1 AS id) TO 's3://demo/dim.parquet';\n`,
+      // the escape-hatch test script (NOT a pipeline member) reads that asset
+      "test_dim.duckdb.sql":
+        `SELECT * FROM read_parquet('s3://demo/dim.parquet') WHERE id IS NULL;\n`,
+      // the tested member points at the custom test
+      "fct.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/orders\n-- data_test f/mypipe/test_dim\nSELECT 1 AS id;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.test_edges).toEqual([
+        {
+          producer_kind: "script",
+          producer_path: "f/mypipe/export_dim",
+          runnable_kind: "script",
+          runnable_path: "f/mypipe/fct",
+          asset_kind: "s3object",
+          asset_path: "demo/dim.parquet",
+        },
+      ]);
+    },
+  );
+});
+
+test("HD-2: an scd2 `history` producer writes both `<dim>` and `<dim>_current` so a `_current` reader resolves to it", async () => {
+  // Managed `// materialize … history` (scd2) also produces a `<dim>_current`
+  // companion view (backend `MaterializeSpec::write_targets`). The wasm asset
+  // parser emits the `scd2` flag; the local builder must add the second write
+  // edge and mark the view `derived_from` its base dimension so a consumer
+  // reading only the view links back to the producer instead of orphaning.
+  await withFolder(
+    {
+      "dim.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/dim_customers key=id history\nSELECT 1 AS id;\n`,
+      // a consumer reading ONLY the `_current` companion view
+      "consume.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/dim_customers_current\nSELECT * FROM main.dim_customers_current;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({
+        root,
+        folder,
+        defaultTs: "bun",
+      });
+
+      // the producer carries BOTH write edges (base dim + `_current` companion)
+      const writes = graph.edges
+        .filter(
+          (e) =>
+            e.runnable_path === "f/mypipe/dim" && e.access_type === "w",
+        )
+        .map((e) => e.asset_path)
+        .sort();
+      expect(writes).toEqual(["main/dim_customers", "main/dim_customers_current"]);
+
+      // the strategy is derived as scd2 on the producer node
+      expect(
+        graph.runnables.find((r) => r.path === "f/mypipe/dim")?.materialize_strategy,
+      ).toBe("scd2");
+
+      // the `_current` asset is marked as derived from its base dimension, so the
+      // canvas renders it as a companion view rather than an orphan table
+      expect(graph.assets).toContainEqual({
+        kind: "ducklake",
+        path: "main/dim_customers_current",
+        derived_from: "main/dim_customers",
+      });
+
+      // the `_current` reader's `// on` trigger points at the same node the
+      // producer now writes — no orphaned read
+      const at = graph.triggers.find(
+        (t) => t.trigger_kind === "asset" && t.runnable_path === "f/mypipe/consume",
+      ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      expect(at?.asset_path).toBe("main/dim_customers_current");
+    },
+  );
+});
+
+test("auto-derived cascade triggers: a body ducklake read wires the edge, incl. the scd2 `_current` view", async () => {
+  // Backend parity (#9963 `derive_pipeline_asset_trigger_refs`): inside a
+  // `// pipeline`, a read-only ducklake/s3 body read derives its cascade
+  // trigger — no `// on` needed. The scd2 `_current` companion is both written
+  // by the producer AND a derivable read for its consumer, so the full chain
+  // stg → dim → consumer must connect without a single explicit trigger.
+  await withFolder(
+    {
+      "stg.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/stg\nSELECT 1 AS id;\n`,
+      "dim.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/dim key=id history\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM stg;\n`,
+      "consume.duckdb.sql":
+        `-- pipeline\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM dim_current;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >[];
+      expect(
+        ats.map((t) => `${t.asset_path}->${t.runnable_path}`).sort(),
+      ).toEqual(["main/dim_current->f/mypipe/consume", "main/stg->f/mypipe/dim"]);
+      // the schema-level `main` read (ambiguous access) must NOT derive a trigger
+      expect(ats.some((t) => t.asset_path === "main")).toBe(false);
+      // the scd2 producer still carries the `_current` companion write the
+      // derived consumer edge resolves against (deployed-graph parity)
+      expect(graph.edges).toContainEqual({
+        runnable_kind: "script",
+        runnable_path: "f/mypipe/dim",
+        asset_kind: "ducklake",
+        asset_path: "main/dim_current",
+        access_type: "w",
+      });
+    },
+  );
+});
+
+test("`// mute <asset>` suppresses one derived trigger; `// mute all` opts the script out", async () => {
+  await withFolder(
+    {
+      // reads two tables, mutes one → only the unmuted read derives
+      "partial.duckdb.sql":
+        `-- pipeline\n-- mute ducklake://main/lookup\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM lookup JOIN facts USING (id);\n`,
+      // mute all: body read derives nothing, the explicit `// on` still stands
+      "optout.duckdb.sql":
+        `-- pipeline\n-- mute all\n-- on ducklake://main/manual\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM facts;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >[];
+      expect(
+        ats.map((t) => `${t.asset_path}->${t.runnable_path}`).sort(),
+      ).toEqual(["main/facts->f/mypipe/partial", "main/manual->f/mypipe/optout"]);
+    },
+  );
+});
+
+test("derived triggers dedup against explicit `// on` and never self-trigger a materialize producer", async () => {
+  await withFolder(
+    {
+      // explicit `// on` for an asset the body also reads → exactly one trigger
+      "explicit.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/src debounce=60s\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM src;\n`,
+      // an incremental model reading its own materialize target must not
+      // cascade on itself (the deploy path upgrades that read to rw)
+      "incremental.duckdb.sql":
+        `-- pipeline\n-- materialize ducklake://main/inc key=id\nATTACH 'ducklake' AS dl;\nUSE dl;\nSELECT * FROM inc;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >[];
+      expect(
+        ats.map((t) => `${t.asset_path}->${t.runnable_path}`),
+      ).toEqual(["main/src->f/mypipe/explicit"]);
+    },
+  );
+});
+
+test("parseMuteAnnotations mirrors the canonical annotation grammar", () => {
+  // Any comment prefix regardless of language, header-only scan, complete-word
+  // keyword, s3 leading-slash canonicalization — in lockstep with the Rust
+  // `parse_pipeline_annotations` / frontend parsePipelineAnnotations.ts.
+  const all3 = parseMuteAnnotations(
+    `// mute ducklake://main/a\n-- mute datatable://main/b\n# mute s3:///lead/slash\nSELECT 1;\n// mute ducklake://main/body\n`,
+  );
+  expect(all3.muteAll).toBe(false);
+  // all three prefixes accepted; s3 triple-slash canonicalizes to the bare key;
+  // the line PAST the first non-comment line is ignored (header-only)
+  expect([...all3.muted].sort()).toEqual([
+    "datatable:main/b",
+    "ducklake:main/a",
+    "s3object:lead/slash",
+  ]);
+
+  // `mute` must be a complete word, and prose args are not asset URIs
+  const prose = parseMuteAnnotations(
+    `// muted for now\n// mutex ducklake://main/x\n// mute for now\n`,
+  );
+  expect(prose.muteAll).toBe(false);
+  expect(prose.muted.size).toBe(0);
+
+  // `mute all` sets the opt-out; blank header lines are skipped, not a stop
+  const optout = parseMuteAnnotations(`-- pipeline\n\n-- mute all\nSELECT 1;\n`);
+  expect(optout.muteAll).toBe(true);
+});
+
+test("a bare `.sql` (ambiguous dialect) is skipped, not a build-aborting crash", async () => {
+  // `inferContentTypeFromFilePath` throws on a dialect-less `.sql`; one such file
+  // must not abort the whole graph build (it also wedged `pipeline dev` at start).
+  await withFolder(
+    {
+      "good.duckdb.sql": `-- pipeline\nSELECT 1;\n`,
+      "ambiguous.sql": `-- pipeline\nSELECT 1;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const paths = graph.runnables.map((r) => r.path);
+      expect(paths).toContain("f/mypipe/good");
+      // the unclassifiable file is dropped — the build still succeeds
+      expect(paths).not.toContain("f/mypipe/ambiguous");
+    },
+  );
+});
+
+test("defaultTs (from wmill.yaml) drives bare `.ts` runtime — deno, not always bun", async () => {
+  await withFolder(
+    { "etl.ts": `// pipeline\nexport async function main() {}\n` },
+    async (root, folder) => {
+      const bun = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const deno = await buildLocalPipelineGraph({ root, folder, defaultTs: "deno" });
+      expect(bun.scripts.find((s) => s.path === "f/mypipe/etl")?.language).toBe("bun");
+      expect(deno.scripts.find((s) => s.path === "f/mypipe/etl")?.language).toBe("deno");
+    },
+  );
+});
+
+test("`// tag <worker>` is carried on the pushed script for preview routing", async () => {
+  await withFolder(
+    {
+      "gpu_job.duckdb.sql": `-- pipeline\n-- tag gpu\nSELECT 1;\n`,
+      "plain.duckdb.sql": `-- pipeline\nSELECT 2;\n`,
+    },
+    async (root, folder) => {
+      const { scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(scripts.find((s) => s.path === "f/mypipe/gpu_job")?.tag).toBe("gpu");
+      // a node without `// tag` carries no tag (→ default worker)
+      expect(scripts.find((s) => s.path === "f/mypipe/plain")?.tag).toBeUndefined();
+    },
+  );
+});
+
+test("go/bash fallback: leading-header `// on` only, options stripped, no body phantoms", async () => {
+  await withFolder(
+    {
+      // header annotations (incl. `// tag`, one `// on` with a trailing option) +
+      // a body comment that must NOT become a phantom trigger.
+      "ingest.go":
+        `// pipeline\n// tag heavy\n// on s3://demo/raw.csv debounce=5s\npackage inner\nfunc main() {\n\t// on s3://demo/PHANTOM.csv\n}\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const ats = graph.triggers.filter((t) => t.trigger_kind === "asset") as Extract<
+        (typeof graph.triggers)[number],
+        { trigger_kind: "asset" }
+      >[];
+      // exactly one trigger: the body `// on …PHANTOM` is past the header → ignored
+      expect(ats).toHaveLength(1);
+      // the trailing `debounce=5s` option is stripped from the asset path
+      expect(ats[0].asset_path).toBe("demo/raw.csv");
+      expect(graph.assets.some((a) => a.path.includes("PHANTOM"))).toBe(false);
+      // `// tag` is recovered by the fallback too (routes the preview)
+      expect(scripts.find((s) => s.path === "f/mypipe/ingest")?.tag).toBe("heavy");
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/ingest")?.tag).toBe("heavy");
+    },
+  );
+});
+
+test("go/bash fallback: `// on s3:///key` canonicalizes to the slashless key", async () => {
+  // Mirror of the Rust/wasm `parse_asset_syntax` S3 strip: a fallback consumer's
+  // triple-slash default-storage trigger must resolve to the bare key `exports/x`
+  // — the same identity a wasm-inferred SDK/DuckDB producer uses — or the local
+  // graph shows a disconnected `/exports/x` node. Explicit storage is untouched.
+  await withFolder(
+    {
+      "triple.go": `// pipeline\n// on s3:///exports/x\npackage inner\nfunc main() {}\n`,
+      "bare.go": `// pipeline\n// on s3://exports/x\npackage inner\nfunc main() {}\n`,
+      "storage.go": `// pipeline\n// on s3://mybucket/exports/x\npackage inner\nfunc main() {}\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const pathFor = (p: string) =>
+        graph.triggers.find(
+          (t) => t.trigger_kind === "asset" && t.runnable_path === p
+        ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      // triple-slash and bare both canonicalize to `exports/x` → same node
+      expect(pathFor("f/mypipe/triple")?.asset_path).toBe("exports/x");
+      expect(pathFor("f/mypipe/bare")?.asset_path).toBe("exports/x");
+      // explicit storage keeps its `storage/key` path (no leading slash to strip)
+      expect(pathFor("f/mypipe/storage")?.asset_path).toBe("mybucket/exports/x");
+    },
+  );
+});
+
+test("go/bash fallback: a native marker with trailing content is rejected (parity)", async () => {
+  // The canonical parser rejects a marker line with trailing content, so the
+  // fallback must too — else a `// on data_upload f/foo` / `# on kafka topic`
+  // shows up locally as an upload/event trigger that deployed parsing drops.
+  await withFolder(
+    {
+      "bare.go": `// pipeline\n// on data_upload\npackage inner\nfunc main() {}\n`,
+      "trailing.go": `// pipeline\n// on data_upload f/foo\npackage inner\nfunc main() {}\n`,
+      "kafka.rb": `# pipeline\n# on kafka topic\nputs "hi"\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const nativeOf = (p: string) =>
+        graph.triggers
+          .filter((t) => t.trigger_kind !== "asset" && t.runnable_path === p)
+          .map((t) => t.trigger_kind);
+      // bare marker stands alone → recognized
+      expect(nativeOf("f/mypipe/bare")).toEqual(["data_upload"]);
+      // trailing content → rejected (no native trigger)
+      expect(nativeOf("f/mypipe/trailing")).toEqual([]);
+      expect(nativeOf("f/mypipe/kafka")).toEqual([]);
+    },
+  );
+});
+
+test("go/bash fallback: a multi-word `// tag` is rejected (single token only)", async () => {
+  // A worker tag is one token; trailing prose must NOT smuggle a bogus tag that
+  // would route the preview to a non-existent worker.
+  await withFolder(
+    {
+      "single.go": `// pipeline\n// tag gpu\npackage inner\nfunc main() {}\n`,
+      "multi.go": `// pipeline\n// tag gpu for heavy jobs\npackage inner\nfunc main() {}\n`,
+    },
+    async (root, folder) => {
+      const { scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(scripts.find((s) => s.path === "f/mypipe/single")?.tag).toBe("gpu");
+      // multi-word → no tag (default worker), not "gpu for heavy jobs"
+      expect(scripts.find((s) => s.path === "f/mypipe/multi")?.tag).toBeUndefined();
+    },
+  );
+});
+
+test("`# volume:` producer connects to its `# on volume://` consumer", async () => {
+  // Volume annotations are parsed separately from the wasm body parser (mirrors
+  // the frontend/backend); without that pass the producer has no write edge.
+  await withFolder(
+    {
+      "producer.py": `# pipeline\n# volume: cache /tmp/cache\ndef main():\n    pass\n`,
+      "consumer.py": `# pipeline\n# on volume://cache\ndef main():\n    pass\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      expect(graph.assets).toContainEqual({ kind: "volume", path: "cache" });
+      // producer carries the rw write edge to the volume
+      const producerEdge = graph.edges.find(
+        (e) =>
+          e.runnable_path === "f/mypipe/producer" &&
+          e.asset_kind === "volume" &&
+          e.asset_path === "cache",
+      );
+      expect(producerEdge?.access_type).toBe("rw");
+      // consumer subscribes to the same volume (the connecting trigger)
+      const at = graph.triggers.find(
+        (t) => t.trigger_kind === "asset" && t.runnable_path === "f/mypipe/consumer",
+      ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      expect(at?.asset_kind).toBe("volume");
+      expect(at?.asset_path).toBe("cache");
+    },
+  );
+});
+
+test("`// macros` library: node with signatures + call-detected consumer edge, counted", async () => {
+  // The wasm asset parser drops `// macros`/`// use`; the CLI-side lexical scan
+  // must surface the library node, its macro signatures, and the caller edge so
+  // `--local` reaches parity with the deployed graph.
+  await withFolder(
+    {
+      "macros_finance.duckdb.sql":
+        `-- macros\nCREATE MACRO net_revenue(gross, refunds) AS gross - refunds;\nCREATE OR REPLACE MACRO safe_div(a, b) AS TABLE SELECT a / b;\n`,
+      "fct.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/orders\nSELECT net_revenue(gross, refunds) AS rev FROM main.orders;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      // the library is a node carrying its macro signatures
+      const lib = graph.runnables.find((r) => r.path === "f/mypipe/macros_finance");
+      expect(lib?.macros).toEqual([
+        { name: "net_revenue", params: "gross, refunds", is_table: false },
+        { name: "safe_div", params: "a, b", is_table: true },
+      ]);
+
+      // library counts toward the script total (2 scripts, not just the 1 pipeline member)
+      expect(graph.runnables.map((r) => r.path).sort()).toEqual([
+        "f/mypipe/fct",
+        "f/mypipe/macros_finance",
+      ]);
+
+      // the caller edge names only the macro actually called (safe_div is not)
+      expect(graph.macro_edges).toEqual([
+        {
+          lib_path: "f/mypipe/macros_finance",
+          consumer_path: "f/mypipe/fct",
+          macro_names: ["net_revenue"],
+          via_use: false,
+        },
+      ]);
+    },
+  );
+});
+
+test("`// use <lib>` forces a whole-library edge even with no lexical call", async () => {
+  // Dynamic-SQL callers annotate `// use`; the edge lists every macro and is
+  // flagged via_use (mirrors the deployed graph).
+  await withFolder(
+    {
+      "stats.duckdb.sql":
+        `-- macros\nCREATE MACRO zscore(x, m, s) AS (x - m) / s;\n`,
+      "report.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/metrics\n-- use f/mypipe/stats\nSELECT query('SELECT zscore(v, 0, 1) FROM main.metrics');\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.macro_edges).toEqual([
+        {
+          lib_path: "f/mypipe/stats",
+          consumer_path: "f/mypipe/report",
+          macro_names: ["zscore"],
+          via_use: true,
+        },
+      ]);
+      // the library still becomes a node
+      expect(graph.runnables.some((r) => r.path === "f/mypipe/stats")).toBe(true);
+    },
+  );
+});
+
+test("an UNUSED in-folder `// macros` library is still a member node (deployed parity)", async () => {
+  // The deployed graph marks every macro library `auto_kind='pipeline'`, so an
+  // in-folder library is a member node (in_pipeline, with signatures) whether or
+  // not a consumer uses it. It is still excluded from runs (via `macros`).
+  await withFolder(
+    {
+      "unused.duckdb.sql": `-- macros\nCREATE MACRO helper(a) AS a + 1;\n`,
+      "solo.duckdb.sql": `-- pipeline\nSELECT 1;\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const lib = graph.runnables.find((r) => r.path === "f/mypipe/unused");
+      expect(lib?.in_pipeline).toBe(true);
+      expect(lib?.macros).toEqual([{ name: "helper", params: "a", is_table: false }]);
+      expect(graph.macro_edges).toBeUndefined();
+      // but it is not a previewable/runnable script — only `solo` is
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/solo"]);
+    },
+  );
+});
+
+test("a shared macro library OUTSIDE the pipeline folder is resolved (workspace-wide)", async () => {
+  // The deployed graph loads the macro registry workspace-wide and only
+  // folder-scopes consumers, so a pipeline in `f/mypipe` can use a shared library
+  // in `f/shared`. Local discovery must walk the whole `f/` tree, not just the
+  // folder, or the edge/node/docs are missing (parity gap).
+  const root = mkdtempSync(join(tmpdir(), "wm-pl-"));
+  writeFileSync(join(root, "wmill.yaml"), "defaultTs: bun\n");
+  mkdirSync(join(root, "f", "shared"), { recursive: true });
+  mkdirSync(join(root, "f", "mypipe"), { recursive: true });
+  writeFileSync(
+    join(root, "f", "shared", "stats.duckdb.sql"),
+    `-- macros\nCREATE MACRO zscore(x, m, s) AS (x - m) / s;\n`,
+  );
+  // one consumer calls the shared macro lexically, another pulls it via `// use`
+  writeFileSync(
+    join(root, "f", "mypipe", "fct.duckdb.sql"),
+    `-- pipeline\n-- on datatable://main/metrics\nSELECT zscore(v, 0, 1) FROM main.metrics;\n`,
+  );
+  writeFileSync(
+    join(root, "f", "mypipe", "dyn.duckdb.sql"),
+    `-- pipeline\n-- on datatable://main/metrics\n-- use f/shared/stats\nSELECT query('SELECT zscore(v, 0, 1)');\n`,
+  );
+  try {
+    const { graph } = await buildLocalPipelineGraph({ root, folder: "mypipe", defaultTs: "bun" });
+    expect(graph.macro_edges).toEqual([
+      {
+        lib_path: "f/shared/stats",
+        consumer_path: "f/mypipe/dyn",
+        macro_names: ["zscore"],
+        via_use: true,
+      },
+      {
+        lib_path: "f/shared/stats",
+        consumer_path: "f/mypipe/fct",
+        macro_names: ["zscore"],
+        via_use: false,
+      },
+    ]);
+    // the out-of-folder library is surfaced as a node with its signatures
+    expect(graph.runnables.find((r) => r.path === "f/shared/stats")?.macros).toEqual([
+      { name: "zscore", params: "x, m, s", is_table: false },
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("macro library that CONSUMES another library gets a lib→lib edge (both nodes surface)", async () => {
+  // The deploy path records macro_usage for any DuckDB script, including a macro
+  // library calling another library's macros. A `base → derived` edge must exist
+  // (and `base`, an in-folder library, is a member node not just an edge stub).
+  await withFolder(
+    {
+      "base.duckdb.sql": `-- macros\nCREATE MACRO base_add(a, b) AS a + b;\n`,
+      // derived is a `// macros` library (NOT `// pipeline`) whose body calls base_add
+      "derived.duckdb.sql":
+        `-- macros\nCREATE MACRO derived_sum(a, b) AS base_add(a, b) * 2;\n`,
+      // the pipeline consumer calls derived_sum
+      "report.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/t\nSELECT derived_sum(x, y) FROM main.t;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.macro_edges).toEqual([
+        // base → derived: the intermediate library is itself a consumer
+        {
+          lib_path: "f/mypipe/base",
+          consumer_path: "f/mypipe/derived",
+          macro_names: ["base_add"],
+          via_use: false,
+        },
+        // derived → report: the pipeline consumer
+        {
+          lib_path: "f/mypipe/derived",
+          consumer_path: "f/mypipe/report",
+          macro_names: ["derived_sum"],
+          via_use: false,
+        },
+      ]);
+      // both libraries surface as nodes with their signatures (base does NOT
+      // disappear just because it is only reached transitively)
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/base")?.macros).toEqual([
+        { name: "base_add", params: "a, b", is_table: false },
+      ]);
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/derived")?.macros).toEqual([
+        { name: "derived_sum", params: "a, b", is_table: false },
+      ]);
+      // both intermediate libraries are members (in_pipeline), like the deployed graph
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/base")?.in_pipeline).toBe(true);
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/derived")?.in_pipeline).toBe(true);
+    },
+  );
+});
+
+test("macro library reaching another only via dynamic SQL gets a `// use` lib→lib edge", async () => {
+  // A library that calls another's macro only inside a `query('…')` string is
+  // invisible to lexical detection; `// use` forces the lib→lib edge. Exercises
+  // the case where the CONSUMER is itself a `// macros` library.
+  await withFolder(
+    {
+      "base.duckdb.sql": `-- macros\nCREATE MACRO base_add(a, b) AS a + b;\n`,
+      "derived.duckdb.sql":
+        `-- macros\n-- use f/mypipe/base\nCREATE MACRO wrap(a, b) AS query('SELECT base_add(1, 2)');\n`,
+      "report.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/t\nSELECT wrap(x, y) FROM main.t;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.macro_edges).toEqual([
+        // base → derived comes from `// use` (via_use), NOT a lexical call
+        {
+          lib_path: "f/mypipe/base",
+          consumer_path: "f/mypipe/derived",
+          macro_names: ["base_add"],
+          via_use: true,
+        },
+        {
+          lib_path: "f/mypipe/derived",
+          consumer_path: "f/mypipe/report",
+          macro_names: ["wrap"],
+          via_use: false,
+        },
+      ]);
+    },
+  );
+});
+
+test("a `// macros` (slash-prefix) DuckDB library is detected (backend prefix parity)", async () => {
+  // A `.duckdb.sql` library may head its annotation with `// macros` (the backend
+  // accepts `//`/`--`/`#` for any language); the local scan must too.
+  await withFolder(
+    {
+      "lib.duckdb.sql": `// macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "use_it.duckdb.sql": `-- pipeline\n-- on datatable://main/t\nSELECT dbl(x) FROM main.t;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.macro_edges).toEqual([
+        {
+          lib_path: "f/mypipe/lib",
+          consumer_path: "f/mypipe/use_it",
+          macro_names: ["dbl"],
+          via_use: false,
+        },
+      ]);
+      expect(graph.runnables.find((r) => r.path === "f/mypipe/lib")?.macros).toEqual([
+        { name: "dbl", params: "a", is_table: false },
+      ]);
+    },
+  );
+});
+
+test("a non-pipeline DuckDB macro consumer is a display-only node, never a run step", async () => {
+  // A `.duckdb.sql` helper that calls a macro but isn't `// pipeline` surfaces as
+  // a graph node (lineage parity) but is NOT a runnable pipeline script: it must
+  // be absent from `scripts` (the previewable set `run --local` selects from), so
+  // it can never be scheduled or fail a preview for lack of local content.
+  await withFolder(
+    {
+      "lib.duckdb.sql": `-- macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "helper.duckdb.sql": `-- on ducklake://main/src\nSELECT dbl(x) FROM main.src;\n`,
+      "root.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/out\nSELECT dbl(1) AS v;\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+
+      // the helper IS a node (macro consumer, for lineage display) …
+      const helper = graph.runnables.find((r) => r.path === "f/mypipe/helper");
+      expect(helper).toBeDefined();
+      // … but not a pipeline member (no local file to preview) and carries no macros
+      expect(helper?.in_pipeline).toBeFalsy();
+      expect(helper?.macros).toBeUndefined();
+      // the previewable set (what `run --local` can schedule) is ONLY the member
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/root"]);
+      // and the macro edge still connects lib → helper for the lineage view
+      expect(graph.macro_edges).toContainEqual({
+        lib_path: "f/mypipe/lib",
+        consumer_path: "f/mypipe/helper",
+        macro_names: ["dbl"],
+        via_use: false,
+      });
+    },
+  );
+});
+
+test("`// pipeline` on a macros library is redundant — it's a library node either way", async () => {
+  // The backend marks a macro library `auto_kind='pipeline'` regardless of the
+  // `// pipeline` marker, so a `-- pipeline -- macros` script behaves exactly like
+  // a plain `-- macros` one: a member library node (in_pipeline + signatures),
+  // excluded from runs (via `macros`) and from the previewable `scripts` set.
+  await withFolder(
+    {
+      "lib.duckdb.sql": `-- pipeline\n-- macros\nCREATE MACRO dbl(a) AS a * 2;\n`,
+      "root.duckdb.sql": `-- pipeline\n-- materialize ducklake://main/out\nSELECT 1 AS v;\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const lib = graph.runnables.find((r) => r.path === "f/mypipe/lib");
+      expect(lib?.in_pipeline).toBe(true);
+      expect(lib?.macros).toEqual([{ name: "dbl", params: "a", is_table: false }]);
+      // unused here → no edges, but still a node; not previewable/runnable
+      expect(graph.macro_edges).toBeUndefined();
+      expect(scripts.map((s) => s.path)).toEqual(["f/mypipe/root"]);
+    },
+  );
+});
+
+test("`#`-comment languages (ruby) use the `#` annotation fallback (no wasm parser)", async () => {
+  await withFolder(
+    { "ingest.rb": `# pipeline\n# on s3://demo/raw.csv\nputs "hi"\n` },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      expect(graph.runnables.map((r) => r.path)).toContain("f/mypipe/ingest");
+      const at = graph.triggers.find(
+        (t) => t.trigger_kind === "asset" && t.runnable_path === "f/mypipe/ingest",
+      ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
+      expect(at?.asset_kind).toBe("s3object");
+      expect(at?.asset_path).toBe("demo/raw.csv");
+    },
+  );
+});
+
+test("pipeline docs renders a `Macro libraries` section (call + `// use`)", async () => {
+  const { generatePipelineMarkdown } = await import(
+    "../src/commands/pipeline/docs.ts"
+  );
+  await withFolder(
+    {
+      "macros_finance.duckdb.sql":
+        `-- macros\nCREATE MACRO net_revenue(gross, refunds) AS gross - refunds;\nCREATE MACRO safe_div(a, b) AS TABLE SELECT a / b;\n`,
+      "fct.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/orders\nSELECT net_revenue(gross, refunds) FROM main.orders;\n`,
+      "report.duckdb.sql":
+        `-- pipeline\n-- on datatable://main/orders\n-- use f/mypipe/macros_finance\nSELECT query('SELECT safe_div(1, 2)');\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const md = generatePipelineMarkdown(folder, graph, [], true);
+
+      // count line mentions the library; two pipeline scripts, one library
+      expect(md).toContain("**2** scripts · **1** asset · **1** macro library");
+      // dedicated section with signatures (TABLE marker) and callers
+      expect(md).toContain("## Macro libraries");
+      expect(md).toContain("### `f/mypipe/macros_finance`");
+      expect(md).toContain("- `net_revenue(gross, refunds)`");
+      expect(md).toContain("- `safe_div(a, b)` → TABLE");
+      expect(md).toContain("`f/mypipe/fct` (calls `net_revenue`)");
+      expect(md).toContain("`f/mypipe/report` (via `// use`)");
+      // the library is NOT double-listed under `## Scripts`
+      expect(md).not.toContain("### `f/mypipe/macros_finance`\n\n- **");
+    },
+  );
+});

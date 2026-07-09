@@ -18,6 +18,7 @@
 				apps: QuotaInfo
 				variables: QuotaInfo
 				resources: QuotaInfo
+				forks: QuotaInfo
 		  }
 		| undefined = $state(undefined)
 
@@ -87,7 +88,8 @@
 		{ label: 'Flows', key: 'flows', prunable: true },
 		{ label: 'Apps', key: 'apps', prunable: true },
 		{ label: 'Variables', key: 'variables', prunable: false },
-		{ label: 'Resources', key: 'resources', prunable: false }
+		{ label: 'Resources', key: 'resources', prunable: false },
+		{ label: 'Forks', key: 'forks', prunable: false }
 	]
 </script>
 

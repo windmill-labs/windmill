@@ -19,7 +19,7 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 	}
 
 	// Create maps for quick lookups
-	const workspaceMap = new Map(workspaces.map(w => [w.id, w]))
+	const workspaceMap = new Map(workspaces.map((w) => [w.id, w]))
 	const childrenMap = new Map<string, UserWorkspace[]>()
 	const hasChildrenSet = new Set<string>()
 
@@ -35,7 +35,7 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 	}
 
 	// Find root workspaces (those without a parent or whose parent is not in the current list)
-	const rootWorkspaces = workspaces.filter(w => {
+	const rootWorkspaces = workspaces.filter((w) => {
 		if (!w.parent_workspace_id) {
 			return true // Definitely a root
 		}
@@ -46,7 +46,12 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 	const result: WorkspaceHierarchyItem[] = []
 
 	// Recursively build the hierarchy
-	function addWorkspaceAndChildren(workspace: UserWorkspace, depth: number, isForked: boolean, parentName?: string) {
+	function addWorkspaceAndChildren(
+		workspace: UserWorkspace,
+		depth: number,
+		isForked: boolean,
+		parentName?: string
+	) {
 		// Add the current workspace
 		result.push({
 			workspace,
@@ -56,11 +61,14 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 			hasChildren: hasChildrenSet.has(workspace.id)
 		})
 
-		// Add its children (sorted by name for consistency)
+		// Add its children: the canonical dev workspace first, then throwaway forks by name.
 		const children = childrenMap.get(workspace.id) || []
 		children
-			.sort((a, b) => a.name.localeCompare(b.name))
-			.forEach(child => {
+			.sort((a, b) => {
+				if (!!a.is_dev_workspace !== !!b.is_dev_workspace) return a.is_dev_workspace ? -1 : 1
+				return a.name.localeCompare(b.name)
+			})
+			.forEach((child) => {
 				addWorkspaceAndChildren(child, depth + 1, true, workspace.name)
 			})
 	}
@@ -68,12 +76,13 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 	// Process root workspaces (sorted by name for consistency)
 	rootWorkspaces
 		.sort((a, b) => a.name.localeCompare(b.name))
-		.forEach(workspace => {
+		.forEach((workspace) => {
 			const isRootForked = workspace.parent_workspace_id != null
-			const parentName = isRootForked && workspace.parent_workspace_id 
-				? workspace.parent_workspace_id // Use parent ID as fallback if parent not in list
-				: undefined
-			
+			const parentName =
+				isRootForked && workspace.parent_workspace_id
+					? workspace.parent_workspace_id // Use parent ID as fallback if parent not in list
+					: undefined
+
 			addWorkspaceAndChildren(workspace, 0, isRootForked, parentName)
 		})
 
@@ -96,10 +105,59 @@ export function isRootWorkspace(workspace: UserWorkspace): boolean {
 }
 
 /**
+ * Walk up `parent_workspace_id` to the top of a workspace's family. Stops at the first ancestor not
+ * present in `allWorkspaces` (e.g. a parent the user can't see) and returns it, so the result is
+ * always the highest reachable ancestor. Returns undefined when the id itself isn't in the list.
+ */
+export function findWorkspaceRoot(
+	workspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): UserWorkspace | undefined {
+	if (!workspaceId) return undefined
+	let current = allWorkspaces.find((w) => w.id === workspaceId)
+	while (current?.parent_workspace_id) {
+		const parent = allWorkspaces.find((w) => w.id === current!.parent_workspace_id)
+		if (!parent) break
+		current = parent
+	}
+	return current
+}
+
+/**
+ * Whether a workspace (by id) is a fork or dev workspace. Forks and dev workspaces both set
+ * `parent_workspace_id` (a dev workspace has no `wm-fork-` id prefix), but a `wm-fork-` workspace can
+ * outlive its parent (the parent FK is `ON DELETE SET NULL`), so treat the prefix as fork-ness too —
+ * otherwise an orphaned fork would lose its fork-only affordances (e.g. owner self-delete).
+ */
+export function workspaceIsFork(
+	workspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): boolean {
+	if (!workspaceId) return false
+	if (workspaceId.startsWith('wm-fork-')) return true
+	return allWorkspaces.find((w) => w.id === workspaceId)?.parent_workspace_id != null
+}
+
+/**
+ * The canonical dev workspace of a prod workspace, if any (at most one per prod). Used to redirect
+ * edits from a locked prod workspace into its dev workspace. Disabled dev workspaces are excluded:
+ * redirecting edits to one the user can't select would be a dead end.
+ */
+export function findCanonicalDevWorkspace(
+	prodWorkspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): UserWorkspace | undefined {
+	if (!prodWorkspaceId) return undefined
+	return allWorkspaces.find(
+		(w) => w.parent_workspace_id === prodWorkspaceId && w.is_dev_workspace && !w.disabled
+	)
+}
+
+/**
  * Helper function to find all descendants of a workspace
  */
 export function findWorkspaceDescendants(
-	workspaceId: string, 
+	workspaceId: string,
 	allWorkspaces: UserWorkspace[]
 ): UserWorkspace[] {
 	const descendants: UserWorkspace[] = []

@@ -391,6 +391,10 @@ pub fn workspace_unauthed_service() -> Router {
         .route("/get_logs/{id}", get(get_job_logs))
         .route("/get_flow_all_logs/{id}", get(get_flow_all_logs))
         .route(
+            "/get_flow_all_logs_structured/{id}",
+            get(get_flow_all_logs_structured),
+        )
+        .route(
             "/get_completed_logs_tail/{id}",
             get(get_completed_job_logs_tail),
         )
@@ -513,6 +517,26 @@ async fn cancel_job_api(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    // App embed tokens (the sandboxed app iframe) may cancel ONLY jobs they launched
+    // — their app's component runs, stamped created_by == viewer. cancel_job_api has
+    // no other per-job ownership check, so without this an embed token (which carries
+    // the viewer's identity) could cancel any job by id. NotFound (not 403) so the
+    // untrusted app can't probe job existence.
+    if let Some(authed) = opt_authed.as_ref() {
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                id,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+            if created_by.as_deref() != Some(authed.username.as_str()) {
+                return Err(Error::NotFound(format!("Job {id} not found")));
+            }
+        }
+    }
+
     let tx = db.begin().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
@@ -1007,6 +1031,17 @@ async fn require_job_read_access(
         return Ok(());
     }
 
+    // App embed tokens (the sandboxed app iframe) carry the viewer's identity so the
+    // app can read its own component runs — which are stamped `created_by == viewer`
+    // and so already returned above. They must NOT inherit the viewer's *broader*
+    // job access (share links, folder ACLs, admin RLS): user-authored app JS holds
+    // this token, and letting it reach any job merely visible to the viewer would
+    // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
+    // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+        return Err(Error::NotFound(format!("Job {job_id} not found")));
+    }
+
     // `username_override` is derived from the token *label* (`username_override_from_label`),
     // which is fully user-controlled with no uniqueness/ownership check (webhook-/http-/
     // email-/ws- trigger tokens, `ephemeral-script-end-user-*`, and the generic `label-*`
@@ -1388,6 +1423,7 @@ macro_rules! get_job_query {
             @impl "v2_job_completed", ($($opts)*),
             "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, \
             v2_job.labels, \
+            EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -1397,7 +1433,8 @@ macro_rules! get_job_query {
             @impl "v2_job_queue", ($($opts)*),
             "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
             flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, \
-            script_entrypoint_override, v2_job.labels",
+            script_entrypoint_override, v2_job.labels, \
+            EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
             "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
         )
     };
@@ -2177,14 +2214,40 @@ async fn resolve_logs_to_string(
     logs.to_string()
 }
 
-async fn get_flow_all_logs(
-    OptViewToken(view_token): OptViewToken,
-    OptAuthed(opt_authed): OptAuthed,
+/// A single job in a flow's execution tree, with its resolved logs and a
+/// human-readable label describing its position (iteration, branch, subflow…).
+#[derive(Serialize)]
+struct FlowLogEntry {
+    job_id: String,
+    /// Human-readable label, e.g. "Step a (iteration 2/3)" or "Flow".
+    label: String,
+    /// Job kind (script, flow, forloopflow, …).
+    kind: String,
+    /// The flow step id this job corresponds to, if any.
+    flow_step_id: Option<String>,
+    /// Materialized step path (e.g. "a/b") used to locate the step in the flow.
+    step_path: Option<String>,
+    /// Depth in the flow tree (0 for the root flow job).
+    depth: i32,
+    /// The parent module type (forloopflow, branchall, …), if any.
+    parent_module_type: Option<String>,
+    /// 1-based index of this job among its siblings sharing the same step.
+    sibling_index: i32,
+    /// Total number of siblings sharing the same step.
+    sibling_count: i32,
+    /// Resolved logs for this job (pulled from disk/object store as needed).
+    logs: String,
+}
+
+async fn collect_flow_log_entries(
+    view_token: Option<String>,
+    opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::Result<Response> {
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    id: Uuid,
+) -> error::Result<Vec<FlowLogEntry>> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
@@ -2197,17 +2260,17 @@ async fn get_flow_all_logs(
         w_id,
         tags.as_ref().map(|v| v.as_slice())
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await?;
 
     let root_job = not_found_if_none(root_job, "Job", id.to_string())?;
 
     if let Some(authed) = opt_authed.as_ref() {
         require_job_read_access(
-            &db,
-            &user_db,
+            db,
+            user_db,
             authed,
-            &w_id,
+            w_id,
             &id,
             &root_job.created_by,
             view_token.as_deref(),
@@ -2220,10 +2283,10 @@ async fn get_flow_all_logs(
     }
 
     log_job_view(
-        &db,
+        db,
         opt_authed.as_ref(),
         opt_tokened.token.as_deref(),
-        &w_id,
+        w_id,
         &id,
     )
     .await?;
@@ -2290,10 +2353,10 @@ async fn get_flow_all_logs(
         w_id,
         id,
     )
-    .fetch_all(&db)
+    .fetch_all(db)
     .await?;
 
-    let mut all_logs = String::new();
+    let mut entries = Vec::with_capacity(records.len());
 
     for record in &records {
         let kind = record.kind.as_deref().unwrap_or("");
@@ -2356,16 +2419,87 @@ async fn get_flow_all_logs(
         };
 
         let job_id = record.id.map(|u| u.to_string()).unwrap_or_default();
-        all_logs.push_str(&format!("\n=== {} (Job: {}) ===\n", label, job_id));
         let logs = record.logs.as_deref().unwrap_or("");
         let resolved =
             resolve_logs_to_string(record.log_offset.unwrap_or(0), logs, &record.log_file_index)
                 .await;
-        all_logs.push_str(&resolved);
+
+        entries.push(FlowLogEntry {
+            job_id,
+            label,
+            kind: kind.to_string(),
+            flow_step_id: record.flow_step_id.clone(),
+            step_path: record.path_label.clone(),
+            depth,
+            parent_module_type: if parent_module_type.is_empty() {
+                None
+            } else {
+                Some(parent_module_type.to_string())
+            },
+            sibling_index,
+            sibling_count,
+            logs: resolved,
+        });
+    }
+
+    Ok(entries)
+}
+
+async fn get_flow_all_logs(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Response> {
+    let entries = collect_flow_log_entries(
+        view_token,
+        opt_authed,
+        opt_tokened,
+        &db,
+        &user_db,
+        &w_id,
+        id,
+    )
+    .await?;
+
+    let mut all_logs = String::new();
+    for entry in &entries {
+        all_logs.push_str(&format!(
+            "\n=== {} (Job: {}) ===\n",
+            entry.label, entry.job_id
+        ));
+        all_logs.push_str(&entry.logs);
         all_logs.push('\n');
     }
 
     Ok(content_plain(Body::from(all_logs)))
+}
+
+/// Structured alternative to `get_flow_all_logs`: returns the same flow log
+/// tree as a JSON array of entries (one per job) instead of a flat text blob,
+/// so callers can render or process logs per-step without parsing delimiters.
+async fn get_flow_all_logs_structured(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> JsonResult<Vec<FlowLogEntry>> {
+    let entries = collect_flow_log_entries(
+        view_token,
+        opt_authed,
+        opt_tokened,
+        &db,
+        &user_db,
+        &w_id,
+        id,
+    )
+    .await?;
+
+    Ok(Json(entries))
 }
 
 async fn get_args(
@@ -4022,11 +4156,17 @@ fn conditionally_require_authed_user(
 }
 
 pub async fn create_job_signature(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
+    // The HMAC is treated as full authority by the resume endpoints, so minting
+    // it requires run scope on the suspended job's flow — not merely any
+    // jobs:run scope. No-op for unscoped tokens (incl. the in-flow substep token
+    // used by wmill.get_resume_urls()).
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     let key = get_workspace_key(&w_id, &db).await?;
     create_signature(key, job_id, resume_id, approver.approver)
 }
@@ -4109,11 +4249,17 @@ fn build_resume_url(
 }
 
 pub async fn get_resume_urls(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
+    // These URLs embed a resume signature (full resume capability), so a scoped
+    // token must hold run scope on the suspended job's flow. No-op for unscoped
+    // tokens (incl. the in-flow substep token). Trusted internal callers use
+    // get_resume_urls_internal directly and are unaffected.
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     get_resume_urls_internal(
         Extension(db),
         Path((w_id, job_id, resume_id)),
@@ -4178,6 +4324,46 @@ pub async fn get_resume_urls_internal(
     };
 
     Ok(Json(res))
+}
+
+/// Resolve the runnable path of the flow a (possibly step) job belongs to, used
+/// to scope-check resume-signature minting against `jobs:run:flows:<path>`.
+/// Returns an empty string when the path can't be resolved (e.g. previews or an
+/// unknown job); an empty path only matters for path-restricted tokens, which
+/// would not be running such a flow. Never hard-fails, so it can't break resume
+/// for unscoped tokens (the in-flow `get_resume_urls()` path).
+async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let job = sqlx::query!(
+        r#"SELECT kind::text as "kind!", parent_job, runnable_path
+           FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some(job) = job else {
+        return Ok(String::new());
+    };
+    // All flow kinds: the job itself is the flow whose path scopes the resume.
+    if matches!(
+        job.kind.as_str(),
+        "flow" | "flowpreview" | "flownode" | "singlestepflow"
+    ) {
+        return Ok(job.runnable_path.unwrap_or_default());
+    }
+    // Otherwise it's a step; its parent is the flow.
+    if let Some(parent) = job.parent_job {
+        return Ok(sqlx::query_scalar!(
+            "SELECT runnable_path FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            parent,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_default());
+    }
+    Ok(job.runnable_path.unwrap_or_default())
 }
 
 /// Get the flow ID for a job. If the job is a flow, returns the job_id.
@@ -7416,26 +7602,32 @@ async fn run_dynamic_select(
         ));
     }
 
+    if !is_valid_entrypoint_name(&request.entrypoint_function) {
+        return Err(error::Error::BadRequest(format!(
+            "Invalid entrypoint_function {:?}: must match \
+             ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
+             not starting with a digit)",
+            request.entrypoint_function
+        )));
+    }
+
+    // Deployed scripts keep their normal deployed-run path (a `script` job, resolved below by
+    // push_script_job_by_path_into_queue). Deployed flows and inline snippets have no deployed
+    // runnable, so they run their dyn-select code as a `preview`; the flow carries its path and
+    // worker tag so its option-fetching job lines up with the script run.
     let dynamic_input: DynamicInput;
+    let runnable_path: Option<String>;
+    let mut tag: Option<String> = None;
 
     match request.runnable_ref {
         DynamicSelectRunnableRef::Deployed { path, runnable_kind } => match runnable_kind {
             RunnableKind::Script => {
-                if !is_valid_entrypoint_name(&request.entrypoint_function) {
-                    return Err(error::Error::BadRequest(format!(
-                        "Invalid entrypoint_function {:?}: must match \
-                         ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
-                         not starting with a digit)",
-                        request.entrypoint_function
-                    )));
-                }
                 let mut script_args = request.args.unwrap_or_default();
                 script_args.insert(
-                    "_ENTRYPOINT_OVERRIDE".to_string(),
+                    ENTRYPOINT_OVERRIDE.to_string(),
                     serde_json::value::to_raw_value(&request.entrypoint_function)?,
                 );
-
-                let push_args = PushArgsOwned { extra: None, args: script_args.clone() };
+                let push_args = PushArgsOwned { extra: None, args: script_args };
 
                 let (uuid, _, _) = push_script_job_by_path_into_queue(
                     authed.clone(),
@@ -7445,7 +7637,7 @@ async fn run_dynamic_select(
                     w_id.clone(),
                     StripPath(path),
                     run_query.clone(),
-                    push_args.clone(),
+                    push_args,
                     None,
                 )
                 .await?;
@@ -7453,12 +7645,39 @@ async fn run_dynamic_select(
                 return Ok((StatusCode::CREATED, uuid.to_string()).into_response());
             }
             RunnableKind::Flow => {
-                // Runs the deployed flow's dynamic-select code. Enforce the same
-                // path-scoped check the script branch gets via
-                // push_script_job_by_path_into_queue, so a token not scoped to this
-                // flow cannot trigger its code through dynamic select.
+                // Runs the deployed flow's dynamic-select code. Path-scoped so a token not
+                // scoped to this flow cannot trigger its code through dynamic select.
                 check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
                 let mut conn = user_db.clone().begin(&authed).await?;
+
+                // Read the flow's tag under RLS. This runs on every request (including the
+                // cache hit below), so it doubles as the access check and routes the
+                // option-fetching preview to the flow's worker group, matching the script branch.
+                let Some(flow_tag) = sqlx::query_scalar!(
+                    "SELECT tag FROM flow WHERE workspace_id = $1 AND path = $2",
+                    &w_id,
+                    &path
+                )
+                .fetch_optional(&mut *conn)
+                .await?
+                else {
+                    conn.commit().await?;
+                    let exists = sqlx::query_scalar!(
+                        "SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 LIMIT 1",
+                        &w_id,
+                        &path
+                    )
+                    .fetch_optional(&db)
+                    .await?
+                    .is_some();
+                    if exists {
+                        return Err(error::Error::NotAuthorized(format!(
+                            "You are not authorized to access this flow: {path}"
+                        )));
+                    }
+                    return Err(Error::NotFound(format!("Flow not found at path {path}")));
+                };
+                tag = flow_tag;
 
                 let dynamic_input_res = match DYNAMIC_INPUT_CACHE.get(&format!("{}:{}", w_id, path))
                 {
@@ -7502,20 +7721,33 @@ async fn run_dynamic_select(
                 conn.commit().await?;
 
                 dynamic_input = dynamic_input_res;
+                runnable_path = Some(path);
             }
         },
         DynamicSelectRunnableRef::Inline { code, lang: language } => {
             // Inline dynamic select runs arbitrary, request-supplied code; require the broad
             // jobs:run scope so a narrowly-scoped token cannot escape its scope. The Deployed
-            // branches are path-scoped instead (scripts via push_script_job_by_path_into_queue,
-            // flows via the check_scopes above).
+            // branches are path-scoped instead.
             check_scopes(&authed, || format!("jobs:run"))?;
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),
             };
+            runnable_path = None;
         }
     }
+
+    // Same tag-permission gate a normal run gets (run_flow / push_script_job_by_path_into_queue):
+    // a caller allowed to read the flow must still be allowed to use its worker tag. No-op for
+    // inline (tag is None); the script branch checked this inside its helper and returned above.
+    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+
+    // Invoke the dyn-select entrypoint instead of `main`.
+    let mut args = request.args.unwrap_or_default();
+    args.insert(
+        ENTRYPOINT_OVERRIDE.to_string(),
+        serde_json::value::to_raw_value(&request.entrypoint_function)?,
+    );
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -7527,7 +7759,7 @@ async fn run_dynamic_select(
         JobPayload::Code(RawCode {
             hash: None,
             content: dynamic_input.x_windmill_dyn_select_code,
-            path: None,
+            path: runnable_path,
             language: dynamic_input.x_windmill_dyn_select_lang,
             lock: None,
             cache_ttl: None,
@@ -7536,9 +7768,11 @@ async fn run_dynamic_select(
             concurrency_settings: ConcurrencySettings::default().into(),
             debouncing_settings: DebouncingSettings::default(),
             modules: None,
+            // RawCode.tag is ignored by the queue path (`JobPayload::Code` destructures it as
+            // `tag: _`); the effective tag is the `tag` argument to `push` below.
             tag: None,
         }),
-        PushArgs::from(&request.args.unwrap_or_default()),
+        PushArgs::from(&args),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -7553,7 +7787,8 @@ async fn run_dynamic_select(
         false,
         None,
         true,
-        None,
+        // Deployed flow → the flow's worker tag; inline → `None` (language default).
+        tag,
         run_query.timeout,
         None,
         None,
@@ -9488,16 +9723,31 @@ mod approval_view_gate_tests {
     fn anonymous_cannot_view_when_auth_required() {
         // The regression: an unauthenticated holder of the approval token must see nothing.
         let c = Some(conds(true, vec![]));
-        assert!(!can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(!can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 
     #[test]
     fn anonymous_can_view_when_no_auth_required() {
         // Unchanged behaviour: token alone is sufficient when auth isn't required.
         let c = Some(conds(false, vec![]));
-        assert!(can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
         // No approval conditions at all also allows token-only view.
-        assert!(can_view(&None, &None, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &None,
+            &None,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 
     #[test]
@@ -9522,7 +9772,17 @@ mod approval_view_gate_tests {
         let member = Some(authed("carol", false, vec!["approvers".to_string()]));
         let outsider = Some(authed("dave", false, vec!["other".to_string()]));
         // Use a non-owned folder path so ownership doesn't short-circuit the check.
-        assert!(can_view(&member, &c, Some("f/team/flow"), "trigger@example.com"));
-        assert!(!can_view(&outsider, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &member,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        assert!(!can_view(
+            &outsider,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 }

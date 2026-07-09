@@ -69,6 +69,7 @@
 		path,
 		policy,
 		summary,
+		labels,
 		deployedBaseline = undefined,
 		fromHub = false,
 		diffDrawer = undefined,
@@ -83,7 +84,8 @@
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		onRestore
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -885,12 +887,13 @@
 		<AppEditorHeader
 			{newPath}
 			{newApp}
+			{labels}
 			userDraftPath={appDraftPath}
 			{onResetToDeployed}
 			{loadedFromDraft}
 			{othersDraftsCount}
 			{onOpenOthersDrafts}
-			on:restore
+			{onRestore}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}

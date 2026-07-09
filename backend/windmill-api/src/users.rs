@@ -11,7 +11,7 @@ pub use windmill_api_users::users::*;
 
 use std::sync::Arc;
 
-use crate::db::ApiAuthed;
+use crate::db::{ApiAuthed, OptJobAuthed};
 use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use argon2::Argon2;
 use axum::{
@@ -21,7 +21,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::Deserialize;
-use windmill_api_auth::require_super_admin;
+use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
@@ -71,11 +71,13 @@ pub fn make_unauthed_service() -> Router {
 
 async fn create_user(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<windmill_common::webhook::WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
 }
 
@@ -141,8 +143,10 @@ async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let email = authed.email.clone();
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
@@ -152,9 +156,11 @@ async fn set_password_of_user(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Path(email): Path<String>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
@@ -165,11 +171,13 @@ struct RenameUser {
 
 async fn rename_user(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Path(user_email): Path<String>,
     Extension(db): Extension<DB>,
     Json(ru): Json<RenameUser>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let mut tx = db.begin().await?;
 

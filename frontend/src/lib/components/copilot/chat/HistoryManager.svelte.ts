@@ -1,5 +1,5 @@
 import { type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
-import type { DisplayMessage } from './shared'
+import type { ChatJob, DisplayMessage } from './shared'
 import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
@@ -25,6 +25,16 @@ interface ChatSchema extends IDBSchema {
 			// New writes store the plain reported token count; chats persisted by
 			// earlier versions may still hold the legacy anchor object.
 			contextUsage?: PersistedContextUsage
+			// Workspace items this chat modified via AI tool calls, as
+			// `${UserDraftItemKind}:${storagePath}` keys. Persisted out-of-band from
+			// the message arrays so it survives compaction. Absent (undefined) on
+			// chats predating this feature → consumers fall back to showing all
+			// workspace drafts; a defined array (even empty) means "tracked".
+			modifiedItems?: string[]
+			// Jobs this chat started that detached into the background, so an
+			// in-flight job's tray row and completion survive a reload. Absent on
+			// chats predating this feature. Persisted out-of-band like modifiedItems.
+			backgroundJobs?: ChatJob[]
 		}
 	}
 }
@@ -80,6 +90,29 @@ export function __resetLegacyChatClaimForTesting(): void {
 	legacyChatClaim = undefined
 }
 
+// Read a chat's modified-items mask by chatId WITHOUT mounting an AIChatManager,
+// for the standalone /forks/compare route. Returns undefined for a legacy chat
+// (no field) so the page falls back to selecting all items; a defined array
+// (even empty) narrows the preselection. Opens a throwaway user-scoped handle;
+// the `get` is O(1) on the `id` keyPath.
+export async function readChatModifiedItems(chatId: string): Promise<string[] | undefined> {
+	const dbh = userScopedDb<ChatSchema>(DB_NAME, {
+		version: 1,
+		upgrade: createChatStore,
+		migrate: migrateLegacyChatDb
+	})
+	try {
+		const db = await dbh.whenReady()
+		const chat = await db?.get('chats', chatId)
+		return chat?.modifiedItems
+	} catch (err) {
+		console.error('Could not read chat modified items', err)
+		return undefined
+	} finally {
+		dbh.close()
+	}
+}
+
 export default class HistoryManager {
 	// Per-instance handle to the shared per-user DB lifecycle. There is one
 	// HistoryManager per AIChatManager (the singleton + one per session runtime),
@@ -100,6 +133,8 @@ export default class HistoryManager {
 			lastModified: number
 			sessionId?: string
 			contextUsage?: PersistedContextUsage
+			modifiedItems?: string[]
+			backgroundJobs?: ChatJob[]
 		}
 	> = $state({})
 
@@ -173,10 +208,20 @@ export default class HistoryManager {
 		return Object.values(this.savedChats)
 	}
 
+	getModifiedItems(id: string): string[] | undefined {
+		return this.savedChats[id]?.modifiedItems
+	}
+
+	getBackgroundJobs(id: string): ChatJob[] | undefined {
+		return this.savedChats[id]?.backgroundJobs
+	}
+
 	async saveChat(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
-		contextUsage?: number
+		contextUsage?: number,
+		modifiedItems?: string[],
+		backgroundJobs?: ChatJob[]
 	) {
 		if (displayMessages.length > 0) {
 			// Compaction replaces the original first message with a summary boundary.
@@ -203,7 +248,30 @@ export default class HistoryManager {
 				id: this.currentChatId,
 				lastModified: Date.now(),
 				...(this.sessionId ? { sessionId: this.sessionId } : {}),
-				...(contextUsage !== undefined ? { contextUsage } : {})
+				...(contextUsage !== undefined ? { contextUsage } : {}),
+				// Only persist when the caller passes a defined array — an untracked
+				// chat (the global side-panel chat, mask still undefined) must not be
+				// stamped with [], which would flip it to the filtered view. Session
+				// chats are always tracked (see AIChatManager.loadPastChat), so they do
+				// pass a defined array and persist it. Since `put` replaces the whole
+				// record, a caller that omits the argument must not ERASE a tracked
+				// chat's stored mask — fall back to the previously saved field.
+				// Snapshot the fallback: savedChats is $state, so the stored value is a
+				// proxy that structuredClone (used by IndexedDB put) cannot clone.
+				...(modifiedItems !== undefined
+					? { modifiedItems }
+					: this.savedChats[this.currentChatId]?.modifiedItems !== undefined
+						? { modifiedItems: $state.snapshot(this.savedChats[this.currentChatId].modifiedItems) }
+						: {}),
+				// Same "don't erase on omit" guard as modifiedItems: a turn-end save
+				// that doesn't pass backgroundJobs must keep the tray's stored jobs.
+				...(backgroundJobs !== undefined
+					? { backgroundJobs }
+					: this.savedChats[this.currentChatId]?.backgroundJobs !== undefined
+						? {
+								backgroundJobs: $state.snapshot(this.savedChats[this.currentChatId].backgroundJobs)
+							}
+						: {})
 			}
 			this.savedChats = {
 				...this.savedChats,
@@ -218,9 +286,11 @@ export default class HistoryManager {
 	async save(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
-		contextUsage?: number
+		contextUsage?: number,
+		modifiedItems?: string[],
+		backgroundJobs?: ChatJob[]
 	) {
-		await this.saveChat(displayMessages, messages, contextUsage)
+		await this.saveChat(displayMessages, messages, contextUsage, modifiedItems, backgroundJobs)
 		this.currentChatId = createLongHash()
 	}
 

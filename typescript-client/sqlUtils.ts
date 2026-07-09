@@ -1,4 +1,5 @@
-import { getWorkspace, workerHasInternalServer } from "./client";
+import { getEnv, getWorkspace, workerHasInternalServer } from "./client";
+import { OpenAPI } from "./core/OpenAPI";
 import { JobService } from "./services.gen";
 
 type ResultCollection =
@@ -383,6 +384,185 @@ export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
 export function ducklake(name: string = "main"): SqlTemplateFunction {
   let { name: n, schema } = parseName(name);
   return buildSqlTemplateFunction(ducklakeProvider(n, schema));
+}
+
+/** Options for the ducklake materialization helpers. `partition` is bound as a
+ * DuckDB arg (never interpolated); `selectSql`, `table`, `schema`, `uniqueKey`
+ * are trusted structural SQL inlined via `raw`. */
+export interface DucklakeMaterializeOptions {
+  /** ducklake name (default "main"), optionally "name:schema". */
+  ducklake?: string;
+  /** target table within the ducklake. */
+  table: string;
+  /** the SELECT producing the rows for this slice. */
+  selectSql: string;
+  /** the partition value (bound). Omit for a whole-table materialization — no
+   * partition column, and replace becomes a `CREATE OR REPLACE TABLE`. */
+  partition?: string;
+  /** dedup key → upsert in slice (delete-by-key + insert); omit → replace (delete partition + insert). */
+  uniqueKey?: string;
+  /** physical partition column (default "_wm_partition"). */
+  partitionCol?: string;
+}
+
+/** Idempotently materialize `selectSql` into a ducklake table for one
+ * partition (or the whole table when `partition` is omitted) — the client-side
+ * equivalent of the `// materialize` engine.
+ * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
+ * replaces it (whole table → `CREATE OR REPLACE`; partition → delete + insert).
+ * Safe to re-run for the same partition (backfill / failure-recovery).
+ *
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.upsertPartition({ table, selectSql, partition }).execute()`. */
+export function upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any> {
+  return finishMaterialize(buildUpsertStatement(opts), opts);
+}
+function buildUpsertStatement(opts: DucklakeMaterializeOptions): SqlStatement<any> {
+  let { name: n, schema } = parseName(opts.ducklake ?? "main");
+  let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
+  let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
+  let t = sql.raw(`dl.${opts.table}`);
+  let body = sql.raw(opts.selectSql);
+  // Whole-table (no partition): no partition column. Replace rebuilds the table
+  // with CREATE OR REPLACE (handles schema changes); merge upserts by key.
+  if (opts.partition === undefined) {
+    if (opts.uniqueKey) {
+      let uk = sql.raw(opts.uniqueKey);
+      return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT * FROM (${body}) WHERE false;
+BEGIN TRANSACTION;
+DELETE FROM ${t} WHERE ${uk} IN (SELECT ${uk} FROM (${body}));
+INSERT INTO ${t} SELECT * FROM (${body});
+COMMIT;`;
+    }
+    return sql`CREATE OR REPLACE TABLE ${t} AS SELECT * FROM (${body});`;
+  }
+  if (opts.uniqueKey) {
+    let uk = sql.raw(opts.uniqueKey);
+    // Upsert via delete-by-key + insert (not MERGE — DuckLake's MERGE fails
+    // writing the first rows of a fresh partition).
+    return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
+ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
+BEGIN TRANSACTION;
+DELETE FROM ${t} WHERE ${pcol} = ${opts.partition} AND ${uk} IN (SELECT ${uk} FROM (${body}));
+INSERT INTO ${t} SELECT *, ${opts.partition} AS ${pcol} FROM (${body});
+COMMIT;`;
+  }
+  return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
+ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
+BEGIN TRANSACTION;
+DELETE FROM ${t} WHERE ${pcol} = ${opts.partition};
+INSERT INTO ${t} SELECT *, ${opts.partition} AS ${pcol} FROM (${body});
+COMMIT;`;
+}
+
+/** INSERT-only materialization (no dedup/replace) for append-only tables.
+ * Re-running the same partition duplicates rows — use only for immutable
+ * event-log sources.
+ *
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.appendPartition({ table, selectSql, partition }).execute()`. */
+export function appendPartition(
+  opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,
+): SqlStatement<any> {
+  return finishMaterialize(buildAppendStatement(opts), opts);
+}
+function buildAppendStatement(
+  opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,
+): SqlStatement<any> {
+  let { name: n, schema } = parseName(opts.ducklake ?? "main");
+  let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
+  let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
+  let t = sql.raw(`dl.${opts.table}`);
+  let body = sql.raw(opts.selectSql);
+  // Whole-table (no partition): insert into the bare table, no partition column.
+  if (opts.partition === undefined) {
+    return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT * FROM (${body}) WHERE false;
+INSERT INTO ${t} SELECT * FROM (${body});`;
+  }
+  return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
+ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
+INSERT INTO ${t} SELECT *, ${opts.partition} AS ${pcol} FROM (${body});`;
+}
+
+// In pipeline context (WM_PIPELINE), wrap a materialize statement so a
+// successful run captures the slice's row count + snapshot and records
+// materialized_partition state — making SDK materializations appear in the grid
+// like `// materialize` ones. Outside a pipeline it's a passthrough (no record).
+function finishMaterialize(
+  stmt: SqlStatement<any>,
+  opts: Pick<DucklakeMaterializeOptions, "ducklake" | "table" | "partition" | "partitionCol">,
+): SqlStatement<any> {
+  if (getEnv("WM_PIPELINE") !== "true") return stmt;
+  let { name: n, schema } = parseName(opts.ducklake ?? "main");
+  let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
+  let t = sql.raw(`dl.${opts.table}`);
+  let pcol = opts.partitionCol ?? "_wm_partition";
+  let where =
+    opts.partition !== undefined
+      ? sql.raw(`WHERE ${pcol} = '${String(opts.partition).replace(/'/g, "''")}'`)
+      : sql.raw("");
+  let summary = sql`SELECT (SELECT count(*) FROM ${t} ${where}) AS rows, (SELECT max(snapshot_id) FROM ducklake_snapshots('dl')) AS snapshot_id`;
+  // Asset path mirrors the `// materialize` engine: <lake>/<schema>.<table> for
+  // an explicit schema, else <lake>/<table> — so the grid lookup matches and
+  // distinct schemas don't collide under one state key.
+  let assetPath = schema ? `${n}/${schema}.${opts.table}` : `${n}/${opts.table}`;
+  let partition = opts.partition ?? "";
+  let run = async () => {
+    try {
+      await stmt.execute();
+    } catch (e) {
+      await recordMaterialization(assetPath, partition, "failed", null, null, String(e));
+      throw e;
+    }
+    let snapshot_id: number | null = null;
+    let row_count: number | null = null;
+    try {
+      let s: any = await summary.fetchOne();
+      snapshot_id = s?.snapshot_id ?? null;
+      row_count = s?.rows ?? null;
+    } catch {
+      /* summary read is best-effort */
+    }
+    await recordMaterialization(assetPath, partition, "materialized", snapshot_id, row_count, null);
+  };
+  return {
+    ...stmt,
+    execute: (() => run()) as any,
+    fetch: (() => run()) as any,
+    fetchOne: (() => run()) as any,
+    fetchOneScalar: (() => run()) as any,
+  };
+}
+
+async function recordMaterialization(
+  assetPath: string,
+  partition: string,
+  status: string,
+  snapshot_id: number | null,
+  row_count: number | null,
+  error: string | null,
+): Promise<void> {
+  try {
+    await fetch(`${OpenAPI.BASE}/w/${getWorkspace()}/assets/record_materialization`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${OpenAPI.TOKEN as string}`,
+      },
+      body: JSON.stringify({
+        asset_kind: "ducklake",
+        asset_path: assetPath,
+        partition,
+        status,
+        snapshot_id,
+        row_count,
+        job_id: getEnv("WM_JOB_ID") ?? null,
+        error,
+      }),
+    });
+  } catch {
+    // best-effort; never fail the user's materialization
+  }
 }
 
 // ---------------------------------------------------------------------------

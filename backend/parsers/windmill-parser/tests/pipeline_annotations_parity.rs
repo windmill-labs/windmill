@@ -34,6 +34,57 @@ struct Expected {
     freshness: Option<String>,
     tag: Option<String>,
     retry: Option<ExpectedRetry>,
+    // Default-on-absent so the pre-existing fixtures (which omit it) keep
+    // deserializing; only fixtures exercising materialization set it.
+    #[serde(default)]
+    materialize: Option<ExpectedMaterialize>,
+    // Snake_case `DataTest` serde shape (e.g. {"type":"unique","column":"x"}),
+    // compared against `serde_json::to_value(got.data_tests)`. Absent === [].
+    #[serde(default)]
+    data_tests: Vec<serde_json::Value>,
+    // Snake_case `ColumnLineage` serde shape (e.g. {"column":"x","inputs":
+    // [{"from_kind":"datatable","from_path":"p","from_column":"c"}]}), compared
+    // against `to_value(got.column_lineage)`. Absent === [].
+    #[serde(default)]
+    column_lineage: Vec<serde_json::Value>,
+    // `// macros` marker (strict, alone on the line). Absent === false.
+    #[serde(default)]
+    macros: bool,
+    // `// use <lib_path>` accumulation, declaration order, deduped. Absent === [].
+    #[serde(default)]
+    use_libs: Vec<String>,
+    // `// mute <asset>` accumulation as `kind:path`, declaration order, deduped.
+    // Absent === [].
+    #[serde(default)]
+    mute: Vec<String>,
+    // `// mute all` marker. Absent === false.
+    #[serde(default)]
+    mute_all: bool,
+}
+
+#[derive(Deserialize)]
+struct ExpectedMaterialize {
+    target_kind: String,
+    target_path: String,
+    #[serde(default)]
+    manual: bool,
+    #[serde(default)]
+    append: bool,
+    #[serde(default)]
+    unique_key: Option<String>,
+    #[serde(default)]
+    scd2: bool,
+    #[serde(default)]
+    track: Vec<String>,
+    #[serde(default)]
+    close_deleted: bool,
+    // "warn" | "ignore"; absent === "warn" (the default).
+    #[serde(default = "default_on_schema_change")]
+    on_schema_change: String,
+}
+
+fn default_on_schema_change() -> String {
+    "warn".to_string()
 }
 
 #[derive(Deserialize)]
@@ -153,5 +204,72 @@ fn pipeline_annotation_fixtures_match() {
                 want.is_some()
             ),
         }
+
+        match (&got.materialize, &f.expected.materialize) {
+            (None, None) => {}
+            (Some(m), Some(e)) => {
+                assert_eq!(
+                    kind_str(m.target_kind),
+                    e.target_kind,
+                    "{ctx}: materialize kind"
+                );
+                assert_eq!(m.target_path, e.target_path, "{ctx}: materialize path");
+                assert_eq!(m.manual, e.manual, "{ctx}: materialize manual");
+                assert_eq!(m.append, e.append, "{ctx}: materialize append");
+                assert_eq!(m.unique_key, e.unique_key, "{ctx}: materialize key");
+                assert_eq!(m.scd2, e.scd2, "{ctx}: materialize scd2");
+                assert_eq!(m.track, e.track, "{ctx}: materialize track");
+                assert_eq!(
+                    m.close_deleted, e.close_deleted,
+                    "{ctx}: materialize close_deleted"
+                );
+                let osc = match m.on_schema_change {
+                    windmill_parser::asset_parser::OnSchemaChange::Warn => "warn",
+                    windmill_parser::asset_parser::OnSchemaChange::Ignore => "ignore",
+                    windmill_parser::asset_parser::OnSchemaChange::Fail => "fail",
+                    windmill_parser::asset_parser::OnSchemaChange::Sync => "sync",
+                };
+                assert_eq!(
+                    osc, e.on_schema_change,
+                    "{ctx}: materialize on_schema_change"
+                );
+            }
+            (got, want) => panic!(
+                "{ctx}: materialize mismatch — got {:?}, want present={}",
+                got,
+                want.is_some()
+            ),
+        }
+
+        let got_tests = serde_json::to_value(&got.data_tests).expect("data_tests serialize");
+        assert_eq!(
+            got_tests,
+            serde_json::Value::Array(f.expected.data_tests.clone()),
+            "{ctx}: data tests"
+        );
+
+        let got_lineage =
+            serde_json::to_value(&got.column_lineage).expect("column_lineage serialize");
+        assert_eq!(
+            got_lineage,
+            serde_json::Value::Array(f.expected.column_lineage.clone()),
+            "{ctx}: column lineage"
+        );
+
+        assert_eq!(got.macros, f.expected.macros, "{ctx}: macros");
+        assert_eq!(got.use_libs, f.expected.use_libs, "{ctx}: use_libs");
+
+        let mute: Vec<String> = got
+            .mute
+            .iter()
+            .filter_map(|t| match t {
+                TriggerSpec::Asset { asset_kind, path, .. } => {
+                    Some(format!("{}:{}", kind_str(*asset_kind), path))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(mute, f.expected.mute, "{ctx}: mute");
+        assert_eq!(got.mute_all, f.expected.mute_all, "{ctx}: mute_all");
     }
 }

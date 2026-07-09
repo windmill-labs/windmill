@@ -55,7 +55,7 @@ pub async fn check_tag_available_for_workspace(
 ) -> error::Result<()> {
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         let tags = get_scope_tags(authed);
-        check_tag_available_for_workspace_internal(&db, w_id, tag, &authed.email, tags).await
+        check_tag_available_for_workspace_internal(db, w_id, tag, &authed.email, tags).await
     } else {
         Ok(())
     }

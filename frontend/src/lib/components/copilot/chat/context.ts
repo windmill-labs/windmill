@@ -6,7 +6,8 @@ import {
 	FileCode,
 	Code2,
 	TextSelect,
-	Table2
+	Table2,
+	LayoutDashboard
 } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
@@ -25,7 +26,8 @@ export const ContextIconMap = {
 	app_code_selection: TextSelect,
 	app_datatable: Table2,
 	workspace_script: Code2,
-	workspace_flow: BarsStaggered
+	workspace_flow: BarsStaggered,
+	workspace_app: LayoutDashboard
 	// flow_module type is handled with FlowModuleIcon
 }
 
@@ -228,6 +230,16 @@ export interface WorkspaceFlowElement {
 	summary?: string
 }
 
+/** Workspace app context element — reference to a (code-based) raw app in the
+ * workspace. Only raw apps are surfaced: the visual app builder produces a
+ * frontend, not a code unit the chat can act on. */
+export interface WorkspaceAppElement {
+	type: 'workspace_app'
+	path: string
+	title: string
+	summary?: string
+}
+
 export type ContextElement = (
 	| CodeElement
 	| ErrorElement
@@ -242,6 +254,7 @@ export type ContextElement = (
 	| AppDatatableElement
 	| WorkspaceScriptElement
 	| WorkspaceFlowElement
+	| WorkspaceAppElement
 ) & {
 	deletable?: boolean
 }

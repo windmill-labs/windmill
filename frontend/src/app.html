@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
@@ -23,6 +23,106 @@
 			}
 		</style>
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script>
+			// WIN-2006: when the app is rendered inside an opaque-origin (sandboxed,
+			// no allow-same-origin) iframe, Web Storage access throws a SecurityError.
+			// Install an in-memory shim before the SvelteKit app boots so the app (and
+			// Windmill SPA code running inside the frame) keeps working within the
+			// session. No-op in normal real-origin contexts, so zero blast radius.
+			;(function () {
+				// `onOp` (localStorage only) relays each mutation up to the embedder,
+				// which backs a single store shared across all apps. sessionStorage
+				// stays in-memory/session-only.
+				function shim(onOp) {
+					var m = {}
+					return {
+						__hydrate: function (obj) {
+							if (obj) for (var k in obj) m['' + k] = '' + obj[k]
+						},
+						getItem: function (k) {
+							k = '' + k
+							return Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null
+						},
+						setItem: function (k, v) {
+							m['' + k] = '' + v
+							if (onOp) onOp({ op: 'set', key: '' + k, value: '' + v })
+						},
+						removeItem: function (k) {
+							delete m['' + k]
+							if (onOp) onOp({ op: 'remove', key: '' + k })
+						},
+						clear: function () {
+							for (var k in m) delete m[k]
+							if (onOp) onOp({ op: 'clear' })
+						},
+						key: function (i) {
+							var ks = Object.keys(m)
+							return i < ks.length ? ks[i] : null
+						},
+						get length() {
+							return Object.keys(m).length
+						}
+					}
+				}
+				try {
+					window.localStorage.getItem('__wm_probe__')
+				} catch (e) {
+					var framed = window.parent !== window
+					function relayOp(o) {
+						if (framed)
+							try {
+								window.parent.postMessage(
+									{ type: 'wm_ls_op', op: o.op, key: o.key, value: o.value },
+									'*'
+								)
+							} catch (_) {}
+					}
+					var ls = shim(framed ? relayOp : null)
+					try {
+						Object.defineProperty(window, 'localStorage', { value: ls, configurable: true })
+					} catch (_) {}
+					try {
+						Object.defineProperty(window, 'sessionStorage', {
+							value: shim(null),
+							configurable: true
+						})
+					} catch (_) {}
+					// Persistence: ask the embedder for the shared store and hydrate the
+					// in-memory localStorage when it arrives.
+					if (framed) {
+						window.addEventListener('message', function (ev) {
+							if (ev.source === window.parent && ev.data && ev.data.type === 'wm_ls_hydrate') {
+								ls.__hydrate(ev.data.data)
+							}
+						})
+						try {
+							window.parent.postMessage({ type: 'wm_ls_req' }, '*')
+						} catch (_) {}
+					}
+					// `document.cookie` also throws in an opaque origin; back it with an
+					// in-memory jar so reads don't crash apps. This is NOT the real
+					// session cookie (unreachable here) — just an isolated client-side store.
+					try {
+						var jar = {}
+						Object.defineProperty(Document.prototype, 'cookie', {
+							configurable: true,
+							get: function () {
+								return Object.keys(jar)
+									.map(function (k) {
+										return k + '=' + jar[k]
+									})
+									.join('; ')
+							},
+							set: function (v) {
+								var p = String(v).split(';')[0]
+								var i = p.indexOf('=')
+								if (i > -1) jar[p.slice(0, i).trim()] = p.slice(i + 1).trim()
+							}
+						})
+					} catch (_) {}
+				}
+			})()
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-code="viewport" class="outline-none focus:outline-none">
@@ -56,7 +156,7 @@
 							/>
 							<polygon
 								class="st3"
-								points="136.93,132.47 116.46,167.93 73.82,241.78 130.71,241.78 144.9,217.2 180.13,156.18 193.82,132.46 	
+								points="136.93,132.47 116.46,167.93 73.82,241.78 130.71,241.78 144.9,217.2 180.13,156.18 193.82,132.46
 		"
 							/>
 							<polygon

@@ -84,11 +84,25 @@ lazy_static::lazy_static! {
                     (20260228000000, include_str!(
                         "../../migrations/20260228000000_v2_job_completed_failure_index.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260610151334, include_str!(
+                        "../../migrations/20260610151334_folder_labels.up.sql"
+                    ).replace("SET search_path = public", "SET search_path FROM CURRENT").to_string()),
+                    (20260614075900, include_str!(
+                        "../../migrations/20260614075900_dedup_folder_labels.up.sql"
+                    ).replace("SET search_path = public", "SET search_path FROM CURRENT").to_string()),
                     ].into_iter().collect();
 }
 
 pub struct CustomMigrator {
     inner: PoolConnection<Postgres>,
+}
+impl CustomMigrator {
+    /// The connection the migrator already holds (with the migration advisory lock).
+    /// Migration housekeeping runs on it instead of re-acquiring: a second connection
+    /// while this one is held deadlocks a single-connection backend (e.g. embedded pglite).
+    pub fn connection(&mut self) -> &mut PgConnection {
+        &mut *self.inner
+    }
 }
 impl Migrate for CustomMigrator {
     fn ensure_migrations_table(
@@ -266,7 +280,7 @@ pub async fn migrate(
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
         version=20250201145631 OR version=20250201145632 OR version=20251006143821"
     )
-    .execute(db)
+    .execute(custom_migrator.connection())
     .await
     {
         tracing::info!("Could not remove sqlx migrations: {err:#}");
@@ -288,6 +302,12 @@ pub async fn migrate(
         // idempotent, so re-applying on an already-migrated DB is a no-op.
         20260423050000,
         20260523055641,
+        // Reworked to stop reading pg_authid (via pg_has_role) from an elevated
+        // context, which managed providers (e.g. Cloud SQL) forbid — the original
+        // aborted startup. The new file is idempotent (CREATE OR REPLACE + an
+        // epoch-guarded UPDATE that no-ops once anchored), so re-applying on an
+        // already-migrated DB is safe.
+        20260626132251,
     ];
     for m in migrator.migrations.iter() {
         if m.migration_type.is_down_migration() {
@@ -298,7 +318,7 @@ pub async fn migrate(
                 sqlx::query("DELETE FROM _sqlx_migrations WHERE version = $1 AND checksum != $2")
                     .bind(m.version)
                     .bind(&*m.checksum)
-                    .execute(db)
+                    .execute(custom_migrator.connection())
                     .await
             {
                 tracing::info!("Could not clean up stale migration {}: {err:#}", m.version);
@@ -328,7 +348,7 @@ pub async fn migrate(
         }
     }
 
-    crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
+    crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
     Ok(None)
 }
 

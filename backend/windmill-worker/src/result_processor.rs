@@ -1295,7 +1295,7 @@ pub async fn handle_job_error(
                         db,
                         &parent_job,
                         mem_peak,
-                        canceled_by,
+                        canceled_by.clone(),
                         e,
                         worker_name,
                         false,

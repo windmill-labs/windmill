@@ -1,5 +1,11 @@
-import type { AssetGraphResponse, NativeTriggerKind } from './types'
-import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
+import type { AssetGraphMacroEdge, AssetGraphResponse, NativeTriggerKind } from './types'
+import {
+	mergeColumnLineage,
+	parsePipelineAnnotations,
+	scd2CurrentTargetPath,
+	type ColumnLineage,
+	type PipelineAnnotations
+} from './parsePipelineAnnotations'
 import {
 	extractWrites,
 	extractReads,
@@ -10,8 +16,10 @@ import {
 /** Minimal structural shape of a pipeline draft `resolveGraph` needs. */
 export type GraphDraft = {
 	script: { content: string }
-	outputAsset?: { kind: AssetKind; path: string }
 	outputAssets?: Array<{ kind: AssetKind; path: string }>
+	/** Reads captured on pane teardown. `undefined` = not captured (legacy
+	 * bundle) → fall back to the session cache; `[]` = authoritative none. */
+	inputAssets?: Array<{ kind: AssetKind; path: string }>
 }
 
 export type ResolveGraphInput = {
@@ -20,7 +28,12 @@ export type ResolveGraphInput = {
 	/** In-flight drafts keyed by script path. */
 	drafts: Map<string, GraphDraft>
 	/** Body assets inferred for the currently-open script (live keystrokes). */
-	liveBodyAssets: { scriptPath: string | undefined; assets: AssetWithAltAccessType[] }
+	liveBodyAssets: {
+		scriptPath: string | undefined
+		assets: AssetWithAltAccessType[]
+		/** Body-inferred column lineage (DuckDB SQL AST) for the open script. */
+		columnLineage?: ColumnLineage[]
+	}
 	/** Pipeline annotations parsed from the currently-open buffer. */
 	liveAnnotations: { scriptPath: string | undefined; annotations: PipelineAnnotations }
 	/** Sticky session caches of inferred body writes/reads per script path. */
@@ -58,6 +71,108 @@ function persistedNativeKinds(base: AssetGraphResponse, path: string): Set<strin
 			)
 			.map((t) => t.trigger_kind)
 	)
+}
+
+// Read-asset kinds that auto-derive a cascade trigger edge inside a
+// `// pipeline`. Mirror of the backend `is_auto_trigger_kind`
+// (windmill-common assets.rs) — ducklake tables and s3 objects only.
+const AUTO_TRIGGER_KINDS: ReadonlySet<AssetKind> = new Set(['ducklake', 's3object'])
+
+/** `kind:path` refs of a script's `// materialize` write target(s) (base +
+ *  the scd2 `<dim>_current` companion), which the body `SELECT` doesn't express. */
+function materializeWriteRefs(parsed: PipelineAnnotations): string[] {
+	const m = parsed.materialize
+	if (!m) return []
+	const refs = [`${m.targetKind}:${m.targetPath}`]
+	const current = scd2CurrentTargetPath(m)
+	if (current) refs.push(`${m.targetKind}:${current}`)
+	return refs
+}
+
+/**
+ * Backend-mirror of `derive_pipeline_asset_trigger_refs` (windmill-common
+ * assets.rs): a pipeline script's ducklake/s3 read auto-wires a cascade
+ * trigger edge from the FROM clause, so `// on <asset>` is only needed for
+ * edges inference can't see. Excluded: assets the script also writes (`writes`
+ * covers `w`/`rw`, so an `rw` self-read can't loop-trigger), muted assets,
+ * `// mute all`, and any explicit `// on` (which already emits its own edge).
+ * Returns the `{kind, path}` refs to overlay as unsaved asset triggers, deduped.
+ */
+function deriveAutoAssetTriggers(
+	reads: Array<{ kind: AssetKind; path: string }>,
+	writes: Array<{ kind: AssetKind; path: string }>,
+	parsed: PipelineAnnotations
+): Array<{ kind: AssetKind; path: string }> {
+	// Auto-derivation is scoped to `// pipeline` scripts (backend gates on
+	// `in_pipeline`); `// mute all` opts a pipeline script back out.
+	if (!parsed.inPipeline || parsed.muteAll) return []
+	const skip = new Set<string>([
+		...writes.map((w) => `${w.kind}:${w.path}`),
+		// The `// materialize` target(s) are this script's own output — the body
+		// `SELECT` doesn't express the write, so an incremental model that reads
+		// its own target would otherwise auto-derive a self-cascade edge (backend
+		// parity: the deploy path upgrades the same read to `rw`).
+		...materializeWriteRefs(parsed),
+		...parsed.muteAssets.map((a) => `${a.kind}:${a.path}`),
+		...parsed.triggerAssets.map((a) => `${a.kind}:${a.path}`)
+	])
+	const out: Array<{ kind: AssetKind; path: string }> = []
+	for (const r of reads) {
+		const key = `${r.kind}:${r.path}`
+		if (!AUTO_TRIGGER_KINDS.has(r.kind) || skip.has(key)) continue
+		skip.add(key) // dedup within reads too
+		out.push({ kind: r.kind, path: r.path })
+	}
+	return out
+}
+
+/** Edge key matching a lineage/trigger edge's `(asset, runnable)` pair. */
+function edgeKey(a: {
+	asset_kind: string
+	asset_path: string
+	runnable_kind: string
+	runnable_path: string
+}): string {
+	return `${a.asset_kind}:${a.asset_path}->${a.runnable_kind}:${a.runnable_path}`
+}
+
+/**
+ * Keys of "muted read" edges: a ducklake/s3 asset a script reads read-*only*
+ * (`access_type === 'r'`) yet has NO cascade trigger for. Auto-derivation is the
+ * default, so a supported read with no trigger means the author opted it out
+ * with `// mute <asset>` / `// mute all` (or it's an explicit non-triggering
+ * read). The canvas badges these — the exception — instead of every derived
+ * edge. Self-reads are excluded: a script that also writes the asset carries
+ * `'rw'` on the deployed graph (one edge) or a separate `'w'` edge in the live
+ * overlay (a `// materialize` producer reading its own target), and neither
+ * should badge as muted — it's the script's own output, not a suppressed input.
+ *
+ * Only `// pipeline` scripts are considered: auto-derivation never applies to a
+ * plain script or a flow, so a non-pipeline runnable reading a ducklake/s3
+ * asset has no auto trigger to suppress and must render as ordinary lineage.
+ */
+export function computeMutedReadKeys(
+	edges: AssetGraphResponse['edges'],
+	triggers: AssetGraphResponse['triggers'],
+	runnables: AssetGraphResponse['runnables']
+): Set<string> {
+	const pipelineScripts = new Set(
+		runnables.filter((r) => r.usage_kind === 'script' && r.in_pipeline).map((r) => r.path)
+	)
+	const cascaded = new Set(
+		triggers.filter((t) => t.trigger_kind === 'asset').map((t) => edgeKey(t))
+	)
+	const written = new Set(
+		edges.filter((e) => e.access_type === 'w' || e.access_type === 'rw').map((e) => edgeKey(e))
+	)
+	const muted = new Set<string>()
+	for (const e of edges) {
+		if (e.access_type !== 'r' || !AUTO_TRIGGER_KINDS.has(e.asset_kind)) continue
+		if (e.runnable_kind !== 'script' || !pipelineScripts.has(e.runnable_path)) continue
+		const key = edgeKey(e)
+		if (!cascaded.has(key) && !written.has(key)) muted.add(key)
+	}
+	return muted
 }
 
 /** `kind:path` keys of persisted asset (`// on <asset>`) triggers for `path`. */
@@ -137,13 +252,92 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 			return false
 		return true
 	})
+	// Mirror the backend's skip-if-empty: no `macro_edges` key at all when
+	// there is nothing to show (also keeps the no-macros response shape
+	// byte-identical to before the feature).
+	const macroEdges = resolveMacroEdges(input)
 	return {
 		...base,
 		assets: acc.assets,
 		runnables: acc.runnables,
 		edges: acc.edges,
-		triggers: [...baseTriggers, ...acc.extraTriggers]
+		triggers: [...baseTriggers, ...acc.extraTriggers],
+		...(macroEdges.length > 0 || base.macro_edges ? { macro_edges: macroEdges } : {})
 	}
+}
+
+/**
+ * Macro-library → consumer edges: the deployed base edges, with `// use`
+ * declarations of overlaid scripts (drafts + the open buffer) taking over
+ * their consumer's `via_use` edges so adding/removing a `// use` line updates
+ * the canvas live. Detection-based edges (macro calls in the deployed body)
+ * are backend-owned and only refresh on redeploy.
+ */
+function resolveMacroEdges(input: ResolveGraphInput): AssetGraphMacroEdge[] {
+	const { base, drafts, liveAnnotations } = input
+	const libMacroNames = new Map<string, string[]>()
+	for (const r of base.runnables) {
+		if (r.usage_kind === 'script' && r.macros?.length) {
+			libMacroNames.set(
+				r.path,
+				r.macros.map((m) => m.name)
+			)
+		}
+	}
+	const useByPath = new Map<string, string[]>()
+	for (const [path, d] of drafts) {
+		useByPath.set(path, parsePipelineAnnotations(d.script.content).useLibs)
+	}
+	if (liveAnnotations.scriptPath) {
+		// `?? []` — callers may hand a minimal annotations object (tests, older
+		// call sites) that predates the field.
+		useByPath.set(liveAnnotations.scriptPath, liveAnnotations.annotations.useLibs ?? [])
+	}
+	const out: AssetGraphMacroEdge[] = []
+	for (const e of base.macro_edges ?? []) {
+		if (e.via_use && useByPath.has(e.consumer_path)) continue
+		out.push({ ...e })
+	}
+	for (const [path, libs] of useByPath) {
+		for (const lib of libs) {
+			const existing = out.find((e) => e.lib_path === lib && e.consumer_path === path)
+			if (existing) {
+				// Upgrade the detection edge in place: `// use` pulls in the whole
+				// library, so the edge covers every macro the lib defines.
+				existing.via_use = true
+				existing.unsaved = true
+				existing.macro_names = [
+					...new Set([...existing.macro_names, ...(libMacroNames.get(lib) ?? [])])
+				]
+			} else {
+				out.push({
+					lib_path: lib,
+					consumer_path: path,
+					macro_names: libMacroNames.get(lib) ?? [],
+					via_use: true,
+					unsaved: true
+				})
+			}
+		}
+	}
+	return out
+}
+
+// Light regex extraction of a draft macro library's definitions for the live
+// node badge. The strict grammar lives in the Rust `parse_macro_library` at
+// deploy; this only needs name/params/table-ness for display (nested parens
+// in a default value may truncate the shown signature, never the deploy).
+const MACRO_DEF_RE =
+	/create\s+(?:or\s+replace\s+)?(?:temp(?:orary)?\s+)?(?:macro|function)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*as\s+(table\b)?/gi
+
+export function extractDraftMacros(
+	content: string
+): { name: string; params: string; is_table: boolean }[] {
+	const out: { name: string; params: string; is_table: boolean }[] = []
+	for (const m of content.matchAll(MACRO_DEF_RE)) {
+		out.push({ name: m[1].toLowerCase(), params: m[2].trim(), is_table: m[3] !== undefined })
+	}
+	return out
 }
 
 type ResolveContext = {
@@ -173,6 +367,20 @@ function makeContext(input: ResolveGraphInput): ResolveContext {
 		if (liveAnnotations.scriptPath === openPath) {
 			for (const a of liveAnnotations.annotations.triggerAssets)
 				liveRefKeys.add(`${a.kind}:${a.path}`)
+			// The `// materialize <asset>` target is a declared *output*, but it
+			// lives in an annotation (not the SQL body), so neither triggerAssets
+			// (inputs) nor the body-inferred assets cover it. Without this its
+			// persisted write-edge is judged stale and dropped the moment the
+			// script is selected/edited — leaving the output asset unlinked. A
+			// managed scd2 producer persists a second write to the `<dim>_current`
+			// companion view, so keep that too or a consumer of only the view
+			// orphans while the producer is open for editing.
+			const m = liveAnnotations.annotations.materialize
+			if (m) {
+				liveRefKeys.add(`${m.targetKind}:${m.targetPath}`)
+				const currentPath = scd2CurrentTargetPath(m)
+				if (currentPath) liveRefKeys.add(`${m.targetKind}:${currentPath}`)
+			}
 		}
 		for (const a of liveBodyAssets.assets) liveRefKeys.add(`${a.kind}:${a.path}`)
 	}
@@ -204,17 +412,126 @@ function seedAccumulator(input: ResolveGraphInput, ctx: ResolveContext): Accumul
 }
 
 /**
+ * The write output(s) a `// materialize <asset>` annotation declares: the
+ * target itself, plus — for a managed scd2 materialize — the `<dim>_current`
+ * companion view (mirrors the deploy path), so a consumer of only the view
+ * links back to this producer instead of orphaning.
+ */
+function materializeOuts(
+	parsed: PipelineAnnotations
+): Array<{ kind: AssetKind; path: string; derivedFrom?: string }> {
+	if (!parsed.materialize) return []
+	const outs: Array<{ kind: AssetKind; path: string; derivedFrom?: string }> = [
+		{ kind: parsed.materialize.targetKind, path: parsed.materialize.targetPath }
+	]
+	const currentPath = scd2CurrentTargetPath(parsed.materialize)
+	if (currentPath) {
+		outs.push({
+			kind: parsed.materialize.targetKind,
+			path: currentPath,
+			derivedFrom: parsed.materialize.targetPath
+		})
+	}
+	return outs
+}
+
+/** Add an output asset node + unsaved write edge for `runnablePath`, deduped
+ *  against the assets/edges already accumulated (base survivors included). */
+function pushWriteOut(
+	acc: Accumulator,
+	runnablePath: string,
+	out: { kind: AssetKind; path: string; derivedFrom?: string }
+) {
+	const existing = acc.assets.find((a) => a.kind === out.kind && a.path === out.path)
+	if (!existing) {
+		acc.assets.push({
+			kind: out.kind,
+			path: out.path,
+			...(out.derivedFrom ? { derived_from: out.derivedFrom } : {})
+		})
+	} else if (out.derivedFrom && existing.derived_from == undefined) {
+		existing.derived_from = out.derivedFrom
+	}
+	const hasWriteEdge = acc.edges.some(
+		(e) =>
+			e.runnable_kind === 'script' &&
+			e.runnable_path === runnablePath &&
+			e.asset_kind === out.kind &&
+			e.asset_path === out.path &&
+			(e.access_type === 'w' || e.access_type === 'rw')
+	)
+	if (hasWriteEdge) return
+	acc.edges.push({
+		runnable_path: runnablePath,
+		runnable_kind: 'script',
+		asset_kind: out.kind,
+		asset_path: out.path,
+		access_type: 'w',
+		unsaved: true
+	})
+}
+
+/** Add an input asset node + unsaved read edge for `runnablePath`, deduped
+ *  against the assets/edges already accumulated. */
+function pushReadIn(
+	acc: Accumulator,
+	runnablePath: string,
+	inp: { kind: AssetKind; path: string }
+) {
+	if (!acc.assets.some((a) => a.kind === inp.kind && a.path === inp.path)) {
+		acc.assets.push({ kind: inp.kind, path: inp.path })
+	}
+	const hasReadEdge = acc.edges.some(
+		(e) =>
+			e.runnable_kind === 'script' &&
+			e.runnable_path === runnablePath &&
+			e.asset_kind === inp.kind &&
+			e.asset_path === inp.path &&
+			(e.access_type === 'r' || e.access_type === 'rw')
+	)
+	if (hasReadEdge) return
+	acc.edges.push({
+		runnable_path: runnablePath,
+		runnable_kind: 'script',
+		asset_kind: inp.kind,
+		asset_path: inp.path,
+		access_type: 'r',
+		unsaved: true
+	})
+}
+
+/**
  * Every draft contributes: a runnable, output asset(s), a write edge, live
  * read lineage for the active draft, plus its seeded asset/native triggers
  * (template includes `// on schedule …` by default). Iterates the whole
  * `drafts` map so multiple concurrent drafts all render at once.
  */
 function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
-	const { base, drafts, liveBodyAssets } = input
-	const { runnables, assets, edges, extraTriggers } = acc
+	const { base, drafts, liveBodyAssets, inferredReadsByPath, inferredWritesByPath } = input
+	const { runnables, assets, extraTriggers } = acc
 
 	for (const [path, d] of drafts) {
-		const parsed = parsePipelineAnnotations(d.script.content)
+		// The open draft's annotations come from the live buffer, not the draft
+		// snapshot — the snapshot only syncs on pane teardown, so parsing it here
+		// would pin annotation-derived outputs (`// materialize` target, badges)
+		// to their pre-edit values until the user clicks away.
+		const parsed =
+			path === input.liveAnnotations.scriptPath
+				? input.liveAnnotations.annotations
+				: parsePipelineAnnotations(d.script.content)
+		// For the open script, fold in the WASM-inferred column lineage (DuckDB
+		// SQL AST) under the same annotation-wins precedence the backend applies
+		// on deploy, so the live preview matches what deploys. Only the open
+		// script carries live inference (`liveBodyAssets`); other drafts stay
+		// annotation-only until they deploy (the backend infers then).
+		const inferredCL =
+			path === liveBodyAssets.scriptPath ? (liveBodyAssets.columnLineage ?? []) : []
+		const mergedCL = mergeColumnLineage(inferredCL, parsed.columnLineage)
+		// The `// materialize` target this draft's column lineage describes, so
+		// the column graph anchors to it rather than guessing a write-edge.
+		const materializeTarget = parsed.materialize
+			? { kind: parsed.materialize.targetKind, path: parsed.materialize.targetPath }
+			: undefined
 		// A draft can coexist with a base entry — during save the refetch
 		// lands before drafts cleanup, and a user re-editing a deployed
 		// script also produces both. In that case we mutate the existing
@@ -222,6 +539,9 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		// duplicate (which would crash svelte-flow's keyed each), so the
 		// canvas + trigger-node labels reflect that there's pending body
 		// editing for this path.
+		// `// macros` library draft: extract the definitions for the live node
+		// badge (regex-light; the strict parse happens at deploy).
+		const draftMacros = parsed.macros ? extractDraftMacros(d.script.content) : []
 		const baseIdx = runnables.findIndex((r) => r.usage_kind === 'script' && r.path === path)
 		if (baseIdx === -1) {
 			runnables.push({
@@ -232,87 +552,58 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				freshness: parsed.freshness?.duration,
 				tag: parsed.tag,
 				retry: parsed.retry,
+				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
+				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
+				materialize_target: materializeTarget,
+				macros: draftMacros.length > 0 ? draftMacros : undefined,
 				unsaved: true
 			})
 		} else {
-			runnables[baseIdx] = { ...runnables[baseIdx], unsaved: true }
+			// Refresh annotation-derived badges from the live parse too, so
+			// adding/removing `// data_test` / `// column` lines on an
+			// already-deployed script updates the badge immediately (not only
+			// after redeploy/refetch).
+			runnables[baseIdx] = {
+				...runnables[baseIdx],
+				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
+				column_lineage: mergedCL.length > 0 ? mergedCL : undefined,
+				materialize_target: materializeTarget,
+				macros: draftMacros.length > 0 ? draftMacros : undefined,
+				unsaved: true
+			}
 		}
-		// Output asset(s): three-tier resolution.
+		// Output asset(s): two-tier resolution.
 		//   1. Active draft (the body the user is editing right now):
 		//      live body inference is authoritative — renaming a
 		//      CREATE TABLE target or writeS3File path retires the
 		//      old output node and surfaces the new one as the user
 		//      types.
-		//   2. Inactive draft with a captured `outputAssets` snapshot
-		//      (taken on the last pane transition): use those, so a
-		//      draft the user already edited keeps its renamed outputs
-		//      after they've clicked elsewhere.
-		//   3. Fallback to the static `outputAsset` seeded at draft
-		//      creation — covers fresh drafts and parser misses (e.g.
-		//      WIN-1943: wmill.writeS3File({s3, storage}) object form
-		//      not yet detected by the TS parser).
+		//   2. Inactive draft: its captured `outputAssets` (inferred at
+		//      creation/last edit, or the seeded output for a fresh draft
+		//      whose body doesn't yet write anything inferable).
 		const liveForThisDraft = liveBodyAssets.scriptPath === path
-		const writeOuts: Array<{ kind: AssetKind; path: string }> = []
+		const writeOuts: Array<{ kind: AssetKind; path: string; derivedFrom?: string }> = []
 		if (liveForThisDraft) {
 			writeOuts.push(...extractWrites(liveBodyAssets.assets))
 		} else if (d.outputAssets) {
 			writeOuts.push(...d.outputAssets)
 		}
-		if (writeOuts.length === 0 && d.outputAsset) {
-			writeOuts.push(d.outputAsset)
-		}
+		// `// materialize <asset>` declares a write output via annotation, not
+		// the SQL body, so the body-inference tiers above miss it (pushWriteOut
+		// dedups against existing assets/edges).
+		writeOuts.push(...materializeOuts(parsed))
 		for (const out of writeOuts) {
-			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
-			if (!hasAsset) assets.push({ kind: out.kind, path: out.path })
-			// Dedup against edges already in the overlay (this draft's base
-			// edges were dropped above, so this only guards against duplicate
-			// writeOuts entries — not against the persisted version).
-			const hasWriteEdge = edges.some(
-				(e) =>
-					e.runnable_kind === 'script' &&
-					e.runnable_path === path &&
-					e.asset_kind === out.kind &&
-					e.asset_path === out.path &&
-					(e.access_type === 'w' || e.access_type === 'rw')
-			)
-			if (hasWriteEdge) continue
-			edges.push({
-				runnable_path: path,
-				runnable_kind: 'script',
-				asset_kind: out.kind,
-				asset_path: out.path,
-				access_type: 'w',
-				unsaved: true
-			})
+			pushWriteOut(acc, path, out)
 		}
-		// Live read lineage for the active draft (body reads like loadS3File /
-		// SELECT). Only the open draft has live-inferred assets; inactive drafts
-		// fall back to their `// on <asset>` annotations below for inputs. Without
-		// this, dropping the persisted base edges above would lose the input
-		// edges of a saved script the moment the user starts editing it.
-		if (liveForThisDraft) {
-			for (const inp of extractReads(liveBodyAssets.assets)) {
-				if (!assets.some((a) => a.kind === inp.kind && a.path === inp.path)) {
-					assets.push({ kind: inp.kind, path: inp.path })
-				}
-				const hasReadEdge = edges.some(
-					(e) =>
-						e.runnable_kind === 'script' &&
-						e.runnable_path === path &&
-						e.asset_kind === inp.kind &&
-						e.asset_path === inp.path &&
-						(e.access_type === 'r' || e.access_type === 'rw')
-				)
-				if (hasReadEdge) continue
-				edges.push({
-					runnable_path: path,
-					runnable_kind: 'script',
-					asset_kind: inp.kind,
-					asset_path: inp.path,
-					access_type: 'r',
-					unsaved: true
-				})
-			}
+		// Read lineage: live inference for the open draft, the captured
+		// `inputAssets` snapshot for inactive ones (with the session cache as a
+		// legacy fallback). Without the inactive tier, merely selecting another
+		// node would drop this draft's input edges from the canvas.
+		const draftReads = liveForThisDraft
+			? extractReads(liveBodyAssets.assets)
+			: (d.inputAssets ?? inferredReadsByPath.get(path) ?? [])
+		for (const inp of draftReads) {
+			pushReadIn(acc, path, inp)
 		}
 		// Seed trigger edges from the draft's template so the graph stays
 		// stable when the user clicks off this draft. Live annotations
@@ -333,6 +624,28 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 			// or also a draft).
 			const hasTriggerAsset = assets.some((x) => x.kind === a.kind && x.path === a.path)
 			if (!hasTriggerAsset) assets.push({ kind: a.kind, path: a.path })
+		}
+		// Auto-derived cascade edges (backend parity): a ducklake/s3 read wires
+		// the edge from the body alone. Reads reuse the tier above; writes come
+		// from the active draft's live inference, else the captured snapshot /
+		// session cache. The open buffer's derived edges are re-computed
+		// authoritatively in applyLiveBufferOverlay (which strips this path's
+		// seeded triggers first), same as the explicit `// on` triggers above.
+		const draftWrites = liveForThisDraft
+			? extractWrites(liveBodyAssets.assets)
+			: (d.outputAssets ?? inferredWritesByPath.get(path) ?? [])
+		for (const a of deriveAutoAssetTriggers(draftReads, draftWrites, parsed)) {
+			extraTriggers.push({
+				trigger_kind: 'asset',
+				asset_kind: a.kind,
+				asset_path: a.path,
+				runnable_kind: 'script',
+				runnable_path: path,
+				unsaved: true
+			})
+			if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
+				assets.push({ kind: a.kind, path: a.path })
+			}
 		}
 		// Native trigger annotations on a draft are "missing" until a
 		// matching trigger row exists. A brand-new draft never has one (the
@@ -394,6 +707,49 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 			assets.push({ kind: a.kind, path: a.path })
 		}
 	}
+	// Auto-derived cascade edges (backend parity): a ducklake/s3 read wires
+	// the edge from the FROM clause alone, keystroke-live. The open buffer's
+	// live body inference is authoritative for its reads/writes. `// mute` /
+	// `// mute all` and explicit `// on` (above) suppress a derived edge; a
+	// derived edge already persisted for a non-draft open script is deduped
+	// via `assetKeys`.
+	if (input.liveBodyAssets.scriptPath === livePath) {
+		const reads = extractReads(input.liveBodyAssets.assets)
+		const writes = extractWrites(input.liveBodyAssets.assets)
+		for (const a of deriveAutoAssetTriggers(reads, writes, liveAnnotations.annotations)) {
+			if (assetKeys.has(`${a.kind}:${a.path}`)) continue
+			extraTriggers.push({
+				trigger_kind: 'asset',
+				asset_kind: a.kind,
+				asset_path: a.path,
+				runnable_kind: 'script',
+				runnable_path: livePath,
+				unsaved: true
+			})
+			if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
+				assets.push({ kind: a.kind, path: a.path })
+			}
+		}
+	}
+	// Lineage overlay for an open SAVED script. seedDraftOverlays owns drafts,
+	// but a deployed script's unsaved edits are only promoted to a draft on
+	// pane teardown — until then the buffer's lineage lives here. staleForOpen
+	// already dropped the base edges the buffer no longer references; this adds
+	// the ones it now does. Without it, retargeting `// materialize` (or a body
+	// write/read) shows no output edge until the user clicks away.
+	if (!ctx.draftedPaths.has(livePath)) {
+		for (const out of materializeOuts(liveAnnotations.annotations)) {
+			pushWriteOut(acc, livePath, out)
+		}
+		if (input.liveBodyAssets.scriptPath === livePath) {
+			for (const out of extractWrites(input.liveBodyAssets.assets)) {
+				pushWriteOut(acc, livePath, out)
+			}
+			for (const inp of extractReads(input.liveBodyAssets.assets)) {
+				pushReadIn(acc, livePath, inp)
+			}
+		}
+	}
 	// Native trigger annotations: kinds for which a matching trigger
 	// row was found in the backend response. If the live buffer
 	// declares `// on kafka` and at least one kafka_trigger row points
@@ -442,7 +798,7 @@ function crossCheckSweptScripts(acc: Accumulator, input: ResolveGraphInput) {
  * changes — not just while selected.
  */
 function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
-	const { base, drafts, inferredWritesByPath, inferredReadsByPath } = input
+	const { drafts, inferredWritesByPath, inferredReadsByPath } = input
 	const { assets, edges } = acc
 
 	const overlayLineage = (
@@ -451,19 +807,21 @@ function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
 	) => {
 		for (const [scriptPath, refs] of byPath) {
 			if (drafts.has(scriptPath)) continue
-			const persisted = new Set(
-				base.edges
-					.filter(
-						(e) =>
-							e.runnable_path === scriptPath &&
-							e.runnable_kind === 'script' &&
-							(e.access_type === access || e.access_type === 'rw')
-					)
-					.map((e) => `${e.asset_kind}:${e.asset_path}`)
-			)
 			for (const a of refs) {
-				const key = `${a.kind}:${a.path}`
-				if (persisted.has(key)) continue
+				// Dedup against the ACCUMULATED edges, not just base: for the open
+				// script these same refs may already be overlaid by
+				// applyLiveBufferOverlay (which feeds the maps on the route page),
+				// and a duplicate would collide on the canvas's endpoint-derived
+				// edge ids.
+				const hasEdge = edges.some(
+					(e) =>
+						e.runnable_path === scriptPath &&
+						e.runnable_kind === 'script' &&
+						e.asset_kind === a.kind &&
+						e.asset_path === a.path &&
+						(e.access_type === access || e.access_type === 'rw')
+				)
+				if (hasEdge) continue
 				if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
 					assets.push({ kind: a.kind, path: a.path })
 				}

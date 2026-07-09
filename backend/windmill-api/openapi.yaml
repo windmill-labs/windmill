@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.733.1
+  version: 1.753.0
   title: Windmill API
 
   contact:
@@ -127,40 +127,89 @@ paths:
               schema:
                 type: string
 
-  /inkeep:
-    post:
-      summary: query Windmill AI documentation assistant (EE only)
-      operationId: queryDocumentation
+  /docs/search:
+    get:
+      summary: "Full-text search across the entire Windmill documentation. Provide one or more keywords; returns the most relevant docs pages, each with its Source URL and short matching snippets. Use this FIRST to find relevant pages by their content (a flag, function, error message, config key or concept). If the snippets answer the question, answer directly; otherwise call readDocsPage with a returned Source URL to read more."
+      operationId: searchDocs
       x-mcp-tool: true
       tags:
         - documentation
-      requestBody:
-        description: query to send to the AI documentation assistant
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                query:
-                  type: string
-                  description: The documentation query to send to the AI assistant
-              required:
-                - query
+      parameters:
+        - name: query
+          description: 'Keywords to search for in the documentation body, e.g. "chromium worker tag" or "retry exponential backoff". Fewer, more distinctive words match better.'
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          description: AI documentation assistant response
+          description: matching documentation pages
           content:
             application/json:
               schema:
                 type: object
-                description: Response from Inkeep service
-        "403":
-          description: Enterprise Edition required
+                properties:
+                  text:
+                    type: string
+                    description: Model-ready rendering of the results
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        score:
+                          type: integer
+                        snippets:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - url
+                        - title
+                        - score
+                        - snippets
+                required:
+                  - text
+                  - results
+
+  /docs/page:
+    get:
+      summary: "Fetch the markdown of a single Windmill documentation page. Provide the `url` of a page found via searchDocs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section."
+      operationId: readDocsPage
+      x-mcp-tool: true
+      tags:
+        - documentation
+      parameters:
+        - name: url
+          description: "The docs page to read, as a Source URL returned by searchDocs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted."
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: section
+          description: "Optional. A heading title from the page outline to read just that section instead of the full page."
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: documentation page content
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  text:
+                    type: string
+                  source_url:
+                    type: string
+                required:
+                  - text
+                  - source_url
 
   /openapi.yaml:
     get:
@@ -997,6 +1046,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
 
+  /workspaces/session_workspace_status:
+    post:
+      summary: get the lifecycle status of workspaces referenced by client-side sessions
+      operationId: getSessionWorkspaceStatus
+      tags:
+        - workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - workspace_ids
+      responses:
+        "200":
+          description: map of workspace id to status (active, archived, or deleted)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  enum:
+                    - active
+                    - archived
+                    - deleted
+
   /w/{workspace}/workspaces/get_as_superadmin:
     get:
       summary: get workspace as super admin (require to be super admin)
@@ -1097,6 +1179,122 @@ paths:
       responses:
         "201":
           description: forked workspace created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/attach_dev_workspace:
+    post:
+      summary: attach an existing workspace as the dev workspace of this (prod) workspace
+      operationId: attachDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_id:
+                  type: string
+                lock_prod_deploy:
+                  type: boolean
+                lock_prod_forking:
+                  type: boolean
+                dev_workspace_label:
+                  type: string
+                  enum: [dev, staging]
+              required:
+                - dev_workspace_id
+      responses:
+        "200":
+          description: dev workspace attached
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/detach_dev_workspace:
+    post:
+      summary: detach the dev workspace from this (prod) workspace
+      operationId: detachDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_id:
+                  type: string
+              required:
+                - dev_workspace_id
+      responses:
+        "200":
+          description: dev workspace detached
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_dev_workspace:
+    get:
+      summary: this workspace's active canonical dev workspace, if any
+      operationId: getDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the dev workspace, or null if none
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  dev_workspace_label:
+                    type: string
+                    nullable: true
+                    description: "Cosmetic display label ('dev' | 'staging'); null defaults to 'dev'"
+                required:
+                  - id
+                  - name
+
+  /w/{workspace}/workspaces/set_dev_workspace_label:
+    post:
+      summary: set the cosmetic display label (dev/staging) of this dev workspace
+      operationId: setDevWorkspaceLabel
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_label:
+                  type: string
+                  enum: [dev, staging]
+      responses:
+        "200":
+          description: dev workspace label updated
           content:
             text/plain:
               schema:
@@ -1655,6 +1853,9 @@ paths:
                   s3_deleted:
                     type: integer
                     format: int64
+                  s3_not_found:
+                    type: integer
+                    format: int64
                   orphans_scanned:
                     type: integer
                     format: int64
@@ -1726,6 +1927,92 @@ paths:
                   - bootstrapping
                   - last_run_exported
                   - updated_at
+
+  /settings/audit_logs_s3_backfill:
+    post:
+      summary: start an opt-in historical backfill of audit logs to object storage
+      operationId: runAuditLogsS3Backfill
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                  description: inclusive lower bound of the window to export
+                to:
+                  type: string
+                  format: date-time
+                  description: exclusive upper bound of the window to export
+              required:
+                - from
+                - to
+      responses:
+        "202":
+          description: backfill started
+
+  /settings/audit_logs_s3_backfill_status:
+    get:
+      summary: get status of the audit-log object-store historical backfill
+      operationId: getAuditLogsS3BackfillStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: current backfill status (null if never run)
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  phase:
+                    type: string
+                  from:
+                    type: string
+                    format: date-time
+                  to:
+                    type: string
+                    format: date-time
+                  rows_written:
+                    type: integer
+                    format: int64
+                  objects_written:
+                    type: integer
+                    format: int64
+                  last_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  errors:
+                    type: integer
+                    format: int64
+                  last_error:
+                    type: string
+                    nullable: true
+                required:
+                  - running
+                  - started_at
+                  - phase
+                  - from
+                  - to
+                  - rows_written
+                  - objects_written
+                  - errors
 
   /settings/send_stats:
     post:
@@ -4344,12 +4631,329 @@ paths:
               properties:
                 settings:
                   $ref: "#/components/schemas/DataTableSettings"
+                renames:
+                  description: data tables renamed in this save, so their migrations cascade
+                  type: array
+                  items:
+                    type: object
+                    required: [from, to]
+                    properties:
+                      from:
+                        type: string
+                      to:
+                        type: string
+                deleted_datatables:
+                  description: data tables removed in this save, so their migrations are deleted
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: status
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/workspaces/run_datatable_migrations/{datatable_name}:
+    post:
+      summary: run pending datatable migrations against a datatable
+      operationId: runDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: up_to
+          in: query
+          required: false
+          description: only apply pending migrations up to and including this version
+          schema:
+            type: integer
+            format: int64
+        - name: only
+          in: query
+          required: false
+          description: apply only this specific migration version, ignoring others
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: applied migrations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [applied]
+                properties:
+                  applied:
+                    type: array
+                    items:
+                      type: object
+                      required: [version, name]
+                      properties:
+                        version:
+                          type: integer
+                          format: int64
+                        name:
+                          type: string
+
+  /w/{workspace}/workspaces/rollback_datatable_migrations/{datatable_name}:
+    post:
+      summary: roll back the most recently applied migration on a datatable
+      operationId: rollbackDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: only
+          in: query
+          required: false
+          description: roll back this specific applied migration version instead of the latest
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: rolled back migrations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rolled_back]
+                properties:
+                  rolled_back:
+                    type: array
+                    items:
+                      type: object
+                      required: [version, name]
+                      properties:
+                        version:
+                          type: integer
+                          format: int64
+                        name:
+                          type: string
+
+  /w/{workspace}/workspaces/list_datatable_migrations:
+    get:
+      summary: list datatable migrations for a workspace
+      operationId: listDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: datatable migrations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DatatableMigration"
+
+  /w/{workspace}/workspaces/datatable_migrations_status/{datatable_name}:
+    get:
+      summary: list a datatable's migrations with their applied status
+      operationId: getDatatableMigrationsStatus
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: migrations with status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, migrations]
+                properties:
+                  enabled:
+                    type: boolean
+                  migrations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DatatableMigrationWithStatus"
+                  error:
+                    type: string
+
+  /w/{workspace}/workspaces/enable_datatable_migrations/{datatable_name}:
+    post:
+      summary: opt a datatable in to migrations (admins / super admins only)
+      operationId: enableDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/disable_datatable_migrations/{datatable_name}:
+    post:
+      summary: opt a datatable out of migrations, deleting all of them (admins / super admins only)
+      operationId: disableDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/create_datatable_migration/{datatable_name}:
+    post:
+      summary: create a single datatable migration (version generated server-side)
+      operationId: createDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, code_up]
+              properties:
+                name:
+                  type: string
+                code_up:
+                  type: string
+                code_down:
+                  type: string
+      responses:
+        "200":
+          description: created migration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatableMigration"
+
+  /w/{workspace}/workspaces/delete_datatable_migration/{datatable_name}/{timestamp}:
+    delete:
+      summary: delete a single datatable migration definition
+      operationId: deleteDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: timestamp
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/upsert_datatable_migration/{datatable_name}:
+    post:
+      summary: insert or update a single datatable migration at an explicit version
+      operationId: upsertDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [timestamp, name, code_up]
+              properties:
+                timestamp:
+                  type: integer
+                  format: int64
+                name:
+                  type: string
+                code_up:
+                  type: string
+                code_down:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/generate_initial_datatable_migration/{datatable_name}:
+    post:
+      summary: snapshot the current schema as an already-installed initial migration
+      operationId: generateInitialDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: created migration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatableMigration"
 
   /w/{workspace}/workspaces/create_pg_database:
     post:
@@ -4402,6 +5006,24 @@ paths:
                   type: array
                   items:
                     type: string
+      responses:
+        "200":
+          description: list of errors (empty if all succeeded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/workspaces/drop_forked_ducklake_namespaces:
+    post:
+      summary: drop this fork workspace's ducklake namespaces (catalog metadata schemas + data files)
+      operationId: dropForkedDucklakeNamespaces
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
           description: list of errors (empty if all succeeded)
@@ -5967,12 +6589,15 @@ paths:
                     $ref: "#/components/schemas/QuotaInfo"
                   resources:
                     $ref: "#/components/schemas/QuotaInfo"
+                  forks:
+                    $ref: "#/components/schemas/QuotaInfo"
                 required:
                   - scripts
                   - flows
                   - apps
                   - variables
                   - resources
+                  - forks
 
   /w/{workspace}/workspaces/prune_versions:
     post:
@@ -6066,6 +6691,42 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/workspaces/set_ws_specific:
+    post:
+      summary: mark or unmark an item as workspace-specific
+      operationId: setWsSpecific
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_kind:
+                  type: string
+                  enum:
+                    - resource
+                    - variable
+                path:
+                  type: string
+                value:
+                  type: boolean
+              required:
+                - item_kind
+                - path
+                - value
+      responses:
+        "200":
+          description: workspace-specific flag updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
@@ -6291,6 +6952,9 @@ paths:
                 cc_instance:
                   type: string
                   description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only). The token URL is never caller-supplied."
+                cc_token_url:
+                  type: string
+                  description: "Bring-your-own token endpoint override (client_credentials flow only). Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; ignored/rejected on the shared-instance path."
                 mcp_server_url:
                   type: string
                   description: "MCP server URL for MCP OAuth token refresh"
@@ -6346,6 +7010,9 @@ paths:
                 cc_instance:
                   type: string
                   description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side. The token URL is never caller-supplied."
+                cc_token_url:
+                  type: string
+                  description: "Bring-your-own token endpoint override. Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; rejected on the shared-instance path."
       responses:
         "200":
           description: OAuth token response
@@ -7491,6 +8158,22 @@ paths:
                     properties:
                       workspace_id:
                         type: string
+
+  /apps_u/embed_token_by_custom_path/{custom_path}:
+    get:
+      summary: get app embed token by custom path
+      operationId: getAppEmbedTokenByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
 
   /scripts/hub/get/{path}:
     get:
@@ -8871,6 +9554,50 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/CiTestResult"
+
+  /w/{workspace}/scripts/check_schema_contracts:
+    post:
+      summary: check a script's asset references against captured producer schemas
+      description: |
+        Save-time schema-contract check for data pipelines: validates the given
+        script content's asset references (body column reads, `// column` lineage,
+        `// data_test relationships`) against the latest captured producer schemas
+        and returns warnings. Warnings never block a save/deploy; an asset whose
+        producer declares `on_schema_change=ignore` is suppressed to a single
+        informational entry.
+      operationId: checkSchemaContracts
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - language
+                - content
+              properties:
+                language:
+                  $ref: "#/components/schemas/ScriptLang"
+                content:
+                  type: string
+      responses:
+        "200":
+          description: contract warnings (empty when all references match)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - warnings
+                properties:
+                  warnings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ContractWarning"
 
   /w/{workspace}/scripts/raw_temp/store:
     post:
@@ -10422,6 +11149,133 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai_skills/list:
+    get:
+      summary: list the workspace AI chat skills (name + description only)
+      operationId: listAiSkills
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: skill listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - name
+                    - description
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+
+  /w/{workspace}/ai_skills/get/{name}:
+    get:
+      summary: get a workspace AI chat skill including its instructions
+      operationId: getAiSkill
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: skill
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - name
+                  - description
+                  - instructions
+                properties:
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  instructions:
+                    type: string
+
+  /w/{workspace}/ai_skills/upload:
+    post:
+      summary: upsert workspace AI chat skills (admin only)
+      operationId: uploadAiSkills
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - skills
+              properties:
+                skills:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - description
+                      - instructions
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 64
+                        pattern: "^[a-z0-9-]+$"
+                      description:
+                        type: string
+                        minLength: 1
+                        maxLength: 1024
+                      instructions:
+                        type: string
+                        minLength: 1
+                        maxLength: 65536
+      responses:
+        "200":
+          description: uploaded
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_skills/delete/{name}:
+    delete:
+      summary: delete a workspace AI chat skill (admin only)
+      operationId: deleteAiSkill
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -10433,6 +11287,10 @@ paths:
         - name: secretWithExtension
           in: path
           required: true
+          description: >-
+            App version secret suffixed with the requested file type extension.
+            Supported extensions are `.js` (JavaScript bundle), `.css`
+            (stylesheet), and `.html` (sandboxed wrapper document).
           schema:
             type: string
       responses:
@@ -10440,6 +11298,12 @@ paths:
           description: app details
           content:
             text/javascript:
+              schema:
+                type: string
+            text/css:
+              schema:
+                type: string
+            text/html:
               schema:
                 type: string
 
@@ -10693,6 +11557,23 @@ paths:
                   - $ref: "#/components/schemas/AppWithLastVersion"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
+  /w/{workspace}/apps/embed_token/p/{path}:
+    get:
+      summary: get app embed token by path
+      operationId: getAppEmbedTokenByPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
+
   /w/{workspace}/apps/get/lite/{path}:
     get:
       summary: get app lite by path
@@ -10809,6 +11690,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps_u/embed_token/{secret}:
+    get:
+      summary: get app embed token by secret
+      operationId: getAppEmbedTokenBySecret
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: secret
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
 
   /w/{workspace}/apps_u/public_resource/{path}:
     get:
@@ -11518,6 +12420,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: timeout
+          description: custom timeout in seconds for this preview run
+          in: query
+          schema:
+            type: integer
         - $ref: "#/components/parameters/NewJobId"
 
       requestBody:
@@ -12700,6 +13607,64 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/jobs_u/get_flow_all_logs_structured/{id}:
+    get:
+      summary: get all logs for a flow job in a structured format
+      operationId: getFlowAllLogsStructured
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: structured logs of all flow steps, one entry per job
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    job_id:
+                      type: string
+                    label:
+                      type: string
+                      description: human-readable label describing the job's position in the flow tree
+                    kind:
+                      type: string
+                      description: job kind (script, flow, forloopflow, ...)
+                    flow_step_id:
+                      type: string
+                      nullable: true
+                    step_path:
+                      type: string
+                      nullable: true
+                      description: materialized step path (e.g. "a/b")
+                    depth:
+                      type: integer
+                      description: depth in the flow tree (0 for the root flow job)
+                    parent_module_type:
+                      type: string
+                      nullable: true
+                      description: parent module type (forloopflow, branchall, ...)
+                    sibling_index:
+                      type: integer
+                      description: 1-based index of this job among siblings sharing the same step
+                    sibling_count:
+                      type: integer
+                      description: total number of siblings sharing the same step
+                    logs:
+                      type: string
+                  required:
+                    - job_id
+                    - label
+                    - kind
+                    - depth
+                    - sibling_index
+                    - sibling_count
+                    - logs
 
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
@@ -19348,6 +20313,55 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/job_helpers/storage_usage:
+    get:
+      summary: Get the storage usage of the workspace object storage, per configured storage. On Community Edition, also returns the workspace storage quota.
+      operationId: getStorageUsage
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: refresh
+          in: query
+          description: recount usage by listing the storage instead of returning cached values
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Storage usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_bytes:
+                    type: integer
+                    format: int64
+                  quota_bytes:
+                    type: integer
+                    format: int64
+                    description: only present on Community Edition, where workspace storage is capped
+                  storages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        storage:
+                          type: string
+                        bytes:
+                          type: integer
+                          format: int64
+                        computed_at:
+                          type: string
+                          format: date-time
+                      required:
+                        - storage
+                        - bytes
+                        - computed_at
+                required:
+                  - total_bytes
+                  - storages
+
   /w/{workspace}/job_helpers/list_stored_files:
     get:
       summary: List the file keys available in a workspace object storage
@@ -20818,6 +21832,10 @@ paths:
                           $ref: "#/components/schemas/AssetKind"
                         path:
                           type: string
+                        fork_materialization:
+                          type: string
+                          enum: [fork, deferred]
+                          description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
                   runnables:
                     type: array
                     items:
@@ -20831,6 +21849,20 @@ paths:
                         in_pipeline:
                           type: boolean
                           description: True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false.
+                        macros:
+                          type: array
+                          description: Macros this script provides to the workspace registry (deployed `// macros` library). Omitted when empty.
+                          items:
+                            type: object
+                            required: [name, params, is_table]
+                            properties:
+                              name:
+                                type: string
+                              params:
+                                type: string
+                                description: verbatim parameter list
+                              is_table:
+                                type: boolean
                   edges:
                     type: array
                     items:
@@ -20896,6 +21928,88 @@ paths:
                               $ref: "#/components/schemas/AssetUsageKind"
                             runnable_path:
                               type: string
+                  macro_edges:
+                    type: array
+                    description: Macro-library → consumer edges (deploy-recorded call detection plus `// use`). Omitted when empty.
+                    items:
+                      type: object
+                      required: [lib_path, consumer_path, macro_names, via_use]
+                      properties:
+                        lib_path:
+                          type: string
+                        consumer_path:
+                          type: string
+                        macro_names:
+                          type: array
+                          items:
+                            type: string
+                        via_use:
+                          type: boolean
+                  test_edges:
+                    type: array
+                    description: >-
+                      Ordering-only "must-run-after" edges — a `// data_test relationships`
+                      (or custom test reading a pipeline asset) requires the referenced
+                      asset's producer to run before the tested script. Not a data-consumption
+                      edge; fed into the cascade topo-sort so cold runs order correctly.
+                      Omitted when empty.
+                    items:
+                      type: object
+                      required:
+                        [
+                          producer_kind,
+                          producer_path,
+                          runnable_kind,
+                          runnable_path,
+                          asset_kind,
+                          asset_path,
+                        ]
+                      properties:
+                        producer_kind:
+                          $ref: "#/components/schemas/AssetUsageKind"
+                        producer_path:
+                          type: string
+                        runnable_kind:
+                          $ref: "#/components/schemas/AssetUsageKind"
+                        runnable_path:
+                          type: string
+                        asset_kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        asset_path:
+                          type: string
+
+  /w/{workspace}/assets/macros:
+    get:
+      summary: List every workspace DuckDB macro (deployed `// macros` libraries)
+      operationId: listWorkspaceMacros
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: all registry macros, ordered by provider then name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [name, params, body, is_table, provider_path]
+                  properties:
+                    name:
+                      type: string
+                    params:
+                      type: string
+                      description: verbatim parameter list
+                    body:
+                      type: string
+                      description: verbatim body after AS [TABLE]
+                    is_table:
+                      type: boolean
+                    provider_path:
+                      type: string
+                      description: path of the `// macros` library script
 
   /w/{workspace}/assets/pipelines:
     get:
@@ -20923,6 +22037,90 @@ paths:
                       type: integer
                       format: int64
                       description: Number of pipeline-member scripts in the folder
+
+  /w/{workspace}/assets/partitions:
+    get:
+      summary: List materialized partitions for a ducklake asset
+      operationId: listAssetPartitions
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-partition materialization status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MaterializedPartition"
+
+  /w/{workspace}/assets/partitions_in_range:
+    get:
+      summary: List expected partitions of a ducklake asset in a date range with their materialization status (enterprise)
+      operationId: listAssetPartitionsInRange
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          description: Inclusive range start (YYYY-MM-DD), local to the producer's partition tz
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: Inclusive range end (YYYY-MM-DD), local to the producer's partition tz
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: expected partitions in range with per-slice status — the missing/failed subset is the backfill worklist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartitionsInRange"
+
+  /w/{workspace}/assets/asset_schemas:
+    get:
+      summary: List captured output-schema versions for a ducklake asset
+      operationId: listAssetSchemas
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: query
+          required: true
+          description: The materialized ducklake asset path (`<ducklake>/<table>`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: captured schema versions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetSchemaVersion"
 
   /w/{workspace}/volumes/list:
     get:
@@ -22246,6 +23444,7 @@ components:
         [
           openai,
           azure_openai,
+          azure_foundry,
           anthropic,
           mistral,
           deepseek,
@@ -22576,6 +23775,13 @@ components:
           type: string
         parent_hash:
           type: string
+        auto_parent:
+          type: boolean
+          description: >-
+            When true, the backend resolves the parent to the current deployed
+            head for this path within the transaction (ignoring parent_hash),
+            instead of failing with a "lineage must be linear" error when the
+            supplied parent_hash is stale.
         summary:
           type: string
         description:
@@ -22857,6 +24063,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        is_retry:
+          type: boolean
         worker:
           type: string
       required:
@@ -22976,6 +24184,8 @@ components:
         aggregate_wait_time_ms:
           type: number
         preprocessed:
+          type: boolean
+        is_retry:
           type: boolean
         worker:
           type: string
@@ -23351,6 +24561,10 @@ components:
           type: array
           items:
             type: string
+        folders_read:
+          type: array
+          items:
+            type: string
         folders_owners:
           type: array
           items:
@@ -23361,6 +24575,9 @@ components:
             - $ref: "#/components/schemas/UserSource"
         is_service_account:
           type: boolean
+        non_member:
+          type: boolean
+          description: "True when this is a superadmin viewing a workspace they are not a member of (is_admin/role reflect the superadmin fallback, not an actual membership)."
       required:
         - email
         - username
@@ -23370,6 +24587,7 @@ components:
         - operator
         - disabled
         - folders
+        - folders_read
         - folders_owners
 
     UserSource:
@@ -24822,6 +26040,7 @@ components:
         - google
         - github
         - asset
+        - freshness
 
     TriggerMode:
       description: job trigger mode
@@ -27309,6 +28528,12 @@ components:
               parent_workspace_id:
                 type: string
                 nullable: true
+              is_dev_workspace:
+                type: boolean
+              dev_workspace_label:
+                type: string
+                nullable: true
+                description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
               created_by:
                 type: string
                 nullable: true
@@ -27319,6 +28544,7 @@ components:
               - name
               - username
               - color
+              - is_dev_workspace
               - disabled
       required:
         - email
@@ -27360,6 +28586,27 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+        shared_ducklakes:
+          type: array
+          items:
+            type: string
+          description: "Lake names the fork SHARES with the parent (reads and writes the parent's lake directly). Every lake not listed gets the default isolated fork namespace with read-defer to the parent."
+        is_dev_workspace:
+          type: boolean
+          description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
+        lock_prod_deploy:
+          type: boolean
+          description: "When creating a dev workspace, lock the parent (prod) against direct deployment"
+        lock_prod_forking:
+          type: boolean
+          description: "When creating a dev workspace, prevent forking the parent (prod)"
+        copy_members:
+          type: boolean
+          description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
+        dev_workspace_label:
+          type: string
+          enum: [dev, staging]
+          description: "Cosmetic display label for the dev workspace (badge text + wording only); ignored for non-dev forks"
       required:
         - id
         - name
@@ -27685,6 +28932,13 @@ components:
           type: string
         on_behalf_of_email:
           type: string
+        sandbox:
+          type: boolean
+          description: >
+            Publisher opt-in to app sandbox isolation (alpha). When true the app
+            is isolated from each viewer's Windmill session. When false/absent
+            the app runs same-origin with the viewer's full session (the
+            default, pre-isolation behavior).
 
     ListableApp:
       type: object
@@ -27904,6 +29158,36 @@ components:
       required:
         - version
 
+    EmbedTokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          nullable: true
+          description: Narrowly-scoped embed token for the iframe. Absent for fully anonymous or raw apps, which load without a scoped token.
+        expiration:
+          type: string
+          format: date-time
+          nullable: true
+          description: Expiration of the embed token.
+        raw_app:
+          type: boolean
+          description: Raw apps render single-iframe and skip the opaque-viewer indirection and the embed token entirely.
+        sandbox:
+          type: boolean
+          description: Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session.
+        app_path:
+          type: string
+          nullable: true
+          description: The resolved app path; the embedder uses it to scope the app's backing localStorage per app.
+        workspace_id:
+          type: string
+          nullable: true
+          description: The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store.
+      required:
+        - raw_app
+        - sandbox
+
     FlowVersion:
       type: object
       properties:
@@ -28050,6 +29334,33 @@ components:
                   - path
               extra_args:
                 type: string
+              fork_behavior:
+                type: string
+                enum: [isolated, shared]
+                description:
+                  Fork workspaces only - how this lake behaves in the fork, stamped at fork
+                  creation. Absent = isolated (fork-scoped namespace + read-defer to parent).
+              maintenance:
+                type: object
+                description:
+                  Scheduled maintenance (enterprise) - snapshot expiry, adjacent-file
+                  compaction and orphaned-file cleanup, run as a managed per-lake schedule
+                required: [enabled]
+                properties:
+                  enabled:
+                    type: boolean
+                  schedule:
+                    type: string
+                    description: cron cadence (v2, UTC); defaults to daily at 03h with a per-lake minute offset
+                  retention_days:
+                    type: integer
+                    description: snapshot retention window in days (default 7); time-travel older than this stops working
+                  compaction:
+                    type: boolean
+                    description: merge adjacent small parquet files (default true)
+                  orphan_cleanup:
+                    type: boolean
+                    description: delete orphaned files older than max(retention, 1 day) (default true)
 
     DataTableSettings:
       type: object
@@ -28073,6 +29384,9 @@ components:
                     type: string
                 required:
                   - resource_type
+              migrations_enabled:
+                type: boolean
+                description: Whether the SQL migrations feature is opted in for this data table
               forked_from:
                 type: object
                 description: Fork origin info with schema snapshot
@@ -28081,6 +29395,40 @@ components:
                     type: object
                     description: Schema snapshot at fork time
                     additionalProperties: true
+    DatatableMigration:
+      type: object
+      required: [datatable, timestamp, name, code_up]
+      properties:
+        datatable:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+        name:
+          type: string
+        code_up:
+          type: string
+        code_down:
+          type: string
+    DatatableMigrationWithStatus:
+      type: object
+      required: [timestamp, name, code_up, status]
+      properties:
+        timestamp:
+          type: integer
+          format: int64
+        name:
+          type: string
+        code_up:
+          type: string
+        code_down:
+          type: string
+        status:
+          type: string
+          enum:
+            - ran
+            - not_run
+            - unknown
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
@@ -28661,6 +30009,8 @@ components:
         - skipped_comparison
         - diffs
         - summary
+        - hidden_ahead
+        - hidden_behind
       properties:
         all_ahead_items_visible:
           type: boolean
@@ -28679,6 +30029,46 @@ components:
         summary:
           $ref: "#/components/schemas/CompareSummary"
           description: Summary statistics of the comparison
+        hidden_ahead:
+          $ref: "#/components/schemas/HiddenItemsSummary"
+          description: Ahead items excluded from `diffs` because they are not visible to the caller
+        hidden_behind:
+          $ref: "#/components/schemas/HiddenItemsSummary"
+          description: Behind items excluded from `diffs` because they are not visible to the caller
+
+    HiddenItemsSummary:
+      type: object
+      required:
+        - total
+        - by_kind
+        - items
+      properties:
+        total:
+          type: integer
+          description: Total number of hidden items on this side
+        by_kind:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of hidden items keyed by item kind (always populated)
+        items:
+          type: array
+          description: Kind and path of each hidden item; only populated when the caller is an admin of the relevant side (empty otherwise)
+          items:
+            $ref: "#/components/schemas/HiddenItem"
+
+    HiddenItem:
+      type: object
+      required:
+        - kind
+        - path
+      properties:
+        kind:
+          type: string
+          description: Type of the hidden item
+        path:
+          type: string
+          description: Path of the hidden item
 
     WorkspaceItemDiff:
       type: object
@@ -28750,6 +30140,7 @@ components:
         - folders_changed
         - schedules_changed
         - triggers_changed
+        - datatable_migrations_changed
         - conflicts
       properties:
         total_diffs:
@@ -28788,6 +30179,9 @@ components:
         triggers_changed:
           type: integer
           description: Number of triggers with differences (sum across all trigger kinds)
+        datatable_migrations_changed:
+          type: integer
+          description: Number of data table migrations with differences
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)
@@ -28950,6 +30344,86 @@ components:
         - ducklake
         - datatable
         - volume
+    MaterializedPartition:
+      type: object
+      required: [asset_kind, asset_path, partition, status, materialized_at]
+      properties:
+        asset_kind:
+          $ref: "#/components/schemas/AssetKind"
+        asset_path:
+          type: string
+        partition:
+          type: string
+        status:
+          type: string
+          enum: [running, materialized, failed]
+        snapshot_id:
+          type: integer
+          format: int64
+          nullable: true
+        row_count:
+          type: integer
+          format: int64
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        materialized_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+    PartitionsInRange:
+      type: object
+      required: [producer_path, partition_kind, partitions]
+      properties:
+        producer_path:
+          type: string
+          description: the pipeline script that materializes the asset (managed `// materialize` target, or a partitioned writer using the SDK helpers) — the runnable a backfill launches
+        partition_kind:
+          type: string
+          enum: [daily, hourly, weekly, monthly, dynamic]
+        partitions:
+          type: array
+          items:
+            type: object
+            required: [partition, status]
+            properties:
+              partition:
+                type: string
+              status:
+                type: string
+                enum: [missing, running, materialized, failed]
+    AssetSchemaVersion:
+      type: object
+      required: [version, columns, captured_at]
+      properties:
+        version:
+          type: integer
+          format: int64
+        columns:
+          type: array
+          items:
+            type: object
+            required: [name, type]
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+        snapshot_id:
+          type: integer
+          format: int64
+          nullable: true
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        captured_at:
+          type: string
+          format: date-time
     Asset:
       type: object
       properties:
@@ -28958,6 +30432,39 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    ContractWarning:
+      description: |
+        One save-time schema-contract warning: a consumer reference that does
+        not match the referenced asset's latest captured schema.
+        `schema_version`/`captured_at` identify the capture the check ran
+        against (as-of the producer's last run, not its latest save).
+      type: object
+      required: [kind, asset_path, message]
+      properties:
+        kind:
+          type: string
+          enum:
+            - missing_column
+            - missing_lineage_source
+            - missing_relationship_column
+            - relationship_type_mismatch
+            - suppressed
+        asset_path:
+          type: string
+        column:
+          type: string
+        expected_type:
+          type: string
+        found_type:
+          type: string
+        schema_version:
+          type: integer
+          format: int64
+        captured_at:
+          type: string
+          format: date-time
+        message:
+          type: string
     Volume:
       type: object
       required:

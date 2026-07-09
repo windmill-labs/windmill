@@ -94,6 +94,11 @@ export type PreviewPanelUi = {
 	// "what happened the last time this ran". No-op when a test is already
 	// in progress (we don't clobber a live run).
 	loadLastRunOnMount?: boolean
+	// Pipeline-only: when set, the Test split's caret popover gains a "Run
+	// downstream up to…" entry that calls this, letting the user bound the
+	// cascade from the script they're editing. Wired by the pipeline details
+	// pane only when the open script is a valid bounded-run start.
+	onBoundedRun?: () => void
 }
 
 export type EditorBarUi = {

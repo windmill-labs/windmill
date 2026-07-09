@@ -172,6 +172,19 @@ pub struct SimpleColumn {
 pub struct SelectOptions {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    /// DuckLake time-travel: when set (DuckDB only), the read is pinned to this
+    /// catalog snapshot via `AT (VERSION => n)`. Ignored for other db types.
+    pub version: Option<i64>,
+}
+
+/// DuckLake time-travel suffix appended after a table name in a FROM clause.
+/// `n` is a server-controlled `i64` (a snapshot id), so inlining it is
+/// injection-safe. Empty string when unpinned (reads the latest snapshot).
+fn duckdb_version_suffix(version: Option<i64>) -> String {
+    match version {
+        Some(v) => format!(" AT (VERSION => {})", v),
+        None => String::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +203,8 @@ struct SelectPayload {
     #[serde(rename = "fixPgIntTypes")]
     fix_pg_int_types: Option<bool>,
     ducklake: Option<String>,
+    /// DuckLake snapshot to time-travel the read to (DuckDB only).
+    version: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -200,6 +215,21 @@ struct CountPayload {
     #[serde(rename = "whereClause")]
     where_clause: Option<String>,
     ducklake: Option<String>,
+    /// DuckLake snapshot to time-travel the count to (DuckDB only).
+    version: Option<i64>,
+}
+
+/// `WM_INTERNAL_DB_DUCKLAKE_SNAPSHOTS` payload — lists the time-travel history
+/// of a ducklake table. DuckLake snapshots are catalog-wide commits, so without
+/// a `table` this lists every commit; with one it is scoped to snapshots where
+/// that table exists (see `expand_ducklake_snapshots`).
+#[derive(Deserialize)]
+struct DucklakeSnapshotsPayload {
+    ducklake: String,
+    /// Schema-qualified table name (e.g. `main.events_daily`) to scope the
+    /// history to. Snapshots predating the table's creation are excluded — a
+    /// time-travel read can't target a version where the table didn't exist.
+    table: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -304,6 +334,10 @@ pub fn try_expand_internal_db_query(
             expand_primary_key_constraint(json_str, db_type).map(ExpandedQuery::sql)
         }
         "SNOWFLAKE_PRIMARY_KEYS" => expand_snowflake_primary_keys(json_str).map(ExpandedQuery::sql),
+        // DuckLake time-travel: list a ducklake's snapshot history
+        "DUCKLAKE_SNAPSHOTS" => {
+            expand_ducklake_snapshots(json_str, db_type).map(ExpandedQuery::sql)
+        }
         _ => Err(format!("Unknown WM_INTERNAL_DB operation: {}", op)),
     };
 
@@ -324,7 +358,8 @@ fn expand_select(json_str: &str, db_type: DbType) -> Result<String, String> {
     let payload: SelectPayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid SELECT payload: {}", e))?;
 
-    let options = SelectOptions { limit: payload.limit, offset: payload.offset };
+    let options =
+        SelectOptions { limit: payload.limit, offset: payload.offset, version: payload.version };
     let breaking = payload
         .fix_pg_int_types
         .map(|v| BreakingFeatures { fix_pg_int_types: v });
@@ -350,9 +385,45 @@ fn expand_count(json_str: &str, db_type: DbType) -> Result<String, String> {
         &payload.table,
         payload.where_clause.as_deref(),
         &payload.column_defs,
+        payload.version,
     )?;
 
     Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
+}
+
+/// Expand `DUCKLAKE_SNAPSHOTS` into the catalog's time-travel history. DuckLake
+/// snapshots are catalog-wide commits, so `ducklake_snapshots('dl')` (the alias
+/// `maybe_wrap_ducklake` attaches) lists every version any `AT (VERSION => n)`
+/// read can target, newest first.
+fn expand_ducklake_snapshots(json_str: &str, db_type: DbType) -> Result<String, String> {
+    if db_type != DbType::Duckdb {
+        return Err("DUCKLAKE_SNAPSHOTS is only supported for DuckDB".to_string());
+    }
+    let payload: DucklakeSnapshotsPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid DUCKLAKE_SNAPSHOTS payload: {}", e))?;
+    // `dl` is the alias `wrap_ducklake_query` attaches and `USE`s below.
+    let query = match &payload.table {
+        // Scope to snapshots from the table's first creation onward. A DuckLake
+        // table created at snapshot N can't be read before N (the catalog-wide
+        // list would otherwise offer impossible versions). The creation snapshot
+        // is the earliest whose `changes.tables_created` names the table;
+        // COALESCE to 0 (show all) if it is never found.
+        Some(table) => {
+            let table = escape_sql_literal(table);
+            format!(
+                "SELECT snapshot_id, snapshot_time FROM ducklake_snapshots('dl') \
+                 WHERE snapshot_id >= COALESCE((\
+                   SELECT min(snapshot_id) FROM ducklake_snapshots('dl') \
+                   WHERE list_contains(changes.tables_created, '{table}')), 0) \
+                 ORDER BY snapshot_id DESC"
+            )
+        }
+        None => {
+            "SELECT snapshot_id, snapshot_time FROM ducklake_snapshots('dl') ORDER BY snapshot_id DESC"
+                .to_string()
+        }
+    };
+    Ok(maybe_wrap_ducklake(query, Some(&payload.ducklake)))
 }
 
 /// Filter columns to primary keys only; fall back to all columns if none are marked.
@@ -950,9 +1021,10 @@ pub fn make_select_query(
             );
 
             query.push_str(&format!(
-                "SELECT {} FROM {}\n",
+                "SELECT {} FROM {}{}\n",
                 filtered_columns.join(", "),
-                quote_table_name(table, db_type)
+                quote_table_name(table, db_type),
+                duckdb_version_suffix(options.and_then(|o| o.version))
             ));
             query.push_str(&format!(
                 " WHERE {} {}\n",
@@ -977,6 +1049,8 @@ pub fn make_count_query(
     table: &str,
     where_clause: Option<&str>,
     column_defs: &[ColumnDef],
+    // DuckLake time-travel snapshot (DuckDB only); `None` counts the latest.
+    version: Option<i64>,
 ) -> Result<String, String> {
     let where_prefix = " WHERE ";
     let and_condition = " AND ";
@@ -1118,8 +1192,9 @@ pub fn make_count_query(
                 quicksearch_condition.push_str(" ($quicksearch = '' OR 1 = 1)");
             }
             query.push_str(&format!(
-                "SELECT COUNT(*) as count FROM {}",
-                quote_table_name(table, db_type)
+                "SELECT COUNT(*) as count FROM {}{}",
+                quote_table_name(table, db_type),
+                duckdb_version_suffix(version)
             ));
         }
     }
@@ -2998,7 +3073,7 @@ mod tests {
     #[test]
     fn test_select_snowflake_custom_limit() {
         let cols = vec![col("id", "int")];
-        let opts = SelectOptions { limit: Some(50), offset: Some(10) };
+        let opts = SelectOptions { limit: Some(50), offset: Some(10), version: None };
         let result = make_select_query(
             "my_table",
             &cols,
@@ -3072,7 +3147,7 @@ mod tests {
     #[test]
     fn test_count_postgresql_basic() {
         let cols = vec![col("id", "int4"), col("name", "text")];
-        let result = make_count_query(DbType::Postgresql, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Postgresql, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("-- $1 quicksearch (text)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
@@ -3090,6 +3165,7 @@ mod tests {
             "my_table",
             Some("status = 'active'"),
             &cols,
+            None,
         )
         .unwrap();
 
@@ -3105,7 +3181,7 @@ mod tests {
             c.ignored = Some(true);
             c
         }];
-        let result = make_count_query(DbType::Postgresql, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Postgresql, "my_table", None, &cols, None).unwrap();
         assert!(result.contains("($1 = '' OR 1 = 1)"));
     }
 
@@ -3116,7 +3192,7 @@ mod tests {
     #[test]
     fn test_count_mysql_basic() {
         let cols = vec![col("id", "int"), col("name", "varchar")];
-        let result = make_count_query(DbType::Mysql, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Mysql, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("-- :quicksearch (text)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM `my_table`"));
@@ -3130,7 +3206,7 @@ mod tests {
     #[test]
     fn test_count_mssql_basic() {
         let cols = vec![col("id", "int"), col("name", "nvarchar")];
-        let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("SELECT COUNT(*) as count FROM [my_table]"));
         assert!(result.contains("(@p1 = '' OR CONCAT([id], [name]) LIKE '%' + @p1 + '%')"));
@@ -3143,7 +3219,7 @@ mod tests {
     #[test]
     fn test_count_snowflake_basic() {
         let cols = vec![col("id", "int"), col("name", "text")];
-        let result = make_count_query(DbType::Snowflake, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Snowflake, "my_table", None, &cols, None).unwrap();
 
         // Two quicksearch params for snowflake with visible columns
         assert!(result.contains("-- ? quicksearch (text)\n-- ? quicksearch (text)"));
@@ -3158,7 +3234,7 @@ mod tests {
             c.ignored = Some(true);
             c
         }];
-        let result = make_count_query(DbType::Snowflake, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Snowflake, "my_table", None, &cols, None).unwrap();
         // One quicksearch param
         let param_lines: Vec<&str> = result.lines().filter(|l| l.starts_with("-- ?")).collect();
         assert_eq!(param_lines.len(), 1);
@@ -3172,7 +3248,7 @@ mod tests {
     #[test]
     fn test_count_bigquery_basic() {
         let cols = vec![col("id", "INTEGER"), col("name", "STRING")];
-        let result = make_count_query(DbType::Bigquery, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Bigquery, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("-- @quicksearch (string)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM `my_table`"));
@@ -3182,7 +3258,7 @@ mod tests {
     #[test]
     fn test_count_bigquery_json_type() {
         let cols = vec![col("id", "INTEGER"), col("data", "JSON")];
-        let result = make_count_query(DbType::Bigquery, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Bigquery, "my_table", None, &cols, None).unwrap();
         assert!(result.contains("TO_JSON_STRING(`data`)"));
     }
 
@@ -3193,13 +3269,81 @@ mod tests {
     #[test]
     fn test_count_duckdb_basic() {
         let cols = vec![col("id", "int"), col("name", "text")];
-        let result = make_count_query(DbType::Duckdb, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Duckdb, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("-- $quicksearch (text)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
         assert!(
             result.contains("CONCAT(' ', \"id\", \"name\") LIKE CONCAT('%', $quicksearch, '%')")
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // DuckLake time-travel (AT VERSION) + snapshot history
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_select_duckdb_time_travel() {
+        let cols = vec![col("id", "int"), col("name", "text")];
+        let opts = SelectOptions { limit: None, offset: None, version: Some(42) };
+        let result =
+            make_select_query("orders", &cols, None, DbType::Duckdb, Some(&opts), None).unwrap();
+        // Read is pinned to the catalog snapshot via AT (VERSION => n).
+        assert!(result.contains("FROM \"orders\" AT (VERSION => 42)\n"));
+    }
+
+    #[test]
+    fn test_select_duckdb_no_version_unpinned() {
+        let cols = vec![col("id", "int")];
+        let result = make_select_query("orders", &cols, None, DbType::Duckdb, None, None).unwrap();
+        // Without a version the read targets the latest snapshot — no AT clause.
+        assert!(result.contains("FROM \"orders\"\n"));
+        assert!(!result.contains("AT (VERSION"));
+    }
+
+    #[test]
+    fn test_count_duckdb_time_travel() {
+        let cols = vec![col("id", "int")];
+        let result = make_count_query(DbType::Duckdb, "orders", None, &cols, Some(7)).unwrap();
+        assert!(result.contains("FROM \"orders\" AT (VERSION => 7)"));
+    }
+
+    #[test]
+    fn test_version_ignored_for_non_duckdb() {
+        // AT (VERSION) is DuckLake-only; other dialects must never emit it even
+        // if a version is somehow passed through.
+        let cols = vec![col("id", "int4")];
+        let opts = SelectOptions { limit: None, offset: None, version: Some(5) };
+        let result =
+            make_select_query("orders", &cols, None, DbType::Postgresql, Some(&opts), None)
+                .unwrap();
+        assert!(!result.contains("AT (VERSION"));
+    }
+
+    #[test]
+    fn test_expand_ducklake_snapshots() {
+        let json = r#"{"ducklake": "analytics"}"#;
+        let result = expand_ducklake_snapshots(json, DbType::Duckdb).unwrap();
+        assert!(result.contains("ATTACH 'ducklake://analytics' AS dl;USE dl;"));
+        assert!(result.contains("ducklake_snapshots('dl')"));
+        assert!(result.contains("ORDER BY snapshot_id DESC"));
+        // Unscoped: no per-table existence filter.
+        assert!(!result.contains("tables_created"));
+    }
+
+    #[test]
+    fn test_expand_ducklake_snapshots_scoped_to_table() {
+        let json = r#"{"ducklake": "analytics", "table": "main.events_daily"}"#;
+        let result = expand_ducklake_snapshots(json, DbType::Duckdb).unwrap();
+        // Scoped to snapshots from the table's first creation onward.
+        assert!(result.contains("list_contains(changes.tables_created, 'main.events_daily')"));
+        assert!(result.contains("snapshot_id >= COALESCE"));
+    }
+
+    #[test]
+    fn test_expand_ducklake_snapshots_non_duckdb_errors() {
+        let json = r#"{"ducklake": "analytics"}"#;
+        assert!(expand_ducklake_snapshots(json, DbType::Postgresql).is_err());
     }
 
     // -----------------------------------------------------------------------
@@ -3500,7 +3644,7 @@ mod tests {
     #[test]
     fn test_count_mssql_no_where() {
         let cols = vec![col("id", "int")];
-        let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols, None).unwrap();
         // MSSQL uses WHERE directly (no AND replacement)
         assert!(result.contains("SELECT COUNT(*) as count FROM [my_table] WHERE "));
     }
@@ -3508,7 +3652,7 @@ mod tests {
     #[test]
     fn test_count_mysql_no_where_uses_where_keyword() {
         let cols = vec![col("id", "int")];
-        let result = make_count_query(DbType::Mysql, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Mysql, "my_table", None, &cols, None).unwrap();
         // The AND should be replaced with WHERE
         assert!(result.contains("FROM `my_table` WHERE "));
         assert!(!result.contains("FROM `my_table` AND "));

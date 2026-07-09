@@ -30,6 +30,7 @@ use windmill_common::{
     },
     error::{Error, JsonResult},
     jwt,
+    usernames::get_instance_username_or_fallback_to_email,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
 
@@ -130,6 +131,13 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
+        // In no-auth mode there are no real tokens: resolve directly as the
+        // admin superadmin so direct cache callers (e.g. get_all_runnables,
+        // which re-validates the request token per workspace) don't reject the
+        // fabricated token.
+        if is_no_auth() {
+            return Some(OptJobAuthed { authed: no_auth_admin_authed(), job_id: None });
+        }
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
@@ -191,7 +199,11 @@ impl AuthCache {
                             is_operator: claims.is_operator,
                             groups: claims.groups,
                             folders: claims.folders,
-                            scopes: None,
+                            // Honor the scopes embedded in the JWT (mirrors the EE
+                            // jwt_ext_ branch). The route middleware only enforces
+                            // scopes when Some, so a None-scoped JWT (e.g. the job
+                            // WM_TOKEN) keeps full user privileges as before.
+                            scopes: claims.scopes,
                             username_override,
                             token_prefix: claims.audit_span,
                             read_only: false,
@@ -415,18 +427,34 @@ impl AuthCache {
                                                 read_only,
                                             })
                                         }
-                                        None if super_admin => Some(ApiAuthed {
-                                            email: email.clone(),
-                                            username: email,
-                                            is_admin: super_admin,
-                                            is_operator: false,
-                                            groups: vec![],
-                                            folders: vec![],
-                                            scopes,
-                                            username_override,
-                                            token_prefix: Some(safe_token_prefix(token)),
-                                            read_only,
-                                        }),
+                                        None if super_admin => {
+                                            // Fail closed on a DB error rather than
+                                            // letting the email leak in as the username.
+                                            match get_instance_username_or_fallback_to_email(
+                                                &self.db, &email,
+                                            )
+                                            .await
+                                            {
+                                                Ok(username) => Some(ApiAuthed {
+                                                    email,
+                                                    username,
+                                                    is_admin: super_admin,
+                                                    is_operator: false,
+                                                    groups: vec![],
+                                                    folders: vec![],
+                                                    scopes,
+                                                    username_override,
+                                                    token_prefix: Some(safe_token_prefix(token)),
+                                                    read_only,
+                                                }),
+                                                Err(e) => {
+                                                    tracing::error!(
+                                                        "Failed to resolve instance username for superadmin {email}: {e:#}"
+                                                    );
+                                                    None
+                                                }
+                                            }
+                                        }
                                         None => None,
                                     }
                                 } else {
@@ -577,6 +605,12 @@ where
                 let tokened = Self { token };
                 parts.extensions.insert(tokened.clone());
                 Ok(tokened)
+            } else if is_no_auth() {
+                // In `--no-auth` mode requests carry no token, but handlers that
+                // also require Tokened (e.g. global_whoami) must still resolve.
+                let tokened = Self { token: "no_auth".to_string() };
+                parts.extensions.insert(tokened.clone());
+                Ok(tokened)
             } else {
                 BRUTE_FORCE_COUNTER.increment().await;
                 Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
@@ -656,6 +690,30 @@ fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     workspace_id
 }
 
+/// `--no-auth` mode: compiled-in `oss` builds, or the `NO_AUTH` runtime flag on
+/// any build (the runtime flag is force-disabled on CLOUD_HOSTED). When on,
+/// every request resolves as the admin superadmin so a fronting gateway can
+/// handle authentication instead.
+pub fn is_no_auth() -> bool {
+    cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH
+}
+
+/// The synthetic superadmin identity returned for every request in no-auth mode.
+fn no_auth_admin_authed() -> ApiAuthed {
+    ApiAuthed {
+        email: "admin@windmill.dev".to_string(),
+        username: "admin".to_string(),
+        is_admin: true,
+        is_operator: false,
+        groups: Vec::new(),
+        folders: Vec::new(),
+        scopes: None,
+        username_override: None,
+        token_prefix: None,
+        read_only: false,
+    }
+}
+
 /// Resolves OptJobAuthed from request parts.
 /// Takes ownership of Parts and returns them back.
 #[allow(unreachable_code, unused_mut)]
@@ -666,21 +724,11 @@ pub async fn resolve_opt_job_authed(
         return Ok((OptJobAuthed::default(), parts));
     };
 
-    #[cfg(feature = "no_auth")]
-    {
-        let authed = ApiAuthed {
-            email: "admin@windmill.dev".to_string(),
-            username: "admin".to_string(),
-            is_admin: true,
-            is_operator: false,
-            groups: Vec::new(),
-            folders: Vec::new(),
-            scopes: None,
-            username_override: None,
-            token_prefix: None,
-            read_only: false,
-        };
-        return Ok((OptJobAuthed { authed, job_id: None }, parts));
+    if is_no_auth() {
+        return Ok((
+            OptJobAuthed { authed: no_auth_admin_authed(), job_id: None },
+            parts,
+        ));
     }
 
     let already_authed = parts.extensions.get::<OptJobAuthed>().cloned();

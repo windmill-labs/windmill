@@ -340,13 +340,54 @@ def extract_description(section: str) -> str | None:
     return ''.join(_unquote_js_string(p) for p in parts).strip() or None
 
 
-def parse_command_block(content: str, file_path: Path | None = None) -> dict:
+def extract_named_command_block(content: str, var_name: str) -> str | None:
+    """Return the chained-call body of `const <var_name> = new Command() ...`,
+    from just after `new Command()` up to the next top-level statement.
+
+    Returns None when the var isn't a *direct* `new Command()` (e.g. it's wrapped
+    in a helper call like `auditListOptions(new Command()...)`), so callers can
+    fall back to a looser match.
+    """
+    m = re.search(
+        r'const\s+' + re.escape(var_name) + r'\s*=\s*new\s+Command\(\)'
+        r'([\s\S]*?)(?=\n(?:const|let|var|async|function|export)\b)',
+        content,
+    )
+    return m.group(1) if m else None
+
+
+def extract_exported_command_block(content: str) -> str | None:
+    """Return the chained-call body of the command that is `export default`ed.
+
+    A command file may define helper `new Command()` groups (assigned to local
+    consts and mounted as nested subcommands via `.command("x", localCmd)`)
+    *before* the exported command. Anchoring on the first `new Command()` in the
+    file would merge those helpers into the top-level command, so resolve the
+    exported variable first and only then fall back to the first `new Command()`
+    (which covers inline/wrapped exports).
+    """
+    export_match = re.search(r'export\s+default\s+(\w+)\s*;', content)
+    if export_match:
+        block = extract_named_command_block(content, export_match.group(1))
+        if block is not None:
+            return block
+    command_match = re.search(
+        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
+        content,
+    )
+    return command_match.group(1) if command_match else None
+
+
+def parse_command_block(
+    content: str, file_path: Path | None = None, block: str | None = None
+) -> dict:
     """
     Parse a Cliffy Command() definition block and extract metadata.
     Returns a dict with: description, options, subcommands, arguments, alias
 
     If file_path is provided, imported subcommands will be resolved by parsing
-    the imported files.
+    the imported files. `block` may be passed to parse a specific pre-extracted
+    command body (used to recurse into locally-defined nested command groups).
     """
     result = {
         'description': '',
@@ -357,14 +398,10 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     }
 
     # Find the command block
-    command_match = re.search(
-        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
-        content
-    )
-    if not command_match:
+    if block is None:
+        block = extract_exported_command_block(content)
+    if block is None:
         return result
-
-    block = command_match.group(1)
 
     # Find where subcommands start
     first_subcommand_pos = block.find('.command(')
@@ -451,11 +488,30 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
                             'name': cmd_name,
                             'description': imported_cmd.get('description', ''),
                             'arguments': imported_cmd.get('arguments', ''),
-                            'options': imported_cmd.get('options', [])
+                            'options': imported_cmd.get('options', []),
+                            'subcommands': imported_cmd.get('subcommands', []),
                         })
                         continue
                     except Exception as e:
                         print(f"  Warning: Could not parse imported command {second_arg}: {e}")
+            cmd_desc = ''
+        elif second_arg and re.search(
+            r'const\s+' + re.escape(second_arg) + r'\s*=\s*new\s+Command\(\)', content
+        ):
+            # Locally-defined command group mounted as a subcommand
+            # (e.g. `.command("migrate", migrateCommand)`): recurse into its
+            # definition so its own subcommands/options are captured.
+            nested_block = extract_named_command_block(content, second_arg)
+            if nested_block is not None:
+                nested = parse_command_block(content, file_path, block=nested_block)
+                result['subcommands'].append({
+                    'name': cmd_name,
+                    'description': nested.get('description', ''),
+                    'arguments': nested.get('arguments', ''),
+                    'options': nested.get('options', []),
+                    'subcommands': nested.get('subcommands', []),
+                })
+                continue
             cmd_desc = ''
         else:
             cmd_desc = ''
@@ -628,6 +684,16 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
                         for opt in sub['options']:
                             md += f"  - `{opt['flag']}` - {opt['description']}\n"
 
+                    # Nested sub-subcommands (e.g. `datatable migrate new`)
+                    for subsub in sub.get('subcommands', []):
+                        ss_args = f" {subsub['arguments']}" if subsub.get('arguments') else ""
+                        md += f"  - `{cmd['name']} {sub_name} {subsub['name']}{ss_args}`"
+                        if subsub.get('description'):
+                            md += f" - {subsub['description']}"
+                        md += "\n"
+                        for opt in subsub.get('options', []):
+                            md += f"    - `{opt['flag']}` - {opt['description']}\n"
+
                 md += "\n"
 
     return md
@@ -687,6 +753,21 @@ def generate_ts_exports(prompts: dict[str, str]) -> str:
         ts += f"export const {name} = `{escaped}`;\n\n"
 
     return ts
+
+
+def generate_ts_declarations(prompts: dict[str, str]) -> str:
+    """Generate the .d.ts for prompts.ts.
+
+    Each export is declared as a plain `string` rather than a string-literal
+    type so the declaration file does not embed (and drift against) the prompt
+    contents — those live only in prompts.ts.
+    """
+    dts = "// Auto-generated by generate.py - DO NOT EDIT\n\n"
+
+    for name in prompts.keys():
+        dts += f"export declare const {name}: string;\n"
+
+    return dts
 
 
 # =============================================================================
@@ -2354,6 +2435,7 @@ def main():
     flow_base = read_markdown_file(base_dir / "flow-base.md")
     resources_base = read_markdown_file(base_dir / "resources.md")
     raw_app_base = read_markdown_file(base_dir / "raw-app.md")
+    pipeline_base = read_markdown_file(base_dir / "pipeline-base.md")
     workflow_as_code_base = read_markdown_file(base_dir / "workflow-as-code.md")
     flow_cli = read_markdown_file(base_dir / "flow-cli.md")
     flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
@@ -2420,6 +2502,7 @@ def main():
         'FLOW_BASE': flow_base,
         'RESOURCES_BASE': resources_base,
         'RAW_APP_BASE': raw_app_base,
+        'PIPELINE_BASE': pipeline_base,
         'WORKFLOW_AS_CODE_BASE': workflow_as_code_base,
         'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
 
@@ -2447,6 +2530,7 @@ def main():
     # Generate TypeScript exports
     ts_exports = generate_ts_exports(prompts)
     (OUTPUT_GENERATED_DIR / "prompts.ts").write_text(ts_exports)
+    (OUTPUT_GENERATED_DIR / "prompts.d.ts").write_text(generate_ts_declarations(prompts))
 
     # Generate complete script.md (all languages combined)
     script_md_parts = [script_base]
@@ -2518,6 +2602,11 @@ export function getRawAppPrompt(): string {
   return prompts.RAW_APP_BASE;
 }
 
+// Helper for data pipeline authoring (chat consumers)
+export function getPipelinePrompt(): string {
+  return prompts.PIPELINE_BASE;
+}
+
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).
 // Pass a language to get only that SDK; omit it to get both.
 export function getDatatableSdkReference(language?: string): string {
@@ -2570,6 +2659,7 @@ export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
 export declare function getRawAppPrompt(): string;
+export declare function getPipelinePrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """
@@ -2615,6 +2705,7 @@ export declare function getWorkflowAsCodePrompt(language?: string): string;
     print(f"  - auto-generated/sdks/wac-python.md")
     print(f"  - auto-generated/cli/cli-commands.md (auto-generated from CLI source)")
     print(f"  - auto-generated/prompts.ts")
+    print(f"  - auto-generated/prompts.d.ts")
     print(f"  - auto-generated/index.ts")
     print(f"  - auto-generated/script.md")
     print(f"  - auto-generated/flow.md")

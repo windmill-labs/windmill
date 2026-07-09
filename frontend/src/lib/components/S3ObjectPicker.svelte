@@ -14,9 +14,15 @@
 	interface Props {
 		value: any
 		editor?: SimpleEditor | undefined
+		/** Workspace to browse/upload S3 objects in; defaults to the nav workspace. */
+		workspace?: string | undefined
 	}
 
-	let { value = $bindable(), editor = $bindable(undefined) }: Props = $props()
+	let {
+		value = $bindable(),
+		editor = $bindable(undefined),
+		workspace = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -48,6 +54,7 @@
 		editor?.setCode(rawValue)
 	}}
 	readOnlyMode={false}
+	{workspace}
 />
 
 <div class="flex flex-col w-full gap-1">
@@ -85,6 +92,7 @@
 				}
 			}}
 			defaultValue={value?.s3}
+			{workspace}
 		/>
 	{/if}
 	<Button

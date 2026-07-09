@@ -3,7 +3,7 @@
 	import { createEventDispatcher, type Snippet } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
-	import { AlertTriangle, CornerDownLeft, Loader2, RefreshCcw } from 'lucide-svelte'
+	import { AlertTriangle, CornerDownLeft, Info, Loader2, RefreshCcw } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	type Props = {
@@ -12,10 +12,13 @@
 		keyListen?: boolean
 		loading?: boolean
 		open?: boolean
-		type?: 'danger' | 'reload'
+		type?: 'danger' | 'reload' | 'info'
 		showIcon?: boolean
 		id?: string
 		trashbin?: boolean
+		/** Tailwind z-index class for the modal root. Override to stack this modal
+		 * above another modal that's already open (both default to `z-[9999]`). */
+		zIndexClass?: string
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -31,6 +34,7 @@
 		showIcon = true,
 		id,
 		trashbin = false,
+		zIndexClass = 'z-[9999]',
 		children,
 		onConfirmed,
 		onCanceled
@@ -83,6 +87,17 @@
 				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
 			}
+		},
+
+		// Neutral, affirmative confirmation (non-destructive) — e.g. proceeding with
+		// an import. The confirm button stays a plain accent (see `destructive` below).
+		info: {
+			Icon: Info,
+			color: 'blue',
+			classes: {
+				icon: 'text-blue-700 dark:text-blue-300',
+				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
+			}
 		}
 	} satisfies { [type in typeof type]: any }
 	const Icon = $derived(theme[type].Icon ?? AlertTriangle)
@@ -93,7 +108,7 @@
 {#if open}
 	<div
 		transition:fadeFast|local
-		class={'fixed top-0 bottom-0 left-0 right-0 z-[9999]'}
+		class={twMerge('fixed top-0 bottom-0 left-0 right-0', zIndexClass)}
 		role="dialog"
 		{id}
 	>

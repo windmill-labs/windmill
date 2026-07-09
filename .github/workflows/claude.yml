@@ -11,20 +11,24 @@ on:
     types: [submitted]
 
 jobs:
-  check-membership:
+  # author_association misses private org members; check-access resolves them via the
+  # internal app token. Both are OR'd below so public members still pass instantly.
+  check-access:
     if: |
       (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/ai') && !startsWith(github.event.comment.body, '/ai-fast')) ||
       (github.event_name == 'pull_request_review_comment' && startsWith(github.event.comment.body, '/ai') && !startsWith(github.event.comment.body, '/ai-fast')) ||
       (github.event_name == 'pull_request_review' && startsWith(github.event.review.body, '/ai') && !startsWith(github.event.review.body, '/ai-fast')) ||
       (github.event_name == 'issues' && startsWith(github.event.issue.body, '/ai') && !startsWith(github.event.issue.body, '/ai-fast'))
-    uses: ./.github/workflows/check-org-membership.yml
-    secrets:
-      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+    uses: ./.github/workflows/check-write-access.yml
+    with:
+      username: ${{ github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login }}
+    secrets: inherit
 
   claude-code-action:
-    needs: check-membership
+    needs: [check-access]
     if: |
-      needs.check-membership.outputs.is_member == 'true'
+      needs.check-access.outputs.authorized == 'true' ||
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association)
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -36,6 +40,44 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      # Make the EE source (the *_ee.rs files in the companion repo) available so the
+      # reviewer can see EE-only code (e.g. windmill-queue/src/jobs_ee.rs), not just the
+      # CE surface. The EE ref is read from the PR head's backend/ee-repo-ref.txt (via the
+      # API, so it reflects the PR's EE pin regardless of which ref is checked out here).
+      - name: Check EE access
+        id: ee
+        env:
+          EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          if [ -z "$EE_TOKEN" ] || [ -z "$PR_NUMBER" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" --jq .head.sha)
+          REF=$(gh api "repos/${{ github.repository }}/contents/backend/ee-repo-ref.txt?ref=$HEAD_SHA" --jq .content | base64 -d | tr -d '[:space:]')
+          if [ -z "$REF" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "ee_repo_ref=$REF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout EE repository
+        if: steps.ee.outputs.available == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ steps.ee.outputs.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 1
+
+      - name: Substitute EE code
+        if: steps.ee.outputs.available == 'true'
+        run: ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Run Claude PR Action
         uses: anthropics/claude-code-action@v1

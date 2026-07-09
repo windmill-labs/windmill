@@ -5601,6 +5601,74 @@ async fn test_stop_after_all_iters_if_bad_expr_parallel_forloop(
     Ok(())
 }
 
+// Regression for the savepoint added around `evaluate_stop_after_all_iters_if`.
+// The failpoint makes the in-evaluation DB read fail with a transaction-aborting
+// error (SELECT 1/0). The caller swallows that error and keeps using the outer
+// status-update transaction (later reads + commit). Without the savepoint the
+// outer transaction would be aborted and the commit would fail, so the flow job
+// would never be marked completed (the worker would error/retry). With the
+// savepoint the read failure is isolated, the iteration is marked failed, and
+// the flow completes — which is what this test asserts.
+#[cfg(all(feature = "failpoints", feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_all_iters_if_db_error_isolated_by_savepoint(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "result.items" },
+                    "skip_failures": false,
+                    "parallel": true,
+                    "modules": [{
+                        "value": {
+                            "input_transforms": {
+                                "n": { "type": "javascript", "expr": "flow_input.iter.value" },
+                            },
+                            "type": "rawscript",
+                            "language": "python3",
+                            "content": "def main(n): return n",
+                        },
+                    }],
+                },
+                "stop_after_all_iters_if": {
+                    "expr": "__wm_failpoint_abort_tx__",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    // If the savepoint failed to isolate the aborted read, the status-update
+    // transaction would be poisoned and the job would never complete, so this
+    // call would hang until the worker times out rather than returning.
+    let cjob = RunJob::from(job)
+        .arg("items", json!([1, 2, 3]))
+        .run_until_complete(&db, false, port)
+        .await;
+
+    assert!(
+        !cjob.success,
+        "iteration should be marked failed after the injected read error"
+    );
+    let result = cjob.json_result().unwrap();
+    let error_msg = result["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        error_msg.contains("stop_after_all_iters_if"),
+        "error should mention stop_after_all_iters_if, got: {error_msg}"
+    );
+
+    Ok(())
+}
+
 #[cfg(all(feature = "quickjs", feature = "python"))]
 #[sqlx::test(fixtures("base"))]
 async fn test_results_length_in_input_transform(db: Pool<Postgres>) -> anyhow::Result<()> {

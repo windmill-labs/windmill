@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO materialized_partition\n           (workspace_id, asset_kind, asset_path, partition, status,\n            snapshot_id, row_count, job_id, materialized_at, error)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)\n         ON CONFLICT (workspace_id, asset_kind, asset_path, partition)\n         DO UPDATE SET status = EXCLUDED.status,\n                       -- A failed run records no snapshot, but must not erase the last\n                       -- committed one: a physical table from an earlier commit (or from a\n                       -- committed write whose data tests then failed) still exists, and\n                       -- fork defer/graph state keys on that evidence.\n                       snapshot_id = COALESCE(EXCLUDED.snapshot_id, materialized_partition.snapshot_id),\n                       row_count = EXCLUDED.row_count,\n                       job_id = EXCLUDED.job_id,\n                       materialized_at = now(),\n                       error = EXCLUDED.error",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Text",
+        {
+          "Custom": {
+            "name": "materialization_status",
+            "kind": {
+              "Enum": [
+                "running",
+                "materialized",
+                "failed"
+              ]
+            }
+          }
+        },
+        "Int8",
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "853230da671371fd8bbeeb4c87f8c20a9e310092ae787efe4b0657399c799424"
+}

@@ -119,7 +119,7 @@
 				if (lastJobId && (job || lastCallbacks?.loadExtraLogs)) {
 					plimit(() =>
 						JobService.getCompletedJobLogsTail({
-							workspace: $workspaceStore!,
+							workspace: workspace!,
 							id: lastJobId
 						})
 					).then((res) => {
@@ -222,7 +222,7 @@
 		return abstractRun(
 			() =>
 				JobService.runScriptByPath({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					path: path ?? '',
 					requestBody: args,
 					skipPreprocessor: true
@@ -239,7 +239,7 @@
 		return abstractRun(
 			() =>
 				JobService.runScriptByHash({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					hash: hash ?? '',
 					requestBody: args,
 					skipPreprocessor: true
@@ -256,7 +256,7 @@
 		return abstractRun(
 			() =>
 				JobService.runFlowByPath({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					path: path ?? '',
 					requestBody: args,
 					skipPreprocessor: true
@@ -274,7 +274,7 @@
 		return abstractRun(
 			() =>
 				JobService.runFlowPreview({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					requestBody: {
 						args,
 						value: flow.value,
@@ -318,7 +318,7 @@
 		return abstractRun(
 			() =>
 				JobService.runDynamicSelect({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					requestBody: { entrypoint_function, args, runnable_ref }
 				}),
 			callbacks
@@ -336,12 +336,14 @@
 		callbacks?: Callbacks,
 		flowPath?: string,
 		modules?: Record<string, import('$lib/gen').ScriptModule> | null,
-		tempScriptRefs?: Record<string, string>
+		tempScriptRefs?: Record<string, string>,
+		timeout?: number
 	): Promise<string> {
 		return abstractRun(
 			() =>
 				JobService.runScriptPreview({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
+					timeout,
 					requestBody: {
 						path,
 						content: code,
@@ -369,7 +371,7 @@
 			currentEventSource = undefined
 			try {
 				await JobService.cancelQueuedJob({
-					workspace: $workspaceStore ?? '',
+					workspace: workspace ?? '',
 					id,
 					requestBody: {}
 				})

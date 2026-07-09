@@ -3,19 +3,19 @@
 		AlertCircle,
 		AlertTriangle,
 		Building,
-		GitCompareArrows,
 		GitFork,
-		GitPullRequestArrow,
 		GitPullRequestClosed
 	} from 'lucide-svelte'
 	import type { SessionChatStatus } from './sessionRuntime.svelte'
-	import type { ForkStatus } from './sessionState.svelte'
 
+	// The fork icon is deliberately sync-state-agnostic (no ahead/behind/
+	// diverged variants — that detail lives in the fork bar). Its only special
+	// state is detached: the session's fork workspace no longer exists.
 	let {
 		status,
 		isFork,
-		forkStatus
-	}: { status: SessionChatStatus; isFork: boolean; forkStatus?: ForkStatus } = $props()
+		forkDetached = false
+	}: { status: SessionChatStatus; isFork: boolean; forkDetached?: boolean } = $props()
 
 	const statusTooltip: Record<SessionChatStatus, string> = {
 		idle: 'No chat activity',
@@ -26,13 +26,6 @@
 		error: 'Last message had an error'
 	}
 
-	const forkTooltip: Record<ForkStatus, string> = {
-		in_sync: 'Fork — in sync with parent',
-		ahead: 'Fork — ahead of parent',
-		diverged: 'Fork — diverged from parent',
-		unavailable: 'Fork — no longer available'
-	}
-
 	// Live chat signals take precedence over the persistent kind/fork
 	// indicator: streaming, needs-confirmation, and error are time-critical
 	// and warrant briefly hijacking the icon slot.
@@ -41,7 +34,11 @@
 	)
 
 	const persistentTitle = $derived(
-		isFork ? (forkStatus ? forkTooltip[forkStatus] : 'Fork session') : 'Root workspace session'
+		isFork
+			? forkDetached
+				? 'Fork — no longer available'
+				: 'Fork session'
+			: 'Root workspace session'
 	)
 
 	const title = $derived(liveOverride ? statusTooltip[status] : persistentTitle)
@@ -50,20 +47,16 @@
 <span class="inline-flex items-center justify-center w-4 h-3 shrink-0" {title}>
 	{#if status === 'streaming'}
 		<span class="inline-flex items-end gap-0.5">
-			<span class="w-1 h-1 rounded-full bg-blue-500 typing-dot"></span>
-			<span class="w-1 h-1 rounded-full bg-blue-500 typing-dot dot-2"></span>
-			<span class="w-1 h-1 rounded-full bg-blue-500 typing-dot dot-3"></span>
+			<span class="w-[3px] h-[3px] rounded-full bg-blue-500 typing-dot"></span>
+			<span class="w-[3px] h-[3px] rounded-full bg-blue-500 typing-dot dot-2"></span>
+			<span class="w-[3px] h-[3px] rounded-full bg-blue-500 typing-dot dot-3"></span>
 		</span>
 	{:else if status === 'needs-confirmation'}
 		<AlertCircle class="w-3 h-3 text-amber-500" />
 	{:else if status === 'error'}
 		<AlertTriangle class="w-3 h-3 text-red-500" />
 	{:else if isFork}
-		{#if forkStatus === 'ahead'}
-			<GitPullRequestArrow class="w-3 h-3 text-blue-500" />
-		{:else if forkStatus === 'diverged'}
-			<GitCompareArrows class="w-3 h-3 text-amber-500" />
-		{:else if forkStatus === 'unavailable'}
+		{#if forkDetached}
 			<GitPullRequestClosed class="w-3 h-3 text-red-500" />
 		{:else}
 			<GitFork class="w-3 h-3 text-tertiary" />

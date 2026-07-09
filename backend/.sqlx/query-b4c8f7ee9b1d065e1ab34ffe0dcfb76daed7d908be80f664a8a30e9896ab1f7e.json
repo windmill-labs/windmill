@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT audit_logs_s3_oldest_inflight_ts() AS \"cutoff?\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cutoff?",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b4c8f7ee9b1d065e1ab34ffe0dcfb76daed7d908be80f664a8a30e9896ab1f7e"
+}

@@ -72,6 +72,66 @@
 	}
 
 	const barHeight = 32
+
+	// Whole approval-wait machinery below is inert unless a step actually has a suspend config,
+	// so large suspend-free flows pay nothing for the flatten/sort and the per-tick recompute.
+	const hasSuspendModule = $derived(flowModules.some((m) => m.suspend))
+
+	// Push times of every job on the timeline, ascending. Used to locate when the step
+	// that follows an approval step started — i.e. the moment the approval was granted.
+	const allCreatedAts = $derived(
+		hasSuspendModule
+			? Object.values(items ?? {})
+					.flat()
+					.map((j) => j.created_at)
+					.filter((t): t is number => t != undefined)
+					.sort((a, b) => a - b)
+			: []
+	)
+
+	// Heuristic: the grant moment is approximated by the next job pushed anywhere on the
+	// timeline. Exact for sequential flows; for an approval step inside one branch of a
+	// parallel branchall a concurrent sibling job can land first and understate the wait.
+	function nextCreatedAtAfter(t: number): number | undefined {
+		return allCreatedAts.find((c) => c > t)
+	}
+
+	// For a completed suspend/approval step, the time spent waiting for the approval is the
+	// gap between the step finishing and the next step being pushed (or now, if still waiting).
+	function approvalWait(b: {
+		started_at?: number
+		duration_ms?: number
+	}): { start: number; len: number; running: boolean } | undefined {
+		if (b.started_at == undefined || b.duration_ms == undefined) {
+			return undefined
+		}
+		const end = b.started_at + b.duration_ms
+		const next = nextCreatedAtAfter(end)
+		const waitEnd = next ?? (flowDone ? undefined : now)
+		if (waitEnd == undefined) {
+			return undefined
+		}
+		const len = waitEnd - end
+		if (len < 100) {
+			return undefined
+		}
+		return { start: end, len, running: next == undefined }
+	}
+
+	// Approval wait per module id, computed once and consumed by both the rows and the legend.
+	const approvalWaitByModule = $derived.by(() => {
+		const result: Record<string, { start: number; len: number; running: boolean }> = {}
+		for (const m of flowModules) {
+			if (!m.suspend) continue
+			const sub = (items?.[m.id] ?? []).filter((x) => x.created_at && x.started_at)
+			if (sub.length !== 1) continue
+			const aw = approvalWait(sub[0])
+			if (aw) result[m.id] = aw
+		}
+		return result
+	})
+
+	const hasApprovalWait = $derived(Object.keys(approvalWaitByModule).length > 0)
 </script>
 
 <OnChange
@@ -95,6 +155,12 @@
 					<div class="h-2.5 w-2.5 rounded-sm bg-blue-500/90"></div>
 					<span>Execution</span>
 				</div>
+				{#if hasApprovalWait}
+					<div class="flex gap-1.5 items-center">
+						<div class="h-2.5 w-2.5 rounded-sm bg-purple-400/80"></div>
+						<span>Approval wait</span>
+					</div>
+				{/if}
 				{#if max && min}
 					<span class="font-mono">{msToSec(max - min, 1)}s</span>
 				{/if}
@@ -113,7 +179,7 @@
 				/>
 			</div>
 		{/if}
-		{#each flowModules as { id: k, type: typ } (k)}
+		{#each flowModules as { id: k, type: typ, suspend: isSuspend } (k)}
 			{@const subItems = items?.[k]?.filter((x) => x.created_at && x.started_at)}
 			<div class="relative px-3 py-1.5">
 				<div class="flex items-center justify-between mb-0.5">
@@ -161,6 +227,7 @@
 												? 0
 												: now - b?.created_at
 										: 0}
+									{@const aw = isSuspend ? approvalWaitByModule[k] : undefined}
 									<div class="flex w-full py-0.5 items-center" {style}>
 										<TimelineBar
 											position="left"
@@ -175,7 +242,7 @@
 										/>
 										{#if b.started_at}
 											<TimelineBar
-												position={waitingLen < 100 ? 'center' : 'right'}
+												position={aw || waitingLen < 100 ? 'center' : 'right'}
 												id={b?.id}
 												{total}
 												{min}
@@ -183,6 +250,20 @@
 												started_at={b.started_at}
 												len={b.started_at ? (b?.duration_ms ?? now - b?.started_at) : 0}
 												running={b?.duration_ms == undefined}
+											/>
+										{/if}
+										{#if aw}
+											<TimelineBar
+												position="right"
+												id={b?.id}
+												{total}
+												{min}
+												concat
+												colorClass="bg-purple-400/80"
+												tooltip={`Waiting for approval — ${msToSec(aw.len, 1)}s`}
+												started_at={aw.start}
+												len={aw.len}
+												running={aw.running}
 											/>
 										{/if}
 									</div>
@@ -196,7 +277,6 @@
 			</div>
 		{/each}
 	</div>
-
 {:else}
 	<Loader2 class="animate-spin" />
 {/if}

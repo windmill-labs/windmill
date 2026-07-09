@@ -4,6 +4,7 @@ import { loadAppFixtureForEval } from "../adapters/frontend/core/app/appFixtureL
 import {
   runGlobalEval,
   type GlobalLiveEditorDraftFixture,
+  type GlobalUserFixture,
 } from "../adapters/frontend/core/global/globalEvalRunner";
 import type { BenchmarkWorkspaceRunnables } from "../adapters/frontend/mockBackend";
 import type { FrontendEvalModelConfig } from "../core/models";
@@ -15,6 +16,7 @@ import { getFrontendApiKey } from "./frontendCommon";
 export interface GlobalInitialFixture {
   workspace?: BenchmarkWorkspaceRunnables;
   liveEditorDrafts?: GlobalLiveEditorDraftFixture[];
+  user?: GlobalUserFixture;
 }
 
 export function createGlobalModeRunner(
@@ -38,6 +40,7 @@ export function createGlobalModeRunner(
         {
           workspaceFixtures: initial?.workspace,
           liveEditorDrafts: initial?.liveEditorDrafts,
+          user: initial?.user,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           provider: modelConfig.provider,
           model: modelConfig.model,
@@ -104,6 +107,7 @@ async function loadGlobalInitialFixture(path: string): Promise<GlobalInitialFixt
   return {
     workspace: parsed.workspace ?? {},
     liveEditorDrafts: parsed.liveEditorDrafts ?? [],
+    user: parsed.user,
   };
 }
 

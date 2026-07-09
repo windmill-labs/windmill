@@ -40,8 +40,7 @@
 	import { untrack } from 'svelte'
 	import { VolumeService } from '$lib/gen'
 	import VolumesDrawer from '$lib/components/assets/VolumesDrawer.svelte'
-	import { HardDriveIcon, NetworkIcon } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import { HardDriveIcon } from 'lucide-svelte'
 
 	interface AssetCursor {
 		created_at?: string
@@ -162,21 +161,10 @@
 			title="Assets"
 			tooltip="Assets show up here whenever you use them in Windmill."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
-		>
-			<div class="flex justify-end">
-				<Button
-					variant="accent-secondary"
-					unifiedSize="sm"
-					href="{base}/pipeline"
-					startIcon={{ icon: NetworkIcon }}
-				>
-					Pipelines
-				</Button>
-			</div>
-		</PageHeader>
+		/>
 
 		<Section label="All workspace assets" class="mb-20">
-			<div class="flex gap-4">
+			<div class="flex flex-wrap gap-4">
 				{#snippet card(props: {
 					title: string
 					assetKind: AssetKind
@@ -186,10 +174,12 @@
 					favorites?: { table: string; schema?: string; assetName: string; path: string }[]
 					itemExtra?: import('svelte').Snippet<[{ label: string; value: string }]>
 				})}
-					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
-						<div class="flex justify-between border-b">
-							<h3 class="text-sm font-bold mb-4 pt-5 pl-6">{props.title}</h3>
-							<div class="flex items-center h-fit gap-2 mt-4 mr-4">
+					<div
+						class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md grow basis-[340px] min-w-0"
+					>
+						<div class="flex flex-wrap justify-between items-center gap-2 border-b pt-5 px-6 pb-4">
+							<h3 class="text-sm font-bold min-w-0 truncate" title={props.title}>{props.title}</h3>
+							<div class="flex items-center h-fit gap-2 shrink-0">
 								<Button
 									wrapperClasses="h-fit"
 									btnClasses="text-accent"
@@ -216,9 +206,11 @@
 						{#if props.data.current?.length}
 							<div class="max-h-96 overflow-y-auto pb-1">
 								{#each props.data.current ?? [] as item}
-									<div class="text-xs py-2 text-primary flex justify-between items-center px-6">
-										{item.label}
-										<div class="flex items-center gap-2">
+									<div
+										class="text-xs py-2 text-primary flex justify-between items-center gap-2 px-6"
+									>
+										<span class="min-w-0 truncate" title={item.label}>{item.label}</span>
+										<div class="flex items-center gap-2 shrink-0">
 											{#if props.itemExtra}
 												{@render props.itemExtra(item)}
 											{/if}
@@ -316,16 +308,16 @@
 				})}
 			</div>
 		</Section>
-		<Section label="Latest assets used">
+		<Section label="Latest assets used" headerClass="whitespace-nowrap shrink-0">
 			{#snippet action()}
-				<div class="flex gap-2 grow justify-end">
+				<div class="flex gap-2 grow justify-end min-w-0 ml-4">
 					<RefreshButton
 						variant="default"
 						onClick={() => assetsQuery.reset()}
 						loading={assetsQuery.isLoading}
 					/>
 					<FilterSearchbar
-						class="grow max-w-[26rem]"
+						class="grow max-w-[26rem] min-w-0"
 						schema={assetsFilterSchema}
 						bind:value={filterValues.val}
 						placeholder="Filter assets..."

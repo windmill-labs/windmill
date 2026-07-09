@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
 		createInlineScriptModule,
@@ -59,10 +60,7 @@
 		GroupedModulesProxy,
 		type ExtendedOpenFlow
 	} from '$lib/components/graph/groupedModulesProxy.svelte'
-	import {
-		GroupDisplayState,
-		type FlowGroup
-	} from '$lib/components/graph/groupEditor.svelte'
+	import { GroupDisplayState, type FlowGroup } from '$lib/components/graph/groupEditor.svelte'
 	import {
 		type FlowStructureNode,
 		matchStructureNode,
@@ -86,6 +84,7 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		sessionOpen?: OpenInSessionSource
 		isOwner?: boolean
 		onTestFlow?: () => void
 		isRunning?: boolean
@@ -117,6 +116,7 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
+		sessionOpen,
 		isOwner,
 		onTestFlow,
 		isRunning,
@@ -132,8 +132,10 @@
 		flowHasChanged
 	}: Props = $props()
 
-	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore } =
+	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	const moveManager = new MoveManager()
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
@@ -457,7 +459,7 @@
 			}
 		}
 		const previousJobId = await JobService.listCompletedJobs({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			scriptPathExact: path,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 			page: 1,
@@ -465,7 +467,7 @@
 		})
 		if (previousJobId.length > 0) {
 			const getJobResult = await JobService.getCompletedJobResultMaybe({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				id: previousJobId[0].id
 			})
 			if ('result' in getJobResult) {
@@ -561,6 +563,7 @@
 			on:generateStep
 			{aiChatOpen}
 			{toggleAiChat}
+			{sessionOpen}
 			{noteMode}
 			{toggleNoteMode}
 			{diffManager}

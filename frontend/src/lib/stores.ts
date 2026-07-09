@@ -27,9 +27,12 @@ export interface UserExt {
 	groups: string[]
 	pgroups: string[]
 	folders: string[]
+	folders_read: string[]
 	folders_owners: string[]
 	is_service_account?: boolean
 	impersonating_email?: string
+	// true when the user is a superadmin viewing a workspace they are not a member of
+	non_member?: boolean
 }
 
 export interface UserWorkspace {
@@ -39,6 +42,8 @@ export interface UserWorkspace {
 	color?: string
 	operator_settings?: OperatorSettings
 	parent_workspace_id?: string | null
+	is_dev_workspace?: boolean
+	dev_workspace_label?: string | null
 	disabled: boolean
 }
 
@@ -185,6 +190,10 @@ export interface SQLSchema {
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string
+	/** MySQL only: the connection's default database (`DATABASE()`), surfaced by the
+	 * introspection script. Lets the table picker render the default db's tables
+	 * unprefixed even when the connection can also see other (non-system) schemas. */
+	defaultDb?: string
 }
 
 export interface GraphqlSchema {

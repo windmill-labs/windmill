@@ -26,6 +26,7 @@ windmill-parser-ts.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts-asset.workspace = true
 windmill-parser-sql-asset.workspace = true
+windmill-parser-sql.workspace = true
 windmill-parser-yaml.workspace = true
 
 axum.workspace = true

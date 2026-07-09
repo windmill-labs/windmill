@@ -12,6 +12,8 @@ use crate::db::ApiAuthed;
 
 use crate::{apps::AppWithLastVersion, db::DB, folders::Folder};
 
+use windmill_api_auth::check_scopes;
+
 #[cfg(any(
     feature = "http_trigger",
     feature = "websocket",
@@ -582,6 +584,18 @@ pub(crate) async fn tarball_workspace(
         skip_resources
     );
 
+    // The route is gated by workspaces:read, but exporting DECRYPTED secrets is a
+    // variable-read capability beyond workspace metadata. Require variables:read
+    // only on the plaintext-secret path: ordinary tarball pulls (structure and
+    // encrypted-only values) keep working with workspaces:read, and the workspace
+    // key itself stays admin-only (include_key). No-op for unscoped tokens.
+    if plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+        && !skip_variables.unwrap_or(false)
+    {
+        check_scopes(&authed, || "variables:read".to_string())?;
+    }
+
     // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
     // Folder and group rows have always carried `extra_perms` in source and
     // continue to do so unconditionally (`KeepEvenEmpty`) so existing
@@ -592,7 +606,36 @@ pub(crate) async fn tarball_workspace(
         ExtraPermsBehavior::Drop
     };
 
+    // Resolve workspace dependencies on the pool *before* opening the RLS
+    // transaction: fetching them mid-transaction would hold a second
+    // simultaneous connection while `tx` is still checked out.
+    let workspace_dependencies = if include_workspace_dependencies.unwrap_or(false)
+        && require_admin(authed.is_admin, &authed.username).is_ok()
+    {
+        Some(WorkspaceDependencies::list(&w_id, &db).await?)
+    } else {
+        None
+    };
+
     let mut tx = user_db.begin(&authed).await?;
+
+    // Exporting decrypted secrets in bulk is the same capability as a per-item
+    // secret read, so record it for parity with variables.decrypt_secret.
+    if plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_variables.unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+    {
+        windmill_audit::audit_oss::audit_log(
+            &mut *tx,
+            &authed,
+            "variables.decrypt_secret",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
 
     // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
     // The wm-fork-* prefix is a creation-time naming convention that could in
@@ -851,11 +894,8 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
-    if include_workspace_dependencies.unwrap_or(false)
-        && require_admin(authed.is_admin, &authed.username).is_ok()
-    {
+    if let Some(workspace_dependencies) = workspace_dependencies {
         tracing::info!("Including workspace dependencies in tarball export");
-        let workspace_dependencies = WorkspaceDependencies::list(&w_id, &db).await?;
         tracing::info!(
             "Found {} workspace dependencies",
             workspace_dependencies.len()
@@ -879,11 +919,16 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_schedules.unwrap_or(false) {
+        // Managed ducklake-maintenance schedules are excluded: they are
+        // derived from the workspace ducklake settings (and admins bypass the
+        // RLS that hides them), so exporting them would drag unsyncable rows
+        // into git.
         let schedules = sqlx::query_as::<_, Schedule>(
             "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule
-             WHERE workspace_id = $1",
+             WHERE workspace_id = $1 AND NOT starts_with(path, $2)",
         )
         .bind(&w_id)
+        .bind(windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX)
         .fetch_all(&mut *tx)
         .await?;
 
@@ -1499,6 +1544,34 @@ pub(crate) async fn tarball_workspace(
         archive
             .write_to_archive(&key_json, "encryption_key.json")
             .await?;
+    }
+
+    {
+        // Data table migrations live in the `datatable_migrations` table; surface
+        // them in the export as `migrations/datatable/<datatable>/<version>_<name>`
+        // .up.sql (and .down.sql when present) so `wmill sync` treats them like any
+        // other workspace item.
+        let migrations = sqlx::query!(
+            "SELECT datatable, timestamp, name, code_up, code_down FROM datatable_migrations \
+             WHERE workspace_id = $1 ORDER BY datatable, timestamp",
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for m in migrations {
+            let base = format!(
+                "migrations/datatable/{}/{}_{}",
+                m.datatable, m.timestamp, m.name
+            );
+            archive
+                .write_to_archive(&m.code_up, &format!("{base}.up.sql"))
+                .await?;
+            if let Some(code_down) = m.code_down {
+                archive
+                    .write_to_archive(&code_down, &format!("{base}.down.sql"))
+                    .await?;
+            }
+        }
     }
 
     archive.finish().await?;

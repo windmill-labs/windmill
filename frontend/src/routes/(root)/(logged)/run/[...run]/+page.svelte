@@ -42,6 +42,7 @@
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
+	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
 	import {
 		enterpriseLicense,
 		initialArgsStore,
@@ -56,6 +57,7 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
 	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
+	import ScriptRetryChain from '$lib/components/runs/ScriptRetryChain.svelte'
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -93,7 +95,7 @@
 	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -376,7 +378,8 @@
 
 			const commonArgs = {
 				workspace: $workspaceStore!,
-				requestBody: args
+				requestBody: args,
+				tag: job?.tag
 			}
 			if (job?.job_kind == 'script' || job?.job_kind == 'script_hub' || job?.job_kind == 'flow') {
 				let id
@@ -721,7 +724,7 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={() => {
-						goto(viewHref + `#${computeSharableHash(job?.args)}`)
+						goto(viewHref + `#${computeSharableHash(job?.args, job?.tag)}`)
 					}}
 					unifiedSize="md"
 					variant="default"
@@ -752,13 +755,14 @@
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
-					{#if !showEditButton && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')}
+					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
 							unifiedSize="md"
 							variant="default"
 							size="sm"
-							startIcon={{ icon: GitFork }}>Edit in fork</Button
+							startIcon={{ icon: GitFork }}
+							>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
 				{/if}
@@ -868,6 +872,10 @@
 			</div>
 		</div>
 
+		{#if job}
+			<ScriptRetryChain {job} />
+		{/if}
+
 		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
 				<ExecutionDuration {job} bind:longRunning={currentJobIsLongRunning} />
@@ -912,6 +920,7 @@
 						</div>
 					</div>
 					{#if job.id && job.workspace_id}
+						<UpstreamSnapshotsPanel args={job.args} />
 						<DispatchEventsPanel workspace={job.workspace_id} jobId={job.id} />
 					{/if}
 				{/if}

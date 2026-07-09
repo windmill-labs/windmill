@@ -231,7 +231,7 @@
 	<div
 		bind:this={outputEl}
 		class={twMerge(
-			'flex flex-col gap-1 p-2 grow w-56 overflow-auto transition-opacity',
+			'flex flex-col gap-1 p-2 grow w-80 overflow-auto transition-opacity',
 			selected.triggerId && selected.language ? '' : 'opacity-20'
 		)}
 		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => pathEl, { timeout: 50 }) })}
@@ -240,7 +240,7 @@
 		{#each visibleOutputKinds.length ? visibleOutputKinds : PIPELINE_OUTPUT_KINDS as k}
 			{@const isSelected = selected.outputId === k.id}
 			<Button variant="subtle" selected={isSelected} onClick={() => (selected.outputId = k.id)}>
-				<span class="flex flex-col items-start flex-1 min-w-0">
+				<span class="flex flex-col items-start flex-1 min-w-0 text-left">
 					<span class="text-xs font-normal leading-tight">{k.label}</span>
 					{#if k.description}
 						<span

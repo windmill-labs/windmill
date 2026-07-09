@@ -14,7 +14,13 @@
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
+	import {
+		getDraftDiffValues,
+		deployDraft,
+		discardDraft,
+		draftBaseIsStale
+	} from '$lib/utils_draft_deploy'
+	import { checkDeployPermission, type DeployPermission } from '$lib/utils_workspace_deploy'
 	import { type DraftItem, useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
 	import { userStore } from '$lib/stores'
@@ -35,6 +41,15 @@
 		deployCount?: number
 		updateCount?: number
 		draftCount?: number
+		/** When set (reached via a session's Review button), preselect only the
+		 * rows this chat modified — `${UserDraftItemKind}:${path}` keys, matching
+		 * Row.key. Undefined → preselect all deployable rows (the default). All rows
+		 * are still shown either way. */
+		chatMask?: Set<string>
+		/** False while the (async) chatMask is still loading. The select-all default
+		 * waits for this so it doesn't race the mask and select everything. Defaults
+		 * to true for callers that don't pass a mask. */
+		chatMaskReady?: boolean
 		/** Selecting deploy_to/update asks the page to swap to CompareWorkspaces. */
 		onModeSelected?: (v: CompareMode) => void
 		/** Fired after a deploy/discard so the page can refresh the *fork*
@@ -52,6 +67,8 @@
 		deployCount = 0,
 		updateCount = 0,
 		draftCount = 0,
+		chatMask,
+		chatMaskReady = true,
 		onModeSelected,
 		onChanged
 	}: Props = $props()
@@ -192,7 +209,7 @@
 	// side to diff the name against. Raw apps are fetched via the apps endpoint too
 	// (it auto-detects raw from the deployed row and overlays the raw_app draft).
 	const summaryCache = $state<
-		Record<string, { deployed?: string; draft?: string; loading?: boolean }>
+		Record<string, { deployed?: string; draft?: string; stale?: boolean; loading?: boolean }>
 	>({})
 
 	async function fetchDraftSummary(item: Row) {
@@ -216,9 +233,11 @@
 							path: item.path,
 							getDraft: true
 						}))) as any
+			const draftBlob = r.draft as any
 			summaryCache[item.key] = {
 				deployed: r.summary,
-				draft: (r.draft as any)?.summary,
+				draft: draftBlob?.summary,
+				stale: draftBaseIsStale(item.draftKind, r),
 				loading: false
 			}
 		} catch (error) {
@@ -245,6 +264,21 @@
 
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
+
+	// Whether the user may deploy drafts into this workspace — fills the
+	// `RestrictDeployToDeployers` (+ operator) gap via the shared util, same as the
+	// fork compare page and the session review drawer. Fail-open while resolving.
+	let deployPerm = $state<DeployPermission>({ ok: true })
+	$effect(() => {
+		const ws = currentWorkspaceId
+		// Reset to fail-open on workspace change, and drop a stale resolution —
+		// otherwise the previous workspace's verdict lingers (or lands last) and
+		// gates the wrong workspace.
+		deployPerm = { ok: true }
+		void checkDeployPermission(ws).then((p) => {
+			if (ws === currentWorkspaceId) deployPerm = p
+		})
+	})
 	// Select all on the first non-empty load (deploy-all is the common intent);
 	// only once, so a refetch after a deploy doesn't re-select the leftovers.
 	let hasAutoSelected = $state(false)
@@ -268,8 +302,13 @@
 	})
 
 	$effect(() => {
-		if (!hasAutoSelected && visibleItems.length > 0) {
-			selectedItems = visibleItems.filter(isSelectable).map((i) => i.key)
+		if (!hasAutoSelected && chatMaskReady && visibleItems.length > 0) {
+			// Default intent is deploy-all; when reached from a session's Review
+			// (chatMask set), preselect only that chat's items instead.
+			const selectable = visibleItems.filter(isSelectable)
+			selectedItems = (chatMask ? selectable.filter((i) => chatMask.has(i.key)) : selectable).map(
+				(i) => i.key
+			)
 			hasAutoSelected = true
 		}
 	})
@@ -341,13 +380,10 @@
 		let deployedAny = false
 		for (const item of toDeploy) {
 			deploymentStatus[item.key] = { status: 'loading' }
-			const res = await deployDraft(
-				item.draftKind,
-				item.path,
-				currentWorkspaceId,
-				item.draft_only,
-				item.raw_app
-			)
+			const res = await deployDraft(item.draftKind, item.path, currentWorkspaceId, {
+				draftOnly: item.draft_only,
+				rawApp: item.raw_app
+			})
 			if (res.success) {
 				deploymentStatus[item.key] = { status: 'deployed' }
 				deployedAny = true
@@ -621,6 +657,19 @@
 						{/snippet}
 					</Popover>
 				{/if}
+				{#if draftItem.mine && summaryCache[draftItem.key]?.stale}
+					<Popover openOnHover debounceDelay={50}>
+						{#snippet trigger()}
+							<AlertTriangle size={16} class="text-orange-500" />
+						{/snippet}
+						{#snippet content()}
+							<div class="text-xs p-3 max-w-xs text-primary">
+								Started from an older deployed version. A newer version was deployed after this
+								draft began. Review the latest deploy before deploying.
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
 					{#if draftItem.draftKind === 'data_pipeline'}
 						<!-- A bundle isn't diffable/deployable here — its scripts deploy
@@ -667,15 +716,19 @@
 			{/snippet}
 
 			{#snippet footer()}
-				<div class="flex items-center justify-end">
+				<div class="flex flex-col items-end gap-2">
 					<Button
 						variant="accent"
-						disabled={selectedCount === 0 || deploying}
+						disabled={selectedCount === 0 || deploying || !deployPerm.ok}
+						title={!deployPerm.ok ? deployPerm.reason : undefined}
 						loading={deploying}
 						onClick={deploySelected}
 					>
 						Deploy {selectedCount} draft{selectedCount !== 1 ? 's' : ''}
 					</Button>
+					{#if !deployPerm.ok}
+						<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
+					{/if}
 				</div>
 			{/snippet}
 		</WorkspaceDeployLayout>

@@ -9,7 +9,11 @@
 	import { Database, Square } from 'lucide-svelte'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
-	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
+	import {
+		getNodeColorClasses,
+		aiActionToNodeState,
+		type FlowNodeState
+	} from '$lib/components/graph'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
@@ -39,6 +43,9 @@
 		job?: Job
 		showJobStatus?: boolean
 		flowHasChanged?: boolean
+		/** When set, overrides the node outline with this run-state's colored outline.
+		 * Used to mark the branch taken at runtime on branchone/branchall nodes. */
+		borderState?: FlowNodeState
 	}
 
 	let {
@@ -67,14 +74,13 @@
 		individualStepTests = false,
 		job,
 		showJobStatus = false,
-		flowHasChanged = false
+		flowHasChanged = false,
+		borderState = undefined
 	}: Props = $props()
 
 	const flowGraphContext = getGraphContext()
 
-	let isMultiSelected = $derived(
-		(flowGraphContext?.selectionManager?.selectedIds?.length ?? 0) > 1
-	)
+	let isMultiSelected = $derived((flowGraphContext?.selectionManager?.selectedIds?.length ?? 0) > 1)
 
 	const outputPickerVisible = $derived(
 		(nodeKind || (inputJson && Object.keys(inputJson).length > 0)) && editMode
@@ -96,6 +102,10 @@
 	// AI action colors take priority over execution state, fallback to _VirtualItem
 	const effectiveState = $derived(aiActionToNodeState(action) ?? outputType ?? '_VirtualItem')
 	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
+	// The branch taken at runtime keeps its outline regardless of selection so it stays visible.
+	let outlineClasses = $derived(
+		borderState ? getNodeColorClasses(borderState, true).outline : colorClasses.outline
+	)
 </script>
 
 <VirtualItemWrapper
@@ -109,7 +119,7 @@
 	{#snippet children({ hover })}
 		<div class="flex flex-col w-full">
 			<div
-				class="flex flex-row justify-between {colorClasses.outline} {center
+				class="flex flex-row justify-between {outlineClasses} {center
 					? 'items-center'
 					: 'items-baseline'} w-full overflow-hidden rounded-md p-2 text-2xs module text-primary"
 			>

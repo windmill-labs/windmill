@@ -19,6 +19,45 @@ INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, sc
     ARRAY['jobs:read', 'if_jobs:filter_tags:deno']
 );
 
+-- App embed token for the admin viewer (test-user). Mirrors a minted sandboxed
+-- low-code app token: carries the `app_embed` sentinel plus the embed scope set.
+-- Used to assert the token is confined to jobs the viewer LAUNCHED, not every job
+-- the (admin) viewer could otherwise read.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('EMBED_APP_TOKEN'::bytea), 'hex'), 'EMBED_APP_', 'EMBED_APP_TOKEN',
+    'test@windmill.dev', 'app embed token', false,
+    ARRAY['apps:run', 'jobs:read', 'app_embed', 'resources:run', 'users:read', 'folders:read']
+);
+
+-- A completed app-component job LAUNCHED BY the admin viewer (created_by =
+-- test-user), running as the app owner. The embed token must keep reading its own
+-- launched job (the `created_by == viewer` fast path).
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner, args
+) VALUES (
+    '12121212-1212-1212-1212-121212121212', 'test-workspace', 'test-user',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'script', 'deno', 'u/test-user-2/app_component', 'deno', false,
+    '{"own": "arg"}'
+);
+INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
+    ('12121212-1212-1212-1212-121212121212', 'test-workspace', 1000, 'success'::job_status,
+     '{"own": "EMBED_OWN_RESULT"}');
+
+-- A QUEUED job launched by the admin embed viewer (created_by = test-user). The
+-- embed token may cancel its own launched job; it must NOT cancel another user's.
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner
+) VALUES (
+    '13131313-1313-1313-1313-131313131313', 'test-workspace', 'test-user',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'script', 'deno', 'u/test-user-2/app_component', 'deno', false
+);
+INSERT INTO public.v2_job_queue (id, workspace_id, scheduled_for, running, tag) VALUES
+    ('13131313-1313-1313-1313-131313131313', 'test-workspace', '2023-01-01 00:00:00', false, 'deno');
+
 -- RUNNING job: queued (no completed row) and owned by test-user-2. Used to check
 -- that `completed/get_result_maybe?get_started=true` authorizes before disclosing
 -- running-state to a non-reader.

@@ -571,7 +571,10 @@ async fn global_proxy(
 
     let request = match proxy_mode {
         ProxyExecutionMode::HttpForward => {
-            let query_builder = create_query_builder(&credentials);
+            // Azure AI Foundry routes Claude deployments through the Anthropic
+            // Messages API, so the builder is chosen from the request's model.
+            let model = AIProvider::extract_model_from_body(&body).unwrap_or_default();
+            let query_builder = create_query_builder(&credentials, &model);
             let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
                 method: &method,
                 path: &ai_path,
@@ -902,7 +905,10 @@ async fn proxy(
 
     let request = match proxy_mode {
         ProxyExecutionMode::HttpForward => {
-            let query_builder = create_query_builder(&credentials);
+            // Azure AI Foundry routes Claude deployments through the Anthropic
+            // Messages API, so the builder is chosen from the request's model.
+            let model = AIProvider::extract_model_from_body(&body).unwrap_or_default();
+            let query_builder = create_query_builder(&credentials, &model);
             let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
                 method: &method,
                 path: &ai_path,

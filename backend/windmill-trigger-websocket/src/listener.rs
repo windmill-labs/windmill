@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::{net::TcpStream, sync::RwLock};
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{tungstenite, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     jobs::JobTriggerKind,
@@ -22,12 +22,29 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 use windmill_trigger::filter::{check_filters, Filter};
-use windmill_trigger::listener::ListeningTrigger;
+use windmill_trigger::listener::{update_rw_lock, ListeningTrigger};
 use windmill_trigger::trigger_helpers::{
     trigger_runnable, trigger_runnable_and_wait_for_raw_result,
     trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
 };
 use windmill_trigger::Listener;
+
+const MAX_CONNECT_ATTEMPTS: u32 = 5;
+
+/// Whether a failed WebSocket connect is worth retrying: network-level IO
+/// errors and HTTP 5xx/429 handshake responses are typically transient (edge
+/// proxies like Cloudflare return 502/520 sporadically), while other errors
+/// (bad URL, protocol mismatch, other 4xx) point at configuration and would
+/// fail identically on every attempt.
+fn is_transient_connect_error(err: &tungstenite::Error) -> bool {
+    match err {
+        tungstenite::Error::Io(_) => true,
+        tungstenite::Error::Http(resp) => {
+            resp.status().is_server_error() || resp.status().as_u16() == 429
+        }
+        _ => false,
+    }
+}
 
 async fn send_initial_messages(
     listening_trigger: &ListeningTrigger<WebsocketConfig>,
@@ -176,12 +193,50 @@ impl Listener for WebsocketTrigger {
 
         validate_websocket_url_for_ssrf(&connect_url).await?;
 
-        let connection = connect_async_with_proxy(&*connect_url)
-            .await
-            .map(|conn| Some(conn))
-            .map_err(|err| to_anyhow(err).into());
-
-        connection
+        // Gateway endpoints are often fronted by an edge proxy (e.g. Cloudflare)
+        // that sporadically answers the upgrade request with a transient 5xx
+        // instead of `101 Switching Protocols`, and a `get_consumer` error
+        // disables the trigger until a human re-enables it — so retry transient
+        // failures with backoff before giving up. The caller runs `loop_ping`
+        // concurrently so `last_server_ping` stays alive across the sleeps, and
+        // killpill cancels this future between awaits.
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match connect_async_with_proxy(&*connect_url).await {
+                Ok(conn) => return Ok(Some(conn)),
+                // Only retry in trigger mode: a failed connect there disables the
+                // trigger until a human re-enables it, while capture mode is an
+                // interactive test where instant feedback beats resilience (an
+                // `Io` error can also be a permanent misconfiguration, e.g. a
+                // typo'd host, which should surface immediately when iterating).
+                Err(err)
+                    if listening_trigger.trigger_mode
+                        && attempt < MAX_CONNECT_ATTEMPTS
+                        && is_transient_connect_error(&err) =>
+                {
+                    let delay_secs = 1u64 << attempt;
+                    tracing::warn!(
+                        "Transient error connecting to WebSocket for trigger {} (attempt {}/{}), retrying in {}s: {}",
+                        listening_trigger.path,
+                        attempt,
+                        MAX_CONNECT_ATTEMPTS,
+                        delay_secs,
+                        err
+                    );
+                    update_rw_lock(
+                        err_message.clone(),
+                        Some(format!(
+                            "Connection attempt {}/{} failed ({}), retrying in {}s...",
+                            attempt, MAX_CONNECT_ATTEMPTS, err, delay_secs
+                        )),
+                    )
+                    .await;
+                    tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                }
+                Err(err) => return Err(to_anyhow(err).into()),
+            }
+        }
     }
     async fn consume(
         &self,
@@ -509,7 +564,7 @@ impl Clone for ReturnMessageChannels {
 }
 
 #[derive(Debug, Deserialize)]
-enum InitialMessage {
+pub(crate) enum InitialMessage {
     #[serde(rename = "raw_message")]
     RawMessage(String),
     #[serde(rename = "runnable_result")]

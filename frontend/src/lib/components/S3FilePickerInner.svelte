@@ -65,6 +65,8 @@
 		regexFilter?: RegExp | undefined
 		hideS3SpecificDetails?: boolean
 		rootPath?: string
+		/** Workspace to browse S3 storage in — defaults to the nav workspace. */
+		workspace?: string | undefined
 		workspaceSettingsInitialized?: boolean
 		storage?: string | undefined
 		uploadModalOpen?: boolean
@@ -103,6 +105,7 @@
 		regexFilter = undefined,
 		hideS3SpecificDetails = false,
 		rootPath: initialRootPath = '',
+		workspace = undefined,
 		workspaceSettingsInitialized = $bindable(true),
 		storage = $bindable(undefined),
 		uploadModalOpen = $bindable(false),
@@ -116,6 +119,8 @@
 		moveS3FileRequest = HelpersService.moveS3File,
 		testConnectionRequest = HelpersService.datasetStorageTestConnection
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let rootPath = $state(initialRootPath)
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
@@ -183,7 +188,7 @@
 	async function loadFiles() {
 		fileListLoading = true
 		let availableFiles = await listStoredFilesRequest({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
 			prefix: rootPath ?? (filter.trim() != '' ? filter : undefined),
@@ -280,7 +285,7 @@
 		}
 		fileInfoLoading = true
 		let fileMetadataRaw = await loadFileMetadataRequest({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			fileKey: fileKey,
 			storage: storage
 		})
@@ -300,7 +305,7 @@
 
 	async function loadFilePreview(fileKey: string, fileSizeInBytes?: number, fileMimeType?: string) {
 		let filePreviewRaw = await loadFilePreviewRequest({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			fileKey: fileKey,
 			fileSizeInBytes: fileSizeInBytes,
 			fileMimeType: fileMimeType,
@@ -349,7 +354,7 @@
 		}
 		try {
 			await deleteS3FileRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: fileKey,
 				storage: storage
 			})
@@ -409,7 +414,7 @@
 		}
 		try {
 			await moveS3FileRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				srcFileKey: srcFileKey,
 				destFileKey: destFileKey!,
 				storage: storage
@@ -457,7 +462,7 @@
 		fileListLoading = true
 		try {
 			await testConnectionRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				storage: storage
 			})
 			workspaceSettingsInitialized = true
@@ -716,7 +721,7 @@
 						{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
 							<div class="flex gap-2 shrink-0">
 								{#if !hideS3SpecificDetails}
-									{@const downloadApiPath = `/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
+									{@const downloadApiPath = `/w/${ws}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
 									{@const downloadName =
 										fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 									{#if shouldDownloadViaClient()}

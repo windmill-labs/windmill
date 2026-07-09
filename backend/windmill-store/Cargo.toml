@@ -53,3 +53,7 @@ futures.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
 anyhow.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+magic-crypt.workspace = true

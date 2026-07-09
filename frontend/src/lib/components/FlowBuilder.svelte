@@ -10,7 +10,13 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
-	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userStore,
+		userWorkspaces,
+		workspaceStore,
+		usedTriggerKinds
+	} from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -92,8 +98,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
 
@@ -113,6 +118,7 @@
 		disabledFlowInputs = false,
 		savedPrimarySchedule = undefined,
 		version = undefined,
+		draftBaseVersion = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
 		children,
@@ -130,13 +136,21 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onTestJob
+		onTestJob,
+		condensedHeader = false
 	}: FlowBuilderProps = $props()
 
-	// Key the AutosaveIndicator watches. Falls back to this component's own
-	// draft key, so the full-page editor is unchanged; the sessions preview
-	// overrides both to the (forked) workspace + path its autosave saves under.
-	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+
+	// The workspace this editor operates on: deploy, save-draft, trigger loading
+	// and the AutosaveIndicator all target it. Falls back to the global store, so
+	// the full-page editor is unchanged; the sessions preview overrides it to the
+	// session's (forked) workspace, so an embedded editor acts on the session's
+	// fork rather than the navigation workspace ($workspaceStore, which stays put).
+	// indicatorPath is the matching draft path.
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)
@@ -220,17 +234,22 @@
 	}
 	let onLatest = true
 	async function compareVersions() {
-		if (version === undefined) {
+		// Compare the draft's pinned fork base against the current head when editing
+		// a draft, else the load-time head. This catches both a concurrent deploy
+		// (head moved since open) AND a stale draft reopened after a deploy (head ==
+		// load-time head, but the draft was forked from an older version).
+		const base = draftBaseVersion ?? version
+		if (base === undefined) {
 			return
 		}
 		try {
 			if (initialPath && initialPath != '') {
 				const flowVersion = await FlowService.getFlowLatestVersion({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: initialPath
 				})
 
-				onLatest = version === flowVersion?.id
+				onLatest = base === flowVersion?.id
 			} else {
 				onLatest = true
 			}
@@ -278,9 +297,9 @@
 	// failure: `flush` never rejects (postSave catches and routes errors
 	// to the failures map), so the success branch fired regardless.
 	export async function saveDraft(): Promise<void> {
-		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		if (!opWorkspace || !liveEditorDraftStoragePath) return
 		await UserDraftDbSyncer.flush({
-			workspace: $workspaceStore,
+			workspace: opWorkspace,
 			itemKind: 'flow',
 			path: liveEditorDraftStoragePath
 		})
@@ -328,7 +347,7 @@
 	}
 	async function syncWithDeployed() {
 		const flow = await FlowService.getFlowByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath,
 			withStarredInfo: true
 		})
@@ -385,7 +404,7 @@
 
 			if (newFlow) {
 				await FlowService.createFlow({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					requestBody: {
 						path: $pathStore,
 						summary: flow.summary ?? '',
@@ -403,7 +422,7 @@
 					}
 				})
 				await CaptureService.moveCapturesAndConfigs({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: fakeInitialPath,
 					requestBody: {
 						new_path: $pathStore
@@ -413,7 +432,7 @@
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,
-						$workspaceStore,
+						opWorkspace,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 						usedTriggerKinds,
 						$pathStore,
@@ -424,7 +443,7 @@
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,
-						$workspaceStore,
+						opWorkspace,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 						usedTriggerKinds,
 						initialPath
@@ -432,7 +451,7 @@
 				}
 
 				await FlowService.updateFlow({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: initialPath,
 					requestBody: {
 						path: $pathStore,
@@ -454,7 +473,7 @@
 
 			// New/updated path now exists server-side — drop the autocomplete
 			// cache so it shows up immediately instead of after the 60s TTL.
-			invalidateWorkspacePaths($workspaceStore!)
+			invalidateWorkspacePaths(opWorkspace!)
 
 			const { draft_triggers: _, ...newSavedFlow } = flowStore.val as OpenFlow & {
 				draft_triggers: Trigger[]
@@ -494,8 +513,8 @@
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 
 	$effect(() => {
-		if (liveEditorDraftStoragePath === undefined || !$workspaceStore) return
-		const workspace = $workspaceStore
+		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
+		const workspace = opWorkspace
 		UserDraft.setLiveEditorDraft({
 			workspace,
 			itemKind: 'flow',
@@ -550,7 +569,8 @@
 		modulesTestStates,
 		outputPickerOpenFns,
 		preserveOnBehalfOf,
-		savedOnBehalfOfEmail
+		savedOnBehalfOfEmail,
+		opWorkspace: () => opWorkspace
 	})
 
 	// Set up NoteEditor context for note editing capabilities
@@ -595,14 +615,14 @@
 	export async function loadTriggers() {
 		if (initialPath == '') return
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath
 		})
 
 		// Initialize triggers using utility function
 		await triggersState.fetchTriggers(
 			triggersCount,
-			$workspaceStore,
+			opWorkspace,
 			initialPath,
 			true,
 			$primaryScheduleStore,
@@ -726,9 +746,13 @@
 			})
 		}
 
-		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+		if (
+			!untrack(() => newFlow) &&
+			!isCloudHosted() &&
+			editInForkAllowed(opWorkspace, $userWorkspaces)
+		) {
 			dropdownItems.push({
-				label: 'Edit in workspace fork',
+				label: editInForkLabel(opWorkspace, $userWorkspaces),
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
 			})
 		}
@@ -965,7 +989,7 @@
 		selectedId && untrack(() => select(selectedId))
 	})
 	$effect.pre(() => {
-		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
+		initialPath && initialPath != '' && opWorkspace && untrack(() => loadTriggers())
 	})
 	$effect.pre(() => {
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
@@ -976,7 +1000,7 @@
 		await stepHistoryLoader.loadIndividualStepsStates(
 			flowStore.val as Flow,
 			flowStateStore,
-			$workspaceStore!,
+			opWorkspace!,
 			$initialPathStore,
 			$pathStore
 		)
@@ -1078,23 +1102,29 @@
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
-		<div bind:this={flowBuilderRoot} class="flex flex-col h-screen">
+		<div bind:this={flowBuilderRoot} class="flex flex-col h-full">
 			<!-- Nav between steps-->
 			<div
 				bind:clientWidth={topbarWidth}
-				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
+				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
+					? 'max-h-9'
+					: 'max-h-12'}"
 			>
-				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
-					<EditorHeader
-						bind:summary={flowStore.val.summary}
-						bind:path={$pathStore}
-						savedPath={initialPath}
-						onBehalfOfEmail={$savedOnBehalfOfEmail}
-						onNavigate={(item) => onNavigate?.(item)}
-					/>
-					{#if indicatorWorkspace && indicatorPath !== undefined}
+				<div class="flex flex-row items-center gap-2 min-w-0">
+					<div class="min-w-0 overflow-hidden">
+						<EditorHeader
+							bind:summary={flowStore.val.summary}
+							bind:path={$pathStore}
+							savedPath={initialPath}
+							onBehalfOfEmail={$savedOnBehalfOfEmail}
+							hidePath={condensedHeader}
+							workspaceId={autosaveWorkspace}
+							onNavigate={(item) => onNavigate?.(item)}
+						/>
+					</div>
+					{#if opWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
-							workspace={indicatorWorkspace}
+							workspace={opWorkspace}
 							itemKind="flow"
 							path={indicatorPath}
 							draftOnly={newFlow}
@@ -1105,12 +1135,12 @@
 						/>
 					{/if}
 				</div>
-				<div class="flex flex-row gap-2 items-center">
+				<div class="flex flex-row gap-2 items-center shrink-0">
 					{#if $enterpriseLicense && !newFlow}
 						<Awareness />
 					{/if}
 					<div class="relative">
-						<Dropdown items={getMoreItems} />
+						<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
 						{#if $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial')) || $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))}
 							<span
 								class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
@@ -1130,7 +1160,7 @@
 						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
 							<Button
 								variant="default"
-								unifiedSize="md"
+								unifiedSize={headerBtnSize}
 								on:click={() => openDiffDrawer()}
 								disabled={diffDisabled}
 								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
@@ -1150,6 +1180,7 @@
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}
 						{loading}
 						{loadingSave}
+						unifiedSize={headerBtnSize}
 						{dropdownItems}
 					/>
 				</div>
@@ -1160,6 +1191,7 @@
 			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}
+					unifiedSize={headerBtnSize}
 					on:openTriggers={(e) => {
 						select('Trigger')
 						handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
@@ -1225,6 +1257,16 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
+					sessionOpen={$pathStore
+						? {
+								target: { kind: 'flow', path: $pathStore },
+								workspaceId: opWorkspace ?? undefined,
+								// Persist unsaved edits so the session preview
+								// (/flows/edit/<path>) opens the flow exactly as it is in the
+								// editor right now.
+								beforeOpen: saveDraft
+							}
+						: undefined}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}
 					{showJobStatus}

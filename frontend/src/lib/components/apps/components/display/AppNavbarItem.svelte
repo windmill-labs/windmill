@@ -13,7 +13,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { Output } from '../../rx'
 	import ResolveNavbarItemPath from './ResolveNavbarItemPath.svelte'
-	import { urlParamsToObject } from '$lib/utils'
+	import { urlParamsToObject, WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils'
 
 	interface Props {
 		navbarItem: NavbarItem
@@ -54,8 +54,22 @@
 	let resolvedHidden: boolean | undefined = $state(undefined)
 
 	function extractPathDetails() {
-		const url = window.location.pathname + window.location.search + window.location.hash
-		const processedUrl = url.replace('/apps/edit/', '').replace('/apps/get/', '')
+		// Drop Windmill transport params (wm_embed, …) so they don't poison the
+		// comparison against the item's resolved path.
+		const params = new URLSearchParams(window.location.search)
+		const reserved: string[] = []
+		params.forEach((_v, k) => {
+			if (WINDMILL_RESERVED_QUERY_PARAMS.has(k)) reserved.push(k)
+		})
+		reserved.forEach((k) => params.delete(k))
+		const qs = params.toString()
+		const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
+		// `/app_embed/{workspace}/` is the opaque in-workspace viewer route
+		// (WIN-2006) — same app-path suffix as `/apps/get/`.
+		const processedUrl = url
+			.replace('/apps/edit/', '')
+			.replace('/apps/get/', '')
+			.replace(/^\/app_embed\/[^/]+\//, '')
 		return processedUrl
 	}
 

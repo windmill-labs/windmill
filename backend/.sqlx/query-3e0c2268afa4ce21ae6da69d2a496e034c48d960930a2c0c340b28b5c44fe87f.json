@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO macro_definition (workspace_id, name, provider_path, params, body, is_table_macro)\n         SELECT $2, name, provider_path, params, body, is_table_macro\n         FROM macro_definition WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3e0c2268afa4ce21ae6da69d2a496e034c48d960930a2c0c340b28b5c44fe87f"
+}

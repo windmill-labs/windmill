@@ -50,6 +50,20 @@ export interface GlobalLiveEditorDraftFixture {
   value?: unknown;
 }
 
+// Identity the global system prompt builds paths from. Production reads
+// `userStore` (whoami) to fill `u/{username}/...`; the eval harness never logs
+// in, so without this the prompt sees an empty username (`u//...`) and no
+// path-selection case is meaningful. Seeded per-case via the initial fixture and
+// passed straight to `prepareGlobalSystemMessage` (no global-store mutation).
+export interface GlobalUserFixture {
+  username: string;
+  is_admin?: boolean;
+  /** Folders the user can write to (the writable set whoami returns). */
+  folders?: string[];
+  /** Folders the user can read; read-only folders = folders_read \ folders. */
+  folders_read?: string[];
+}
+
 export interface GlobalEvalResult {
   success: boolean;
   state: GlobalDraftState;
@@ -65,6 +79,7 @@ export interface GlobalEvalResult {
 export interface GlobalEvalOptions {
   workspaceFixtures?: BenchmarkWorkspaceRunnables;
   liveEditorDrafts?: GlobalLiveEditorDraftFixture[];
+  user?: GlobalUserFixture;
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
@@ -90,9 +105,11 @@ export async function runGlobalEval(
     const model = options.model ?? "claude-haiku-4-5-20251001";
     const injectActiveEditorContext =
       process.env[DISABLE_ACTIVE_EDITOR_CONTEXT_ENV] !== "1";
+    // Pass the seeded identity straight to the prompt builder rather than mutating
+    // the process-global `userStore`, so concurrent cases never race on it.
     const rawResult = await runEval({
       userPrompt,
-      systemMessage: prepareGlobalSystemMessage(),
+      systemMessage: prepareGlobalSystemMessage(undefined, { user: options.user }),
       userMessage: prepareGlobalUserMessage(
         userPrompt,
         [],

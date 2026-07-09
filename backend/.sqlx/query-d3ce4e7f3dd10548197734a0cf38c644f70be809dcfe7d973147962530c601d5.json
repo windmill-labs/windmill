@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2\n             AND NOT EXISTS (\n                 SELECT 1 FROM workspace\n                 WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false\n             )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d3ce4e7f3dd10548197734a0cf38c644f70be809dcfe7d973147962530c601d5"
+}

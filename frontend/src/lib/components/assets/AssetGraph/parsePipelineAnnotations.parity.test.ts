@@ -17,7 +17,14 @@ const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
 	partition: true,
 	freshness: true,
 	tag: true,
-	retry: true
+	retry: true,
+	materialize: true,
+	dataTests: true,
+	columnLineage: true,
+	macros: true,
+	useLibs: true,
+	muteAssets: true,
+	muteAll: true
 }
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
@@ -58,6 +65,34 @@ type Fixture = {
 		freshness: string | null
 		tag: string | null
 		retry: { count: number; delay: string | null } | null
+		materialize?: {
+			target_kind: string
+			target_path: string
+			manual?: boolean
+			append?: boolean
+			unique_key?: string | null
+			scd2?: boolean
+			track?: string[]
+			close_deleted?: boolean
+			// "warn" | "ignore"; absent === "warn" (the default)
+			on_schema_change?: string
+		} | null
+		// Snake_case form matching the Rust `DataTest` serde output, so the one
+		// corpus drives both sides. The TS parser emits this shape verbatim
+		// (snake_case fields), so the comparison is 1:1. Absent === [].
+		data_tests?: Array<Record<string, unknown>>
+		// Snake_case `ColumnLineage` serde shape — TS parser emits it verbatim,
+		// so the comparison is 1:1. Absent === [].
+		column_lineage?: Array<Record<string, unknown>>
+		// `// macros` marker. Absent === false.
+		macros?: boolean
+		// `// use <lib_path>` accumulation, declaration order, deduped. Absent === [].
+		use_libs?: string[]
+		// `// mute <asset>` accumulation as `kind:path`, declaration order, deduped.
+		// Absent === [].
+		mute?: string[]
+		// `// mute all` marker. Absent === false.
+		mute_all?: boolean
 	}
 }
 
@@ -126,6 +161,53 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 				expect(got.retry?.count, 'retry count').toBe(f.expected.retry.count)
 				expect(got.retry?.delay, 'retry delay').toEqual(f.expected.retry.delay ?? undefined)
 			}
+
+			if (f.expected.materialize == null) {
+				expect(got.materialize, 'materialize').toBeUndefined()
+			} else {
+				expect(got.materialize?.targetKind, 'materialize target kind').toBe(
+					f.expected.materialize.target_kind
+				)
+				expect(got.materialize?.targetPath, 'materialize target path').toBe(
+					f.expected.materialize.target_path
+				)
+				expect(got.materialize?.manual ?? false, 'materialize manual').toBe(
+					f.expected.materialize.manual ?? false
+				)
+				expect(got.materialize?.append ?? false, 'materialize append').toBe(
+					f.expected.materialize.append ?? false
+				)
+				expect(got.materialize?.uniqueKey, 'materialize key').toEqual(
+					f.expected.materialize.unique_key ?? undefined
+				)
+				expect(got.materialize?.scd2 ?? false, 'materialize scd2').toBe(
+					f.expected.materialize.scd2 ?? false
+				)
+				expect(got.materialize?.track ?? [], 'materialize track').toEqual(
+					f.expected.materialize.track ?? []
+				)
+				expect(got.materialize?.closeDeleted ?? false, 'materialize close_deleted').toBe(
+					f.expected.materialize.close_deleted ?? false
+				)
+				expect(got.materialize?.onSchemaChange ?? 'warn', 'materialize on_schema_change').toBe(
+					f.expected.materialize.on_schema_change ?? 'warn'
+				)
+			}
+
+			expect(got.dataTests, 'data tests').toEqual(f.expected.data_tests ?? [])
+
+			expect(got.columnLineage, 'column lineage').toEqual(f.expected.column_lineage ?? [])
+
+			expect(got.macros, 'macros').toBe(f.expected.macros ?? false)
+
+			expect(got.useLibs, 'use_libs').toEqual(f.expected.use_libs ?? [])
+
+			expect(
+				got.muteAssets.map((a) => `${a.kind}:${a.path}`),
+				'mute'
+			).toEqual(f.expected.mute ?? [])
+
+			expect(got.muteAll, 'mute_all').toBe(f.expected.mute_all ?? false)
 		})
 	}
 })

@@ -1063,6 +1063,14 @@
 						<li
 							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
 						>
+						<li
+							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
+							apps, raw apps)</li
+						>
+						<li
+							>infrastructure info (container runtime, managed database provider, database version,
+							size and cluster size, max and active connections, object storage backend)</li
+						>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.
 				</div>
@@ -1100,6 +1108,10 @@
 						<li>development instance status</li>
 						<li
 							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+						>
+						<li
+							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
+							apps, raw apps)</li
 						>
 					</ul>
 				</div>

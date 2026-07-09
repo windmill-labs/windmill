@@ -1,11 +1,20 @@
 import { sveltekit } from '@sveltejs/kit/vite'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import mkcert from 'vite-plugin-mkcert'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
 const version = JSON.parse(json)
+
+// The postinstall downloads the pinned UI Builder artifact into static/ui_builder,
+// which SvelteKit serves at /ui_builder. Serve that directly; only proxy to a
+// live UI Builder dev server on :4000 when the bundle is absent (mirrors the
+// backend's static-vs-:4000 fallback). Delete static/ui_builder to develop the
+// builder against :4000.
+const uiBuilderStaticPresent = existsSync(
+	fileURLToPath(new URL('static/ui_builder/app-preview.html', import.meta.url))
+)
 
 const remoteUrl =
 	process.env.REMOTE ??
@@ -84,15 +93,19 @@ const config = {
 				changeOrigin: true,
 				ws: true
 			},
-			'^/ui_builder/.*': {
-				target: 'http://localhost:4000',
-				changeOrigin: true,
-				headers: {
-					'Cross-Origin-Opener-Policy': 'same-origin',
-					'Cross-Origin-Embedder-Policy': 'require-corp',
-					'Cross-Origin-Resource-Policy': 'cross-origin'
-				}
-			}
+			...(uiBuilderStaticPresent
+				? {}
+				: {
+						'^/ui_builder/.*': {
+							target: 'http://localhost:4000',
+							changeOrigin: true,
+							headers: {
+								'Cross-Origin-Opener-Policy': 'same-origin',
+								'Cross-Origin-Embedder-Policy': 'require-corp',
+								'Cross-Origin-Resource-Policy': 'cross-origin'
+							}
+						}
+					})
 		}
 	},
 	preview: { port: 3001 },

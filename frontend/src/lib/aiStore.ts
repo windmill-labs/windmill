@@ -77,13 +77,28 @@ function dedupeModels(models: AIProviderModel[]): AIProviderModel[] {
 	})
 }
 
+// copilotInfo/copilotSessionModel are global, so concurrent loads (e.g. a fast
+// session switch between workspaces) race: an earlier call resolving last would
+// clobber the active workspace's config. Apply only the most recent call's
+// result via a monotonic token — last invocation wins regardless of resolution
+// order. init() is synchronous so its ordering already matches.
+let loadCopilotToken = 0
+// The workspace copilotInfo currently reflects. A session send awaits this
+// matching its committed workspace so getCurrentModel() can't read the previous
+// workspace's provider/model while the scoped load is still in flight.
+export const copilotWorkspace = writable<string | undefined>(undefined)
 export async function loadCopilot(workspace: string) {
+	const token = ++loadCopilotToken
 	workspaceAIClients.init(workspace)
 	try {
 		const info = await WorkspaceService.getCopilotInfo({ workspace })
+		if (token !== loadCopilotToken) return
 		setCopilotInfo(info)
+		copilotWorkspace.set(workspace)
 	} catch (err) {
+		if (token !== loadCopilotToken) return
 		setCopilotInfo({})
+		copilotWorkspace.set(workspace)
 		console.error('Could not get copilot info', err)
 	}
 }
@@ -203,4 +218,13 @@ export function getCombinedCustomPrompt(mode: string): string | undefined {
 	}
 
 	return prompts.join('\n\n')
+}
+
+// Like getCombinedCustomPrompt but keeps the workspace and user slices separate so the
+// Global system prompt can label them distinctly — only the user slice is editable by the
+// update_user_instructions tool.
+export function getCustomPromptParts(mode: string): { workspace?: string; user?: string } {
+	const workspace = get(copilotInfo).customPrompts?.[mode]?.trim() || undefined
+	const user = getUserCustomPrompts()[mode]?.trim() || undefined
+	return { workspace, user }
 }

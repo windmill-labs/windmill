@@ -44,7 +44,7 @@ use windmill_common::{
     schema::{should_validate_schema, SchemaValidator},
     utils::{create_directory_async, WarnAfterExt},
     worker::{
-        make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
+        is_allowed_file_location, make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
         MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
     },
     worker_group_job_stats::JobStatsMap,
@@ -4324,20 +4324,25 @@ async fn resolve_partition_for_job(
     job: &MiniPulledJob,
     code: &str,
     conn: &Connection,
-) -> error::Result<Option<MiniPulledJob>> {
+) -> error::Result<(Option<MiniPulledJob>, bool)> {
     use windmill_common::partition::{resolve_partition, PARTITION_ARG};
     use windmill_parser::asset_parser::PartitionKind;
 
-    // Only deployed scripts participate in asset pipelines. Cheap
-    // substring guard so the overwhelming majority of script jobs (no
-    // `// partitioned` line) skip the full annotation scan on the hot
-    // path; a false positive only costs one extra parse, never wrong.
-    if !matches!(job.kind, JobKind::Script) || !code.contains("partitioned") {
-        return Ok(None);
+    // Only deployed scripts participate in asset pipelines. Cheap substring
+    // guard so the overwhelming majority of script jobs skip the annotation
+    // scan; when one might be present we parse *once* here and reuse the result
+    // for both `in_pipeline` (→ WM_PIPELINE env, read by the wmll.ducklake SDK to
+    // record state) and `partition` resolution — no second parse downstream. The
+    // bool is whether the script is a `// pipeline` member.
+    if !matches!(job.kind, JobKind::Script)
+        || !(code.contains("pipeline") || code.contains("partitioned"))
+    {
+        return Ok((None, false));
     }
-    let Some(spec) = windmill_parser::asset_parser::parse_pipeline_annotations(code).partition
-    else {
-        return Ok(None);
+    let ann = windmill_parser::asset_parser::parse_pipeline_annotations(code);
+    let in_pipeline = ann.in_pipeline;
+    let Some(spec) = ann.partition else {
+        return Ok((None, in_pipeline));
     };
 
     // Already resolved upstream — explicit run arg, backfill, or
@@ -4349,7 +4354,7 @@ async fn resolve_partition_for_job(
             .is_some_and(|s| !s.is_empty())
     });
     if already_set {
-        return Ok(None);
+        return Ok((None, in_pipeline));
     }
 
     // `dynamic` extracts from the triggering payload (the `trigger` object
@@ -4382,7 +4387,7 @@ async fn resolve_partition_for_job(
             job_id = %job.id,
             "partitioned script resolved to no partition (before start anchor); running without one"
         );
-        return Ok(None);
+        return Ok((None, in_pipeline));
     };
 
     // Persist back so dispatch_asset_triggers (which reads the producer's
@@ -4404,7 +4409,7 @@ async fn resolve_partition_for_job(
         windmill_common::worker::to_raw_value(&value),
     );
     updated.args = Some(Json(map));
-    Ok(Some(updated))
+    Ok((Some(updated), in_pipeline))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -4566,7 +4571,8 @@ async fn handle_code_execution_job(
     // `// partitioned` (if any) and shadow `job` with a clone whose args
     // carry the resolved `partition` for the rest of execution.
     let _job_with_partition;
-    let job = match resolve_partition_for_job(job, code, conn).await? {
+    let (resolved_job, in_pipeline) = resolve_partition_for_job(job, code, conn).await?;
+    let job = match resolved_job {
         Some(j) => {
             _job_with_partition = j;
             &_job_with_partition
@@ -4619,8 +4625,19 @@ async fn handle_code_execution_job(
         lock,
         &modules,
         false,
+        in_pipeline,
     )
     .await
+}
+
+/// True when `path` contains only `Normal`/`CurDir` components, i.e. it cannot
+/// escape the directory it is joined onto (no `..`, no absolute root, no Windows
+/// drive prefix).
+fn is_contained_relative_path(path: &str) -> bool {
+    use std::path::Component;
+    std::path::Path::new(path)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
 }
 
 pub async fn write_module_files(
@@ -4628,37 +4645,131 @@ pub async fn write_module_files(
     modules: &std::collections::HashMap<String, ScriptModule>,
     base_dir: Option<&str>,
 ) -> error::Result<()> {
+    // base_dir is derived from the runnable path, which on a preview run can
+    // carry `..` traversal (it is not the validated module-map key). Reject it
+    // before it is used to build any write target, otherwise a module could
+    // escape job_dir and write arbitrary files.
+    if let Some(dir) = base_dir {
+        if !is_contained_relative_path(dir) {
+            return Err(error::Error::BadRequest(format!(
+                "Invalid module base directory (path traversal): {dir}"
+            )));
+        }
+    }
     for (relpath, module) in modules {
-        // Reject path traversal attempts in module paths
-        if relpath.contains("..") {
+        // Reject path traversal attempts in module paths (the module-map key).
+        if !is_contained_relative_path(relpath) {
             tracing::warn!("Skipping module with path traversal: {relpath}");
             continue;
         }
-        let full_path = match base_dir {
-            Some(dir) => format!("{}/{}/{}", job_dir, dir, relpath),
-            None => format!("{}/{}", job_dir, relpath),
+        let relpath_from_job_dir = match base_dir {
+            Some(dir) => format!("{}/{}", dir, relpath),
+            None => relpath.to_string(),
         };
-        if let Some(parent) = std::path::Path::new(&full_path).parent() {
+        // Authoritative guard: resolve the path and assert it stays inside job_dir.
+        let full_path = is_allowed_file_location(job_dir, &relpath_from_job_dir)?;
+        if let Some(parent) = full_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
         // For Python modules, create __init__.py in each intermediate directory
         // between base_dir and the module's parent so that relative imports work.
         if let Some(dir) = base_dir {
-            let rel = std::path::Path::new(relpath);
-            let base = std::path::Path::new(job_dir).join(dir);
-            let mut current = base.clone();
-            for component in rel.parent().into_iter().flat_map(|p| p.components()) {
+            let mut current = std::path::PathBuf::from(dir);
+            for component in std::path::Path::new(relpath)
+                .parent()
+                .into_iter()
+                .flat_map(|p| p.components())
+            {
                 current = current.join(component);
-                let init_py = current.join("__init__.py");
+                let init_py = is_allowed_file_location(
+                    job_dir,
+                    &current.join("__init__.py").to_string_lossy(),
+                )?;
                 if !init_py.exists() {
                     tokio::fs::write(&init_py, "").await?;
                 }
             }
         }
-        tracing::debug!("Writing module file: {full_path}");
+        tracing::debug!("Writing module file: {}", full_path.display());
         tokio::fs::write(&full_path, &module.content).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod write_module_files_tests {
+    use super::*;
+    use std::collections::HashMap;
+    use windmill_common::scripts::ScriptLang;
+
+    fn module(content: &str) -> ScriptModule {
+        ScriptModule { content: content.to_string(), language: ScriptLang::Python3, lock: None }
+    }
+
+    #[test]
+    fn contained_relative_path_rejects_traversal_and_absolute() {
+        assert!(is_contained_relative_path("u/admin/pkg"));
+        assert!(is_contained_relative_path("./pkg/sub"));
+        // A `..` in a filename is a valid name, not a traversal.
+        assert!(is_contained_relative_path("weird..name"));
+
+        assert!(!is_contained_relative_path("u/x/../../../etc"));
+        assert!(!is_contained_relative_path("../escape"));
+        assert!(!is_contained_relative_path("/etc/cron.d/wm"));
+    }
+
+    #[tokio::test]
+    async fn base_dir_traversal_is_rejected_and_writes_nothing() {
+        let job = tempfile::tempdir().unwrap();
+        let job_dir = job.path().to_str().unwrap();
+        // Sentinel just outside job_dir that a successful traversal would create.
+        let outside = job.path().parent().unwrap().join("wm_escaped_marker");
+
+        let mut modules = HashMap::new();
+        modules.insert(
+            "wm_escaped_marker".to_string(),
+            module("* * * * * root id\n"),
+        );
+
+        // base_dir derived from a preview path carrying `..` traversal.
+        let res = write_module_files(job_dir, &modules, Some("u/x/../../../../../..")).await;
+        assert!(res.is_err(), "traversal base_dir must be rejected");
+        assert!(!outside.exists(), "no file may be written outside job_dir");
+    }
+
+    #[tokio::test]
+    async fn relpath_traversal_is_skipped() {
+        let job = tempfile::tempdir().unwrap();
+        let job_dir = job.path().to_str().unwrap();
+        let outside = job.path().parent().unwrap().join("wm_relpath_escape.py");
+
+        let mut modules = HashMap::new();
+        modules.insert("../wm_relpath_escape.py".to_string(), module("x = 1"));
+
+        write_module_files(job_dir, &modules, None).await.unwrap();
+        assert!(!outside.exists());
+    }
+
+    #[tokio::test]
+    async fn legitimate_modules_are_written_with_init_py() {
+        let job = tempfile::tempdir().unwrap();
+        let job_dir = job.path().to_str().unwrap();
+
+        let mut modules = HashMap::new();
+        modules.insert("pkg/sub/mod.py".to_string(), module("VALUE = 42"));
+
+        write_module_files(job_dir, &modules, Some("u/admin"))
+            .await
+            .unwrap();
+
+        let base = job.path().join("u/admin");
+        assert_eq!(
+            std::fs::read_to_string(base.join("pkg/sub/mod.py")).unwrap(),
+            "VALUE = 42"
+        );
+        assert!(base.join("pkg/__init__.py").exists());
+        assert!(base.join("pkg/sub/__init__.py").exists());
+    }
 }
 
 pub async fn run_language_executor(
@@ -4685,6 +4796,9 @@ pub async fn run_language_executor(
     lock: &Option<String>,
     modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
+    // Whether the script is a `// pipeline` member (parsed once upstream) — sets
+    // WM_PIPELINE so the wmll.ducklake SDK helpers record materialization state.
+    in_pipeline: bool,
 ) -> error::Result<Box<RawValue>> {
     // Defense-in-depth (GHSA-wxjq-w5pj-jqhx): the entrypoint override is
     // interpolated verbatim into a code position of the generated language
@@ -5047,6 +5161,11 @@ mount {{
 
     #[allow(unused_mut)]
     let mut envs = build_envs(envs.as_ref())?;
+    // Signal pipeline context to the script so the wmll.ducklake SDK helpers
+    // record materialization state (the grid/backfill) and skip it otherwise.
+    if in_pipeline {
+        envs.insert("WM_PIPELINE".to_string(), "true".to_string());
+    }
 
     let Some(language) = language else {
         return Err(Error::ExecutionErr(
@@ -5832,6 +5951,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     true,
+                    false,
                 )
                 .await
             })
@@ -5913,6 +6033,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &content_info.lockfile,
                     &content_info.modules,
                     true,
+                    false,
                 )
                 .await
             })

@@ -24,6 +24,11 @@
 		titleExtra?: import('svelte').Snippet
 		/** Rendered fixed below the header, above the scrollable content. */
 		banner?: import('svelte').Snippet
+		/**
+		 * Whether the `banner` reserves space (its baseline exists). Only then does
+		 * the content hug it with tight top padding; new entities keep normal padding.
+		 */
+		bannerReserved?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -43,6 +48,7 @@
 		actions,
 		titleExtra,
 		banner,
+		bannerReserved = false,
 		children
 	}: Props = $props()
 
@@ -86,19 +92,29 @@
 		{/if}
 	</div>
 
-	{#if banner}
-		{@render banner()}
-	{/if}
+	{#snippet contentBox(tightTop = false)}
+		<div
+			class={classNames(
+				noPadding ? '' : tightTop ? 'px-4 pb-4 pt-1' : 'p-4',
+				'grow min-h-0 max-h-full',
+				forceOverflowVisible ? '!overflow-visible' : ''
+			)}
+			class:overflow-y-auto={overflow_y}
+			style={overflow_y ? 'scrollbar-gutter: stable;' : ''}
+		>
+			{@render children?.()}
+		</div>
+	{/snippet}
 
-	<div
-		class={classNames(
-			noPadding ? '' : 'p-4',
-			'grow min-h-0 max-h-full',
-			forceOverflowVisible ? '!overflow-visible' : ''
-		)}
-		class:overflow-y-auto={overflow_y}
-		style={overflow_y ? 'scrollbar-gutter: stable;' : ''}
-	>
-		{@render children?.()}
-	</div>
+	{#if banner}
+		<!-- Banner + content share one `divide-y` cell: the header keeps its single
+		     divider (no bordered strip around the reserved slot) and the content hugs
+		     the slot with tight top padding (see `contentBox`/`bannerReserved`). -->
+		<div class="flex flex-col grow min-h-0 max-h-full">
+			{@render banner()}
+			{@render contentBox(bannerReserved)}
+		</div>
+	{:else}
+		{@render contentBox()}
+	{/if}
 </div>

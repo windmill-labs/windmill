@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT version, columns AS \"columns: Json<Vec<SchemaColumn>>\"\n             FROM materialized_asset_schema\n            WHERE workspace_id = $1 AND asset_kind = $2 AND asset_path = $3\n            ORDER BY version DESC\n            LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "columns: Json<Vec<SchemaColumn>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "231475dc825518aa88f562698f8061d2562c3ac4af8d088f9eea9f0bc11d5fe7"
+}

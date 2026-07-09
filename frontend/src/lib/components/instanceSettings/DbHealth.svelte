@@ -289,6 +289,11 @@
 						<p class="text-secondary">
 							Total connections: <strong>{data.connection_pool.pg_total_connections}</strong> / Max:
 							<strong>{data.connection_pool.pg_max_connections}</strong>
+							{#if data.connection_pool.pg_superuser_reserved_connections > 0}
+								<span class="text-tertiary"
+									>({data.connection_pool.pg_superuser_reserved_connections} reserved for superuser)</span
+								>
+							{/if}
 						</p>
 						<p class="text-secondary">
 							Active: <strong>{data.connection_pool.pg_active_connections}</strong>
@@ -297,6 +302,67 @@
 						<p class="{statusColor(data.connection_pool.status)} mt-1 font-medium">
 							{data.connection_pool.message}
 						</p>
+
+						{#if data.connection_pool.sizing}
+							{@const sizing = data.connection_pool.sizing}
+							{@const undersized =
+								sizing.recommended_max_connections > data.connection_pool.pg_max_connections}
+							<div class="bg-surface-secondary mt-2 flex flex-col gap-2 rounded p-2">
+								<p class="text-secondary font-semibold">Connection sizing guidance</p>
+								<div class="grid grid-cols-2 gap-x-6 gap-y-1">
+									<span class="text-tertiary">Live worker instances</span>
+									<span class="text-primary text-right font-medium"
+										>{formatNumber(sizing.live_worker_instances)}</span
+									>
+									<span class="text-tertiary">Live workers</span>
+									<span class="text-primary text-right font-medium"
+										>{formatNumber(sizing.live_workers)}</span
+									>
+									{#if sizing.live_agent_workers > 0}
+										<span class="text-tertiary">Agent workers (HTTP, excluded)</span>
+										<span class="text-primary text-right font-medium"
+											>{formatNumber(sizing.live_agent_workers)}</span
+										>
+									{/if}
+									<span class="text-tertiary">Est. peak worker connections</span>
+									<span class="text-primary text-right font-medium"
+										>{formatNumber(sizing.estimated_worker_connections)}</span
+									>
+									<span class="text-tertiary"
+										>Per-server pool {sizing.database_connections_override != null
+											? '(DATABASE_CONNECTIONS)'
+											: '(default)'}</span
+									>
+									<span class="text-primary text-right font-medium"
+										>{formatNumber(sizing.server_pool_size)}</span
+									>
+									<span class="text-tertiary"
+										>Per-worker-instance pool {sizing.database_connections_override != null
+											? '(DATABASE_CONNECTIONS)'
+											: '(default)'}</span
+									>
+									<span class="text-primary text-right font-medium"
+										>{formatNumber(sizing.worker_pool_size)}</span
+									>
+									<span class="text-tertiary">Recommended max_connections</span>
+									<span
+										class="text-right font-semibold {undersized
+											? 'text-yellow-600 dark:text-yellow-400'
+											: 'text-green-600 dark:text-green-400'}"
+										>≥ {formatNumber(sizing.recommended_max_connections)}</span
+									>
+								</div>
+								<p class="text-tertiary leading-relaxed">{sizing.message}</p>
+								{#if undersized}
+									<p class="font-medium text-yellow-600 dark:text-yellow-400">
+										Current max_connections ({formatNumber(
+											data.connection_pool.pg_max_connections
+										)}) is below the recommended floor for a single server. Increase max_connections
+										or lower per-process pools via DATABASE_CONNECTIONS.
+									</p>
+								{/if}
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</section>

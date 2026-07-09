@@ -216,7 +216,7 @@ async fn get_http_route_trigger(
     let email = windmill_common::users::get_email_from_permissioned_as(
         &trigger.permissioned_as,
         &trigger.workspace_id,
-        &db,
+        db,
     )
     .await?;
     let authed = windmill_api_auth::fetch_api_authed_from_permissioned_as(

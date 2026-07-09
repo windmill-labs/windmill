@@ -204,6 +204,7 @@ const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'edited_by',
 	'workspace_id',
 	'version_id',
+	'parent_version',
 	'is_draft'
 ] as const
 

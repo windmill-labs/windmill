@@ -60,7 +60,7 @@
 	import { Handle, Position } from '@xyflow/svelte'
 	import { NODE } from '$lib/components/graph/util'
 	import { twMerge } from 'tailwind-merge'
-	import { AlertTriangle, EllipsisVertical, Trash2 } from 'lucide-svelte'
+	import { AlertTriangle, CheckCircle2, EllipsisVertical, Target, Trash2 } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { stopPropagation, preventDefault } from 'svelte/legacy'
 	import type { Item } from '$lib/utils'
@@ -101,6 +101,9 @@
 			// auto-generated S3 picker lets the user upload + run) instead of
 			// rendering a "missing" placeholder.
 			onOpenDataUpload?: (scriptPath: string) => void
+			// True once a file is staged for this data_upload entry — renders the
+			// node green so the user knows the pipeline can run (see WIN-2129).
+			ready?: boolean
 			// Page-supplied dispatcher to open the matching native trigger
 			// drawer in edit mode for an attached (non-missing) trigger.
 			// `triggerPath` is the trigger row's path (e.g. the mqtt_trigger
@@ -113,6 +116,12 @@
 			// trigger. Confirmation is the caller's responsibility — the
 			// node just exposes the entry point on the kebab menu.
 			onDeleteTrigger?: (kind: NativeTriggerKind, triggerPath: string) => void
+			// Wired by the canvas only when this trigger's target script is a
+			// valid bounded-run start (schedule / manual root) with downstream.
+			// Entering the page's end-node pick mode rooted at that script — the
+			// View-mode entry point for bounded runs (the script's own Run-button
+			// caret is Edit-only).
+			onStartBoundedRun?: () => void
 		}
 	}
 	let { data }: Props = $props()
@@ -143,6 +152,10 @@
 	// data_upload routes through its own handler — clicking opens the target
 	// script's run form (with the auto-generated S3 picker).
 	let canOpenDataUpload = $derived(isDataUpload && !!data.runnable_path && !!data.onOpenDataUpload)
+	// A staged upload turns the node green (ready to run); before that it stays
+	// on the neutral surface with the "upload a file" prompt.
+	let dataUploadReady = $derived(isDataUpload && data.ready === true)
+	let DataUploadIcon = $derived(dataUploadReady ? CheckCircle2 : style.icon)
 	// Schedule + the other native kinds all have dedicated editors. Webhook and
 	// data_upload are excluded — they route through their own open handlers.
 	let canCreate = $derived(
@@ -173,8 +186,17 @@
 			!!data.onDeleteTrigger
 	)
 
-	let menuItems: Item[] = $derived(
-		canDelete
+	let menuItems: Item[] = $derived([
+		...(data.onStartBoundedRun
+			? [
+					{
+						displayName: 'Run + downstream…',
+						icon: Target,
+						action: () => data.onStartBoundedRun?.()
+					}
+				]
+			: []),
+		...(canDelete
 			? [
 					{
 						displayName: 'Delete…',
@@ -182,12 +204,12 @@
 						type: 'delete' as const,
 						action: () => {
 							if (!data.ref || !data.onDeleteTrigger) return
-							data.onDeleteTrigger(data.kind as NativeTriggerKind, data.ref)
+							data.onDeleteTrigger?.(data.kind as NativeTriggerKind, data.ref)
 						}
 					}
 				]
-			: []
-	)
+			: [])
+	])
 
 	function handleMissingClick() {
 		if (!canCreate || !data.runnable_path || !data.onCreateMissingTrigger) return
@@ -291,26 +313,47 @@
 	{:else if canOpenDataUpload}
 		<!-- Data upload: UI-first entry point (no trigger row). Clicking the
 		     node opens the target script's run form, where the auto-generated
-		     S3 picker lets the user upload a file and run the pipeline. Styled
-		     like an attached trigger, never the red "missing" state. -->
+		     S3 picker lets the user upload a file and run the pipeline. Goes
+		     green once a file is staged (ready), so "Run pipeline" can proceed;
+		     until then it stays neutral with an "upload a file" prompt. Never
+		     the red "missing" state. -->
 		<button
 			type="button"
 			onclick={handleDataUploadClick}
 			class={twMerge(
 				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1 w-full text-left',
-				style.bg,
-				data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
+				dataUploadReady
+					? 'bg-green-50 dark:bg-green-900/30 outline-green-500 dark:outline-green-600'
+					: style.bg,
+				dataUploadReady ? '' : data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
 				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
 			)}
 			style="width: {NODE.width}px; min-height: {NODE.height}px;"
-			title={`Data upload for ${data.runnable_path ?? ''} — click to open the run form and upload a file`}
+			title={dataUploadReady
+				? `Data upload for ${data.runnable_path ?? ''} — a file is staged; the pipeline is ready to run. Click to change it.`
+				: `Data upload for ${data.runnable_path ?? ''} — click to open the run form and upload a file`}
 		>
-			<Icon size={14} class={`shrink-0 ml-2 mr-2 ${style.iconText}`} />
+			<DataUploadIcon
+				size={14}
+				class={`shrink-0 ml-2 mr-2 ${dataUploadReady ? 'text-green-600 dark:text-green-400' : style.iconText}`}
+			/>
 			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
-				<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
-					{style.label}
+				<span
+					class={twMerge(
+						'text-3xs uppercase tracking-wide truncate',
+						dataUploadReady ? 'text-green-700 dark:text-green-400' : 'text-tertiary'
+					)}
+				>
+					{style.label}{dataUploadReady ? ' · ready' : ''}
 				</span>
-				<span class="text-2xs font-mono truncate text-emphasis"> Upload & run </span>
+				<span
+					class={twMerge(
+						'text-2xs font-mono truncate',
+						dataUploadReady ? 'text-green-700 dark:text-green-400' : 'text-emphasis'
+					)}
+				>
+					{dataUploadReady ? 'File staged' : 'Upload & run'}
+				</span>
 			</div>
 		</button>
 	{:else}

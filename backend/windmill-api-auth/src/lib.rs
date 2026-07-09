@@ -31,8 +31,8 @@ use scopes::ScopeDefinition;
 
 // Re-export key auth types and functions
 pub use auth::{
-    get_end_user_email, invalidate_token_from_cache, AuthCache, ExpiringAuthCache, OptTokened,
-    Tokened, TruncatedTokenWithEmail, AUTH_CACHE,
+    get_end_user_email, invalidate_token_from_cache, is_no_auth, AuthCache, ExpiringAuthCache,
+    OptTokened, Tokened, TruncatedTokenWithEmail, AUTH_CACHE,
 };
 
 // ------------ ApiAuthed & OptJobAuthed types ------------
@@ -203,6 +203,33 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Forbid sensitive global user/token management when authenticated as a
+/// superadmin *via a job token* (`WM_TOKEN`).
+///
+/// A `WM_TOKEN`'s identity is derived from an app/flow `on_behalf_of`, which a
+/// non-admin `wm_deployers` member can point at a superadmin. Trusting it for
+/// these operations would let them establish *persistent* superadmin (promote a
+/// user, reset a superadmin's password, mint a superadmin token, ...). `job_id`
+/// is set only for `WM_TOKEN`s; regular session/API tokens have it `None`, so a
+/// real superadmin who needs this from a script uses a dedicated superadmin API
+/// token (which only a real superadmin can create) instead of `$WM_TOKEN`.
+pub async fn forbid_superadmin_job_token(
+    db: &DB,
+    email: &str,
+    job_id: Option<uuid::Uuid>,
+) -> error::Result<()> {
+    if job_id.is_some() && is_super_admin_email(db, email).await? {
+        return Err(Error::NotAuthorized(
+            "This operation cannot be performed with a job token ($WM_TOKEN) that runs as a \
+             superadmin. If a script genuinely needs to do this, create a dedicated superadmin \
+             token from the User settings drawer (the 'Tokens' section), store it as a secret, \
+             and use that token explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
@@ -996,6 +1023,18 @@ pub fn require_path_read_access_for_preview(
         return Ok(());
     };
 
+    // Reject path traversal before any privilege-based short-circuit. A Preview's
+    // path is request-supplied and bypasses the DB `proper_id` CHECK that deployed
+    // runnables get; it then flows to the worker where it builds on-disk module
+    // directories. A `..` segment or an absolute path could let a write escape the
+    // per-job dir.
+    if path.starts_with('/') || path.split('/').any(|seg| seg == "..") || path.contains('\0') {
+        return Err(Error::BadRequest(format!(
+            "Invalid path for preview job: {}",
+            path
+        )));
+    }
+
     if authed.is_admin {
         return Ok(());
     }
@@ -1051,6 +1090,45 @@ mod tests {
             scopes: scopes.map(|v| v.into_iter().map(String::from).collect()),
             ..Default::default()
         }
+    }
+
+    // Regression tests for the Preview path traversal: a Preview's path skips the
+    // DB `proper_id` CHECK and reaches the worker, where it builds on-disk module
+    // dirs. Traversal must be rejected even for admins, who otherwise bypass the
+    // namespace/folder access check.
+    #[test]
+    fn preview_path_rejects_traversal() {
+        let admin = ApiAuthed { is_admin: true, username: "admin".into(), ..Default::default() };
+        for path in [
+            "u/admin/../../../../../../tmp/evil/payload",
+            "../../tmp/evil",
+            "/tmp/evil",
+            "u/admin/ok/../../../../etc/cron.d/x",
+        ] {
+            assert!(
+                require_path_read_access_for_preview(&admin, &Some(path.to_string())).is_err(),
+                "expected traversal path to be rejected: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn preview_path_allows_legitimate_paths() {
+        let alice = ApiAuthed { username: "alice".into(), ..Default::default() };
+        assert!(require_path_read_access_for_preview(&alice, &None).is_ok());
+        assert!(require_path_read_access_for_preview(&alice, &Some(String::new())).is_ok());
+        assert!(
+            require_path_read_access_for_preview(&alice, &Some("u/alice/my_script".into())).is_ok()
+        );
+
+        let admin = ApiAuthed { is_admin: true, username: "admin".into(), ..Default::default() };
+        assert!(
+            require_path_read_access_for_preview(&admin, &Some("hub/foo/bar/baz".into())).is_ok()
+        );
+        // `..` only as a substring of a segment is a valid name, not traversal.
+        assert!(
+            require_path_read_access_for_preview(&admin, &Some("f/team/my..script".into())).is_ok()
+        );
     }
 
     #[test]

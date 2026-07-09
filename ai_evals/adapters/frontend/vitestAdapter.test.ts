@@ -40,6 +40,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
 		getBenchmarkJobLogs,
+		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
 		hasBenchmarkWorkspace,
@@ -49,6 +50,7 @@ vi.mock('$lib/gen', async () => {
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
+		createBenchmarkFolder,
 		createBenchmarkHttpTrigger,
 		createBenchmarkSchedule,
 		previewBenchmarkSchedule,
@@ -85,10 +87,20 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkDraftForUser(data)
 					: actual.DraftService.getDraftForUser(data),
+			getOwnDraft: async (data: { workspace: string; kind: any; path: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkOwnDraft(data)
+					: actual.DraftService.getOwnDraft(data),
 			listDrafts: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? listBenchmarkDrafts(data.workspace)
 					: actual.DraftService.listDrafts(data)
+		}),
+		FolderService: wrapService(actual.FolderService, {
+			createFolder: async (data: { workspace: string; requestBody: { name: string } }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? createBenchmarkFolder(data.workspace, data.requestBody.name)
+					: actual.FolderService.createFolder(data)
 		}),
 		ScriptService: wrapService(actual.ScriptService, {
 			listScripts: async (data: { workspace: string }) =>

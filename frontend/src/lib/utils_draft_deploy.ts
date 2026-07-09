@@ -37,6 +37,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { TRIGGER_RUNTIME_IGNORE } from '$lib/utils_deployable'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
+import { canonicalRawAppDiffValue } from '$lib/components/raw_apps/utils'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
@@ -206,9 +207,12 @@ export async function getDraftDiffValues(
 			draft_saved_at: _c,
 			no_deployed: _n,
 			other_drafts_users: _o,
+			version_id: _v,
 			...deployed
 		} = r
-		const draftValue = draft ?? deployed
+		// Strip the draft's pinned base `version_id` (which differs from the deployed
+		// head for a stale draft) so it never renders as a spurious diff line.
+		const { version_id: _dv, ...draftValue } = (draft ?? deployed) as any
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.flow!(draftValue) : deployed, draft: draftValue }
 	} else if (kind === 'app' || kind === 'raw_app') {
 		// A never-deployed raw app has no `app` row; the backend resolves the
@@ -219,6 +223,16 @@ export async function getDraftDiffValues(
 			getDraft: true,
 			rawApp: kind === 'raw_app'
 		})) as any
+		if (kind === 'raw_app' || r.raw_app === true) {
+			// Raw-app drafts are stored flat (files/runnables/data top-level) while the
+			// deployed row nests them under `value`, and deployed inline scripts carry
+			// server-recomputed locks. Canonicalize both onto the same shape with the
+			// post-deploy noise stripped — the same module the editor's Diff button uses.
+			return {
+				deployed: draftOnly ? canonicalRawAppDiffValue({}) : canonicalRawAppDiffValue(r),
+				draft: canonicalRawAppDiffValue(r.draft ?? r)
+			}
+		}
 		const deployed = {
 			summary: r.summary,
 			value: r.value,
@@ -226,7 +240,9 @@ export async function getDraftDiffValues(
 			path: r.path,
 			custom_path: r.custom_path
 		}
-		const draftValue = r.draft ?? deployed
+		// Strip the draft's pinned fork-base `parent_version` (the deployed allowlist
+		// above already omits it) so it never renders as a spurious diff line.
+		const { parent_version: _pv, ...draftValue } = (r.draft ?? deployed) as any
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : deployed, draft: draftValue }
 	} else {
 		// Variables / resources / schedules / triggers: one overlay GET yields
@@ -243,6 +259,56 @@ export async function getDraftDiffValues(
 			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
 			draft: canonicalizeDraftDiffValue(kind, draft, true)
 		}
+	}
+}
+
+/**
+ * Whether a draft's base is stale: the deployed version the draft forked from
+ * no longer matches the current deployed head — a newer version was deployed
+ * after the draft began, so deploying the draft would silently revert it.
+ * Scripts compare the draft's `parent_hash` vs the deployed `hash`; flows the
+ * pinned `version_id` vs the deployed head `version_id`; apps (incl. raw) the
+ * pinned `parent_version` vs the head of `versions`. `r` is the item fetched
+ * with `get_draft=true`; only script/flow/app kinds carry a base pointer.
+ */
+export function draftBaseIsStale(draftKind: UserDraftItemKind, r: any): boolean {
+	const draft = r?.draft
+	if (!draft) return false
+	if (draftKind === 'script') {
+		return !!r.hash && !!draft.parent_hash && draft.parent_hash !== r.hash
+	}
+	if (draftKind === 'flow') {
+		return r.version_id != null && draft.version_id != null && draft.version_id !== r.version_id
+	}
+	const head = Array.isArray(r.versions) ? r.versions[r.versions.length - 1] : undefined
+	return head != null && draft.parent_version != null && draft.parent_version !== head
+}
+
+/** Fetch-and-test wrapper over `draftBaseIsStale` for one draft item. Returns
+ *  false for kinds without a base pointer and on fetch errors (warn, not block). */
+export async function fetchDraftBaseStale(
+	draftKind: UserDraftItemKind,
+	path: string,
+	workspace: string
+): Promise<boolean> {
+	try {
+		if (draftKind === 'script') {
+			const r = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
+			return draftBaseIsStale(draftKind, r)
+		}
+		if (draftKind === 'flow') {
+			const r = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
+			return draftBaseIsStale(draftKind, r)
+		}
+		if (draftKind === 'app' || draftKind === 'raw_app') {
+			// The apps endpoint auto-detects a raw app and overlays its draft.
+			const r = await AppService.getAppByPath({ workspace, path, getDraft: true })
+			return draftBaseIsStale(draftKind, r)
+		}
+		return false
+	} catch (e) {
+		console.error(`Stale-draft check failed for ${draftKind}:${path}`, e)
+		return false
 	}
 }
 
@@ -276,9 +342,9 @@ export async function deployDraft(
 	kind: DraftKind,
 	path: string,
 	workspace: string,
-	draftOnly = false,
-	rawApp = false
+	opts: { draftOnly?: boolean; rawApp?: boolean; deploymentMessage?: string } = {}
 ): Promise<DeployResult> {
+	const { draftOnly = false, rawApp = false, deploymentMessage } = opts
 	try {
 		if (kind === 'raw_app' || (kind === 'app' && rawApp)) {
 			// Raw apps bundle their source files and deploy via the raw-app
@@ -286,7 +352,7 @@ export async function deployDraft(
 			// `kind === 'app'` + `rawApp` (editor). Must route here: the
 			// visual-app branch would `updateApp` with no `value` (RawAppDraft
 			// has none) and silently drop the draft's files.
-			await deployRawAppDraft(workspace, path)
+			await deployRawAppDraft(workspace, path, deploymentMessage)
 		} else if (kind === 'script') {
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
@@ -297,7 +363,12 @@ export async function deployDraft(
 			// the editor: createScript at the new path with parent_hash links lineage).
 			await ScriptService.createScript({
 				workspace,
-				requestBody: { ...rest, path: scriptPath, parent_hash: r.hash }
+				requestBody: {
+					...rest,
+					path: scriptPath,
+					parent_hash: r.hash,
+					deployment_message: deploymentMessage
+				}
 			})
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
 			await deployDraftTriggers(draftTriggers, workspace, scriptPath, true)
@@ -319,7 +390,8 @@ export async function deployDraft(
 				ws_error_handler_muted: d.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
-				labels: d.labels
+				labels: d.labels,
+				deployment_message: deploymentMessage
 			}
 			// Draft-only flows have NO flow row (they live solely in the
 			// draft table), so they deploy via createFlow; a draft on a
@@ -353,14 +425,20 @@ export async function deployDraft(
 			// undefined so the backend preserves the existing route. The draft has no
 			// custom_path, so admins fall back to the deployed route (`''` when none).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+			const policy = r.policy ?? { execution_mode: 'publisher' }
 			const requestBody = {
 				value: appValue,
 				summary: draftSummary ?? r.summary ?? '',
-				policy: r.policy ?? { execution_mode: 'publisher' },
+				policy,
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
 				path: draftPath ?? r.path ?? path,
-				custom_path: isAdmin ? (r.custom_path ?? '') : undefined
+				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
+				deployment_message: deploymentMessage,
+				// The draft carries no on-behalf-of selector — the policy comes straight
+				// from the deployed app. Preserve its on_behalf_of (the backend resets it
+				// to the deploying user without this flag, gated by can_preserve_on_behalf_of).
+				preserve_on_behalf_of: policy?.on_behalf_of ? true : undefined
 			}
 			// Same as flows: draft-only apps have no app row → create;
 			// drafts on a deployed app update it.

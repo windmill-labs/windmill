@@ -452,12 +452,12 @@ pub async fn build_client_credentials_oauth_client(
 
     let caller_supplied_creds = !client_id.is_empty() && !client_secret.is_empty();
 
-    // Apply the server-resolved concrete token URL. Instance-templated providers
-    // (e.g. Coupa) carry an empty or `{instance}`-templated token URL in their
-    // registry config; the resolved value (host-pinned for bring-your-own,
-    // persisted on the row for refresh) is what completes it. The caller never
-    // supplies a free-form token URL: this value always comes from
-    // `resolve_cc_token_url_input` or a previously-resolved persisted URL.
+    // Apply the resolved concrete token URL. Instance-templated providers (e.g.
+    // Coupa) carry an empty or `{instance}`-templated token URL in their registry
+    // config; the resolved value (host-pinned for instance-name connections,
+    // persisted on the row for refresh) is what completes it. For bring-your-own
+    // connections this value may instead be a caller-supplied override — safe
+    // because only the caller's own credentials are ever sent to it.
     if let Some(url) = resolved_token_url {
         connect_config.token_url = url.to_string();
     }
@@ -650,6 +650,28 @@ pub fn resolve_cc_token_url_input(
         )));
     }
     Ok(template.replace("{instance}", value))
+}
+
+/// Whether a built-in provider's client-credentials token URL is host-pinned via
+/// an `{instance}` template (e.g. servicenow, snowflake, coupa). Such providers
+/// only accept an instance name substituted into a fixed-host template, so a
+/// free-form caller token URL override must be rejected for them — otherwise the
+/// exchange host could be redirected, which is exactly what the template pins.
+/// Fixed-host registry providers and custom (non-registry) providers return
+/// `false`: an override is allowed there.
+pub fn is_instance_templated_cc(connect_configs_json: &str, client_name: &str) -> bool {
+    serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .ok()
+        .and_then(|m| resolve_registry_config(&m, client_name))
+        .map(|cfg| {
+            cfg.connect_config_template
+                .as_ref()
+                .map(|t| t.token_url.clone())
+                .filter(|u| !u.is_empty())
+                .unwrap_or(cfg.token_url)
+                .contains("{instance}")
+        })
+        .unwrap_or(false)
 }
 
 /// Resolve the concrete bring-your-own client-credentials token URL for any
@@ -1349,5 +1371,21 @@ mod tests {
         // a malformed template can't let the instance value control the host.
         assert!(resolve_cc_token_url_input(CC_REGISTRY, "bad_host_tpl", Some("evil.com")).is_err());
         assert!(resolve_cc_token_url_input(CC_REGISTRY, "bad_mid_tpl", Some("evil")).is_err());
+    }
+
+    #[test]
+    fn instance_templated_cc_true_for_templated_providers() {
+        // Host-pinned via `{instance}`: a bring-your-own token URL override must be
+        // refused for these (only the instance-name path may set their URL).
+        assert!(is_instance_templated_cc(CC_REGISTRY, "coupa"));
+        assert!(is_instance_templated_cc(CC_REGISTRY, "servicenow"));
+    }
+
+    #[test]
+    fn instance_templated_cc_false_for_fixed_host_and_unknown() {
+        // Fixed-host registry provider and custom (non-registry) provider both allow
+        // an override, so neither is reported as instance-templated.
+        assert!(!is_instance_templated_cc(CC_REGISTRY, "visma"));
+        assert!(!is_instance_templated_cc(CC_REGISTRY, "my_custom_thing"));
     }
 }

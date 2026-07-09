@@ -4,8 +4,46 @@ use sqlx::{PgExecutor, Postgres, Transaction};
 
 use crate::{error, scripts::ScriptHash};
 
-pub use windmill_parser::asset_parser::{parse_pipeline_annotations, TriggerSpec, PARTITION_TOKEN};
+pub use windmill_parser::asset_parser::{
+    merge_column_lineage, parse_pipeline_annotations, ColumnLineage, ColumnRef, DataTest,
+    OnSchemaChange, PartitionKind, PipelineAnnotations, RetrySpec, TriggerSpec, PARTITION_TOKEN,
+};
 pub use windmill_types::assets::*;
+
+// --- Workspace DuckDB macro registry cache (worker hot path) ---
+// Every DuckDB job reads the `macro_definition` registry; cascades can run
+// many jobs per second. Primary invalidation is the
+// `notify_macro_registry_change` event, emitted transactionally with every
+// registry mutation and dispatched to this cache in main.rs — the TTL is a
+// backstop for mutation paths that don't emit (manual SQL edits).
+
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct MacroRegistryEntry {
+    pub name: String,
+    pub params: String,
+    pub body: String,
+    pub is_table_macro: bool,
+    pub provider_path: String,
+}
+
+#[derive(Clone)]
+pub struct ExpiringMacroRegistry {
+    pub rows: std::sync::Arc<Vec<MacroRegistryEntry>>,
+    pub expires_at: std::time::Instant,
+}
+
+pub const MACRO_REGISTRY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+// Tests sharing one process across several databases must disable the cache:
+// it is keyed by workspace id alone, and a notify from one DB can't evict
+// entries populated from another (same hazard as DEPLOYED_SCRIPT_CACHE_DISABLED).
+pub static MACRO_REGISTRY_CACHE_DISABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+lazy_static::lazy_static! {
+    pub static ref MACRO_REGISTRY_CACHE: quick_cache::sync::Cache<String, ExpiringMacroRegistry> =
+        quick_cache::sync::Cache::new(1000);
+}
 
 #[derive(sqlx::Type, Debug, Clone, Copy, PartialEq)]
 #[sqlx(type_name = "SCRIPT_TRIGGER_KIND", rename_all = "lowercase")]
@@ -129,6 +167,68 @@ fn is_write_access(access: Option<AssetUsageAccessType>) -> bool {
         access,
         Some(AssetUsageAccessType::W) | Some(AssetUsageAccessType::RW)
     )
+}
+
+/// Kinds whose *read* usage auto-derives a cascade trigger edge inside a
+/// `// pipeline`. Scoped to the two intra-pipeline data kinds — a ducklake
+/// table read (the core case) and an s3 object read (file-ingestion
+/// producers). Resource / datatable / volume reads stay explicit-`// on`:
+/// a config/lookup read cascading is more often surprising than wanted.
+fn is_auto_trigger_kind(kind: AssetKind) -> bool {
+    matches!(kind, AssetKind::Ducklake | AssetKind::S3Object)
+}
+
+/// Trigger refs auto-derived from a pipeline script's inferred reads, so the
+/// FROM clause alone wires the cascade edge (no redundant `// on <asset>`).
+///
+/// Included: an input read read-*only* (`R`) of a supported kind
+/// ([`is_auto_trigger_kind`]). The effective access type is
+/// `access_type.or(alt_access_type)` — same precedence as the persisted
+/// `asset.usage_access_type` and the frontend mirror's `access_type ??
+/// alt_access_type`, so a manual read override on an ambiguous parse still
+/// derives an edge (and the live canvas and the deployed graph agree).
+/// Excluded, each for a reason:
+/// - `RW` / `W` — the script also writes the asset; an edge would be a
+///   self-triggering loop.
+/// - `None` access — usage is ambiguous (poisoned merge) with no override;
+///   can't confirm a read, so fail safe and don't cascade.
+/// - already in `explicit_refs` — the author wrote `// on <asset>`, which
+///   wins (it carries the per-edge debounce/opts).
+/// - in `muted_refs` — a `// mute <asset>` opt-out (lookup / SCD input).
+///
+/// `mute_all` (from `// mute all`) short-circuits to no derivation, leaving
+/// only the explicit `// on` edges. Returns canonical refs (e.g.
+/// `ducklake://main.orders`), deduped, in input order.
+pub fn derive_pipeline_asset_trigger_refs(
+    assets: &[AssetWithAltAccessType],
+    explicit_refs: &HashSet<String>,
+    muted_refs: &HashSet<String>,
+    mute_all: bool,
+) -> Vec<String> {
+    if mute_all {
+        return vec![];
+    }
+    let mut out = vec![];
+    let mut seen = HashSet::new();
+    for a in assets {
+        // Effective access mirrors the persisted `usage_access_type` and the
+        // frontend derivation: an explicit parse wins, else the manual override.
+        let access = a.access_type.or(a.alt_access_type);
+        if access != Some(AssetUsageAccessType::R) || !is_auto_trigger_kind(a.kind) {
+            continue;
+        }
+        let Some(prefix) = a.kind.canonical_prefix() else {
+            continue;
+        };
+        let r = format!("{}{}", prefix, a.path);
+        if explicit_refs.contains(&r) || muted_refs.contains(&r) {
+            continue;
+        }
+        if seen.insert(r.clone()) {
+            out.push(r);
+        }
+    }
+    out
 }
 
 /// Clear and reinsert the full static-asset usage set of a script in one tx,
@@ -314,6 +414,10 @@ mod debounce_duration_tests {
         assert_eq!(parse_duration_secs("5m"), Some(300));
         assert_eq!(parse_duration_secs("2h"), Some(7200));
         assert_eq!(parse_duration_secs(" 1d "), Some(86400));
+        // Explicit plus sign comes free with i64 parsing; the TS mirror
+        // (parseDurationSecs) matches it — keep the two in lockstep.
+        assert_eq!(parse_duration_secs("+5m"), Some(300));
+        assert_eq!(parse_duration_secs("+45"), Some(45));
     }
 
     #[test]
@@ -324,6 +428,173 @@ mod debounce_duration_tests {
         assert_eq!(parse_duration_secs("-5"), None);
         assert_eq!(parse_duration_secs("10x"), None);
         assert_eq!(parse_duration_secs("s"), None);
+    }
+}
+
+#[cfg(test)]
+mod derive_trigger_tests {
+    use super::{derive_pipeline_asset_trigger_refs, AssetKind, AssetUsageAccessType};
+    use std::collections::HashSet;
+    use windmill_types::assets::AssetWithAltAccessType;
+
+    fn asset(
+        kind: AssetKind,
+        path: &str,
+        at: Option<AssetUsageAccessType>,
+    ) -> AssetWithAltAccessType {
+        AssetWithAltAccessType {
+            path: path.to_string(),
+            kind,
+            access_type: at,
+            alt_access_type: None,
+            columns: None,
+        }
+    }
+
+    fn derive(assets: &[AssetWithAltAccessType]) -> Vec<String> {
+        derive_pipeline_asset_trigger_refs(assets, &HashSet::new(), &HashSet::new(), false)
+    }
+
+    #[test]
+    fn read_only_ducklake_and_s3_derive_an_edge() {
+        use AssetUsageAccessType::R;
+        let a = [
+            asset(AssetKind::Ducklake, "main.orders", Some(R)),
+            asset(AssetKind::S3Object, "raw/events", Some(R)),
+        ];
+        assert_eq!(
+            derive(&a),
+            vec![
+                "ducklake://main.orders".to_string(),
+                "s3://raw/events".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn writes_and_rw_are_skipped_to_avoid_self_edges() {
+        use AssetUsageAccessType::*;
+        // W (pure producer) and RW (reads *and* writes the same table — a
+        // self-cascade if edged) both derive nothing.
+        let a = [
+            asset(AssetKind::Ducklake, "main.out", Some(W)),
+            asset(AssetKind::Ducklake, "main.self", Some(RW)),
+        ];
+        assert!(derive(&a).is_empty());
+    }
+
+    #[test]
+    fn ambiguous_access_and_unsupported_kinds_are_skipped() {
+        use AssetUsageAccessType::R;
+        let a = [
+            asset(AssetKind::Ducklake, "main.ambiguous", None), // poisoned merge
+            asset(AssetKind::Resource, "f/db", Some(R)),        // out of scope
+            asset(AssetKind::DataTable, "main.dt", Some(R)),    // out of scope
+        ];
+        assert!(derive(&a).is_empty());
+    }
+
+    #[test]
+    fn manual_read_override_on_ambiguous_parse_derives_an_edge() {
+        use AssetUsageAccessType::{R, W};
+        // Parser can't confirm access (`access_type: None`) but the user manually
+        // overrode it. Effective access = `access_type.or(alt_access_type)`, the
+        // same value persisted to `asset.usage_access_type` and used by the
+        // frontend canvas — so a read override derives an edge (parity, no
+        // silently-vanishing edge on deploy) and a write override does not.
+        let read_override = AssetWithAltAccessType {
+            path: "main.override_r".to_string(),
+            kind: AssetKind::Ducklake,
+            access_type: None,
+            alt_access_type: Some(R),
+            columns: None,
+        };
+        let write_override = AssetWithAltAccessType {
+            path: "main.override_w".to_string(),
+            kind: AssetKind::Ducklake,
+            access_type: None,
+            alt_access_type: Some(W),
+            columns: None,
+        };
+        assert_eq!(
+            derive(&[read_override, write_override]),
+            vec!["ducklake://main.override_r".to_string()]
+        );
+    }
+
+    #[test]
+    fn explicit_and_muted_refs_are_excluded() {
+        use AssetUsageAccessType::R;
+        let a = [
+            asset(AssetKind::Ducklake, "main.explicit", Some(R)),
+            asset(AssetKind::Ducklake, "main.muted", Some(R)),
+            asset(AssetKind::Ducklake, "main.keep", Some(R)),
+        ];
+        let explicit: HashSet<String> = ["ducklake://main.explicit".to_string()].into();
+        let muted: HashSet<String> = ["ducklake://main.muted".to_string()].into();
+        assert_eq!(
+            derive_pipeline_asset_trigger_refs(&a, &explicit, &muted, false),
+            vec!["ducklake://main.keep".to_string()]
+        );
+    }
+
+    #[test]
+    fn mute_all_derives_nothing() {
+        use AssetUsageAccessType::R;
+        let a = [asset(AssetKind::Ducklake, "main.orders", Some(R))];
+        assert!(
+            derive_pipeline_asset_trigger_refs(&a, &HashSet::new(), &HashSet::new(), true)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn duplicate_reads_dedup() {
+        use AssetUsageAccessType::R;
+        let a = [
+            asset(AssetKind::Ducklake, "main.orders", Some(R)),
+            asset(AssetKind::Ducklake, "main.orders", Some(R)),
+        ];
+        assert_eq!(derive(&a), vec!["ducklake://main.orders".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod trigger_ref_roundtrip_tests {
+    use super::{parse_asset_trigger_ref, trigger_spec_to_row, AssetKind, ScriptTriggerKind};
+    use windmill_parser::asset_parser::{parse_asset_syntax, AssetKind as PAssetKind, TriggerSpec};
+
+    // `trigger_spec_to_row` rebuilds a stored ref as `s3://<path>`, and
+    // `parse_asset_trigger_ref` parses it back. The two must be inverse for
+    // every S3 URI form, or a consumer's `// on` trigger lands on a different
+    // graph node than the producer's inferred write. Because `parse_asset_syntax`
+    // strips ALL leading slashes, a canonical path never starts with `/`, so the
+    // naive `prefix + path` rebuild round-trips — including the `S3Object(s3="/x")`
+    // quad-slash case that previously desynced (path `/x` rebuilt to `s3:///x`,
+    // which re-parsed to `x`).
+    fn roundtrip(uri: &str) -> String {
+        let (pkind, path) = parse_asset_syntax(uri, false).expect("parse uri");
+        assert_eq!(pkind, PAssetKind::S3Object);
+        let spec = TriggerSpec::Asset { asset_kind: pkind, path: path.to_string(), debounce: None };
+        let (kind, stored) = trigger_spec_to_row(&spec).expect("to row");
+        assert_eq!(kind, ScriptTriggerKind::Asset);
+        let (rkind, rpath) = parse_asset_trigger_ref(&stored).expect("parse ref");
+        assert_eq!(rkind, AssetKind::S3Object);
+        // The producer path and the round-tripped consumer path must match.
+        assert_eq!(
+            rpath, path,
+            "round-trip diverged for {uri} (stored {stored})"
+        );
+        rpath
+    }
+
+    #[test]
+    fn s3_trigger_ref_roundtrips_for_every_uri_form() {
+        assert_eq!(roundtrip("s3:///exports/x"), "exports/x"); // SDK default storage
+        assert_eq!(roundtrip("s3://exports/x"), "exports/x"); // DuckDB / bare
+        assert_eq!(roundtrip("s3://mybucket/exports/x"), "mybucket/exports/x"); // explicit
+        assert_eq!(roundtrip("s3:////x"), "x"); // S3Object(s3="/x") quad-slash
+        assert_eq!(roundtrip("s3:///y=2024/f.parquet"), "y=2024/f.parquet"); // Hive
     }
 }
 

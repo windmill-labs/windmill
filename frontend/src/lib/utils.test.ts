@@ -1,5 +1,42 @@
 import { describe, it, expect } from 'vitest'
-import { cleanValueProperties, getQueryStmtCountHeuristic } from './utils'
+import {
+	cleanValueProperties,
+	computeSharableHash,
+	extractTagFromSharableHash,
+	isDynamicTag,
+	getQueryStmtCountHeuristic,
+	parseDbInputFromAssetSyntax
+} from './utils'
+
+describe('parseDbInputFromAssetSyntax', () => {
+	it('parses a table path', () => {
+		expect(parseDbInputFromAssetSyntax('ducklake://main/orders')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: 'orders',
+			specificSchema: undefined
+		})
+	})
+
+	it('parses a schema-qualified table path', () => {
+		expect(parseDbInputFromAssetSyntax('ducklake://main/analytics.orders')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: 'orders',
+			specificSchema: 'analytics'
+		})
+	})
+
+	it('handles a catalog-only path without throwing (no table segment)', () => {
+		// e.g. `// materialize ducklake` → `ducklake://main` — must not throw.
+		expect(parseDbInputFromAssetSyntax('ducklake://main')).toEqual({
+			type: 'ducklake',
+			ducklake: 'main',
+			specificTable: undefined,
+			specificSchema: undefined
+		})
+	})
+})
 
 describe('getQueryStmtCountHeuristic', () => {
 	describe('basic statements', () => {
@@ -354,5 +391,63 @@ describe('cleanValueProperties', () => {
 		const input: any = { summary: 'hi', created_at: '2024-01-01' }
 		cleanValueProperties(input)
 		expect(input).toHaveProperty('created_at')
+	})
+})
+
+describe('computeSharableHash / extractTagFromSharableHash', () => {
+	function roundTrip(hash: string) {
+		const params = new URLSearchParams(hash)
+		const tag = extractTagFromSharableHash(params)
+		const args = Object.fromEntries([...params.entries()].map(([k, v]) => [k, JSON.parse(v)]))
+		return { tag, args }
+	}
+
+	it('carries the tag under the reserved __tag key alongside JSON-encoded args', () => {
+		const hash = computeSharableHash({ name: 'world' }, 'my-custom-tag')
+		expect(roundTrip(hash)).toEqual({ tag: 'my-custom-tag', args: { name: 'world' } })
+	})
+
+	it('omits __tag when no tag is given', () => {
+		const hash = computeSharableHash({ name: 'world' })
+		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { name: 'world' } })
+	})
+
+	it('preserves an arg named __tag instead of misreading it as a tag', () => {
+		const hash = computeSharableHash({ __tag: 'value', name: 'world' })
+		expect(roundTrip(hash)).toEqual({ tag: undefined, args: { __tag: 'value', name: 'world' } })
+	})
+
+	it('carries a tag alongside an arg named __tag, preserving both', () => {
+		const hash = computeSharableHash({ __tag: 'value', name: 'world' }, 'my-custom-tag')
+		expect(roundTrip(hash)).toEqual({
+			tag: 'my-custom-tag',
+			args: { __tag: 'value', name: 'world' }
+		})
+	})
+
+	it('carries JSON-parseable tags like 123 or true without corrupting args', () => {
+		expect(roundTrip(computeSharableHash({ name: 'world' }, '123'))).toEqual({
+			tag: '123',
+			args: { name: 'world' }
+		})
+		expect(roundTrip(computeSharableHash({}, 'true'))).toEqual({ tag: 'true', args: {} })
+	})
+
+	it('carries a tag that itself starts with the value prefix', () => {
+		expect(roundTrip(computeSharableHash({}, 't:odd'))).toEqual({ tag: 't:odd', args: {} })
+	})
+})
+
+describe('isDynamicTag', () => {
+	it('detects args interpolation placeholders', () => {
+		expect(isDynamicTag('worker-$args[env]')).toBe(true)
+	})
+
+	it('is false for plain tags, $workspace-only tags, and undefined', () => {
+		expect(isDynamicTag('gpu-heavy')).toBe(false)
+		// $workspace resolves identically on a re-run, so pinning the resolved value is fine
+		expect(isDynamicTag('$workspace-gpu')).toBe(false)
+		expect(isDynamicTag('')).toBe(false)
+		expect(isDynamicTag(undefined)).toBe(false)
 	})
 })
