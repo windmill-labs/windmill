@@ -757,6 +757,14 @@
 								{/if}
 								{#if repo.auto_pull?.enabled}
 									{@const viaWebhook = repo.auto_pull?.webhook_id != null}
+									{#if isGithubApp}
+										<div class="mt-2">
+											<Alert type="info" title="Already pulling with a GitHub Action?" size="xs">
+												If you previously set up a GitHub Action to push changes into Windmill,
+												remove it now so the two don't fight over deploys.
+											</Alert>
+										</div>
+									{/if}
 									<div class="text-2xs text-secondary mt-2">
 										{#if repo.auto_pull?.last_pull_status}
 											{#if repo.auto_pull.last_pull_status.success}
