@@ -305,12 +305,10 @@
 		})
 	}
 
-	// "Open in AI session" persist hook. The session preview loads the flow by its
-	// URL draft path (`liveEditorDraftStoragePath`) via getFlowByPath — so besides
-	// flushing pending edits, a never-deployed flow needs its draft materialized
-	// first: an untouched new flow never triggered autosave, so no draft row exists
-	// yet and the preview would 404. Safe to force only because a never-deployed
-	// flow has no deployed baseline to discard against.
+	// Materialize a brand-new flow's draft before the session preview loads it by
+	// path — an untouched new flow never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
 	async function persistDraftForSession(): Promise<void> {
 		await saveDraft()
 		if (opWorkspace && liveEditorDraftStoragePath && newFlow) {
@@ -524,6 +522,11 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	// "Open in AI session" target: the URL draft path the editor loads/saves by
+	// (which for a new flow differs from the live-edited friendly `$pathStore`),
+	// falling back to `$pathStore` in drawer mounts that carry no storage path.
+	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
 	$effect(() => {
 		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
@@ -1270,16 +1273,10 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={liveEditorDraftStoragePath
+					sessionOpen={sessionTargetPath
 						? {
-								// The session preview opens `/flows/edit/<liveEditorDraftStoragePath>`,
-								// so the target MUST be the URL draft path the editor loads/saves
-								// by — NOT the live-edited `$pathStore` (for a new flow that's the
-								// friendly deploy name, which has no flow/draft row → "not found").
-								target: { kind: 'flow', path: liveEditorDraftStoragePath },
+								target: { kind: 'flow', path: sessionTargetPath },
 								workspaceId: opWorkspace ?? undefined,
-								// Persist the draft (and materialize a brand-new one) so the
-								// preview opens the flow exactly as it is in the editor right now.
 								beforeOpen: persistDraftForSession
 							}
 						: undefined}

@@ -280,6 +280,16 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.activeId).toBe(tabId)
 		expect(o.tabs[0].url).toBe(`${base}/pipeline/sales`)
 	})
+
+	it('drops a stale friendly label when the tab is retargeted', () => {
+		const o = owner()
+		o.open(flowTarget)
+		o.setEditorFriendlyLabel({ kind: 'flow', path: 'u/me/bar' }, 'luminous_flow')
+		expect(o.tabs[0].friendlyLabel).toBe('luminous_flow')
+		// Navigating the same tab to a plain page must clear the flow's name.
+		o.navigate(pageTarget)
+		expect(o.tabs[0].friendlyLabel).toBeUndefined()
+	})
 })
 
 describe('SessionPreviewTabs.select / close / setCollapsed', () => {

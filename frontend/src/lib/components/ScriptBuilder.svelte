@@ -756,12 +756,10 @@
 		})
 	}
 
-	// "Open in AI session" persist hook. The session preview loads the script by
-	// its URL draft path (`userDraftPath`) via getScriptByPath — so besides
-	// flushing pending edits, a never-deployed script needs its draft materialized
-	// first: an untouched new script never triggered autosave, so no draft row
-	// exists yet and the preview would 404. Safe to force only because a
-	// never-deployed script has no deployed baseline to discard against.
+	// Materialize a brand-new script's draft before the session preview loads it by
+	// path — an untouched new script never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
 	async function persistDraftForSession(): Promise<void> {
 		await saveDraft()
 		if (opWorkspace && userDraftPath && savedScript?.no_deployed === true) {
@@ -2113,14 +2111,10 @@
 			workspaceOverride={opWorkspace}
 			sessionOpen={userDraftPath
 				? {
-						// The session preview opens `/scripts/edit/<userDraftPath>`, so the
-						// target MUST be the URL draft path the editor loads/saves by — NOT
-						// the live-edited `script.path` (for a new script that's the friendly
-						// deploy name, which has no script/draft row → "not found").
+						// URL draft path the editor loads/saves by, not the friendly
+						// `script.path` (a new script's has no row → "not found").
 						target: { kind: 'script', path: userDraftPath },
 						workspaceId: opWorkspace ?? undefined,
-						// Persist the draft (and materialize a brand-new one) so the preview
-						// opens the script exactly as it is in the editor right now.
 						beforeOpen: persistDraftForSession
 					}
 				: undefined}
