@@ -460,7 +460,12 @@
 			.filter((tool) => tool.requiresConfirmation === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
-				label: tool.confirmationMessage ?? tool.def.function.name
+				// confirmationMessage may be a function of the call args, which we don't
+				// have here — fall back to the tool name rather than render its source.
+				label:
+					typeof tool.confirmationMessage === 'string'
+						? tool.confirmationMessage
+						: tool.def.function.name
 			}))
 	})
 	const visibleYoloBypassedTools = $derived(yoloBypassedTools.slice(0, MAX_YOLO_TOOLTIP_TOOLS))
