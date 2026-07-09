@@ -149,9 +149,9 @@
 						isGithubApp = value?.is_github_app === true
 						// A newly added connection defaults to pulling from Git only when
 						// the repository is app-backed (instant webhook delivery). Polling
-						// is opt-in for token repositories. Fork/dev workspaces never get
-						// the parent-only defaults (the backend rejects them), and both
-						// features are EE-only.
+						// is opt-in for token repositories, PR opening is a deliberate
+						// opt-in everywhere, and fork/dev workspaces never get the
+						// parent-only defaults (the backend rejects them). EE-only.
 						if (
 							repo.isUnsavedConnection &&
 							isGithubApp &&
@@ -160,7 +160,6 @@
 							repo.auto_pull === undefined
 						) {
 							repo.auto_pull = { enabled: true, mode: 'auto', sync_forks: true }
-							repo.fork_open_prs = repo.fork_open_prs ?? true
 						}
 						// Webhook with polling fallback is the only delivery for app repos.
 						if (isGithubApp && repo.auto_pull?.mode === 'polling') {
