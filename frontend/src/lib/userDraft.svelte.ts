@@ -1,5 +1,6 @@
 import { get } from 'svelte/store'
 import { onDestroy, untrack } from 'svelte'
+import { SvelteSet } from 'svelte/reactivity'
 import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
 import { readFieldsRecursively } from './utils'
@@ -82,10 +83,18 @@ type DraftEntry = {
 	 */
 	seedNextWrite: boolean
 	/**
-	 * Tears down the entry's `$effect.root` scope; called at refcount 0.
-	 * `undefined` only on the test-runtime fallback path (see `acquireEntry`).
+	 * Live autosave config, read by the sync effect at POST time (NOT captured
+	 * in a closure) so a later acquirer sharing this key can update it. The
+	 * full-page editors carry a `discardIf` (delete-on-baseline) and opt into
+	 * the auto-save toggle (`canBeDisabled`); the session preview and drawer
+	 * editors don't. When editors share the same `(ws, kind, path)` config is
+	 * additive — a later acquirer can add `discardIf` / opt into the toggle, but
+	 * never strips what an earlier holder set (see `acquireEntry`) — so whichever
+	 * order a session preview and a full-page editor open in, the toggle/discard
+	 * behavior the full-page editor needs stays in effect.
 	 */
-	destroyRoot?: () => void
+	discardIf?: (val: unknown) => boolean
+	canBeDisabled: boolean
 }
 
 export type UserDraftEntry<V = unknown> = {
@@ -115,6 +124,54 @@ export type ClearLiveEditorDraftOptions = UserDraftOptions & {
 
 const entries = new Map<string, DraftEntry>()
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
+
+/**
+ * Keys whose entry currently has a live holder and therefore needs a running
+ * sync effect. Reactive so the app-lifetime sync manager (below) picks up
+ * additions/removals. A `SvelteSet` (not a plain `Set`) so the manager's
+ * `$effect` re-runs when membership changes.
+ */
+const activeSyncKeys = new SvelteSet<string>()
+/** Teardown for each active key's sync-effect child root. */
+const syncRootDestroyers = new Map<string, () => void>()
+
+/**
+ * ONE app-lifetime `$effect.root` that owns every entry's sync effect (each in
+ * its own child root). The effect must NOT live in the acquiring component's
+ * scope: an entry is refcounted and outlives any single editor, so if its sync
+ * effect were parented to (say) a session preview that later unmounts, the
+ * effect stops running even while a full-page editor still holds the entry —
+ * silently killing that editor's autosave. Anchoring here decouples the sync
+ * effect's lifetime from any component; each child root is torn down at
+ * refcount 0 (synchronously in `releaseEntry`, with this loop as a backstop).
+ *
+ * Browser-only: on SSR / the vitest node runtime `$effect.root`'s callback
+ * doesn't run, so no sync effect exists and cell writes stay in-memory (the
+ * prior per-entry fallback behavior).
+ */
+if (typeof window !== 'undefined') {
+	$effect.root(() => {
+		$effect(() => {
+			for (const mk of activeSyncKeys) {
+				if (!syncRootDestroyers.has(mk)) {
+					// `$effect.root` returns an independent root, NOT torn down when
+					// this managing effect re-runs — so per-key effects persist across
+					// membership changes and only die via their explicit destroyer.
+					syncRootDestroyers.set(
+						mk,
+						$effect.root(() => setupEntrySync(mk))
+					)
+				}
+			}
+			for (const [mk, destroy] of syncRootDestroyers) {
+				if (!activeSyncKeys.has(mk)) {
+					destroy()
+					syncRootDestroyers.delete(mk)
+				}
+			}
+		})
+	})
+}
 /**
  * Map keys whose entry should start `syncSuspended` on acquire. Lets
  * callers `stopSync` BEFORE the editor has mounted (and called `use`).
@@ -468,7 +525,7 @@ export const UserDraft = {
 		opts?: UserDraftOptions & {
 			/** See the `useMany` spec field. Default `false`. */
 			canBeDisabled?: boolean
-			/** See the `useMany` spec field. Captured once on first acquire. */
+			/** See the `useMany` spec field. */
 			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
@@ -542,14 +599,17 @@ export const UserDraft = {
 			 * list `*`) stuck on. MUST use the same comparison as the "unsaved
 			 * changes" banner (`draftValuesEqual`) so the two can't disagree.
 			 * Return false for draft-only items (no deployed copy — deleting on
-			 * equality would destroy the item). Captured on first acquire.
+			 * equality would destroy the item). Applied additively when several
+			 * handles share a key: a later acquirer can set it, but a sharer that
+			 * omits it never clears an earlier holder's (see `acquireEntry`).
 			 */
 			discardIf?: (val: V) => boolean
 			/**
 			 * Subject autosaves to the auto-save toggle. Only the full-page
 			 * editors (script / flow / app / raw app) opt in; while off their
 			 * keystroke saves park for Ctrl/Cmd+S. Default `false`: drawer
-			 * editors always sync. Captured on first acquire.
+			 * editors always sync. OR-combined across handles sharing a key, so
+			 * once any holder opts in the toggle applies until the key is released.
 			 */
 			canBeDisabled?: boolean
 		}[]
@@ -703,113 +763,116 @@ function acquireEntry(
 	const existing = entries.get(mk)
 	if (existing) {
 		existing.count++
+		// A later acquirer sharing a key CONTRIBUTES its config; it never weakens
+		// what an earlier holder needs (see `DraftEntry.discardIf`). A full-page
+		// editor sharing a key a session preview opened first must reinstate its
+		// discard/toggle behavior — but the reverse must NOT strip it: a plain
+		// sharer's `discardIf === undefined` / `canBeDisabled === false` would
+		// otherwise clobber it, re-enabling silent autosave while the toggle is
+		// off. So only ever add: set `discardIf` when provided, OR-in the toggle.
+		if (discardIf) existing.discardIf = discardIf
+		existing.canBeDisabled ||= canBeDisabled
 		return
 	}
-	// Seed the cell with `defaultValue` (deep-cloned). Swallowed by
-	// `skipNextWrite` below — it never POSTs.
+	// Seed the cell with `defaultValue` (deep-cloned). Swallowed by the sync
+	// effect's `skipNextWrite` — it never POSTs. The cell is a plain `$state`
+	// created here (component-independent reactive value); the sync effect that
+	// mirrors it to the backend is owned by the app-lifetime root above.
 	const seed = defaultValue !== undefined ? snapshotDraftValue(defaultValue) : undefined
-	// `$effect.root` gives the entry its own scope, disposed only by
-	// `releaseEntry`. Without it the sync `$effect` would parent to
-	// `useMany`'s reconcile effect and die on the next reconcile.
-	let stateRef: DraftState<unknown> | undefined
-	const destroyRoot = $effect.root(() => {
-		const cell = $state<{ val: unknown }>({ val: seed })
-		stateRef = cell as DraftState<unknown>
-		// Mirror every observable change of `cell.val` to the syncer.
-		// `readFieldsRecursively` walks the value so deep mutations
-		// (`handle.draft.content = '...'`) re-fire the effect — reading
-		// `cell.val` alone only subscribes to the proxy root.
-		//
-		// `lastSerialized` + `skipNextWrite` dedup no-op updates and treat
-		// the FIRST change after mount as the seed/restore (no POST), so
-		// landing on `?new_draft` doesn't sync until the user edits.
-		//
-		// `cell.val === undefined` is the delete signal (`value: null`).
-		// `skipNextSync` lets callers that already POSTed (`discard`,
-		// `remove`) suppress the duplicate fire from their own write.
-		let lastSerialized: string | undefined = undefined
-		let skipNextWrite = true
-		$effect(() => {
-			const val = cell.val
-			if (val !== undefined) readFieldsRecursively(val)
-			const next = val === undefined ? undefined : JSON.stringify(val)
-			if (next === lastSerialized) {
-				// No-op write. If a `seed` re-seeded the value already in the
-				// cell, its one-shot flag consumed nothing — defuse it here or
-				// it lingers and swallows the user's NEXT edit. (`skipNextWrite`
-				// stays armed: an undefined-seeded cell's initial run lands
-				// here, and page editors rely on it to swallow their load write.)
-				const e = entries.get(mk)
-				if (e?.seedNextWrite) e.seedNextWrite = false
-				return
-			}
-			lastSerialized = next
-			if (skipNextWrite) {
-				skipNextWrite = false
-				// One write consumes BOTH one-shot guards: a `seed` on a fresh
-				// entry (still armed with the first-write skip) must not leave
-				// `seedNextWrite` behind to swallow the user's first edit.
-				const fresh = entries.get(mk)
-				if (fresh?.seedNextWrite) fresh.seedNextWrite = false
-				return
-			}
-			const entry = entries.get(mk)
-			// `seed` write: baseline already advanced above; don't POST.
-			if (entry?.seedNextWrite) {
-				entry.seedNextWrite = false
-				return
-			}
-			if (entry?.skipNextSync) {
-				entry.skipNextSync = false
-				return
-			}
-			// `syncSuspended` swallows the POST but `lastSerialized` advanced
-			// above, so only writes made during suspension are dropped — the
-			// first change after resume is still detected.
-			if (entry?.syncSuspended) return
-			// At the deployed baseline → sync a delete, not a baseline-equal
-			// copy. `untrack` so reactive reads in the predicate (the editor's
-			// post-deploy baseline) don't re-fire the mirror.
-			const atBaseline = untrack(() => val !== undefined && (discardIf?.(val) ?? false))
-			void UserDraftDbSyncer.save({
-				workspace,
-				itemKind,
-				path,
-				value: val === undefined || atBaseline ? null : val,
-				// Reactive keystroke mirror — `auto`, so suppressed while the
-				// auto-save toggle is off (for `canBeDisabled` handles).
-				auto: true,
-				canBeDisabled
-			})
-		})
-	})
-	if (stateRef) {
-		entries.set(mk, {
-			count: 1,
-			workspace,
-			itemKind,
-			path,
-			state: stateRef,
-			skipNextSync: false,
-			syncSuspended: pendingSuspensions.delete(mk),
-			seedNextWrite: false,
-			destroyRoot
-		})
-		return
-	}
-	// Fallback for the vitest runtime where `$effect.root`'s callback isn't
-	// invoked (unreachable in production). No sync effect — writes in tests
-	// stay in-memory.
-	const fallback = $state<{ val: unknown }>({ val: seed })
+	const cell = $state<{ val: unknown }>({ val: seed })
 	entries.set(mk, {
 		count: 1,
 		workspace,
 		itemKind,
 		path,
-		state: fallback as DraftState<unknown>,
+		state: cell as DraftState<unknown>,
 		skipNextSync: false,
 		syncSuspended: pendingSuspensions.delete(mk),
-		seedNextWrite: false
+		seedNextWrite: false,
+		discardIf,
+		canBeDisabled
+	})
+	// Register last: the sync manager reads the entry the moment the key lands.
+	activeSyncKeys.add(mk)
+}
+
+/**
+ * Set up the backend-mirror `$effect` for one entry's cell. Runs inside the
+ * app-lifetime root (never a component), so it survives every editor unmount
+ * until the key leaves `activeSyncKeys`. Reads live config (`discardIf` /
+ * `canBeDisabled`) off the entry at POST time so a later sharer can update it.
+ */
+function setupEntrySync(mk: string): void {
+	const initial = entries.get(mk)
+	if (!initial) return
+	const { workspace, itemKind, path } = initial
+	const cell = initial.state
+	// Mirror every observable change of `cell.val` to the syncer.
+	// `readFieldsRecursively` walks the value so deep mutations
+	// (`handle.draft.content = '...'`) re-fire the effect — reading
+	// `cell.val` alone only subscribes to the proxy root.
+	//
+	// `lastSerialized` + `skipNextWrite` dedup no-op updates and treat
+	// the FIRST change after mount as the seed/restore (no POST), so
+	// landing on `?new_draft` doesn't sync until the user edits.
+	//
+	// `cell.val === undefined` is the delete signal (`value: null`).
+	// `skipNextSync` lets callers that already POSTed (`discard`,
+	// `remove`) suppress the duplicate fire from their own write.
+	let lastSerialized: string | undefined = undefined
+	let skipNextWrite = true
+	$effect(() => {
+		const val = cell.val
+		if (val !== undefined) readFieldsRecursively(val)
+		const next = val === undefined ? undefined : JSON.stringify(val)
+		if (next === lastSerialized) {
+			// No-op write. If a `seed` re-seeded the value already in the
+			// cell, its one-shot flag consumed nothing — defuse it here or
+			// it lingers and swallows the user's NEXT edit. (`skipNextWrite`
+			// stays armed: an undefined-seeded cell's initial run lands
+			// here, and page editors rely on it to swallow their load write.)
+			const e = entries.get(mk)
+			if (e?.seedNextWrite) e.seedNextWrite = false
+			return
+		}
+		lastSerialized = next
+		if (skipNextWrite) {
+			skipNextWrite = false
+			// One write consumes BOTH one-shot guards: a `seed` on a fresh
+			// entry (still armed with the first-write skip) must not leave
+			// `seedNextWrite` behind to swallow the user's first edit.
+			const fresh = entries.get(mk)
+			if (fresh?.seedNextWrite) fresh.seedNextWrite = false
+			return
+		}
+		const entry = entries.get(mk)
+		// `seed` write: baseline already advanced above; don't POST.
+		if (entry?.seedNextWrite) {
+			entry.seedNextWrite = false
+			return
+		}
+		if (entry?.skipNextSync) {
+			entry.skipNextSync = false
+			return
+		}
+		// `syncSuspended` swallows the POST but `lastSerialized` advanced
+		// above, so only writes made during suspension are dropped — the
+		// first change after resume is still detected.
+		if (entry?.syncSuspended) return
+		// At the deployed baseline → sync a delete, not a baseline-equal
+		// copy. `untrack` so reactive reads in the predicate (the editor's
+		// post-deploy baseline) don't re-fire the mirror.
+		const atBaseline = untrack(() => val !== undefined && (entry?.discardIf?.(val) ?? false))
+		void UserDraftDbSyncer.save({
+			workspace,
+			itemKind,
+			path,
+			value: val === undefined || atBaseline ? null : val,
+			// Reactive keystroke mirror — `auto`, so suppressed while the
+			// auto-save toggle is off (for `canBeDisabled` handles).
+			auto: true,
+			canBeDisabled: entry?.canBeDisabled ?? false
+		})
 	})
 }
 
@@ -822,7 +885,15 @@ function releaseEntry(mk: string): void {
 		// cached write for this key so a later read falls back to the server
 		// rather than a value the editor may have changed in the meantime.
 		writtenCache.delete(mk)
-		entry.destroyRoot?.()
+		// Tear down this key's sync-effect root SYNCHRONOUSLY (not just via the
+		// async manager below): during SPA nav an editor releases as another
+		// mounts, so the same key can hit count 0 and be re-acquired within one
+		// tick. If the stale root lingered in `syncRootDestroyers`, the manager
+		// would skip creating a fresh one for the new entry — silently killing
+		// its autosave. Destroy + forget here so the re-acquire re-creates it.
+		activeSyncKeys.delete(mk)
+		syncRootDestroyers.get(mk)?.()
+		syncRootDestroyers.delete(mk)
 		entries.delete(mk)
 	}
 }
