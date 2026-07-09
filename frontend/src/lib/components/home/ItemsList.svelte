@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AppService,
@@ -16,14 +16,7 @@
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import {
-		ChevronsDownUp,
-		ChevronsUpDown,
-		Code2,
-		LayoutDashboard,
-		SearchCode,
-		Tag
-	} from 'lucide-svelte'
+	import { ChevronsDownUp, ChevronsUpDown, Code2, LayoutDashboard, SearchCode } from 'lucide-svelte'
 
 	import { HOME_SEARCH_SHOW_FLOW } from '$lib/consts'
 
@@ -32,7 +25,6 @@
 		useUrlSyncedFilterInstance,
 		type FilterSchemaRec
 	} from '$lib/components/FilterSearchbar.svelte'
-	import ListFilters from './ListFilters.svelte'
 	import NoItemFound from './NoItemFound.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -202,9 +194,6 @@
 		return true // should not happen
 	}
 
-	let ownerFilter: string | undefined = $state(undefined)
-	let labelFilter: string | undefined = $state(undefined)
-
 	const cmp = new Intl.Collator('en').compare
 
 	const opts: uFuzzy.Options = {
@@ -275,6 +264,7 @@
 		_default_: { type: 'string' as const, hidden: true },
 		path: { type: 'string' as const, label: 'Path' },
 		summary: { type: 'string' as const, label: 'Summary' },
+		label: { type: 'string' as const, label: 'Label' },
 		kind: {
 			type: 'oneof' as const,
 			label: 'Kind',
@@ -322,13 +312,10 @@
 	let visiblePipelineFolders = $derived.by(() => {
 		if (archived) return new Set<string>()
 		if (itemKind !== 'all' && itemKind !== 'script') return new Set<string>()
-		if (labelFilter != undefined) return new Set<string>()
-		if (ownerFilter == undefined) return pipelineFolders
-		return new Set(
-			[...pipelineFolders].filter(
-				(f) => `f/${f}` === ownerFilter || `f/${f}`.startsWith(ownerFilter + '/')
-			)
-		)
+		if (filterValues.val.label) return new Set<string>()
+		const pf = (filterValues.val.path ?? '').toLowerCase()
+		if (!pf) return pipelineFolders
+		return new Set([...pipelineFolders].filter((f) => `f/${f}`.toLowerCase().includes(pf)))
 	})
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
@@ -351,11 +338,6 @@
 	}
 
 	let collapseAll = $state(true)
-	let owners = $derived(
-		Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-		).sort()
-	)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain]
@@ -407,18 +389,19 @@
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
-	let prevWorkspace: string | undefined = undefined
-	// Clear filters only when the workspace actually changes. The initial
-	// resolution must be left alone so URL-loaded filter values (set by
-	// ListFilters.loadFilterFromUrl on mount) survive the async store settling.
-	$effect(() => {
-		const ws = $workspaceStore
-		if (ws && prevWorkspace !== undefined && ws !== prevWorkspace) {
-			ownerFilter = undefined
-			labelFilter = undefined
-		}
-		prevWorkspace = ws
-	})
+	// Owner prefixes (`u/<user>`, `f/<folder>`) across all items, exposed as
+	// FilterSearchbar presets that set the `path` filter.
+	let owners = $derived(
+		Array.from(
+			new Set(combinedItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	)
+	// FilterSearchbar presets: owner prefixes set the `path` filter, labels set the
+	// `label` filter. Spaces are escaped to match the searchbar's tagged syntax.
+	let searchPresets = $derived([
+		...owners.map((o) => ({ name: o, value: `path:${(o + '/').replace(/ /g, '\\ ')}` })),
+		...allLabels.map((l) => ({ name: l, value: `label:${l.replace(/ /g, '\\ ')}` }))
+	])
 	let pathFilter = $derived((filterValues.val.path ?? '').toLowerCase())
 	let summaryFilter = $derived((filterValues.val.summary ?? '').toLowerCase())
 	// `draft_only`/`is_draft` aren't on every item type in the union — read defensively.
@@ -427,10 +410,9 @@
 	let preFilteredItems = $derived(
 		combinedItems?.filter(
 			(x) =>
-				(ownerFilter == undefined || x.path.startsWith(ownerFilter + '/')) &&
 				(x.type == itemKind || itemKind == 'all') &&
 				filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-				(labelFilter == undefined || itemLabels(x).includes(labelFilter)) &&
+				(!filterValues.val.label || itemLabels(x).includes(filterValues.val.label)) &&
 				(!pathFilter || x.path.toLowerCase().includes(pathFilter)) &&
 				(!summaryFilter || (x.summary ?? '').toLowerCase().includes(summaryFilter)) &&
 				(!filterValues.val.draft_only || isDraftOnly(x)) &&
@@ -522,6 +504,7 @@
 			<FilterSearchbar
 				schema={searchFilterSchema}
 				bind:value={filterValues.val}
+				presets={searchPresets}
 				placeholder="Filter scripts, flows and apps..."
 				autofocus
 			/>
@@ -538,31 +521,6 @@
 		</Button>
 	</div>
 	<div class="relative">
-		<ListFilters
-			syncQuery
-			bind:selectedFilter={ownerFilter}
-			filters={owners}
-			bottomMargin={false}
-		/>
-		{#if allLabels.length > 0}
-			<div class="gap-1.5 w-full flex flex-wrap mt-2">
-				{#each allLabels as label (label)}
-					<Badge
-						color="blue"
-						small
-						clickable
-						selected={label === labelFilter}
-						title="Label: {label}"
-						onclick={() => {
-							labelFilter = labelFilter === label ? undefined : label
-						}}
-					>
-						<Tag size={10} class="inline -mt-px" />{label}
-						{#if label === labelFilter}&cross;{/if}
-					</Badge>
-				{/each}
-			</div>
-		{/if}
 		{#if filteredItems?.length == 0}
 			<div class="mt-10"></div>
 		{/if}
@@ -599,7 +557,16 @@
 			<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
+			<NoItemFound
+				hasFilters={filter !== '' ||
+					archived ||
+					filterUserFolders ||
+					!!pathFilter ||
+					!!summaryFilter ||
+					!!filterValues.val.label ||
+					!!filterValues.val.draft_only ||
+					!!filterValues.val.draft}
+			/>
 		{:else if treeView}
 			<TreeViewRoot
 				{items}
