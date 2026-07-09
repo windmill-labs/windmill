@@ -8,7 +8,7 @@
 		type SessionPreviewTab
 	} from './sessionState.svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
-	import { resolvePreviewTab } from './previewRouter'
+	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import FlowEditorView from './FlowEditorView.svelte'
@@ -22,6 +22,7 @@
 		active,
 		mounted,
 		label,
+		darkMode,
 		onNavigate,
 		onLoad
 	}: {
@@ -34,6 +35,9 @@
 		mounted: boolean
 		/** Short tab label, for the iframe title. */
 		label: string
+		/** Current top-document theme — mirrored into page iframes so they follow
+		 * live toggles (app iframes pin their own theme and are excluded). */
+		darkMode: boolean
 		/** A link click inside a live editor re-points the active preview tab. */
 		onNavigate: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
@@ -50,6 +54,26 @@
 	const isActiveSession = $derived(!!session && sessionState.currentSessionId === session.id)
 
 	let frame: HTMLIFrameElement | undefined = $state()
+
+	// Pages whose theme we mirror on live toggles. Regular apps are the only item
+	// route that resolves to an iframe (scripts/flows/raw apps mount live editors)
+	// and they pin their own theme, so excluding item routes excludes exactly them.
+	const isPageIframe = $derived(slot.kind === 'iframe' && parsePreviewItemRoute(tab.url) === null)
+
+	function applyPageIframeTheme(dark: boolean, target: HTMLIFrameElement | undefined = frame) {
+		if (!isPageIframe) return
+		try {
+			target?.contentWindow?.document?.documentElement.classList.toggle('dark', dark)
+		} catch {
+			// Mid-navigation (or a defensively cross-origin frame); the next load re-applies.
+		}
+	}
+
+	// Only live toggles need this; initial paint is already correct — the iframe's
+	// own layout reads the global preference at load.
+	$effect(() => {
+		applyPageIframeTheme(darkMode)
+	})
 
 	export function reload() {
 		// A live editor shares the runtime store the chat mutates, so generic chat
@@ -117,7 +141,13 @@
 	<iframe
 		bind:this={frame}
 		src={withMenuHidden(tab.url, workspaceId || undefined)}
-		onload={(e) => onLoad(e.currentTarget as HTMLIFrameElement)}
+		onload={(e) => {
+			const f = e.currentTarget as HTMLIFrameElement
+			// Re-apply after load so a toggle that happened while the frame was
+			// loading (its layout read the pre-toggle preference) isn't lost.
+			applyPageIframeTheme(darkMode, f)
+			onLoad(f)
+		}}
 		title="Session preview: {label}"
 		class="absolute inset-0 w-full h-full border-0 bg-surface {visibility}"
 	></iframe>
