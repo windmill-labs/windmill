@@ -3,6 +3,7 @@ import { goto } from '$lib/navigation'
 import { workspaceStore } from '$lib/stores'
 import {
 	createSession,
+	queueTransientDraftPrompt,
 	selectSession,
 	sessionInCurrentFamily,
 	sessionState,
@@ -47,6 +48,19 @@ export async function enterSessionMode(opts?: { replace?: boolean }): Promise<vo
 	await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`, {
 		replaceState: opts?.replace ?? false
 	})
+}
+
+// Start a fresh AI session seeded with a prompt composed elsewhere (e.g. the
+// home page composer), then route into session mode. The prompt is queued onto
+// the transient draft so the session's chat input restores it on mount — the
+// same path a reload uses — leaving it composed-but-unsent for the user to
+// review and send. No-op routing is fine for a blank prompt; callers guard.
+export async function startSessionWithPrompt(prompt: string): Promise<void> {
+	const session = createSession()
+	const text = prompt.trim()
+	if (text) queueTransientDraftPrompt(session.id, text)
+	selectSession(session.id)
+	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 }
 
 // Exit session mode: back to the last navigation route (home as a fallback).

@@ -1,12 +1,31 @@
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ArrowRight, PlusIcon, Sparkles } from 'lucide-svelte'
+	import { ArrowRight } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import ProviderModelSelector from '../copilot/chat/ProviderModelSelector.svelte'
+	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 
-	// UI only for now — no submit wiring yet.
 	let value = $state('')
 	let placeholder = $state('')
+
+	let starting = $state(false)
+	async function start() {
+		if (starting || !value.trim()) return
+		starting = true
+		try {
+			await startSessionWithPrompt(value)
+		} finally {
+			starting = false
+		}
+	}
+
+	// Enter starts the session; Shift+Enter keeps inserting a newline.
+	function onKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault()
+			start()
+		}
+	}
 
 	const prompts = [
 		'Sync new Salesforce leads into a postgres table every hour',
@@ -60,13 +79,15 @@
 			bind:value
 			class="resize-none px-4 py-3 pb-9 shadow-lg"
 			underlyingInputEl="textarea"
-			inputProps={{ rows: 4, placeholder }}
+			inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
 		/>
 		<Button
 			endIcon={{ icon: ArrowRight }}
 			wrapperClasses="absolute right-2 bottom-3.5"
-			variant="default"
+			variant={value.trim() ? 'accent' : 'default'}
 			iconOnly
+			disabled={!value.trim() || starting}
+			onclick={start}
 		></Button>
 		<div
 			class="absolute left-3 bottom-4 flex items-center border rounded-md bg-surface-tertiary px-1"
