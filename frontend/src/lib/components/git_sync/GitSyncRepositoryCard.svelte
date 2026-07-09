@@ -147,12 +147,13 @@
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
 						isGithubApp = value?.is_github_app === true
-						// A newly added connection defaults to pulling from Git only when
-						// the repository is app-backed (instant webhook delivery). Polling
-						// is opt-in for token repositories, PR opening is a deliberate
-						// opt-in everywhere, and fork/dev workspaces never get the
-						// parent-only defaults (the backend rejects them). EE-only.
+						// A newly added sync connection defaults to pulling from Git only
+						// when the repository is app-backed (instant webhook delivery).
+						// Polling is opt-in for token repositories, and fork/dev workspaces
+						// never get the parent-only defaults (the backend rejects them).
+						// EE-only.
 						if (
+							repoMode === 'sync' &&
 							repo.isUnsavedConnection &&
 							isGithubApp &&
 							!isFork &&
@@ -160,6 +161,19 @@
 							repo.auto_pull === undefined
 						) {
 							repo.auto_pull = { enabled: true, mode: 'auto', sync_forks: true }
+						}
+						// Promotion deploys push wm_deploy/** branches that exist to be
+						// merged; without a PR the deploy is an orphaned branch. Default
+						// the managed PR on where Windmill can open it (app-backed).
+						// Fork PRs stay opt-in everywhere.
+						if (
+							repoMode === 'promotion' &&
+							repo.isUnsavedConnection &&
+							isGithubApp &&
+							$enterpriseLicense &&
+							repo.promotion_open_prs === undefined
+						) {
+							repo.promotion_open_prs = true
 						}
 						// Webhook with polling fallback is the only delivery for app repos.
 						if (isGithubApp && repo.auto_pull?.mode === 'polling') {
