@@ -1850,6 +1850,7 @@
 									<h4 class="text-sm font-semibold text-primary">File Browser</h4>
 								</div>
 								<GitRepoViewer
+									workspace={opWs}
 									gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
 									gitSshIdentity={ansibleGitSshIdentity}
 									bind:commitHashInput={commitHashForGitRepo}
@@ -2311,6 +2312,7 @@
 {#snippet testLogPanel()}
 	<LogPanel
 		bind:this={logPanel}
+		workspace={opWs}
 		{lang}
 		previewJob={debugMode
 			? ({
@@ -2760,6 +2762,7 @@
 {/snippet}
 
 <GitRepoResourcePicker
+	workspace={opWs}
 	bind:open={gitRepoResourcePickerOpen}
 	currentResource={ansibleAlternativeExecutionMode?.resource}
 	currentCommit={commitHashForGitRepo || ansibleAlternativeExecutionMode?.commit}

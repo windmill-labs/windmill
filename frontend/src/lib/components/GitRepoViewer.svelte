@@ -31,14 +31,23 @@
 		gitRepoResourcePath: string
 		gitSshIdentity?: string[]
 		commitHashInput?: string
+		/** Acting workspace (fork/session); falls back to the nav workspace. */
+		workspace?: string
 	}
 
-	let { gitRepoResourcePath, gitSshIdentity, commitHashInput = $bindable() }: Props = $props()
+	let {
+		gitRepoResourcePath,
+		gitSshIdentity,
+		commitHashInput = $bindable(),
+		workspace: workspaceProp = undefined
+	}: Props = $props()
+
+	let ws = $derived(workspaceProp ?? $workspaceStore)
 
 	let commitHash = $derived(commitHashInput)
 
 	async function populateS3WithGitRepo() {
-		const workspace = $workspaceStore
+		const workspace = ws
 		if (!workspace) return
 
 		const payload = {
@@ -172,7 +181,7 @@
 			error = null
 			isLoadingCommitHash = true
 			const result = await ResourceService.getGitCommitHash({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: gitRepoResourcePath,
 				gitSshIdentity: gitSshIdentity?.join(',')
 			})
@@ -189,9 +198,9 @@
 		try {
 			error = null
 			isCheckingPathExists = true
-			const s3Path = `gitrepos/${$workspaceStore}/${gitRepoResourcePath}/${commitHash}/`
+			const s3Path = `gitrepos/${ws}/${gitRepoResourcePath}/${commitHash}/`
 			const pathCheck = await HelpersService.checkS3FolderExists({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: s3Path,
 				markerFile: CLONE_MARKER_FILE
 			})
@@ -226,7 +235,7 @@
 			{#if runningJobId}
 				<a
 					class="inline-flex items-center gap-1 mt-2 text-sm underline"
-					href={`${base}/run/${runningJobId}?workspace=${$workspaceStore}`}
+					href={`${base}/run/${runningJobId}?workspace=${ws}`}
 					target="_blank"
 					rel="noreferrer noopener"
 				>
@@ -261,7 +270,7 @@
 				{#if runningJobId}
 					<a
 						class="inline-flex items-center gap-1 text-xs underline text-secondary"
-						href={`${base}/run/${runningJobId}?workspace=${$workspaceStore}`}
+						href={`${base}/run/${runningJobId}?workspace=${ws}`}
 						target="_blank"
 						rel="noreferrer noopener"
 					>
@@ -308,7 +317,7 @@
 			bind:this={s3FilePicker}
 			readOnlyMode
 			hideS3SpecificDetails
-			rootPath={`gitrepos/${$workspaceStore}/${gitRepoResourcePath}/${commitHash}/`}
+			rootPath={`gitrepos/${ws}/${gitRepoResourcePath}/${commitHash}/`}
 			listStoredFilesRequest={HelpersService.listGitRepoFiles}
 			loadFilePreviewRequest={HelpersService.loadGitRepoFilePreview}
 			testConnectionRequest={(async (_d) => {
