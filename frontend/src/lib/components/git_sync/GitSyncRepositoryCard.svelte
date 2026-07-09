@@ -596,13 +596,13 @@
 								<div class="text-2xs text-secondary mt-2">
 									To open a pull request for each deploy branch, set up the
 									<a
-										href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+										href="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
 										target="_blank"
 										class="text-blue-500 hover:underline font-mono">open-pr-on-commit</a
 									>
 									workflow in the repository. Recommended: connect the repository through the
 									<a
-										href="https://www.windmill.dev/docs/advanced/git_sync"
+										href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 										target="_blank"
 										class="text-blue-500 hover:underline">GitHub App</a
 									> and Windmill opens them automatically.
@@ -641,13 +641,13 @@
 									<div class="text-2xs text-secondary mt-2">
 										To open pull requests when an item is deployed in a fork, set up the
 										<a
-											href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+											href="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
 											target="_blank"
 											class="text-blue-500 hover:underline font-mono">open-pr-on-fork-commit</a
 										>
 										workflow in the repository. Recommended: connect the repository through the
 										<a
-											href="https://www.windmill.dev/docs/advanced/git_sync"
+											href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 											target="_blank"
 											class="text-blue-500 hover:underline">GitHub App</a
 										> and Windmill opens them automatically.
@@ -740,14 +740,14 @@
 											longer gaps make drift and merge conflicts more likely. For instant pull,
 											connect the repository through the
 											<a
-												href="https://www.windmill.dev/docs/advanced/git_sync"
+												href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 												target="_blank"
 												class="text-blue-500 hover:underline">GitHub App</a
 											>
 											(which also lets Windmill manage pull requests), or push changes into
 											Windmill with the
 											<a
-												href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+												href="https://www.windmill.dev/docs/advanced/git_sync#github-actions"
 												target="_blank"
 												class="text-blue-500 hover:underline">sync GitHub workflow</a
 											>. If you already push changes with a GitHub Action, keep either the
