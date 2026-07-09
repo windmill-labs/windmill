@@ -23,6 +23,7 @@ export type PreviewTabsSnapshot = {
 	tabs: SessionPreviewTab[]
 	activeId: string
 	collapsed: boolean
+	previewSize?: number
 }
 
 export type PreviewTabsAdapter = {
@@ -99,6 +100,7 @@ export function hydratePreviewTabs(session: {
 	previewTabs?: SessionPreviewTab[]
 	activePreviewTabId?: string
 	previewCollapsed?: boolean
+	previewSize?: number
 }): PreviewTabsSnapshot {
 	// Saved tabs come straight from IndexedDB — drop malformed records (missing
 	// id/url) and duplicate ids, which would break the page's keyed {#each}.
@@ -114,9 +116,19 @@ export function hydratePreviewTabs(session: {
 	if (tabs.length > 0) {
 		const wantActive = session.activePreviewTabId
 		const activeId = wantActive && tabs.some((t) => t.id === wantActive) ? wantActive : tabs[0].id
-		return { tabs, activeId, collapsed: session.previewCollapsed ?? false }
+		return {
+			tabs,
+			activeId,
+			collapsed: session.previewCollapsed ?? false,
+			previewSize: session.previewSize
+		}
 	}
-	return { tabs: [], activeId: '', collapsed: session.previewCollapsed ?? true }
+	return {
+		tabs: [],
+		activeId: '',
+		collapsed: session.previewCollapsed ?? true,
+		previewSize: session.previewSize
+	}
 }
 
 const FLUSH_DELAY_MS = 400
@@ -129,6 +141,7 @@ export class SessionPreviewTabs {
 	#tabs = $state<SessionPreviewTab[]>([])
 	#activeId = $state('')
 	#collapsed = $state(false)
+	#previewSize = $state<number | undefined>(undefined)
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -141,6 +154,7 @@ export class SessionPreviewTabs {
 		this.#tabs = initial.tabs.map((t) => ({ ...t }))
 		this.#activeId = initial.activeId
 		this.#collapsed = initial.collapsed
+		this.#previewSize = initial.previewSize
 		this.#adapter = adapter
 		this.#flushDelay = flushDelay
 	}
@@ -156,6 +170,17 @@ export class SessionPreviewTabs {
 	}
 	get collapsed(): boolean {
 		return this.#collapsed
+	}
+	get previewSize(): number | undefined {
+		return this.#previewSize
+	}
+
+	setPreviewSize(size: number): void {
+		if (this.#previewSize === size) return
+		this.#previewSize = size
+		// A size change never touches the tab set, so skip the editor-cell prune
+		// (onTabsChanged) and only schedule the debounced persist.
+		this.#schedulePersist()
 	}
 
 	// Open — or focus, if already shown — a tab for a destination, and reveal the
@@ -324,6 +349,10 @@ export class SessionPreviewTabs {
 		// Prune cells promptly (cheap, synchronous) even though the durable persist
 		// stays debounced — a closed tab's editor cell should be reclaimable now.
 		this.#adapter.onTabsChanged?.()
+		this.#schedulePersist()
+	}
+
+	#schedulePersist(): void {
 		clearTimeout(this.#flushHandle)
 		this.#flushHandle = setTimeout(() => {
 			this.#flushHandle = undefined
@@ -335,7 +364,8 @@ export class SessionPreviewTabs {
 		this.#adapter.persist({
 			tabs: this.#tabs.map((t) => ({ ...t })),
 			activeId: this.#activeId,
-			collapsed: this.#collapsed
+			collapsed: this.#collapsed,
+			previewSize: this.#previewSize
 		})
 	}
 }

@@ -42,6 +42,7 @@ import {
 	queueTransientDraftPrompt,
 	reconcileSessionsLifecycle,
 	setSessionArchived,
+	setSessionPreviewSize,
 	type Session
 } from './sessionState.svelte'
 
@@ -125,7 +126,8 @@ describe('sessionState IndexedDB persistence', () => {
 				transient: true,
 				previewTabs: [{ id: 'session', url: '/x', loc: '/x' }],
 				activePreviewTabId: 'session',
-				previewCollapsed: false
+				previewCollapsed: false,
+				previewSize: 70
 			})
 		)
 		await rehydrate(user)
@@ -134,6 +136,24 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(restored?.previewTabs).toEqual([{ id: 'session', url: '/x', loc: '/x' }])
 		expect(restored?.activePreviewTabId).toBe('session')
 		expect(restored?.previewCollapsed).toBe(false)
+		expect(restored?.previewSize).toBe(70)
+	})
+
+	it('setSessionPreviewSize persists a dragged width and round-trips it', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		const s = session({ id: 'ps1', createdAt: 1 })
+		sessionState.sessions = [s]
+		await putSession(s)
+
+		setSessionPreviewSize('ps1', 42)
+		await flush()
+
+		await rehydrate(user)
+		await flush()
+		expect(sessionState.sessions.find((x) => x.id === 'ps1')?.previewSize).toBe(42)
 	})
 
 	it('materializeTransient promotes the draft to IndexedDB and clears the slot', async () => {

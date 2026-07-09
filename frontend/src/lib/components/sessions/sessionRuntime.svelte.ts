@@ -38,6 +38,7 @@ import {
 	setGeneratedSessionSummary,
 	setSessionChatId,
 	setSessionPreviewCollapsed,
+	setSessionPreviewSize,
 	setSessionTabs,
 	type Session
 } from './sessionState.svelte'
@@ -404,6 +405,8 @@ function createRuntime(session: Session): SessionRuntime {
 		persist: (snap) => {
 			setSessionTabs(session.id, snap.tabs, snap.activeId)
 			setSessionPreviewCollapsed(session.id, snap.collapsed)
+			// Only persist a real width; undefined means "never resized" (defaults to 50).
+			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
 		onTabsChanged: pruneEditorCells
 	})
