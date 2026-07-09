@@ -744,7 +744,9 @@
 							toolKind
 						)
 						const id = tools[tools.length - 1].id
-						selectionManager.selectId(id)
+						// Reveal the new tool's config right away — in modal (unanchored)
+						// panel mode its editor is otherwise hidden behind the graph.
+						selectionManager.selectId(id, { openPanel: true })
 					}
 					refreshStateStore(flowStore)
 					dispatch('change')

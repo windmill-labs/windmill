@@ -195,8 +195,8 @@
 			panelMode = 'modal'
 		}
 		if (allowModalPanel) {
-			selectionManager.setOnSelectIntent((id) => {
-				if (panelMode === 'modal' && isNonModulePanelTarget(id)) {
+			selectionManager.setOnSelectIntent((id, opts) => {
+				if (panelMode === 'modal' && (opts?.openPanel || isNonModulePanelTarget(id))) {
 					panelModalOpen = true
 				}
 			})
