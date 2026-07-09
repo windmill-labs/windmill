@@ -42,6 +42,7 @@
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
+	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -306,6 +307,10 @@
 					</div>
 				{/if}
 			</div>
+		</div>
+
+		<div class="w-full mb-10 mt-6">
+			<HomeAIChat />
 		</div>
 
 		{#if $workspaceStore == 'admins'}
