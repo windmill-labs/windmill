@@ -676,9 +676,14 @@ export async function processToolCall<T>({
 			requiresConfirmation && toolCallbacks.shouldAutoAcceptToolConfirmations?.() === true
 		const needsConfirmation = requiresConfirmation && !autoAcceptConfirmation
 
+		const confirmationContent =
+			typeof tool?.confirmationMessage === 'function'
+				? tool.confirmationMessage(args)
+				: tool?.confirmationMessage
+
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(requiresConfirmation
-				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
+				? { content: confirmationContent ?? 'Waiting for confirmation...' }
 				: {}),
 			parameters: args,
 			isLoading: true,
@@ -776,7 +781,9 @@ export interface Tool<T> {
 	}) => MaybePromise<string | undefined>
 	setSchema?: (helpers: any) => Promise<void>
 	requiresConfirmation?: boolean
-	confirmationMessage?: string
+	/** Header shown on the confirmation card before the tool runs. Pass a function
+	 * to derive it from the parsed arguments (e.g. name the script being tested). */
+	confirmationMessage?: string | ((args: any) => string)
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean

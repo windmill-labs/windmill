@@ -2454,7 +2454,8 @@ export const globalTools: Tool<{}>[] = [
 			return testRunScriptByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run script test',
+		confirmationMessage: (args) =>
+			`Run a test of your draft of ${pathLeaf(args?.path, 'the script')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2465,7 +2466,8 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow test',
+		confirmationMessage: (args) =>
+			`Run a test of your draft of ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2476,7 +2478,8 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowStepByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow step test',
+		confirmationMessage: (args) =>
+			`Run a test of step "${args?.stepId ?? ''}" in your draft of ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -3728,6 +3731,13 @@ async function loadDraftFlowPreviewValue(
 	}
 	const nestedFlow = await loadFlowDraftValue(path, workspace)
 	return flowDraftValueForPreview(nestedFlow.flow)
+}
+
+// Leaf of a workspace path (last segment), for human-readable confirmation
+// prompts. Falls back to the full path, then a generic noun.
+function pathLeaf(path: unknown, fallback: string): string {
+	const p = typeof path === 'string' ? path : ''
+	return p.split('/').filter(Boolean).pop() || p || fallback
 }
 
 async function testRunScriptByPath(

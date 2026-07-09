@@ -428,7 +428,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow test',
+		confirmationMessage: 'Run a test of your draft',
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -461,7 +461,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow step test',
+		confirmationMessage: (args) => `Run a test of step "${args?.stepId ?? ''}" in your draft`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
