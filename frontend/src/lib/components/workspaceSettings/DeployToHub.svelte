@@ -43,10 +43,18 @@
 		type ProjectBundle
 	} from './projectBundle'
 	import {
+		detectDatatableTables,
+		generateDatatableMigrations,
+		type GeneratedMigration
+	} from './projectMigrations'
+	import Toggle from '../Toggle.svelte'
+	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
+	import {
 		Check,
 		Cloud,
 		Code2,
 		Copy,
+		Database,
 		ExternalLink,
 		Globe,
 		Info,
@@ -605,9 +613,52 @@
 		return m
 	})
 
+	// Best-effort data table migrations for the bundle, editable in the drawer and
+	// pushed on deploy. Regenerated when the bundle drawer opens.
+	let migrationDrafts = $state<GeneratedMigration[]>([])
+	let migrationsGenerating = $state(false)
+	let migrationsSeq = 0
+	// Bumped whenever the drafts are (re)generated, to re-key the Monaco editors so
+	// they pick up the fresh SQL (Monaco doesn't sync external `code` changes).
+	let migrationsGeneration = $state(0)
+
+	async function regenerateMigrations(workspace: string) {
+		const seq = ++migrationsSeq
+		migrationsGenerating = true
+		try {
+			const seed: ItemRef[] = selectedItems
+				.filter((i) => i.kind !== 'resource')
+				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
+			// Detection is independent of the final slug (data table refs aren't
+			// relocated), so any placeholder slug works for this throwaway bundle.
+			const bundle = await buildProjectBundle(
+				seed,
+				hubSlug || 'project',
+				buildBundleDeps(workspace),
+				[]
+			)
+			const usage = await detectDatatableTables(bundle.items)
+			const drafts = await generateDatatableMigrations(workspace, usage)
+			if (seq !== migrationsSeq) return
+			migrationDrafts = drafts
+			migrationsGeneration++
+		} catch (e: any) {
+			if (seq === migrationsSeq) {
+				migrationDrafts = []
+				migrationsGeneration++
+				// Toast so a genuine failure isn't mistaken for "no data table usage".
+				sendUserToast(`Could not generate data table migrations: ${e?.message ?? e}`, true)
+			}
+		} finally {
+			if (seq === migrationsSeq) migrationsGenerating = false
+		}
+	}
+
 	function openBundle() {
 		hubName = hubName || folderProp
 		bundleDrawer?.openDrawer()
+		const workspace = $workspaceStore
+		if (workspace) void regenerateMigrations(workspace)
 	}
 	function openTriggerUrl(kind: TriggerKindLabel): string | undefined {
 		const ws = $workspaceStore
@@ -757,7 +808,11 @@
 							const v: any = a.value ?? {}
 							const content = JSON.stringify({
 								files: { ...(v.files ?? {}), '/bundle.js': js, '/bundle.css': css },
-								runnables: v.runnables ?? {}
+								runnables: v.runnables ?? {},
+								// Preserve the full-code app's explicit data table declaration so it
+								// survives publish/import and feeds migration detection.
+								...(v.data !== undefined ? { data: v.data } : {}),
+								...(v.datatables !== undefined ? { datatables: v.datatables } : {})
 							})
 							return { kind: 'raw_app', path: ref.path, summary: a.summary, content }
 						}
@@ -952,6 +1007,11 @@
 
 	let bundlePreview = $state<ProjectBundle | undefined>(undefined)
 	let detectingResources = $state(false)
+	// Data tables (→ tables) the current selection reads/writes, detected off the
+	// same bundle preview. Drives the predeploy "Data table dependencies" summary;
+	// the editable migration itself is generated in the bundle drawer.
+	let datatableUsage = $state<Map<string, Set<string>>>(new Map())
+	let detectingDatatables = $state(false)
 
 	// `hasHardcoded` = pinned via $res: path (relocated as a stub); else input-only.
 	type DependencyUsage =
@@ -1050,10 +1110,12 @@
 		selectedItemKeys
 		if (!workspace || phase !== 'predeploy') {
 			bundlePreview = undefined
+			datatableUsage = new Map()
 			return
 		}
 		let cancelled = false
 		detectingResources = true
+		detectingDatatables = true
 		const slug = hubSlug
 		const seed: ItemRef[] = selectedItems
 			.filter((i) => i.kind !== 'resource')
@@ -1065,7 +1127,16 @@
 		const timer = setTimeout(() => {
 			buildProjectBundle(seed, slug, cachedBundleDeps(workspace), triggerResources)
 				.then((b) => {
-					if (!cancelled) bundlePreview = b
+					if (cancelled) return
+					bundlePreview = b
+					// Detect data table usage off the same fetched items.
+					detectDatatableTables(b.items)
+						.then((usage) => {
+							if (!cancelled) datatableUsage = usage
+						})
+						.finally(() => {
+							if (!cancelled) detectingDatatables = false
+						})
 				})
 				.finally(() => {
 					if (!cancelled) detectingResources = false
@@ -1218,6 +1289,24 @@
 				await pushTriggers(workspace, slug, resourcePathMap, triggersSnapshot)
 			} catch (e: any) {
 				sendUserToast(`Trigger sync failed: ${e?.message ?? e}`, true)
+				failures++
+			}
+
+			// Full-set sync: always push (an empty list clears the Hub's migrations on
+			// a re-deploy). The Hub drops empty-SQL entries, so disabled placeholders
+			// don't persist.
+			try {
+				await postHub(workspace, '/hub/migrations', {
+					migrations: migrationDrafts.map((m) => ({
+						datatable_name: m.datatable_name,
+						sql: m.sql,
+						sql_down: m.sql_down,
+						enabled: m.enabled
+					})),
+					project_slug: slug
+				})
+			} catch (e: any) {
+				sendUserToast(`Data table migration sync failed: ${e?.message ?? e}`, true)
 				failures++
 			}
 
@@ -1732,6 +1821,37 @@
 							>
 								View details
 							</Button>
+						{/if}
+					</div>
+					<div class="flex flex-wrap items-center gap-2 text-xs">
+						<span class="font-semibold text-primary shrink-0">
+							Data table dependencies
+							{#if detectingDatatables}
+								<Loader2 size={11} class="inline animate-spin text-hint" />
+							{:else}
+								<span class="text-hint font-normal">({datatableUsage.size})</span>
+							{/if}
+							<Tooltip>
+								Data tables the selected items read or write. A best-effort CREATE TABLE migration
+								for these is generated in the bundle step and shipped with the project, so a fork
+								can recreate the tables it needs.
+							</Tooltip>
+						</span>
+						{#if datatableUsage.size === 0}
+							<span class="text-[11px] text-hint">
+								No data table usage detected in the current selection.
+							</span>
+						{:else}
+							{#each [...datatableUsage] as [dt, tables] (dt)}
+								<span
+									class="inline-flex items-center gap-1 rounded border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-secondary"
+								>
+									{dt}
+									{#if tables.size > 0}
+										<span class="text-hint">×{tables.size}</span>
+									{/if}
+								</span>
+							{/each}
 						{/if}
 					</div>
 				{/if}
@@ -2341,6 +2461,40 @@
 					Markdown supported. Editable any time before and after publication.
 				</span>
 			</label>
+			<div class="flex flex-col gap-2 border-t pt-4 text-xs">
+				<div class="flex items-center gap-2">
+					<Database size={14} />
+					<span class="font-semibold text-primary">Data table migrations</span>
+				</div>
+				{#if migrationsGenerating}
+					<div class="flex items-center gap-2 text-secondary">
+						<Loader2 size={14} class="animate-spin" />
+						Detecting data tables used by this project…
+					</div>
+				{:else if migrationDrafts.length === 0}
+					<span class="text-[11px] text-hint">
+						No data table usage detected in this project's scripts, flows, or raw apps.
+					</span>
+				{:else}
+					<span class="text-[11px] text-hint">
+						We detected these data tables. When included, the migration recreates their tables on
+						import. Best-effort — review and edit before publishing.
+					</span>
+					{#each migrationDrafts as m (m.datatable_name)}
+						<div class="flex flex-col gap-1.5 rounded border bg-surface-secondary p-2">
+							<div class="flex items-center justify-between gap-2">
+								<span class="font-mono text-primary">{m.datatable_name}</span>
+								<Toggle bind:checked={m.enabled} size="xs" options={{ right: 'Include' }} />
+							</div>
+							<MigrationSqlEditor
+								bind:up={m.sql}
+								bind:down={m.sql_down}
+								generation={migrationsGeneration}
+							/>
+						</div>
+					{/each}
+				{/if}
+			</div>
 		</div>
 		{#snippet actions()}
 			<Button

@@ -31,6 +31,7 @@ pub fn workspaced_service() -> Router {
         .route("/resource_types", post(publish_resource_type))
         .route("/resources", post(publish_resources))
         .route("/triggers", post(publish_triggers))
+        .route("/migrations", post(publish_migrations))
         .route("/projects/{slug}/export", get(get_project_export))
         .route("/projects/{slug}/submit", post(submit_project))
         .route("/project", get(get_project_by_source))
@@ -418,6 +419,40 @@ async fn publish_triggers(
     validate_project_slug(&body.project_slug)?;
     forward_to_hub(
         &format!("/projects/{}/triggers", body.project_slug),
+        &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
+        &body,
+    )
+    .await
+}
+
+// One best-effort data table migration attached to a project (per data table).
+#[derive(Deserialize, Serialize)]
+struct PublishMigrationBody {
+    datatable_name: String,
+    sql: String,
+    #[serde(default)]
+    sql_down: String,
+    enabled: bool,
+}
+
+#[derive(Deserialize, Serialize)]
+struct PublishMigrationsBody {
+    migrations: Vec<PublishMigrationBody>,
+    project_slug: String,
+}
+
+async fn publish_migrations(
+    authed: ApiAuthed,
+    tokened: Tokened,
+    Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
+    Json(body): Json<PublishMigrationsBody>,
+) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
+    validate_project_slug(&body.project_slug)?;
+    forward_to_hub(
+        &format!("/projects/{}/migrations", body.project_slug),
         &source_key(&workspace, &scope.folder)?,
         &tokened.token,
         &body,
