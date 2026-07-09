@@ -3,6 +3,7 @@
 
 	import { FlowService, ScriptService, UserService, type TruncatedToken } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { getContext } from 'svelte'
 	import { Skeleton } from '../common'
 	import Label from '../Label.svelte'
@@ -16,6 +17,10 @@
 	}
 
 	let { isFlow, path, labelPrefix }: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -23,8 +28,8 @@
 
 	export async function listTokens() {
 		tokens = isFlow
-			? await FlowService.listTokensOfFlow({ workspace: $workspaceStore!, path })
-			: await ScriptService.listTokensOfScript({ workspace: $workspaceStore!, path })
+			? await FlowService.listTokensOfFlow({ workspace: wsId!, path })
+			: await ScriptService.listTokensOfScript({ workspace: wsId!, path })
 		if (labelPrefix == 'email') {
 			$triggersCount = { ...($triggersCount ?? {}), default_email_count: tokens?.length }
 		} else {
@@ -40,7 +45,7 @@
 	}
 
 	run(() => {
-		$workspaceStore && listTokens()
+		wsId && listTokens()
 	})
 </script>
 

@@ -4,6 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
@@ -106,6 +107,10 @@
 		onReset?: () => void
 		cloudDisabled?: boolean
 	} = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let hasChanged = $derived(!deepEqual(getGcpConfig(), originalConfig ?? {}))
 	const gcpConfig = $derived.by(getGcpConfig)
@@ -113,7 +118,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_gcp',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => gcpConfig,
 		applyCfg: loadTriggerConfig,
@@ -204,7 +209,7 @@
 		}
 		try {
 			const s = await GcpTriggerService.getGcpTrigger({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -256,7 +261,7 @@
 			initialPath,
 			cfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {
@@ -318,7 +323,7 @@
 				(force) =>
 					GcpTriggerService.setGcpTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'GCP Pub/Sub trigger'

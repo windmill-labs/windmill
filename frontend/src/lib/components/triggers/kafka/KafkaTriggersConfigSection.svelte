@@ -4,6 +4,7 @@
 	import Subsection from '$lib/components/Subsection.svelte'
 	import SchemaForm from '../../SchemaForm.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { untrack } from 'svelte'
@@ -25,6 +26,10 @@
 		can_write = true,
 		showTestingBadge = false
 	}: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	const kafkaConfigSchema = {
 		$schema: 'http://json-schema.org/draft-07/schema#',
@@ -51,7 +56,7 @@
 
 	function setGroupId() {
 		if (!kafkaCfg.group_id) {
-			kafkaCfg.group_id = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
+			kafkaCfg.group_id = `windmill_consumer-${wsId}-${path.replaceAll('/', '__')}`
 		}
 	}
 

@@ -14,6 +14,7 @@
 	import { Button } from '$lib/components/common'
 	import { VariableService, type AwsAuthResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import TestingBadge from '../testingBadge.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -39,9 +40,13 @@
 		message_attributes = $bindable([]),
 		showTestingBadge = false
 	}: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
+		return await VariableService.listVariable({ workspace: wsId ?? '' })
 	}
 	let itemPicker: ItemPicker | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()

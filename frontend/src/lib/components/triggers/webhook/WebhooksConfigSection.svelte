@@ -19,6 +19,7 @@
 	import { base } from '$lib/base'
 	import TriggerTokens from '../TriggerTokens.svelte'
 	import { workspaceStore, userStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import UserSettings from '../../UserSettings.svelte'
 	import { generateRandomString } from '$lib/utils'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -42,8 +43,12 @@
 		triggerTokens = $bindable(undefined),
 		scopes = []
 	}: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
-	const WEBHOOK_BASE_URL = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
+	const WEBHOOK_BASE_URL = $derived(`${location.origin}${base}/api/w/${wsId}/jobs`)
 
 	let baseWebhookUrl = $derived.by(() => {
 		let webhookUrlPath: string
@@ -222,7 +227,7 @@ function waitForJobCompletion(UUID) {
     try {
       const endpoint = \`${
 				location.origin
-			}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\${UUID}\`;
+			}/api/w/${wsId}/jobs_u/completed/get_result_maybe/\${UUID}\`;
       const checkResponse = await fetch(endpoint, {
         method: 'GET',
         headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t\t\t')}
@@ -265,7 +270,7 @@ ${
 		? 'echo -E $RESULT | jq'
 		: requestType === 'async'
 			? `
-URL="${location.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
+URL="${location.origin}/api/w/${wsId}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
   curl -s -H "Authorization: Bearer $TOKEN" $URL -o res.json
   COMPLETED=$(cat res.json | jq .completed)
@@ -287,7 +292,7 @@ done`
 		token = e.detail
 		triggerTokens?.listTokens()
 	}}
-	newTokenWorkspace={$workspaceStore}
+	newTokenWorkspace={wsId}
 	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 	{scopes}
 />

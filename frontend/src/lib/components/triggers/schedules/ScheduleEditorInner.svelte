@@ -44,6 +44,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	let {
 		useDrawer = true,
@@ -135,12 +136,14 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write
 	)
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_schedule',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => scheduleCfg,
 		applyCfg: loadScheduleCfg,
@@ -228,15 +231,15 @@
 			let defaultErrorHandlerMaybe = undefined
 			let defaultRecoveryHandlerMaybe = undefined
 			let defaultSuccessHandlerMaybe = undefined
-			if ($workspaceStore) {
+			if (wsId) {
 				defaultErrorHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_error_handler_' + $workspaceStore!
+					key: 'default_error_handler_' + wsId!
 				})) as any
 				defaultRecoveryHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_recovery_handler_' + $workspaceStore!
+					key: 'default_recovery_handler_' + wsId!
 				})) as any
 				defaultSuccessHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_success_handler_' + $workspaceStore!
+					key: 'default_success_handler_' + wsId!
 				})) as any
 			}
 
@@ -305,7 +308,7 @@
 			let s: Schedule | undefined
 			if (schedule_path) {
 				const resp = await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					path: schedule_path,
 					getDraft
 				})
@@ -385,9 +388,9 @@
 			runnable = undefined
 			try {
 				if (is_flow) {
-					runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
 				} else {
-					runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
+					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
 				}
 			} catch (err) {}
 		} else {
@@ -400,9 +403,9 @@
 			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'error',
 					override_existing: overrideExisting,
@@ -429,9 +432,9 @@
 			sendUserToast(`Setting default recovery handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'recovery',
 					override_existing: overrideExisting,
@@ -456,9 +459,9 @@
 			sendUserToast(`Setting default success handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'success',
 					override_existing: overrideExisting,
@@ -492,7 +495,7 @@
 		}
 		try {
 			const s = await ScheduleService.getSchedule({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -591,7 +594,7 @@
 		const previousPath = initialPath
 		const scheduleCfg = getScheduleCfg()
 		deploymentLoading = true
-		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
+		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
 			draftSync.discard(previousPath, scheduleCfg)
 			onUpdate?.(scheduleCfg.path)
@@ -698,7 +701,7 @@
 				(force) =>
 					ScheduleService.setScheduleEnabled({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { enabled: nEnabled, force }
 					}),
 				'schedule'
@@ -754,7 +757,7 @@
 							variant="default"
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 							on:click={() => {
-								runScheduleNow(script_path, path, is_flow, $workspaceStore!)
+								runScheduleNow(script_path, path, is_flow, wsId!)
 							}}
 						>
 							Run now

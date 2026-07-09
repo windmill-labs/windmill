@@ -4,6 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
@@ -68,6 +69,10 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -107,7 +112,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_sqs',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => sqsConfig,
 		applyCfg: loadTriggerConfig,
@@ -238,7 +243,7 @@
 				return { overlay: undefined, noDeployed: false }
 			}
 			const s = await SqsTriggerService.getSqsTrigger({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -282,7 +287,7 @@
 				(force) =>
 					SqsTriggerService.setSqsTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'SQS trigger'
@@ -307,7 +312,7 @@
 			initialPath,
 			cfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {

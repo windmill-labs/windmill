@@ -14,6 +14,7 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -84,6 +85,10 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -168,7 +173,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_postgres',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => postgresConfig,
 		applyCfg: loadTriggerConfig,
@@ -191,7 +196,7 @@
 			const message = await PostgresTriggerService.createPostgresPublication({
 				path: postgres_resource_path,
 				publication: publication_name as string,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					transaction_to_track: transaction_to_track,
 					table_to_track: relations
@@ -211,7 +216,7 @@
 			creatingSlot = true
 			const message = await PostgresTriggerService.createPostgresReplicationSlot({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					name: replication_slot_name
 				}
@@ -391,7 +396,7 @@
 			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await PostgresTriggerService.getPostgresTrigger({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			path: initialPath,
 			getDraft: true
 		})
@@ -402,7 +407,7 @@
 		// Deployed config + publication become the `originalConfig` baseline.
 		const deployedPublication = await PostgresTriggerService.getPostgresPublication({
 			path: deployedTrigger.postgres_resource_path,
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			publication: deployedTrigger.publication_name
 		})
 		loadTriggerConfig({ ...deployedTrigger, publication: deployedPublication })
@@ -417,7 +422,7 @@
 				? deployedPublication
 				: await PostgresTriggerService.getPostgresPublication({
 						path: effective.postgres_resource_path,
-						workspace: $workspaceStore!,
+						workspace: wsId!,
 						publication: effective.publication_name
 					})
 		return { overlay: { ...effective, publication: effectivePublication }, noDeployed }
@@ -451,7 +456,7 @@
 			initialPath,
 			cfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {
@@ -475,7 +480,7 @@
 		try {
 			loading = true
 			let templateId = await PostgresTriggerService.createTemplateScript({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					relations,
 					language,
@@ -498,7 +503,7 @@
 				(force) =>
 					PostgresTriggerService.setPostgresTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'postgres trigger'
@@ -530,7 +535,7 @@
 		if (postgres_resource_path) {
 			loadingPostgres = true
 			PostgresTriggerService.getPostgresVersion({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: postgres_resource_path
 			})
 				.then((version: string) => {

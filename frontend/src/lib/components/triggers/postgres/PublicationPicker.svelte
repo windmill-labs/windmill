@@ -7,6 +7,7 @@
 	import type { Relations } from '$lib/gen'
 	import { PostgresTriggerService } from '$lib/gen/services.gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
@@ -30,6 +31,10 @@
 		transaction_to_track = $bindable([]),
 		disabled = false
 	}: Props = $props();
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let loadingPublication: boolean = $state(false)
 	let deletingPublication: boolean = $state(false)
@@ -39,7 +44,7 @@
 			loadingPublication = true
 			const publications = await PostgresTriggerService.listPostgresPublication({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!
+				workspace: wsId!
 			})
 
 			items = publications
@@ -55,7 +60,7 @@
 			updatingPublication = true
 			const message = await PostgresTriggerService.updatePostgresPublication({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				publication: publication_name,
 				requestBody: {
 					table_to_track: relations,
@@ -75,7 +80,7 @@
 			deletingPublication = true
 			const message = await PostgresTriggerService.deletePostgresPublication({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				publication: publication_name
 			})
 			items = items.filter((item) => item != publication_name)
@@ -94,7 +99,7 @@
 		try {
 			const publication_data = await PostgresTriggerService.getPostgresPublication({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				publication: publication_name
 			})
 			transaction_to_track = [...publication_data.transaction_to_track]

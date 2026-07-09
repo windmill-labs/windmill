@@ -10,6 +10,7 @@
 		GcpTriggerService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 
@@ -26,6 +27,10 @@
 		noButton = false,
 		testLoading = $bindable(false)
 	}: Props = $props();
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	const kindToName: { [key: string]: string } = {
 		websocket: 'WebSocket',
@@ -48,37 +53,37 @@
 		try {
 			if (kind === 'websocket') {
 				promise = WebsocketTriggerService.testWebsocketConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'nats') {
 				promise = NatsTriggerService.testNatsConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'kafka') {
 				promise = KafkaTriggerService.testKafkaConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'mqtt') {
 				promise = MqttTriggerService.testMqttConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'sqs') {
 				promise = SqsTriggerService.testSqsConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'postgres') {
 				promise = PostgresTriggerService.testPostgresConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'gcp') {
 				promise = GcpTriggerService.testGcpConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			}

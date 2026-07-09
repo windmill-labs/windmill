@@ -4,6 +4,7 @@
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
@@ -21,6 +22,10 @@
 		postgres_resource_path = '',
 		disabled = false
 	}: Props = $props();
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let deletingSlot: boolean = $state(false)
 	let loadingSlot: boolean = $state(false)
@@ -30,7 +35,7 @@
 			loadingSlot = true
 			const result = await PostgresTriggerService.listPostgresReplicationSlot({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!
+				workspace: wsId!
 			})
 
 			let exist = false
@@ -63,7 +68,7 @@
 			deletingSlot = true
 			const message = await PostgresTriggerService.deletePostgresReplicationSlot({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					name: replication_slot_name
 				}

@@ -20,6 +20,7 @@
 	} from '$lib/gen/types.gen'
 	import Button from '../common/button/Button.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { JobService, TriggerService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -48,13 +49,17 @@
 	}
 
 	let { triggerKind, triggerPath, onToggleMode, hasChanged, runnableConfig }: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let shouldShowModal = $state(false)
 	let queuedJobs = $state<QueuedJob[]>([])
 	let selectedJobs = $state<Set<string>>(new Set())
 	let loading = $state(false)
 	let processingAction = $state(false)
-	let workspace = $workspaceStore!
+	const workspace = $derived(wsId!)
 	let currentPage = $state(1)
 	let perPage = $state(20)
 	let hasMorePages = $derived(queuedJobs.length === perPage)

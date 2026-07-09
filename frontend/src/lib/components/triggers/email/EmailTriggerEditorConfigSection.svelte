@@ -3,6 +3,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	// import { page } from '$app/state'
 	import { getEmailAddress, getEmailDomain } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -34,6 +35,10 @@
 		isDraftOnly = true,
 		showTestingBadge = false
 	}: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let validateTimeout: number | undefined = undefined
 
@@ -59,7 +64,7 @@
 	}
 	async function emailTriggerExists(local_part: string, workspaced_local_part: boolean) {
 		return await EmailTriggerService.existsEmailLocalPart({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			requestBody: {
 				local_part,
 				trigger_path: initialTriggerPath,
@@ -85,7 +90,7 @@
 	})
 
 	let fullEmailAddress = $derived(
-		getEmailAddress(local_part, workspaced_local_part, $workspaceStore ?? '', emailDomain ?? '')
+		getEmailAddress(local_part, workspaced_local_part, wsId ?? '', emailDomain ?? '')
 	)
 
 	$effect.pre(() => {

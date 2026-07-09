@@ -13,6 +13,7 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -49,6 +50,10 @@
 		trigger = undefined,
 		customSaveBehavior = undefined
 	} = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	// Form data state
 	let initialPath = $state('')
@@ -93,7 +98,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_email',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => emailConfig,
 		applyCfg: (c) => loadTriggerConfig(c as Partial<EmailTrigger>),
@@ -229,7 +234,7 @@
 			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await EmailTriggerService.getEmailTrigger({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			path: initialPath,
 			getDraft: true
 		})
@@ -255,7 +260,7 @@
 				initialPath,
 				saveCfg,
 				edit,
-				$workspaceStore!,
+				wsId!,
 				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 				usedTriggerKinds
 			)
@@ -299,7 +304,7 @@
 			// excludes workspaced_local_part=false) — no fork-conflict warning.
 			await EmailTriggerService.setEmailTriggerMode({
 				path: initialPath,
-				workspace: $workspaceStore ?? '',
+				workspace: wsId ?? '',
 				requestBody: { mode: newMode }
 			})
 			sendUserToast(`${capitalize(newMode)} email trigger ${initialPath}`)

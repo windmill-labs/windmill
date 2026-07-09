@@ -16,6 +16,7 @@
 	import { base } from '$lib/base'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	import { Button, Url } from '$lib/components/common'
 	import { RefreshCw } from 'lucide-svelte'
@@ -39,7 +40,7 @@
 			try {
 				loadingTopic = true
 				topic_items = await GcpTriggerService.listGoogleTopics({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					path: gcp_resource_path
 				})
 			} catch (error) {
@@ -54,7 +55,7 @@
 			try {
 				loadingSubscription = true
 				subscription_items = await GcpTriggerService.listAllTgoogleTopicSubscriptions({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					path: gcp_resource_path,
 					requestBody: {
 						topic_id
@@ -104,6 +105,10 @@
 		cloud_subscription_id = $bindable(''),
 		create_update_subscription_id = $bindable('')
 	}: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	if (gcp_resource_path) {
 		loadAllPubSubTopicsFromProject()
@@ -123,7 +128,7 @@
 		}
 	})
 	function getBaseUrl() {
-		return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
+		return `${window.location.origin}${base}/api/gcp/w/${wsId!}`
 	}
 
 	$effect(() => {
@@ -132,7 +137,7 @@
 
 	$effect(() => {
 		if (emptyStringTrimmed(subscription_id) && !emptyStringTrimmed(path)) {
-			subscription_id = `windmill-${$workspaceStore!}-${path.replaceAll('/', '_')}`
+			subscription_id = `windmill-${wsId!}-${path.replaceAll('/', '_')}`
 		}
 	})
 </script>

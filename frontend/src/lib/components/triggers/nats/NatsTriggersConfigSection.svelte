@@ -2,6 +2,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
@@ -34,6 +35,10 @@
 		can_write = true,
 		showTestingBadge = false
 	}: Props = $props()
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let otherArgsValid = $state(false)
 	let globalError = $derived(
@@ -99,10 +104,10 @@
 
 	function setStreamAndConsumerNames() {
 		if (!natsCfg.stream_name) {
-			natsCfg.stream_name = `windmill_stream-${$workspaceStore}-${path.replaceAll('/', '__')}`
+			natsCfg.stream_name = `windmill_stream-${wsId}-${path.replaceAll('/', '__')}`
 		}
 		if (!natsCfg.consumer_name) {
-			natsCfg.consumer_name = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
+			natsCfg.consumer_name = `windmill_consumer-${wsId}-${path.replaceAll('/', '__')}`
 		}
 	}
 
