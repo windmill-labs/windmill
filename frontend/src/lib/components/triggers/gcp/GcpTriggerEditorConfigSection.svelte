@@ -25,6 +25,13 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
+	// Scope trigger backend calls to the embedding host's workspace (an AI
+	// session's forked workspace) when set; otherwise the nav workspace.
+	// Declared before `DEFAULT_PUSH_CONFIG` / the `base_endpoint` prop default,
+	// which call `getBaseUrl()` (a `wsId` reader) during component init.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])
 	let loadingTopic = $state(false)
@@ -105,10 +112,6 @@
 		cloud_subscription_id = $bindable(''),
 		create_update_subscription_id = $bindable('')
 	}: Props = $props()
-	// Scope trigger backend calls to the embedding host's workspace (an AI
-	// session's forked workspace) when set; otherwise the nav workspace.
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	if (gcp_resource_path) {
 		loadAllPubSubTopicsFromProject()
