@@ -1902,10 +1902,10 @@ export class AIChatManager {
 		}
 	}
 
-	// Optional pre-flight hook called once per send, after validation but
-	// before any UI state mutates or backend calls go out. Sessions use
-	// this to commit/materialise the workspace (creating a staged fork via
-	// the API) so the first message targets the correct workspace.
+	// Optional pre-flight hook called once per send, after the user's message
+	// bubble + loading indicator are shown optimistically but before the request
+	// goes out. Sessions use this to commit/materialise the workspace (creating a
+	// staged fork via the API) so the first message targets the correct workspace.
 	beforeSend?: () => Promise<void> | void
 	afterFirstTurnSaved?: () => Promise<void> | void
 
@@ -1981,6 +1981,12 @@ export class AIChatManager {
 		const pastes = options.pastes ?? []
 		const optimisticIndex = this.displayMessages.length
 		this.loading = true
+		// Create the abort controller before the (possibly slow) beforeSend pre-flight,
+		// not after: the loading indicator below exposes Stop/Escape during "Creating
+		// workspace fork...", and those call cancel() → abortController.abort(). Without a
+		// controller here that abort would hit nothing and the request would still fire
+		// once the pre-flight resolves; the pre-flight-cancel check after beforeSend honours it.
+		this.abortController = new AbortController()
 		this.displayMessages = [
 			...this.displayMessages,
 			{
@@ -1990,6 +1996,13 @@ export class AIChatManager {
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
+		// Undo the optimistic bubble + loading/label. Shared by the beforeSend-failure and
+		// pre-flight-cancel paths below; the input keeps the message text either way.
+		const rollbackOptimisticSend = () => {
+			this.displayMessages = this.displayMessages.filter((_, i) => i !== optimisticIndex)
+			this.loading = false
+			this.loadingLabel = undefined
+		}
 		if (this.beforeSend) {
 			try {
 				await this.beforeSend()
@@ -1999,11 +2012,7 @@ export class AIChatManager {
 				// silently target the wrong workspace (typically the parent), so
 				// abort and tell the user — their message text stays in the input.
 				console.error('AIChatManager beforeSend hook failed', e)
-				// Roll back the optimistic bubble + loading state; the input still
-				// holds the message text so the user can retry.
-				this.displayMessages = this.displayMessages.filter((_, i) => i !== optimisticIndex)
-				this.loading = false
-				this.loadingLabel = undefined
+				rollbackOptimisticSend()
 				sendUserToast(
 					`Could not prepare the session before sending: ${
 						e instanceof Error ? e.message : String(e)
@@ -2017,6 +2026,12 @@ export class AIChatManager {
 		// committed workspace before the system prompt is sent.
 		if (this.mode === AIMode.GLOBAL) {
 			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
+		}
+		// Stop/Escape pressed during the beforeSend pre-flight aborted this send: roll
+		// back the optimistic turn and don't fire the request.
+		if (this.abortController.signal.aborted) {
+			rollbackOptimisticSend()
+			return false
 		}
 		// Declared outside `try` so the catch can recover what the loop produced
 		// before a failure: the structured messages and the latest streamed text
@@ -2036,9 +2051,8 @@ export class AIChatManager {
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
-			// loading was set optimistically before beforeSend, above.
+			// loading + abortController were set optimistically before beforeSend, above.
 			this.#automaticScroll = true
-			this.abortController = new AbortController()
 
 			const model = tryGetCurrentModel()
 			if (model) {
