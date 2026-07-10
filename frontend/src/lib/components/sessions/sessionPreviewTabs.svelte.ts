@@ -2,7 +2,9 @@ import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
 import {
+	artifactUrl,
 	matchPreviewPage,
+	parseArtifactRoute,
 	parsePipelineRoute,
 	parsePreviewItemRoute,
 	previewLocationLabel,
@@ -43,9 +45,11 @@ function isEditorTabFor(url: string, target: SessionTarget): boolean {
 	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
 }
 
-// URL a tab should load for a destination: a page's href, or an item's edit route.
+// URL a tab should load for a destination: a page's href, an item's edit route, or an artifact's scheme.
 function targetUrl(target: PreviewTarget): string {
-	return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
+	if (target.type === 'page') return target.href
+	if (target.type === 'artifact') return artifactUrl(target.id, target.name)
+	return `${base}${editPathFor(target.item)}`
 }
 
 // Point a tab at a new destination. Clears `friendlyLabel` (bound to the previous
@@ -226,6 +230,18 @@ export class SessionPreviewTabs {
 				return { status: same ? 'focused' : 'opened' }
 			}
 		}
+		// Dedupe artifacts by id, not full url: an update may have changed the name the url carries.
+		if (target.type === 'artifact') {
+			const existing = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === target.id)
+			if (existing) {
+				const same = existing.url === url
+				existing.url = url
+				existing.loc = url
+				this.#activeId = existing.id
+				this.#flush()
+				return { status: same ? 'focused' : 'opened' }
+			}
+		}
 		// Focus the tab currently *showing* this destination instead of opening a
 		// duplicate. Matched on the observed `loc`, not `url`: a tab that was
 		// opened here but navigated away no longer counts as showing it.
@@ -323,6 +339,11 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	closeArtifact(artifactId: string): void {
+		const tab = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === artifactId)
+		if (tab) this.close(tab.id)
+	}
+
 	setCollapsed(collapsed: boolean): void {
 		if (this.#collapsed === collapsed) return
 		this.#collapsed = collapsed
@@ -414,16 +435,19 @@ export function describePreview(tabs: SessionPreviewTab[], activeId: string): st
 	if (tabs.length === 0) return 'No preview tabs are open in the side panel.'
 	const lines = tabs.map((t) => {
 		const where = t.loc || t.url
+		const artifact = parseArtifactRoute(where)
 		const page = matchPreviewPage(where)
 		const pipelineFolder = parsePipelineRoute(where)
 		const route = parsePreviewItemRoute(where)
-		const label = page
-			? `page "${page.label}"`
-			: pipelineFolder
-				? `pipeline "${pipelineFolder}"`
-				: route
-					? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
-					: stripBase(where)
+		const label = artifact
+			? `artifact "${artifact.name || 'Artifact'}"`
+			: page
+				? `page "${page.label}"`
+				: pipelineFolder
+					? `pipeline "${pipelineFolder}"`
+					: route
+						? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
+						: stripBase(where)
 		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
 		const active = t.id === activeId ? ', active' : ''
 		return `- ${label}${live}${active}`

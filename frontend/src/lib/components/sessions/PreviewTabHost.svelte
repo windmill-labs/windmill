@@ -14,6 +14,7 @@
 	import FlowEditorView from './FlowEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
 	import PipelineEditorView from './PipelineEditorView.svelte'
+	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 
 	let {
 		tab,
@@ -56,6 +57,13 @@
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
 	const isActiveSession = $derived(!!session && sessionState.currentSessionId === session.id)
+
+	// Resolved live from the session's store so an update_artifact re-renders the panel.
+	const artifact = $derived(
+		slot.kind === 'artifact'
+			? runtime?.manager.artifacts.artifacts.find((a) => a.id === slot.id)
+			: undefined
+	)
 
 	let frame: HTMLIFrameElement | undefined = $state()
 
@@ -139,6 +147,14 @@
 				{isActiveSession}
 				{active}
 			/>
+		{/if}
+	</div>
+{:else if slot.kind === 'artifact' && mounted}
+	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+		{#if artifact}
+			<ArtifactViewer {artifact} />
+		{:else if !runtime?.manager.artifacts.loading}
+			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
 		{/if}
 	</div>
 {:else if mounted}

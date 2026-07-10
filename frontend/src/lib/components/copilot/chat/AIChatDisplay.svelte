@@ -44,6 +44,7 @@
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
+	import ArtifactsBar from './artifacts/ArtifactsBar.svelte'
 	import { type FileToAttach } from './files/attachedFiles.svelte'
 	import {
 		hasFileSystemAccess,
@@ -723,6 +724,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				     context gets no badge row here — items already appear as highlighted @mentions
 				     in the input (deleting the mention deselects), so showContext={false} below. -->
 				<AttachedFilesBar />
+				{#if aiChatManager.isSessionChat}
+					<ArtifactsBar />
+				{/if}
 			{/if}
 			{#if inputPreface}
 				{@render inputPreface()}

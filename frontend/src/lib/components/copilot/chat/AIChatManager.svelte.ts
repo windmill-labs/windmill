@@ -321,6 +321,7 @@ export class AIChatManager {
 	 * the run in a new browser tab. */
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
 	openArtifact?: (artifactId: string, name: string) => void
+	closeArtifact?: (artifactId: string) => void
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')

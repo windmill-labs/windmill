@@ -21,6 +21,7 @@ import type { SessionTargetKind } from './sessionRuntime.svelte'
 export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
 	| { type: 'item'; item: WorkspaceItem }
+	| { type: 'artifact'; id: string; name: string }
 
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 
@@ -97,6 +98,8 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
  * page, run detail, or item path. Shared by the sessions tab strip and the
  * close_page matcher so both name a tab the same way. */
 export function previewLocationLabel(url: string): string {
+	const artifact = parseArtifactRoute(url)
+	if (artifact) return artifact.name || 'Artifact'
 	const page = matchPreviewPage(url)
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
@@ -150,6 +153,18 @@ export function parsePipelineRoute(fullPath: string): string | null {
 	return m ? decodeURIComponent(m[1]) : null
 }
 
+// The id (before the hash) is the artifact's stable routing identity; the name rides in
+// the hash so the tab strip labels it without a store lookup.
+export function parseArtifactRoute(url: string): { id: string; name: string } | null {
+	const m = url.match(/^artifact:([^#]+)(?:#(.*))?$/)
+	if (!m) return null
+	return { id: decodeURIComponent(m[1]), name: m[2] ? decodeURIComponent(m[2]) : '' }
+}
+
+export function artifactUrl(id: string, name: string): string {
+	return `artifact:${encodeURIComponent(id)}#${encodeURIComponent(name)}`
+}
+
 // How a preview tab should render: as an in-process live editor or an iframe
 // fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
 // its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
@@ -158,9 +173,12 @@ export function parsePipelineRoute(fullPath: string): string | null {
 // other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
+	| { kind: 'artifact'; id: string }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
+	const artifact = parseArtifactRoute(url)
+	if (artifact) return { kind: 'artifact', id: artifact.id }
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
 	const route = parsePreviewItemRoute(url)
