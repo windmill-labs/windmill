@@ -39,6 +39,7 @@
 	import { actionFor, badgeOf, type DeployItem } from './sessionDeployModel'
 	import { maskKey } from './modifiedItemsMask'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
+	import { SIDE_BY_SIDE_MIN_WIDTH } from '$lib/components/diffEditorTypes'
 
 	// The session "Edits" surface. Reads a unified item model (the session's
 	// drafts, scoped to what this session edited) and renders a folder tree
@@ -71,8 +72,20 @@
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let searchQuery = $state('')
+	// The user's explicit view choice. The *effective* view can still be inline
+	// when the column is too narrow — see `narrow`/`inlineDiff` below.
 	let diffStyle = $state<'sbs' | 'inline'>('sbs')
-	const inlineDiff = $derived(diffStyle === 'inline')
+
+	// Width of the diff column (the scrolling <main>). The editor sits inside it
+	// behind ~18px of chrome (main padding + card border), so subtract that to
+	// compare against the editor's own SIDE_BY_SIDE_MIN_WIDTH gate. Forcing inline
+	// here (rather than leaving it to each DiffEditor) keeps the toggle honest:
+	// the button shown always matches what renders.
+	const DIFF_COLUMN_CHROME = 18
+	let mainWidth = $state(0)
+	const narrow = $derived(mainWidth > 0 && mainWidth - DIFF_COLUMN_CHROME < SIDE_BY_SIDE_MIN_WIDTH)
+	const inlineDiff = $derived(diffStyle === 'inline' || narrow)
+	const effectiveStyle = $derived<'sbs' | 'inline'>(inlineDiff ? 'inline' : 'sbs')
 
 	// The sidebar's inner right padding must ADAPT to the reserved scrollbar
 	// gutter (platform-dependent: 0 for overlay scrollbars, ~15px classic) so
@@ -472,6 +485,16 @@
 	// Visible height of the scroll area, used to size the trailing spacer so the
 	// last item can always be scrolled until its header reaches the top.
 	let mainHeight = $state(0)
+	// Height of a card's sticky header (measured — all cards share it), so the diff
+	// cap can reserve exactly that plus a small gap and the whole card (header +
+	// diff) fits the viewport instead of overflowing it.
+	let cardHeaderH = $state(0)
+	// Cap each diff block so a long one (a big script/app file) scrolls inside
+	// Monaco instead of stretching its card past a screenful: the visible height
+	// less the card header and an inter-card gap so a whole card fits the viewport.
+	// 0 (unmeasured) means "no cap" so nothing collapses before mainHeight lands.
+	const CARD_GAP = 24
+	const maxHeight = $derived(mainHeight > 0 ? mainHeight - cardHeaderH - CARD_GAP : 0)
 	// The trailing spacer only needs to cover the gap the last item can't fill on
 	// its own: viewport − lastItemHeight (0 when the item already fills the view).
 	// Reserving the full viewport would let you scroll a whole item-height into
@@ -816,6 +839,8 @@
 							kind="raw_app_file"
 							rawFile={sub as RawAppFileItem}
 							{inlineDiff}
+							disableAutoInline
+							{maxHeight}
 						/>
 					{:else}
 						{@const runnable = sub as RawAppRunnableItem}
@@ -824,6 +849,8 @@
 							originalRaw={runnable.originalRaw}
 							currentRaw={runnable.currentRaw}
 							{inlineDiff}
+							disableAutoInline
+							{maxHeight}
 						/>
 					{/if}
 				</div>
@@ -835,11 +862,13 @@
 			originalRaw={loaded.before}
 			currentRaw={loaded.after}
 			{inlineDiff}
+			disableAutoInline
+			{maxHeight}
 		/>
 	{/if}
 {/snippet}
 
-<Drawer bind:this={drawer} size="1200px">
+<Drawer bind:this={drawer} size="1500px">
 	<DrawerContent
 		{title}
 		{titleExtra}
@@ -849,13 +878,26 @@
 		overflow_y={false}
 	>
 		{#snippet actions()}
-			<ToggleButtonGroup bind:selected={diffStyle} noWFull>
+			<!-- Controlled (not bind:selected): the shown button is the *effective*
+			     view, which is forced to unified when the column is too narrow.
+			     Clicks still record the user's preference in `diffStyle`. -->
+			<ToggleButtonGroup
+				selected={effectiveStyle}
+				onSelected={(v) => {
+					// Ignore the programmatic flip to 'inline' when `narrow` forces it —
+					// only a real click (when not narrow) should change the preference,
+					// so widening again restores the user's choice.
+					if (!narrow) diffStyle = v
+				}}
+				noWFull
+			>
 				{#snippet children({ item })}
 					<ToggleButton
 						value="sbs"
 						label="Side-by-side"
 						icon={SquareSplitHorizontal}
-						tooltip="Side-by-side diff"
+						tooltip={narrow ? 'Side-by-side needs a wider view' : 'Side-by-side diff'}
+						disabled={narrow}
 						iconOnly
 						{item}
 					/>
@@ -921,6 +963,7 @@
 				<main
 					bind:this={mainScrollEl}
 					bind:clientHeight={mainHeight}
+					bind:clientWidth={mainWidth}
 					class="flex-1 min-w-0 overflow-y-auto bg-surface"
 				>
 					<div class="pl-1 pr-3 pt-3 pb-4 flex flex-col gap-3">
@@ -953,21 +996,25 @@
 											: 'ring-0 ring-transparent'}"
 									>
 										<div
+											bind:clientHeight={cardHeaderH}
 											class="sticky top-0 z-30 bg-surface-tertiary rounded-t-md flex items-center gap-2 px-3 py-2 border-b border-transparent"
 										>
 											<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
-											<div class="min-w-0 flex-1">
+											<!-- flex+items-center so the path (a block div, or ExternalEditLink's
+											     inline-flex <a>) is centered by its box against the icon — an inline
+											     <a> would otherwise sit ~2px low on the line-box baseline. -->
+											<div class="min-w-0 flex-1 flex items-center">
 												{#if editUrl}
 													<ExternalEditLink
 														href={editUrl}
 														title={d.displayPath}
-														class="text-xs text-primary font-mono truncate"
+														class="min-w-0 text-xs text-primary font-mono truncate"
 													>
 														<span class="truncate">{d.displayPath}</span>
 													</ExternalEditLink>
 												{:else}
 													<div
-														class="text-xs text-primary font-mono truncate"
+														class="min-w-0 text-xs text-primary font-mono truncate"
 														title={d.displayPath}
 													>
 														{d.displayPath}

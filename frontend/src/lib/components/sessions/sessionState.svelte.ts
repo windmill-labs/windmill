@@ -35,22 +35,13 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 import { WorkspaceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
-import { onUserChange } from '$lib/userScopedStorage'
+import { onUserChange, scopedKey } from '$lib/userScopedStorage'
 
-// Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
-// intentionally not previewable — only code-based 'raw_app' apps are. A
-// 'pipeline' target's `path` is the folder name (not a workspace item path):
-// it hosts the data-pipeline graph editor for that folder, which uses its own
-// fetch/draft model rather than the single-item load slots the other kinds share.
+// A destination the session preview can open as an editor: a workspace item
+// (`path`) for flow/script/raw_app, or — for 'pipeline' — a folder name (not an
+// item path), which resolves to the data-pipeline graph editor for that folder.
+// Legacy drag-and-drop apps aren't previewable; only code-based 'raw_app' apps.
 export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app' | 'pipeline'; path: string }
-
-// Useful for filtering dropdowns / pickers to "items the side panel can open".
-export const EDITOR_TARGET_KINDS: ReadonlySet<SessionTarget['kind']> = new Set([
-	'flow',
-	'script',
-	'raw_app',
-	'pipeline'
-])
 
 // Whether the session points at a workspace that is itself a fork (i.e.
 // has a parent). Used by the sidebar to pick between a root (Building)
@@ -97,7 +88,6 @@ export type Session = {
 	// workspace_id, not this field. Root sessions store the same id in both fields.
 	workspace_root_id?: string
 	chatId?: string
-	target?: SessionTarget
 	summary?: string
 	summarySource?: SessionSummarySource
 	createdAt: number
@@ -119,7 +109,25 @@ export type Session = {
 	// current message count to derive the unread badge (see sessionUnread).
 	// Travels on the record so it is scoped, migrated, and deleted with it.
 	lastSeenCount?: number
+	// Preview tabs the user opened in the sessions page, restored when the
+	// session is reopened.
+	previewTabs?: SessionPreviewTab[]
+	// Which preview tab was active. Falls back to the first tab on restore.
+	activePreviewTabId?: string
+	// Whether the user collapsed the preview panel for this session (to give the
+	// chat full width). Per-session so each session restores its own layout.
+	previewCollapsed?: boolean
+	// Preview split size (preview pane %, 0-100) the user dragged for this session.
+	// Per-session so each session restores its own layout.
+	previewSize?: number
 }
+
+// One preview tab: `url` is the URL we command the iframe to load, `loc` the
+// last observed location (see the sessions page for the url/loc split).
+// `friendlyLabel` is a transient display override the live editor stamps for a
+// never-deployed item parked at `…/draft_<uuid>` (its typed/auto name); not
+// persisted (hydrate rebuilds tabs field-by-field), recomputed on next mount.
+export type SessionPreviewTab = { id: string; url: string; loc: string; friendlyLabel?: string }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
 // `sessions` store keyed by `id`. IndexedDB is the sole store — no localStorage
@@ -128,18 +136,23 @@ export type Session = {
 const SESSIONS_DB = 'windmill-sessions'
 const LEGACY_SESSIONS_KEY = 'windmill_sessions'
 const LEGACY_LAST_SEEN_KEY = 'windmill_sessions_last_seen_counts'
+// The single unsent (transient) draft, kept in localStorage (user-scoped) so a
+// reload doesn't lose what the user set up before their first message: name,
+// workspace/fork choice, editor target, preview tabs and the typed-but-unsent
+// prompt.
+const TRANSIENT_DRAFT_KEY = 'wm_session_transient_draft'
 
 interface SessionSchema extends DBSchema {
 	sessions: { key: string; value: Session }
 }
 
 // Normalise legacy localStorage records in place: drop empty-string
-// workspace_id (older drafts used '' as a missing marker), migrate the
-// deprecated 'rawapp' target.kind, and coerce unknown summarySource values.
-// Operates on raw parsed JSON, so the record is loosely typed.
+// workspace_id (older drafts used '' as a missing marker), drop the retired
+// `target` field (the preview is tab-driven now), and coerce unknown
+// summarySource values. Operates on raw parsed JSON, so the record is loosely typed.
 function normalizeLegacySession(s: Record<string, any>): void {
 	if (s.workspace_id === '') delete s.workspace_id
-	if (s.target?.kind === 'rawapp') s.target.kind = 'raw_app'
+	delete s.target
 	if (
 		s.summarySource !== undefined &&
 		s.summarySource !== 'placeholder' &&
@@ -207,6 +220,19 @@ function sessionRootId(s: Session): string | undefined {
 	)
 }
 
+// Whether a session belongs to the active workspace's family. Only in-memory
+// drafts (transient) may lack a root and still count as in-family — they follow
+// the user until a workspace is picked. A persisted session with no workspace
+// binding must fail closed: counting it as in-family would surface it in every
+// family, including freshly created workspaces.
+export function sessionInCurrentFamily(s: Session): boolean {
+	const currentRoot = workspaceRootId(get(workspaceStore) ?? undefined, get(userWorkspaces))
+	if (!currentRoot) return true
+	const root = sessionRootId(s)
+	if (root === undefined) return !!s.transient
+	return root === currentRoot
+}
+
 function ensureSessionRootId(s: Session): boolean {
 	if (s.workspace_root_id || s.transient) return false
 	const workspaceId = s.workspace_id ?? s.pending_workspace_id
@@ -256,18 +282,83 @@ const sessionsDb = userScopedDb<SessionSchema>(SESSIONS_DB, {
 export const sessionState = $state<{
 	sessions: Session[]
 	currentSessionId: string | undefined
+	// False until the first IndexedDB hydration completes. Consumers gate their
+	// "not found" / empty states on it — before that, an empty list only means
+	// "still loading", not "the user has no sessions".
+	hydrated: boolean
 }>({
 	sessions: [],
-	currentSessionId: undefined
+	currentSessionId: undefined,
+	hydrated: false
 })
 
-// Write-behind a single session record. Transient (unsent) sessions stay in
-// memory only — they materialise via materializeTransient() at first send.
+type TransientDraft = Session & {
+	prompt?: string
+}
+
+// The unsent prompt for the current transient session, held here so every
+// draft write (which snapshots only the Session record) can carry it along.
+let transientPrompt: { sessionId: string; text: string } | undefined
+
+function writeTransientDraft(s: Session): void {
+	const key = scopedKey(TRANSIENT_DRAFT_KEY)
+	if (!key) return
+	const draft: TransientDraft = {
+		...($state.snapshot(s) as Session),
+		prompt: transientPrompt?.sessionId === s.id ? transientPrompt.text : undefined
+	}
+	storeLocalSetting(key, JSON.stringify(draft))
+}
+
+function readTransientDraft(): TransientDraft | undefined {
+	const key = scopedKey(TRANSIENT_DRAFT_KEY)
+	if (!key) return undefined
+	const raw = getLocalSetting(key)
+	if (!raw) return undefined
+	try {
+		const d = JSON.parse(raw)
+		if (!d || typeof d.id !== 'string' || typeof d.name !== 'string') return undefined
+		return d as TransientDraft
+	} catch {
+		return undefined
+	}
+}
+
+function clearTransientDraft(): void {
+	const key = scopedKey(TRANSIENT_DRAFT_KEY)
+	if (key) storeLocalSetting(key, undefined)
+	transientPrompt = undefined
+}
+
+// Debounced write-behind of the chat input for a transient session, so the
+// typed-but-unsent prompt survives a reload with the rest of the draft.
+let transientPromptFlushHandle: ReturnType<typeof setTimeout> | undefined
+export function queueTransientDraftPrompt(sessionId: string, text: string): void {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s?.transient) return
+	transientPrompt = { sessionId, text }
+	clearTimeout(transientPromptFlushHandle)
+	transientPromptFlushHandle = setTimeout(() => writeTransientDraft(s), 400)
+}
+
+// Read back the restored draft prompt when the session's runtime (and its chat
+// manager) is created. Peek, not take: later draft writes keep carrying it.
+export function peekTransientDraftPrompt(sessionId: string): string | undefined {
+	return transientPrompt?.sessionId === sessionId ? transientPrompt.text : undefined
+}
+
+// Write-behind a single session record. Transient (unsent) sessions are not
+// written to IndexedDB — they live in memory plus a single localStorage draft
+// slot until materializeTransient() promotes them at first send.
 // Awaits DB-open so a write racing hydration still lands; no-ops (degrades to
 // in-memory) when the DB can't be opened. In-memory $state is the read surface,
 // so callers fire-and-forget.
 export async function putSession(s: Session): Promise<void> {
-	if (!BROWSER || s.transient) return
+	if (!BROWSER) return
+	if (s.transient) {
+		writeTransientDraft(s)
+		return
+	}
 	// Never resurrect a session whose committed workspace is gone. A live runtime
 	// can still write through here after reconciliation deletes its record (chatId
 	// seed, unread watermark), so guard once the workspace list is loaded.
@@ -317,6 +408,19 @@ async function hydrateSessions({ dropTransients = false } = {}): Promise<void> {
 		const changed = all.filter((s) => ensureSessionRootId(s))
 		for (const s of changed) await db.put('sessions', s)
 		all.sort((a, b) => b.createdAt - a.createdAt)
+		// Restore the (user-scoped) unsent draft, unless it already materialised
+		// (present in the DB — e.g. sent from another browser tab) or the same
+		// draft is still live in memory.
+		const draft = readTransientDraft()
+		if (draft) {
+			if (all.some((s) => s.id === draft.id)) {
+				clearTransientDraft()
+			} else if (!transients.some((s) => s.id === draft.id)) {
+				const { prompt, ...rec } = draft
+				transients.push({ ...rec, transient: true })
+				if (prompt) transientPrompt = { sessionId: rec.id, text: prompt }
+			}
+		}
 		sessionState.sessions = [...transients, ...all]
 	} catch (e) {
 		console.error('Failed to load sessions from IndexedDB', e)
@@ -390,23 +494,30 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	}
 
 	const deletedIds = new Set<string>()
-	for (const s of sessions) {
-		if (!s.workspace_id) continue
-		const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
-		if (action === 'delete') {
-			await db.delete('sessions', s.id)
-			// GC linked files too, matching deleteSession — a record-only delete
-			// here would orphan the session's attached-file blobs/handles.
-			void deleteItemsForSession(s.id)
-			deletedIds.add(s.id)
-			continue
+	try {
+		for (const s of sessions) {
+			if (!s.workspace_id) continue
+			const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
+			if (action === 'delete') {
+				await db.delete('sessions', s.id)
+				// GC linked files too, matching deleteSession — a record-only delete
+				// here would orphan the session's attached-file blobs/handles.
+				void deleteItemsForSession(s.id)
+				deletedIds.add(s.id)
+				continue
+			}
+			let changed = action === 'archive' || action === 'unarchive'
+			if (changed && patch) applyLifecyclePatch(s, patch)
+			// Re-root surviving sessions whose family topmost member shifted (an
+			// ancestor was deleted); fall back to backfilling a missing root.
+			if (refreshSessionRootId(s) || ensureSessionRootId(s)) changed = true
+			if (changed) await db.put('sessions', s)
 		}
-		let changed = action === 'archive' || action === 'unarchive'
-		if (changed && patch) applyLifecyclePatch(s, patch)
-		// Re-root surviving sessions whose family topmost member shifted (an
-		// ancestor was deleted); fall back to backfilling a missing root.
-		if (refreshSessionRootId(s) || ensureSessionRootId(s)) changed = true
-		if (changed) await db.put('sessions', s)
+	} catch (e) {
+		// The connection can go stale mid-loop (user switch reopens the per-user
+		// DB); this pass is best-effort — the next reconcile trigger retries.
+		console.error('Failed to reconcile session lifecycle', e)
+		return
 	}
 	await hydrateSessions()
 	// If the session the user was on lived in a now-deleted workspace, it was just
@@ -495,6 +606,9 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 onUserChange(async (email, prevEmail) => {
 	if (!BROWSER) return
 	await hydrateSessions({ dropTransients: prevEmail !== email })
+	// onUserChange also fires at registration time, before the email resolves —
+	// that hydration is an empty no-op and must not clear the loading state.
+	if (email !== undefined) sessionState.hydrated = true
 	if (prevEmail !== undefined && prevEmail !== email) {
 		sessionState.currentSessionId = undefined
 	}
@@ -525,11 +639,19 @@ export function findSessionByName(name: string): Session | undefined {
 export function createSession(): Session {
 	// Reuse the existing transient session (if any) so the user can hit
 	// the "+" button repeatedly without piling drafts. The transient
-	// becomes a real session at first-message-send time.
+	// becomes a real session at first-message-send time. Only a transient
+	// from the active workspace family qualifies — reusing one left over
+	// from another family would hand the user a session still acting on
+	// that family. A cross-family leftover is dropped instead (it was
+	// never sent, so only the draft slot holds it).
 	const existingTransient = sessionState.sessions.find((s) => s.transient)
 	if (existingTransient) {
-		sessionState.currentSessionId = existingTransient.id
-		return existingTransient
+		if (sessionInCurrentFamily(existingTransient)) {
+			sessionState.currentSessionId = existingTransient.id
+			return existingTransient
+		}
+		sessionState.sessions = sessionState.sessions.filter((s) => s.id !== existingTransient.id)
+		clearTransientDraft()
 	}
 	const existingNumbers = sessionState.sessions
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
@@ -569,8 +691,9 @@ export function createSession(): Session {
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
 	sessionState.currentSessionId = session.id
-	// The new session is transient (in-memory only) until first send, so there
-	// is nothing to write to the DB yet.
+	// Transient until first send: no DB record yet, but the draft slot keeps it
+	// (name, workspace/fork choice, prompt) across reloads.
+	writeTransientDraft(session)
 	return session
 }
 
@@ -583,6 +706,8 @@ export function materializeTransient(id: string): void {
 	if (!s || !s.transient) return
 	delete s.transient
 	void putSession(s)
+	// Promoted to IndexedDB — the localStorage draft slot is now stale.
+	clearTransientDraft()
 }
 
 export function setSessionPendingWorkspace(id: string, workspace_id: string) {
@@ -650,7 +775,9 @@ export async function commitSessionWorkspace(
 		s.pending_workspace_id = undefined
 		s.workspace_root_id = workspaceRootId(newId, get(userWorkspaces)) ?? newId
 		await putSession(s)
-		if (get(workspaceStore) !== newId) switchWorkspace(newId)
+		// The global workspaceStore is intentionally left untouched: the session
+		// chat targets its own workspace via AIChatManager.operatingWorkspace, so
+		// committing must not yank the user's active (navigation-mode) workspace.
 		return newId
 	}
 
@@ -660,13 +787,9 @@ export async function commitSessionWorkspace(
 	s.pending_workspace_id = undefined
 	s.workspace_root_id = workspaceRootId(ws, get(userWorkspaces)) ?? ws
 	await putSession(s)
-	// `pending_workspace_id` defaults to the root workspace when created from
-	// inside a fork, so the committed workspace can differ from the active
-	// workspaceStore. Without this sync, the very first AI request's
-	// `logAiChat` and tool calls read the stale fork from workspaceStore
-	// while the session metadata says root. Mirrors the `switchWorkspace`
-	// in the pending_fork branch above.
-	if (get(workspaceStore) !== ws) syncWorkspaceTo(ws)
+	// The global workspaceStore is intentionally left untouched (see the fork
+	// branch above): the session chat reads its committed workspace through the
+	// manager's workspace resolver, not the active workspaceStore.
 	return ws
 }
 
@@ -677,17 +800,31 @@ export function getEffectiveWorkspaceId(session: Session): string | undefined {
 	return session.workspace_id ?? session.pending_workspace_id
 }
 
-// Canonical mutation for session.target. Persists, optionally seeds the
-// session summary, and centralises the path so callers don't reach into
-// session.target directly.
-export function setSessionTarget(id: string, target: SessionTarget, summary?: string): void {
+// Persist the session's preview tabs. Fire-and-forget write-behind (transient
+// sessions land in the localStorage draft slot).
+export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabId: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
-	s.target = target
-	if (!s.summary && summary) {
-		s.summary = summary
-		s.summarySource = 'generated'
-	}
+	s.previewTabs = tabs.map((t) => ({ ...t }))
+	s.activePreviewTabId = activeTabId
+	void putSession(s)
+}
+
+// Persist whether the preview panel is collapsed for this session. Fire-and-forget
+// write-behind (transient sessions land in the localStorage draft slot).
+export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || !!s.previewCollapsed === collapsed) return
+	s.previewCollapsed = collapsed
+	void putSession(s)
+}
+
+// Persist the preview split size the user dragged for this session. Fire-and-forget
+// write-behind (transient sessions land in the localStorage draft slot).
+export function setSessionPreviewSize(id: string, size: number): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || s.previewSize === size) return
+	s.previewSize = size
 	void putSession(s)
 }
 
@@ -813,6 +950,7 @@ export function setSessionArchived(id: string, archived: boolean) {
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
+	if (s.transient) clearTransientDraft()
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id

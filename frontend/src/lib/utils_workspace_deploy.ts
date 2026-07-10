@@ -16,7 +16,8 @@ import {
 	SqsTriggerService,
 	UserService,
 	VariableService,
-	WebsocketTriggerService
+	WebsocketTriggerService,
+	WorkspaceService
 } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
@@ -234,7 +235,11 @@ function makeProvider(): DeployProvider {
 		getSchedule: (p) => ScheduleService.getSchedule(p),
 		createSchedule: (p) => ScheduleService.createSchedule(p),
 		updateSchedule: (p) => ScheduleService.updateSchedule(p),
-		deleteSchedule: (p) => ScheduleService.deleteSchedule(p)
+		deleteSchedule: (p) => ScheduleService.deleteSchedule(p),
+		// Datatable migrations
+		listDatatableMigrations: (p) => WorkspaceService.listDatatableMigrations(p),
+		upsertDatatableMigration: (p) => WorkspaceService.upsertDatatableMigration(p),
+		deleteDatatableMigration: (p) => WorkspaceService.deleteDatatableMigration(p)
 	}
 }
 

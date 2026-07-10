@@ -9,6 +9,8 @@ import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { assert } from '$lib/utils'
+import { WorkspaceService } from '$lib/gen'
+import { pendingMigrations } from './workspaceSettings/datatableMigrationUtils'
 import {
 	buildTableEditorValues,
 	type TableEditorValues
@@ -226,7 +228,12 @@ export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
 	onCreate: (params: { values: TableEditorValues; schema?: string }) => Promise<void>
 	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => Promise<string>
-	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
+	onAlter: (params: {
+		values: AlterTableValues
+		/** Reverse diff (new → old), used to generate the down migration. */
+		reverse?: AlterTableValues
+		schema?: string
+	}) => Promise<void>
 	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => Promise<string>
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
@@ -237,30 +244,146 @@ export type IDbSchemaOps = {
 	}) => Promise<TableEditorValues>
 }
 
+/** Thrown by a schema op when the user declines the out-of-order run warning.
+ * Callers should treat it as a silent cancel (no error toast). */
+export class MigrationRunCancelled extends Error {
+	constructor() {
+		super('Migration run cancelled')
+		this.name = 'MigrationRunCancelled'
+	}
+}
+
 export function dbSchemaOpsWithPreviewScripts({
 	workspace,
-	input
+	input,
+	confirmRunOutOfOrder
 }: {
 	workspace: string
 	input: DbInput
+	/** Asked before running a just-created migration ahead of `pendingCount`
+	 * still-pending earlier ones. Return false to abort (throws MigrationRunCancelled). */
+	confirmRunOutOfOrder?: (pendingCount: number) => Promise<boolean>
 }): IDbSchemaOps {
 	const dbType = getDbType(input)
 	const dbArg = getDatabaseArg(input)
 	const language = getLanguageByResourceType(dbType)
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
+	// When managing a data table, schema changes are recorded as migrations
+	// instead of being run ad-hoc, so the manager stays the source of truth.
+	const datatableName =
+		input.type === 'database' && input.resourcePath.startsWith('datatable://')
+			? input.resourcePath.slice('datatable://'.length)
+			: undefined
+
 	function makeMarker(op: string, payload: Record<string, unknown>): string {
 		if (ducklake) payload.ducklake = ducklake
 		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
 	}
 
+	// Auto-generated migration name, e.g. `create_customers`. The server allocates
+	// a unique timestamp (bumping on collision), so the name itself need not be unique.
+	function migrationName(op: string, target: string): string {
+		const safe = target.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '')
+		return safe ? `${op}_${safe}` : op
+	}
+
+	// A dropped SERIAL column reports its default as `nextval()` of an owned
+	// sequence that is dropped along with the column. When the down re-adds such a
+	// column, recreate it as its SERIAL type so a fresh sequence is created
+	// instead of referencing the gone one.
+	const SERIAL_FOR: Record<string, string> = {
+		BIGINT: 'BIGSERIAL',
+		INT8: 'BIGSERIAL',
+		INTEGER: 'SERIAL',
+		INT: 'SERIAL',
+		INT4: 'SERIAL',
+		SMALLINT: 'SMALLSERIAL',
+		INT2: 'SMALLSERIAL'
+	}
+	function reverseSerialFix(reverse: AlterTableValues): AlterTableValues {
+		return {
+			...reverse,
+			operations: reverse.operations.map((op) => {
+				if (op.kind !== 'addColumn' || !/nextval\s*\(/i.test(op.column.defaultValue ?? '')) {
+					return op
+				}
+				const serial = SERIAL_FOR[(op.column.datatype ?? '').toUpperCase()]
+				return serial
+					? { ...op, column: { ...op.column, datatype: serial, defaultValue: undefined } }
+					: op
+			})
+		}
+	}
+
+	// Frame a single (or multi-) statement body in an explicit, `;`-terminated
+	// transaction, matching the data table migration convention. Some expanded
+	// markers (e.g. ALTER TABLE) already come wrapped in their own transaction, so
+	// avoid nesting BEGIN/COMMIT in that case.
+	function wrapMigration(sql: string): string {
+		const t = sql.trim()
+		if (/^BEGIN\b/i.test(t)) return t
+		return `BEGIN;\n\n${t.endsWith(';') ? t : `${t};`}\n\nEND;`
+	}
+
+	// Apply a DDL marker. For a data table that has migrations enabled this
+	// creates a migration and runs it (rolling the record back if the run fails);
+	// otherwise it runs ad-hoc via the internal-db job as before. `downContent`,
+	// when provided, is expanded into the migration's down SQL (Postgres only).
+	async function applyDdl(migName: string, content: string, downContent?: string): Promise<void> {
+		// A DDL edit on a migrations-enabled data table must be captured as a
+		// migration. Don't swallow a status-check failure by defaulting to ad-hoc:
+		// that would run the change untracked (schema drift) — exactly what this
+		// feature prevents. Let the error propagate (fail closed); only fall back to
+		// ad-hoc when there's no data table, or `enabled === false` is returned.
+		const status = datatableName
+			? await WorkspaceService.getDatatableMigrationsStatus({ workspace, datatableName })
+			: undefined
+		if (!datatableName || !status?.enabled) {
+			await runScriptAndPollResult({ workspace, requestBody: { args: dbArg, content, language } })
+			return
+		}
+		// The new migration gets the highest timestamp, so any still-pending
+		// migration is earlier: running only this one applies it out of order.
+		// Warn like the row-level Run action does (skipped if no confirm hook).
+		if (confirmRunOutOfOrder) {
+			const pending = pendingMigrations(status.migrations).length
+			if (pending > 0 && !(await confirmRunOutOfOrder(pending))) {
+				throw new MigrationRunCancelled()
+			}
+		}
+		const codeUp = wrapMigration(await expandMarker(workspace, language, content))
+		// Down migrations are only generated for Postgres for now.
+		let codeDown: string | undefined
+		if (downContent && dbType === 'postgresql') {
+			const downSql = (await expandMarker(workspace, language, downContent)).trim()
+			if (downSql) codeDown = wrapMigration(downSql)
+		}
+		const created = await WorkspaceService.createDatatableMigration({
+			workspace,
+			datatableName,
+			requestBody: { name: migName, code_up: codeUp, ...(codeDown ? { code_down: codeDown } : {}) }
+		})
+		try {
+			await WorkspaceService.runDatatableMigrations({
+				workspace,
+				datatableName,
+				only: created.timestamp
+			})
+		} catch (e) {
+			await WorkspaceService.deleteDatatableMigration({
+				workspace,
+				datatableName,
+				timestamp: created.timestamp
+			}).catch(() => {})
+			throw e
+		}
+	}
+
 	return {
 		onDelete: async ({ tableKey, schema }) => {
 			const content = makeMarker('DROP_TABLE', { table: tableKey, schema })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg }, language, content }
-			})
+			await applyDdl(migrationName('drop', tableKey), content)
 		},
 		onCreate: async ({ values, schema }) => {
 			const content = makeMarker('CREATE_TABLE', {
@@ -269,10 +392,8 @@ export function dbSchemaOpsWithPreviewScripts({
 				foreignKeys: values.foreignKeys,
 				schema
 			})
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: dbArg, content, language }
-			})
+			const downContent = makeMarker('DROP_TABLE', { table: values.name, schema })
+			await applyDdl(migrationName('create', values.name), content, downContent)
 		},
 		previewCreateSql: async ({ values, schema }) => {
 			const content = makeMarker('CREATE_TABLE', {
@@ -283,16 +404,21 @@ export function dbSchemaOpsWithPreviewScripts({
 			})
 			return expandMarker(workspace, language, content)
 		},
-		onAlter: async ({ values, schema }) => {
+		onAlter: async ({ values, reverse, schema }) => {
 			const content = makeMarker('ALTER_TABLE', {
 				name: values.name,
 				operations: values.operations,
 				schema
 			})
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: dbArg, content, language }
-			})
+			// The down is the same alter run in the opposite direction.
+			const downContent = reverse
+				? makeMarker('ALTER_TABLE', {
+						name: reverse.name,
+						operations: reverseSerialFix(reverse).operations,
+						schema
+					})
+				: undefined
+			await applyDdl(migrationName('alter', values.name), content, downContent)
 		},
 		previewAlterSql: async ({ values, schema }) => {
 			const content = makeMarker('ALTER_TABLE', {
@@ -304,17 +430,13 @@ export function dbSchemaOpsWithPreviewScripts({
 		},
 		onCreateSchema: async ({ schema }) => {
 			const content = makeMarker('CREATE_SCHEMA', { schema })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg }, language, content }
-			})
+			const downContent = makeMarker('DROP_SCHEMA', { schema })
+			await applyDdl(migrationName('create_schema', schema), content, downContent)
 		},
 		onDeleteSchema: async ({ schema }) => {
 			const content = makeMarker('DROP_SCHEMA', { schema })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg }, language, content }
-			})
+			const downContent = makeMarker('CREATE_SCHEMA', { schema })
+			await applyDdl(migrationName('drop_schema', schema), content, downContent)
 		},
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
 			let foreignKeys: import('./apps/components/display/dbtable/tableEditor').TableEditorForeignKey[] =

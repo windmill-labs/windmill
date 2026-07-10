@@ -1,6 +1,6 @@
 {
 	"name": "@windmill-labs/components",
-	"version": "1.751.0",
+	"version": "1.754.0",
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui-builder": "mv static/ui_builder static/ui_builder.dev-disabled 2>/dev/null || true ; trap 'mv static/ui_builder.dev-disabled static/ui_builder 2>/dev/null || true' EXIT ; vite dev",
@@ -169,7 +169,7 @@
 		"windmill-parser-wasm-wac": "1.668.6",
 		"windmill-parser-wasm-yaml": "1.593.0",
 		"windmill-sql-datatype-parser-wasm": "1.512.0",
-		"windmill-utils-internal": "^1.7.0",
+		"windmill-utils-internal": "1.8.2",
 		"xterm": "^5.3.0",
 		"xterm-readline": "^1.1.2",
 		"y-monaco": "^0.1.4",

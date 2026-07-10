@@ -94,10 +94,12 @@
 		pathStore,
 		saveDraft,
 		customUi,
-		executionCount
+		executionCount,
+		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const selectedId = $derived(selectionManager.getSelectedId())
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	interface Props {
 		flowModule: FlowModule
@@ -205,7 +207,7 @@
 	async function reload(flowModule: FlowModule) {
 		reloadError = undefined
 		try {
-			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			const { input_transforms, schema } = await loadSchemaFromModule(flowModule, opWs)
 			validCode = true
 
 			if (inputTransformSchemaForm) {
@@ -398,7 +400,7 @@
 
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
 		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId],
-		() => $workspaceStore
+		() => opWs
 	)
 
 	// Debug mode state
@@ -532,16 +534,12 @@
 			resetDAPClient()
 			dapClient = getDAPClient(dapServerUrl)
 
-			const env = await fetchContextualVariables($workspaceStore ?? '')
+			const env = await fetchContextualVariables(opWs ?? '')
 			const code = flowModule.value.content
 
 			let signedPayload
 			try {
-				signedPayload = await signDebugRequest(
-					$workspaceStore ?? '',
-					code ?? '',
-					rawScriptLang ?? 'python3'
-				)
+				signedPayload = await signDebugRequest(opWs ?? '', code ?? '', rawScriptLang ?? 'python3')
 				debugSessionJobId = signedPayload.job_id
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
@@ -759,14 +757,14 @@
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
-						const [module, state] = await fork(flowModule)
+						const [module, state] = await fork(flowModule, opWs)
 						flowModule = module
 						flowStateStore.val[module.id] = state
 					}}
 					on:reload={async () => {
 						if (flowModule.value.type == 'script') {
 							if (flowModule.value.hash != undefined) {
-								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path)
+								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path, opWs)
 							}
 							forceReload++
 							await reload(flowModule)
@@ -781,7 +779,8 @@
 							flowModule,
 							selectedId,
 							flowStateStore.val[flowModule.id]?.schema,
-							$pathStore
+							$pathStore,
+							opWs
 						)
 						if (flowModule.value.type == 'rawscript') {
 							module.value.input_transforms = flowModule.value.input_transforms
@@ -797,6 +796,7 @@
 					<div class="shadow-sm px-1 border-b-1 border-gray-200 dark:border-gray-700">
 						<EditorBar
 							customUi={customUi?.editorBar}
+							workspace={opWs}
 							{validCode}
 							{editor}
 							lang={flowModule.value['language'] ?? 'deno'}
@@ -903,7 +903,7 @@
 															},
 															{}
 														)}
-														key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+														key={`flow-inline-${opWs}-${$pathStore}-${flowModule.id}`}
 														moduleId={flowModule.id}
 														preparedAssetsSqlQueries={preparedSqlQueries.current}
 														customTag={flowModule.value.tag}
@@ -915,7 +915,7 @@
 													client={dapClient}
 													currentFrameId={currentDebugFrameId}
 													onClose={() => (showDebugConsole = false)}
-													workspace={$workspaceStore}
+													workspace={opWs}
 													jobId={debugSessionJobId ?? undefined}
 												/>
 											</Pane>
@@ -966,7 +966,7 @@
 													},
 													{}
 												)}
-												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+												key={`flow-inline-${opWs}-${$pathStore}-${flowModule.id}`}
 												moduleId={flowModule.id}
 												preparedAssetsSqlQueries={preparedSqlQueries.current}
 												customTag={flowModule.value.tag}

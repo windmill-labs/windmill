@@ -1,8 +1,14 @@
 import { z } from 'zod'
-import { WorkspaceService } from '$lib/gen'
+import { WorkspaceService, type CompletedJob } from '$lib/gen'
 import type { DataTableTables } from '$lib/gen/types.gen'
-import { runScriptAndPollResult } from '$lib/components/jobs/utils'
-import { createToolDef, type Tool } from './shared'
+import { runScript } from '$lib/components/jobs/utils'
+import {
+	createToolDef,
+	executeTestRun,
+	type Tool,
+	type ToolDisplayMessage,
+	type ChatJobResultFormat
+} from './shared'
 
 /**
  * Workspace-scoped datatable tools, with no app whitelist and no creation policy.
@@ -44,36 +50,6 @@ export async function getDatatableColumns(
 		tableName
 	})
 	return schema.columns
-}
-
-/**
- * Execute an arbitrary SQL statement against a datatable.
- * Supports SELECT/INSERT/UPDATE/DELETE as well as DDL (CREATE/ALTER/DROP).
- * Returns rows for SELECT-like queries, an empty array otherwise.
- */
-export async function execDatatableSql(
-	workspace: string,
-	datatableName: string,
-	sql: string
-): Promise<
-	{ success: true; result: Record<string, any>[] } | { success: false; error: string }
-> {
-	try {
-		const result = await runScriptAndPollResult({
-			workspace,
-			requestBody: {
-				language: 'postgresql',
-				content: sql,
-				args: { database: `datatable://${datatableName}` }
-			}
-		})
-		if (Array.isArray(result)) {
-			return { success: true, result }
-		}
-		return { success: true, result: [] }
-	} catch (e) {
-		return { success: false, error: e instanceof Error ? e.message : String(e) }
-	}
 }
 
 // ============= Error helpers =============
@@ -140,6 +116,18 @@ const getExecDatatableSqlSchema = memo(() =>
 			.string()
 			.describe(
 				'The SQL query to execute. Supports SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, DROP TABLE, etc. For SELECT queries, results are returned as an array of objects. A newly created table will appear in list_datatables automatically.'
+			),
+		background: z
+			.boolean()
+			.optional()
+			.describe(
+				'Run in the background without waiting. Set true for queries you expect to be slow (large scans, heavy migrations) — you will be notified when it finishes. Leave unset for normal queries, which wait briefly and only background automatically if slow.'
+			),
+		wait_seconds: z
+			.number()
+			.optional()
+			.describe(
+				'How many seconds to wait for the query in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a query you expect to finish in ~30–60s and want the result in this same turn. Ignored when background is true.'
 			)
 	})
 )
@@ -153,6 +141,72 @@ const getExecDatatableSqlToolDef = memo(() =>
 
 /** Maximum rows returned to the model for a SELECT query. */
 const MAX_ROWS = 100
+
+/**
+ * Shape a finished datatable SQL job into the model-visible result + tool card:
+ * SELECT rows capped at MAX_ROWS, DDL/DML reported as zero rows, and the "datatable
+ * not configured" backend error rewritten as the actionable blocking message.
+ *
+ * Pure and keyed only on the datatable name so it can run from BOTH the inline
+ * completion path (executeTestRun.formatCompletion) AND a detached/rehydrated job
+ * reconstructed from its persisted ChatJobResultFormat (see formatChatJobCompletion).
+ */
+export function formatDatatableSqlCompletion(
+	job: CompletedJob,
+	datatableName: string
+): { llmText: string; card: Partial<ToolDisplayMessage> } {
+	if (job.success) {
+		// Successful runs always carry a `result` array (empty for DDL/DML),
+		// so SELECT rows and zero-row statements share one reporting path.
+		const rows = Array.isArray(job.result) ? (job.result as Record<string, any>[]) : []
+		const rowCount = rows.length
+		const payload =
+			rowCount > MAX_ROWS
+				? {
+						success: true,
+						rowCount,
+						result: rows.slice(0, MAX_ROWS),
+						note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
+					}
+				: { success: true, rowCount, result: rows }
+		return {
+			llmText: JSON.stringify(payload, null, 2),
+			card: {
+				content: `Query returned ${rowCount} row(s)`,
+				result: JSON.stringify(job.result, null, 2)
+			}
+		}
+	}
+	const raw =
+		(job.result as any)?.error?.message ??
+		(typeof job.result === 'string' ? job.result : JSON.stringify(job.result)) ??
+		// JSON.stringify(undefined) is `undefined` (not a string), so a failed
+		// job with no result would otherwise yield an empty error message.
+		'Unknown error'
+	const errorMsg = isDatatableNotConfiguredError(raw)
+		? datatableNotConfiguredMessage(datatableName)
+		: raw
+	return {
+		llmText: JSON.stringify({ success: false, error: errorMsg }),
+		card: { content: `Error: ${errorMsg}`, error: errorMsg }
+	}
+}
+
+/**
+ * Reconstruct a tool's terminal formatter from the serializable descriptor stored
+ * on a ChatJob. Lets a background job that detached (and may have survived a reload,
+ * losing any in-memory closure) still report through its launching tool's result
+ * contract. Dispatches on `kind`; extend as more tools gain persisted formatters.
+ */
+export function formatChatJobCompletion(
+	job: CompletedJob,
+	resultFormat: ChatJobResultFormat
+): { llmText: string; card: Partial<ToolDisplayMessage> } {
+	switch (resultFormat.kind) {
+		case 'datatable':
+			return formatDatatableSqlCompletion(job, resultFormat.datatableName)
+	}
+}
 
 /**
  * The unrestricted workspace datatable tools, for registration in global mode.
@@ -233,45 +287,37 @@ export function getDatatableTools(): Tool<{}>[] {
 			showDetails: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsedArgs = getExecDatatableSqlSchema().parse(args)
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Executing SQL on "${parsedArgs.datatable_name}"...`
+				const name = parsedArgs.datatable_name
+				// Route through executeTestRun so a slow query detaches into the jobs
+				// tray (and honors `background`) instead of blocking the chat turn,
+				// while keeping the datatable-specific result/error shaping.
+				return executeTestRun({
+					jobStarter: () =>
+						runScript({
+							workspace,
+							requestBody: {
+								language: 'postgresql',
+								content: parsedArgs.sql,
+								args: { database: `datatable://${name}` }
+							}
+						}),
+					workspace,
+					toolCallbacks,
+					toolId,
+					contextName: 'script',
+					label: `SQL · ${name}`,
+					background: parsedArgs.background,
+					detachAfterMs:
+						parsedArgs.wait_seconds == null
+							? undefined
+							: Math.max(0, parsedArgs.wait_seconds) * 1000,
+					startMessage: `Executing SQL on "${name}"...`,
+					runningMessage: `SQL running on "${name}"...`,
+					// Inline path shapes the result here; the descriptor mirrors it so a
+					// detached/rehydrated completion reconstructs the same contract.
+					formatCompletion: (job) => formatDatatableSqlCompletion(job, name),
+					resultFormat: { kind: 'datatable', datatableName: name }
 				})
-				try {
-					const result = await execDatatableSql(workspace, parsedArgs.datatable_name, parsedArgs.sql)
-					if (result.success) {
-						// Successful runs always carry a `result` array (empty for DDL/DML), so
-						// SELECT rows and zero-row statements share one reporting path.
-						const rowCount = result.result.length
-						toolCallbacks.setToolStatus(toolId, { content: `Query returned ${rowCount} row(s)` })
-						if (rowCount > MAX_ROWS) {
-							return JSON.stringify(
-								{
-									success: true,
-									rowCount,
-									result: result.result.slice(0, MAX_ROWS),
-									note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
-								},
-								null,
-								2
-							)
-						}
-						return JSON.stringify({ success: true, rowCount, result: result.result }, null, 2)
-					} else {
-						const raw = result.error || 'Unknown error'
-						const errorMsg = isDatatableNotConfiguredError(raw)
-							? datatableNotConfiguredMessage(parsedArgs.datatable_name)
-							: raw
-						toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
-						return JSON.stringify({ success: false, error: errorMsg })
-					}
-				} catch (e) {
-					const raw = e instanceof Error ? e.message : String(e)
-					const errorMsg = isDatatableNotConfiguredError(raw)
-						? datatableNotConfiguredMessage(parsedArgs.datatable_name)
-						: raw
-					toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
-					return JSON.stringify({ success: false, error: errorMsg })
-				}
 			}
 		}
 	]

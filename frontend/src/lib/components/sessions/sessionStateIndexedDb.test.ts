@@ -33,11 +33,16 @@ import { WorkspaceService } from '$lib/gen'
 import {
 	sessionState,
 	putSession,
+	deleteSession,
 	deleteSessionRecord,
 	archiveSessionsForWorkspace,
 	deleteSessionsForWorkspace,
+	materializeTransient,
+	peekTransientDraftPrompt,
+	queueTransientDraftPrompt,
 	reconcileSessionsLifecycle,
 	setSessionArchived,
+	setSessionPreviewSize,
 	type Session
 } from './sessionState.svelte'
 
@@ -89,12 +94,115 @@ describe('sessionState IndexedDB persistence', () => {
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['s2', 's1']))
 	})
 
-	it('does not persist transient sessions', async () => {
+	it('keeps a transient session as a user-scoped localStorage draft, not in IndexedDB', async () => {
 		const user = freshUser()
 		userStore.set(user)
 		await flush()
 
 		await putSession(session({ id: 't1', transient: true }))
+		// Same user reload: the draft is restored, still transient (i.e. it came
+		// from the localStorage slot — an IndexedDB record would have the flag
+		// stripped by materialisation).
+		await rehydrate(user)
+		await flush()
+		expect(sessionState.sessions.map((s) => ({ id: s.id, transient: s.transient }))).toEqual([
+			{ id: 't1', transient: true }
+		])
+
+		// The slot is user-scoped: another user sees nothing.
+		await rehydrate(freshUser())
+		await flush()
+		expect(sessionState.sessions).toEqual([])
+	})
+
+	it('round-trips a transient session preview state through the draft slot', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		await putSession(
+			session({
+				id: 't1b',
+				transient: true,
+				previewTabs: [{ id: 'session', url: '/x', loc: '/x' }],
+				activePreviewTabId: 'session',
+				previewCollapsed: false,
+				previewSize: 70
+			})
+		)
+		await rehydrate(user)
+		await flush()
+		const restored = sessionState.sessions.find((s) => s.id === 't1b')
+		expect(restored?.previewTabs).toEqual([{ id: 'session', url: '/x', loc: '/x' }])
+		expect(restored?.activePreviewTabId).toBe('session')
+		expect(restored?.previewCollapsed).toBe(false)
+		expect(restored?.previewSize).toBe(70)
+	})
+
+	it('setSessionPreviewSize persists a dragged width and round-trips it', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		const s = session({ id: 'ps1', createdAt: 1 })
+		sessionState.sessions = [s]
+		await putSession(s)
+
+		setSessionPreviewSize('ps1', 42)
+		await flush()
+
+		await rehydrate(user)
+		await flush()
+		expect(sessionState.sessions.find((x) => x.id === 'ps1')?.previewSize).toBe(42)
+	})
+
+	it('materializeTransient promotes the draft to IndexedDB and clears the slot', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		const s = session({ id: 't2', transient: true })
+		sessionState.sessions = [s]
+		await putSession(s)
+		expect(localStorage.getItem(`wm_session_transient_draft::${user.email}`)).not.toBeNull()
+
+		materializeTransient('t2')
+		await flush()
+		expect(localStorage.getItem(`wm_session_transient_draft::${user.email}`)).toBeNull()
+
+		await rehydrate(user)
+		await vi.waitFor(() => expect(sessionState.sessions.map((x) => x.id)).toEqual(['t2']))
+		expect(sessionState.sessions[0].transient).toBeUndefined()
+	})
+
+	it('round-trips the unsent prompt through the draft slot', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		const s = session({ id: 't3', transient: true })
+		sessionState.sessions = [s]
+		await putSession(s)
+		queueTransientDraftPrompt('t3', 'draft prompt')
+		// The prompt write-behind debounces 400ms.
+		await new Promise((r) => setTimeout(r, 450))
+
+		await rehydrate(user)
+		await flush()
+		expect(sessionState.sessions.map((x) => x.id)).toEqual(['t3'])
+		expect(peekTransientDraftPrompt('t3')).toBe('draft prompt')
+	})
+
+	it('deleteSession discards the transient draft', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		const s = session({ id: 't4', transient: true })
+		sessionState.sessions = [s]
+		await putSession(s)
+		deleteSession('t4')
+
 		await rehydrate(user)
 		await flush()
 		expect(sessionState.sessions).toEqual([])

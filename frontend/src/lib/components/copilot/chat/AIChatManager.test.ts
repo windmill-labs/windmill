@@ -6,6 +6,18 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { runChatLoop } from './chatLoop'
 
+// This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
+// client runtime (pulled transitively via $lib/navigation) evaluate browser-only
+// globals at import time and throw "location is not defined" under the node test
+// env. Stub the two $app modules $lib/navigation needs so kit's client runtime is
+// never loaded. File-local: no other suite is affected.
+vi.mock('$app/navigation', () => ({
+	goto: vi.fn(),
+	afterNavigate: vi.fn(),
+	beforeNavigate: vi.fn()
+}))
+vi.mock('$app/paths', () => ({ base: '', assets: '' }))
+
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
 	tryGetCurrentModel: vi.fn(),
@@ -17,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 	getNonStreamingCompletion: vi.fn(),
 	runChatLoop: vi.fn(),
 	listAiSkills: vi.fn(),
+	getJob: vi.fn(),
 	workspace: 'test_workspace' as string | undefined
 }))
 
@@ -31,27 +44,39 @@ vi.mock('$lib/gen', () => ({
 	},
 	ScriptService: {},
 	FlowService: {},
-	JobService: {}
+	JobService: {
+		getJob: mocks.getJob
+	}
 }))
 
 // Autonomy mode is now namespaced by the logged-in user's email (see
 // userScopedStorage); the mock emits one so scopedKey() resolves.
 const TEST_EMAIL = 'admin@test'
 
-vi.mock('$lib/stores', () => ({
-	workspaceStore: {
-		subscribe: (run: (value: string | undefined) => void) => {
-			run(mocks.workspace)
+vi.mock('$lib/stores', () => {
+	// A minimal readable store: get(store) reads this value synchronously. Defined
+	// inside the factory since vi.mock is hoisted above module-scope declarations.
+	const readable = <T>(value: T) => ({
+		subscribe: (run: (v: T) => void) => {
+			run(value)
 			return () => undefined
 		}
-	},
-	userStore: {
-		subscribe: (run: (value: { username: string; email: string }) => void) => {
-			run({ username: 'admin', email: 'admin@test' })
-			return () => undefined
-		}
+	})
+	return {
+		workspaceStore: {
+			subscribe: (run: (value: string | undefined) => void) => {
+				run(mocks.workspace)
+				return () => undefined
+			}
+		},
+		userStore: readable({ username: 'admin', email: 'admin@test', is_admin: true }),
+		// Read eagerly at module load by the open_page tool's allowedOpenPages /
+		// allowedTriggerKinds (global/core.ts) as the manager's tools are built.
+		superadmin: readable(false),
+		userWorkspaces: readable([] as unknown[]),
+		enterpriseLicense: readable(undefined)
 	}
-}))
+})
 
 vi.mock('$lib/toast', () => ({
 	sendUserToast: mocks.sendUserToast
@@ -633,6 +658,47 @@ describe('AIChatManager queued messages', () => {
 		await session.attachedFiles.addFiles([txt('b.txt')])
 		await session.saveAndClear()
 		expect(session.attachedFiles.count).toBe(1)
+	})
+
+	it('tracks (empty mask) a session chat loaded with no stored modified-items', async () => {
+		// A legacy session chat has no persisted mask. It must NOT stay untracked
+		// (undefined) — that makes the Edits surface fall back to showing every
+		// draft in the (possibly forked) workspace. Seed an empty tracked set so the
+		// session only ever surfaces what it actually edited.
+		const manager = createManager(createInputMock())
+		manager.isSessionChat = true
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'legacy-session-chat',
+			title: 'Legacy',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'getModifiedItems').mockReturnValue(undefined)
+
+		await manager.loadPastChat('legacy-session-chat')
+
+		expect(manager.modifiedItems).toBeInstanceOf(Set)
+		expect(manager.modifiedItems?.size).toBe(0)
+	})
+
+	it('seeds a session chat mask from its stored modified-items', async () => {
+		const manager = createManager(createInputMock())
+		manager.isSessionChat = true
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'tracked-session-chat',
+			title: 'Tracked',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'getModifiedItems').mockReturnValue([
+			'script:u/admin/hello_world'
+		])
+
+		await manager.loadPastChat('tracked-session-chat')
+
+		expect([...(manager.modifiedItems ?? [])]).toEqual(['script:u/admin/hello_world'])
 	})
 })
 
@@ -1558,5 +1624,97 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.displayMessages).toHaveLength(0)
 		expect(deletePastChat).toHaveBeenCalledWith(manager.historyManager.getCurrentChatId())
 		expect(manager.loading).toBe(false)
+	})
+})
+
+describe('AIChatManager background job completion', () => {
+	const completed = (over: Record<string, unknown> = {}) =>
+		({
+			type: 'CompletedJob',
+			id: 'job-1',
+			success: true,
+			canceled: false,
+			result: [{ n: 1 }],
+			duration_ms: 1234,
+			logs: 'ran',
+			...over
+		}) as any
+
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+		mocks.getCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+	})
+
+	// Drive a registered+detached job to completion through the public poller entry
+	// (refreshBackgroundJobs polls immediately) and wait until the poller reports it.
+	async function completeDetachedJob(manager: AIChatManager) {
+		manager.markJobDetached('job-1')
+		manager.refreshBackgroundJobs()
+		await vi.waitFor(() => expect(manager.backgroundJobs[0]?.reported).toBe(true))
+	}
+
+	// A ChatJob carrying only its serializable resultFormat (no in-memory closure) —
+	// exactly the shape a job has after being rehydrated from IndexedDB on reload.
+	const datatableJob = {
+		jobId: 'job-1',
+		toolCallId: 'tc-1',
+		kind: 'script' as const,
+		label: 'SQL · main',
+		workspace: 'ws',
+		resultFormat: { kind: 'datatable' as const, datatableName: 'main' }
+	}
+
+	it('reconstructs the datatable result contract from the persisted resultFormat', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		const applyToolStatus = vi.spyOn(manager, 'applyToolStatus')
+		mocks.getJob.mockResolvedValue(completed({ result: [{ n: 1 }, { n: 2 }] }))
+
+		await completeDetachedJob(manager)
+
+		// No live closure is involved: the descriptor alone reshapes both the tool card
+		// and the model note, so a job that detached and survived a reload still reports
+		// the SQL contract (row count + shaped rows) rather than generic job output.
+		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
+			content: 'Query returned 2 row(s)',
+			result: JSON.stringify([{ n: 1 }, { n: 2 }], null, 2)
+		})
+		expect(manager.pendingJobNotes).toHaveLength(1)
+		expect(manager.pendingJobNotes[0]).toContain('"rowCount": 2')
+	})
+
+	it('skips reconstruction and emits no note for a canceled detached job', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		const applyToolStatus = vi.spyOn(manager, 'applyToolStatus')
+		mocks.getJob.mockResolvedValue(completed({ success: false, canceled: true }))
+
+		await completeDetachedJob(manager)
+
+		// A user cancel isn't a result to shape or a completion to announce.
+		expect(manager.pendingJobNotes).toHaveLength(0)
+		expect(manager.backgroundJobs[0]?.status).toBe('canceled')
+		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
+			content: 'Background job canceled',
+			logs: expect.anything()
+		})
+	})
+
+	it('falls back to the generic note when the job has no resultFormat', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob({
+			jobId: 'job-1',
+			toolCallId: 'tc-1',
+			kind: 'script',
+			label: 'run',
+			workspace: 'ws'
+		})
+		mocks.getJob.mockResolvedValue(completed())
+
+		await completeDetachedJob(manager)
+
+		expect(manager.pendingJobNotes).toHaveLength(1)
+		expect(manager.pendingJobNotes[0]).toContain('Background job job-1 for "run" succeeded')
 	})
 })

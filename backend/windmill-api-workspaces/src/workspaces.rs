@@ -69,8 +69,11 @@ use windmill_types::s3::LargeFileStorage;
 
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
+use windmill_common::secret_backend::{
+    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
+};
 use windmill_common::utils::not_found_if_none;
 
 lazy_static::lazy_static! {
@@ -132,6 +135,7 @@ pub fn workspaced_service() -> Router {
             get(get_datatable_table_schema),
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -430,6 +434,12 @@ pub struct DucklakeSettings {
 #[derive(Deserialize, Debug)]
 struct EditDataTableConfig {
     settings: DataTableSettings,
+    // Data table renames (old -> new) and deletions, tracked client-side by a
+    // stable id, so we can cascade or drop each data table's migrations.
+    #[serde(default)]
+    renames: Vec<crate::datatable_migrations::DatatableRename>,
+    #[serde(default)]
+    deleted_datatables: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -1921,6 +1931,38 @@ mod tests {
             format!("text={}...", "é".repeat(27))
         );
     }
+
+    // A real NUL can't live in Rust source, so build `{"k":"<n backslashes>u0000"}`
+    // by repeating backslashes: an ODD run before `u0000` is a genuine NUL escape,
+    // an EVEN run is an escaped backslash then the literal text "u0000".
+    fn nul_json(backslashes: usize) -> String {
+        format!(r#"{{"k":"{}u0000"}}"#, "\\".repeat(backslashes))
+    }
+
+    #[test]
+    fn nul_escape_detected_only_for_odd_backslash_runs() {
+        // 1 backslash: `\u0000` — a genuine NUL escape.
+        assert!(json_text_has_nul_escape(&nul_json(1)));
+        // 3 backslashes: escaped backslash + genuine NUL escape.
+        assert!(json_text_has_nul_escape(&nul_json(3)));
+        // 2 backslashes: escaped backslash then literal "u0000" (e.g. minified JS) — safe.
+        assert!(!json_text_has_nul_escape(&nul_json(2)));
+        // 0 backslashes: the bare token "u0000" — safe.
+        assert!(!json_text_has_nul_escape(&nul_json(0)));
+    }
+
+    #[test]
+    fn nul_escape_ignores_clean_values() {
+        assert!(!json_text_has_nul_escape(
+            r#"{"files":{"/index.tsx":"hello"}}"#
+        ));
+        assert!(!json_text_has_nul_escape(""));
+        // A later genuine NUL is still caught even after an earlier even (safe) run.
+        assert!(json_text_has_nul_escape(&format!(
+            r#"{{"a":"x{b}{b}u0000y","b":"z{b}u0000"}}"#,
+            b = "\\"
+        )));
+    }
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
@@ -1973,8 +2015,8 @@ pub(crate) async fn resolve_pg_source_checked(
 }
 
 /// A temporary file for pg_dump output that is automatically deleted when dropped.
-struct DumpFile {
-    path: std::path::PathBuf,
+pub(crate) struct DumpFile {
+    pub(crate) path: std::path::PathBuf,
 }
 
 impl DumpFile {
@@ -2021,7 +2063,11 @@ impl Drop for DumpFile {
 
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
-async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpFile> {
+pub(crate) async fn pg_dump_database(
+    pg_db: &PgDatabase,
+    schema_only: bool,
+    exclude_tables: &[&str],
+) -> Result<DumpFile> {
     let dump_file = DumpFile::new()?;
 
     let host = &pg_db.host;
@@ -2033,6 +2079,9 @@ async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpF
     cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
     if schema_only {
         cmd.arg("--schema-only");
+    }
+    for table in exclude_tables {
+        cmd.arg(format!("--exclude-table={table}"));
     }
     cmd.arg("--host")
         .arg(host)
@@ -2257,7 +2306,7 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    let dump_file = pg_dump_database(&source_pg, schema_only).await?;
+    let dump_file = pg_dump_database(&source_pg, schema_only, &[]).await?;
     pg_import_dump(&target_pg, &dump_file).await?;
 
     Ok(format!(
@@ -2279,7 +2328,7 @@ async fn export_pg_schema(
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let dump_file = pg_dump_database(&pg, true).await?;
+    let dump_file = pg_dump_database(&pg, true, &[]).await?;
     tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
@@ -2416,12 +2465,56 @@ async fn edit_datatable_config(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
-    Json(new_config): Json<EditDataTableConfig>,
+    Json(mut new_config): Json<EditDataTableConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
     let mut tx = db.begin().await?;
+
+    let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
+        sqlx::query_scalar!(
+            "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(serde_json::Value::Null),
+    )
+    .unwrap_or_default();
+
+    // Validate every persisted data table name and rename segment before
+    // touching anything, since they become directory segments in migration
+    // storage/export keys (`migrations/datatable/<name>/...`).
+    for name in new_config.settings.datatables.keys() {
+        crate::datatable_migrations::validate_datatable_path_segment(name)?;
+    }
+    for r in &new_config.renames {
+        crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
+        crate::datatable_migrations::validate_datatable_path_segment(&r.to)?;
+    }
+
+    // Map new name -> old name so a renamed data table inherits the previous
+    // flag instead of being treated as brand new.
+    let rename_src: HashMap<&str, &str> = new_config
+        .renames
+        .iter()
+        .map(|r| (r.to.as_str(), r.from.as_str()))
+        .collect();
+
+    // Migrations opt-in is owned by the enable/disable endpoints, not this config
+    // form: preserve each existing data table's flag, and default brand-new data
+    // tables to enabled.
+    for (name, dt) in new_config.settings.datatables.iter_mut() {
+        let lookup = rename_src
+            .get(name.as_str())
+            .copied()
+            .unwrap_or(name.as_str());
+        dt.migrations_enabled = match old_datatables.get(lookup) {
+            Some(old) => old.migrations_enabled,
+            None => Some(true),
+        };
+    }
 
     let args_for_audit = format!("{:?}", new_config.settings);
     audit_log(
@@ -2437,19 +2530,6 @@ async fn edit_datatable_config(
 
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_datatables = sqlx::query_scalar!(
-            r#"
-                SELECT ws.datatable->'datatables' AS datatable_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_datatables: HashMap<String, DataTable> =
-            serde_json::from_value(old_datatables).unwrap_or_default();
         for (name, dt) in new_config.settings.datatables.iter() {
             if dt.database.resource_type == DataTableCatalogResourceType::Instance {
                 let old_dt = old_datatables.get(name);
@@ -2476,6 +2556,15 @@ async fn edit_datatable_config(
         &w_id
     )
     .execute(&mut *tx)
+    .await?;
+
+    crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
+        &db,
+        &mut tx,
+        &w_id,
+        &new_config.renames,
+        &new_config.deleted_datatables,
+    )
     .await?;
 
     tx.commit().await?;
@@ -4061,12 +4150,22 @@ async fn create_workspace(
 // their drafts would dangle as orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
+    db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed_email: &str,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone data table migration definitions (the settings above carry the data
+    // table config; this carries their migration history).
+    crate::datatable_migrations::clone_datatable_migrations(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
 
     // Clone workspace environment variables
     clone_workspace_env(tx, source_workspace_id, target_workspace_id).await?;
@@ -4083,8 +4182,8 @@ async fn clone_workspace_data(
     // Clone resources
     clone_resources(tx, source_workspace_id, target_workspace_id).await?;
 
-    // Clone variables with re-encryption
-    clone_variables(tx, source_workspace_id, target_workspace_id).await?;
+    // Clone variables (including external secret backend replication)
+    clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
 
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
@@ -4589,6 +4688,7 @@ async fn clone_resources(
 
 async fn clone_variables(
     tx: &mut Transaction<'_, Postgres>,
+    db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
@@ -4602,6 +4702,56 @@ async fn clone_variables(
     )
     .execute(&mut **tx)
     .await?;
+
+    // With an external secret backend (Vault / Azure KV / AWS SM), the copied
+    // `value` is only a `$vault:`/`$azure_kv:`/`$aws_sm:` marker: the actual
+    // secret lives in the external store under a key derived from
+    // (workspace_id, path). The row copy above therefore leaves the fork's
+    // markers pointing at keys that don't exist — replicate each secret under
+    // the fork's workspace id.
+    if is_vault_backend_configured(db).await? {
+        let secret_variables = sqlx::query!(
+            "SELECT path, value FROM variable
+             WHERE workspace_id = $1 AND is_secret = true AND value != ''",
+            target_workspace_id,
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+
+        let backend = get_secret_backend(db).await?;
+        for variable in secret_variables
+            .into_iter()
+            .filter(|v| is_external_stored_value(&v.value))
+        {
+            match backend
+                .get_secret(source_workspace_id, &variable.path)
+                .await
+            {
+                Ok(plain_value) => {
+                    backend
+                        .set_secret(target_workspace_id, &variable.path, &plain_value)
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to replicate secret variable {} to the external secret backend for the forked workspace: {e}",
+                                variable.path
+                            ))
+                        })?;
+                }
+                // The source secret is unreadable (e.g. deleted out-of-band from
+                // the external store), so the variable is equally broken in the
+                // source workspace — don't let it block forking.
+                Err(e) => {
+                    tracing::warn!(
+                        workspace_id = %source_workspace_id,
+                        path = %variable.path,
+                        error = %e,
+                        "Could not read secret variable from the external secret backend while forking; the forked variable will not resolve"
+                    );
+                }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -5422,6 +5572,94 @@ async fn enforce_fork_depth(
     Ok(())
 }
 
+/// True if `raw` (the text form of a `json` value) contains a genuine `\u0000`
+/// NUL escape: a `u0000` preceded by an ODD run of backslashes. Mirrors the
+/// parity rule in `strip_null_chars` (windmill-api `apps.rs`) — an even run
+/// (`\\u0000`) is an escaped backslash then the literal text "u0000" (common in
+/// minified JS) and is jsonb-safe. A genuine NUL is exactly what the
+/// `json`→`jsonb` re-encode in `clone_apps` / `clone_flows` rejects with
+/// SQLSTATE 22P05.
+fn json_text_has_nul_escape(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    let mut search_from = 0;
+    while let Some(rel) = raw[search_from..].find("u0000") {
+        let at = search_from + rel;
+        let mut backslashes = 0;
+        let mut j = at;
+        while j > 0 && bytes[j - 1] == b'\\' {
+            backslashes += 1;
+            j -= 1;
+        }
+        if backslashes % 2 == 1 {
+            return true;
+        }
+        search_from = at + 5;
+    }
+    false
+}
+
+/// SQLSTATE 22P05 (`untranslatable_character`) is what Postgres raises for
+/// "unsupported Unicode escape sequence" when a `json` value carrying a genuine
+/// `\u0000` is re-encoded to `jsonb` — the exact failure the per-row `json`
+/// clones (`clone_apps`, `clone_flows`) hit when a source item holds a NUL.
+fn is_unsupported_unicode_escape(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::SqlErr { error, .. }
+            if error.as_database_error().and_then(|d| d.code()).as_deref() == Some("22P05")
+    )
+}
+
+/// After a fork clone aborts on a NUL escape, locate the offending source items
+/// so the error can name them. Reads the committed source workspace on the pool
+/// (the clone transaction is already poisoned and unusable). Only the `json`
+/// columns re-encoded to `jsonb` during the clone can trigger the failure:
+/// `app_version.value` (clone_apps) and `flow_version.schema` (clone_flows).
+/// Best-effort — returns an empty list rather than erroring if a probe query
+/// fails, so the caller can still surface a generic message.
+async fn find_nul_escape_locations(db: &DB, workspace_id: &str) -> Vec<String> {
+    let mut apps: std::collections::BTreeSet<String> = Default::default();
+    if let Ok(rows) = sqlx::query(
+        "SELECT a.path AS path, av.value::text AS value
+         FROM app_version av JOIN app a ON a.id = av.app_id
+         WHERE a.workspace_id = $1 AND av.value IS NOT NULL",
+    )
+    .bind(workspace_id)
+    .fetch_all(db)
+    .await
+    {
+        for row in rows {
+            let value: String = row.get("value");
+            if json_text_has_nul_escape(&value) {
+                apps.insert(row.get::<String, _>("path"));
+            }
+        }
+    }
+
+    let mut flows: std::collections::BTreeSet<String> = Default::default();
+    if let Ok(rows) = sqlx::query(
+        "SELECT fv.path AS path, fv.schema::text AS schema
+         FROM flow_version fv
+         WHERE fv.workspace_id = $1 AND fv.schema IS NOT NULL",
+    )
+    .bind(workspace_id)
+    .fetch_all(db)
+    .await
+    {
+        for row in rows {
+            let schema: String = row.get("schema");
+            if json_text_has_nul_escape(&schema) {
+                flows.insert(row.get::<String, _>("path"));
+            }
+        }
+    }
+
+    apps.into_iter()
+        .map(|p| format!("app: {p}"))
+        .chain(flows.into_iter().map(|p| format!("flow: {p}")))
+        .collect()
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5572,7 +5810,33 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
+    if let Err(e) =
+        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed.email).await
+    {
+        // A genuine `\u0000` in a source `json` value (`app_version.value` /
+        // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
+        // Postgres raises 22P05 with only "unsupported Unicode escape sequence"
+        // and no hint at which item. Pinpoint the offenders so the user can fix
+        // them — re-saving strips the NUL, and the usual source is a binary file
+        // (e.g. `.DS_Store`) accidentally bundled into a raw app.
+        if is_unsupported_unicode_escape(&e) {
+            drop(tx); // release the poisoned connection before probing on the pool
+            let locations = find_nul_escape_locations(&db, &parent_workspace_id).await;
+            let where_clause = if locations.is_empty() {
+                "The offending item could not be pinpointed — check recently edited apps and flows."
+                    .to_string()
+            } else {
+                format!("Offending item(s):\n  - {}", locations.join("\n  - "))
+            };
+            return Err(Error::BadRequest(format!(
+                "Cannot fork workspace '{parent_workspace_id}': an item contains a NUL character \
+                 (\\u0000) that Postgres cannot store as jsonb. Re-save the item to remove it \
+                 (the editor strips NUL automatically), or delete the offending binary/character \
+                 from its source (often a file like .DS_Store bundled into a raw app). {where_clause}"
+            )));
+        }
+        return Err(e);
+    }
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
@@ -7418,6 +7682,7 @@ pub struct CompareSummary {
     pub folders_changed: usize,
     pub schedules_changed: usize,
     pub triggers_changed: usize,
+    pub datatable_migrations_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -7609,6 +7874,15 @@ async fn compare_workspaces(
                 compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            "datatable_migration" => Some(
+                crate::datatable_migrations::compare_two_datatable_migration(
+                    &db,
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
+            ),
             // Triggers and schedules are diffed against a hardcoded ignore list
             // (mode/enabled/server_id/last_server_ping/edited_at/by/error/extra_perms/permissioned_as/email)
             // so that fork-clones — which differ from the parent only in the runtime
@@ -7730,6 +8004,10 @@ async fn compare_workspaces(
         triggers_changed: visible_diffs
             .iter()
             .filter(|s| s.kind.ends_with("_trigger"))
+            .count(),
+        datatable_migrations_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "datatable_migration")
             .count(),
         conflicts: visible_diffs
             .iter()
@@ -8036,6 +8314,45 @@ async fn query_visible_items<'c>(
                 .fetch_all(&mut **tx)
                 .await?
             }
+            "datatable_migration" => {
+                // Match by (datatable, timestamp), not the full path: a migration
+                // keeps its identity across a rename, so the candidate path's
+                // `name` segment can differ from the stored one. Parse each
+                // `<datatable>/<timestamp>_<name>` candidate, probe existence by
+                // (datatable, timestamp), and return the *original* candidate path
+                // so the visibility set stays keyed by the diff's path.
+                let parsed: Vec<(String, i64, String)> = paths_vec
+                    .iter()
+                    .filter_map(|p| {
+                        let (dt, rest) = p.split_once('/')?;
+                        let ts = rest.split_once('_')?.0.parse::<i64>().ok()?;
+                        Some((dt.to_string(), ts, p.clone()))
+                    })
+                    .collect();
+                if parsed.is_empty() {
+                    vec![]
+                } else {
+                    let dts: Vec<String> = parsed.iter().map(|(d, _, _)| d.clone()).collect();
+                    let tss: Vec<i64> = parsed.iter().map(|(_, t, _)| *t).collect();
+                    let existing: HashSet<(String, i64)> = sqlx::query!(
+                        "SELECT datatable, timestamp FROM datatable_migrations \
+                         WHERE workspace_id = $1 AND datatable = ANY($2) AND timestamp = ANY($3)",
+                        workspace_id,
+                        &dts,
+                        &tss,
+                    )
+                    .fetch_all(&mut **tx)
+                    .await?
+                    .into_iter()
+                    .map(|r| (r.datatable, r.timestamp))
+                    .collect();
+                    parsed
+                        .into_iter()
+                        .filter(|(d, t, _)| existing.contains(&(d.clone(), *t)))
+                        .map(|(_, _, p)| p)
+                        .collect()
+                }
+            }
             k if TRIGGER_OR_SCHEDULE_TABLES.contains(&k) => {
                 // SAFETY: `kind` comes from a hardcoded allowlist
                 // TRIGGER_OR_SCHEDULE_TABLES, not user input.
@@ -8103,10 +8420,10 @@ async fn existing_runnables(
 }
 
 #[derive(Debug)]
-struct ItemComparison {
-    has_changes: bool,
-    exists_in_source: bool,
-    exists_in_fork: bool,
+pub(crate) struct ItemComparison {
+    pub(crate) has_changes: bool,
+    pub(crate) exists_in_source: bool,
+    pub(crate) exists_in_fork: bool,
 }
 
 async fn compare_two_scripts(

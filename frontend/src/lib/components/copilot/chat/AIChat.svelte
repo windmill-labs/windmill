@@ -19,7 +19,9 @@
 		forceDisabledMessage = '',
 		wideLayout = false,
 		emptyHint,
-		inputPreface
+		inputPreface,
+		initialInstructions = undefined,
+		onDraftChange = undefined
 	}: {
 		hideHeader?: boolean
 		hideModeSelector?: boolean
@@ -35,6 +37,9 @@
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		inputPreface?: import('svelte').Snippet
+		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
+		initialInstructions?: string
+		onDraftChange?: (text: string) => void
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -174,4 +179,6 @@
 	{wideLayout}
 	{emptyHint}
 	{inputPreface}
+	{initialInstructions}
+	{onDraftChange}
 ></AIChatDisplay>

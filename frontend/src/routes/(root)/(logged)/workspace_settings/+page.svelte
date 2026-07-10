@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, CopyButton, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
@@ -1304,8 +1304,13 @@
 
 <CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
 	{#if $userStore?.is_admin || $superadmin}
-		<PageHeader title="Workspace settings: {$workspaceStore}"
-			>{#if $superadmin}
+		<PageHeader title="Workspace settings: {$workspaceStore}">
+			{#snippet titleActions()}
+				{#if $workspaceStore}
+					<CopyButton value={$workspaceStore} title={`Copy id: ${$workspaceStore}`} />
+				{/if}
+			{/snippet}
+			{#if $superadmin}
 				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
 					Instance settings
 				</Button>

@@ -39,8 +39,12 @@
 		stepsInputArgs,
 		previewArgs,
 		modulesTestStates,
-		devTempScriptRefs
+		devTempScriptRefs,
+		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}
@@ -102,8 +106,8 @@
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
-				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
-				: await getScriptByPath(val.path)
+				? await ScriptService.getScriptByHash({ workspace: opWs!, hash: val.hash })
+				: await getScriptByPath(val.path, opWs)
 			await jobLoader?.runPreview(
 				val.path,
 				script.content,
@@ -121,7 +125,7 @@
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
 		} else if (val.type == 'aiagent') {
-			const { schema } = await loadSchemaFromModule(mod)
+			const { schema } = await loadSchemaFromModule(mod, opWs)
 
 			const inputTransforms: { [key: string]: JavascriptTransform } = Object.fromEntries(
 				Object.keys(args).map((key) => [
@@ -202,6 +206,7 @@
 <JobLoader
 	noCode={true}
 	toastError={noEditor}
+	workspaceOverride={opWs}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={

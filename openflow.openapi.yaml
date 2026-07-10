@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.751.0
+  version: 1.754.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -655,6 +655,7 @@ components:
           enum:
             - deno
             - bun
+            - bunnative
             - python3
             - go
             - bash

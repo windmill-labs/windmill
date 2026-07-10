@@ -3126,7 +3126,7 @@ describe('global AI tools', () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
 			removeToolStatus: vi.fn(),
-			requestUserQuestion: vi.fn(async (_toolId, question) => question.choices[1])
+			requestUserQuestion: vi.fn(async (_toolId, question) => [question.choices[1]])
 		}
 
 		const raw = await callGlobalTool(
@@ -3152,7 +3152,45 @@ describe('global AI tools', () => {
 				content: 'User answered question: python3',
 				isLoading: false,
 				result: 'python3',
-				userQuestion: expect.objectContaining({ selectedChoice: 'python3' })
+				userQuestion: expect.objectContaining({ selectedChoices: ['python3'] })
+			})
+		)
+	})
+
+	it('returns a newline-bulleted list when several answers are selected', async () => {
+		const callbacks: ToolCallbacks = {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestUserQuestion: vi.fn(async (_toolId, question) => [
+				question.choices[0],
+				question.choices[2]
+			])
+		}
+
+		const raw = await callGlobalTool(
+			'askUserQuestion',
+			{
+				question: 'Which languages should be supported?',
+				choices: ['bun', 'python3', 'go'],
+				multiSelect: true
+			},
+			callbacks
+		)
+
+		// Model-facing return stays newline-bulleted; the header readback is a
+		// compact comma list.
+		expect(raw).toBe('- bun\n- go')
+		expect(callbacks.requestUserQuestion).toHaveBeenCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({ multiSelect: true })
+		)
+		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({
+				content: 'User answered question: bun, go',
+				isLoading: false,
+				result: '- bun\n- go',
+				userQuestion: expect.objectContaining({ selectedChoices: ['bun', 'go'] })
 			})
 		)
 	})
@@ -3162,7 +3200,7 @@ describe('global AI tools', () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
 			removeToolStatus: vi.fn(),
-			requestUserQuestion: vi.fn(async (_toolId, question) => question.choices[9])
+			requestUserQuestion: vi.fn(async (_toolId, question) => [question.choices[9]])
 		}
 
 		const raw = await callGlobalTool(
@@ -3207,7 +3245,7 @@ describe('global AI tools', () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
 			removeToolStatus: vi.fn(),
-			requestUserQuestion: vi.fn(async () => 'use deno instead')
+			requestUserQuestion: vi.fn(async () => ['use deno instead'])
 		}
 
 		const raw = await callGlobalTool(
@@ -3225,7 +3263,7 @@ describe('global AI tools', () => {
 			expect.objectContaining({
 				content: 'User answered question: use deno instead',
 				result: 'use deno instead',
-				userQuestion: expect.objectContaining({ selectedChoice: 'use deno instead' })
+				userQuestion: expect.objectContaining({ selectedChoices: ['use deno instead'] })
 			})
 		)
 	})

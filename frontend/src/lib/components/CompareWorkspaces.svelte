@@ -646,7 +646,7 @@
 			deploymentStatus[statusKey] = { status: 'deployed' }
 		} else {
 			deploymentStatus[statusKey] = { status: 'failed', error: result.error }
-			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`)
+			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`, 'error')
 		}
 	}
 
@@ -696,7 +696,10 @@
 			if (!aIsFolder && bIsFolder) return 1
 			return 0
 		})
+		const to = mergeIntoParent ? parent : current
 		let anyFailed = false
+		// Datatables whose migrations deployed cleanly — candidates for a run prompt.
+		const deployedMigrationDatatables = new Set<string>()
 		for (const itemKey of sortedItems) {
 			const deployable = deployableItems.find((d) => d.key === itemKey)
 
@@ -705,15 +708,18 @@
 				continue
 			}
 
-			const to = mergeIntoParent ? parent : current
 			const from = mergeIntoParent ? current : parent
 			await deploy(deployable.kind, deployable.path, to, from, itemKey)
 			if (deploymentStatus[itemKey]?.status === 'failed') {
 				anyFailed = true
+			} else if (deployable.kind === 'datatable_migration') {
+				deployedMigrationDatatables.add(deployable.path.split('/')[0])
 			}
 		}
 		deploying = false
 		deselectAll()
+
+		await maybePromptRunMigrations(deployedMigrationDatatables, to)
 
 		// If every selected item deployed cleanly and the direction was
 		// merge-into-parent, resolve any open deployment request for this fork.
@@ -748,6 +754,51 @@
 		// Deployed items are now in sync and should drop off the comparison; ask
 		// the page to re-fetch so the list and toggle badges reflect the new state.
 		onChanged?.()
+	}
+
+	/**
+	 * After a deploy, offer to run the migrations of every cloned datatable that
+	 * received one. `forked_from` is set on the fork's datatable config only when
+	 * the datatable was cloned into a separate database — shared-DB datatables
+	 * have already had the schema change applied and must not be re-run.
+	 */
+	async function maybePromptRunMigrations(
+		deployedMigrationDatatables: Set<string>,
+		runTargetWorkspace: string
+	) {
+		if (deployedMigrationDatatables.size === 0) return
+		try {
+			const forkSettings = await WorkspaceService.getPublicSettings({
+				workspace: currentWorkspaceId
+			})
+			const datatables = forkSettings.datatable?.datatables ?? {}
+			const cloned = [...deployedMigrationDatatables].filter(
+				(dt) => datatables[dt]?.forked_from != null
+			)
+			if (cloned.length === 0) return
+			runMigrationsDatatables = cloned.sort()
+			runMigrationsTargetWorkspace = runTargetWorkspace
+			runMigrationsModalOpen = true
+		} catch (e) {
+			console.error('Failed to determine cloned datatables for migration run prompt', e)
+		}
+	}
+
+	async function runDeployedMigrations() {
+		runMigrationsModalOpen = false
+		for (const dt of runMigrationsDatatables) {
+			try {
+				const res = await WorkspaceService.runDatatableMigrations({
+					workspace: runMigrationsTargetWorkspace,
+					datatableName: dt
+				})
+				sendUserToast(
+					`Ran ${res.applied.length} migration${res.applied.length !== 1 ? 's' : ''} on ${dt}`
+				)
+			} catch (e: any) {
+				sendUserToast(`Failed to run migrations on ${dt}: ${e.body ?? e.message ?? e}`, true)
+			}
+		}
 	}
 
 	function toggleKey(key: string) {
@@ -930,6 +981,17 @@
 	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
 	let hasOpenDeploymentRequest = $state(false)
 
+	// After deploying datatable migrations to a cloned (separate-DB) datatable, we
+	// offer to run them in the target workspace. Shared-DB datatables are skipped:
+	// the schema change is already physically applied, so re-running is redundant.
+	let runMigrationsModalOpen = $state(false)
+	let runMigrationsDatatables = $state<string[]>([])
+	let runMigrationsTargetWorkspace = $state('')
+	let runMigrationsTargetWorkspaceName = $derived(
+		$userWorkspaces.find((w) => w.id == runMigrationsTargetWorkspace)?.name ??
+			runMigrationsTargetWorkspace
+	)
+
 	/** Display labels for trigger/schedule kinds in the merge UI. */
 	const KIND_DISPLAY_NAMES: Record<string, string> = {
 		schedule: 'Schedule',
@@ -942,7 +1004,8 @@
 		sqs_trigger: 'SQS trigger',
 		gcp_trigger: 'GCP trigger',
 		azure_trigger: 'Azure trigger',
-		email_trigger: 'Email trigger'
+		email_trigger: 'Email trigger',
+		datatable_migration: 'Data table migration'
 	}
 
 	// Human label for a diff kind, lowercased for inline use in the hidden-items
@@ -1453,9 +1516,7 @@
 			/>
 		</div>
 
-		<div class="bg-surface-tertiary p-4 rounded-md border">
-			<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
-		</div>
+		<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
 
 		{#if pinnedItems.length > 0}
 			<div class="bg-surface-tertiary p-4 rounded-md border flex flex-col gap-2">
@@ -1531,6 +1592,26 @@
 			<ul class="list-disc pl-5 text-sm font-mono text-secondary">
 				{#each selectedDraftKeys as k (k)}
 					<li>{k.split(':').slice(1).join(':')}</li>
+				{/each}
+			</ul>
+		</div>
+	</ConfirmationModal>
+
+	<ConfirmationModal
+		open={runMigrationsModalOpen}
+		title="Run datatable migrations?"
+		confirmationText="Run migrations"
+		onConfirmed={runDeployedMigrations}
+		onCanceled={() => (runMigrationsModalOpen = false)}
+	>
+		<div class="flex flex-col gap-2">
+			<p>
+				Run the deployed migrations in <b>{runMigrationsTargetWorkspaceName}</b> now? These data tables
+				use a separate database, so the schema changes won't apply until the migrations are run.
+			</p>
+			<ul class="list-disc pl-5 text-sm font-mono text-secondary">
+				{#each runMigrationsDatatables as dt (dt)}
+					<li>{dt}</li>
 				{/each}
 			</ul>
 		</div>
