@@ -86,6 +86,7 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
+	import { registerEditorSessionSource } from '$lib/components/sessions/editorSessionSource'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
@@ -773,6 +774,23 @@
 	// stays put and is already scoped to a fork. Diff is exposed as a standalone
 	// top-bar button (rendered independently of the session pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
+
+	// "Open in AI session" source for this editor. Shared by the inline button
+	// (below) and published to the sidebar Workspace↔AI Sessions toggle via
+	// `registerEditorSessionSource`, so switching into session mode from here
+	// opens this script in the preview. Target the URL draft path (a new script's
+	// friendly `script.path` has no row → "not found"). Never from a session pane
+	// (that's the preview itself).
+	const editorSessionSource = $derived(
+		userDraftPath && !inSessionPane
+			? {
+					target: { kind: 'script' as const, path: userDraftPath },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+	$effect(() => registerEditorSessionSource(editorSessionSource))
 
 	async function openDiffDrawer() {
 		if (!savedScript) {
@@ -2109,15 +2127,7 @@
 		<ScriptEditor
 			{disableAi}
 			workspaceOverride={opWorkspace}
-			sessionOpen={userDraftPath
-				? {
-						// URL draft path the editor loads/saves by, not the friendly
-						// `script.path` (a new script's has no row → "not found").
-						target: { kind: 'script', path: userDraftPath },
-						workspaceId: opWorkspace ?? undefined,
-						beforeOpen: persistDraftForSession
-					}
-				: undefined}
+			sessionOpen={editorSessionSource}
 			bind:selectedTab={selectedInputTab}
 			{customUi}
 			{onTestJob}

@@ -2,10 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
 import { enterSessionMode } from './sessionSwitch.svelte'
 import { sessionState, type Session } from './sessionState.svelte'
+import { registerEditorSessionSource } from './editorSessionSource'
 import { usersWorkspaceStore, workspaceStore, type UserWorkspace } from '$lib/stores'
 
 vi.mock('$lib/navigation', () => ({ goto: vi.fn().mockResolvedValue(undefined) }))
 import { goto } from '$lib/navigation'
+// `openEditorInSession` lazy-imports the runtime (monaco-heavy) — stub it so the
+// seed path is testable in node.
+vi.mock('./sessionRuntime.svelte', () => ({ resetSessionPreviewTabs: vi.fn() }))
 
 function session(over: Partial<Session> = {}): Session {
 	return { id: 's1', name: 'sess', createdAt: 0, ...over }
@@ -43,7 +47,9 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 		try {
 			await enterSessionMode()
 			expect(sessionState.currentSessionId).toBe('sw-in-family')
-			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-911', { replaceState: false })
+			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-911', {
+				replaceState: false
+			})
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sw-in-family')
 			sessionState.currentSessionId = prevCurrent
@@ -61,7 +67,9 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 		try {
 			await enterSessionMode()
 			expect(sessionState.currentSessionId).toBe('sw-local')
-			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-913', { replaceState: false })
+			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-913', {
+				replaceState: false
+			})
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => s.id !== 'sw-foreign' && s.id !== 'sw-local'
@@ -89,6 +97,81 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => s.id !== 'sw-only-foreign' && s.id !== createdId
 			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+})
+
+describe('enterSessionMode — seedFromEditor', () => {
+	beforeEach(() => {
+		vi.mocked(goto).mockClear()
+		// Drop any registration a prior test left behind.
+		registerEditorSessionSource(undefined)
+	})
+
+	it('opens the current editor item in a fresh session preview when a source is registered', async () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const beforeOpen = vi.fn().mockResolvedValue(undefined)
+		const cleanup = registerEditorSessionSource({
+			target: { kind: 'flow', path: 'u/me/draft_x' },
+			workspaceId: 'rootA',
+			beforeOpen
+		})
+		let createdId: string | undefined
+		try {
+			await enterSessionMode({ seedFromEditor: true })
+			// Persist ran, and we opened a fresh session scoped to the editor workspace.
+			expect(beforeOpen).toHaveBeenCalledTimes(1)
+			createdId = sessionState.currentSessionId
+			const created = sessionState.sessions.find((s) => s.id === createdId)
+			expect(created?.pending_workspace_id).toBe('rootA')
+			expect(goto).toHaveBeenCalledWith(expect.stringContaining('/sessions?session_name='))
+		} finally {
+			cleanup()
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('falls back to generic restore when no editor source is registered', async () => {
+		const restore = withTwoFamilies('rootB')
+		const prevCurrent = sessionState.currentSessionId
+		const local = session({ id: 'sw-seed-fallback', name: 'session-920', workspace_id: 'rootB' })
+		sessionState.sessions.push(local)
+		sessionState.currentSessionId = 'sw-seed-fallback'
+		try {
+			await enterSessionMode({ seedFromEditor: true })
+			expect(sessionState.currentSessionId).toBe('sw-seed-fallback')
+			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-920', {
+				replaceState: false
+			})
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sw-seed-fallback')
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('ignores a registered source when seedFromEditor is not set (reconcile path)', async () => {
+		const restore = withTwoFamilies('rootB')
+		const prevCurrent = sessionState.currentSessionId
+		const local = session({ id: 'sw-no-seed', name: 'session-921', workspace_id: 'rootB' })
+		sessionState.sessions.push(local)
+		sessionState.currentSessionId = 'sw-no-seed'
+		const cleanup = registerEditorSessionSource({
+			target: { kind: 'flow', path: 'u/me/draft_y' },
+			workspaceId: 'rootB',
+			beforeOpen: vi.fn()
+		})
+		try {
+			await enterSessionMode()
+			expect(sessionState.currentSessionId).toBe('sw-no-seed')
+		} finally {
+			cleanup()
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sw-no-seed')
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}

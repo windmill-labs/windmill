@@ -34,7 +34,8 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, setContext, untrack } from 'svelte'
+	import { createRawSnippet, getContext, setContext, untrack } from 'svelte'
+	import { registerEditorSessionSource } from '$lib/components/sessions/editorSessionSource'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -527,6 +528,26 @@
 	// (which for a new flow differs from the live-edited friendly `$pathStore`),
 	// falling back to `$pathStore` in drawer mounts that carry no storage path.
 	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
+
+	// True when this builder is the session preview itself (SessionEditorTarget
+	// injects the `aiChatManager` context) — it must not publish itself as the
+	// editor to open in a session.
+	const inSessionPane = !!getContext('aiChatManager')
+
+	// "Open in AI session" source for this flow. Shared by the inline graph button
+	// and published to the sidebar Workspace↔AI Sessions toggle via
+	// `registerEditorSessionSource`, so switching into session mode from here opens
+	// this flow in the preview instead of an empty session.
+	const editorSessionSource = $derived(
+		sessionTargetPath && !inSessionPane
+			? {
+					target: { kind: 'flow' as const, path: sessionTargetPath },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+	$effect(() => registerEditorSessionSource(editorSessionSource))
 
 	$effect(() => {
 		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
@@ -1275,13 +1296,7 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={sessionTargetPath
-						? {
-								target: { kind: 'flow', path: sessionTargetPath },
-								workspaceId: opWorkspace ?? undefined,
-								beforeOpen: persistDraftForSession
-							}
-						: undefined}
+					sessionOpen={editorSessionSource}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}
 					{showJobStatus}

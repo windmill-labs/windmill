@@ -17,7 +17,7 @@
 	function onSelected(next: 'nav' | 'session') {
 		if (next === mode) return
 		onToggle?.()
-		if (next === 'session') void enterSessionMode()
+		if (next === 'session') void enterSessionMode({ seedFromEditor: true })
 		else void exitSessionMode()
 	}
 </script>

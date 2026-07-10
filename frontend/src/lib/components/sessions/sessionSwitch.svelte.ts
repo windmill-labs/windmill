@@ -10,6 +10,7 @@ import {
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref } from './sessionMode.svelte'
+import { getEditorSessionSource } from './editorSessionSource'
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -35,7 +36,25 @@ export function rememberNavRoute(pathnameWithSearch: string): void {
 // `replace` swaps the current history entry instead of pushing — for the
 // sessions page's family reconcile, where Back must not return to the
 // redirected-away URL just to bounce here again.
-export async function enterSessionMode(opts?: { replace?: boolean }): Promise<void> {
+// `seedFromEditor` (the sidebar toggle) opens the item the user is currently
+// editing in the session preview, matching the in-editor "Open in AI session"
+// button — so a brand-new flow/script the user just built lands in the preview
+// instead of an empty session. Off for the sessions-page reconcile, which has
+// no editor to seed from.
+export async function enterSessionMode(opts?: {
+	replace?: boolean
+	seedFromEditor?: boolean
+}): Promise<void> {
+	if (opts?.seedFromEditor) {
+		const source = getEditorSessionSource()
+		if (source?.target) {
+			// Persist (and materialize a brand-new) draft first, then open it in a
+			// fresh session preview — the same handoff OpenInSessionButton runs.
+			await source.beforeOpen?.()
+			await openEditorInSession(source.target, source.workspaceId)
+			return
+		}
+	}
 	const current = sessionState.currentSessionId
 		? sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
 		: undefined

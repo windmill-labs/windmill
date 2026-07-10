@@ -59,6 +59,7 @@
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
+	import { registerEditorSessionSource } from '$lib/components/sessions/editorSessionSource'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -238,6 +239,21 @@
 			await UserDraft.forcePersist('raw_app', indicatorPath, { workspace: opWorkspace })
 		}
 	}
+
+	// "Open in AI session" source for this app. Shared by the inline button (below)
+	// and published to the sidebar Workspace↔AI Sessions toggle via
+	// `registerEditorSessionSource`, so switching into session mode from here opens
+	// this app in the preview. Never from a session pane (that's the preview itself).
+	const editorSessionSource = $derived(
+		appPath && !inSessionPane
+			? {
+					target: { kind: 'raw_app' as const, path: appPath },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+	$effect(() => registerEditorSessionSource(editorSessionSource))
 
 	$effect(() => {
 		const typed = newEditedPath
@@ -909,17 +925,7 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-		<OpenInSessionButton
-			source={appPath
-				? {
-						target: { kind: 'raw_app', path: appPath },
-						workspaceId: opWorkspace ?? undefined,
-						// Persist the draft (and materialize a brand-new one) so the session
-						// preview opens the app exactly as it is in the editor right now.
-						beforeOpen: persistDraftForSession
-					}
-				: undefined}
-		>
+		<OpenInSessionButton source={editorSessionSource}>
 			{#snippet fallback()}
 				<Button
 					unifiedSize={headerBtnSize}
