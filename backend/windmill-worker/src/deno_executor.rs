@@ -481,7 +481,11 @@ try {{
             args.push("--allow-write=./");
             args.push("--allow-env");
             args.push("--allow-import");
-            args.push("--allow-run=git,/usr/bin/chromium");
+            // git is intentionally NOT in this allowlist: git can be coerced into
+            // spawning /bin/sh via hook configs (e.g. `-c core.fsmonitor=<cmd>`),
+            // which escapes Deno's permission model and defeats the sandbox
+            // (GHSA-gj6h-vw66-mr8f). Only allow the specific chromium binary.
+            args.push("--allow-run=/usr/bin/chromium");
         } else {
             args.push("-A");
         }
