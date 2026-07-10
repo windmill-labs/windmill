@@ -82,6 +82,8 @@ import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
+import { artifactTools } from '../artifacts/artifactTools'
+import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -2835,6 +2837,7 @@ export const globalTools: Tool<{}>[] = [
 			return deleteAppRunnable(parsed, ctx)
 		}
 	},
+	...artifactTools,
 	{
 		def: createToolDef(
 			openPreviewSchema,
@@ -2916,7 +2919,11 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'get_preview_status',
 	'close_page',
 	'get_app_runtime_logs',
-	'list_app_runs'
+	'list_app_runs',
+	'create_artifact',
+	'update_artifact',
+	'list_artifacts',
+	'read_artifact'
 ])
 
 /**
@@ -2964,6 +2971,10 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// (possibly forked) workspace while $workspaceStore stays on the navigation workspace,
 	// so permission gating (open_page) must read this, not the global store.
 	operatingWorkspace?: string
+	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
+	artifacts?: SessionArtifactsStore
+	getChatId?: () => string | undefined
+	openArtifact?: (artifactId: string, name: string) => void
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {

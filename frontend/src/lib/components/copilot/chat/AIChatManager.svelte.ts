@@ -110,6 +110,7 @@ import {
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
@@ -272,6 +273,8 @@ export class AIChatManager {
 	historyManager = new HistoryManager()
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
+	/** Markdown artifacts the copilot created for the current session. */
+	artifacts = new SessionArtifactsStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
@@ -317,6 +320,7 @@ export class AIChatManager {
 	 * undefined in the global side-panel chat, where the tray falls back to opening
 	 * the run in a new browser tab. */
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
+	openArtifact?: (artifactId: string, name: string) => void
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
@@ -1465,7 +1469,13 @@ export class AIChatManager {
 			// permission gating. The global side-panel chat follows the live navigation
 			// workspace instead, so leave it unset there — allowedOpenPages reads the store.
 			...(this.isSessionChat
-				? { sessionId: this.sessionId, operatingWorkspace: this.operatingWorkspace }
+				? {
+						sessionId: this.sessionId,
+						operatingWorkspace: this.operatingWorkspace,
+						artifacts: this.artifacts,
+						getChatId: () => this.historyManager.getCurrentChatId(),
+						openArtifact: this.openArtifact
+					}
 				: {}),
 			testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
 			attachedFiles: this.attachedFiles,
@@ -1491,6 +1501,7 @@ export class AIChatManager {
 			this.helpers = baseHelpers
 		}
 		this.systemMessage = systemMessage
+		this.syncArtifactsSession()
 	}
 
 	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
@@ -2600,6 +2611,7 @@ export class AIChatManager {
 		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
 		// would still get the previous file roster and could read/search it.
 		if (!this.isSessionChat) this.attachedFiles.clear()
+		this.syncArtifactsSession()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
@@ -2637,8 +2649,13 @@ export class AIChatManager {
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
 			this.#ensureJobPoller()
 			this.#automaticScroll = true
+			this.syncArtifactsSession()
 			this.onChatRotated?.(id)
 		}
+	}
+
+	private syncArtifactsSession = () => {
+		void this.artifacts.setSession(this.isSessionChat ? this.sessionId : undefined)
 	}
 
 	get automaticScroll() {
