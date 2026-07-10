@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.754.0](https://github.com/windmill-labs/windmill/compare/v1.753.0...v1.754.0) (2026-07-10)
+
+
+### Features
+
+* add multi-select mode to copilot askUserQuestion ([#10016](https://github.com/windmill-labs/windmill/issues/10016)) ([7569798](https://github.com/windmill-labs/windmill/commit/756979852c3245d06c5c73eb60e9a09fd59635c5))
+
+
+### Bug Fixes
+
+* accept bunnative language in AI chat flow step validation ([#10030](https://github.com/windmill-labs/windmill/issues/10030)) ([5a460db](https://github.com/windmill-labs/windmill/commit/5a460dbec6e2b81e01aa2c36cb504dde4ff6b24a))
+* **backend:** propagate script timeout when restarting perpetual scripts ([#10029](https://github.com/windmill-labs/windmill/issues/10029)) ([6c521e9](https://github.com/windmill-labs/windmill/commit/6c521e9d87724e43ebe3b7fce8b30a3671ef3d89))
+* **frontend:** name the draft in AI chat test-run confirmation ([#10024](https://github.com/windmill-labs/windmill/issues/10024)) ([9036ac7](https://github.com/windmill-labs/windmill/commit/9036ac789f358103b8d639a6b94708c452f52f90))
+* **frontend:** open new script/flow/app in AI session (not-found + friendly tab) ([#10028](https://github.com/windmill-labs/windmill/issues/10028)) ([0353569](https://github.com/windmill-labs/windmill/commit/03535691d607d8a9d1c1fa1c9c284fa3b6051d40))
+* **frontend:** persist forked "Copy of X" script drafts ([#10021](https://github.com/windmill-labs/windmill/issues/10021)) ([c537d45](https://github.com/windmill-labs/windmill/commit/c537d45e4982f30a44026d6644d5340e56f16ef9))
+* **frontend:** persist per-session preview panel resize width ([#10031](https://github.com/windmill-labs/windmill/issues/10031)) ([5387076](https://github.com/windmill-labs/windmill/commit/5387076c1c6fb35a99843aadd2055d3ac381d6cf))
+* **frontend:** scope raw-app, flow and script editors to the session workspace ([#10015](https://github.com/windmill-labs/windmill/issues/10015)) ([c000bbc](https://github.com/windmill-labs/windmill/commit/c000bbca283f5d61cff8a39458764b2b2dd2b58f))
+* resolve fork family/picker for superadmin visiting a non-member workspace ([#10023](https://github.com/windmill-labs/windmill/issues/10023)) ([368fd2d](https://github.com/windmill-labs/windmill/commit/368fd2d9e4b3ffb66e64934d9a622eea291cde5a))
+* scope AI-session flow/script editors to the session workspace ([#10025](https://github.com/windmill-labs/windmill/issues/10025)) ([c5060a1](https://github.com/windmill-labs/windmill/commit/c5060a1e9af5a704e90f92d325abf29626ecd28a))
+* **security:** drop --allow-run from Deno sandbox (GHSA-gj6h-vw66-mr8f) ([#10039](https://github.com/windmill-labs/windmill/issues/10039)) ([c029d6d](https://github.com/windmill-labs/windmill/commit/c029d6dcde44a3d16dee23a80afad920a0535b73))
+* **security:** remove git from Deno sandbox allow-run (GHSA-gj6h-vw66-mr8f) ([#10038](https://github.com/windmill-labs/windmill/issues/10038)) ([689b20a](https://github.com/windmill-labs/windmill/commit/689b20a4704a3dda8d9437b4793c0d16eb1f780f))
+* session preview tab labels, splitter hover, and diff-drawer sizing ([#10008](https://github.com/windmill-labs/windmill/issues/10008)) ([c139eed](https://github.com/windmill-labs/windmill/commit/c139eed631548113b843b466f5505bf6a01f17d3))
+* **sessions:** open test pane when enabling debug so the debug UI is visible ([#9998](https://github.com/windmill-labs/windmill/issues/9998)) ([d7a9b46](https://github.com/windmill-labs/windmill/commit/d7a9b46ab95108c7669b47b7c4be6d8c7964a9e6))
+* sync theme into session page preview iframes on toggle ([#10018](https://github.com/windmill-labs/windmill/issues/10018)) ([3704d00](https://github.com/windmill-labs/windmill/commit/3704d00956dea3b8e562a894d5330e052a753cb3))
+
+
+### Performance Improvements
+
+* index v2_job(parent_job) to speed up run child-job listing ([#10034](https://github.com/windmill-labs/windmill/issues/10034)) ([9feda57](https://github.com/windmill-labs/windmill/commit/9feda57c15bddc7ef481579b73636b88c2a143c5))
+* skip redundant retry-chain job query for successful top-level scripts ([#10035](https://github.com/windmill-labs/windmill/issues/10035)) ([15f9e9b](https://github.com/windmill-labs/windmill/commit/15f9e9b48fc326aa3d776191aabaed22f4c41e74))
+
 ## [1.753.0](https://github.com/windmill-labs/windmill/compare/v1.752.0...v1.753.0) (2026-07-08)
 
 
