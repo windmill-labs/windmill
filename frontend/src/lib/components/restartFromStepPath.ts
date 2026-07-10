@@ -230,8 +230,12 @@ export function buildNestedRestartPath(opts: {
 		}
 		const path = findStepPath(modules, target)
 		if (!path) {
+			// Target missing from these (loaded) modules — a stale/inconsistent
+			// cache. Same flat best-effort continuation as the not-loaded case:
+			// remaining boundaries then the leaf, so the chain always ends at the
+			// real leaf (never a subflow boundary) and the backend can validate.
 			for (let j = i; j < boundaries.length; j++) chain.push({ step_id: boundaries[j] })
-			if (!isLeafLevel) chain.push({ step_id: leaf })
+			chain.push({ step_id: leaf })
 			break
 		}
 		// Gate on unsupported containers along the way. BranchOne branch-mismatch

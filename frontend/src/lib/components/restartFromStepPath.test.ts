@@ -204,6 +204,26 @@ describe('buildNestedRestartPath', () => {
 			iterationCounts: {}
 		})
 	})
+
+	it('flat fallback still ends at the leaf when the deepest modules are loaded but stale', () => {
+		// smid IS expanded but its cached modules don't contain the leaf `a`
+		// (stale cache). The chain must still end at `a`, never at the `smid`
+		// subflow boundary.
+		const r = build({
+			selectedJobStep: 'subflow:stop:smid:a',
+			rawFlowModules: [subflow('stop', 'f/mid')],
+			expandedSubflows: {
+				stop: { modules: [subflow('smid', 'f/leaf')] },
+				'subflow:stop:smid': { modules: [script('z')] } // no `a`
+			}
+		})
+		expect(r).toEqual({
+			topStepId: 'stop',
+			topBranchOrIterationN: undefined,
+			path: [{ step_id: 'smid' }, { step_id: 'a' }],
+			iterationCounts: {}
+		})
+	})
 })
 
 describe('findStepPath', () => {
