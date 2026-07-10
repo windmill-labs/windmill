@@ -481,11 +481,15 @@ try {{
             args.push("--allow-write=./");
             args.push("--allow-env");
             args.push("--allow-import");
-            // git is intentionally NOT in this allowlist: git can be coerced into
-            // spawning /bin/sh via hook configs (e.g. `-c core.fsmonitor=<cmd>`),
-            // which escapes Deno's permission model and defeats the sandbox
-            // (GHSA-gj6h-vw66-mr8f). Only allow the specific chromium binary.
-            args.push("--allow-run=/usr/bin/chromium");
+            // Deliberately NO --allow-run: unlike every other language, deno jobs
+            // are never nsjail-wrapped, so the Deno permission model is the *only*
+            // sandbox boundary. Any allowed binary that can spawn a subprocess
+            // therefore escapes it entirely — git via hook configs
+            // (`-c core.fsmonitor=<cmd>`) and chromium via subprocess-launcher flags
+            // (`--renderer-cmd-prefix` / `--gpu-launcher`) both coerce /bin/sh and
+            // defeat the guarantee (GHSA-gj6h-vw66-mr8f). Omitting the flag denies
+            // all subprocess execution. Admins who accept the risk (e.g. puppeteer)
+            // can re-add specific binaries via DENO_FLAGS.
         } else {
             args.push("-A");
         }
