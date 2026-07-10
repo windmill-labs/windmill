@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:trixie-slim
-ARG RUST_IMAGE=rust:1.93-slim-trixie
+ARG RUST_IMAGE=rust:1.97-slim-trixie
 
 FROM debian:trixie-slim AS nsjail
 
