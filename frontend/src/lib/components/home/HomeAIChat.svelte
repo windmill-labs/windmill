@@ -1,16 +1,22 @@
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ArrowRight } from 'lucide-svelte'
+	import { ArrowRight, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import ProviderModelSelector from '../copilot/chat/ProviderModelSelector.svelte'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
+	import { copilotInfo } from '$lib/aiStore'
+	import { base } from '$lib/base'
 
 	let value = $state('')
 	let placeholder = $state('')
 
+	// No usable model (no provider configured, or AI disabled): the chat is shown but
+	// non-interactive, and hovering reveals a prompt to configure AI in the settings.
+	let disabled = $derived(!$copilotInfo.enabled)
+
 	let starting = $state(false)
 	async function start() {
-		if (starting || !value.trim()) return
+		if (disabled || starting || !value.trim()) return
 		starting = true
 		try {
 			await startSessionWithPrompt(value)
@@ -74,26 +80,47 @@
 </script>
 
 <div class="w-full flex justify-center">
-	<div class="max-w-[40rem] grow relative">
-		<TextInput
-			bind:value
-			class="resize-none px-4 py-3 pb-9 shadow-lg"
-			underlyingInputEl="textarea"
-			inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
-		/>
-		<Button
-			endIcon={starting ? {} : { icon: ArrowRight }}
-			wrapperClasses="absolute right-2 bottom-3.5"
-			variant={value.trim() ? 'accent' : 'default'}
-			iconOnly
-			loading={starting}
-			disabled={!value.trim() || starting}
-			onclick={start}
-		></Button>
+	<div class="max-w-[40rem] grow relative group">
 		<div
-			class="absolute left-3 bottom-4 flex items-center border rounded-md bg-surface-tertiary px-1"
+			class={disabled
+				? 'transition-[filter] group-hover:blur-sm pointer-events-none select-none'
+				: ''}
 		>
-			<ProviderModelSelector />
+			<TextInput
+				bind:value
+				class="resize-none px-4 py-3 pb-9 shadow-lg"
+				underlyingInputEl="textarea"
+				inputProps={{ rows: 4, placeholder, onkeydown: onKeydown, disabled }}
+			/>
+			<Button
+				endIcon={starting ? {} : { icon: ArrowRight }}
+				wrapperClasses="absolute right-2 bottom-3.5"
+				variant={value.trim() ? 'accent' : 'default'}
+				iconOnly
+				loading={starting}
+				disabled={!value.trim() || starting || disabled}
+				onclick={start}
+			></Button>
+			<div
+				class="absolute left-3 bottom-4 flex items-center border rounded-md bg-surface-tertiary px-1"
+			>
+				<ProviderModelSelector />
+			</div>
 		</div>
+		{#if disabled}
+			<div
+				class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/70 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+			>
+				<p class="text-sm text-secondary">No AI provider is configured</p>
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					startIcon={{ icon: Settings }}
+					href="{base}/workspace_settings?tab=ai"
+				>
+					Configure AI
+				</Button>
+			</div>
+		{/if}
 	</div>
 </div>
