@@ -44,6 +44,7 @@ mount {
     src: "/root/.local/share/uv/tools/ansible"
     dst: "/root/.local/share/uv/tools/ansible"
     is_bind: true
+    mandatory: false
 }
 
 mount {
@@ -97,6 +98,7 @@ mount {
     src: "{JOB_DIR}/ansible_collections/"
     dst: "/tmp/ansible_collections/"
     is_bind: true
+    mandatory: false
 }
 
 mount {

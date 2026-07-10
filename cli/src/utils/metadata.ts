@@ -574,6 +574,49 @@ export function extractWorkspaceDepsAnnotation(
   return { mode, external, inline };
 }
 
+// Mirrors backend ScriptLang::as_comment_lit (windmill-types/src/scripts.rs)
+// for the languages that can reach the lock cache.
+const LANG_COMMENT_LIT: Partial<Record<ScriptLanguage, string>> = {
+  python3: "#",
+  ansible: "#",
+  powershell: "#",
+  bun: "//",
+  nativets: "//",
+  deno: "//",
+  go: "//",
+  php: "//",
+  rust: "//!",
+};
+
+/**
+ * Returns the leading comment/blank-line block of the script, verbatim.
+ *
+ * Backend annotation parsing (PythonAnnotations / TypeScriptAnnotations via
+ * the `annotations!` macro, and `# py:` version lines) only reads this leading
+ * block, and those annotations (e.g. `# py311`, `# py: <spec>`, `//npm`,
+ * `# no_cache`) change the generated lockfile even when workspace
+ * dependencies fully specify the requirements. With workspace deps the
+ * backend runs in manual mode and ignores the script body, so two scripts
+ * sharing the same header, annotation, and deps resolve to the same lockfile.
+ */
+export function extractLockRelevantHeader(
+  scriptContent: string,
+  language: ScriptLanguage
+): string {
+  const comment = LANG_COMMENT_LIT[language];
+  // Unknown language: be conservative and treat the whole content as relevant.
+  if (!comment) return scriptContent;
+  const headerLines: string[] = [];
+  for (const line of scriptContent.split("\n")) {
+    if (line.trim() === "" || line.startsWith(comment)) {
+      headerLines.push(line);
+    } else {
+      break;
+    }
+  }
+  return headerLines.join("\n");
+}
+
 export async function computeLockCacheKey(
   scriptContent: string,
   language: ScriptLanguage,
@@ -589,7 +632,26 @@ export async function computeLockCacheKey(
   const tempRefsStr = tempScriptRefs
     ? Object.keys(tempScriptRefs).sort().map((k) => `${k}=${tempScriptRefs[k]}`).join(";")
     : "";
-  return await generateHash(`${language}|${annotationStr}|${depsStr}|${tempRefsStr}`);
+  // The lock only ignores the script body when the backend resolves it in
+  // manual workspace-deps mode: either the script has a manual annotation
+  // (external refs are fetched server-side by name when not in the raw map),
+  // or it has no annotation but its language matches a default workspace deps
+  // file (callers like updateModuleLocks pass the unfiltered map, so
+  // re-filter here). In every other case — extra mode (appends the script's
+  // scanned imports), deno/rust/ansible modules that only see deps of other
+  // languages, relative-import resolution via tempScriptRefs — the backend
+  // scans the script's own content, so it must be in the key.
+  const isManualWorkspaceDeps = annotation
+    ? annotation.mode === "manual"
+    : Object.keys(
+        filterWorkspaceDependencies(rawWorkspaceDependencies, scriptContent, language)
+      ).length > 0;
+  const contentStr = isManualWorkspaceDeps
+    ? extractLockRelevantHeader(scriptContent, language)
+    : scriptContent;
+  return await generateHash(
+    `${language}|${annotationStr}|${depsStr}|${tempRefsStr}|${contentStr}`
+  );
 }
 
 const lockCache = new Map<string, string>();

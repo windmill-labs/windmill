@@ -3,11 +3,11 @@ use anyhow::{anyhow, Error, Result};
 #[cfg(feature = "embedding")]
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 #[cfg(feature = "embedding")]
+use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
+#[cfg(feature = "embedding")]
 use windmill_common::DEFAULT_HUB_BASE_URL;
 #[cfg(feature = "embedding")]
 use windmill_common::HUB_BASE_URL;
-#[cfg(feature = "embedding")]
-use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 
 use axum::Router;
 
@@ -159,23 +159,52 @@ pub struct ModelInstance {
 
 #[cfg(feature = "embedding")]
 impl ModelInstance {
+    async fn get_hf_file(
+        repo_api: &hf_hub::api::tokio::ApiRepo,
+        filename: &str,
+    ) -> Result<PathBuf> {
+        // HuggingFace downloads have no built-in retry, so a single transient
+        // network blip would fail the whole image build. Retry with exponential
+        // backoff (1s, 2s, 4s, 8s, capped at 8s) up to MAX_ATTEMPTS times.
+        const MAX_ATTEMPTS: u32 = 5;
+        let mut attempt: u32 = 0;
+        loop {
+            attempt += 1;
+            match repo_api.get(filename).await {
+                Ok(path) => return Ok(path),
+                Err(e) => {
+                    if attempt >= MAX_ATTEMPTS {
+                        return Err(anyhow!(
+                            "Failed to get {} from hugging face after {} attempts: {}",
+                            filename,
+                            attempt,
+                            e
+                        ));
+                    }
+                    let delay_secs = 1u64 << (attempt - 1).min(3);
+                    tracing::warn!(
+                        "Failed to get {} from hugging face (attempt {}/{}): {}. Retrying in {}s...",
+                        filename,
+                        attempt,
+                        MAX_ATTEMPTS,
+                        e,
+                        delay_secs
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                }
+            }
+        }
+    }
+
     pub async fn load_model_files() -> Result<(PathBuf, PathBuf, PathBuf)> {
         let api = Api::new()?;
         let repo_api = api.model("thenlper/gte-small".to_string());
 
-        let (config_filename, tokenizer_filename, weights_filename) =
-            (
-                repo_api
-                    .get("config.json")
-                    .await
-                    .map_err(|e| anyhow!("Failed to get config.json from hugging face: {}", e))?,
-                repo_api.get("tokenizer.json").await.map_err(|e| {
-                    anyhow!("Failed to get tokenizer.json from hugging face: {}", e)
-                })?,
-                repo_api.get("model.safetensors").await.map_err(|e| {
-                    anyhow!("Failed to get model.safetensors from hugging face: {}", e)
-                })?,
-            );
+        let (config_filename, tokenizer_filename, weights_filename) = (
+            Self::get_hf_file(&repo_api, "config.json").await?,
+            Self::get_hf_file(&repo_api, "tokenizer.json").await?,
+            Self::get_hf_file(&repo_api, "model.safetensors").await?,
+        );
 
         Ok((config_filename, tokenizer_filename, weights_filename))
     }

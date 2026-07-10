@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM draft\n           WHERE workspace_id = $1\n             AND path = $2\n             AND typ = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f163ee5adf4caaaa12a5698e68c749524f1db10a51f3de6cadd4826e6c1d422"
+}

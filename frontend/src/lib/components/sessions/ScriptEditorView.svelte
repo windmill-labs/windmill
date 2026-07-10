@@ -3,8 +3,9 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
-	import { DraftService, ScriptService, type NewScript } from '$lib/gen'
+	import type { NewScript } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -15,7 +16,8 @@
 		workspaceId,
 		onNavigate,
 		initialTestPanelCollapsed = false,
-		isActiveSession = true
+		isActiveSession = true,
+		active = true
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -25,8 +27,12 @@
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
+		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
+		active?: boolean
 	} = $props()
 
+	// This tab's own script cell; each open script editor binds its own store.
+	const cell = $derived(runtime.scriptCell(path))
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	// Restore actions for the diff drawer. The previous shared
@@ -35,45 +41,43 @@
 	// reset the live UserDraft handle to the target baseline — the inbound
 	// effect then syncs the editor preview. Mirrors /scripts/edit's restore.
 	async function restoreDeployed() {
-		const saved = runtime.savedScript.val
+		const saved = cell.saved.val
 		if (!saved) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		// Drop the backend (DB) draft too, so "deployed" sticks across a reload.
-		if (saved.draft) {
-			try {
-				await DraftService.deleteDraft({ workspace: workspaceId, kind: 'script', path: saved.path })
-				saved.draft = undefined
-				// Server draft gone — refresh the session draft-bar count immediately
-				// instead of waiting for an AI turn-end / tab-refocus signal.
-				invalidateWorkspaceDrafts(workspaceId)
-			} catch (e: any) {
-				sendUserToast(`Could not delete draft: ${e?.body ?? e}`, true)
-				return
-			}
+		// Drop the user's per-user draft too, so "deployed" sticks across
+		// a reload. The overlay sets `is_draft: true` when a draft exists
+		// for the authed user; the syncer's `value: null` POST is the
+		// canonical per-user delete.
+		//
+		// Fire-and-forget: every read here (`saved`, the snapshot we build
+		// below, the UserDraft.discard write) is purely in-memory, so we
+		// don't need the DELETE to have landed to finish the restore. We
+		// flip `is_draft` optimistically so the UI matches the new intent
+		// immediately. A failed DELETE only matters across a hard reload
+		// before it lands — log and move on.
+		if (saved.is_draft) {
+			saved.is_draft = false
+			UserDraftDbSyncer.save({
+				workspace: workspaceId,
+				itemKind: 'script',
+				path: saved.path,
+				value: null
+			}).catch((e) => console.error('restoreDeployed: draft delete failed', e))
+			// Per-user draft gone — refresh the session draft-bar count immediately
+			// instead of waiting for an AI turn-end / tab-refocus signal.
+			invalidateWorkspaceDrafts(workspaceId)
 		}
 		const deployed = structuredClone($state.snapshot(saved)) as NewScript & { draft?: unknown }
 		delete deployed.draft
 		UserDraft.discard<NewScript>('script', path, deployed, { workspace: workspaceId })
 	}
-
-	async function restoreDraft() {
-		const backendDraft = runtime.savedScript.val?.draft as NewScript | undefined
-		if (!backendDraft) {
-			sendUserToast('Could not restore to draft', true)
-			return
-		}
-		diffDrawer?.closeDrawer()
-		UserDraft.discard<NewScript>('script', path, structuredClone($state.snapshot(backendDraft)), {
-			workspace: workspaceId
-		})
-	}
 </script>
 
-{#if runtime.savedScript.val}
-	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+{#if cell.saved.val}
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 {/if}
 <SessionEditorTarget
 	{runtime}
@@ -82,10 +86,11 @@
 	{workspaceId}
 	{onNavigate}
 	{isActiveSession}
-	effectivePath={() => runtime.scriptStore.val?.path ?? path}
+	isActiveTab={active}
+	effectivePath={() => cell.store.val?.path ?? path}
 >
 	{#snippet editor()}
-		{#if runtime.scriptStore.val}
+		{#if cell.store.val}
 			<!--
 				A script with no backend version yet (AI-created, never saved or deployed
 				→ savedScript undefined) is a *new* script: pass an empty initialPath so
@@ -95,34 +100,19 @@
 				edit mode (Save draft + Diff) without navigating away.
 			-->
 			<ScriptBuilder
-				bind:script={runtime.scriptStore.val}
-				bind:savedScript={runtime.savedScript.val}
-				initialPath={runtime.savedScript.val ? path : ''}
+				bind:script={cell.store.val}
+				bind:savedScript={cell.saved.val}
+				initialPath={cell.saved.val ? path : ''}
+				autosaveWorkspace={workspaceId}
+				autosavePath={path}
 				initialPathChosen={true}
 				neverShowMeta={true}
-				fullyLoaded={!runtime.slot('script').loading}
+				fullyLoaded={!cell.slot.loading}
 				disableHistoryChange={true}
+				condensedHeader={true}
 				{diffDrawer}
 				{onNavigate}
 				{initialTestPanelCollapsed}
-				onSaveDraft={async (e) => {
-					runtime.scheduleForkComparisonRefresh()
-					// Saving a draft adds/keeps a pending draft — refresh the Draft Count.
-					invalidateWorkspaceDrafts(workspaceId)
-					// Re-pin parent_hash to the latest version so the next Deploy's conflict
-					// check (which runs before deploy, while the session stays mounted)
-					// doesn't misfire.
-					try {
-						const latest = await ScriptService.getScriptLatestVersion({
-							workspace: workspaceId,
-							path: e.path
-						})
-						const cur = runtime.scriptStore.val
-						if (latest?.script_hash && cur) cur.parent_hash = latest.script_hash
-					} catch (err) {
-						console.error('Failed to sync parent_hash after save draft', err)
-					}
-				}}
 				onDeploy={(e) => {
 					// Fires on every deploy (primary, "Deploy & Stay here", and lib — we
 					// ignore e.stay since the session always stays). Toast, then sync the

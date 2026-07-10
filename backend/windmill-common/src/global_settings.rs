@@ -1,3 +1,8 @@
+// Adding a global setting? Decide whether agent workers may read it. Agent
+// workers (remote workers connected over HTTP) fetch settings through an
+// endpoint that is deny-by-exception: every key is served except those in
+// AGENT_WORKER_BLOCKED_SETTINGS (defined below). If a new setting holds an
+// instance secret the server should keep to itself, add its key there.
 pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 pub const DEFAULT_TAGS_PER_WORKSPACE_SETTING: &str = "default_tags_per_workspace";
 pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
@@ -63,10 +68,15 @@ pub const SANDBOX_IMAGE_CACHE_MAX_MB_SETTING: &str = "sandbox_image_cache_max_mb
 pub const SANDBOX_IMAGE_PULL_POLICY_SETTING: &str = "sandbox_image_pull_policy";
 pub const SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING: &str = "sandbox_image_default_registry";
 pub const SANDBOX_REGISTRY_AUTH_SETTING: &str = "sandbox_registry_auth";
+// Enables the `#ssh <resource>` directive that reroutes bash execution to a
+// remote host over SSH (enterprise feature). Off by default. See
+// windmill-worker/src/ssh_executor_ee.rs.
+pub const SSH_EXECUTION_SETTING: &str = "ssh_execution_enabled";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
+pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
@@ -99,6 +109,53 @@ pub const WORKSPACE_FAIRNESS_ENABLED_SETTING: &str = "workspace_fairness_enabled
 pub const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING: &str = "workspace_fairness_max_percent";
 pub const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING: &str = "workspace_fairness_duration_secs";
 pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_total_jobs";
+
+/// Global settings an agent worker (a remote worker connected over HTTP instead
+/// of to the database) must NEVER read through
+/// `GET /api/agent_workers/get_global_setting/{key}`. Every other key is served.
+///
+/// SECURITY: that endpoint is authenticated only by an agent-worker JWT and
+/// returns the raw `global_settings` value for the requested key. Because the
+/// policy is deny-by-exception (anything not listed here is readable), every
+/// setting that holds an instance secret or credential an agent worker does not
+/// need MUST be listed below. Missing one discloses it to every agent worker —
+/// `jwt_secret` is the worst case (a token holder could forge a superadmin JWT),
+/// but `oauths`, `smtp_settings`, `secret_backend`, object-store credentials,
+/// etc. are instance-wide secrets too.
+///
+/// NOT blocked, on purpose: the operational credentials an agent worker loads to
+/// run jobs (`license_key`, `hub_api_secret`, `sandbox_registry_auth`,
+/// `powershell_repo_pat`, `npmrc`, ...). Those are already within an agent
+/// worker's trust boundary, and blocking them breaks worker startup or
+/// dependency installation. When adding a new setting that stores a secret the
+/// server keeps to itself, add it here.
+pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
+    // Instance identity / auth secrets — disclosure enables privilege escalation
+    // or impersonation.
+    JWT_SECRET_SETTING,
+    OAUTH_SETTING,
+    SMTP_SETTING,
+    SCIM_TOKEN_SETTING,
+    SAML_METADATA_SETTING,
+    SECRET_BACKEND_SETTING,
+    GITHUB_ENTERPRISE_APP_SETTING,
+    OBJECT_STORE_CONFIG_SETTING,
+    AI_CONFIG_SETTING,
+    TEAMS_SETTING,
+    INDEXER_SETTING,
+    // Server-only configs that may embed credentials, webhook URLs or tokens and
+    // are never loaded by an agent worker.
+    CRITICAL_ERROR_CHANNELS_SETTING,
+    INSTANCE_EVENTS_WEBHOOK_SETTING,
+    OTEL_SETTING,
+    OTEL_TRACING_PROXY_SETTING,
+];
+
+/// Whether an agent worker may read the given global setting over HTTP.
+/// Deny-by-exception: everything is readable except [`AGENT_WORKER_BLOCKED_SETTINGS`].
+pub fn is_setting_readable_by_agent_worker(name: &str) -> bool {
+    !AGENT_WORKER_BLOCKED_SETTINGS.contains(&name)
+}
 
 use std::sync::atomic::AtomicBool;
 
@@ -258,6 +315,62 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
     match client_name {
         "google" => "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
         _ => format!("{}/apps/oauth2/authorize", base_url),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_workers_can_read_operational_settings() {
+        // Operational knobs and the credentials a worker needs to run jobs are
+        // intentionally NOT blocked. Deny-by-exception also means an arbitrary
+        // unlisted key is readable.
+        for key in [
+            NPMRC_SETTING,
+            PIP_INDEX_URL_SETTING,
+            JOB_ISOLATION_SETTING,
+            LICENSE_KEY_SETTING,
+            HUB_API_SECRET_SETTING,
+            SANDBOX_REGISTRY_AUTH_SETTING,
+            POWERSHELL_REPO_PAT_SETTING,
+            "some_future_operational_setting",
+        ] {
+            assert!(
+                is_setting_readable_by_agent_worker(key),
+                "'{key}' must remain readable by agent workers"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_workers_cannot_read_instance_secrets() {
+        // Disclosing any of these to a remote worker enables privilege
+        // escalation (jwt_secret -> forged superadmin JWT) or leaks instance
+        // secrets. They must never be served by the agent-worker endpoint.
+        for key in [
+            JWT_SECRET_SETTING,
+            OAUTH_SETTING,
+            SMTP_SETTING,
+            SCIM_TOKEN_SETTING,
+            SAML_METADATA_SETTING,
+            SECRET_BACKEND_SETTING,
+            GITHUB_ENTERPRISE_APP_SETTING,
+            OBJECT_STORE_CONFIG_SETTING,
+            AI_CONFIG_SETTING,
+            TEAMS_SETTING,
+            INDEXER_SETTING,
+            CRITICAL_ERROR_CHANNELS_SETTING,
+            INSTANCE_EVENTS_WEBHOOK_SETTING,
+            OTEL_SETTING,
+            OTEL_TRACING_PROXY_SETTING,
+        ] {
+            assert!(
+                !is_setting_readable_by_agent_worker(key),
+                "'{key}' is an instance secret and must not be readable by agent workers"
+            );
+        }
     }
 }
 

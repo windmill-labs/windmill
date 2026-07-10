@@ -5,8 +5,8 @@ use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, ObjectLit, Prop,
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
 use windmill_parser::asset_parser::{
-    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsOutput, ParseAssetsResult, SqlQueryDetails,
+    asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
+    AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult, SqlQueryDetails,
 };
 use AssetUsageAccessType::*;
 
@@ -38,10 +38,12 @@ pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
     let mut assets_finder =
         AssetsFinder { assets: vec![], sql_queries: vec![], var_identifiers: HashMap::new() };
     assets_finder.visit_module_items(&ast);
-    Ok(ParseAssetsOutput {
-        assets: merge_assets(assets_finder.assets),
-        sql_queries: assets_finder.sql_queries,
-    })
+    let pipeline = parse_pipeline_annotations(code);
+    Ok(ParseAssetsOutput::new(
+        merge_assets(assets_finder.assets),
+        assets_finder.sql_queries,
+        pipeline,
+    ))
 }
 
 type VarAssetName = String;
@@ -339,12 +341,25 @@ fn object_str_prop(obj: &ObjectLit, name: &str) -> Option<String> {
 /// `writeS3File` to a canonical asset path, mirroring the runtime
 /// `parseS3Object`: an object `{ s3: "<key>", storage?: "<bucket>" }` maps to
 /// the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
-/// `s3:///<key>`), and a bare `"s3://bucket/key"` string is passed through.
+/// `s3:///<key>`), and a `"s3://bucket/key"` URI string is passed through.
+/// String args mirror the runtime `parseS3Object` contract exactly: only a
+/// `s3://<storage>/<key>` URI with a non-empty key is valid — any other
+/// string (bare key, `s3://x`, empty key) throws at run time, so recording an
+/// edge for it would be a phantom node for a call that can only error.
 /// The resulting URI is fed through `parse_asset_syntax` so the stored path
 /// matches the `// on s3:///…` trigger form exactly.
 fn s3_object_arg_path(arg: &Expr) -> Option<String> {
     let uri = match arg {
-        Expr::Lit(Lit::Str(s)) => s.value.to_string(),
+        Expr::Lit(Lit::Str(s)) => {
+            let v = s.value.to_string();
+            match v
+                .strip_prefix("s3://")
+                .and_then(|rest| rest.split_once('/'))
+            {
+                Some((_, key)) if !key.is_empty() => v,
+                _ => return None,
+            }
+        }
         Expr::Object(obj) => {
             let key = object_str_prop(obj, "s3")?;
             let storage = object_str_prop(obj, "storage").unwrap_or_default();
@@ -418,7 +433,7 @@ mod tests {
             s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/test.csv".to_string(),
+                path: "test.csv".to_string(),
                 access_type: Some(R),
                 columns: None,
             },])
@@ -446,7 +461,31 @@ mod tests {
             s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/pipelines/km_real/raw_events.json".to_string(),
+                path: "pipelines/km_real/raw_events.json".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_write_key_matches_duckdb_read_key() {
+        // Cross-language lineage: this write records `exports/x`, the same path a
+        // DuckDB `read_csv('s3://exports/x')` resolves to (see
+        // windmill-parser-sql-asset `test_duckdb_read_key_matches_sdk_write_key`),
+        // so the producer and consumer connect in the pipeline graph.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File({ s3: "exports/x" }, "[]")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "exports/x".to_string(),
                 access_type: Some(W),
                 columns: None,
             },])
@@ -476,6 +515,42 @@ mod tests {
     }
 
     #[test]
+    fn test_ts_asset_parser_bare_string_no_asset() {
+        // A plain (non-`s3://`) string is rejected by the runtime
+        // `parseS3Object`, so the parser must not record a phantom asset for
+        // a call that can only error.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File("pipelines/etl/out.jsonl", "[]")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(s.map(|r| r.assets).map_err(|e| e.to_string()), Ok(vec![]));
+    }
+
+    #[test]
+    fn test_ts_asset_parser_invalid_uri_no_write_edge() {
+        // `s3://x` (no key part) and `s3://bucket/` (empty key) are rejected
+        // by the runtime `parseS3Object` — same rule for the SDK-arg path:
+        // no R/W edge. The generic URI-literal scan may still record them as
+        // ambiguous (`access_type: None`) assets, like any `s3://…` string
+        // constant anywhere in a script.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File("s3://broken", "[]")
+                await wmill.writeS3File("s3://bucket/", "[]")
+            }
+        "#;
+        let assets = parse_assets(input).expect("parse").assets;
+        assert!(
+            assets.iter().all(|a| a.access_type.is_none()),
+            "invalid URIs must not produce R/W edges: {assets:?}"
+        );
+    }
+
+    #[test]
     fn test_ts_asset_parser_multiple_s3_object_writes() {
         // Mirrors the f/km/r_seed shape: several direct object-form writes in
         // main() — all four outputs must be detected.
@@ -495,25 +570,25 @@ mod tests {
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/pipelines/km_real/enriched.json".to_string(),
+                    path: "pipelines/km_real/enriched.json".to_string(),
                     access_type: Some(W),
                     columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/pipelines/km_real/raw_events.json".to_string(),
+                    path: "pipelines/km_real/raw_events.json".to_string(),
                     access_type: Some(W),
                     columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/pipelines/km_real/report.json".to_string(),
+                    path: "pipelines/km_real/report.json".to_string(),
                     access_type: Some(W),
                     columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "/pipelines/km_real/summary.json".to_string(),
+                    path: "pipelines/km_real/summary.json".to_string(),
                     access_type: Some(W),
                     columns: None,
                 },
@@ -534,7 +609,7 @@ mod tests {
             s.map(|r| r.assets).map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/out.json".to_string(),
+                path: "out.json".to_string(),
                 access_type: Some(W),
                 columns: None,
             },])

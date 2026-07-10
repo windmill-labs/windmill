@@ -45,7 +45,8 @@
 		pathStore,
 		customUi,
 		preserveOnBehalfOf,
-		savedOnBehalfOfEmail
+		savedOnBehalfOfEmail,
+		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
@@ -146,6 +147,7 @@
 							initialPath={$initialPathStore}
 							namePlaceholder="flow"
 							kind="flow"
+							workspaceOverride={opWorkspace?.()}
 						/>
 						{#if $initialPathStore && $pathStore && $pathStore !== $initialPathStore}
 							<Alert
@@ -205,7 +207,11 @@
 
 						{#if displayWorkerTagPicker}
 							<div transition:slide={{ duration: 120 }} class="mt-2">
-								<WorkerTagPicker bind:tag={flowStore.val.tag} popupPlacement="top-end" />
+								<WorkerTagPicker
+									bind:tag={flowStore.val.tag}
+									popupPlacement="top-end"
+									workspaceId={opWorkspace?.()}
+								/>
 							</div>
 							{#if flowStore.val.tag}
 								<div
@@ -448,7 +454,7 @@
 					/>
 					{#if flowStore.val.on_behalf_of_email && canPreserve}
 						&rarr; <OnBehalfOfSelector
-							targetWorkspace={$workspaceStore ?? ''}
+							targetWorkspace={opWorkspace?.() ?? $workspaceStore ?? ''}
 							targetValue={$savedOnBehalfOfEmail}
 							selected={onBehalfOfChoice}
 							onSelect={(choice, details) => {

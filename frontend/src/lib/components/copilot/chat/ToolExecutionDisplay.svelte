@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Loader2, ChevronDown, ChevronRight, XCircle, Play } from 'lucide-svelte'
+	import { Loader2, ChevronRight, XCircle, Play } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
 	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
 	import { twMerge } from 'tailwind-merge'
+	import { slide } from 'svelte/transition'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
@@ -48,42 +49,41 @@
 {#if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
 {:else}
-	<div class="bg-surface border border-border-light rounded-md overflow-hidden font-mono text-xs">
+	<div class="font-mono text-xs">
 		<!-- Collapsible Header -->
 		<button
 			class={twMerge(
-				'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center justify-between text-left',
-				isExpanded ? 'border-b border-border-light' : '',
+				'py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center text-left',
 				message.needsConfirmation ? 'opacity-80' : ''
 			)}
 			onclick={() => (isExpanded = !isExpanded)}
 			disabled={!message.showDetails && !message.isStreamingArguments}
 		>
-			<div class="flex items-center gap-2 flex-1">
-				{#if message.showDetails || message.isStreamingArguments}
-					{#if isExpanded}
-						<ChevronDown class="w-3 h-3 text-secondary" />
-					{:else}
-						<ChevronRight class="w-3 h-3 text-secondary" />
-					{/if}
-				{/if}
-
+			<div class="flex items-center gap-2">
 				{#if message.isLoading && !message.needsConfirmation}
 					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-				{:else if message.error}
-					<span class="text-red-500">✗</span>
-				{:else if !message.isLoading && !message.error}
-					<span class="text-green-500">✓</span>
 				{/if}
 				<span class="text-primary font-medium text-2xs">
 					{message.content}
 				</span>
+
+				{#if message.showDetails || message.isStreamingArguments}
+					<ChevronRight
+						class={twMerge(
+							'w-3 h-3 text-secondary transition-transform duration-150',
+							isExpanded ? 'rotate-90' : ''
+						)}
+					/>
+				{/if}
 			</div>
 		</button>
 
 		<!-- Expanded Content -->
 		{#if isExpanded}
-			<div class="p-2 bg-surface space-y-3">
+			<div
+				transition:slide={{ duration: 150 }}
+				class="border border-border-light rounded-md bg-surface p-3 space-y-3"
+			>
 				<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
 				{#if hasParameters || message.needsConfirmation}
 					<div class={message.needsConfirmation ? 'opacity-80' : ''}>
@@ -99,12 +99,7 @@
 
 				<!-- Confirmation Footer -->
 				{#if message.needsConfirmation}
-					<div
-						class={twMerge(
-							'mt-3 pt-3 flex flex-row items-center justify-end gap-2',
-							hasParameters ? 'border-t border-border-light' : ''
-						)}
-					>
+					<div class="flex flex-row items-center justify-end gap-2">
 						<Button
 							variant="default"
 							size="xs"

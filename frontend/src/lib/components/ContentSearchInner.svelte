@@ -363,11 +363,7 @@
 								>
 									Open
 								</Button>
-								<Button
-									href={`/apps/edit/${item.path}?no_draft=true`}
-									target="_blank"
-									startIcon={{ icon: Edit }}
-								>
+								<Button href={`/apps/edit/${item.path}`} target="_blank" startIcon={{ icon: Edit }}>
 									Edit
 								</Button>
 							{/snippet}

@@ -2,7 +2,7 @@
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import { untrack } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
-	import { dbSchemas, userStore, workspaceStore } from '$lib/stores'
+	import { aiUserDisabled, dbSchemas, userStore, workspaceStore } from '$lib/stores'
 	import { AIMode } from './AIChatManager.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 
@@ -10,7 +10,7 @@
 	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
-	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
+	import { copilotInfo } from '$lib/aiStore'
 
 	let {
 		hideHeader = false,
@@ -19,7 +19,9 @@
 		forceDisabledMessage = '',
 		wideLayout = false,
 		emptyHint,
-		inputPreface
+		inputPreface,
+		initialInstructions = undefined,
+		onDraftChange = undefined
 	}: {
 		hideHeader?: boolean
 		hideModeSelector?: boolean
@@ -35,6 +37,9 @@
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		inputPreface?: import('svelte').Snippet
+		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
+		initialInstructions?: string
+		onDraftChange?: (text: string) => void
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -50,9 +55,11 @@
 		forceDisabled
 			? forceDisabledMessage
 			: !hasCopilot
-				? isAdmin
-					? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
-					: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+				? $aiUserDisabled
+					? 'Windmill AI is disabled in your account settings'
+					: isAdmin
+						? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
+						: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 				: aiChatManager.mode === AIMode.SCRIPT &&
 					  aiChatManager.scriptEditorOptions?.lang &&
 					  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
@@ -97,7 +104,7 @@
 	})
 
 	$effect(() => {
-		aiChatManager.listenForContextChange($dbSchemas, $workspaceStore, $copilotSessionModel)
+		aiChatManager.listenForContextChange($dbSchemas, $workspaceStore)
 	})
 
 	$effect(() => {
@@ -136,12 +143,14 @@
 	availableContext={aiChatManager.mode === AIMode.APP
 		? aiChatManager.getAppAvailableContext()
 		: aiChatManager.contextManager.getAvailableContext()}
-	messages={aiChatManager.currentReply
+	messages={aiChatManager.currentReply || aiChatManager.currentReasoning
 		? [
 				...aiChatManager.displayMessages,
 				{
 					role: 'assistant',
 					content: aiChatManager.currentReply,
+					...(aiChatManager.currentReasoning ? { reasoning: aiChatManager.currentReasoning } : {}),
+					streaming: true,
 					contextElements: aiChatManager.contextManager
 						.getSelectedContext()
 						.filter((c) => c.type === 'code')
@@ -159,7 +168,8 @@
 	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
 		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
-		aiChatManager.scriptEditorOptions.lastDeployedCode !== aiChatManager.scriptEditorOptions.code}
+		aiChatManager.scriptEditorOptions.lastDeployedCode !==
+			aiChatManager.scriptEditorOptions.getCode()}
 	diffMode={aiChatManager.scriptEditorOptions?.diffMode ?? false}
 	{disabled}
 	{disabledMessage}
@@ -169,4 +179,6 @@
 	{wideLayout}
 	{emptyHint}
 	{inputPreface}
+	{initialInstructions}
+	{onDraftChange}
 ></AIChatDisplay>

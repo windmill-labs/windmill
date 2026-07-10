@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM script s WHERE s.workspace_id = $1 AND s.hash NOT IN (\n            SELECT DISTINCT ON (path) hash FROM script\n            WHERE workspace_id = $1 AND deleted = false\n            ORDER BY path, created_at DESC\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ed8351ccac2df2a4bd327383003d86af3e3f0b9ab326e4ea89267514ecc66f71"
+}

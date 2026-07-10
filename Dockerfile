@@ -1,7 +1,7 @@
-ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.93-slim-bookworm
+ARG DEBIAN_IMAGE=debian:trixie-slim
+ARG RUST_IMAGE=rust:1.93-slim-trixie
 
-FROM debian:bookworm-slim AS nsjail
+FROM debian:trixie-slim AS nsjail
 
 WORKDIR /nsjail
 
@@ -9,12 +9,12 @@ RUN apt-get -y update \
     && apt-get install -y \
     bison=2:3.8.* \
     flex=2.6.* \
-    g++=4:12.2.* \
-    gcc=4:12.2.* \
-    git=1:2.39.* \
+    g++=4:14.2.* \
+    gcc=4:14.2.* \
+    git=1:2.47.* \
     libprotobuf-dev=3.21.* \
     libnl-route-3-dev=3.7.* \
-    make=4.3-4.1 \
+    make=4.4.* \
     pkg-config=1.8.* \
     protobuf-compiler=3.21.*
 
@@ -44,7 +44,7 @@ FROM rust_base AS windmill_duckdb_ffi_internal_builder
 
 WORKDIR /windmill-duckdb-ffi-internal
 
-RUN apt-get update && apt-get install -y clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+RUN apt-get update && apt-get install -y clang=1:19.0* libclang-dev=1:19.0* cmake=3.31.* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -98,7 +98,7 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* libkrb5-dev libsasl2-dev libcurl4-openssl-dev clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+RUN apt-get update && apt-get install -y libxml2-dev=2.12.* libxmlsec1-dev=1.2.* libkrb5-dev libsasl2-dev libcurl4-openssl-dev clang=1:19.0* libclang-dev=1:19.0* cmake=3.31.* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -135,9 +135,8 @@ FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.5.0
-ARG POWERSHELL_DEB_VERSION=7.5.0-1
-ARG KUBECTL_VERSION=1.28.7
-ARG HELM_VERSION=3.14.3
+ARG KUBECTL_VERSION=1.36.2
+ARG HELM_VERSION=3.21.2
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
 ARG GO_VERSION=1.26.0
 ARG APP=/usr/src/app
@@ -163,14 +162,14 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 software-properties-common tini gnupg lsb-release \
+    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 tini gnupg libargon2-1 \
     && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install latest PostgreSQL client (pg_dump) from official PostgreSQL apt repository
 RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release; echo "$VERSION_CODENAME")-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client \
     && apt-get clean \
@@ -183,12 +182,14 @@ RUN if [ "$WITH_GIT" = "true" ]; then \
     && rm -rf /var/lib/apt/lists/*; \
     else echo 'Building the image without git'; fi;
 
+# PowerShell ships as a tarball: the upstream .deb depends on libicu<=74 which no longer exists in trixie
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
-    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* && \
-    dpkg --install 'pwsh.deb' && \
-    rm 'pwsh.deb'; \
-    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O powershell.tar.gz "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-arm64.tar.gz" && apt-get clean \
+    case "$TARGETPLATFORM" in \
+    "linux/amd64") pwsh_arch=x64 ;; \
+    "linux/arm64") pwsh_arch=arm64 ;; \
+    *) pwsh_arch="" ;; \
+    esac; \
+    if [ -n "$pwsh_arch" ]; then apt-get update -y && apt install libicu76 -y && wget -O powershell.tar.gz "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-${pwsh_arch}.tar.gz" && apt-get clean \
     && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /opt/microsoft/powershell/7 && \
     tar zxf powershell.tar.gz -C /opt/microsoft/powershell/7 && \
@@ -233,7 +234,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.25/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.11.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
@@ -292,7 +293,7 @@ RUN bun install -g windmill-cli \
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
 
-COPY --from=php:8.3.30-cli-bookworm /usr/local/bin/php /usr/bin/php
+COPY --from=php:8.3.30-cli-trixie /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
@@ -303,13 +304,13 @@ ENV CARGO_HOME="/tmp/windmill/cache/cargo"
 ENV LD_LIBRARY_PATH="."
 
 # nsjail runtime deps and binary
-RUN apt-get update && apt-get install -y --no-install-recommends libprotobuf32 libnl-route-3-200 libnl-3-200 \
+RUN apt-get update && apt-get install -y --no-install-recommends libprotobuf32t64 libnl-route-3-200 libnl-3-200 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 # crane: pulls + flattens images for the sandboxed container runtime (`# sandbox <image>`).
 # Single static binary — no daemon/store/root needed. See docs/docker-v2-runtime.md.
-ARG CRANE_VERSION=v0.20.6
+ARG CRANE_VERSION=v0.21.7
 RUN arch="$(dpkg --print-architecture)"; \
     case "$arch" in amd64) crane_arch=x86_64 ;; arm64) crane_arch=arm64 ;; *) echo >&2 "error: unsupported arch '$arch' for crane"; exit 1 ;; esac; \
     wget -O /tmp/crane.tgz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz" \

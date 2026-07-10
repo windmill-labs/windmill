@@ -591,7 +591,7 @@ pub async fn run_agent(
     let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&credentials);
+    let query_builder = create_query_builder(&credentials, args.provider.get_model());
 
     // Initialize messages
     let mut messages =
@@ -869,6 +869,7 @@ pub async fn run_agent(
                         tool_defs.as_deref(),
                         args.provider.get_model(),
                         args.temperature,
+                        args.provider.get_reasoning_effort(),
                         args.max_completion_tokens,
                         api_key,
                         region,
@@ -895,6 +896,7 @@ pub async fn run_agent(
                 tools: tool_defs.as_deref(),
                 model: args.provider.get_model(),
                 temperature: args.temperature,
+                reasoning_effort: args.provider.get_reasoning_effort(),
                 max_tokens: args.max_completion_tokens,
                 output_schema: args.output_schema.as_ref(),
                 output_type,
@@ -1028,6 +1030,11 @@ pub async fn run_agent(
                 // Add websearch tool message if websearch was used
                 if used_websearch {
                     actions.push(AgentAction::WebSearch {});
+                    if let Some(parent_job) = parent_job {
+                        update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                        update_flow_status_module_with_actions_success(db, parent_job, true)
+                            .await?;
+                    }
                     messages.push(OpenAIMessage {
                         role: "tool".to_string(),
                         content: Some(OpenAIContent::Text(

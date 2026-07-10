@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.runnable_path AS \"runnable_path!\", j.kind::text AS \"kind!\",\n                  q.runnable_settings_handle\n             FROM v2_job j JOIN v2_job_queue q ON q.id = j.id\n             WHERE j.workspace_id = $1 AND j.trigger_kind = 'asset'\n             ORDER BY j.runnable_path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "runnable_settings_handle",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      true
+    ]
+  },
+  "hash": "c3e4ee8cb8d5f7065d4415a57e67bb20d36921599e2bf97c0193f5853df58f59"
+}

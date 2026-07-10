@@ -1171,7 +1171,7 @@ export const components = {
 	chatcomponent: {
 		name: 'Chat',
 		icon: MessageSquare,
-		documentationLink: `${documentationBaseUrl}/chat`,
+		documentationLink: `${documentationBaseUrl}/app_component_library`,
 		dims: '3:8-6:12' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -1299,7 +1299,7 @@ export const components = {
 	jobprogressbarcomponent: {
 		name: 'Progress Bar by Job Id',
 		icon: Monitor,
-		documentationLink: `${documentationBaseUrl}/progress_bar`,
+		documentationLink: `${documentationBaseUrl}/app_component_library`,
 		dims: '2:2-6:2' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -1467,7 +1467,7 @@ export const components = {
 		name: 'Code Input',
 		icon: Code,
 		dims: '2:1-4:4' as AppComponentDimensions,
-		documentationLink: `${documentationBaseUrl}/code`,
+		documentationLink: `${documentationBaseUrl}/code_input`,
 		customCss: {
 			text: { class: '', style: '' },
 			container: { class: '', style: '' }
@@ -1810,7 +1810,7 @@ export const components = {
 	piechartcomponent: {
 		name: 'Pie Chart',
 		icon: PieChart,
-		documentationLink: `${documentationBaseUrl}/pie_chart`,
+		documentationLink: `${documentationBaseUrl}/chartjs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1919,7 +1919,7 @@ export const components = {
 	barchartcomponent: {
 		name: 'Bar/Line Chart',
 		icon: BarChart4,
-		documentationLink: `${documentationBaseUrl}/bar_line_chart`,
+		documentationLink: `${documentationBaseUrl}/chartjs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2132,7 +2132,7 @@ This is a paragraph.
 	timeseriescomponent: {
 		name: 'Timeseries',
 		icon: GripHorizontal,
-		documentationLink: `${documentationBaseUrl}/timeseries`,
+		documentationLink: `${documentationBaseUrl}/chartjs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2206,7 +2206,7 @@ This is a paragraph.
 	scatterchartcomponent: {
 		name: 'Scatter Chart',
 		icon: GripHorizontal,
-		documentationLink: `${documentationBaseUrl}/scatter_chart`,
+		documentationLink: `${documentationBaseUrl}/chartjs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }

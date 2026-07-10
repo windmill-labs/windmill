@@ -6,6 +6,7 @@ import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { getEsbuild, stopEsbuild } from "../../utils/esbuild_loader.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -170,8 +171,9 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 export async function createBundle(
   options: BundleOptions = {}
 ): Promise<BundleResult> {
-  // Dynamically import esbuild
-  const esbuild = await import("esbuild");
+  // Native esbuild with a transparent esbuild-wasm fallback on host/binary
+  // version mismatch (see esbuild_loader.ts).
+  const esbuild = await getEsbuild();
 
   // Detect frameworks to determine default entry point.
   // Use the entryPoint's directory if provided, otherwise fall back to cwd.
@@ -286,6 +288,10 @@ export async function createBundle(
     outfile,
     sourcemap,
     minify,
+    // Keep outputs in memory: esbuild-wasm cannot write to the filesystem
+    // ("write" option unavailable), and the dist files were discarded after the
+    // read anyway. Native esbuild supports write:false + outputFiles too.
+    write: false as const,
     define: {
       "process.env.NODE_ENV": production ? '"production"' : '"development"',
     },
@@ -307,29 +313,24 @@ export async function createBundle(
 
     log.info(colors.green("✅ Bundle created successfully"));
 
-    // Read the generated files
-    const jsPath = path.join(process.cwd(), outfile);
-    const cssPath = path.join(process.cwd(), outDir, "bundle.css");
+    const outputFiles = result.outputFiles ?? [];
+    const jsFile = outputFiles.find((f) => f.path.endsWith(".js"));
+    const cssFile = outputFiles.find((f) => f.path.endsWith(".css"));
 
-    if (!fs.existsSync(jsPath)) {
-      throw new Error(`Expected JS bundle at ${jsPath} but file not found`);
+    if (!jsFile) {
+      throw new Error("Expected a JS bundle in esbuild output but none found");
     }
-
-    const jsContent = readTextFileSync(jsPath);
-    const cssContent = fs.existsSync(cssPath)
-      ? readTextFileSync(cssPath)
-      : "";
 
     try {
       fs.rmSync(distDir, { recursive: true });
     } catch {
       //ignore
     }
-    return { js: jsContent, css: cssContent };
-    
+    return { js: jsFile.text, css: cssFile?.text ?? "" };
+
   } finally {
-    // Stop esbuild
-    await esbuild.stop();
+    // Stop the native esbuild service so the process can exit (no-op for wasm).
+    await stopEsbuild();
   }
 }
 

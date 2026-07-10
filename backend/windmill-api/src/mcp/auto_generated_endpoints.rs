@@ -7,25 +7,53 @@ use windmill_mcp::server::EndpointTool;
 pub fn all_tools() -> Vec<EndpointTool> {
     vec![
     EndpointTool {
-        name: Cow::Borrowed("queryDocumentation"),
-        description: Cow::Borrowed("query Windmill AI documentation assistant (EE only)"),
+        name: Cow::Borrowed("searchDocs"),
+        description: Cow::Borrowed("Full-text search across the entire Windmill documentation. Provide one or more keywords; returns the most relevant docs pages, each with its Source URL and short matching snippets. Use this FIRST to find relevant pages by their content (a flag, function, error message, config key or concept). If the snippets answer the question, answer directly; otherwise call readDocsPage with a returned Source URL to read more."),
         instructions: Cow::Borrowed(""),
-        path: Cow::Borrowed("/inkeep"),
-        method: Cow::Borrowed("POST"),
+        path: Cow::Borrowed("/docs/search"),
+        method: Cow::Borrowed("GET"),
         path_params_schema: None,
-        query_params_schema: None,
-        body_schema: Some(serde_json::json!({
+        query_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
                 "query": {
                         "type": "string",
-                        "description": "The documentation query to send to the AI assistant"
+                        "description": "Keywords to search for in the documentation body, e.g. \"chromium worker tag\" or \"retry exponential backoff\". Fewer, more distinctive words match better."
                 }
         },
         "required": [
                 "query"
         ]
 })),
+        body_schema: None,
+        path_field_renames: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("readDocsPage"),
+        description: Cow::Borrowed("Fetch the markdown of a single Windmill documentation page. Provide the `url` of a page found via searchDocs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section."),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/docs/page"),
+        method: Cow::Borrowed("GET"),
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "url": {
+                        "type": "string",
+                        "description": "The docs page to read, as a Source URL returned by searchDocs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted."
+                },
+                "section": {
+                        "type": "string",
+                        "description": "Optional. A heading title from the page outline to read just that section instead of the full page."
+                }
+        },
+        "required": [
+                "url"
+        ]
+})),
+        body_schema: None,
         path_field_renames: None,
         query_field_renames: None,
         body_field_renames: None,
@@ -84,6 +112,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "items": {
                                 "type": "string"
                         }
+                },
+                "ws_specific": {
+                        "type": "boolean"
                 }
         },
         "required": [
@@ -169,6 +200,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                                 "type": "string"
                         }
                 },
+                "ws_specific": {
+                        "type": "boolean"
+                },
                 "path__body": {
                         "type": "string",
                         "description": "The path to the variable (body parameter)"
@@ -210,6 +244,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "include_encrypted": {
                         "type": "boolean",
                         "description": "ask to include the encrypted value if secret and decrypt secret is not true (default: false)\n"
+                },
+                "get_draft": {
+                        "type": "boolean",
+                        "description": "When true, overlay the authed user's draft (if any) onto the deployed payload."
                 }
         },
         "required": []
@@ -260,6 +298,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "label": {
                         "type": "string",
                         "description": "Filter by label"
+                },
+                "include_draft_only": {
+                        "type": "boolean",
+                        "description": "When true, append per-user draft variables whose path has no\ndeployed variable. Synthesized rows carry `draft_only: true`\nso the home page can render a \"Draft\" badge.\n"
                 }
         },
         "required": []
@@ -309,6 +351,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "items": {
                                 "type": "string"
                         }
+                },
+                "ws_specific": {
+                        "type": "boolean"
                 }
         },
         "required": [
@@ -383,6 +428,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
                                 "type": "string"
                         }
                 },
+                "ws_specific": {
+                        "type": "boolean"
+                },
                 "path__body": {
                         "type": "string",
                         "description": "The path to the resource (body parameter)"
@@ -414,7 +462,16 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "path"
         ]
 })),
-        query_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "get_draft": {
+                        "type": "boolean",
+                        "description": "When true, overlay the authed user's draft (if any) onto the deployed payload."
+                }
+        },
+        "required": []
+})),
         body_schema: None,
         path_field_renames: None,
         query_field_renames: None,
@@ -469,6 +526,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "label": {
                         "type": "string",
                         "description": "Filter by label"
+                },
+                "include_draft_only": {
+                        "type": "boolean",
+                        "description": "When true, append per-user draft resources whose path has\nno deployed resource. Synthesized rows carry\n`draft_only: true`.\n"
                 }
         },
         "required": []
@@ -593,7 +654,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         name: Cow::Borrowed("createScript"),
         description: Cow::Borrowed("create script: Creates a new script when the path does not already exist.
 Creates a new version of an existing script when called with the same path and the current `parent_hash`"),
-        instructions: Cow::Borrowed("To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."),
+        instructions: Cow::Borrowed("To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -602,6 +663,9 @@ Creates a new version of an existing script when called with the same path and t
         "type": "object",
         "properties": {
                 "path": {
+                        "type": "string"
+                },
+                "parent_hash": {
                         "type": "string"
                 },
                 "summary": {
@@ -716,6 +780,10 @@ Creates a new version of an existing script when called with the same path and t
         "properties": {
                 "with_starred_info": {
                         "type": "boolean"
+                },
+                "get_draft": {
+                        "type": "boolean",
+                        "description": "When true, overlay the authed user's draft (if any) onto the deployed payload."
                 }
         },
         "required": []
@@ -844,6 +912,10 @@ Creates a new version of an existing script when called with the same path and t
         "properties": {
                 "with_starred_info": {
                         "type": "boolean"
+                },
+                "get_draft": {
+                        "type": "boolean",
+                        "description": "When true, overlay the authed user's draft (if any) onto the deployed payload."
                 }
         },
         "required": []
@@ -1181,6 +1253,14 @@ Creates a new version of an existing script when called with the same path and t
                                         "language"
                                 ]
                         }
+                },
+                "temp_script_refs": {
+                        "type": "object",
+                        "nullable": true,
+                        "description": "Map of relative-import script path -> temp storage hash so the preview job resolves those imports from not-yet-deployed local content instead of the deployed script",
+                        "additionalProperties": {
+                                "type": "string"
+                        }
                 }
         },
         "required": [
@@ -1453,6 +1533,10 @@ Creates a new version of an existing script when called with the same path and t
                         "type": "boolean",
                         "description": "filter on successful jobs"
                 },
+                "status": {
+                        "type": "string",
+                        "description": "filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.. Possible values: success, failure, canceled, skipped"
+                },
                 "all_workspaces": {
                         "type": "boolean",
                         "description": "get jobs from all workspaces (only valid if request come from the `admins` workspace)"
@@ -1460,6 +1544,10 @@ Creates a new version of an existing script when called with the same path and t
                 "is_not_schedule": {
                         "type": "boolean",
                         "description": "is not a scheduled job"
+                },
+                "excludes_entrypoint_override": {
+                        "type": "boolean",
+                        "description": "exclude jobs that were started with a `_ENTRYPOINT_OVERRIDE` arg (e.g. dynamic-select helper runs and preprocessor previews)"
                 },
                 "broad_filter": {
                         "type": "string",
@@ -1499,6 +1587,10 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "no_code": {
                         "type": "boolean"
+                },
+                "approval_token": {
+                        "type": "string",
+                        "description": "Approval token granting read access to the job when not logged in. The token must be the one issued for this job's flow (i.e. the flow id used when generating the approval URL)."
                 }
         },
         "required": []
@@ -1556,7 +1648,7 @@ You should get the schema of the script or flow before creating the schedule to 
         "properties": {
                 "path": {
                         "type": "string",
-                        "description": "The unique path identifier for this schedule"
+                        "description": "The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`."
                 },
                 "schedule": {
                         "type": "string",
@@ -1999,7 +2091,16 @@ You should get the schema of the script or flow before updating the schedule to 
                 "path"
         ]
 })),
-        query_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "get_draft": {
+                        "type": "boolean",
+                        "description": "When true, overlay the authed user's draft (if any) onto the deployed payload."
+                }
+        },
+        "required": []
+})),
         body_schema: None,
         path_field_renames: None,
         query_field_renames: None,
@@ -2058,6 +2159,10 @@ You should get the schema of the script or flow before updating the schedule to 
                 "label": {
                         "type": "string",
                         "description": "Filter by label"
+                },
+                "include_draft_only": {
+                        "type": "boolean",
+                        "description": "When true, append per-user draft schedules whose path has\nno deployed schedule. Synthesized rows carry\n`draft_only: true`.\n"
                 }
         },
         "required": []

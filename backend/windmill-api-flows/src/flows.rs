@@ -21,7 +21,8 @@ use windmill_api_auth::{
 };
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 use windmill_common::{
-    utils::{WithStarredInfoQuery, HTTP_CLIENT},
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
+    utils::HTTP_CLIENT,
     webhook::{WebhookMessage, WebhookShared},
     DB,
 };
@@ -49,7 +50,6 @@ use windmill_common::{
     flows::{Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
-    scripts::Schema,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
@@ -68,7 +68,6 @@ pub fn workspaced_service() -> Router {
         .route("/list_tokens/{*path}", get(list_tokens))
         .route("/get/{*path}", get(get_flow_by_path))
         .route("/deployment_status/p/{*path}", get(get_deployment_status))
-        .route("/get/draft/{*path}", get(get_flow_by_path_w_draft))
         .route("/exists/{*path}", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
         .route("/history/p/{*path}", get(get_flow_history))
@@ -130,6 +129,7 @@ async fn list_search_flows(
 async fn list_flows(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListFlowQuery>,
@@ -151,10 +151,17 @@ async fn list_flows(
             "archived",
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
-            "draft.path IS NOT NULL as has_draft",
-            "draft_only",
             "ws_error_handler_muted",
-            "o.labels"
+            "o.labels",
+            "draft.email IS NOT NULL as is_draft",
+            // Per-path draft owners as a JSON array; see scripts.rs for the rationale
+            // (non-member superadmin identity fallback via `password`, legacy NULL-email row).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow') as draft_users",
+            "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
         .join("favorite")
@@ -165,7 +172,8 @@ async fn list_flows(
         .left()
         .join("draft")
         .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow'"
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow' AND draft.email = ?"
+                .bind(&authed.email),
         )
         .left()
         .join("flow_version fv")
@@ -194,15 +202,16 @@ async fn list_flows(
         sqlb.and_where_is_not_null("favorite.path");
     }
 
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("o.draft_only IS NOT TRUE");
-    }
     if let Some(dw) = &lq.dedicated_worker {
         sqlb.and_where_eq("dedicated_worker", dw);
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("o.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 
@@ -216,13 +225,92 @@ async fn list_flows(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "flows", "read");
-    let rows = sqlx::query_as::<_, ListableFlow>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableFlow>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
         .filter(|r| allowed(&r.path))
         .collect::<Vec<_>>();
     tx.commit().await?;
+
+    // Append the authed user's drafts at paths with no deployed flow; see scripts.rs.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.edited_by.is_none()
+        && lq.dedicated_worker.is_none()
+        && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && !lq.show_archived.unwrap_or(false)
+    {
+        // `(email = $2 OR email IS NULL)` + `DISTINCT ON (path)` ordered NULL-last; see scripts.rs.
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT DISTINCT ON (path)
+                      path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'flow'
+                 AND (email = $2 OR email IS NULL)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM flow f
+                     WHERE f.workspace_id = draft.workspace_id
+                       AND f.path = draft.path
+                 )
+               ORDER BY path, (email IS NULL)"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // The Path widget binds `$pathStore` one-way (`flow.path → $pathStore`),
+            // so the editor writes a separate `draft_path` field only when the typed
+            // path differs from the deployed one. `None` = unchanged.
+            let draft_path = v
+                .get("draft_path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
+            rows.push(ListableFlow {
+                workspace_id: w_id.clone(),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                description: v
+                    .get("description")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string()),
+                edited_by: Some(authed.email.clone()),
+                edited_at: Some(row.created_at),
+                archived: false,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                starred: false,
+                draft_only: Some(true),
+                ws_error_handler_muted: None,
+                deployment_msg: None,
+                labels: None,
+                // No deployed row to inherit folder labels from.
+                inherited_labels: None,
+                is_draft: true,
+                draft_path,
+                // Synthesized rows are the authed user's own draft.
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
@@ -512,22 +600,21 @@ async fn create_flow(
     sqlx::query!(
         r#"INSERT INTO flow (
         workspace_id, path, summary, description,
-        dependency_job, lock_error_logs, draft_only, tag,
+        dependency_job, lock_error_logs, tag,
         dedicated_worker, visible_to_runner_only, on_behalf_of_email,
         ws_error_handler_muted,
         value, schema, edited_by, edited_at, labels
     ) VALUES (
         $1, $2, $3, $4,
-        NULL, '', $5, $6,
-        $7, $8, $9,
-        $10,
-        $11, $12::text::json, $13, now(), $14
+        NULL, '', $5,
+        $6, $7, $8,
+        $9,
+        $10, $11::text::json, $12, now(), $13
     )"#,
         w_id,
         nf.path,
         nf.summary,
         nf.description.as_deref().unwrap_or(""),
-        nf.draft_only,
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
@@ -566,12 +653,15 @@ async fn create_flow(
     ).execute(&mut *tx).await?;
 
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row); see scripts.rs.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' \
+             AND (email = $3 OR email IS NULL)",
             nf.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -714,18 +804,6 @@ async fn check_schedule_conflict<'c>(
     Ok(())
 }
 
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return windmill_api_auth::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2",
-        "flow",
-    )
-    .await;
-}
-
 #[derive(Serialize)]
 pub struct FlowVersion {
     pub id: i64,
@@ -794,7 +872,7 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
@@ -845,7 +923,6 @@ async fn get_flow_version_by_id(
             flow.description,
             flow.archived,
             flow.extra_perms,
-            flow.draft_only,
             flow.dedicated_worker,
             flow.tag,
             flow.ws_error_handler_muted,
@@ -982,7 +1059,6 @@ async fn update_flow(
             description = $3,
             dependency_job = NULL,
             lock_error_logs = '',
-            draft_only = NULL,
             tag = $4,
             dedicated_worker = $5,
             visible_to_runner_only = $6,
@@ -1024,8 +1100,8 @@ async fn update_flow(
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1169,12 +1245,15 @@ async fn update_flow(
     }
 
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row); see scripts.rs.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' \
+             AND (email = $3 OR email IS NULL)",
             flow_path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1353,10 +1432,12 @@ async fn update_flow(
 }
 
 async fn list_tokens(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
     list_tokens_internal(&db, &w_id, &path, true).await
 }
 
@@ -1392,12 +1473,21 @@ async fn get_deployment_status(
     Ok(Json(deployment_status))
 }
 
+// Fields inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
+#[derive(Deserialize)]
+struct GetFlowByPathQuery {
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
+}
+
 async fn get_flow_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<FlowWithStarred> {
+    Query(query): Query<GetFlowByPathQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -1411,15 +1501,15 @@ async fn get_flow_by_path(
             flow.summary, 
             flow.description, 
             flow.archived, 
-            flow.extra_perms, 
-            flow.draft_only, 
-            flow.dedicated_worker, 
+            flow.extra_perms,
+            flow.dedicated_worker,
             flow.tag, 
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email,
             flow.labels,
+            folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
             flow_version.value,
@@ -1438,7 +1528,7 @@ async fn get_flow_by_path(
         "#,
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .bind(&authed.username)
         .fetch_optional(&mut *tx)
         .await?
@@ -1452,15 +1542,15 @@ async fn get_flow_by_path(
             flow.summary, 
             flow.description, 
             flow.archived, 
-            flow.extra_perms, 
-            flow.draft_only, 
-            flow.dedicated_worker, 
+            flow.extra_perms,
+            flow.dedicated_worker,
             flow.tag, 
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email,
             flow.labels,
+            folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
             flow_version.value,
@@ -1474,90 +1564,26 @@ async fn get_flow_by_path(
         "#,
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .fetch_optional(&mut *tx)
         .await?
     };
 
     tx.commit().await?;
 
-    let flow = not_found_if_none(flow_o, "Flow", path)?;
-    Ok(Json(flow))
-}
-
-#[derive(Serialize, sqlx::FromRow)]
-pub struct FlowWDraft {
-    pub path: String,
-    pub summary: String,
-    pub description: String,
-    pub schema: Option<Schema>,
-    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
-    pub extra_perms: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-    /// Timestamp at which the most recent DB draft was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dedicated_worker: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<String>>,
-}
-
-async fn get_flow_by_path_w_draft(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<FlowWDraft> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("flows:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-    let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT
-            flow.path,
-            flow.summary,
-            flow.description,
-            flow_version.schema,
-            flow_version.value,
-            flow.extra_perms,
-            flow.draft_only,
-            flow.ws_error_handler_muted,
-            flow.dedicated_worker,
-            draft.value AS draft,
-            draft.created_at AS draft_created_at,
-            flow.tag,
-            flow.visible_to_runner_only,
-            flow.on_behalf_of_email,
-            flow.labels
-        FROM flow
-        LEFT JOIN draft
-            ON flow.path = draft.path
-            AND draft.workspace_id = $2
-            AND draft.typ = 'flow'
-        LEFT JOIN flow_version
-            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-        WHERE flow.path = $1
-        AND flow.workspace_id = $2",
+    // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
+    let overlay = overlay_or_draft_only(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Flow,
+        path,
+        query.get_draft,
+        flow_o,
+        || windmill_common::error::Error::NotFound(format!("Flow not found at path {path}")),
     )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
     .await?;
-
-    tx.commit().await?;
-
-    let flow = not_found_if_none(flow_o, "Flow", path)?;
-    Ok(Json(flow))
+    Ok(Json(overlay))
 }
 
 async fn exists_flow_by_path(
@@ -2084,8 +2110,7 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "foo = 'bar'",
-                  "skip_if_stopped": false,
-                  "error_message": null
+                  "skip_if_stopped": false
               }
             },
             {
@@ -2106,8 +2131,7 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
-                  "skip_if_stopped": false,
-                  "error_message": null
+                  "skip_if_stopped": false
               }
             }
           ],
@@ -2120,8 +2144,7 @@ mod tests {
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
-                "skip_if_stopped": false,
-                "error_message": null
+                "skip_if_stopped": false
             }
           },
         });

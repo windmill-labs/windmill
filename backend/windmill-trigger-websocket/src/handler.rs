@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
@@ -15,9 +15,38 @@ use windmill_git_sync::DeployedObject;
 use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
-    get_url_from_runnable_value, proxy::connect_async_with_proxy, TestWebsocketConfig,
-    WebsocketConfig, WebsocketConfigRequest, WebsocketTrigger,
+    get_url_from_runnable_value, listener::InitialMessage, proxy::connect_async_with_proxy,
+    validate_websocket_url_for_ssrf, TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest,
+    WebsocketTrigger,
 };
+
+/// A websocket_triggers:write token can configure secondary runnables that the
+/// listener later executes under the trigger owner's identity: a `$flow:`/
+/// `$script:` URL resolver and `initial_messages` of kind `runnable_result`.
+/// That execution happens in a background task where the reconstructed authed is
+/// scopeless (so its check_scopes is a no-op), so enforce run scope here, at
+/// create/update time, against the API caller's token.
+fn check_secondary_runnable_scopes(
+    authed: &ApiAuthed,
+    config: &WebsocketConfigRequest,
+) -> Result<()> {
+    if let Some(rest) = config.url.strip_prefix("$flow:") {
+        check_scopes(authed, || format!("jobs:run:flows:{}", rest))?;
+    } else if let Some(rest) = config.url.strip_prefix("$script:") {
+        check_scopes(authed, || format!("jobs:run:scripts:{}", rest))?;
+    }
+    if let Some(messages) = config.initial_messages.as_ref() {
+        for msg in messages {
+            if let Ok(InitialMessage::RunnableResult { path, is_flow, .. }) =
+                serde_json::from_value::<InitialMessage>(msg.clone())
+            {
+                let kind = if is_flow { "flows" } else { "scripts" };
+                check_scopes(authed, || format!("jobs:run:{}:{}", kind, path))?;
+            }
+        }
+    }
+    Ok(())
+}
 
 #[async_trait]
 impl TriggerCrud for WebsocketTrigger {
@@ -28,6 +57,8 @@ impl TriggerCrud for WebsocketTrigger {
 
     const TABLE_NAME: &'static str = "websocket_trigger";
     const TRIGGER_TYPE: &'static str = "websocket";
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind =
+        windmill_common::user_drafts::UserDraftItemKind::TriggerWebsocket;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/websocket_triggers";
@@ -58,6 +89,13 @@ impl TriggerCrud for WebsocketTrigger {
             return Err(Error::BadRequest(
                 "WebSocket URL cannot be empty".to_string(),
             ));
+        }
+
+        // Reject SSRF targets at save time for static URLs. A `$flow:`/`$script:`
+        // URL is only known at runtime, so it is validated at connect time
+        // instead (in the listener and test handler).
+        if !config.url.starts_with('$') {
+            validate_websocket_url_for_ssrf(&config.url).await?;
         }
 
         if let Some(args) = &config.url_runnable_args {
@@ -92,6 +130,7 @@ impl TriggerCrud for WebsocketTrigger {
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        check_secondary_runnable_scopes(authed, &trigger.config)?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
@@ -169,6 +208,7 @@ impl TriggerCrud for WebsocketTrigger {
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        check_secondary_runnable_scopes(authed, &trigger.config)?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
@@ -275,6 +315,8 @@ impl TriggerCrud for WebsocketTrigger {
         } else {
             Cow::Borrowed(&url)
         };
+
+        validate_websocket_url_for_ssrf(&connect_url).await?;
 
         connect_async_with_proxy(&*connect_url)
             .await

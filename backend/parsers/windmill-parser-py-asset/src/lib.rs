@@ -2,8 +2,8 @@ use rustpython_ast::{Constant, Expr, ExprConstant, Visitor};
 use rustpython_parser::{ast::Suite, Parse};
 use std::collections::HashMap;
 use windmill_parser::asset_parser::{
-    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsOutput, ParseAssetsResult,
+    asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
+    AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
@@ -28,7 +28,12 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
         }
     }
 
-    Ok(ParseAssetsOutput { assets: merge_assets(assets_finder.assets), ..Default::default() })
+    let pipeline = parse_pipeline_annotations(input);
+    Ok(ParseAssetsOutput::new(
+        merge_assets(assets_finder.assets),
+        Vec::new(),
+        pipeline,
+    ))
 }
 
 type VarAssetName = String;
@@ -257,6 +262,14 @@ impl AssetsFinder {
         };
 
         match arg_val {
+            // S3 helpers take an `S3Object` (constructor or dict literal) or an
+            // `s3://bucket/key` string. Other helpers take a bare resource-path
+            // string literal.
+            Some(arg) if matches!(kind, AssetKind::S3Object) => {
+                let path = s3_object_arg_path(arg).ok_or(())?;
+                self.assets
+                    .push(ParseAssetsResult { kind, path, access_type, columns: None });
+            }
             Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })) => {
                 let path = parse_asset_syntax(&value, false)
                     .map(|(_, p)| p)
@@ -277,6 +290,81 @@ impl AssetsFinder {
 // Positional arguments in python can also be used by their name
 struct Arg(usize, &'static str);
 
+/// Extract a string-literal keyword argument, e.g. `s3="value"` in a call.
+fn keyword_str_value(keywords: &[rustpython_ast::Keyword], name: &str) -> Option<String> {
+    keywords
+        .iter()
+        .find(|kw| kw.arg.as_deref() == Some(name))
+        .and_then(|kw| match &kw.value {
+            Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => Some(s.clone()),
+            _ => None,
+        })
+}
+
+/// Extract a string-literal value from a dict literal, e.g. `{"s3": "value"}`.
+fn dict_str_value(dict: &rustpython_ast::ExprDict, name: &str) -> Option<String> {
+    dict.keys
+        .iter()
+        .zip(dict.values.iter())
+        .find_map(|(key, value)| match (key.as_ref()?, value) {
+            (
+                Expr::Constant(ExprConstant { value: Constant::Str(k), .. }),
+                Expr::Constant(ExprConstant { value: Constant::Str(v), .. }),
+            ) if k.as_str() == name => Some(v.clone()),
+            _ => None,
+        })
+}
+
+/// Resolve the SDK `S3Object` argument of `load_s3_file`/`load_s3_file_reader`/
+/// `write_s3_file` to a canonical asset path, mirroring `windmill-parser-ts-asset`:
+/// `S3Object(s3="<key>", storage="<bucket>"?)` — or the equivalent dict literal —
+/// maps to the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
+/// `s3:///<key>`), and a `"s3://bucket/key"` URI string is passed through.
+/// String args mirror the runtime `parse_s3_object` contract exactly: only a
+/// `s3://<storage>/<key>` URI with a non-empty key is valid — any other
+/// string (bare key, `s3://x`, empty key) raises at run time, so recording an
+/// edge for it would be a phantom node for a call that can only error.
+/// The resulting URI is fed through `parse_asset_syntax` so the stored path
+/// matches the TS object form and the `# on s3:///…` trigger form exactly.
+fn s3_object_arg_path(expr: &Expr) -> Option<String> {
+    let uri = match expr {
+        Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => {
+            match s
+                .strip_prefix("s3://")
+                .and_then(|rest| rest.split_once('/'))
+            {
+                Some((_, key)) if !key.is_empty() => s.clone(),
+                _ => return None,
+            }
+        }
+        Expr::Call(call) => {
+            // `S3Object(...)` imported directly or as `wmill.S3Object(...)`
+            let func_name = call
+                .func
+                .as_name_expr()
+                .map(|n| n.id.as_str())
+                .or_else(|| call.func.as_attribute_expr().map(|a| a.attr.as_str()))?;
+            if func_name != "S3Object" {
+                return None;
+            }
+            let key = keyword_str_value(&call.keywords, "s3")?;
+            let storage = keyword_str_value(&call.keywords, "storage").unwrap_or_default();
+            format!("s3://{storage}/{key}")
+        }
+        Expr::Dict(dict) => {
+            let key = dict_str_value(dict, "s3")?;
+            let storage = dict_str_value(dict, "storage").unwrap_or_default();
+            format!("s3://{storage}/{key}")
+        }
+        _ => return None,
+    };
+    Some(
+        parse_asset_syntax(&uri, false)
+            .map(|(_, p)| p.to_string())
+            .unwrap_or(uri),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -295,11 +383,225 @@ def main():
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "/test.csv".to_string(),
+                path: "test.csv".to_string(),
                 access_type: Some(R),
                 columns: None,
             },])
         );
+    }
+
+    #[test]
+    fn test_py_asset_parser_bare_string_no_asset() {
+        // A plain (non-`s3://`) string is rejected by the runtime
+        // `parse_s3_object`, so the parser must not record a phantom asset
+        // for a call that can only error.
+        let input = r#"
+import wmill
+def main():
+    wmill.write_s3_file("pipelines/etl/out.jsonl", b"")
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(s.map_err(|e| e.to_string()), Ok(vec![]));
+    }
+
+    #[test]
+    fn test_py_asset_parser_invalid_uri_no_write_edge() {
+        // `s3://x` (no key part) and `s3://bucket/` (empty key) are rejected
+        // by the runtime `parse_s3_object` — same rule for the SDK-arg path:
+        // no R/W edge. The generic URI-literal scan may still record them as
+        // ambiguous (`access_type: None`) assets, like any `s3://…` string
+        // constant anywhere in a script.
+        let input = r#"
+import wmill
+def main():
+    wmill.write_s3_file("s3://broken", b"")
+    wmill.write_s3_file("s3://bucket/", b"")
+"#;
+        let assets = parse_assets(input).expect("parse").assets;
+        assert!(
+            assets.iter().all(|a| a.access_type.is_none()),
+            "invalid URIs must not produce R/W edges: {assets:?}"
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_write_s3_object_constructor() {
+        // The SDK signature is `write_s3_file(s3object: S3Object | str, ...)` and
+        // its docstring recommends the constructor form with a bare key. It must
+        // resolve to the same canonical path as the TS object form and a
+        // `# on s3:///<key>` trigger.
+        let input = r#"
+import wmill
+from wmill import S3Object
+def main():
+    wmill.write_s3_file(S3Object(s3="analytics/x.csv"), b"content")
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "analytics/x.csv".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_py_write_key_matches_duckdb_read_key() {
+        // Cross-language lineage: this write records `exports/x`, the same path a
+        // DuckDB `read_csv('s3://exports/x')` resolves to (see
+        // windmill-parser-sql-asset `test_duckdb_read_key_matches_sdk_write_key`),
+        // so the producer and consumer connect in the pipeline graph.
+        let input = r#"
+import wmill
+from wmill import S3Object
+def main():
+    wmill.write_s3_file(S3Object(s3="exports/x"), b"content")
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "exports/x".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_s3_object_with_storage() {
+        // `S3Object(s3=..., storage=...)` maps to `s3://<storage>/<key>`,
+        // matching the `s3://bucket/key` string form and the TS object form.
+        let input = r#"
+import wmill
+from wmill import S3Object
+def main():
+    wmill.load_s3_file(S3Object(s3="dir/in.csv", storage="mybucket"))
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "mybucket/dir/in.csv".to_string(),
+                access_type: Some(R),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_s3_object_reader_and_keyword_arg() {
+        // load_s3_file_reader + passing the S3Object via the `s3object` keyword
+        // and via the `wmill.S3Object` attribute form.
+        let input = r#"
+import wmill
+def main():
+    wmill.load_s3_file_reader(s3object=wmill.S3Object(s3="dir/in.csv"))
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "dir/in.csv".to_string(),
+                access_type: Some(R),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_s3_object_dict_literal() {
+        // `S3Object` subclasses dict, so the SDK also accepts a plain dict
+        // literal — same resolution as the constructor form.
+        let input = r#"
+import wmill
+def main():
+    wmill.write_s3_file({"s3": "out.json"}, b"{}")
+    wmill.load_s3_file({"s3": "dir/in.csv", "storage": "mybucket"})
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "mybucket/dir/in.csv".to_string(),
+                    access_type: Some(R),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "out.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_multiple_s3_object_writes() {
+        // Several direct constructor-form writes in main() — all outputs must
+        // be detected (merge_assets returns a deterministic path-sorted order).
+        let input = r#"
+import wmill
+from wmill import S3Object
+def main():
+    wmill.write_s3_file(S3Object(s3="pipelines/km_real/raw_events.json"), b"[]")
+    wmill.write_s3_file(S3Object(s3="pipelines/km_real/enriched.json"), b"[]")
+    wmill.write_s3_file(S3Object(s3="pipelines/km_real/summary.json"), b"[]")
+    wmill.write_s3_file(S3Object(s3="pipelines/km_real/report.json"), b"{}")
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "pipelines/km_real/enriched.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "pipelines/km_real/raw_events.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "pipelines/km_real/report.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "pipelines/km_real/summary.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_py_asset_parser_s3_object_dynamic_key_no_false_positive() {
+        // A computed key can't be resolved statically — must yield nothing
+        // rather than a bogus path.
+        let input = r#"
+import wmill
+from wmill import S3Object
+def main(name: str):
+    wmill.write_s3_file(S3Object(s3=f"pipelines/{name}.json"), b"{}")
+"#;
+        let s = parse_assets(input).map(|o| o.assets);
+        assert_eq!(s.map_err(|e| e.to_string()), Ok(vec![]));
     }
 
     #[test]

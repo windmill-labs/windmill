@@ -27,11 +27,14 @@ use uuid::Uuid;
 
 use crate::background_task;
 use windmill_common::error::{self};
+use windmill_common::jobs::delete_jobs;
 use windmill_common::tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE};
 use windmill_common::worker::WINDMILL_DIR;
 use windmill_common::{DB, INSTANCE_NAME, JOB_RETENTION_SECS, SERVICE_LOG_RETENTION_SECS};
 
-use windmill_object_store::object_store_reexports::{ObjectStore, Path as ObjectPath};
+use windmill_object_store::object_store_reexports::{
+    ObjectStore, ObjectStoreError, Path as ObjectPath,
+};
 
 pub const TASK_NAME: &str = "log_cleanup";
 
@@ -61,6 +64,10 @@ pub struct LogCleanupProgress {
     pub total_jobs: u64,
     pub processed_jobs: u64,
     pub s3_deleted: u64,
+    /// Number of delete calls that returned 404 (object already absent — a no-op
+    /// success). GCS returns 404 per missing key where S3's DeleteObjects stays silent.
+    #[serde(default)]
+    pub s3_not_found: u64,
     /// Number of S3 objects inspected during the orphan scan phase.
     pub orphans_scanned: u64,
     /// Number of orphan S3 objects deleted (no corresponding DB row).
@@ -81,6 +88,7 @@ impl LogCleanupProgress {
             total_jobs: 0,
             processed_jobs: 0,
             s3_deleted: 0,
+            s3_not_found: 0,
             orphans_scanned: 0,
             orphans_deleted: 0,
             errors: 0,
@@ -132,6 +140,13 @@ impl Session {
             p.phase = "done".to_string();
             p.clone()
         };
+        tracing::info!(
+            "log cleanup finished: {} object(s) deleted from object store, {} already absent (404), {} orphans deleted, {} error(s)",
+            snapshot.s3_deleted,
+            snapshot.s3_not_found,
+            snapshot.orphans_deleted,
+            snapshot.errors
+        );
         if let Err(e) = background_task::release(&self.db, TASK_NAME, &self.owner, &snapshot).await
         {
             tracing::warn!("log cleanup: failed to release lease: {e:#}");
@@ -179,21 +194,32 @@ pub async fn get_status(db: &DB) -> error::Result<Option<LogCleanupProgress>> {
 async fn s3_bulk_delete(
     store: &Arc<dyn ObjectStore>,
     paths: Vec<ObjectPath>,
-) -> (u64 /* deleted */, u64 /* errors */) {
+) -> (
+    u64, /* deleted */
+    u64, /* not_found */
+    u64, /* errors */
+) {
     let stream = futures::stream::iter(paths.into_iter().map(Ok)).boxed();
     let mut deleted = 0u64;
+    let mut not_found = 0u64;
     let mut errors = 0u64;
     let mut res = store.delete_stream(stream);
     while let Some(r) = res.next().await {
         match r {
             Ok(_) => deleted += 1,
+            // Deleting a non-existent object is a successful no-op. S3's DeleteObjects
+            // ignores missing keys, but GCS returns 404 per delete, surfacing as
+            // NotFound — track it separately so it isn't reported as an error.
+            Err(ObjectStoreError::NotFound { .. }) => {
+                not_found += 1;
+            }
             Err(e) => {
                 errors += 1;
                 tracing::warn!("log cleanup: failed to delete object: {e:#}");
             }
         }
     }
-    (deleted, errors)
+    (deleted, not_found, errors)
 }
 
 /// Delete the given relative paths from the local filesystem under `base_dir`.
@@ -265,7 +291,7 @@ async fn cleanup_service_logs(
             .iter()
             .map(|p| ObjectPath::from(format!("{}{}", LOGS_SERVICE, p)))
             .collect();
-        let (deleted, errors) = s3_bulk_delete(store, s3_paths).await;
+        let (deleted, not_found, errors) = s3_bulk_delete(store, s3_paths).await;
         disk_bulk_delete(&*TMP_WINDMILL_LOGS_SERVICE, &rel_paths).await;
 
         session
@@ -275,6 +301,7 @@ async fn cleanup_service_logs(
                     p.total_service = p.processed_service;
                 }
                 p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+                p.s3_not_found = p.s3_not_found.saturating_add(not_found);
                 p.errors = p.errors.saturating_add(errors);
             })
             .await;
@@ -313,19 +340,21 @@ async fn cleanup_job_logs(
         return Ok(());
     }
 
+    let mut completed_at_floor: Option<DateTime<Utc>> = None;
     loop {
-        let (deleted_count, rel_paths) =
-            delete_expired_jobs_batch(db, retention_secs, JOB_BATCH).await?;
+        let (deleted_count, rel_paths, max_completed_at) =
+            delete_expired_jobs_batch(db, retention_secs, JOB_BATCH, completed_at_floor).await?;
 
         if deleted_count == 0 {
             break;
         }
+        completed_at_floor = max_completed_at.or(completed_at_floor);
 
         let s3_paths: Vec<ObjectPath> = rel_paths
             .iter()
             .map(|p| ObjectPath::from(p.clone()))
             .collect();
-        let (deleted, errors) = s3_bulk_delete(store, s3_paths).await;
+        let (deleted, not_found, errors) = s3_bulk_delete(store, s3_paths).await;
         disk_bulk_delete(&*WINDMILL_DIR, &rel_paths).await;
 
         session
@@ -335,6 +364,7 @@ async fn cleanup_job_logs(
                     p.total_jobs = p.processed_jobs;
                 }
                 p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+                p.s3_not_found = p.s3_not_found.saturating_add(not_found);
                 p.errors = p.errors.saturating_add(errors);
             })
             .await;
@@ -355,7 +385,8 @@ async fn delete_expired_jobs_batch(
     db: &DB,
     job_retention_secs: i64,
     batch_size: i64,
-) -> error::Result<(usize, Vec<String>)> {
+    completed_at_floor: Option<DateTime<Utc>>,
+) -> error::Result<(usize, Vec<String>, Option<DateTime<Utc>>)> {
     let mut tx = db.begin().await?;
 
     let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
@@ -368,29 +399,61 @@ async fn delete_expired_jobs_batch(
     .fetch_all(&mut *tx)
     .await?;
 
-    let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
-        "DELETE FROM v2_job_completed
-         WHERE id IN (
-             SELECT jc.id FROM v2_job_completed jc
-             LEFT JOIN v2_job j ON j.id = jc.id
-             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
-             ORDER BY jc.completed_at ASC
-             LIMIT $2
-             FOR UPDATE OF jc SKIP LOCKED
-         )
-         RETURNING id",
-        job_retention_secs,
-        batch_size,
-        &active_root_job_ids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    // `completed_at_floor` carries a watermark across batches so each one resumes after the rows
+    // the previous batch processed instead of re-scanning the (potentially undeletable) oldest
+    // prefix; the empty-active-roots branch skips the v2_job join entirely. See
+    // backend/src/monitor.rs::delete_expired_jobs_batch for the full rationale.
+    let (deleted_jobs, max_completed_at) = if active_root_job_ids.is_empty() {
+        let rows = sqlx::query!(
+            "DELETE FROM v2_job_completed
+             WHERE id IN (
+                 SELECT id FROM v2_job_completed
+                 WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND ($3::timestamptz IS NULL OR completed_at >= $3)
+                 ORDER BY completed_at ASC
+                 LIMIT $2
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id, completed_at",
+            job_retention_secs,
+            batch_size,
+            completed_at_floor,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let max = rows.iter().map(|r| r.completed_at).max();
+        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    } else {
+        let rows = sqlx::query!(
+            "DELETE FROM v2_job_completed
+             WHERE id IN (
+                 SELECT jc.id FROM v2_job_completed jc
+                 LEFT JOIN v2_job j ON j.id = jc.id
+                 WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND ($4::timestamptz IS NULL OR jc.completed_at >= $4)
+                   AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                       SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+                   )
+                 ORDER BY jc.completed_at ASC
+                 LIMIT $2
+                 FOR UPDATE OF jc SKIP LOCKED
+             )
+             RETURNING id, completed_at",
+            job_retention_secs,
+            batch_size,
+            &active_root_job_ids,
+            completed_at_floor,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let max = rows.iter().map(|r| r.completed_at).max();
+        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    };
 
     let deleted_count = deleted_jobs.len();
     if deleted_count == 0 {
         tx.commit().await?;
-        return Ok((0, Vec::new()));
+        return Ok((0, Vec::new(), max_completed_at));
     }
 
     if let Err(e) = sqlx::query!(
@@ -421,10 +484,21 @@ async fn delete_expired_jobs_batch(
         }
     };
 
-    if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
-        .execute(&mut *tx)
-        .await
+    // Native retry markers have no FK (to keep this bulk delete cheap) — sweep
+    // them with their jobs here, same as the other side tables above. The table
+    // is created by a startup migration, so it always exists by the time cleanup
+    // runs.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM native_retry_attempt WHERE job_id = ANY($1)",
+        &deleted_jobs
+    )
+    .execute(&mut *tx)
+    .await
     {
+        tracing::error!("log cleanup: error deleting native retry markers: {e:?}");
+    }
+
+    if let Err(e) = delete_jobs(&mut *tx, &deleted_jobs).await {
         tracing::error!("log cleanup: error deleting job: {e:?}");
     }
 
@@ -440,7 +514,7 @@ async fn delete_expired_jobs_batch(
 
     tx.commit().await?;
 
-    Ok((deleted_count, log_paths))
+    Ok((deleted_count, log_paths, max_completed_at))
 }
 
 /// Scan S3 under the `logs/` prefix for orphan log files and delete them.
@@ -561,11 +635,12 @@ async fn flush_service_orphans(
     batch: &mut Vec<ObjectPath>,
 ) {
     let paths = std::mem::take(batch);
-    let (deleted, errors) = s3_bulk_delete(store, paths).await;
+    let (deleted, not_found, errors) = s3_bulk_delete(store, paths).await;
     session
         .update(|p| {
             p.orphans_deleted = p.orphans_deleted.saturating_add(deleted);
             p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+            p.s3_not_found = p.s3_not_found.saturating_add(not_found);
             p.errors = p.errors.saturating_add(errors);
         })
         .await;
@@ -616,11 +691,12 @@ async fn flush_job_orphans(
         return;
     }
 
-    let (deleted, errors) = s3_bulk_delete(store, to_delete).await;
+    let (deleted, not_found, errors) = s3_bulk_delete(store, to_delete).await;
     session
         .update(|p| {
             p.orphans_deleted = p.orphans_deleted.saturating_add(deleted);
             p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+            p.s3_not_found = p.s3_not_found.saturating_add(not_found);
             p.errors = p.errors.saturating_add(errors);
         })
         .await;

@@ -274,10 +274,10 @@ export function parseFromPath(p: string, content: string): any {
   return isWorkspaceDependencies(p)
     ? content
     : p.endsWith(".yaml")
-    ? yamlParseContent(p, content)
-    : p.endsWith(".json")
-    ? JSON.parse(content)
-    : content;
+      ? yamlParseContent(p, content)
+      : p.endsWith(".json")
+        ? JSON.parse(content)
+        : content;
 }
 export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
@@ -288,9 +288,38 @@ export function parseFromFile(p: string): any {
     throw new Error("Could not read file " + p);
   }
 }
+/**
+ * Parse a `migrations/datatable/<datatable>/<timestamp>_<name>.(up|down).sql`
+ * path into its parts. Returns undefined for any other path.
+ */
+export function parseDatatableMigrationPath(p: string):
+  | { datatable: string; timestamp: number; name: string; kind: "up" | "down" }
+  | undefined {
+  const parts = p.split("/");
+  if (
+    parts[0] !== "migrations" ||
+    parts[1] !== "datatable" ||
+    parts.length !== 4
+  )
+    return undefined;
+  const m = parts[3].match(/^(\d+)_(.*)\.(up|down)\.sql$/);
+  if (!m) return undefined;
+  return {
+    datatable: parts[2],
+    timestamp: Number(m[1]),
+    name: m[2],
+    kind: m[3] as "up" | "down",
+  };
+}
+
+export function isDatatableMigrationPath(p: string): boolean {
+  return parseDatatableMigrationPath(p) !== undefined;
+}
+
 export function getTypeStrFromPath(
   p: string
 ):
+  | "datatable_migration"
   | "script"
   | "variable"
   | "flow"
@@ -316,6 +345,9 @@ export function getTypeStrFromPath(
   | "settings"
   | "encryption_key"
   | "workspace_dependencies" {
+  if (isDatatableMigrationPath(p)) {
+    return "datatable_migration";
+  }
   if (isScriptModulePath(p)) {
     return "script";
   }

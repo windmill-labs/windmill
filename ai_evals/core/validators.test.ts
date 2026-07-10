@@ -245,6 +245,49 @@ describe("validateToolExpectations", () => {
         'accepted substrings: insert into, update; values: "DROP TABLE orders"',
     });
   });
+
+  it("passes requiredToolsAnyOf when any alternative in the group is used", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["search_app", "patch_app_file"],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsAnyOf: [["read_app_file", "search_app"]],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "uses one of read_app_file, search_app",
+      passed: true,
+    });
+  });
+
+  it("fails requiredToolsAnyOf when no alternative in the group is used", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["patch_app_file"],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsAnyOf: [["read_app_file", "search_app"]],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "uses one of read_app_file, search_app",
+      passed: false,
+      details: "tools used: patch_app_file",
+    });
+  });
 });
 
 describe("validateGlobalState", () => {

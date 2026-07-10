@@ -230,12 +230,17 @@
 			edit = true
 			dirtyPath = false
 			dirtyRoutePath = false
-			await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			originalConfig = structuredClone($state.snapshot(getRouteConfig())) as NewHttpTrigger
+			if (draftOverlay) loadTriggerConfig(draftOverlay as Partial<HttpTrigger>)
 			if (!defaultConfig) {
 				// If the route is loaded from the backend, we to set the initial config
-				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
+				initialConfig = structuredClone($state.snapshot(getRouteConfig())) as NewHttpTrigger
 			}
-			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
@@ -339,17 +344,26 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
+	async function loadTrigger(
+		defaultConfig?: Partial<HttpTrigger>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
-		} else {
-			const s = await HttpTriggerService.getHttpTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			loadTriggerConfig(s)
+			return { overlay: undefined, noDeployed: false }
+		}
+		const s = await HttpTriggerService.getHttpTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		loadTriggerConfig(deployedTrigger)
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
+			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+			: undefined
 		}
 	}
 
@@ -521,7 +535,7 @@
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
 			{/if}
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<Label label="Summary" for="summary">
 						<!-- svelte-ignore a11y_autofocus -->
@@ -991,6 +1005,7 @@
 {#if useDrawer}
 	<Drawer size="700px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit route ${initialPath}`
@@ -1005,6 +1020,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT args AS \"args!: Json<HashMap<String, Box<RawValue>>>\"\n           FROM v2_job\n           WHERE workspace_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "args!: Json<HashMap<String, Box<RawValue>>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "58e8e13acd9f7ff951f37d555beab84dcea21e0a38906de164889cf2dacf2e43"
+}

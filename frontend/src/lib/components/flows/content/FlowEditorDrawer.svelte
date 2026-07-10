@@ -7,14 +7,18 @@
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { emptySchema, type StateStore } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import type { FlowEditorContext } from '../types'
 
 	let flowEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	export async function openDrawer(path: string, cb: () => void): Promise<void> {
 		flowPath = path
@@ -24,23 +28,14 @@
 		flowEditorDrawer?.openDrawer?.()
 
 		try {
-			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
-				workspace: $workspaceStore!,
+			const backendFlow = await FlowService.getFlowByPath({
+				workspace: opWs!,
 				path
 			})
 
-			savedFlow = {
-				...structuredClone(flowWithDraft),
-				draft: flowWithDraft.draft
-					? {
-							...structuredClone(flowWithDraft.draft),
-							path: flowWithDraft.draft.path ?? flowWithDraft.path
-						}
-					: undefined
-			} as Flow & { draft?: Flow }
+			savedFlow = structuredClone(backendFlow) as Flow
 
-			// Use the draft if available, otherwise the deployed flow
-			flow = flowWithDraft.draft ?? flowWithDraft
+			flow = backendFlow
 
 			await initFlow(flow, flowStore, flowStateStore)
 			loading = false
@@ -53,11 +48,7 @@
 	let callback: (() => void) | undefined = undefined
 	let flowPath: string = $state('')
 	let flow: Flow | undefined = $state(undefined)
-	let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = $state(undefined)
+	let savedFlow: Flow | undefined = $state(undefined)
 	let loading = $state(true)
 
 	const flowStore: StateStore<Flow> = $state({
@@ -99,6 +90,7 @@
 				{flowStore}
 				{flowStateStore}
 				initialPath={flowPath}
+				autosaveWorkspace={opWs}
 				newFlow={false}
 				selectedId="settings-metadata"
 				loading={false}

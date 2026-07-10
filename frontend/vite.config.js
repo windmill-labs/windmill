@@ -1,5 +1,5 @@
 import { sveltekit } from '@sveltejs/kit/vite'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import mkcert from 'vite-plugin-mkcert'
 
@@ -7,11 +7,22 @@ const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
 const version = JSON.parse(json)
 
+// The postinstall downloads the pinned UI Builder artifact into static/ui_builder,
+// which SvelteKit serves at /ui_builder. Serve that directly; only proxy to a
+// live UI Builder dev server on :4000 when the bundle is absent (mirrors the
+// backend's static-vs-:4000 fallback). Delete static/ui_builder to develop the
+// builder against :4000.
+const uiBuilderStaticPresent = existsSync(
+	fileURLToPath(new URL('static/ui_builder/app-preview.html', import.meta.url))
+)
+
 const remoteUrl =
 	process.env.REMOTE ??
 	(process.env.BACKEND_PORT
 		? `http://localhost:${process.env.BACKEND_PORT}`
 		: 'https://app.windmill.dev/')
+
+const cookieDomain = process.env.ISOLATE_DEV_AUTH === '1' ? '' : 'localhost'
 
 // `enforce: 'pre'` so these headers are set before SvelteKit's sirv static
 // handler serves `static/` files and ends the response without calling next().
@@ -47,12 +58,12 @@ const config = {
 			'^/\\.well-known/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: 'localhost'
+				cookieDomainRewrite: cookieDomain
 			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: remoteUrl,
 				changeOrigin: false, // Important for signature to be correct
-				cookieDomainRewrite: 'localhost',
+				cookieDomainRewrite: cookieDomain,
 				configure: (proxy, options) => {
 					proxy.on('proxyReq', (proxyReq, req, res) => {
 						// Prevent collapsing slashes during URL normalization
@@ -65,7 +76,7 @@ const config = {
 			'^/api/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: 'localhost'
+				cookieDomainRewrite: cookieDomain
 			},
 			'^/ws/.*': {
 				target: process.env.REMOTE_LSP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
@@ -82,15 +93,19 @@ const config = {
 				changeOrigin: true,
 				ws: true
 			},
-			'^/ui_builder/.*': {
-				target: 'http://localhost:4000',
-				changeOrigin: true,
-				headers: {
-					'Cross-Origin-Opener-Policy': 'same-origin',
-					'Cross-Origin-Embedder-Policy': 'require-corp',
-					'Cross-Origin-Resource-Policy': 'cross-origin'
-				}
-			}
+			...(uiBuilderStaticPresent
+				? {}
+				: {
+						'^/ui_builder/.*': {
+							target: 'http://localhost:4000',
+							changeOrigin: true,
+							headers: {
+								'Cross-Origin-Opener-Policy': 'same-origin',
+								'Cross-Origin-Embedder-Policy': 'require-corp',
+								'Cross-Origin-Resource-Policy': 'cross-origin'
+							}
+						}
+					})
 		}
 	},
 	preview: { port: 3001 },

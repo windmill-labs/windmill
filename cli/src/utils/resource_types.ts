@@ -1,5 +1,9 @@
 import { Schema, SchemaProperty } from "../../bootstrap/common.ts";
 
+function quotePropName(name: string): string {
+  return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name) ? name : JSON.stringify(name);
+}
+
 export function compileResourceTypeToTsType(schema: Schema) {
   function rec(x: { [name: string]: SchemaProperty }, root = false) {
     let res = "{\n";
@@ -10,15 +14,15 @@ export function compileResourceTypeToTsType(schema: Schema) {
     let i = 0;
     for (let [name, prop] of entries) {
       if (prop.type == "object") {
-        res += `  ${name}: ${rec(prop.properties ?? {})}`;
+        res += `  ${quotePropName(name)}: ${rec(prop.properties ?? {})}`;
       } else if (prop.type == "array") {
-        res += `  ${name}: ${prop?.items?.type ?? "any"}[]`;
+        res += `  ${quotePropName(name)}: ${prop?.items?.type ?? "any"}[]`;
       } else {
         let typ = prop?.type ?? "any";
         if (typ == "integer") {
           typ = "number";
         }
-        res += `  ${name}: ${typ}`;
+        res += `  ${quotePropName(name)}: ${typ}`;
       }
       i++;
       if (i < entries.length) {

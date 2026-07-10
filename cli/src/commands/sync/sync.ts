@@ -23,10 +23,17 @@ import {
   showDiff,
   extractNativeTriggerInfo,
   redactEncryptionKey,
+  isDatatableMigrationPath,
+  parseDatatableMigrationPath,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import {
+  pushMigrationFromDisk,
+  offerToRunNewMigrations,
+  validateLocalMigrations,
+} from "../datatable_migrations.ts";
 
 import {
   exts,
@@ -41,6 +48,7 @@ import { handleFile } from "../script/script.ts";
 import {
   deepEqual,
   fetchRemoteVersion,
+  getHeaders,
   isFileResource,
   isFilesetResource,
   isRawAppFile,
@@ -2077,6 +2085,77 @@ export async function isCaseInsensitiveFilesystem(
   return result;
 }
 
+// A script's `lock` is NULL on the remote only while the server is still
+// (re)generating it — e.g. an importer relock is in flight after a dependent
+// relative-import module changed, or the script's own first lock job has not
+// settled yet. NULL means "lock pending", NOT "this script has no lock": a
+// genuinely lock-free script (no dependencies, or a codebase script) serializes
+// `lock: ''` (empty string), which keeps its metadata key. The git-sync deploy
+// mirror reads the workspace inside that window and would otherwise mirror the
+// transient NULL as a deletion of the committed `.script.lock` (and strip the
+// `lock: '!inline …'` line from the metadata), corrupting the mirror until the
+// relock writes the identical lock back seconds later (issue #9588).
+//
+// When pulling (remote -> local), if the remote reports a pending (NULL) lock
+// for a script whose committed lock still exists locally, carry the local lock
+// onto the remote map so the diff is a no-op for both the lock file and the
+// metadata `lock` line. An empty-string lock ('') is left untouched, so a real
+// "dependencies removed" transition still deletes the obsolete lock.
+export function preservePendingScriptLocks(
+  remote: Record<string, string>,
+  local: Record<string, string>,
+): void {
+  // A multi-module script keeps its metadata in the folder layout
+  // `…__mod/script.{yaml,json}` instead of `….script.{yaml,json}`.
+  // Map keys are always forward-slash normalized, on every platform.
+  const modMeta = getModuleFolderSuffix() + "/script";
+  for (const metaKey of Object.keys(remote)) {
+    const isYaml =
+      metaKey.endsWith(".script.yaml") || metaKey.endsWith(modMeta + ".yaml");
+    const isJson =
+      metaKey.endsWith(".script.json") || metaKey.endsWith(modMeta + ".json");
+    if (!isYaml && !isJson) continue;
+
+    const localMeta = local[metaKey];
+    if (localMeta === undefined) continue; // script not committed locally
+
+    let remoteParsed: any;
+    let localParsed: any;
+    try {
+      remoteParsed = isYaml
+        ? yamlParseContent(metaKey, remote[metaKey])
+        : JSON.parse(remote[metaKey]);
+      localParsed = isYaml ? yamlParseContent(metaKey, localMeta) : JSON.parse(localMeta);
+    } catch {
+      continue;
+    }
+    if (typeof remoteParsed !== "object" || remoteParsed === null) continue;
+    if (typeof localParsed !== "object" || localParsed === null) continue;
+
+    // Only a NULL/absent remote lock is "pending". An empty-string lock ('') is
+    // a real "no dependencies" state and must still propagate as a deletion.
+    const remoteLock = remoteParsed["lock"];
+    if (remoteLock !== undefined && remoteLock !== null) continue;
+
+    // The local side must reference an inline lock backed by a committed file.
+    const localLock = localParsed["lock"];
+    if (typeof localLock !== "string" || !localLock.startsWith("!inline ")) continue;
+
+    // Derive the lock-file key from the `!inline` reference itself, not from the
+    // metadata path: a multi-module script keeps its lock at `…__mod/script.lock`,
+    // which a `.script.yaml -> .script.lock` rewrite would miss. The reference and
+    // the map keys are both forward-slash, so no separator rewrite is needed.
+    const lockKey = localLock.slice("!inline ".length);
+    if (local[lockKey] === undefined) continue; // committed lock already gone
+
+    remoteParsed["lock"] = localLock;
+    remote[metaKey] = isYaml
+      ? yamlStringify(remoteParsed, yamlOptions)
+      : JSON.stringify(remoteParsed, null, 2);
+    remote[lockKey] = local[lockKey];
+  }
+}
+
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -2136,6 +2215,12 @@ async function compareDynFSElement(
         );
       }
     }
+  }
+
+  // Pull only (remote is els1): keep a committed `.script.lock` when the remote
+  // lock is transiently NULL (a relock is mid-flight). See #9588.
+  if (isEls1Remote === true) {
+    preservePendingScriptLocks(m1, m2);
   }
 
   const changes: Change[] = [];
@@ -2399,7 +2484,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
-      !p.startsWith("dependencies" + SEP)
+      !p.startsWith("dependencies" + SEP) &&
+      !p.startsWith("migrations" + SEP)
     );
   }
 
@@ -2410,6 +2496,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
+    // Datatable migrations live under migrations/datatable/<datatable>/, outside
+    // the u/f/g namespaces, but are valid wmill files.
+    if (typ == "datatable_migration") {
+      return false;
+    }
     if (
       typ == "resource-type" ||
       typ == "settings" ||
@@ -2441,7 +2532,8 @@ export const isWhitelisted = (p: string) => {
     p == "ui" ||
     p == "users" ||
     p == "groups" ||
-    p == "dependencies"
+    p == "dependencies" ||
+    p == "migrations"
   );
 };
 
@@ -2536,6 +2628,11 @@ interface ChangeTracker {
 }
 
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
+  // Datatable migration .sql files are not scripts; they're synced via the
+  // dedicated datatable_migration handler in the push loop.
+  if (isDatatableMigrationPath(p)) {
+    return;
+  }
   const isScript = exts.some((e) => p.endsWith(e)) && !isFileResource(p) && !isFilesetResource(p);
   if (isScript) {
     if (isFlowPath(p)) {
@@ -3041,7 +3138,7 @@ export async function pull(
           change.path.endsWith(".json")
         ) {
           log.info(
-            `Editing ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Editing ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
                 ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
@@ -3059,7 +3156,7 @@ export async function pull(
         if (opts.stateful) {
           await mkdir(path.dirname(stateTarget), { recursive: true });
           log.info(
-            `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Adding ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
                 ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
@@ -3068,7 +3165,7 @@ export async function pull(
         }
         await writeFile(target, change.content, "utf-8");
         log.info(
-          `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
+          `Writing ${changeTypeLabel(change.path)}${targetPath}${
             targetPath !== change.path
               ? colors.gray(` (workspace-specific override for ${change.path})`)
               : ""
@@ -3080,7 +3177,7 @@ export async function pull(
       } else if (change.name === "deleted") {
         try {
           log.info(
-            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
+            `Deleting ${changeTypeLabel(change.path)}${change.path}`,
           );
           await rm(target);
           if (opts.stateful) {
@@ -3272,6 +3369,9 @@ export async function pull(
     log.warn(`Failed to pull shared UI folder: ${e}`);
   }
 
+  // Datatable migrations are part of the workspace export now, so they flow
+  // through the normal diff/apply above as `datatable_migration` items.
+
   // Git-sync deployment-callback mode stops here: branch checkout + pull have
   // happened, but commit + push are the caller's job. The hub script does
   // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
@@ -3347,6 +3447,14 @@ export async function gitDeploy(
   } as any);
 }
 
+// Display label for a change's type, with a trailing space. Datatable migrations
+// are self-describing via their `migrations/datatable/...` path, so they get no
+// label prefix.
+function changeTypeLabel(p: string): string {
+  const t = getTypeStrFromPath(p);
+  return t === "datatable_migration" ? "" : `${t} `;
+}
+
 function prettyChanges(
   changes: Change[],
   specificItems?: SpecificItemsConfig,
@@ -3378,7 +3486,7 @@ function prettyChanges(
     if (change.name === "added") {
       log.info(
         colors.green(
-          `+ ${getTypeStrFromPath(change.path)} ` +
+          `+ ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote),
         ) + extraNote,
@@ -3386,7 +3494,7 @@ function prettyChanges(
     } else if (change.name === "deleted") {
       log.info(
         colors.red(
-          `- ${getTypeStrFromPath(change.path)} ` +
+          `- ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote),
         ),
@@ -3395,7 +3503,7 @@ function prettyChanges(
       const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
-          `~ ${changeType} ` +
+          `~ ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
@@ -3472,6 +3580,61 @@ function removeSuffix(str: string, suffix: string) {
 // to get explicit user confirmation before applying it for real.
 const SYNC_PUSH_DESTRUCTIVE_WARNING =
   "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites or deletes remote items that differ from or are absent locally — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation.";
+
+// A script pushed without a local lock queues a server-side dependency job; if
+// that job fails the script deploys broken (no lock/assets) with no CLI signal.
+// One-shot (no polling): report this push's already-failed + still-running
+// dependency jobs.
+async function checkServerLockJobs(
+  workspaceId: string,
+  sinceIso: string,
+  changedPaths: string[],
+): Promise<{ pending: number; failed: { path: string; error?: string }[] }> {
+  // A dependency job's script_path has no file extension; changed paths do.
+  const belongsToPush = (scriptPath?: string) =>
+    !!scriptPath &&
+    changedPaths.some(
+      (p) => p === scriptPath || p.startsWith(scriptPath + "."),
+    );
+  // Raw fetch: the checked-in generated client predates the `created_after` /
+  // `success` filters on the job list routes (see the `apiGet` note in
+  // pipeline.ts).
+  const listJobs = async (path: string): Promise<unknown[]> => {
+    const { OpenAPI } = await import("../../../gen/index.ts");
+    const resp = await fetch(`${OpenAPI.BASE}${path}`, {
+      headers: { ...getHeaders(), Authorization: `Bearer ${OpenAPI.TOKEN}` },
+    });
+    if (!resp.ok) throw new Error(`GET ${path} -> ${resp.status}`);
+    return (await resp.json()) as unknown[];
+  };
+  try {
+    const since = encodeURIComponent(sinceIso);
+    const [queued, completed] = await Promise.all([
+      listJobs(
+        `/w/${workspaceId}/jobs/queue/list?job_kinds=dependencies&created_after=${since}`,
+      ),
+      listJobs(
+        `/w/${workspaceId}/jobs/completed/list?job_kinds=dependencies&created_after=${since}&success=false`,
+      ),
+    ]);
+    const pending = (queued as { script_path?: string }[]).filter((j) =>
+      belongsToPush(j.script_path),
+    ).length;
+    const failed = (
+      completed as { script_path?: string; result?: unknown }[]
+    )
+      .filter((j) => belongsToPush(j.script_path))
+      .map((j) => ({
+        path: j.script_path!,
+        error: (j.result as { error?: { message?: string } } | undefined)
+          ?.error?.message,
+      }));
+    return { pending, failed };
+  } catch {
+    // Advisory only: a failed check must not fail an otherwise-complete push.
+    return { pending: 0, failed: [] };
+  }
+}
 
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
@@ -4088,6 +4251,24 @@ export async function push(
       ));
     }
 
+    // Reject malformed datatable migrations (duplicate timestamps, orphan downs)
+    // before touching the remote, scanning only the data tables in this push.
+    const migrationDatatables = new Set(
+      changes
+        .map((c) => parseDatatableMigrationPath(c.path)?.datatable)
+        .filter((d): d is string => !!d),
+    );
+    if (migrationDatatables.size > 0) {
+      const migrationErrors = validateLocalMigrations(migrationDatatables);
+      if (migrationErrors.length > 0) {
+        log.error(
+          "Invalid datatable migrations, aborting push:\n" +
+            migrationErrors.map((e) => `  - ${e}`).join("\n"),
+        );
+        process.exit(1);
+      }
+    }
+
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -4099,6 +4280,7 @@ export async function push(
     }
 
     const start = performance.now();
+    const pushStartedAt = new Date().toISOString();
     log.info(colors.gray(`Applying changes to files ...`));
 
     let stateful = opts.stateful;
@@ -4159,6 +4341,21 @@ export async function push(
     // Cache git branch at the start to avoid repeated execSync calls per change
     const cachedWsNameForPush = wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
+    // Datatable migrations are two files (.up.sql/.down.sql) for one record, so
+    // dedupe upsert/delete by (datatable, version) across the whole push.
+    const pushedMigrationKeys = new Set<string>();
+    // Migrations newly added by this push (an added .up.sql) — offered to run once
+    // the push has completed.
+    const newDatatableMigrations = changes
+      .filter((c) => c.name === "added")
+      .map((c) => parseDatatableMigrationPath(c.path))
+      .filter((p) => !!p && p.kind === "up")
+      .map((p) => ({
+        datatable: p!.datatable,
+        timestamp: p!.timestamp,
+        name: p!.name,
+      }));
+
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach the effective parallelism limit.
       // During the folder-meta phase this is 1 (sequential) so no item change
@@ -4186,6 +4383,20 @@ export async function push(
           }
 
           for await (const change of changes) {
+            // A datatable migration is one record across two files; upsert/delete
+            // it from disk once (deduped), regardless of which file changed.
+            if (isDatatableMigrationPath(change.path)) {
+              const parsed = parseDatatableMigrationPath(change.path);
+              if (parsed) {
+                const key = `${parsed.datatable}\0${parsed.timestamp}`;
+                if (!pushedMigrationKeys.has(key)) {
+                  pushedMigrationKeys.add(key);
+                  await pushMigrationFromDisk(workspace.workspaceId, parsed);
+                }
+              }
+              continue;
+            }
+
             let stateTarget = undefined;
             if (stateful) {
               try {
@@ -4840,9 +5051,40 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    try {
+      await offerToRunNewMigrations(workspace.workspaceId, newDatatableMigrations, {
+        yes: opts.yes,
+        jsonOutput: opts.jsonOutput,
+      });
+    } catch (e: any) {
+      log.warn(
+        `Failed to run new datatable migrations: ${e?.body ?? e?.message ?? e}`,
+      );
+    }
+    const lockJobs = await checkServerLockJobs(
+      workspace.workspaceId,
+      pushStartedAt,
+      changes.map((c) => c.path.replaceAll(SEP, "/")),
+    );
+    if (!opts.jsonOutput) {
+      for (const f of lockJobs.failed) {
+        log.warn(
+          `⚠ server-side lock generation FAILED for ${f.path} — the deployed script is broken until it locks.` +
+            (f.error ? `\n  ${f.error.split("\n")[0]}` : ""),
+        );
+      }
+      if (lockJobs.pending > 0) {
+        log.info(
+          colors.gray(
+            `${lockJobs.pending} server-side lock job(s) still running — locks (and inferred assets) land when they finish; check the Runs page if a script stays broken.`,
+          ),
+        );
+      }
+    }
     if (opts.jsonOutput) {
       const result = {
         success: true,
+        lock_jobs: lockJobs,
         message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
         changes: changes.map((change) => ({
           type: change.name,
@@ -4884,6 +5126,7 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    // No changes pushed, so no new datatable migrations to run.
     if (opts.jsonOutput) {
       console.log(
         JSON.stringify(

@@ -48,6 +48,9 @@ futures.workspace = true
 sqlx.workspace = true
 rustls.workspace = true
 
+[dev-dependencies]
+rcgen = "0.13.2"
+
 [build-dependencies]
 deno_fetch.workspace = true
 deno_webidl.workspace = true

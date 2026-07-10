@@ -2,9 +2,14 @@
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
 	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+	import {
+		archiveSessionsForWorkspace,
+		deleteSessionsForWorkspace,
+		reconcileAfterWorkspaceChange
+	} from '$lib/components/sessions/sessionState.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { page } from '$app/state'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -14,6 +19,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$lib/navigation'
+	import { readChatModifiedItems } from '$lib/components/copilot/chat/HistoryManager.svelte'
 
 	type CompareMode = 'fork' | 'draft'
 
@@ -25,7 +31,8 @@
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
-	const isFork = $derived(!!parentWorkspaceId && currentWorkspaceId?.startsWith('wm-fork-'))
+	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id prefix.
+	const isFork = $derived(!!parentWorkspaceId)
 
 	// Mode is seeded from the URL (?mode=draft|fork). `draft` is valid for any
 	// workspace, so it resolves immediately. `fork` is only valid for an actual
@@ -41,6 +48,37 @@
 	// merged toggle (CompareModeToggle, rendered inside each card) reports its
 	// selection here; the page only swaps which comparison component is shown.
 	let forkDirection = $state<'deploy_to' | 'update'>('deploy_to')
+
+	// When reached via a session's Review button (`from_session=<chatId>`), preselect
+	// only the items that chat modified. The mask is the chat's stored
+	// `${UserDraftItemKind}:${storagePath}` set; undefined for a legacy chat (no
+	// stored mask) → the children fall back to selecting all deployable items.
+	// Derived from the live URL: an in-app navigation to this route with a
+	// different from_session must reload the mask, not keep the first one.
+	const fromChatId = $derived(page.url.searchParams.get('from_session'))
+	let chatMask = $state<Set<string> | undefined>(undefined)
+	// The mask loads asynchronously, while the resolved value can legitimately be
+	// undefined (legacy chat). The children must not run their select-all default
+	// until the mask is known, else they'd race it and select everything. Ready
+	// immediately when there's no session to read from.
+	let chatMaskReady = $state(!page.url.searchParams.get('from_session'))
+	$effect(() => {
+		const id = fromChatId
+		chatMask = undefined
+		chatMaskReady = !id
+		if (!id) return
+		untrack(() => {
+			void readChatModifiedItems(id)
+				.then((arr) => {
+					// A slower read for a superseded chat id must not win.
+					if (id !== untrack(() => fromChatId)) return
+					chatMask = arr ? new Set(arr) : undefined
+				})
+				.finally(() => {
+					if (id === untrack(() => fromChatId)) chatMaskReady = true
+				})
+		})
+	})
 
 	function selectMode(v: 'deploy_to' | 'update' | 'draft') {
 		if (v === 'draft') {
@@ -143,14 +181,9 @@
 	let acting = $state(false)
 
 	async function afterForkGone() {
-		// Mirror SidebarContent.deleteFork (B1): refresh the workspace list
-		// rather than letting `clearStores()` null it, then land the user on
-		// the parent if still accessible.
-		try {
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		} catch (e) {
-			console.error('Failed to refresh workspaces', e)
-		}
+		// The workspace list was already refreshed by reconcileAfterWorkspaceChange
+		// (so the just-removed fork is gone from it); land the user on the parent if
+		// it's still accessible.
 		if (parentWorkspaceId && $userWorkspaces.find((w) => w.id === parentWorkspaceId)) {
 			switchWorkspace(parentWorkspaceId)
 			await goto('/')
@@ -166,6 +199,15 @@
 		try {
 			await WorkspaceService.archiveWorkspace({ workspace: currentWorkspaceId })
 			sendUserToast(`Archived fork ${currentWorkspaceId}`)
+			// Client session cleanup is best-effort: a local IndexedDB failure must
+			// not falsely report the (already successful) archive as failed, nor
+			// block navigation away from the now-archived fork.
+			try {
+				await archiveSessionsForWorkspace(currentWorkspaceId)
+				await reconcileAfterWorkspaceChange()
+			} catch (e) {
+				console.error('Session cleanup after fork archive failed', e)
+			}
 			await afterForkGone()
 		} catch (e: any) {
 			sendUserToast(`Failed to archive fork: ${e?.body ?? e}`, true)
@@ -181,6 +223,15 @@
 		try {
 			await WorkspaceService.deleteWorkspace({ workspace: currentWorkspaceId })
 			sendUserToast(`Deleted fork ${currentWorkspaceId}`)
+			// Client session cleanup is best-effort: a local IndexedDB failure must
+			// not abort the redirect after a successful delete, leaving the user on
+			// the now-deleted workspace path.
+			try {
+				await deleteSessionsForWorkspace(currentWorkspaceId)
+				await reconcileAfterWorkspaceChange()
+			} catch (e) {
+				console.error('Session cleanup after fork delete failed', e)
+			}
 			await afterForkGone()
 		} catch (e: any) {
 			sendUserToast(`Failed to delete fork: ${e?.body ?? e}`, true)
@@ -233,6 +284,8 @@
 			{deployCount}
 			{updateCount}
 			{draftCount}
+			{chatMask}
+			{chatMaskReady}
 			onModeSelected={selectMode}
 		/>
 	{:else if parentWorkspaceId}
@@ -245,6 +298,8 @@
 			{updateCount}
 			{draftCount}
 			{draftKeys}
+			{chatMask}
+			{chatMaskReady}
 			onChanged={refreshCounts}
 			onModeSelected={selectMode}
 		/>
@@ -264,7 +319,8 @@
 		Archive forked workspace <span class="font-mono font-medium text-primary"
 			>{currentWorkspaceId}</span
 		>? It will be hidden from the workspace picker; a superadmin can restore it from instance
-		settings later.
+		settings later. Its content is kept and its workspace id stays reserved — use Delete fork
+		instead if you want to reuse the id for a new fork.
 	</p>
 </ConfirmationModal>
 

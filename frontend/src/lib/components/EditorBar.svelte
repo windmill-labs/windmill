@@ -86,6 +86,10 @@
 		iconOnly?: boolean
 		compactHelpers?: boolean
 		validCode?: boolean
+		// Asset-parse validity, when the context cares about it (pipeline
+		// editor). `undefined` = not applicable; `false` makes the badge red
+		// even if the main function parses.
+		validAssets?: boolean | undefined
 		kind?: 'script' | 'trigger' | 'approval'
 		template?:
 			| 'pgsql'
@@ -113,6 +117,10 @@
 		right?: import('svelte').Snippet
 		openAiChat?: boolean
 		moduleId?: string
+		// Workspace to scope variable/resource/data-table lookups to. Defaults to
+		// the nav `$workspaceStore`; an AI-session live editor passes the session's
+		// acting workspace (a fork) so the helper pickers hit the right workspace.
+		workspace?: string
 	}
 
 	let {
@@ -122,6 +130,7 @@
 		iconOnly = false,
 		compactHelpers = false,
 		validCode = true,
+		validAssets = undefined,
 		kind = 'script',
 		template = 'script',
 		collabMode = false,
@@ -136,8 +145,11 @@
 		showHistoryDrawer = $bindable(false),
 		right,
 		openAiChat = false,
-		moduleId = undefined
+		moduleId = undefined,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let contextualVariablePicker: ItemPicker | undefined = $state()
 	let variablePicker: ItemPicker | undefined = $state()
@@ -168,6 +180,7 @@
 			'java',
 			'ruby',
 			'rlang',
+			'ansible',
 			'postgresql',
 			'mysql',
 			'bigquery',
@@ -344,12 +357,12 @@
 	})
 
 	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
+		return await VariableService.listVariable({ workspace: ws ?? '' })
 	}
 
 	async function loadContextualVariables() {
 		return await VariableService.listContextualVariables({
-			workspace: $workspaceStore ?? 'NO_W'
+			workspace: ws ?? 'NO_W'
 		})
 	}
 
@@ -360,7 +373,7 @@
 	async function onScriptPick(e: { detail: { path: string } }) {
 		codeObj = undefined
 		codeViewer?.openDrawer?.()
-		codeObj = await getScriptByPath(e.detail.path ?? '')
+		codeObj = await getScriptByPath(e.detail.path ?? '', ws)
 	}
 
 	const dispatch = createEventDispatcher()
@@ -417,7 +430,7 @@
 	async function resourceTypePickCallback(name: string) {
 		if (!editor) return
 		const resourceType = await ResourceService.getResourceType({
-			workspace: $workspaceStore ?? 'NO_W',
+			workspace: ws ?? 'NO_W',
 			path: name
 		})
 
@@ -607,6 +620,8 @@
 			editor.insertAtCursor(`ENV['${name}']`)
 		} else if (lang == 'rlang') {
 			editor.insertAtCursor(`Sys.getenv("${name}")`)
+		} else if (lang == 'ansible') {
+			editor.insertAtCursor(`{{ lookup('env', '${name}') }}`)
 		} else if (
 			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
 				lang ?? ''
@@ -777,8 +792,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
 	extraField="description"
 	extraField2="resource_type"
-	loadItems={async () =>
-		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
+	loadItems={async () => await ResourceService.listResource({ workspace: ws ?? 'NO_W' })}
 >
 	{#snippet submission()}
 		<div class="flex flex-row gap-x-1 mr-2">
@@ -804,12 +818,15 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 		itemName="Resource Type"
 		extraField="name"
-		loadItems={async () =>
-			await ResourceService.listResourceType({ workspace: $workspaceStore ?? 'NO_W' })}
+		loadItems={async () => await ResourceService.listResourceType({ workspace: ws ?? 'NO_W' })}
 	/>
 {/if}
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
-<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
+<ResourceEditorDrawer
+	bind:this={resourceEditor}
+	workspace={ws}
+	on:refresh={resourcePicker.openDrawer}
+/>
+<VariableEditor bind:this={variableEditor} workspace={ws} on:create={variablePicker.openDrawer} />
 
 {#if showDucklakePicker}
 	<ItemPicker
@@ -834,9 +851,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake"
 		itemName="ducklake"
 		loadItems={async () =>
-			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
-				(path) => ({ path })
-			)}
+			(await WorkspaceService.listDucklakes({ workspace: ws ?? 'NO_W' })).map((path) => ({ path }))}
 	>
 		{#snippet submission()}
 			<div class="flex flex-row gap-x-1 mr-2">
@@ -877,9 +892,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 		itemName="data table"
 		loadItems={async () =>
-			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
-				(d) => ({ path: d.name })
-			)}
+			(await WorkspaceService.listDataTables({ workspace: ws ?? 'NO_W' })).map((d) => ({
+				path: d.name
+			}))}
 	>
 		{#snippet submission()}
 			<div class="flex flex-row gap-x-1 mr-2">
@@ -915,7 +930,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		extraField2="resource_type"
 		loadItems={async () =>
 			await ResourceService.listResource({
-				workspace: $workspaceStore ?? 'NO_W',
+				workspace: ws ?? 'NO_W',
 				resourceType: 'postgresql,mysql,bigquery'
 			})}
 	></ItemPicker>
@@ -945,8 +960,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex gap-3 items-center">
 		<div
-			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
-			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+			title={!validCode
+				? 'Main function not parsable'
+				: validAssets === false
+					? 'Assets not parsable'
+					: 'Parsable'}
+			class="rounded-full w-2 h-2 mx-2 {validCode && validAssets !== false
+				? 'bg-green-300'
+				: 'bg-red-300'}"
 		></div>
 		<div class="flex items-center gap-2">
 			{#if compactHelpers}

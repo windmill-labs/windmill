@@ -5,7 +5,7 @@ Tests that AI agents correctly handle temperature and max_completion_tokens:
 - Default parameters (undefined)
 - Low temperature (0.0 - deterministic)
 - High temperature (0.9 - more random)
-- Low max_completion_tokens (10 - short response)
+- Low max_completion_tokens (16 - short response; OpenAI's minimum)
 - High max_completion_tokens (4096 - longer response allowed)
 - Combined parameters
 """
@@ -132,14 +132,15 @@ class TestCompletionParams:
         provider_config,
     ):
         """
-        Test with max_completion_tokens=10 (short response).
-        The response should be truncated or very short.
+        Test with a low max_completion_tokens (16 — short response).
+        The response should be truncated or very short. 16 is OpenAI's minimum
+        for max_output_tokens; lower values (e.g. 10) are rejected with a 400.
         """
         flow_value = create_ai_agent_flow(
             provider_input_transform=provider_config["input_transform"],
             system_prompt="You are a helpful assistant.",
             output_type="text",
-            max_completion_tokens=10,
+            max_completion_tokens=16,
         )
 
         result = client.run_preview_flow(
@@ -153,7 +154,7 @@ class TestCompletionParams:
         result_str = str(result)
         assert len(result_str) > 0, f"Expected non-empty result: {result}"
 
-        print(f"Low max_tokens (10) result from {provider_config['name']}: {result}")
+        print(f"Low max_tokens (16) result from {provider_config['name']}: {result}")
 
     @pytest.mark.parametrize(
         "provider_config",

@@ -46,6 +46,7 @@ impl TriggerCrud for PostgresTrigger {
 
     const TABLE_NAME: &'static str = "postgres_trigger";
     const TRIGGER_TYPE: &'static str = "postgres";
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind = windmill_common::user_drafts::UserDraftItemKind::TriggerPostgres;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/postgres_triggers";

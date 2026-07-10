@@ -3,8 +3,9 @@
     Create a draft Bun script at `f/evals/global/greet_user`.
     It should take a string `name` input and return `Hello, ${name}!`.
     Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
   runtime:
-    maxTurns: 8
+    maxTurns: 10
   validate:
     draftCountExactly: 1
     requiredDrafts:
@@ -870,3 +871,641 @@
   judgeChecklist:
     - fetches the logs for the requested job id
     - explains the failure from the returned logs (connection refused to the upstream API)
+
+# --- Page navigation (open_page) ---
+# The assistant should take the user to a Windmill page (Runs/Schedules) with the
+# right filters via open_page, rather than describing where to click or dumping the
+# data. No draft is produced, so the global judge is skipped and we validate the
+# tool call and its arguments.
+
+- id: global-openpage1-runs-failed-of-script
+  prompt: |-
+    Take me to the failed runs of the script at f/evals/global/greet_user so I can see what's going wrong.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - runs
+      - tool: open_page
+        field: status
+        stringIncludesAnyOf:
+          - failure
+      - tool: open_page
+        field: path
+        stringIncludesAnyOf:
+          - f/evals/global/greet_user
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page filtered to the failed runs of f/evals/global/greet_user
+    - applies both the failure status and the script path as filters
+    - does not write, deploy, or delete anything
+
+- id: global-openpage2-runs-of-schedule
+  prompt: |-
+    Open the runs page filtered to the jobs triggered by the schedule f/evals/global/nightly_digest.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - runs
+      - tool: open_page
+        field: schedule_path
+        stringIncludesAnyOf:
+          - f/evals/global/nightly_digest
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page filtered to jobs triggered by the f/evals/global/nightly_digest schedule
+    - passes the schedule path as the filter
+    - does not write, deploy, or delete anything
+
+- id: global-openpage3-open-schedule
+  prompt: |-
+    Open the schedule f/evals/global/nightly_digest so I can review and edit it.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_schedule
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - schedules
+      - tool: open_page
+        field: open
+        stringIncludesAnyOf:
+          - f/evals/global/nightly_digest
+  skipJudge: true
+  judgeChecklist:
+    - opens the Schedules page and targets the f/evals/global/nightly_digest schedule for editing
+    - passes the schedule path so the editor opens on it
+    - does not write, deploy, or delete anything
+
+- id: global-openpage4-workspace-settings-tab
+  prompt: |-
+    Take me to the Git sync configuration for this workspace.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - workspace_settings
+      - tool: open_page
+        field: tab
+        stringIncludesAnyOf:
+          - git_sync
+  skipJudge: true
+  judgeChecklist:
+    - opens the Workspace settings page on the git_sync tab
+    - does not write, deploy, or delete anything
+
+- id: global-openpage5-audit-logs-user
+  prompt: |-
+    Open the audit logs filtered to actions performed by the user admin.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - audit_logs
+      - tool: open_page
+        field: username
+        stringIncludesAnyOf:
+          - admin
+  skipJudge: true
+  judgeChecklist:
+    - opens the Audit logs page filtered to the admin user
+    - does not write, deploy, or delete anything
+
+- id: global-openpage6-triggers-kind
+  prompt: |-
+    Take me to the Kafka triggers for this workspace.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - triggers
+      - tool: open_page
+        field: trigger_kind
+        stringIncludesAnyOf:
+          - kafka
+  skipJudge: true
+  judgeChecklist:
+    - opens the Kafka triggers page
+    - does not write, deploy, or delete anything
+
+- id: global-closepage1-close-runs-tab
+  prompt: |-
+    You just opened the runs page for me in the side panel. Close that tab, I'm done looking at it.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - close_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: close_page
+        field: match
+        stringIncludesAnyOf:
+          - runs
+  skipJudge: true
+  judgeChecklist:
+    - closes the runs preview tab in the side panel
+    - does not write, deploy, or delete anything
+
+# --- Documentation search (search_docs) ---
+# Pure product-knowledge questions: the assistant should consult the docs via
+# search_docs and answer conversationally, not draft or mutate anything. No
+# draft is produced, so the global judge is skipped and we validate tool use.
+
+- id: global-docs-ai-agent-step
+  prompt: |-
+    Does Windmill support a flow step where an LLM decides which of my scripts to call based on the input?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-retry-step
+  prompt: |-
+    How does automatic retry work for a flow step that calls a flaky API?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-key-value-store
+  prompt: |-
+    Can I use a Redis-style key-value store from my Windmill scripts, and how?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-cron-schedule-format
+  prompt: |-
+    How do Windmill's cron schedules work, and what format does the schedule expression use?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+# --- Raw app on a large project (context-usage benchmark) ---
+# These cases run against the deliberately large `analytics_dashboard` raw-app
+# fixture (~20 frontend files incl. a 5k-line data module, plus backend runnables).
+# They exist to measure how much context the global chat consumes when working in a
+# big raw app: test29 is a read-heavy debugging hunt, test30 is a small edit baseline.
+# tokenUsage is recorded per run, so the same cases re-run after a read-tool change
+# (the read_app_file cap + offset/limit paging) quantify the optimization. skipJudge:
+# the judge only sees the drafts artifact and cannot run the app, so we validate
+# deterministically.
+
+- id: global-test29-raw-app-debug-large
+  prompt: |-
+    The analytics dashboard app at `f/evals/global/analytics_dashboard` has a bug:
+    the Revenue Summary tile shows a total that is lower than the per-order line
+    totals and the per-region breakdown. Track down what is computing revenue
+    incorrectly and fix it. Keep the change as an AI draft only; do not deploy or
+    save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 20
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by either reading them directly
+      # or grepping for the revenue calculation.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the dashboard app's files to locate the revenue calculation
+    - fixes the per-order revenue so it multiplies unit price by quantity
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test30-raw-app-small-edit-large
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, change the main
+    page heading from "Operations Console" to "Revenue Overview". Leave everything
+    else unchanged. Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "Revenue Overview"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the main page heading to Revenue Overview
+    - does not change other dashboard behavior
+    - leaves the result as an AI draft only
+
+- id: global-test31-raw-app-debug-inspect-data
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` is reporting
+    revenue totals that look too low. Inspect the app's files — both the sample
+    order data module and the revenue calculation — to work out whether the bug is
+    in the data or in the calculation, then fix the actual cause. Keep the change as
+    an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects both the sample order data module and the revenue aggregation logic
+    - identifies the per-order revenue bug and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
+
+- id: global-test32-raw-app-cross-file-consistency
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` shows revenue
+    totals that disagree between the Revenue Summary tile, the orders table, and the
+    regional breakdown. Investigate how each of those computes revenue, work out
+    which calculation is wrong, and fix it. Keep the change as an AI draft only; do
+    not deploy or save it.
+  # Cross-file investigation: forces the model through several overlapping files
+  # (the summary's aggregation helper, the orders table, the regional breakdown) —
+  # a realistic multi-file read load that exercises the read_app_file cap.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 24
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the revenue calculation behind the summary tile, the orders table, and the regional breakdown
+    - identifies that the per-order revenue helper omits quantity and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
+
+- id: global-test33-raw-app-rename-across-files
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, rename the
+    `formatCurrency` helper to `formatMoney` everywhere it is defined, imported, and
+    called. Leave the separate `formatCurrencyPrecise` helper exactly as it is. Keep
+    the change as an AI draft only; do not deploy or save it.
+  # Find-all-usages rename: formatCurrency is defined once and called in 6 places
+  # spread across 4 component files (and imported in 4). Locating every usage is the
+  # exact task search_app is meant to make cheap — one grep returns all file:line
+  # rows instead of reading each component whole. valueExcludes "formatCurrency("
+  # asserts the definition and all call sites were renamed while tolerating the
+  # preserved formatCurrencyPrecise (which is never followed by "(").
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "export function formatMoney"
+          - "formatMoney("
+        valueExcludes:
+          - "formatCurrency("
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the formatCurrency definition, imports, and all call sites to formatMoney
+    - leaves the unrelated formatCurrencyPrecise helper unchanged
+    - leaves the result as an AI draft only
+
+# --- Path selection (u/<user> vs f/<folder>) ---
+# These cases assert how the assistant picks a workspace path when the user gives
+# none: a bare name defaults to the personal scope `u/<user>/`, an existing folder
+# whose purpose matches is used, a non-admin targets a writable folder and never a
+# read-only one, and shared intent with no matching folder asks rather than invents.
+# Each depends on the seeded `user` fixture (username / is_admin / folders /
+# folders_read) so the prompt's folder guidance and `u/{username}` are well-formed.
+
+- id: global-path1-bare-name-defaults-to-personal
+  prompt: |-
+    Stage a quick draft helper that takes a string and returns it trimmed of
+    leading and trailing whitespace. Just keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        pathStartsWith: u/admin/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - stages a single script draft for a trim helper
+    - defaults the path to the current user's personal scope (u/admin/...) since no path or folder was given
+    - does not invent an f/<folder> path
+    - leaves the result as a draft only
+
+- id: global-path2-match-existing-folder
+  prompt: |-
+    Draft a flow for the marketing team's weekly campaign report.
+    It should take a week number and return a short summary string.
+    Keep it as a draft only.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_folders.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        pathStartsWith: f/marketing/
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - drafts a flow for the marketing campaign report
+    - places it in the existing marketing folder (f/marketing/...) rather than the personal scope or an invented folder
+    - leaves the result as a draft only
+
+- id: global-path3-shared-intent-unknown-folder-asks
+  prompt: |-
+    Put together a draft onboarding checklist flow for the People Ops team to use
+    when a new hire joins. Keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_folders.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - askUserQuestion
+    forbiddenToolsUsed:
+      - write_flow
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - recognizes the request implies shared/team work but names no existing folder (none of marketing/data_engineering/shared_utils fit People Ops)
+    - asks which folder to use instead of guessing or inventing one
+    - does not create a draft until the folder is known
+
+- id: global-path4-nonadmin-avoids-readonly-folder
+  prompt: |-
+    Draft a small flow that returns today's date as an ISO string, and stage it in
+    one of our shared team folders. Keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_bob_nonadmin_teams.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        pathStartsWith: f/team_a/
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/team_b/
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - drafts a flow that returns the current date as an ISO string
+    - places it in team_a (writable by this non-admin user) and not team_b (read-only)
+    - leaves the result as a draft only
+
+- id: global-test-pipeline-create-node
+  prompt: |-
+    Set up the first step of a data pipeline at `f/evals/global/orders_ingest`.
+    On a schedule, it should pull raw orders and land them in a managed DuckLake
+    table so later steps can build on it. Keep it as an AI draft only — don't
+    deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/orders_ingest
+        valueIncludes:
+          - pipeline
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - builds a data pipeline node as a script (not a flow)
+    - marks the script as a pipeline member with the pipeline annotation in the script's comment syntax (`-- pipeline` for a DuckDB/SQL node, not `// pipeline`)
+    - declares a schedule trigger and writes its output to a managed DuckLake table
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test-pipeline-two-node-chain
+  prompt: |-
+    Build a small data pipeline in the `f/evals/global` folder: one step that
+    ingests orders into a DuckLake table, and a second step that reads that table
+    and writes a daily order-count rollup table. Wire the second step to run off
+    the first step's output. Keep everything as drafts — don't deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 14
+  validate:
+    draftCountAtLeast: 2
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates two data pipeline nodes as scripts (not a flow) in f/evals/global
+    - both scripts carry the pipeline annotation in their comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
+    - the first ingests orders into a DuckLake table
+    - the second reads that same table and writes a daily rollup, wired to the first step's output asset
+    - leaves both as AI drafts without deploying
+
+- id: global-path5-create-folder-then-draft
+  prompt: |-
+    Create a new shared folder called "analytics" for our data work, then draft a
+    script in it that returns the current timestamp as an ISO string. Keep the
+    script as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        pathStartsWith: f/analytics/
+  toolExpect:
+    requiredToolsUsed:
+      - create_folder
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - creates a new shared folder named "analytics" via create_folder
+    - drafts a script placed in that folder (f/analytics/...) returning an ISO timestamp
+    - leaves the script as a draft only

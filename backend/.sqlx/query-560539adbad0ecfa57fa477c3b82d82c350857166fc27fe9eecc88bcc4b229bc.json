@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_at FROM draft\n           WHERE workspace_id = $1\n             AND email IS NOT DISTINCT FROM (CASE WHEN $5::bool THEN NULL::text ELSE $2 END)\n             AND path = $3 AND typ = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline"
+              ]
+            }
+          }
+        },
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "560539adbad0ecfa57fa477c3b82d82c350857166fc27fe9eecc88bcc4b229bc"
+}

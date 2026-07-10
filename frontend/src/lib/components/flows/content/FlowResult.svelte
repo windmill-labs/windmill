@@ -2,6 +2,8 @@
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import type { Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { StateStore } from '$lib/utils'
@@ -18,6 +20,9 @@
 	}
 
 	let { job, isOwner, suspendStatus, noEditor, onOpenDetails }: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 </script>
 
 <FlowCard {noEditor} title="Flow result">
@@ -39,7 +44,7 @@
 			{#if isOwner !== undefined && suspendStatus}
 				<FlowExecutionStatus
 					{job}
-					workspaceId={$workspaceStore}
+					workspaceId={opWs}
 					{isOwner}
 					innerModules={job?.flow_status?.modules}
 					{suspendStatus}

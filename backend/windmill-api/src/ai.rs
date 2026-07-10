@@ -168,9 +168,6 @@ struct AIStandardResource {
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     platform: AIPlatform,
-    /// Enable 1M context window for Anthropic
-    #[serde(alias = "enable_1M_context", default)]
-    enable_1m_context: bool,
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
@@ -263,7 +260,6 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key,
                 aws_session_token,
                 platform: resource.platform,
-                enable_1m_context: resource.enable_1m_context,
                 custom_headers: resource.headers,
             })
         }
@@ -288,7 +284,6 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key: None,
                 aws_session_token: None,
                 platform: AIPlatform::Standard,
-                enable_1m_context: false,
                 custom_headers: HashMap::new(),
             })
         }
@@ -548,7 +543,6 @@ async fn global_proxy(
         aws_secret_access_key: None,
         aws_session_token: None,
         platform: AIPlatform::Standard,
-        enable_1m_context: false,
         custom_headers: HashMap::new(),
     };
 
@@ -577,7 +571,10 @@ async fn global_proxy(
 
     let request = match proxy_mode {
         ProxyExecutionMode::HttpForward => {
-            let query_builder = create_query_builder(&credentials);
+            // Azure AI Foundry routes Claude deployments through the Anthropic
+            // Messages API, so the builder is chosen from the request's model.
+            let model = AIProvider::extract_model_from_body(&body).unwrap_or_default();
+            let query_builder = create_query_builder(&credentials, &model);
             let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
                 method: &method,
                 path: &ai_path,
@@ -879,7 +876,10 @@ async fn proxy(
 
     let request = match proxy_mode {
         ProxyExecutionMode::HttpForward => {
-            let query_builder = create_query_builder(&credentials);
+            // Azure AI Foundry routes Claude deployments through the Anthropic
+            // Messages API, so the builder is chosen from the request's model.
+            let model = AIProvider::extract_model_from_body(&body).unwrap_or_default();
+            let query_builder = create_query_builder(&credentials, &model);
             let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
                 method: &method,
                 path: &ai_path,
@@ -958,9 +958,28 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             platform: AIPlatform::Standard,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn ai_standard_resource_ignores_legacy_enable_1m_context_keys() {
+        // Resources created before the field was removed still carry the legacy key
+        // (lowercase `enable_1m_context` or the frontend alias `enable_1M_context`).
+        // The struct has no `deny_unknown_fields`, so both must be silently ignored.
+        let json = r#"{
+            "base_url": "https://api.anthropic.com",
+            "enable_1m_context": true,
+            "enable_1M_context": true
+        }"#;
+
+        let resource: AIStandardResource =
+            serde_json::from_str(json).expect("legacy resource must still deserialize");
+
+        assert_eq!(
+            resource.base_url.as_deref(),
+            Some("https://api.anthropic.com")
+        );
     }
 
     #[test]

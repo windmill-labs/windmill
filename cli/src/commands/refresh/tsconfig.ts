@@ -22,7 +22,7 @@ const WORKSPACE_IMPORT_DIRS = ["f", "u"];
 // wmill-managed files holding the recommended config. They are always
 // (re)written so we can ship updated recommendations over time; users keep
 // their own overrides in tsconfig.json / deno.json, which reference these
-// managed files and are never overwritten. This mirrors how AGENTS.cli.md
+// managed files and are never overwritten. This mirrors how AGENTS.wmill.md
 // (managed) and AGENTS.md (user-owned) work for AI prompts.
 const MANAGED_TSCONFIG = "tsconfig.wmill.json";
 const MANAGED_IMPORT_MAP = "import_map.wmill.json";
@@ -33,7 +33,7 @@ const MANAGED_NOTICE =
 
 // Embedded in tsconfig.wmill.json so any command can detect a stale managed file
 // (the recommended config changed) and nudge the user to `wmill refresh tsconfig`
-// — mirroring the prompts freshness marker in AGENTS.cli.md.
+// — mirroring the prompts freshness marker in AGENTS.wmill.md.
 const TSCONFIG_HASH_PREFIX = "// wmill-tsconfig-hash: ";
 const TSCONFIG_HASH_REGEX = /^\/\/ wmill-tsconfig-hash: ([0-9a-f]{12})/m;
 
@@ -291,7 +291,7 @@ async function refreshManagedDenoImportMap(mode: WireMode) {
 
 /**
  * Ensure a user-owned config file references the wmill-managed file. Mirrors how
- * `wmill refresh prompts` wires `@AGENTS.cli.md` into AGENTS.md:
+ * `wmill refresh prompts` wires `@AGENTS.wmill.md` into AGENTS.md:
  *   - missing → create the minimal file (already linked);
  *   - exists & linked → leave it alone;
  *   - exists & unlinked → auto-wire it (parse JSON, apply `wire`, write back).

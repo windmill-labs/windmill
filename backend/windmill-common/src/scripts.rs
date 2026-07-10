@@ -97,7 +97,6 @@ pub async fn prefetch_cached_script(
         language: script.language,
         kind: script.kind,
         tag: script.tag,
-        draft_only: script.draft_only,
         envs: script.envs,
         dedicated_worker: script.dedicated_worker,
         ws_error_handler_muted: script.ws_error_handler_muted,
@@ -116,6 +115,7 @@ pub async fn prefetch_cached_script(
         assets: script.assets,
         modules: script.modules,
         labels: script.labels,
+        inherited_labels: script.inherited_labels,
         runnable_settings: ScriptRunnableSettingsInline {
             concurrency_settings: concurrency_settings.maybe_fallback(
                 script.runnable_settings.concurrency_key,
@@ -345,10 +345,10 @@ pub async fn clone_script<'c>(
         )));
     };
 
-    let rs =
-        runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, db).await?;
+    let rs = runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, &mut *tx)
+        .await?;
     let (debouncing_settings, concurrency_settings) =
-        runnable_settings::prefetch_cached(&rs, db).await?;
+        runnable_settings::prefetch_cached_tx(&rs, &mut tx).await?;
 
     let ns = NewScript {
         path: s.path.clone(),
@@ -362,7 +362,6 @@ pub async fn clone_script<'c>(
         language: s.language,
         kind: Some(s.kind),
         tag: s.tag,
-        draft_only: s.draft_only,
         envs: s.envs,
         concurrency_settings: concurrency_settings.maybe_fallback(
             s.runnable_settings.concurrency_key,
@@ -409,14 +408,14 @@ pub async fn clone_script<'c>(
     INSERT INTO script
     (workspace_id, hash, path, parent_hashes, summary, description, content, \
     created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
+    envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
     codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
-            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
+            envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
             codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels

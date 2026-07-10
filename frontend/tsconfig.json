@@ -22,6 +22,6 @@
 		"types": ["vite/client"]
 	},
 	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte"],
-	"exclude": ["src/lib/monaco_workers/*.js"],
+	"exclude": ["src/lib/monaco_workers/*.js", "src/**/*.test.ts", "src/**/*.spec.ts"],
 	"extends": "./.svelte-kit/tsconfig.json"
 }

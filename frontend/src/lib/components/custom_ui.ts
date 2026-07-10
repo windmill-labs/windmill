@@ -59,10 +59,46 @@ export type PreviewPanelUi = {
 	disableTracing?: boolean
 	disableTriggerCaptures?: boolean
 	disableTriggerButton?: boolean
+	disableJsonView?: boolean
 	displayResult?: DisplayResultUi
 	disableVariablePicker?: boolean
 	disableDownload?: boolean
 	tagLabel?: string
+	// Hide the args/SchemaForm pane entirely (use cases where the script
+	// is known to take no inputs — e.g. the pipeline editor's per-script
+	// preview). When set, the Test/Cancel button is rendered as a small
+	// floating affordance at the top-left of the preview area instead of
+	// inside the (now-absent) args column.
+	hideArgs?: boolean
+	// Render the LogPanel's logs/result as a left/right split instead of
+	// the default top/bottom. Pairs naturally with `hideArgs` when the
+	// preview area is the full bottom band.
+	logsResultSideBySide?: boolean
+	// Number of scripts that subscribe to assets this script writes (via
+	// `// on s3://…` etc.). When > 0, the Test button is rendered as a
+	// split: primary action runs just this step (cascade suppressed via
+	// `_wmill_skip_asset_dispatch`), and a caret exposes "Test + trigger N
+	// downstream" that lets the asset-dispatch hook fire downstream jobs.
+	// Undefined or 0 → plain Test button (no cascade UI).
+	downstreamSubscribers?: number
+	// Pairs with `hideArgs`: still hide the full args column, but when the
+	// script actually declares inputs render a compact SchemaForm between
+	// the floating Test button and the logs/result panel (e.g. a
+	// partitioned pipeline script that needs a `partition` arg to run).
+	// No-op when the script has no input properties.
+	argsAboveLogs?: boolean
+	// On mount, query the most recent top-level completed job for this
+	// script's path and load it into the preview pane so users immediately
+	// see the last run's logs/result instead of an empty panel. Used by the
+	// asset-graph details pane where selecting a script node should expose
+	// "what happened the last time this ran". No-op when a test is already
+	// in progress (we don't clobber a live run).
+	loadLastRunOnMount?: boolean
+	// Pipeline-only: when set, the Test split's caret popover gains a "Run
+	// downstream up to…" entry that calls this, letting the user bound the
+	// cascade from the script they're editing. Wired by the pipeline details
+	// pane only when the open script is a valid bounded-run start.
+	onBoundedRun?: () => void
 }
 
 export type EditorBarUi = {

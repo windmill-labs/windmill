@@ -36,6 +36,7 @@
 		scriptOrFlowPath: string
 		errorHandlerMuted: boolean | undefined
 		labels?: string[] | undefined
+		inheritedLabels?: string[] | undefined
 		onSaved?: (newPath: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
@@ -51,6 +52,7 @@
 		scriptOrFlowPath,
 		errorHandlerMuted = $bindable(),
 		labels = $bindable(),
+		inheritedLabels = undefined,
 		onSaved,
 		children,
 		trigger_badges
@@ -66,7 +68,14 @@
 		>
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div class={twMerge('min-w-0', $userStore?.operator ? 'pl-10' : '')}>
-					<SummaryPathDisplay {summary} {path} bind:labels {onSaved} kind={errorHandlerKind} />
+					<SummaryPathDisplay
+						{summary}
+						{path}
+						bind:labels
+						{inheritedLabels}
+						{onSaved}
+						kind={errorHandlerKind}
+					/>
 				</div>
 				{#if tag}
 					<Badge>tag: {tag}</Badge>

@@ -46,14 +46,40 @@ lazy_static::lazy_static! {
 
 const EMAIL_CACHE_TTL_SECS: u64 = 60;
 
+/// Resolve a workspace-scoped username to its email.
+///
+/// Members are found in `usr`. A superadmin acting in a workspace they are *not*
+/// a member of has no `usr` row; they carry either their instance-derived
+/// username (`password.username`, when `automate_username_creation` is enabled)
+/// or their email (when it is disabled), so fall back to `password` on both,
+/// gated on `super_admin` since only superadmins can act without membership.
+/// Returns `None` when the username resolves to nobody.
+pub async fn resolve_username_to_email<'c>(
+    workspace_id: &str,
+    username: &str,
+    db: impl sqlx::PgExecutor<'c>,
+) -> crate::error::Result<Option<String>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT COALESCE(
+            (SELECT email FROM usr WHERE workspace_id = $1 AND username = $2),
+            (SELECT email FROM password WHERE (username = $2 OR email = $2) AND super_admin = true)
+        )",
+        workspace_id,
+        username
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten())
+}
+
 /// Get email from permissioned_as string.
-/// - "u/{username}" → lookup email from usr table (cached)
+/// - "u/{username}" → resolve via [`resolve_username_to_email`] (cached)
 /// - "g/{group}" → "group-{group}@windmill.dev"
 /// - raw email → return as-is
-pub async fn get_email_from_permissioned_as(
+pub async fn get_email_from_permissioned_as<'c>(
     permissioned_as: &str,
     workspace_id: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: impl sqlx::PgExecutor<'c>,
 ) -> crate::error::Result<String> {
     if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
         let lookup = EmailCacheKey(workspace_id, username);
@@ -62,14 +88,9 @@ pub async fn get_email_from_permissioned_as(
                 return Ok(email);
             }
         }
-        let email = sqlx::query_scalar!(
-            "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
-            username,
-            workspace_id
-        )
-        .fetch_optional(db)
-        .await?
-        .unwrap_or_else(|| format!("{}@unknown.windmill.dev", username));
+        let email = resolve_username_to_email(workspace_id, username, db)
+            .await?
+            .unwrap_or_else(|| format!("{}@unknown.windmill.dev", username));
         let key = (workspace_id.to_string(), username.to_string());
         EMAIL_CACHE.insert(key, (email.clone(), std::time::Instant::now()));
         Ok(email)

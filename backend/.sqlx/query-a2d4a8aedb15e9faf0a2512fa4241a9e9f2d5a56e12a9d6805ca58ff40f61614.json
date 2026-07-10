@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_completed\n             WHERE id IN (\n                 SELECT id FROM v2_job_completed\n                 WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval\n                   AND ($3::timestamptz IS NULL OR completed_at >= $3)\n                 ORDER BY completed_at ASC\n                 LIMIT $2\n                 FOR UPDATE SKIP LOCKED\n             )\n             RETURNING id, completed_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a2d4a8aedb15e9faf0a2512fa4241a9e9f2d5a56e12a9d6805ca58ff40f61614"
+}

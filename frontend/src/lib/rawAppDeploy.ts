@@ -6,9 +6,8 @@
  * This mirrors how the global AI chat deploys raw apps
  * (`copilot/chat/global/core.ts` → deployDraft, case 'app'): read the item with
  * its draft, normalise to an AppDraftValue, recompute the policy, bundle the
- * files, then createAppRaw/updateAppRaw. The two pure transforms
- * (appSourceToDraftValue / normalizeRawAppData) are re-implemented here to avoid
- * importing the heavy chat module.
+ * files, then createAppRaw/updateAppRaw. The source→AppDraftValue projection is
+ * shared via `rawAppDraftValue` so the two deploy paths can't drift.
  */
 import { get } from 'svelte/store'
 import { AppService } from '$lib/gen'
@@ -18,32 +17,7 @@ import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBun
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-
-function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] {
-	if (value.data?.creation) {
-		return {
-			tables: value.data.tables ?? [],
-			datatable: value.data.creation.datatable,
-			schema: value.data.creation.schema
-		}
-	}
-	if (value.data) return value.data
-	if (value.datatables) return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }
-	if (value.dataTableRefs) return { ...DEFAULT_RAW_APP_DATA, tables: value.dataTableRefs }
-	return { ...DEFAULT_RAW_APP_DATA }
-}
-
-function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
-	const value = (app.value ?? {}) as Record<string, any>
-	return {
-		summary: app.summary ?? '',
-		files: { ...(value.files ?? {}) },
-		runnables: { ...(value.runnables ?? {}) },
-		data: normalizeRawAppData(value),
-		policy: app.policy ?? fallback?.policy,
-		custom_path: app.custom_path ?? fallback?.custom_path
-	}
-}
+import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 
 /**
  * Promote a raw app's draft to deployed. Throws on failure (caller wraps into a
@@ -55,10 +29,15 @@ export async function deployRawAppDraft(
 	path: string,
 	deploymentMessage?: string
 ): Promise<void> {
-	const app = await AppService.getAppByPathWithDraft({ workspace, path })
+	// `rawApp: true` so a never-deployed raw app (no `app` row) resolves to
+	// the raw_app draft kind server-side instead of 404ing.
+	const app = await AppService.getAppByPath({ workspace, path, getDraft: true, rawApp: true })
 	const draft = (app as any).draft
-	// Honor a renamed draft path; the URL `path` below stays the existing item key.
-	const targetPath = draft?.path ?? path
+	// Deploy at the draft's intended path. A raw-app draft carries the user-typed
+	// path in `draft_path` (a never-deployed app is parked at a synthetic
+	// `u/{user}/draft_{uuid}` storage key); the URL `path` below stays that storage
+	// key. Falls back to `path` for an unrenamed draft on a deployed app.
+	const targetPath = draft?.draft_path ?? draft?.path ?? path
 	const value = appSourceToDraftValue(draft ?? app, app)
 
 	const policy = (await updateRawAppPolicy(
@@ -96,7 +75,11 @@ export async function deployRawAppDraft(
 					summary,
 					policy,
 					deployment_message: deploymentMessage,
-					custom_path: isAdmin ? (value.custom_path ?? '') : undefined
+					custom_path: isAdmin ? (value.custom_path ?? '') : undefined,
+					// Preserve the policy's on_behalf_of: this draft-deploy path has no
+					// on-behalf-of selector, so without the flag the backend resets it to
+					// the deploying user (gated server-side by can_preserve_on_behalf_of).
+					preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 				},
 				js: bundle.js,
 				css: bundle.css
@@ -112,7 +95,9 @@ export async function deployRawAppDraft(
 					summary,
 					policy,
 					deployment_message: deploymentMessage,
-					custom_path: value.custom_path
+					custom_path: value.custom_path,
+					// Preserve the policy's on_behalf_of (see update branch above).
+					preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 				},
 				js: bundle.js,
 				css: bundle.css

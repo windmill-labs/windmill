@@ -1,41 +1,17 @@
 <script lang="ts">
-	import { Skeleton } from '$lib/components/common'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
-	import { onDestroy, onMount } from 'svelte'
+	import { goto } from '$app/navigation'
+	import { base } from '$app/paths'
 	import { page } from '$app/state'
-	let loaded = $state(false)
+	import { onMount } from 'svelte'
 
-	onMount(async () => {
-		globalThis.windmill = {
-			username: $userStore?.username,
-			email: $userStore?.email,
-			workspace: $workspaceStore
-		}
-
-		// //@ts-ignore
-		// await import('http://localhost:3000/app.iife.js')
-		/* @vite-ignore */
-		await import(
-			/* webpackIgnore: true */
-			`/api/w/${$workspaceStore}/raw_apps/get_data/${page.params.version}/${page.params.path}`
-		)
-		try {
-			globalThis.render()
-		} catch (e) {
-			sendUserToast('App seem to be ill-defined', true)
-			console.error(e)
-		}
-		loaded = true
-	})
-
-	onDestroy(() => {
-		globalThis.windmill = undefined
+	// WIN-2006: the old same-origin raw-app viewer (`/apps/get_raw/{version}/{path}`,
+	// which imported the bundle into the page with no isolation) was removed in favor
+	// of the sandboxed unified viewer. Redirect stale bookmarks to the new route,
+	// preserving query + hash. The pinned `version` is dropped — the unified viewer
+	// always shows the latest, like every other in-workspace app link. Done in the
+	// component (not a load redirect) because `url.hash` is unavailable in `load`.
+	onMount(() => {
+		const path = page.params.path ?? ''
+		goto(`${base}/apps_raw/get/${path}${page.url.search}${page.url.hash}`, { replaceState: true })
 	})
 </script>
-
-<div id="root"></div>
-
-{#if !loaded}
-	<Skeleton layout={[10]} />
-{/if}

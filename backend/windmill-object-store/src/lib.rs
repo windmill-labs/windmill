@@ -52,6 +52,8 @@ use tokio::task;
 #[cfg(feature = "parquet")]
 use windmill_common::error::to_anyhow;
 #[cfg(feature = "parquet")]
+use windmill_common::jobs::is_safe_log_file_path;
+#[cfg(feature = "parquet")]
 use windmill_common::utils::rd_string;
 #[cfg(all(feature = "parquet", feature = "private"))]
 pub mod job_s3_helpers_ee;
@@ -492,6 +494,23 @@ fn build_azure_blob_client(
     return Ok(Arc::new(store));
 }
 
+/// Whether a GCS `service_account_key` carries no static credentials, in which case the client
+/// should fall back to the instance's ambient credentials (GKE Workload Identity / metadata server)
+/// instead of being handed an unparseable key. Besides an empty/whitespace string, the settings UI
+/// stores "no key" as an empty JSON object `{}` (and `serde_json` may yield `null`), so treat those
+/// as absent too. Shared with the connectivity-test SSRF guard so both agree on what "no key" means.
+pub fn gcs_service_account_key_is_blank(service_account_key: &str) -> bool {
+    let trimmed = service_account_key.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    match serde_json::from_str::<serde_json::Value>(trimmed) {
+        Ok(serde_json::Value::Null) => true,
+        Ok(serde_json::Value::Object(map)) => map.is_empty(),
+        _ => false,
+    }
+}
+
 #[cfg(feature = "parquet")]
 async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<dyn ObjectStore>> {
     let gcs_resource = gcs_resource_ref.clone();
@@ -507,7 +526,12 @@ async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<d
         )
         .with_bucket_name(gcs_resource.bucket);
 
-    store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    // A blank key means no static credentials: let the builder fall back to the metadata server
+    // (InstanceCredentialProvider) so GKE Workload Identity / ambient credentials work. Passing a
+    // blank/`{}` key to `with_service_account_key` would instead fail to parse.
+    if !gcs_service_account_key_is_blank(&gcs_resource.service_account_key) {
+        store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    }
 
     let store = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store_builder.build()))
         .map_err(|panic_info| {
@@ -533,7 +557,134 @@ pub fn build_filesystem_client(root_path: &str) -> error::Result<Arc<dyn ObjectS
     let store = object_store::local::LocalFileSystem::new_with_prefix(root_path).map_err(|e| {
         error::Error::internal_err(format!("Error building filesystem object store: {:?}", e))
     })?;
-    Ok(Arc::new(store))
+    Ok(Arc::new(FilesystemStoreIgnoringAttributes(store)))
+}
+
+/// `LocalFileSystem` rejects put/multipart uploads whose options carry
+/// attributes (content-type, content-disposition, ...) with `NotImplemented`.
+/// Attributes are advisory metadata a plain filesystem cannot persist, so
+/// drop them instead of failing the upload.
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct FilesystemStoreIgnoringAttributes(object_store::local::LocalFileSystem);
+
+#[cfg(feature = "parquet")]
+impl std::fmt::Display for FilesystemStoreIgnoringAttributes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[cfg(feature = "parquet")]
+#[async_trait]
+impl ObjectStore for FilesystemStoreIgnoringAttributes {
+    async fn put_opts(
+        &self,
+        location: &object_store::path::Path,
+        payload: object_store::PutPayload,
+        mut opts: object_store::PutOptions,
+    ) -> object_store::Result<object_store::PutResult> {
+        opts.attributes = Default::default();
+        self.0.put_opts(location, payload, opts).await
+    }
+
+    async fn put_multipart_opts(
+        &self,
+        location: &object_store::path::Path,
+        mut opts: object_store::PutMultipartOpts,
+    ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
+        opts.attributes = Default::default();
+        self.0.put_multipart_opts(location, opts).await
+    }
+
+    async fn get_opts(
+        &self,
+        location: &object_store::path::Path,
+        options: object_store::GetOptions,
+    ) -> object_store::Result<object_store::GetResult> {
+        self.0.get_opts(location, options).await
+    }
+
+    async fn get_range(
+        &self,
+        location: &object_store::path::Path,
+        range: std::ops::Range<u64>,
+    ) -> object_store::Result<Bytes> {
+        self.0.get_range(location, range).await
+    }
+
+    async fn get_ranges(
+        &self,
+        location: &object_store::path::Path,
+        ranges: &[std::ops::Range<u64>],
+    ) -> object_store::Result<Vec<Bytes>> {
+        self.0.get_ranges(location, ranges).await
+    }
+
+    async fn head(
+        &self,
+        location: &object_store::path::Path,
+    ) -> object_store::Result<object_store::ObjectMeta> {
+        self.0.head(location).await
+    }
+
+    async fn delete(&self, location: &object_store::path::Path) -> object_store::Result<()> {
+        self.0.delete(location).await
+    }
+
+    fn list(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        self.0.list(prefix)
+    }
+
+    fn list_with_offset(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+        offset: &object_store::path::Path,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        self.0.list_with_offset(prefix, offset)
+    }
+
+    async fn list_with_delimiter(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+    ) -> object_store::Result<object_store::ListResult> {
+        self.0.list_with_delimiter(prefix).await
+    }
+
+    async fn copy(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.copy(from, to).await
+    }
+
+    async fn rename(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.rename(from, to).await
+    }
+
+    async fn copy_if_not_exists(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.copy_if_not_exists(from, to).await
+    }
+
+    async fn rename_if_not_exists(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.rename_if_not_exists(from, to).await
+    }
 }
 
 #[cfg(feature = "parquet")]
@@ -1296,6 +1447,9 @@ pub async fn get_logs_from_store(
 ) -> Option<impl futures::Stream<Item = Result<bytes::Bytes, object_store::Error>>> {
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
+            if file_index.iter().any(|p| !is_safe_log_file_path(p)) {
+                return None;
+            }
             if let Some(os) = get_object_store().await {
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
@@ -1569,6 +1723,40 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("GCS is not supported"));
+    }
+
+    #[test]
+    fn test_gcs_service_account_key_is_blank() {
+        for blank in ["", "   ", "\n\t", "{}", "  {}  ", "null"] {
+            assert!(
+                gcs_service_account_key_is_blank(blank),
+                "{blank:?} should be treated as no key"
+            );
+        }
+        for present in ["{\"client_email\":\"x@y.z\"}", "not json"] {
+            assert!(
+                !gcs_service_account_key_is_blank(present),
+                "{present:?} should be treated as a key"
+            );
+        }
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_build_gcs_client_blank_key_uses_instance_credentials() {
+        // A blank service account key must not be passed to `with_service_account_key`
+        // (which would fail to parse): the builder should fall back to instance credentials
+        // (GKE Workload Identity / metadata server) and construct successfully. `{}` is the
+        // settings UI's representation of "no key".
+        for key in ["", "   ", "{}"] {
+            let resource =
+                GcsResource { bucket: "bucket".to_string(), service_account_key: key.to_string() };
+            assert!(
+                build_gcs_client(&resource).await.is_ok(),
+                "blank key {:?} should build via instance credentials",
+                key
+            );
+        }
     }
 
     #[test]

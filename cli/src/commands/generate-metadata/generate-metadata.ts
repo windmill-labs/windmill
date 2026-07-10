@@ -2,7 +2,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { colors } from "@cliffy/ansi/colors";
 import { sep as SEP } from "node:path";
-import { GlobalOptions } from "../../types.ts";
+import { GlobalOptions, isDatatableMigrationPath } from "../../types.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -54,6 +54,8 @@ async function walkLocalScripts(
       (!isD && !exts.some((ext) => p.endsWith(ext))) ||
       ignore(p, isD) ||
       isFolderResourcePathAnyFormat(p) ||
+      // Datatable migration `.sql` files aren't Windmill scripts.
+      isDatatableMigrationPath(p) ||
       (isScriptModulePath(p) && !isModuleEntryPoint(p)),
     false,
     {},
@@ -97,8 +99,10 @@ async function walkLocalAppItems(
  * or app), so a preview run resolves relative imports from not-yet-deployed
  * local content instead of the deployed scripts. Walks all local scripts so
  * transitive relative-import targets can be uploaded, then for flow/app adds
- * that item's node. Degrades gracefully (returns undefined) on older backends
- * without the /raw_temp endpoints.
+ * that item's node. The "all" target skips per-node filtering and returns refs
+ * for every uploaded script — used by `wmill dev`, where the previewed item
+ * changes at runtime. Degrades gracefully (returns undefined) on older
+ * backends without the /raw_temp endpoints.
  */
 export async function buildPreviewTempScriptRefs(
   workspace: Workspace,
@@ -107,7 +111,8 @@ export async function buildPreviewTempScriptRefs(
   target:
     | { kind: "script"; path: string }
     | { kind: "flow"; folder: string }
-    | { kind: "app"; folder: string; rawApp: boolean },
+    | { kind: "app"; folder: string; rawApp: boolean }
+    | { kind: "all" },
 ): Promise<Record<string, string> | undefined> {
   try {
     const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
@@ -129,8 +134,11 @@ export async function buildPreviewTempScriptRefs(
       );
     }
 
-    let nodePath: string;
-    if (target.kind === "script") {
+    let nodePath: string | undefined;
+    if (target.kind === "all") {
+      // No anchor node — refs are collected tree-wide below
+      nodePath = undefined;
+    } else if (target.kind === "script") {
       nodePath = scriptPathToRemotePath(target.path);
     } else if (target.kind === "flow") {
       const folder = target.folder.endsWith(SEP)
@@ -157,7 +165,9 @@ export async function buildPreviewTempScriptRefs(
 
     tree.propagateStaleness();
     await uploadScripts(tree, workspace);
-    const refs = tree.getTempScriptRefs(nodePath);
+    const refs = nodePath !== undefined
+      ? tree.getTempScriptRefs(nodePath)
+      : tree.getAllTempScriptRefs();
     return refs && Object.keys(refs).length > 0 ? refs : undefined;
   } catch (e) {
     // Degrade gracefully (preview still runs against deployed versions) but do
@@ -213,6 +223,8 @@ function categorizeLocalFiles(
     } else if (
       exts.some((ext) => p.endsWith(ext)) &&
       !isFolderResourcePathAnyFormat(p) &&
+      // Datatable migration `.sql` files aren't Windmill scripts.
+      !isDatatableMigrationPath(p) &&
       !(isScriptModulePath(p) && !isModuleEntryPoint(p))
     ) {
       scripts.push(p);
@@ -791,7 +803,7 @@ async function rehashCommand(
 }
 
 const command = new Command()
-  .description("Generate metadata (locks, schemas) for all scripts, flows, and apps")
+  .description("Regenerate stale local locks and script schemas and refresh wmill-lock.yaml content hashes (scripts, flows, apps). Writes local files only, not a deploy. Run it after edits that add or remove imports or change a script's arguments, so the lock, the auto-generated UI schema, and wmill-lock.yaml stay in sync.")
   .arguments("[folder:string]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Show what would be updated without making changes")
@@ -815,9 +827,7 @@ const command = new Command()
     "rehash",
     new Command()
       .description(
-        "Trust on-disk content; rewrite wmill-lock.yaml hashes without backend " +
-        "trips or yaml/lock rewrites. Useful for bootstrapping missing lockfile " +
-        "entries or recovering from older-CLI hash drift."
+        "Refresh wmill-lock.yaml content hashes from the on-disk .lock and .script.yaml without re-resolving dependencies or hitting the backend. Use when those files are already correct and only the hashes need updating: bootstrapping missing entries or recovering from hash drift."
       )
       .arguments("[folder:string]")
       .option("--skip-scripts", "Skip processing scripts")

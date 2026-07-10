@@ -1,9 +1,21 @@
 import { randomUUID } from 'node:crypto'
-import type { CompletedJob, Flow, Job, Script } from '../../../frontend/src/lib/gen'
+import type {
+	AppWithLastVersion,
+	CompletedJob,
+	Flow,
+	Job,
+	ListableApp,
+	Script
+} from '../../../frontend/src/lib/gen'
 import type {
 	DataTableTables,
 	DataTableTableSchema,
-	ScriptLang
+	GetDraftForUserResponse,
+	GetOwnDraftResponse,
+	ListDraftsResponse,
+	ScriptLang,
+	UpdateDraftResponse,
+	UserDraftItemKind
 } from '../../../frontend/src/lib/gen/types.gen'
 import { buildScriptLintResult } from './core/script/preview'
 import { applyDatatableSql, type BenchmarkDatatableSeed } from './datatableSqlEngine'
@@ -29,6 +41,18 @@ export interface BenchmarkWorkspaceFlow {
 	value: Flow['value']
 }
 
+export interface BenchmarkWorkspaceApp {
+	path: string
+	summary: string
+	value: {
+		files: Record<string, string>
+		runnables: Record<string, unknown>
+		data?: unknown
+		policy?: unknown
+		custom_path?: unknown
+	}
+}
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
 	id?: string
@@ -43,6 +67,7 @@ export interface BenchmarkWorkspaceJob {
 export interface BenchmarkWorkspaceRunnables {
 	scripts?: BenchmarkWorkspaceScript[]
 	flows?: BenchmarkWorkspaceFlow[]
+	apps?: BenchmarkWorkspaceApp[]
 	datatables?: BenchmarkDatatableSeed[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
@@ -63,6 +88,14 @@ export function resetBenchmarkMockBackend(): void {
 	benchmarkWorkspaces.clear()
 	benchmarkWorkspaceRunnables.clear()
 	benchmarkJobs.clear()
+	benchmarkDrafts.clear()
+}
+
+// Stand-in for FolderService.createFolder so the global create_folder tool runs in
+// memory instead of mutating the real backend. Folders aren't otherwise modelled
+// (no folder-listing in evals), so this just echoes the created name.
+export function createBenchmarkFolder(_workspace: string, name: string): string {
+	return name
 }
 
 export function registerBenchmarkWorkspace(workspace: string): void {
@@ -74,6 +107,8 @@ export function registerBenchmarkWorkspaceRunnables(
 	runnables: BenchmarkWorkspaceRunnables
 ): void {
 	benchmarkWorkspaces.add(workspace)
+	// Fresh case: drop any drafts left from a prior run on this workspace id.
+	clearBenchmarkDrafts(workspace)
 	// Datatables are mutated in place by exec_datatable_sql (a write must be visible
 	// to later reads), so store an isolated deep copy — never mutate the caller's seed.
 	benchmarkWorkspaceRunnables.set(workspace, {
@@ -98,6 +133,7 @@ export function registerBenchmarkWorkspaceRunnables(
 export function unregisterBenchmarkWorkspace(workspace: string): void {
 	benchmarkWorkspaces.delete(workspace)
 	benchmarkWorkspaceRunnables.delete(workspace)
+	clearBenchmarkDrafts(workspace)
 	for (const [jobId, entry] of benchmarkJobs.entries()) {
 		if (entry.workspace === workspace) {
 			benchmarkJobs.delete(jobId)
@@ -151,6 +187,22 @@ export function getBenchmarkFlowByPath(workspace: string, path: string): Flow | 
 		?.flows?.find((entry) => entry.path === path)
 
 	return flow ? buildBenchmarkFlow(flow) : null
+}
+
+export function listBenchmarkApps(workspace: string): ListableApp[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		return null
+	}
+	return (runnables.apps ?? []).map(buildBenchmarkListableApp)
+}
+
+export function getBenchmarkAppByPath(workspace: string, path: string): AppWithLastVersion | null {
+	const app = benchmarkWorkspaceRunnables
+		.get(workspace)
+		?.apps?.find((entry) => entry.path === path)
+
+	return app ? buildBenchmarkApp(app) : null
 }
 
 export function createBenchmarkCompletedJob(input: {
@@ -236,6 +288,124 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
 		throw new Error(`Job Logs not found for "${jobId}"`)
 	}
 	return job.logs ?? ''
+}
+
+// ============= Drafts (per-user, DB-backed in production) =============
+
+/**
+ * In-memory stand-in for the per-user draft backend (`DraftService`). The global
+ * AI chat now persists and reads drafts through the backend DB instead of an
+ * in-tab `UserDraft` cell, so the eval mocks the draft endpoints it exercises
+ * (`updateDraft` / `getOwnDraft` / `getDraftForUser` / `listDrafts`) and keeps the
+ * saved values here, keyed by workspace + draft kind + storage path. Mirrors the
+ * semantics of the production unit test's mock in
+ * `frontend/src/lib/components/copilot/chat/global/core.test.ts`.
+ */
+const benchmarkDrafts = new Map<
+	string,
+	{ workspace: string; kind: UserDraftItemKind; path: string; value: unknown }
+>()
+
+// Fixed timestamp so artifacts stay deterministic. No eval simulates a
+// concurrent writer, so every save is accepted and the conflict branch is
+// never taken — the syncer just records this as its `last_sync` baseline.
+const BENCHMARK_DRAFT_TIMESTAMP = '1970-01-01T00:00:00.000Z'
+
+function benchmarkDraftKey(workspace: string, kind: string, path: string): string {
+	return `${workspace}::${kind}::${path}`
+}
+
+export function clearBenchmarkDrafts(workspace: string): void {
+	for (const [key, entry] of benchmarkDrafts.entries()) {
+		if (entry.workspace === workspace) {
+			benchmarkDrafts.delete(key)
+		}
+	}
+}
+
+/**
+ * Seed a draft straight into the store — used by the eval's live-editor draft
+ * fixtures, which model "the user already has this draft open/saved". Writing it
+ * here (instead of through `UserDraft.save`) keeps it a backend draft row with no
+ * shadowing in-tab cell, so a model edit that persists to the backend is what the
+ * output read-back captures — not the stale seed.
+ */
+export function seedBenchmarkDraft(
+	workspace: string,
+	kind: UserDraftItemKind,
+	path: string,
+	value: unknown
+): void {
+	benchmarkDrafts.set(benchmarkDraftKey(workspace, kind, path), {
+		workspace,
+		kind,
+		path,
+		value
+	})
+}
+
+/** Mirror `DraftService.updateDraft`: a `null`/omitted value deletes the row. */
+export function updateBenchmarkDraft(input: {
+	workspace: string
+	kind: UserDraftItemKind
+	path: string
+	requestBody?: { value?: unknown }
+}): UpdateDraftResponse {
+	const key = benchmarkDraftKey(input.workspace, input.kind, input.path)
+	const value = input.requestBody?.value
+	if (value == null) {
+		benchmarkDrafts.delete(key)
+	} else {
+		benchmarkDrafts.set(key, {
+			workspace: input.workspace,
+			kind: input.kind,
+			path: input.path,
+			value
+		})
+	}
+	return { status: 'saved', current_timestamp: BENCHMARK_DRAFT_TIMESTAMP }
+}
+
+/** Mirror `DraftService.getDraftForUser`: 404-shaped throw when absent so the
+ * adapter's narrowed catch treats it as "no draft" instead of re-throwing. */
+export function getBenchmarkDraftForUser(input: {
+	workspace: string
+	kind: UserDraftItemKind
+	path: string
+}): GetDraftForUserResponse {
+	const entry = benchmarkDrafts.get(benchmarkDraftKey(input.workspace, input.kind, input.path))
+	if (!entry) {
+		throw Object.assign(new Error(`no draft for "${input.path}"`), { status: 404 })
+	}
+	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
+}
+
+/** Mirror `DraftService.getOwnDraft`: `null` (200) when absent — unlike
+ * `getDraftForUser`, absence is not an error on this route. */
+export function getBenchmarkOwnDraft(input: {
+	workspace: string
+	kind: UserDraftItemKind
+	path: string
+}): GetOwnDraftResponse {
+	const entry = benchmarkDrafts.get(benchmarkDraftKey(input.workspace, input.kind, input.path))
+	if (!entry) {
+		return null
+	}
+	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
+}
+
+/** Mirror `DraftService.listDrafts`: metadata rows (no value) for a workspace. */
+export function listBenchmarkDrafts(workspace: string): ListDraftsResponse {
+	return [...benchmarkDrafts.values()]
+		.filter((entry) => entry.workspace === workspace)
+		.map((entry) => ({
+			kind: entry.kind,
+			path: entry.path,
+			summary: (entry.value as { summary?: string } | null)?.summary,
+			draft_only: true,
+			legacy_draft: false,
+			created_at: BENCHMARK_DRAFT_TIMESTAMP
+		}))
 }
 
 // ============= Datatables (best-effort in-memory SQL) =============
@@ -491,4 +661,36 @@ function buildBenchmarkFlow(flow: BenchmarkWorkspaceFlow): Flow {
 		archived: false,
 		extra_perms: {}
 	} as Flow
+}
+
+function buildBenchmarkListableApp(app: BenchmarkWorkspaceApp): ListableApp {
+	return {
+		id: 0,
+		workspace_id: 'benchmark',
+		path: app.path,
+		summary: app.summary,
+		version: 1,
+		extra_perms: {},
+		edited_at: BENCHMARK_TIMESTAMP,
+		execution_mode: 'viewer',
+		raw_app: true
+	}
+}
+
+function buildBenchmarkApp(app: BenchmarkWorkspaceApp): AppWithLastVersion {
+	return {
+		id: 0,
+		workspace_id: 'benchmark',
+		path: app.path,
+		summary: app.summary,
+		versions: [1],
+		created_by: 'benchmark',
+		created_at: BENCHMARK_TIMESTAMP,
+		value: app.value,
+		policy: (app.value.policy ?? {}) as AppWithLastVersion['policy'],
+		execution_mode: 'viewer',
+		extra_perms: {},
+		custom_path: app.value.custom_path as string | undefined,
+		raw_app: true
+	}
 }

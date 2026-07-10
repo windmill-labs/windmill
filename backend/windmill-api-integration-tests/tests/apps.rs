@@ -82,12 +82,6 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "get/p", "u/test-user/nonexistent").await;
     assert_eq!(resp.status(), 404);
 
-    // --- get draft ---
-    let resp = authed_get(port, "get/draft", "u/test-user/test_app").await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.json::<serde_json::Value>().await?;
-    assert_eq!(body["path"], "u/test-user/test_app");
-
     // --- get lite ---
     let resp = authed_get(port, "get/lite", "u/test-user/test_app").await;
     assert_eq!(resp.status(), 200);

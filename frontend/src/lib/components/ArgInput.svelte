@@ -46,7 +46,7 @@
 	import AIProviderPicker from './AIProviderPicker.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
-	import { randomUUID } from './flows/conversations/FlowChatManager.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
 		label?: string
@@ -1070,7 +1070,14 @@
 				{/if}
 			</div>
 		{:else if inputCat == 'dynamic'}
-			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
+			<DynamicInput
+				name={label}
+				{otherArgs}
+				{helperScript}
+				{workspace}
+				bind:value
+				format={format ?? ''}
+			/>
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-primary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
@@ -1078,6 +1085,7 @@
 			<ObjectResourceInput
 				datatableAsPgResource={label === 'database'}
 				{disabled}
+				{workspace}
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst && required}
 				{disablePortal}
@@ -1423,6 +1431,7 @@
 			<ResourcePicker
 				selectFirst={noDefaultOnSelectFirst}
 				{disablePortal}
+				{workspace}
 				bind:value
 				initialValue={defaultValue}
 				resourceType={format && format.split('-').length > 1

@@ -15,6 +15,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
+- **Frontend UUIDs**: do not call `crypto.randomUUID()` in frontend code. Import `randomUUID` from `$lib/utils/uuid` instead.
 - **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi.
 - **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
@@ -23,6 +24,8 @@ Open-source platform for internal tools, workflows, API integrations, background
 ## Dev Environment
 
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
+- **DuckDB local jobs**: before running DuckDB scripts locally, build the FFI shared library with `cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh`. Re-run it after clean builds or when `backend/target/debug/libwindmill_duckdb_ffi_internal.*` is missing. The bundled DuckDB compile (~2min) is cached in a per-user dir shared across worktrees, so a fresh worktree reuses it and the build is near-instant.
+- **Data pipelines (DuckLake) from source**: a plain `cargo run` (even `--features quickjs`) advertises a `duckdb` worker tag but **cannot** execute DuckDB scripts and has **no** working S3 proxy (DuckLake writes 404). Build CE DuckLake with `cargo run --features quickjs,duckdb,parquet,private` (add `,python` for Python scripts, `,enterprise,license` for EE) **and** build the FFI (bullet above). See `backend/CLAUDE.md` → "Running data pipelines (DuckLake) from source" for the exact feature sets and the two feature-gate gotchas.
 - **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/` (port 3000+)
 - **DB**: `psql postgres://postgres:changeme@localhost:5432/windmill`
 - **Login**: `admin@windmill.dev` / `changeme`
@@ -46,6 +49,8 @@ Typical flow:
 4. `mcp__playwright__browser_click` / `browser_fill_form` / `browser_type` to interact
 5. `mcp__playwright__browser_take_screenshot` for visual confirmation
 6. `mcp__playwright__browser_console_messages` / `browser_network_requests` to surface errors
+
+**Attach the screenshots to the PR.** For any change under `frontend/`, embed screenshots of the affected UI in the PR body — the `pr` skill requires this and carries the upload recipe.
 
 If you cannot exercise a UI change (no dev server, etc.), say so explicitly rather than claiming success.
 
@@ -106,4 +111,5 @@ $NAV --root backend callees "X"                           # what does X call?
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
+- **Comments record constraints, not narration.** Write a comment only for what the code can't show: why a non-obvious approach is required, what breaks if it's "simplified" away. State each invariant once, at the place where someone would break it, in ≤4 lines. Don't describe what the next line does, don't repeat the same rationale at multiple sites, and don't address the PR reviewer (justifying a change belongs in the PR description, not the code). Describe the code as it is, never its drafting history: "we no longer do X", "unchanged behavior", "instead of the previous approach" are meaningless to a reader who never saw the earlier iteration — before finishing, reread your comments as if the current state is the only state that ever existed.
 - **Never attribute work to a specific customer, account, or "requested by a customer" in repo-tracked content** (PR descriptions, commit messages, code comments, docs). Describe changes by their technical motivation instead.

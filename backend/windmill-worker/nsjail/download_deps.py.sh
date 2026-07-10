@@ -2,7 +2,8 @@
 
 INDEX_URL_ARG=$([ -z "$INDEX_URL" ] && echo ""|| echo "--index-url $INDEX_URL" )
 EXTRA_INDEX_URL_ARG=$([ -z "$EXTRA_INDEX_URL" ] && echo ""|| echo "--extra-index-url $EXTRA_INDEX_URL" )
-TRUSTED_HOST_ARG=$([ -z "$TRUSTED_HOST" ] &&  echo "" || echo "--trusted-host $TRUSTED_HOST")
+TRUSTED_HOST_ARG=""
+for h in $TRUSTED_HOST; do TRUSTED_HOST_ARG="$TRUSTED_HOST_ARG --trusted-host $h"; done
 
 if [ ! -z "$INDEX_URL" ]
 then

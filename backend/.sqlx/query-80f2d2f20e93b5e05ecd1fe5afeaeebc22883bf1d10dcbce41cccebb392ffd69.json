@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM join_pending_inputs\n               WHERE workspace_id = $1 AND subscriber_path = $2 AND partition = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "80f2d2f20e93b5e05ecd1fe5afeaeebc22883bf1d10dcbce41cccebb392ffd69"
+}

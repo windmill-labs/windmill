@@ -4,7 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import {
 		PostgresTriggerService,
 		type ErrorHandler,
@@ -231,7 +231,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Record<string, any>
+		defaultConfig?: Record<string, any>,
+		fixedScriptPath_?: string
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -250,11 +251,15 @@
 			relations = []
 			transaction_to_track = []
 			tab = 'basic'
-			await loadTrigger(defaultConfig)
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers have no deployed row, so saving must CREATE (update 404s).
+			edit = !noDeployed
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
@@ -367,28 +372,55 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft overlay
+	 * so the caller captures `originalConfig` BEFORE applying the draft (see
+	 * `NatsTriggerEditorInner.loadTrigger`). Postgres wrinkle: the publication is
+	 * keyed by resource/name the draft may have changed, so it's fetched using
+	 * the effective values to reflect the draft's view.
+	 */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			if (defaultConfig?.publication) {
 				transaction_to_track = [...defaultConfig.publication.transaction_to_track]
 				relations = defaultConfig.publication.table_to_track ?? []
 			}
-			return
-		} else {
-			const s = await PostgresTriggerService.getPostgresTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			const publication_data = await PostgresTriggerService.getPostgresPublication({
-				path: s.postgres_resource_path,
-				workspace: $workspaceStore!,
-				publication: s.publication_name
-			})
-
-			loadTriggerConfig({ ...s, publication: publication_data })
+			return { overlay: undefined, noDeployed: false }
 		}
+		const s = await PostgresTriggerService.getPostgresTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		// Draft-only: synthesized stand-in, no row, so saving must CREATE.
+		const noDeployed = !!(s as any)?.no_deployed
+
+		// Deployed config + publication become the `originalConfig` baseline.
+		const deployedPublication = await PostgresTriggerService.getPostgresPublication({
+			path: deployedTrigger.postgres_resource_path,
+			workspace: $workspaceStore!,
+			publication: deployedTrigger.publication_name
+		})
+		loadTriggerConfig({ ...deployedTrigger, publication: deployedPublication })
+
+		if (!draftFromBackend) return { overlay: undefined, noDeployed }
+
+		// Refetch the publication for the draft's keys if they differ.
+		const effective = { ...deployedTrigger, ...draftFromBackend }
+		const effectivePublication =
+			effective.postgres_resource_path === deployedTrigger.postgres_resource_path &&
+			effective.publication_name === deployedTrigger.publication_name
+				? deployedPublication
+				: await PostgresTriggerService.getPostgresPublication({
+						path: effective.postgres_resource_path,
+						workspace: $workspaceStore!,
+						publication: effective.publication_name
+					})
+		return { overlay: { ...effective, publication: effectivePublication }, noDeployed }
 	}
 
 	function getCaptureConfig() {
@@ -534,6 +566,7 @@
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit Postgres trigger ${initialPath}`
@@ -546,6 +579,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}
@@ -639,43 +673,39 @@
 			</Label>
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs text-primary">
-						Pick a script or flow to be triggered <Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-							clearable
-						/>
-
-						{#if emptyString(script_path) && is_flow === false}
-							<div class="flex">
-								<Button
-									disabled={!can_write}
-									btnClasses="ml-4"
-									variant="accent"
-									size="xs"
-									on:click={getTemplateScript}
-									target="_blank"
-									{loading}
-									>Create from template
-									<Tooltip light>
-										The conversion requires a <strong>database resource</strong> and at least one
-										<strong>schema</strong>
-										to be set.<br />
-										Please ensure these conditions are met before proceeding.
-									</Tooltip>
-								</Button>
-							</div>
-						{/if}
-					</div>
+					<TriggerRunnablePicker
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+						promptText="Pick a script or flow to be triggered "
+						promptClass="text-xs text-primary"
+					>
+						{#snippet createButton()}
+							{#if emptyString(script_path) && is_flow === false}
+								<div class="flex">
+									<Button
+										disabled={!can_write}
+										btnClasses="ml-4"
+										variant="accent"
+										size="xs"
+										on:click={getTemplateScript}
+										target="_blank"
+										{loading}
+										>Create from template
+										<Tooltip light>
+											The conversion requires a <strong>database resource</strong> and at least one
+											<strong>schema</strong>
+											to be set.<br />
+											Please ensure these conditions are met before proceeding.
+										</Tooltip>
+									</Button>
+								</div>
+							{/if}
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 

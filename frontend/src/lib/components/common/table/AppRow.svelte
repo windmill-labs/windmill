@@ -3,13 +3,15 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { AppService, DraftService, type ListableApp } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { AppService, type ListableApp } from '$lib/gen'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
 		ExternalLink,
@@ -28,16 +30,15 @@
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/state'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { DELETE, copyToClipboard } from '$lib/utils'
+	import { copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
+		app: ListableApp & { draft_only?: boolean; canWrite: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -64,11 +65,31 @@
 
 	const dispatch = createEventDispatcher()
 
-	let appExport: { open: (path: string) => void } | undefined = $state(undefined)
+	let appExport: { open: (path: string, rawApp?: boolean) => void } | undefined = $state(undefined)
 	let appDeploymentHistory: AppDeploymentHistory | undefined = $state(undefined)
 
 	async function loadAppJson() {
-		appExport?.open(app.path)
+		// Thread the row's `raw_app` flag so the JSON drawer's backend
+		// fetch picks the right draft kind on draft-only items (no
+		// deployed row to read the kind from server-side).
+		appExport?.open(app.path, !!app.raw_app)
+	}
+
+	async function deleteApp(path: string): Promise<void> {
+		// Draft-only items have no deployed row — the regular route would
+		// 404. Route the delete through the syncer instead; the `app` vs
+		// `raw_app` choice mirrors the row's own `raw_app` flag.
+		if (app.draft_only) {
+			await UserDraftDbSyncer.save({
+				workspace: $workspaceStore ?? '',
+				itemKind: app.raw_app ? 'raw_app' : 'app',
+				path,
+				value: null,
+				immediate: true
+			})
+		} else {
+			await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+		}
 	}
 </script>
 
@@ -80,11 +101,13 @@
 {/if}
 
 <Row
-	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
+	href={app.draft_only
+		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
+		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
 	{marked}
-	path={app.path}
-	summary={app.summary}
+	path={(app as any).draft_path ?? app.path}
+	summary={app.is_draft ? `${app.summary || (app as any).draft_path || app.path}*` : app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only}
 	{depth}
@@ -98,7 +121,16 @@
 			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
-		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
+		<DraftBadge
+			is_draft={app.is_draft}
+			draft_only={app.draft_only}
+			draft_users={app.draft_users}
+			currentUsername={$userStore?.username}
+			workspace={$workspaceStore ?? undefined}
+			itemKind={app.raw_app ? 'raw_app' : 'app'}
+			path={app.path}
+			onMigrated={() => dispatch('change')}
+		/>
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}
@@ -117,6 +149,7 @@
 				{/if}
 			</div>
 		{/if}
+		<InheritedLabels labels={app.inherited_labels} />
 		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}
@@ -130,13 +163,13 @@
 							variant="subtle"
 							wrapperClasses="w-20"
 							startIcon={{ icon: Pen }}
-							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
 						>
 							Edit
 						</Button>
 					</div>
 				{/if}
-				{#if !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !app.canWrite)}
+				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
 					<div>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
@@ -145,7 +178,7 @@
 							startIcon={{ icon: GitFork }}
 							href={buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', app.path)}
 						>
-							Edit in fork
+							{editInForkLabel($workspaceStore, $userWorkspaces)}
 						</Button>
 					</div>
 				{/if}
@@ -155,7 +188,7 @@
 			aiId={`app-row-dropdown-${app.summary?.length > 0 ? app.summary : app.path}`}
 			aiDescription={`Open dropdown for app ${app.summary?.length > 0 ? app.summary : app.path} options`}
 			items={async () => {
-				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
+				let { draft_only, canWrite, summary, execution_mode, path } = app
 
 				const canEdit = canWrite && showEditButton
 				if (draft_only) {
@@ -167,17 +200,20 @@
 								// TODO
 								// @ts-ignore
 								if (event?.shiftKey) {
-									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+									await deleteApp(path)
 									dispatch('change')
 								} else {
 									deleteConfirmedCallback = async () => {
-										await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+										await deleteApp(path)
 										dispatch('change')
 									}
 								}
 							},
 							type: 'delete',
-							disabled: !canEdit,
+							// A draft-only row is always the authed user's own draft (the
+							// list endpoint only surfaces own/legacy draft-only rows), so
+							// discarding it never requires write permission on the path.
+							disabled: !showEditButton,
 							hide: $userStore?.operator
 						},
 						{
@@ -198,10 +234,13 @@
 						hide: $userStore?.operator
 					},
 					{
-						displayName: 'Edit in workspace fork',
+						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
 						icon: GitFork,
 						href: buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', path),
-						hide: $userStore?.operator || isCloudHosted() || isRuleActive('DisableWorkspaceForking')
+						hide:
+							$userStore?.operator ||
+							isCloudHosted() ||
+							!editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
 					{
 						displayName: 'Move/Rename',
@@ -271,25 +310,6 @@
 								}
 							]
 						: []),
-					...(has_draft
-						? [
-								{
-									displayName: 'Delete Draft',
-									icon: Trash,
-									action: async () => {
-										await DraftService.deleteDraft({
-											workspace: $workspaceStore ?? '',
-											path,
-											kind: 'app'
-										})
-										dispatch('change')
-									},
-									type: DELETE,
-									disabled: !canWrite,
-									hide: $userStore?.operator
-								}
-							]
-						: []),
 					{
 						displayName: 'Delete',
 						icon: Trash,
@@ -297,11 +317,11 @@
 							// TODO
 							// @ts-ignore
 							if (event?.shiftKey) {
-								await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+								await deleteApp(path)
 								dispatch('change')
 							} else {
 								deleteConfirmedCallback = async () => {
-									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+									await deleteApp(path)
 									dispatch('change')
 								}
 							}

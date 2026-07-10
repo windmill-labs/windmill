@@ -273,6 +273,14 @@ lazy_static::lazy_static! {
     /// production `app.windmill.dev` cluster, not on staging or self-hosted.
     pub static ref CLOUD_PRODUCTION_HOST: &'static str = "app.windmill.dev";
 
+    /// `--no-auth` mode: when set, every API request is treated as
+    /// authenticated as the `admin@windmill.dev` superadmin and no login is
+    /// ever required. Meant for self-hosted deployments that front Windmill
+    /// with their own authenticating gateway. Never honored on the managed
+    /// cloud (`CLOUD_HOSTED`), which must always enforce real authentication.
+    pub static ref NO_AUTH: bool = !*CLOUD_HOSTED
+        && std::env::var("NO_AUTH").ok().is_some_and(|x| x == "1" || x == "true");
+
     pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
@@ -693,8 +701,6 @@ pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error
 
     let full_path = job_dir.join(&user_path);
 
-    // let normalized_job_dir = std::fs::canonicalize(job_dir)?;
-    // let normalized_full_path = std::fs::canonicalize(&full_path)?;
     let normalized_job_dir = normalize_path(job_dir);
     let normalized_full_path = normalize_path(&full_path);
 
@@ -704,6 +710,36 @@ pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error
             "Path is outside the allowed job directory.",
         )
         .into());
+    }
+
+    // The lexical check above cannot see symlinks: a symlink planted inside the
+    // job dir - e.g. by an earlier Ansible `git_repos` clone whose tracked
+    // content includes one - would let a later `git clone` or file write follow
+    // it out of the job dir while still passing the textual `starts_with` check.
+    // Walk the *normalized* relative path (`..`/`.` already collapsed) so each
+    // step matches the real on-disk resolution, and reject any existing component
+    // that is a symlink. Walking the raw user path would drift on an in-bounds
+    // `..` (e.g. `foo/../link`, which normalizes back inside the job dir) and miss
+    // the real symlinked component. Not-yet-existing components are safe: a path
+    // that does not exist cannot itself be a symlink.
+    let relative = normalized_full_path
+        .strip_prefix(&normalized_job_dir)
+        .unwrap_or(&normalized_full_path);
+    let mut current = normalized_job_dir.clone();
+    for component in relative.components() {
+        if let Component::Normal(c) = component {
+            current.push(c);
+            if std::fs::symlink_metadata(&current)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "Path traverses a symlink, which is not allowed.",
+                )
+                .into());
+            }
+        }
     }
 
     Ok(normalized_full_path)
@@ -883,6 +919,47 @@ impl BashAnnotations {
                 // `# sandbox <image>` -> container; bare `# sandbox` -> nsjail bash.
                 if let Some(image) = tokens.next() {
                     return Some(image.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// If the script declares `#ssh <resource_path>` (a resource path after the
+    /// ssh annotation), returns that path. This reroutes execution to a remote
+    /// host over SSH (enterprise feature): the script runs on the host described
+    /// by the `ssh_target` resource at `<resource_path>` instead of on the worker.
+    /// The `#ssh $<arg_name>` form returns the `$`-prefixed token verbatim; the
+    /// executor resolves it from the job argument of that name at run time.
+    ///
+    /// Mirrors `sandbox_image`: only leading comment lines are scanned, stopping
+    /// at the first non-comment line. A bare `#ssh` with no path returns `None`.
+    /// Only an exact `#ssh <target>` line triggers the reroute — the target must
+    /// be a resource path (`u/...`/`f/...`) or a `$arg` reference (a valid
+    /// identifier), with nothing else on the line — so prose comments like
+    /// `# ssh into the box`, `# ssh tunnel/proxy setup is below` or
+    /// `# ssh $HOST manually first` never match.
+    pub fn ssh_target(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with('#') {
+                break;
+            }
+            let mut tokens = line[1..].split_whitespace();
+            if tokens.next() == Some("ssh") {
+                if let Some(path) = tokens.next() {
+                    let is_path = path.starts_with("u/") || path.starts_with("f/");
+                    let is_arg = path.strip_prefix('$').is_some_and(|a| {
+                        !a.is_empty()
+                            && !a.starts_with(|c: char| c.is_ascii_digit())
+                            && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    });
+                    if (is_path || is_arg) && tokens.next().is_none() {
+                        return Some(path.to_string());
+                    }
                 }
             }
         }
@@ -2284,6 +2361,60 @@ mod tests {
     }
 
     #[test]
+    fn test_bash_ssh_target_annotation() {
+        // `#ssh <path>` returns the resource path (reroutes to remote execution).
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh f/infra/jump_node\nset -e\ndf -h"),
+            Some("f/infra/jump_node".to_string())
+        );
+        // `# ssh <path>` with a space after `#` also works.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh u/me/box\n"),
+            Some("u/me/box".to_string())
+        );
+        // `#ssh $arg` (dynamic target from a job argument) is returned verbatim.
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh $jump_host\necho hi"),
+            Some("$jump_host".to_string())
+        );
+        // A bare `#ssh` with no path -> None.
+        assert_eq!(BashAnnotations::ssh_target("#ssh\necho hi"), None);
+        // `ssh` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::ssh_target("# sshd restart"), None);
+        // Prose comments mentioning ssh must not trigger the reroute: the line
+        // must be exactly `#ssh <target>` with a `u/`/`f/` path or `$identifier`.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh into the box and restart nginx\necho hi"),
+            None
+        );
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh tunnel/proxy setup is below\necho hi"),
+            None
+        );
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh $HOST manually first\necho hi"),
+            None
+        );
+        // Trailing tokens after a real-looking target also disqualify the line.
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh f/infra/box then reboot\necho hi"),
+            None
+        );
+        // ...but a real directive on a later comment line is still found.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh into the box\n#ssh f/infra/box\necho hi"),
+            Some("f/infra/box".to_string())
+        );
+        // Stops at the first non-comment line (declared too late is ignored).
+        assert_eq!(
+            BashAnnotations::ssh_target("echo hi\n#ssh f/infra/box"),
+            None
+        );
+        // No annotation -> None (normal local bash).
+        assert_eq!(BashAnnotations::ssh_target("echo hello"), None);
+    }
+
+    #[test]
     fn test_mixed_tags() {
         let input = vec![
             "global".to_string(),
@@ -2730,6 +2861,73 @@ mod tests {
             "temp/bak dirs leaked: {:?}",
             leftovers
         );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_is_allowed_file_location_allows_plain_relative() {
+        let base = std::env::temp_dir().join(format!("wm_allowed_loc_ok_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        let out = is_allowed_file_location(job_dir_str, "repo/sub/playbook.yml").unwrap();
+        assert_eq!(out, normalize_path(&job_dir.join("repo/sub/playbook.yml")));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_is_allowed_file_location_rejects_parent_and_absolute() {
+        let base =
+            std::env::temp_dir().join(format!("wm_allowed_loc_esc_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        assert!(is_allowed_file_location(job_dir_str, "../escape").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "a/../../escape").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "/etc/passwd").is_err());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // Regression for GHSA-v934-cvpf-6fjw: a symlink planted inside the job dir
+    // (e.g. by an earlier `git_repos` clone) must not let a later target traverse
+    // it out of the job dir, even though the lexical path stays "inside".
+    #[cfg(unix)]
+    #[test]
+    fn test_is_allowed_file_location_rejects_symlink_traversal() {
+        let base =
+            std::env::temp_dir().join(format!("wm_allowed_loc_symlink_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        // Stand-in for the shared cache dir living outside the job dir.
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        // Plant `job/repo` -> `../outside`, as a malicious first clone would.
+        let planted = job_dir.join("repo");
+        std::os::unix::fs::symlink(&outside, &planted).unwrap();
+
+        // Both the symlink itself and any path traversing it are rejected.
+        assert!(is_allowed_file_location(job_dir_str, "repo").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "repo/payload").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "repo/sub/payload").is_err());
+
+        // An in-bounds `..` must not bypass the check: `foo/../repo/payload`
+        // normalizes back to `repo/payload` and still traverses the symlink.
+        assert!(is_allowed_file_location(job_dir_str, "foo/../repo/payload").is_err());
+        std::fs::create_dir(job_dir.join("real")).unwrap();
+        assert!(is_allowed_file_location(job_dir_str, "real/../repo/payload").is_err());
+
+        // A dangling symlink (target does not exist yet) is still caught:
+        // `symlink_metadata` does not follow the link.
+        let dangling = job_dir.join("dangling");
+        std::os::unix::fs::symlink(base.join("nonexistent"), &dangling).unwrap();
+        assert!(is_allowed_file_location(job_dir_str, "dangling/payload").is_err());
 
         let _ = std::fs::remove_dir_all(&base);
     }

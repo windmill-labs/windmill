@@ -82,12 +82,6 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "get", "u/test-user/nonexistent").await;
     assert_eq!(resp.status(), 404);
 
-    // --- get draft ---
-    let resp = authed_get(port, "get/draft", "u/test-user/test_flow").await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.json::<serde_json::Value>().await?;
-    assert_eq!(body["path"], "u/test-user/test_flow");
-
     // --- list ---
     let resp = authed(client().get(format!("{base}/list")))
         .send()

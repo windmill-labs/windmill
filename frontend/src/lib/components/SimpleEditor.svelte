@@ -95,6 +95,7 @@
 		loadAsync = false,
 		key,
 		disabled = false,
+		readOnly = false,
 		minHeight = 1000,
 		renderLineHighlight = 'none',
 		suggestion
@@ -123,6 +124,9 @@
 		initialCursorPos?: IPosition
 		key?: string
 		disabled?: boolean
+		/** Read-only Monaco mode: not editable, but still scrollable/selectable
+		 * (unlike `disabled`, which makes the editor non-interactive). */
+		readOnly?: boolean
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
 		suggestion?: string
@@ -239,6 +243,9 @@
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
+	$effect(() => {
+		editor?.updateOptions({ readOnly })
+	})
 
 	function onVimDisable() {
 		vimDisposable?.dispose()
@@ -342,6 +349,7 @@
 				),
 				model,
 				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
+				readOnly,
 				renderLineHighlight,
 				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
@@ -419,6 +427,9 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
@@ -448,6 +459,9 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {

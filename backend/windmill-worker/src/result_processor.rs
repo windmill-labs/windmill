@@ -35,9 +35,9 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_mini_completed_job, is_pre_shaped_wm_failure_result, CanceledBy, FlowRunners,
-    JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson, WrappedError, INIT_SCRIPT_TAG,
-    MANUAL_FAILURE_ERROR_NAME,
+    append_logs, asset_dispatch, get_mini_completed_job, is_pre_shaped_wm_failure_result,
+    CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson,
+    WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -779,13 +779,16 @@ pub async fn process_completed_job(
                 ))
             })?;
         } else if let Some(preprocessed_args) = preprocessed_args {
-            // Update script args to preprocessed args
-            sqlx::query!(
-                "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
-                Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
-                job.id
+            // Update script args to preprocessed args, but preserve a
+            // resolved pipeline `partition` (injected before the body ran
+            // by resolve_partition_for_job). Run identity is immutable —
+            // the preprocessor must not change or drop it, or the asset
+            // cascade would read no partition for this producer.
+            windmill_common::partition::merge_args_preserving_partition(
+                db,
+                job.id,
+                preprocessed_args,
             )
-            .execute(db)
             .await?;
         }
 
@@ -805,6 +808,12 @@ pub async fn process_completed_job(
             from_cache.unwrap_or(false),
         )
         .await?;
+
+        // Asset-trigger fan-out: best-effort, never propagates errors.
+        // Internal eligibility checks gate to top-level Script/Preview runs;
+        // see windmill_queue::asset_dispatch.
+        asset_dispatch::dispatch_asset_triggers(db, &job).await;
+
         drop(job);
 
         add_time!(bench, "add_completed_job END");
@@ -1286,7 +1295,7 @@ pub async fn handle_job_error(
                         db,
                         &parent_job,
                         mem_peak,
-                        canceled_by,
+                        canceled_by.clone(),
                         e,
                         worker_name,
                         false,

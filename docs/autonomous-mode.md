@@ -73,4 +73,9 @@ In your final summary, provide:
 - **Terminal recordings** of CLI changes (via asciinema)
 - Any known limitations or follow-up work needed
 
-Upload images via pastebin (e.g., `curl -F 'file=@screenshot.png' https://0x0.st`) and include the URLs in the PR description or comments.
+### Attaching images to a PR
+
+Embed screenshots, Mermaid diagrams, and asciinema frames by uploading them to the
+public `windmill-labs/agent-screenshots-internal` repo and pasting the
+`raw.githubusercontent.com` URL into the PR. The upload recipe lives in the `pr`
+skill (`.agents/skills/pr/SKILL.md` → "Screenshots"); reuse it for any image type.

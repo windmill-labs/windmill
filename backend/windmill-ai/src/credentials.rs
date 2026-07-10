@@ -20,6 +20,5 @@ pub struct ProviderCredentials {
     pub aws_secret_access_key: Option<String>,
     pub aws_session_token: Option<String>,
     pub platform: AIPlatform,
-    pub enable_1m_context: bool,
     pub custom_headers: HashMap<String, String>,
 }

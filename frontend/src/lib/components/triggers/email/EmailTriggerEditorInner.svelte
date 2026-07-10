@@ -3,8 +3,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import {
 		EmailTriggerService,
 		type ErrorHandler,
@@ -117,7 +116,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Partial<NewEmailTrigger>
+		defaultConfig?: Partial<NewEmailTrigger>,
+		fixedScriptPath_?: string
 	) {
 		drawerLoading = true
 		let loader = setTimeout(() => {
@@ -131,12 +131,21 @@
 			edit = true
 			dirtyPath = false
 			dirtyLocalPart = false
-			await loadTrigger(defaultConfig)
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			// Form holds DEPLOYED here. Capture `originalConfig` as the
+			// deployed baseline so `hasChanged` (= current != originalConfig)
+			// fires whenever a draft exists, not only after the user edits.
+			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig())) as NewEmailTrigger
+			if (draftOverlay) loadTriggerConfig(draftOverlay as Partial<EmailTrigger>)
 			if (!defaultConfig) {
 				// If the email trigger is loaded from the backend, we to set the initial config
-				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
+				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig())) as NewEmailTrigger
 			}
-			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load email trigger: ${err}`, true)
@@ -206,17 +215,31 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft
+	 * overlay (if any) so the caller can capture the deployed-only form
+	 * state as `originalConfig` BEFORE applying the draft. See
+	 * `NatsTriggerEditorInner` for the rationale.
+	 */
+	async function loadTrigger(
+		defaultConfig?: Partial<EmailTrigger>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
-		} else {
-			const s = await EmailTriggerService.getEmailTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			loadTriggerConfig(s)
+			return { overlay: undefined, noDeployed: false }
+		}
+		const s = await EmailTriggerService.getEmailTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		loadTriggerConfig(deployedTrigger)
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		}
 	}
 
@@ -345,7 +368,7 @@
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
 			{/if}
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-2">
 					<Label label="Path">
 						<Path
@@ -365,23 +388,16 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					<p class="text-xs mt-3 mb-1 text-primary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-col gap-2">
-						<div class="flex flex-row mb-2">
-							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write}
-								initialPath={fixedScriptPath || initialScriptPath}
-								kinds={['script']}
-								allowFlow={true}
-								bind:itemKind
-								bind:scriptPath={script_path}
-								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
-								clearable
-							/>
-
+					<TriggerRunnablePicker
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+						promptClass="text-xs mt-3 mb-1 text-primary"
+					>
+						{#snippet createButton()}
 							{#if emptyString(script_path)}
 								<Button
 									btnClasses="ml-4"
@@ -391,8 +407,8 @@
 									target="_blank">Create from template</Button
 								>
 							{/if}
-						</div>
-					</div>
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 
@@ -459,6 +475,7 @@
 {#if useDrawer}
 	<Drawer size="700px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit email trigger ${initialPath}`
@@ -473,6 +490,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}

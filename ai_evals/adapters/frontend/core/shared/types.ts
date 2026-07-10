@@ -28,6 +28,8 @@ export interface RawEvalResult<TOutput> {
   output: TOutput;
   error?: string;
   tokenUsage: TokenUsage;
+  /** Input tokens on the last model request of the loop (see BenchmarkAttemptResult.finalContextTokens). */
+  finalContextTokens: number | null;
   toolCallsCount: number;
   toolsCalled: string[];
   toolCallDetails: ToolCallDetail[];

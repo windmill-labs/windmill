@@ -8,6 +8,7 @@
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -96,6 +97,10 @@
 	let dynamicSkipPath: string | undefined = $state(undefined)
 	let script_path = $state('')
 	let initialScriptPath = $state('')
+	// When non-empty, the drawer was opened from the pipeline editor for an
+	// already-bound script. We swap the runnable ScriptPicker for a read-only
+	// viewer so the trigger can't be silently reassigned off the pipeline.
+	let fixedScriptPath = $state('')
 	let runnable: Script | Flow | undefined = $state()
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
@@ -142,7 +147,12 @@
 		deployed: () => initialConfig
 	})
 
-	export async function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultCfg?: Record<string, any>,
+		fixedScriptPath_?: string
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -152,11 +162,16 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
-			await loadSchedule(defaultCfg)
-			edit = true
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
+			// Draft-only schedules have no deployed row, so saving must CREATE (update 404s).
+			edit = !noDeployed
 			if (!defaultCfg) {
+				// Form holds DEPLOYED here; capture it as `initialConfig` so the
+				// dirty check / banner fires whenever a saved draft exists.
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
+			if (draftOverlay) await loadScheduleCfg(draftOverlay)
 			await draftSync.maybeRestore()
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -277,8 +292,11 @@
 		nis_flow: boolean,
 		initial_script_path?: string,
 		defaultValues?: Schedule,
-		schedule_path?: string
+		schedule_path?: string,
+		fixedScriptPath_?: string,
+		opts: { getDraft?: boolean } = {}
 	) {
+		const getDraft = opts.getDraft ?? true
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -286,10 +304,17 @@
 		try {
 			let s: Schedule | undefined
 			if (schedule_path) {
-				s = await ScheduleService.getSchedule({
+				const resp = await ScheduleService.getSchedule({
 					workspace: $workspaceStore!,
-					path: schedule_path
+					path: schedule_path,
+					getDraft
 				})
+				// `.draft` holds the saved Schedule; layer it over the deployed
+				// fields so the form assignments below see the last-saved state.
+				const { draft: draftFromBackend, ...deployedSchedule } = resp as any
+				s = draftFromBackend
+					? ({ ...deployedSchedule, ...draftFromBackend } as Schedule)
+					: (deployedSchedule as Schedule)
 				initNewPath = true
 			} else if (defaultValues) {
 				s = defaultValues
@@ -304,6 +329,7 @@
 			initialConfig = undefined
 			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			path = initNewPath
 				? ''
 				: (defaultValues?.path ?? (trigger?.isPrimary ? initialScriptPath : ''))
@@ -452,19 +478,36 @@
 		}
 	}
 
-	async function loadSchedule(defaultCfg?: Record<string, any>): Promise<void> {
-		if (!defaultCfg) {
-			try {
-				const s = await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
-					path: initialPath
-				})
-				await loadScheduleCfg(s)
-			} catch (err) {
-				sendUserToast(`Could not load schedule: ${err}`, true)
-			}
-		} else {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft overlay
+	 * so the caller captures `initialConfig` from the deployed-only form BEFORE
+	 * applying the draft, making the banner fire whenever a draft is present.
+	 */
+	async function loadSchedule(
+		defaultCfg?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
+		if (defaultCfg) {
 			await loadScheduleCfg(defaultCfg)
+			return { overlay: undefined, noDeployed: false }
+		}
+		try {
+			const s = await ScheduleService.getSchedule({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				getDraft: true
+			})
+			const { draft: draftFromBackend, ...deployedSchedule } = s as any
+			await loadScheduleCfg(deployedSchedule)
+			return {
+				overlay: draftFromBackend
+					? ({ ...deployedSchedule, ...draftFromBackend } as Record<string, any>)
+					: undefined,
+				// Draft-only: synthesized stand-in, no row, so saving must CREATE.
+				noDeployed: !!(s as any).no_deployed
+			}
+		} catch (err) {
+			sendUserToast(`Could not load schedule: ${err}`, true)
+			return { overlay: undefined, noDeployed: false }
 		}
 	}
 
@@ -738,7 +781,7 @@
 			}}
 		/>
 		<div class="flex flex-col gap-8">
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-semibold text-emphasis">Summary</span>
@@ -764,7 +807,7 @@
 							bind:value={summary}
 						/>
 					</label>
-					<LabelsInput bind:labels />
+					<LabelsInput bind:labels class="-mt-4" />
 
 					<div class="flex flex-col gap-1">
 						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
@@ -880,7 +923,9 @@
 
 			<Section label="Runnable">
 				{#if !hideTarget}
-					{#if !edit}
+					{#if fixedScriptPath != ''}
+						<PipelineLockedRunnableInfo path={fixedScriptPath} />
+					{:else if !edit}
 						<p class="text-xs mb-1 text-secondary">
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
@@ -1335,6 +1380,7 @@
 {#if useDrawer}
 	<Drawer size="900px" bind:this={drawer}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit schedule ${initialPath}`
@@ -1351,6 +1397,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}

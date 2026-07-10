@@ -98,12 +98,6 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["path"], "u/test-user/test_script");
 
-    // --- get draft ---
-    let resp = authed_get(port, "get/draft", "u/test-user/test_script").await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.json::<serde_json::Value>().await?;
-    assert_eq!(body["path"], "u/test-user/test_script");
-
     // --- raw by path (requires language extension) ---
     let resp = authed_get(port, "raw/p", "u/test-user/test_script.ts").await;
     assert_eq!(resp.status(), 200);

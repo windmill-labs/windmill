@@ -323,6 +323,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'SSH execution (#ssh)',
+			key: 'ssh_execution_enabled',
+			fieldType: 'boolean',
+			description:
+				'Allow bash scripts starting with a <code>#ssh &lt;resource_path&gt;</code> directive to run on the remote host described by the referenced <code>ssh_target</code> resource instead of the worker. Off by default.',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:
@@ -433,7 +443,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Store audit logs in object storage',
 			description:
-				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Pre-existing history is not backfilled: export starts from when the setting is enabled (transactions in flight at that moment may include a bounded set of just-prior rows). No audit log committed after enabling is ever skipped.',
+				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Enabling (or re-enabling) anchors the export at ~now: while it stays enabled, every audit log committed from that point on is exported (transactions in flight at the moment of enabling may include a bounded set of just-prior rows). Pre-existing history, and any window during which export was disabled, are NOT exported by this cursor — use the opt-in backfill API to export a chosen historical range, back to when audit-log partitioning was introduced (older rows in the legacy audit table are not exported, and a window overlapping them is rejected): POST /settings/audit_logs_s3_backfill {from, to} (status at GET /settings/audit_logs_s3_backfill_status).',
 			key: 'store_audit_logs_s3',
 			fieldType: 'boolean',
 			storage: 'setting',
@@ -513,6 +523,14 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'smtp_connect',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Disable workspace invite emails',
+			description:
+				'Do not send email notifications when a user is invited or added to a workspace. Useful for automated workflows that add users programmatically.',
+			key: 'disable_workspace_invite_emails',
+			fieldType: 'boolean',
+			storage: 'setting'
 		}
 	],
 	'Auth/OAuth/SAML': [

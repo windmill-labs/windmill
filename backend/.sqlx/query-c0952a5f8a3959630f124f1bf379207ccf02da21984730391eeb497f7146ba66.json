@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT args AS \"args: sqlx::types::Json<serde_json::Value>\"\n             FROM v2_job\n             WHERE workspace_id = $1 AND runnable_path = $2 AND trigger_kind IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "args: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c0952a5f8a3959630f124f1bf379207ccf02da21984730391eeb497f7146ba66"
+}

@@ -1,0 +1,63 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)\n               VALUES ($1, $2, $3, $4, $5, 'script', $6) ON CONFLICT DO NOTHING\n               RETURNING usage_access_type AS \"usage_access_type: AssetUsageAccessType\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "usage_access_type: AssetUsageAccessType",
+        "type_info": {
+          "Custom": {
+            "name": "asset_access_type",
+            "kind": {
+              "Enum": [
+                "r",
+                "w",
+                "rw"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "asset_access_type",
+            "kind": {
+              "Enum": [
+                "r",
+                "w",
+                "rw"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "bfb97d2f48157a1575b7b6f3e64e0d075701d541a44dd7a0b586d1f337ced5e1"
+}

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(DISTINCT trigger_ref) AS \"n!\"\n           FROM join_pending_inputs\n           WHERE workspace_id = $1 AND subscriber_path = $2 AND partition = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3c5a387c2fed905838b0c1d2e0ade10b1ca1785b66a68a260d4aaf2957fbcc66"
+}

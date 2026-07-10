@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { readTextFile } from "./utils.ts";
+import { getEsbuild } from "./esbuild_loader.ts";
 import type { SyncCodebase } from "./codebase.ts";
 import { parseMetadataFileIfExists } from "./metadata.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
@@ -43,7 +44,7 @@ async function bundleSingleFileCodebaseScript(
     ).toString();
   }
 
-  const esbuild = await import("esbuild");
+  const esbuild = await getEsbuild();
   const out = await esbuild.build({
     entryPoints: [filePath],
     // Inline rawscripts are executed through the standard module wrapper,

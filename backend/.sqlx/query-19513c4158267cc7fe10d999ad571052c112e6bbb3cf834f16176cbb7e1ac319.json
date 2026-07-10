@@ -5,7 +5,7 @@
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "id!",
         "type_info": "Uuid"
       }
     ],
@@ -16,7 +16,7 @@
       ]
     },
     "nullable": [
-      false
+      null
     ]
   },
   "hash": "19513c4158267cc7fe10d999ad571052c112e6bbb3cf834f16176cbb7e1ac319"

@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM asset\n        WHERE id IN (\n            SELECT id FROM (\n                SELECT a.id, ROW_NUMBER() OVER (\n                    PARTITION BY a.workspace_id, a.path, a.kind\n                    ORDER BY a.created_at DESC\n                ) as rn,\n                limits.max_n\n                FROM asset a\n                INNER JOIN (\n                    SELECT * FROM UNNEST(\n                        $1::varchar[],\n                        $2::varchar[],\n                        $3::asset_kind[],\n                        $4::int[]\n                    ) AS t(workspace_id, path, kind, max_n)\n                ) limits\n                ON a.workspace_id = limits.workspace_id\n                AND a.path = limits.path\n                AND a.kind = limits.kind\n                WHERE a.usage_kind = 'job'\n            ) ranked\n            WHERE rn > max_n\n        )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "VarcharArray",
+        "VarcharArray",
+        {
+          "Custom": {
+            "name": "asset_kind[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "asset_kind",
+                  "kind": {
+                    "Enum": [
+                      "s3object",
+                      "resource",
+                      "variable",
+                      "ducklake",
+                      "datatable",
+                      "volume"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "31bbd03932912df069cfc97fd1ca8c69a3151266e2bf475da10feb4916e436e9"
+}

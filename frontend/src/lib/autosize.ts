@@ -2,7 +2,28 @@ import { tick } from 'svelte'
 
 type TextArea = HTMLTextAreaElement
 
-export const autosize = (node: TextArea) => {
+/**
+ * Optional parameters for the `autosize` action.
+ *
+ * `maxHeight` caps how tall the textarea may grow. Once the content exceeds it,
+ * the textarea stops growing and scrolls internally (overflow-y: auto) instead.
+ * Accepts a number (px) or a CSS-ish string ending in `vh`/`px` (e.g. `'40vh'`).
+ * When omitted the textarea grows without bound (the historical behaviour).
+ */
+export type AutosizeParams = { maxHeight?: number | string } | undefined
+
+/** Resolve a `maxHeight` param to a pixel value, or null when uncapped/invalid. */
+function resolveMaxHeight(maxHeight: number | string | undefined): number | null {
+	if (maxHeight == null) return null
+	if (typeof maxHeight === 'number') return maxHeight
+	const s = maxHeight.trim()
+	const v = parseFloat(s)
+	if (isNaN(v)) return null
+	if (s.endsWith('vh')) return (v / 100) * window.innerHeight
+	return v // 'px' or bare number → pixels
+}
+
+export const autosize = (node: TextArea, params?: AutosizeParams) => {
 	/* ------------------------------------------------------------------
 	 * Constants
 	 * ---------------------------------------------------------------- */
@@ -11,13 +32,32 @@ export const autosize = (node: TextArea) => {
 	const EXTRA = 2 // px added to scrollHeight
 
 	let width = 0
+	let maxHeight = params?.maxHeight
+	let capped = maxHeight != null
 
 	/* ------------------------------------------------------------------
 	 * Core resize routine
 	 * ---------------------------------------------------------------- */
 	const resize = () => {
 		node.style.height = 'auto'
-		node.style.height = `${Math.max(node.scrollHeight, MIN_HEIGHT) + EXTRA}px`
+		let height = Math.max(node.scrollHeight, MIN_HEIGHT) + EXTRA
+
+		const maxPx = resolveMaxHeight(maxHeight)
+		if (maxPx != null) {
+			if (height > maxPx) {
+				height = maxPx
+				node.style.overflowY = 'auto'
+			} else {
+				node.style.overflowY = 'hidden'
+			}
+		} else {
+			// Uncapped — including after a capped→uncapped toggle: drop any inline
+			// overflow we set while capped so the textarea returns to its default
+			// (class-driven) behaviour rather than keeping a stale `auto`/`hidden`.
+			node.style.overflowY = ''
+		}
+
+		node.style.height = `${height}px`
 	}
 
 	/* ------------------------------------------------------------------
@@ -45,6 +85,13 @@ export const autosize = (node: TextArea) => {
 
 	node.addEventListener('input', onInput)
 	node.addEventListener('update', resize)
+
+	// A `vh`-based cap depends on the viewport height, so recompute on window
+	// resize. Only attached when a cap is configured to avoid adding listeners
+	// for the many uncapped textareas across the app.
+	if (capped) {
+		window.addEventListener('resize', resize)
+	}
 
 	/* ------------------------------------------------------------------
 	 * Inline styling
@@ -79,10 +126,24 @@ export const autosize = (node: TextArea) => {
 	 * Action lifecycle
 	 * ---------------------------------------------------------------- */
 	return {
+		update(newParams?: AutosizeParams) {
+			maxHeight = newParams?.maxHeight
+			const nowCapped = maxHeight != null
+			if (nowCapped && !capped) {
+				window.addEventListener('resize', resize)
+			} else if (!nowCapped && capped) {
+				window.removeEventListener('resize', resize)
+			}
+			capped = nowCapped
+			resize()
+		},
 		destroy() {
 			ro.disconnect()
 			node.removeEventListener('input', onInput)
 			node.removeEventListener('update', resize)
+			if (capped) {
+				window.removeEventListener('resize', resize)
+			}
 		}
 	}
 }

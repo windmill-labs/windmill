@@ -51,6 +51,7 @@ import generateMetadata from "./commands/generate-metadata/generate-metadata.ts"
 import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
 import datatable from "./commands/datatable/datatable.ts";
+import pipeline from "./commands/pipeline/pipeline.ts";
 import ducklake from "./commands/ducklake/ducklake.ts";
 import objectStorage from "./commands/object-storage/object-storage.ts";
 import { fetchVersion } from "./core/context.ts";
@@ -77,6 +78,7 @@ export {
   docs,
   config,
   datatable,
+  pipeline,
   ducklake,
   objectStorage,
   hubPull,
@@ -215,6 +217,7 @@ const command = new Command()
   .command("docs", docs)
   .command("config", config)
   .command("datatable", datatable)
+  .command("pipeline", pipeline)
   .command("ducklake", ducklake)
   .command("object-storage", objectStorage)
   .command("version --version", "Show version information")
@@ -302,7 +305,7 @@ async function main() {
       return response;
     });
 
-    // Warn (one line) if AGENTS.cli.md predates this CLI's prompts bundle.
+    // Warn (one line) if AGENTS.wmill.md predates this CLI's prompts bundle.
     // The check is gated on argv parsing (cheap) so the ~360 KB skills.gen.ts
     // bundle stays out of the import graph for help/version/init/refresh/etc.
     if (shouldRunFreshnessCheck(process.argv)) {

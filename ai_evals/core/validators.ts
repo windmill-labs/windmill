@@ -169,6 +169,16 @@ export function validateToolExpectations(input: {
     );
   }
 
+  for (const group of expect.requiredToolsAnyOf ?? []) {
+    checks.push(
+      check(
+        `uses one of ${group.join(", ")}`,
+        group.some((toolName) => input.run.toolsUsed.includes(toolName)),
+        `tools used: ${input.run.toolsUsed.join(", ") || "none"}`
+      )
+    );
+  }
+
   for (const toolName of expect.forbiddenToolsUsed ?? []) {
     checks.push(
       check(
@@ -1368,11 +1378,14 @@ function validateFlowRequirements(
       continue;
     }
 
+    const allowedTypes = Array.isArray(requiredStep.type)
+      ? requiredStep.type
+      : [requiredStep.type];
     checks.push(
       check(
         `${requiredStep.id} type matches required`,
-        getModuleType(module) === requiredStep.type,
-        `expected ${requiredStep.type}, got ${getModuleType(module) ?? "(missing)"}`
+        allowedTypes.includes(getModuleType(module) ?? ""),
+        `expected ${allowedTypes.join(" or ")}, got ${getModuleType(module) ?? "(missing)"}`
       )
     );
   }

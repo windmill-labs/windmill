@@ -30,7 +30,9 @@
 	let resolvedContextMenuItems: ContextMenuItem[] | undefined = $derived(
 		contextMenuItems ??
 			menuItems?.flatMap((item) => [
-				...(item.separatorTop ? [{ id: `${item.displayName}-divider`, label: '', divider: true }] : []),
+				...(item.separatorTop
+					? [{ id: `${item.displayName}-divider`, label: '', divider: true }]
+					: []),
 				{
 					id: item.displayName,
 					label: item.displayName,
@@ -43,11 +45,11 @@
 			])
 	)
 
-	const { moveManager } = getGraphContext()
+	// NodeWrapper is reused outside the flow graph (e.g. the app decision-tree
+	// editor) where FlowGraphContext is never set, so guard against undefined.
+	const { moveManager } = getGraphContext() ?? {}
 
-	let faded = $derived(
-		nodeId != null && (moveManager?.draggedNodeIds?.has(nodeId) ?? false)
-	)
+	let faded = $derived(nodeId != null && (moveManager?.draggedNodeIds?.has(nodeId) ?? false))
 
 	let darkMode: boolean = $state(false)
 </script>
@@ -72,18 +74,10 @@
 
 {#snippet handles()}
 	{#if enableSourceHandle}
-		<Handle
-			type="source"
-			isConnectable={false}
-			position={Position.Bottom}
-		/>
+		<Handle type="source" isConnectable={false} position={Position.Bottom} />
 	{/if}
 
 	{#if enableTargetHandle}
-		<Handle
-			type="target"
-			isConnectable={false}
-			position={Position.Top}
-		/>
+		<Handle type="target" isConnectable={false} position={Position.Top} />
 	{/if}
 {/snippet}

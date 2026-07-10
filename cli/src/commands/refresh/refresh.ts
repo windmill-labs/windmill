@@ -4,7 +4,7 @@ import tsconfigCommand from "./tsconfig.ts";
 
 const command = new Command()
   .description(
-    "Refresh wmill-managed project files (AGENTS.cli.md, skills, tsconfig.wmill.json)"
+    "Refresh wmill-managed project files (AGENTS.wmill.md, skills, tsconfig.wmill.json)"
   )
   .command("prompts", promptsCommand)
   .command("tsconfig", tsconfigCommand);
