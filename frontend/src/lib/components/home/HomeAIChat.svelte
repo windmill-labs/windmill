@@ -4,15 +4,26 @@
 	import Button from '../common/button/Button.svelte'
 	import ProviderModelSelector from '../copilot/chat/ProviderModelSelector.svelte'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import { copilotInfo, copilotWorkspace, loadCopilot } from '$lib/aiStore'
+	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
 	let value = $state('')
 	let placeholder = $state('')
 
+	// In global-AI mode the layout's chat panel is disabled and never loads the copilot
+	// config, so the home chat loads it for the current workspace itself.
+	$effect(() => {
+		if ($workspaceStore) {
+			loadCopilot($workspaceStore)
+		}
+	})
+
 	// No usable model (no provider configured, or AI disabled): the chat is shown but
 	// non-interactive, and hovering reveals a prompt to configure AI in the settings.
-	let disabled = $derived(!$copilotInfo.enabled)
+	// Gate on the config having actually loaded for this workspace so the initial
+	// (unloaded) state doesn't flash the overlay while a provider is configured.
+	let disabled = $derived($copilotWorkspace === $workspaceStore && !$copilotInfo.enabled)
 
 	let starting = $state(false)
 	async function start() {
