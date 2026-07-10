@@ -37,6 +37,11 @@
 		displayCreateToken = true
 	}: Props = $props()
 
+	// Sentinel workspace value meaning "all workspaces the user can access".
+	// Produces a workspace-less MCP token served through the /api/mcp/gateway
+	// endpoint, where tools take an explicit workspace_id argument.
+	const ALL_WORKSPACES = '*'
+
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newTokenExpiration = $state<number | undefined>(undefined)
@@ -98,12 +103,18 @@
 
 			const tokenScopes = scopes ?? pickedScopes ?? undefined
 
+			const workspaceId = isAllWorkspaces
+				? undefined
+				: mcpMode
+					? newTokenWorkspace || $workspaceStore
+					: newTokenWorkspace
+
 			const createdToken = await UserService.createToken({
 				requestBody: {
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: mcpMode ? newTokenWorkspace || $workspaceStore : newTokenWorkspace,
+					workspace_id: workspaceId,
 					read_only: readOnly
 				} as NewToken
 			})
@@ -126,7 +137,18 @@
 	}
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
-	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp?token=`)
+	const isAllWorkspaces = $derived(newTokenWorkspace === ALL_WORKSPACES)
+	// The workspace used to browse scripts/flows/endpoints in the scope picker.
+	// For an all-workspaces token there is no single workspace, so fall back to
+	// the current one just for populating the endpoint list.
+	const scopeWorkspaceId = $derived(
+		isAllWorkspaces ? $workspaceStore || '' : newTokenWorkspace || $workspaceStore || ''
+	)
+	const mcpBaseUrl = $derived(
+		isAllWorkspaces
+			? `${window.location.origin}/api/mcp/gateway?token=`
+			: `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp?token=`
+	)
 
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
@@ -205,7 +227,7 @@
 		{#if !scopes || scopes.length === 0}
 			<ScopesPicker
 				mode={mcpCreationMode ? 'mcp' : 'standard'}
-				workspaceId={newTokenWorkspace || $workspaceStore || ''}
+				workspaceId={scopeWorkspaceId}
 				bind:value={pickedScopes}
 				bind:readOnly
 			/>
@@ -218,8 +240,21 @@
 						<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
 						<Select
 							bind:value={newTokenWorkspace}
-							items={workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))}
+							items={[
+								{
+									label: 'All workspaces',
+									value: ALL_WORKSPACES,
+									subtitle: 'Multi-workspace'
+								},
+								...workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))
+							]}
 						/>
+						{#if isAllWorkspaces}
+							<p class="mt-1 text-xs text-tertiary">
+								This token works across every workspace you can access. Tools take a
+								<code>workspace_id</code> argument; call <code>list_workspaces</code> to discover them.
+							</p>
+						{/if}
 					</div>
 				{/if}
 			{/if}

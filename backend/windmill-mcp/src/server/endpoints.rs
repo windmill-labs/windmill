@@ -73,6 +73,77 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
     }
 }
 
+/// Convert an endpoint tool to an MCP tool for multi-workspace mode.
+///
+/// Endpoints whose path is workspace-scoped (`/w/{workspace}/...`) gain a
+/// required `workspace_id` argument — in multi-workspace mode there is no
+/// ambient workspace, so the caller must name the target workspace explicitly.
+/// Global endpoints (e.g. docs search) are returned unchanged.
+pub fn endpoint_tool_to_mcp_tool_multi(tool: &EndpointTool) -> Tool {
+    let mut mcp_tool = endpoint_tool_to_mcp_tool(tool);
+
+    if !tool.path.contains("{workspace}") {
+        return mcp_tool;
+    }
+
+    let mut schema = (*mcp_tool.input_schema).clone();
+
+    if let Some(props) = schema.get_mut("properties").and_then(|p| p.as_object_mut()) {
+        props.insert(
+            "workspace_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "The workspace to run this tool against. Call list_workspaces to see the workspaces you can access."
+            }),
+        );
+    }
+
+    match schema.get_mut("required").and_then(|r| r.as_array_mut()) {
+        Some(req) => {
+            if !req.iter().any(|v| v.as_str() == Some("workspace_id")) {
+                req.insert(0, serde_json::Value::String("workspace_id".to_string()));
+            }
+        }
+        None => {
+            schema.insert("required".to_string(), serde_json::json!(["workspace_id"]));
+        }
+    }
+
+    mcp_tool.input_schema = Arc::new(schema);
+    mcp_tool
+}
+
+/// Build the synthetic `list_workspaces` tool exposed only in multi-workspace
+/// mode. It takes no arguments and returns the workspaces the token can access.
+pub fn list_workspaces_tool() -> Tool {
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {},
+        "required": []
+    });
+
+    Tool {
+        name: Cow::Borrowed("list_workspaces"),
+        description: Some(
+            "List the Windmill workspaces this token can access. Use the returned workspace ids as the `workspace_id` argument of the other tools."
+                .into(),
+        ),
+        input_schema: Arc::new(schema.as_object().unwrap().clone()),
+        title: Some("List accessible workspaces".to_string()),
+        output_schema: None,
+        icons: None,
+        annotations: Some(ToolAnnotations {
+            title: Some("List accessible workspaces".to_string()),
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(false),
+        }),
+        meta: None,
+        execution: None,
+    }
+}
+
 /// Create appropriate annotations for endpoint tools based on HTTP method
 fn create_endpoint_annotations(tool: &EndpointTool) -> ToolAnnotations {
     let method = tool.method.as_ref();
