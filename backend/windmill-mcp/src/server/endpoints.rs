@@ -187,3 +187,106 @@ fn merge_schema_into(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool(name: &'static str, path: &'static str) -> EndpointTool {
+        EndpointTool {
+            name: Cow::Borrowed(name),
+            description: Cow::Borrowed("desc"),
+            instructions: Cow::Borrowed(""),
+            path: Cow::Borrowed(path),
+            method: Cow::Borrowed("GET"),
+            path_params_schema: None,
+            query_params_schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": { "starred_only": { "type": "boolean" } },
+                "required": []
+            })),
+            body_schema: None,
+            path_field_renames: None,
+            query_field_renames: None,
+            body_field_renames: None,
+        }
+    }
+
+    #[test]
+    fn multi_injects_required_workspace_id_for_workspaced_tool() {
+        let mcp =
+            endpoint_tool_to_mcp_tool_multi(&tool("listScripts", "/w/{workspace}/scripts/list"));
+        let props = mcp
+            .input_schema
+            .get("properties")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        assert!(
+            props.contains_key("workspace_id"),
+            "workspace_id must be added as a property"
+        );
+        // pre-existing param is preserved
+        assert!(props.contains_key("starred_only"));
+        let required = mcp
+            .input_schema
+            .get("required")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert!(
+            required.iter().any(|v| v.as_str() == Some("workspace_id")),
+            "workspace_id must be required"
+        );
+    }
+
+    #[test]
+    fn multi_leaves_global_tool_unchanged() {
+        let mcp = endpoint_tool_to_mcp_tool_multi(&tool("searchDocs", "/docs/search"));
+        let props = mcp
+            .input_schema
+            .get("properties")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        assert!(
+            !props.contains_key("workspace_id"),
+            "global tools (no {{workspace}} in path) must not gain a workspace_id arg"
+        );
+        let required = mcp
+            .input_schema
+            .get("required")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert!(required.iter().all(|v| v.as_str() != Some("workspace_id")));
+    }
+
+    #[test]
+    fn multi_does_not_duplicate_workspace_id() {
+        // Even if run twice, workspace_id stays a single required entry.
+        let once = endpoint_tool_to_mcp_tool_multi(&tool("listFlows", "/w/{workspace}/flows/list"));
+        let required = once
+            .input_schema
+            .get("required")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let count = required
+            .iter()
+            .filter(|v| v.as_str() == Some("workspace_id"))
+            .count();
+        assert_eq!(
+            count, 1,
+            "workspace_id must appear exactly once in required"
+        );
+    }
+
+    #[test]
+    fn list_workspaces_tool_has_no_params() {
+        let t = list_workspaces_tool();
+        assert_eq!(t.name.as_ref(), "list_workspaces");
+        let required = t.input_schema.get("required").unwrap().as_array().unwrap();
+        assert!(required.is_empty());
+    }
+}
