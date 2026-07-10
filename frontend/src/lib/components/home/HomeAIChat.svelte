@@ -90,7 +90,7 @@
 				bind:value
 				class="resize-none px-4 py-3 pb-9 shadow-lg"
 				underlyingInputEl="textarea"
-				inputProps={{ rows: 4, placeholder, onkeydown: onKeydown, disabled }}
+				inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
 			/>
 			<Button
 				endIcon={starting ? {} : { icon: ArrowRight }}
