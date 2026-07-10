@@ -23,6 +23,23 @@ pub struct McpScopeConfig {
 }
 
 impl McpScopeConfig {
+    /// Whether the token grants access to *any* resource of this type. Used to
+    /// decide whether to advertise the run-by-path tools in multi-workspace mode
+    /// (a `mcp:scripts:*`-only token should see `runScriptByPath` even without an
+    /// endpoint scope). A non-granular token (`mcp:all` / `mcp:favorites`) grants
+    /// everything.
+    pub fn has_any(&self, resource_type: &str) -> bool {
+        if !self.granular {
+            return true;
+        }
+        match resource_type {
+            "script" => !self.scripts.is_empty(),
+            "flow" => !self.flows.is_empty(),
+            "endpoint" => !self.endpoints.is_empty(),
+            _ => false,
+        }
+    }
+
     /// Check if a resource is allowed based on its type and path
     pub fn is_allowed(&self, resource_type: &str, path: &str) -> bool {
         if self.all {
@@ -322,6 +339,23 @@ mod tests {
 
     fn cfg(scopes: &[&str]) -> McpScopeConfig {
         parse_mcp_scopes(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+    }
+
+    #[test]
+    fn test_has_any() {
+        // Non-granular tokens grant everything.
+        assert!(cfg(&["mcp:all"]).has_any("script"));
+        assert!(cfg(&["mcp:favorites"]).has_any("flow"));
+
+        // Granular: only the resource types with at least one pattern.
+        let scripts_only = cfg(&["mcp:scripts:f/team/*"]);
+        assert!(scripts_only.has_any("script"));
+        assert!(!scripts_only.has_any("flow"));
+        assert!(!scripts_only.has_any("endpoint"));
+
+        let endpoints_only = cfg(&["mcp:endpoints:runScriptByPath"]);
+        assert!(!endpoints_only.has_any("script"));
+        assert!(endpoints_only.has_any("endpoint"));
     }
 
     #[test]

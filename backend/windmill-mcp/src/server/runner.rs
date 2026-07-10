@@ -126,6 +126,20 @@ impl<B: McpBackend> Runner<B> {
     }
 }
 
+/// The run-by-path endpoint tools execute an arbitrary script/flow named by a
+/// `path` argument. In multi-workspace mode they are the only way to run
+/// scripts/flows, so their authorization must honor the `mcp:scripts:` /
+/// `mcp:flows:` path scopes (not the generic endpoint scope) — otherwise a
+/// granular token could run items outside its allowed paths. Returns the scope
+/// resource type ("script"/"flow") for these endpoints, `None` otherwise.
+fn run_by_path_scope_kind(endpoint_name: &str) -> Option<&'static str> {
+    match endpoint_name {
+        "runScriptByPath" => Some("script"),
+        "runFlowByPath" => Some("flow"),
+        _ => None,
+    }
+}
+
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
     candidates
         .into_iter()
@@ -553,7 +567,16 @@ impl<B: McpBackend> Runner<B> {
 
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
-            if scope_config.granular && !scope_config.is_allowed("endpoint", &endpoint_tool.name) {
+            // Run-by-path tools are gated by script/flow scope (they run an
+            // arbitrary path); every other endpoint by the endpoint scope.
+            let allowed = match run_by_path_scope_kind(&endpoint_tool.name) {
+                Some(kind) => scope_config.has_any(kind),
+                None => {
+                    !scope_config.granular
+                        || scope_config.is_allowed("endpoint", &endpoint_tool.name)
+                }
+            };
+            if !allowed {
                 continue;
             }
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
@@ -605,14 +628,45 @@ impl<B: McpBackend> Runner<B> {
                 )
             })?;
 
-        if scope_config.granular && !scope_config.is_allowed("endpoint", &endpoint_tool.name) {
-            return Err(ErrorData::internal_error(
-                format!(
-                    "Access denied: endpoint '{}' not in token scope",
-                    endpoint_tool.name
-                ),
-                None,
-            ));
+        // Authorize the tool. Run-by-path endpoints (runScriptByPath /
+        // runFlowByPath) run an arbitrary `path` and must be checked against the
+        // script/flow scope for that path — the endpoint scope alone would let a
+        // granular token run items outside its allowed paths.
+        match run_by_path_scope_kind(&endpoint_tool.name) {
+            Some(kind) => {
+                let path = args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        ErrorData::invalid_params(
+                            format!(
+                                "Missing required 'path' argument for tool '{}'.",
+                                endpoint_tool.name
+                            ),
+                            None,
+                        )
+                    })?;
+                if scope_config.granular && !scope_config.is_allowed(kind, path) {
+                    return Err(ErrorData::internal_error(
+                        format!("Access denied: {} '{}' not in token scope", kind, path),
+                        None,
+                    ));
+                }
+            }
+            None => {
+                if scope_config.granular
+                    && !scope_config.is_allowed("endpoint", &endpoint_tool.name)
+                {
+                    return Err(ErrorData::internal_error(
+                        format!(
+                            "Access denied: endpoint '{}' not in token scope",
+                            endpoint_tool.name
+                        ),
+                        None,
+                    ));
+                }
+            }
         }
         if read_only && !crate::server::is_endpoint_read_only(endpoint_tool) {
             return Err(ErrorData::internal_error(
