@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_free_token_usage (email, cost_nanos, updated_at)\n         VALUES ($1, $2, now())\n         ON CONFLICT (email) DO UPDATE\n         SET cost_nanos = ai_free_token_usage.cost_nanos + EXCLUDED.cost_nanos,\n             updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8ebef344fdbf1b0707040376233d8196135130a8b0ba86bd37e3f91880ad975"
+}

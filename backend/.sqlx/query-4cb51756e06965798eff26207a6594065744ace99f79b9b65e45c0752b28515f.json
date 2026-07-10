@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT tokens_used FROM ai_free_token_daily_usage WHERE day = (now() at time zone 'utc')::date",
+  "query": "SELECT cost_nanos FROM ai_free_token_daily_usage WHERE day = (now() at time zone 'utc')::date",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "tokens_used",
+        "name": "cost_nanos",
         "type_info": "Int8"
       }
     ],
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "63b7ebc31b651116b6d85eb7d585bf008219026e1ac90f6d71ff9702360090ae"
+  "hash": "4cb51756e06965798eff26207a6594065744ace99f79b9b65e45c0752b28515f"
 }
