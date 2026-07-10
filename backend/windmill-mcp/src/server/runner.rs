@@ -653,6 +653,15 @@ impl<B: McpBackend> Runner<B> {
             (String::new(), base_auth.clone())
         };
 
+        // `workspace_id` is a synthetic argument only this layer understands; the
+        // target workspace is passed to call_endpoint separately. Strip it so it
+        // can't leak into a pass-through request body (e.g. runScriptByPath, whose
+        // body forwards all remaining args as the script's arguments).
+        let mut args = args;
+        if let Value::Object(map) = &mut args {
+            map.remove("workspace_id");
+        }
+
         let result = self
             .backend
             .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args)

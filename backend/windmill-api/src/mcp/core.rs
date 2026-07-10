@@ -313,6 +313,8 @@ impl McpBackend for WindmillBackend {
             args_map,
             &endpoint_tool.body_schema,
             &endpoint_tool.body_field_renames,
+            &endpoint_tool.path_params_schema,
+            &endpoint_tool.query_params_schema,
         );
 
         // Create and execute request
