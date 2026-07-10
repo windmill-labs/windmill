@@ -475,7 +475,7 @@ function createRuntime(session: Session): SessionRuntime {
 					} catch {
 						saved.val = undefined
 					}
-					await initFlow(aiDraft, store, stateStore)
+					await initFlow(aiDraft, store, stateStore, workspace)
 					if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
@@ -497,7 +497,7 @@ function createRuntime(session: Session): SessionRuntime {
 					(result as SavedFlow).draft_saved_at
 				)
 				UserDraft.save('flow', path, flow, { workspace })
-				await initFlow(flow, store, stateStore)
+				await initFlow(flow, store, stateStore, workspace)
 				if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace

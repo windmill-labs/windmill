@@ -37,7 +37,7 @@
 
 			flow = backendFlow
 
-			await initFlow(flow, flowStore, flowStateStore)
+			await initFlow(flow, flowStore, flowStateStore, opWs)
 			loading = false
 		} catch (error: any) {
 			console.error('Failed to load flow:', error)

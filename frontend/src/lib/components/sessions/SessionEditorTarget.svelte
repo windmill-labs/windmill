@@ -69,7 +69,11 @@
 
 	function buildCodec(): DraftSyncCodec<any> {
 		if (kind === 'flow')
-			return makeFlowCodec(runtime.flowCell(path).store, runtime.flowCell(path).stateStore)
+			return makeFlowCodec(
+				runtime.flowCell(path).store,
+				runtime.flowCell(path).stateStore,
+				workspaceId
+			)
 		if (kind === 'script') return makeScriptCodec(runtime.scriptCell(path).store, () => path)
 		return makeRawAppCodec(runtime.rawAppCell(path).store)
 	}
