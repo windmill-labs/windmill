@@ -305,6 +305,17 @@
 		})
 	}
 
+	// Materialize a brand-new flow's draft before the session preview loads it by
+	// path — an untouched new flow never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && liveEditorDraftStoragePath && newFlow) {
+			await UserDraft.forcePersist('flow', liveEditorDraftStoragePath, { workspace: opWorkspace })
+		}
+	}
+
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
 			getAllModules(flow.value.modules, flow.value.failure_module)
@@ -511,6 +522,11 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	// "Open in AI session" target: the URL draft path the editor loads/saves by
+	// (which for a new flow differs from the live-edited friendly `$pathStore`),
+	// falling back to `$pathStore` in drawer mounts that carry no storage path.
+	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
 	$effect(() => {
 		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
@@ -1257,14 +1273,11 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={$pathStore
+					sessionOpen={sessionTargetPath
 						? {
-								target: { kind: 'flow', path: $pathStore },
+								target: { kind: 'flow', path: sessionTargetPath },
 								workspaceId: opWorkspace ?? undefined,
-								// Persist unsaved edits so the session preview
-								// (/flows/edit/<path>) opens the flow exactly as it is in the
-								// editor right now.
-								beforeOpen: saveDraft
+								beforeOpen: persistDraftForSession
 							}
 						: undefined}
 					onOpenPreview={flowPreviewButtons?.openPreview}

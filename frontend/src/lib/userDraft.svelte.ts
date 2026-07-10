@@ -260,6 +260,38 @@ export const UserDraft = {
 	},
 
 	/**
+	 * Persist this key's CURRENT in-memory value to the server immediately,
+	 * bypassing autosave's change-detection. For "Open in AI session" on a
+	 * never-deployed item: it may have no draft row yet (an untouched new
+	 * script's template seed never triggers autosave), and the session preview
+	 * loads it via get-by-path, which 404s without a persisted draft. No-op
+	 * when no value is held for this key. Resolves once the POST lands.
+	 *
+	 * MUST NOT be a general save path: it skips the handle's `discardIf`
+	 * baseline check, so a value back at the deployed baseline would persist a
+	 * no-op draft instead of the delete autosave sends. Only safe for
+	 * never-deployed items, which have no baseline.
+	 */
+	async forcePersist(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): Promise<void> {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		const val = entry ? entry.state.val : writtenCache.get(mk)?.val
+		if (val === undefined) return
+		await UserDraftDbSyncer.save({
+			workspace: ws,
+			itemKind,
+			path,
+			value: snapshotDraftValue(val),
+			immediate: true
+		})
+	},
+
+	/**
 	 * Current draft value from the in-memory cell. `undefined` when no
 	 * editor has mounted a handle for this key in this tab.
 	 */

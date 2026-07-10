@@ -48,6 +48,15 @@ function targetUrl(target: PreviewTarget): string {
 	return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
 }
 
+// Point a tab at a new destination. Clears `friendlyLabel` (bound to the previous
+// editor's item): a new editor re-stamps it, and navigating to a plain page must
+// drop the stale name so the tab falls back to the location label.
+function retargetTab(tab: SessionPreviewTab, url: string): void {
+	tab.url = url
+	tab.loc = url
+	tab.friendlyLabel = undefined
+}
+
 // Strip the query params the sessions preview injects into iframe URLs
 // (`nomenubar` to hide the nav, `workspace` to scope the page): they aren't part
 // of the canonical page URL. The observed `loc` must drop them to stay symmetric
@@ -211,8 +220,7 @@ export class SessionPreviewTabs {
 			const existing = this.#tabs.find((t) => parsePipelineRoute(t.url) !== null)
 			if (existing) {
 				const same = existing.url === url
-				existing.url = url
-				existing.loc = url
+				retargetTab(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
 				return { status: same ? 'focused' : 'opened' }
@@ -260,15 +268,13 @@ export class SessionPreviewTabs {
 		if (pipelineFolder) {
 			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) !== null)
 			if (existing && existing.id !== t.id) {
-				existing.url = url
-				existing.loc = url
+				retargetTab(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
 				return
 			}
 		}
-		t.url = url
-		t.loc = url
+		retargetTab(t, url)
 		this.#flush()
 	}
 
@@ -333,6 +339,17 @@ export class SessionPreviewTabs {
 		if (t.loc === canonical) return
 		t.loc = canonical
 		this.#flush()
+	}
+
+	// Stamp the friendly display label for the editor tab hosting `target` (the
+	// live editor knows the item's typed/auto name once its cell loads, which the
+	// page can't read reactively from the runtime cell). Matched on the tab's
+	// commanded `url` — the stable per-(kind,path) editor identity. Transient, so
+	// no persist/flush: it's recomputed when the tab remounts.
+	setEditorFriendlyLabel(target: SessionTarget, label: string | undefined): void {
+		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
+		if (!t || t.friendlyLabel === label) return
+		t.friendlyLabel = label
 	}
 
 	// Persist a pending write immediately, cancelling the debounce. Called on
