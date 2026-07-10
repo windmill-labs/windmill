@@ -23,13 +23,16 @@ pub struct McpScopeConfig {
 }
 
 impl McpScopeConfig {
-    /// Whether the token grants access to *any* resource of this type. Used to
-    /// decide whether to advertise the run-by-path tools in multi-workspace mode
-    /// (a `mcp:scripts:*`-only token should see `runScriptByPath` even without an
-    /// endpoint scope). A non-granular token (`mcp:all` / `mcp:favorites`) grants
-    /// everything.
+    /// Whether the token grants access to *any* concrete resource of this type by
+    /// path. Used to decide whether to advertise the run-by-path tools in
+    /// multi-workspace mode (a `mcp:scripts:*`-only token should see
+    /// `runScriptByPath` even without an endpoint scope). `mcp:all` grants
+    /// everything; `mcp:favorites` does NOT — favorites are an enumerated set the
+    /// caller can only reach through the per-item tools, not by naming an
+    /// arbitrary path, so it grants nothing here (mirrors `is_allowed`, which
+    /// returns false for a favorites token).
     pub fn has_any(&self, resource_type: &str) -> bool {
-        if !self.granular {
+        if self.all {
             return true;
         }
         match resource_type {
@@ -343,9 +346,15 @@ mod tests {
 
     #[test]
     fn test_has_any() {
-        // Non-granular tokens grant everything.
+        // mcp:all grants everything by path.
         assert!(cfg(&["mcp:all"]).has_any("script"));
-        assert!(cfg(&["mcp:favorites"]).has_any("flow"));
+
+        // mcp:favorites grants NO arbitrary-path access (favorites are reached
+        // via per-item tools, not by naming a path) — matches is_allowed.
+        let fav = cfg(&["mcp:favorites"]);
+        assert!(!fav.has_any("script"));
+        assert!(!fav.has_any("flow"));
+        assert!(!fav.is_allowed("script", "f/anything/x"));
 
         // Granular: only the resource types with at least one pattern.
         let scripts_only = cfg(&["mcp:scripts:f/team/*"]);

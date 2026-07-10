@@ -647,7 +647,11 @@ impl<B: McpBackend> Runner<B> {
                             None,
                         )
                     })?;
-                if scope_config.granular && !scope_config.is_allowed(kind, path) {
+                // No `granular` gate: is_allowed already encodes every mode —
+                // true for mcp:all, pattern-matched for granular scopes, and
+                // false for mcp:favorites (a favorites token can't run an
+                // arbitrary path, only its enumerated favorites).
+                if !scope_config.is_allowed(kind, path) {
                     return Err(ErrorData::internal_error(
                         format!("Access denied: {} '{}' not in token scope", kind, path),
                         None,
