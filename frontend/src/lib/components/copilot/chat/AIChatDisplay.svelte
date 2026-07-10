@@ -636,13 +636,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{:else}
 								<ChatTypingIndicator
 									loading={aiChatManager.loading}
-									label={aiChatManager.compacting
-										? 'Compacting conversation'
-										: aiChatManager.currentReasoningActive &&
-											  !aiChatManager.currentReply &&
-											  !aiChatManager.currentReasoning
-											? 'Thinking'
-											: undefined}
+									label={aiChatManager.loadingLabel
+										? aiChatManager.loadingLabel
+										: aiChatManager.compacting
+											? 'Compacting conversation'
+											: aiChatManager.currentReasoningActive &&
+												  !aiChatManager.currentReply &&
+												  !aiChatManager.currentReasoning
+												? 'Thinking'
+												: undefined}
 								/>
 							{/if}
 						</div>

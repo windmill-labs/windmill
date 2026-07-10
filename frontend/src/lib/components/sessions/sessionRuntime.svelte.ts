@@ -321,7 +321,11 @@ function createRuntime(session: Session): SessionRuntime {
 		materializeTransient(session.id)
 		// Session is now persisted → flush any linked files buffered while it was transient.
 		await manager.attachedFiles.flushPending()
+		// Fork creation is the slow part of the pre-flight; label the loading
+		// indicator so the user knows why the send is taking a moment.
+		manager.loadingLabel = 'Creating workspace fork...'
 		const committed = await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
+		manager.loadingLabel = undefined
 		// commitSessionWorkspace returns undefined only when the session did NOT
 		// commit to a workspace — most importantly when a staged fork failed to
 		// materialise (materializeFork is built to toast + return undefined rather

@@ -349,6 +349,11 @@ export class AIChatManager {
 	// True while the summarization round-trip is in flight, so the UI can show a
 	// "Compacting conversation" label on the processing indicator.
 	compacting = $state(false)
+	// General-purpose label for the processing indicator, set by a beforeSend hook
+	// to describe pre-flight work (e.g. "Creating workspace fork...") that runs
+	// before the request goes out. Takes precedence over the compacting/thinking
+	// labels while set; the hook clears it back to undefined when done.
+	loadingLabel = $state<string | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
@@ -1968,6 +1973,23 @@ export class AIChatManager {
 		} catch (e) {
 			console.error('Attached-files upkeep failed before send', e)
 		}
+		// beforeSend runs sequential API calls (session materialise + workspace fork
+		// creation) that can take seconds. Show the user bubble and loading indicator
+		// optimistically before it so the input doesn't just clear into a void.
+		// Context elements and the snapshot are attached after beforeSend (see below).
+		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		const pastes = options.pastes ?? []
+		const optimisticIndex = this.displayMessages.length
+		this.loading = true
+		this.displayMessages = [
+			...this.displayMessages,
+			{
+				role: 'user',
+				content: this.instructions,
+				pastes: pastes.length > 0 ? pastes : undefined,
+				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
+			}
+		]
 		if (this.beforeSend) {
 			try {
 				await this.beforeSend()
@@ -1977,6 +1999,11 @@ export class AIChatManager {
 				// silently target the wrong workspace (typically the parent), so
 				// abort and tell the user — their message text stays in the input.
 				console.error('AIChatManager beforeSend hook failed', e)
+				// Roll back the optimistic bubble + loading state; the input still
+				// holds the message text so the user can retry.
+				this.displayMessages = this.displayMessages.filter((_, i) => i !== optimisticIndex)
+				this.loading = false
+				this.loadingLabel = undefined
 				sendUserToast(
 					`Could not prepare the session before sending: ${
 						e instanceof Error ? e.message : String(e)
@@ -1991,7 +2018,6 @@ export class AIChatManager {
 		if (this.mode === AIMode.GLOBAL) {
 			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
 		}
-		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		// Declared outside `try` so the catch can recover what the loop produced
 		// before a failure: the structured messages and the latest streamed text
 		// that never became one.
@@ -2010,7 +2036,7 @@ export class AIChatManager {
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
-			this.loading = true
+			// loading was set optimistically before beforeSend, above.
 			this.#automaticScroll = true
 			this.abortController = new AbortController()
 
@@ -2042,21 +2068,22 @@ export class AIChatManager {
 				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
-			const pastes = options.pastes ?? []
-			this.displayMessages = [
-				...this.displayMessages,
-				{
-					role: 'user',
-					content: this.instructions,
-					contextElements:
-						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
-							? oldSelectedContext
-							: undefined,
-					pastes: pastes.length > 0 ? pastes : undefined,
-					snapshot,
-					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
-				}
-			]
+			// Attach the enrichments that are only known after beforeSend (selected
+			// context + snapshot) to the optimistic user message pushed before it.
+			this.displayMessages = this.displayMessages.map((m, i) =>
+				i === optimisticIndex
+					? {
+							...m,
+							contextElements:
+								this.mode === AIMode.SCRIPT ||
+								this.mode === AIMode.FLOW ||
+								this.mode === AIMode.GLOBAL
+									? oldSelectedContext
+									: undefined,
+							snapshot
+						}
+					: m
+			)
 			// For restoreUnsentTurn: the compact composer form (with paste tokens),
 			// not the expanded LLM text, plus the rollback anchor after the user turn.
 			const sentInstructions = this.instructions
