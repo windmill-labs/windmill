@@ -26,6 +26,7 @@ use crate::{
     job_helpers_oss::{
         download_s3_file_internal, get_random_file_name, get_s3_resource,
         get_workspace_s3_resource_and_check_paths, upload_file_from_req, DownloadFileQuery,
+        LoadCountQuery, LoadFileMetadataQuery, LoadFilePreviewQuery, LoadPreviewQuery,
     },
     users::fetch_api_authed_from_permissioned_as,
 };
@@ -140,6 +141,18 @@ pub fn unauthed_service() -> Router {
         .route("/upload_s3_file/{*path}", post(upload_s3_file_from_app))
         .route("/delete_s3_file", delete(delete_s3_file_from_app))
         .route("/download_s3_file/{*path}", get(download_s3_file_from_app))
+        .route(
+            "/download_s3_parquet_file_as_csv/{*path}",
+            get(app_download_s3_parquet_file_as_csv),
+        )
+        .route("/load_file_metadata/{*path}", get(app_load_file_metadata))
+        .route("/load_file_preview/{*path}", get(app_load_file_preview))
+        .route("/load_table_count/{*path}", get(app_load_table_count))
+        .route(
+            "/load_parquet_preview/{*path}",
+            get(app_load_parquet_preview),
+        )
+        .route("/load_csv_preview/{*path}", get(app_load_csv_preview))
         .route("/public_app/{secret}", get(get_public_app_by_secret))
         .route("/embed_token/{secret}", get(get_app_embed_token))
         .route("/public_resource/{*path}", get(get_public_resource))
@@ -3808,8 +3821,9 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     path: &str,
     policy: &Policy,
 ) -> Result<()> {
-    // if anonymous, check that the file was the result of an app script ran by an anonymous user in the last 3 hours
-    // otherwise, if logged in, allow any file (TODO: change that when we implement better s3 policy)
+    let is_app_embed = opt_authed.as_ref().is_some_and(|authed| {
+        windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
+    });
 
     if file_query.sig.is_some() {
         #[cfg(feature = "private")]
@@ -3829,19 +3843,24 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         return Err(Error::InternalErr(
             "Internal error: signature validation is not supported in open source mode".to_string(),
         ));
-    } else if opt_authed.as_ref().is_some_and(|authed| {
-        !windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref())
-    }) {
-        // A normal logged-in caller (editor / full session) may fetch any file they
-        // can reach. An app embed token also carries an identity but represents
-        // untrusted app JS, so it falls through to the allowlist below instead of
-        // this bypass — otherwise the app could read arbitrary S3 keys the
-        // viewer/on-behalf identity can see, beyond its own declared keys/outputs.
+    } else if matches!(policy.execution_mode, ExecutionMode::Viewer) && !is_app_embed {
+        // Viewer execution mode: the on-behalf identity resolved for this app IS
+        // the viewer themselves, so the file read is already bounded by the
+        // viewer's own S3 permissions in the downstream
+        // `get_workspace_s3_resource_and_check_paths`. No app-provenance gate is
+        // needed (nor wanted — it would over-restrict a viewer-mode app to only
+        // its own outputs). Excludes app embed tokens: those carry the viewer
+        // identity but represent untrusted app JS and must stay confined to the
+        // provenance allowlist below.
         Ok(())
     } else {
-        // Anonymous viewer, or an app embed token: confine to the app's declared S3
-        // keys, or files produced by THIS app's own component runs. The producing
-        // identity is the embed viewer for a token, else `anonymous`.
+        // On-behalf of the AUTHOR (Anonymous/Publisher execution), or an app embed
+        // token. Confine to the app's declared S3 keys, or files produced by THIS
+        // app's own component runs — anonymous AND logged-in viewers alike. Routing
+        // a logged-in viewer here (deployed app view) without this gate would be a
+        // confused-deputy: the viewer could launder the author's broad S3
+        // permissions by passing an arbitrary file_key. The producing identity is
+        // the caller's username (embed viewer / logged-in viewer), else `anonymous`.
         let creator = opt_authed
             .as_ref()
             .map(|authed| authed.username.clone())
@@ -3964,6 +3983,229 @@ async fn download_s3_file_from_app(
         },
     )
     .await
+}
+
+#[cfg(feature = "parquet")]
+fn app_s3_file_query(s3: String, storage: Option<String>) -> AppS3FileQuery {
+    AppS3FileQuery {
+        s3,
+        storage,
+        sig: None,
+        #[cfg(feature = "private")]
+        exp: None,
+    }
+}
+
+/// Resolve the app's on-behalf identity and run the app-provenance gate ONCE for
+/// every app-scoped (`apps_u/*`) S3 display op. This is the single security
+/// chokepoint the display endpoints share: scope-confine an app embed token to
+/// its own app, resolve the on-behalf identity per `execution_mode`, then gate
+/// the requested `file_key` on `check_if_allowed_to_access_s3_file_from_app`
+/// (author-mode reads are confined to app provenance; viewer-mode falls through
+/// to the viewer's own perms downstream).
+#[cfg(feature = "parquet")]
+async fn app_s3_on_behalf_and_provenance(
+    db: &DB,
+    path: &str,
+    w_id: &str,
+    opt_authed: &Option<ApiAuthed>,
+    file_query: &AppS3FileQuery,
+) -> Result<crate::db::OptJobAuthed> {
+    if let Some(authed) = opt_authed.as_ref() {
+        check_scopes(authed, || format!("apps:read:{}", path))?;
+    }
+    let (on_behalf_authed, policy) =
+        get_on_behalf_authed_from_app(db, path, w_id, opt_authed, None).await?;
+    check_if_allowed_to_access_s3_file_from_app(db, opt_authed, file_query, w_id, path, &policy)
+        .await?;
+    Ok(crate::db::OptJobAuthed { authed: on_behalf_authed, job_id: None })
+}
+
+// The app-scoped display ops carry the app path in the URL and everything else
+// (file_key + op args) in the query, so they avoid a second `{*path}` wildcard.
+// `LoadCountQuery` / `LoadPreviewQuery` don't include the file key (it's a path
+// param on the raw `job_helpers/*` route), so wrap them to add it here.
+#[cfg(feature = "parquet")]
+#[derive(Deserialize)]
+struct AppLoadCountQuery {
+    file_key: String,
+    #[serde(flatten)]
+    inner: LoadCountQuery,
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Deserialize)]
+struct AppLoadPreviewQuery {
+    file_key: String,
+    #[serde(flatten)]
+    inner: LoadPreviewQuery,
+}
+
+#[cfg(feature = "parquet")]
+async fn app_download_s3_parquet_file_as_csv(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DownloadFileQuery>,
+) -> Result<Response> {
+    let path = path.to_path();
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let job_authed =
+        app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
+    crate::job_helpers_oss::download_s3_parquet_file_as_csv_internal(
+        job_authed,
+        &db,
+        None,
+        &w_id,
+        DownloadFileQuery {
+            file_key: query.file_key,
+            s3_resource_path: None,
+            storage: query.storage,
+        },
+    )
+    .await
+}
+
+#[cfg(feature = "parquet")]
+async fn app_load_file_metadata(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<LoadFileMetadataQuery>,
+) -> Result<Response> {
+    let path = path.to_path();
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let job_authed =
+        app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
+    let resp =
+        crate::job_helpers_oss::load_file_metadata_internal(job_authed, &db, &w_id, query).await?;
+    Ok(Json(resp).into_response())
+}
+
+#[cfg(feature = "parquet")]
+async fn app_load_file_preview(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<LoadFilePreviewQuery>,
+) -> Result<Response> {
+    let path = path.to_path();
+    let file_query = app_s3_file_query(query.file_key.clone(), query.storage.clone());
+    let job_authed =
+        app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
+    let resp =
+        crate::job_helpers_oss::load_file_preview_internal(job_authed, &db, &w_id, query).await?;
+    Ok(Json(resp).into_response())
+}
+
+#[cfg(feature = "parquet")]
+async fn app_load_table_count(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<AppLoadCountQuery>,
+) -> Result<Response> {
+    let path = path.to_path();
+    let file_query = app_s3_file_query(query.file_key.clone(), query.inner.storage.clone());
+    let job_authed =
+        app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
+    let resp = crate::job_helpers_oss::load_table_count_internal(
+        job_authed,
+        &db,
+        &w_id,
+        query.file_key,
+        query.inner,
+    )
+    .await?;
+    Ok(Json(resp).into_response())
+}
+
+#[cfg(feature = "parquet")]
+async fn app_load_parquet_preview(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<AppLoadPreviewQuery>,
+) -> Result<Response> {
+    let path = path.to_path();
+    let file_query = app_s3_file_query(query.file_key.clone(), query.inner.storage.clone());
+    let job_authed =
+        app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
+    let resp = crate::job_helpers_oss::load_preview_internal(
+        job_authed,
+        &db,
+        &w_id,
+        query.file_key,
+        query.inner,
+        true,
+    )
+    .await?;
+    Ok(Json(resp).into_response())
+}
+
+#[cfg(feature = "parquet")]
+async fn app_load_csv_preview(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<AppLoadPreviewQuery>,
+) -> Result<Response> {
+    let path = path.to_path();
+    let file_query = app_s3_file_query(query.file_key.clone(), query.inner.storage.clone());
+    let job_authed =
+        app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
+    let resp = crate::job_helpers_oss::load_preview_internal(
+        job_authed,
+        &db,
+        &w_id,
+        query.file_key,
+        query.inner,
+        false,
+    )
+    .await?;
+    Ok(Json(resp).into_response())
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn app_download_s3_parquet_file_as_csv() -> Result<()> {
+    Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn app_load_file_metadata() -> Result<()> {
+    Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn app_load_file_preview() -> Result<()> {
+    Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn app_load_table_count() -> Result<()> {
+    Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn app_load_parquet_preview() -> Result<()> {
+    Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn app_load_csv_preview() -> Result<()> {
+    Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ))
 }
 
 fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {

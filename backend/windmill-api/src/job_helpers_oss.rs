@@ -217,6 +217,115 @@ pub struct DeleteS3FileQuery {
     pub storage: Option<String>,
 }
 
+// Stubs for the app-scoped S3 display ops (mirrors the EE `*_internal` helpers +
+// their query/response structs). Only compiled for a CE build with `parquet` but
+// without `private`; the real implementations live in `job_helpers_ee.rs`.
+#[cfg(all(feature = "parquet", not(feature = "private")))]
+mod app_s3_display_stubs {
+    use super::*;
+    use serde::Serialize;
+    use serde_json::value::RawValue;
+
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    pub struct LoadFileMetadataQuery {
+        pub file_key: String,
+        pub storage: Option<String>,
+    }
+
+    #[derive(Serialize)]
+    pub struct LoadFileMetadataResponse {}
+
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    pub struct LoadFilePreviewQuery {
+        pub file_key: String,
+        pub storage: Option<String>,
+    }
+
+    #[derive(Serialize)]
+    pub struct LoadFilePreviewResponse {}
+
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    pub struct LoadCountQuery {
+        pub search_col: Option<String>,
+        pub search_term: Option<String>,
+        pub storage: Option<String>,
+    }
+
+    #[derive(Serialize)]
+    pub struct TableCount {}
+
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    pub struct LoadPreviewQuery {
+        pub storage: Option<String>,
+    }
+
+    pub async fn load_file_metadata_internal(
+        _authed: OptJobAuthed,
+        _db: &DB,
+        _w_id: &str,
+        _query: LoadFileMetadataQuery,
+    ) -> error::Result<LoadFileMetadataResponse> {
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
+
+    pub async fn load_file_preview_internal(
+        _authed: OptJobAuthed,
+        _db: &DB,
+        _w_id: &str,
+        _query: LoadFilePreviewQuery,
+    ) -> error::Result<LoadFilePreviewResponse> {
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
+
+    pub async fn load_table_count_internal(
+        _authed: OptJobAuthed,
+        _db: &DB,
+        _w_id: &str,
+        _file_key: String,
+        _query: LoadCountQuery,
+    ) -> error::Result<TableCount> {
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
+
+    pub async fn load_preview_internal(
+        _authed: OptJobAuthed,
+        _db: &DB,
+        _w_id: &str,
+        _file_key: String,
+        _query: LoadPreviewQuery,
+        _is_parquet: bool,
+    ) -> error::Result<Box<RawValue>> {
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
+
+    pub async fn download_s3_parquet_file_as_csv_internal(
+        _authed: OptJobAuthed,
+        _db: &DB,
+        _user_db: Option<UserDB>,
+        _w_id: &str,
+        _query: DownloadFileQuery,
+    ) -> error::Result<Response> {
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
+}
+
+#[cfg(all(feature = "parquet", not(feature = "private")))]
+pub use app_s3_display_stubs::*;
+
 #[cfg(not(feature = "private"))]
 pub async fn get_workspace_s3_resource_and_check_paths<'c>(
     _db_with_opt_authed: &DbWithOptAuthed<'c, ApiAuthed>,
