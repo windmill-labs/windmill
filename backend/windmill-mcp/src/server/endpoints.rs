@@ -109,6 +109,21 @@ pub fn endpoint_tool_to_mcp_tool_multi(tool: &EndpointTool) -> Tool {
         }
     }
 
+    // Also surface the requirement in the prose description — the schema is
+    // authoritative, but models/clients that lean on the description text should
+    // be told upfront that this tool needs a workspace_id in multi-workspace mode.
+    let base_description = mcp_tool
+        .description
+        .as_deref()
+        .unwrap_or_default()
+        .to_string();
+    mcp_tool.description = Some(
+        format!(
+            "{base_description} Requires a `workspace_id` argument naming the target workspace (call list_workspaces to see the ones you can access)."
+        )
+        .into(),
+    );
+
     mcp_tool.input_schema = Arc::new(schema);
     mcp_tool
 }
@@ -238,11 +253,24 @@ mod tests {
             required.iter().any(|v| v.as_str() == Some("workspace_id")),
             "workspace_id must be required"
         );
+        assert!(
+            mcp.description
+                .as_deref()
+                .unwrap_or_default()
+                .contains("workspace_id"),
+            "description must mention the workspace_id requirement"
+        );
     }
 
     #[test]
     fn multi_leaves_global_tool_unchanged() {
-        let mcp = endpoint_tool_to_mcp_tool_multi(&tool("searchDocs", "/docs/search"));
+        let global = tool("searchDocs", "/docs/search");
+        let plain = endpoint_tool_to_mcp_tool(&global);
+        let mcp = endpoint_tool_to_mcp_tool_multi(&global);
+        assert_eq!(
+            mcp.description, plain.description,
+            "global tool description must be unchanged"
+        );
         let props = mcp
             .input_schema
             .get("properties")
