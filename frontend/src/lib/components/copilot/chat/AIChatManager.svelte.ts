@@ -2027,11 +2027,22 @@ export class AIChatManager {
 		if (this.mode === AIMode.GLOBAL) {
 			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
 		}
-		// Stop/Escape pressed during the beforeSend pre-flight aborted this send: roll
-		// back the optimistic turn and don't fire the request.
+		// Stop/Escape during the beforeSend pre-flight aborted this send before any
+		// request went out. Mirror the main "cancelled before usable output" recovery:
+		// roll the optimistic turn back, then either hand off to a queued message (the
+		// input cleared the composer on send, so a deliberate cancel with a queued
+		// message auto-sends it) or restore this prompt to the composer so it isn't lost.
 		if (this.abortController.signal.aborted) {
 			rollbackOptimisticSend()
-			return false
+			if (this.wasCancelledByUser() && this.queuedMessage) {
+				const next = this.queuedMessage
+				this.queuedMessage = ''
+				const accepted = await this.sendRequest({ instructions: next })
+				if (accepted === false) this.queuedMessage = next
+			} else {
+				this.aiChatInput?.restoreInstructions(this.instructions, pastes)
+			}
+			return true
 		}
 		// Declared outside `try` so the catch can recover what the loop produced
 		// before a failure: the structured messages and the latest streamed text
