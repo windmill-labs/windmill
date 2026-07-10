@@ -22,8 +22,17 @@ fn bun_code(code: &str) -> RawCode {
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
-    tag: None,
+        tag: None,
     }
+}
+
+/// Override the process-global worker config's init script. Mutates a shared
+/// `ArcSwap`, so tests that use it must not run concurrently with other agent
+/// worker spawns (this test runs isolated).
+async fn set_worker_init_bash(init_bash: Option<String>) {
+    let mut wc = (**windmill_common::worker::WORKER_CONFIG.load()).clone();
+    wc.init_bash = init_bash;
+    windmill_common::worker::WORKER_CONFIG.store(std::sync::Arc::new(wc));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -267,6 +276,79 @@ async fn test_agent_worker_multiple_jobs_sequential(db: Pool<Postgres>) -> anyho
         assert!(result.success, "job {i} should succeed");
         assert_eq!(result.json_result(), Some(json!(i)));
     }
+
+    Ok(())
+}
+
+/// Regression: a failed init script from an agent worker must NOT take down the
+/// server's background job-completed processor.
+///
+/// The agent-worker API server relays completions for many remote workers through
+/// its background processors. A failed init script belongs to one remote worker,
+/// but the processor loop used to `break` on it, drop its channel receiver, and —
+/// once the pool drained — make every /send_result return 500 (completions
+/// stranded, jobs restarted forever as zombies). This drives the exact path: a
+/// failing `init_script`-tagged job is completed over HTTP, and we assert the
+/// server keeps processing and that no bg-processor critical alert was raised
+/// (the `is_agent_server` guard keeping it alive, not the supervisor respawning it).
+#[sqlx::test(fixtures("base"))]
+async fn test_agent_worker_failed_init_script_keeps_server_alive(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let (_client, port, _server) = init_client_agent_mode(db.clone()).await;
+
+    // Configure a FAILING init script for agent workers.
+    set_worker_init_bash(Some("exit 1".to_string())).await;
+
+    // Spawn an agent (HTTP) worker: it queues its init script on the server, runs
+    // it as a same-worker job, it fails, and the failed init-script completion is
+    // POSTed to /send_result — the exact path that used to kill the server's
+    // background job-completed processor. The worker then exits itself.
+    let init_conn = testing_http_connection(port).await;
+    let (quit, worker) = spawn_test_worker(&init_conn, port);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(45), worker).await;
+    drop(quit);
+
+    // Restore config so the verification worker below runs the real job.
+    set_worker_init_bash(None).await;
+
+    // Let the server's bg processor dequeue and process the failed completion.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // The processor must still be alive: a normal HTTP agent-worker job completes
+    // through the same /send_result path.
+    let uuid = RunJob::from(JobPayload::Code(bun_code(
+        "export function main() { return 123; }",
+    )))
+    .push(&db)
+    .await;
+    let listener = listen_for_completed_jobs(&db).await;
+    let conn = testing_http_connection_with_tags(
+        port,
+        vec!["bun".into(), "flow".into(), "dependency".into()],
+    )
+    .await;
+    in_test_worker(conn, listener.find(&uuid), port).await;
+    let result = completed_job(uuid, &db).await;
+
+    assert!(
+        result.success,
+        "a normal job must still complete after a failed init script; got {:?}",
+        result.result
+    );
+    assert_eq!(result.json_result(), Some(json!(123)));
+
+    // The guard must keep the processor alive rather than letting it die and be
+    // respawned by the supervisor, so no bg-processor critical alert is raised.
+    let alert_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM alerts WHERE alert_type = 'critical_error' AND resource = 'agent_worker_server_bg_processor'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        alert_count, 0,
+        "processor must not have died+respawned (no critical alert expected)"
+    );
 
     Ok(())
 }
