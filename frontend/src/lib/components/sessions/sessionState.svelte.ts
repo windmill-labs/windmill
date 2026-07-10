@@ -117,6 +117,9 @@ export type Session = {
 	// Whether the user collapsed the preview panel for this session (to give the
 	// chat full width). Per-session so each session restores its own layout.
 	previewCollapsed?: boolean
+	// Preview split size (preview pane %, 0-100) the user dragged for this session.
+	// Per-session so each session restores its own layout.
+	previewSize?: number
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -813,6 +816,15 @@ export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !!s.previewCollapsed === collapsed) return
 	s.previewCollapsed = collapsed
+	void putSession(s)
+}
+
+// Persist the preview split size the user dragged for this session. Fire-and-forget
+// write-behind (transient sessions land in the localStorage draft slot).
+export function setSessionPreviewSize(id: string, size: number): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || s.previewSize === size) return
+	s.previewSize = size
 	void putSession(s)
 }
 

@@ -23,6 +23,7 @@
 	import { goto } from '$lib/navigation'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
+	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import {
 		createSession,
 		getEffectiveWorkspaceId,
@@ -56,6 +57,10 @@
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
 	const globalEnabled = isGlobalAiEnabled()
+
+	// One observer shared by every tab host, which mirrors it into page iframes
+	// (see PreviewTabHost).
+	const isDarkMode = useIsDarkMode()
 
 	// The sessions page hosts preview iframes that load Windmill pages. If one of
 	// those iframes navigates back to /sessions, mounting the full UI again would
@@ -266,19 +271,43 @@
 	// null = let Splitpanes auto-distribute (initial even split).
 	let previewPaneSize = $state<number | null>(null)
 	let chatPaneSize = $state<number | null>(null)
-	let lastExpandedPreviewSize = 50
+	// Even split for a session with no saved width. Effect A's seed and effect B's
+	// write-back-skip guard must share this exact value, or B persists the default
+	// and breaks the never-resized (undefined) invariant.
+	const DEFAULT_SPLIT = 50
+	let lastExpandedPreviewSize = DEFAULT_SPLIT
+	// Which owner previewPaneSize is currently seeded for. The Pane is shared across
+	// warm sessions, so we reseed the expanded width when the active session changes.
+	let seededOwner: SessionPreviewTabs | undefined = undefined
+
+	// Effect A — layout: reseed on session switch, then apply collapse/fullscreen.
 	$effect(() => {
+		const o = owner
 		const collapsed = previewCollapsed
 		const full = fullscreen
 		untrack(() => {
+			const switched = o !== seededOwner
+			if (switched) {
+				seededOwner = o
+				// Read the saved size UNTRACKED: this must not re-run when effect B
+				// writes it back, or the two effects loop.
+				lastExpandedPreviewSize = o?.previewSize ?? DEFAULT_SPLIT
+				// Seed the pane for the incoming session on the switch frame. The
+				// collapsed case seeds 0, so the capture below never captures the
+				// outgoing session's leftover width as this session's.
+				previewPaneSize = collapsed ? 0 : lastExpandedPreviewSize
+			}
+			// effect A doesn't track previewPaneSize, so a drag never re-runs it: this is
+			// the only place the live width is saved before a sentinel (collapse→0 /
+			// fullscreen→100) overwrites it. The switch-frame value is the seed, not a drag.
+			if (!switched && previewPaneSize && previewPaneSize > 0 && previewPaneSize < 100) {
+				lastExpandedPreviewSize = previewPaneSize
+			}
 			if (full) {
 				// Chat pane is unmounted: the preview is the only pane and must own
 				// the full width, not its remembered split share.
 				previewPaneSize = 100
 			} else if (collapsed) {
-				if (previewPaneSize && previewPaneSize > 0 && previewPaneSize < 100) {
-					lastExpandedPreviewSize = previewPaneSize
-				}
 				previewPaneSize = 0
 				chatPaneSize = 100
 			} else {
@@ -286,6 +315,27 @@
 					previewPaneSize = lastExpandedPreviewSize
 				}
 				chatPaneSize = 100 - previewPaneSize
+			}
+		})
+	})
+
+	// Effect B — write-back: persist a genuine user-dragged width to the model.
+	$effect(() => {
+		const size = previewPaneSize
+		untrack(() => {
+			// Skip when size still matches the model's saved width, or the 50 default
+			// for a never-resized session (owner.previewSize === undefined): effect A's
+			// reseed sets previewPaneSize to exactly that, and persisting it would
+			// materialize the default and lose the "never resized" (undefined) state.
+			if (
+				!previewCollapsed &&
+				!fullscreen &&
+				size != null &&
+				size > 0 &&
+				size < 100 &&
+				size !== (owner?.previewSize ?? DEFAULT_SPLIT)
+			) {
+				owner?.setPreviewSize(size)
 			}
 		})
 	})
@@ -710,6 +760,7 @@
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
 											label={tabLabelFor(tab)}
+											darkMode={isDarkMode.val}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 										/>

@@ -655,6 +655,7 @@ components:
           enum:
             - deno
             - bun
+            - bunnative
             - python3
             - go
             - bash
