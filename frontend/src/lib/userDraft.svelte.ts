@@ -860,6 +860,17 @@ function releaseEntry(mk: string): void {
 	const entry = entries.get(mk)
 	if (!entry) return
 	entry.count--
+	// INVARIANT (see `startMirror`): the mirror is owned by the LAST component
+	// to acquire the key, and this release does NOT re-home it — a leaving
+	// component's `onDestroy` context is itself dying, so a root created here
+	// would die too. Autosave stays alive for surviving holders only while the
+	// owner (last acquirer) is also the last to leave. Every supported handoff
+	// satisfies this because SvelteKit mounts the arriving editor (the new
+	// owner) before unmounting the leaving one. A holder that can release while
+	// a non-owner survives — e.g. an AI-session preview opened as an OVERLAY on
+	// top of a still-mounted nav editor, then closed — would silently kill the
+	// survivor's autosave until its next acquire. Don't add such a topology
+	// without moving the mirror to a persistent, component-independent scope.
 	if (entry.count <= 0) {
 		// The live entry was authoritative while mounted; once gone, drop any
 		// cached write for this key so a later read falls back to the server
