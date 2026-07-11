@@ -16,6 +16,15 @@ export interface ScriptBuilderProps {
 	fullyLoaded?: boolean
 	initialPath?: string
 	/**
+	 * Wrapper-only signal (consumed by `ScriptWrapper`, not `ScriptBuilder`):
+	 * this editor is mounting a brand-new script. When set and no caller path
+	 * is provided, the wrapper mints a `u/<user>/draft_<uuid>` storage path so
+	 * autosave attaches — mirrors what the `/scripts/add` route does before the
+	 * full-page editor mounts. Left unset for read-only / pathless views so
+	 * autosave stays intentionally detached.
+	 */
+	newScript?: boolean
+	/**
 	 * Path the route's `UserDraft.use<EditableScript>('script', ...)`
 	 * handle is keyed by. Distinct from `initialPath` for new drafts —
 	 * `initialPath` is the displayed/editor path (empty for new), while

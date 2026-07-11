@@ -120,7 +120,11 @@ async fn list_drafts(
                     .await
                 {
                     Ok(()) => true,
-                    Err(Error::NotAuthorized(_)) => false,
+                    // A stored draft can sit at an unwritable path — unauthorized,
+                    // or malformed (`BadRequest`; the `draft` table has no path
+                    // constraint). Either way it's not writable, and one bad row
+                    // must not 400 the whole listing.
+                    Err(Error::NotAuthorized(_)) | Err(Error::BadRequest(_)) => false,
                     Err(e) => return Err(e),
                 };
             out.push(row);
@@ -745,8 +749,17 @@ async fn require_can_write_path(
             return Ok(());
         }
     }
+    // A path without a recognized namespace prefix (u/, f/, g/) can never be
+    // writable — no namespace rule and no deployed row can apply — so report it
+    // as malformed rather than as a plain permission denial.
+    if !(path.starts_with("u/") || path.starts_with("f/") || path.starts_with("g/")) {
+        return Err(Error::BadRequest(format!(
+            "Invalid path '{path}': a valid path starts with 'u/<user>/', 'f/<folder>/' or 'g/<group>/'"
+        )));
+    }
     Err(Error::NotAuthorized(format!(
-        "you don't have write permission on {path}"
+        "You don't have write permission on '{path}'. It must be in your own 'u/{}/' namespace, or in a folder ('f/<folder>/') or group ('g/<group>/') you can write to.",
+        authed.username
     )))
 }
 
