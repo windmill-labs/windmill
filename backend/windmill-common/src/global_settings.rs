@@ -14,6 +14,12 @@ pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
 pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
+pub const RETENTION_PERIOD_SECS_OVERRIDES_SETTING: &str = "retention_period_secs_overrides";
+/// Upper bound on how many per-workspace retention overrides may be configured. The periodic monitor
+/// sweeps each override workspace in its own transaction every pass, so this keeps a pass bounded
+/// (and the feature is a targeted escape hatch for a handful of special workspaces, not a bulk knob).
+/// Enforced at write time and defensively on load.
+pub const MAX_RETENTION_OVERRIDE_WORKSPACES: usize = 10;
 pub const AUDIT_LOG_RETENTION_DAYS_SETTING: &str = "audit_log_retention_days";
 pub const STORE_AUDIT_LOGS_S3_SETTING: &str = "store_audit_logs_s3";
 /// `background_task_state.name` for the audit-log → object-store export cursor.

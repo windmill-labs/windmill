@@ -15,6 +15,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use windmill_common::error::JsonResult;
+use windmill_common::{JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED};
 
 use crate::db::{ApiAuthed, DB};
 use crate::utils::require_super_admin;
@@ -291,10 +292,50 @@ async fn fetch_database_size(db: &DB) -> windmill_common::error::Result<Database
 }
 
 async fn fetch_job_retention(db: &DB) -> windmill_common::error::Result<JobRetentionInfo> {
-    let job_row =
-        sqlx::query!("SELECT MIN(completed_at) as oldest, COUNT(*) as total FROM v2_job_completed")
-            .fetch_one(db)
-            .await?;
+    // Per-workspace retention overrides (EE) make "oldest completed job vs the instance retention"
+    // wrong as a single global signal: each override workspace has its own effective window, so its
+    // intentionally-retained jobs must be judged against that window — not the instance one. We
+    // therefore compute the ratio per scope and report the worst:
+    //  - global scope: oldest job across all non-override workspaces vs the instance retention;
+    //  - each override workspace with a *positive* window: its own oldest job vs its own window;
+    //  - keep-forever (0) overrides: excluded entirely — their jobs are retained forever by design,
+    //    so there is no window to fall behind on.
+    // The majority (no-override) path keeps the original index-driven `MIN(completed_at)` with no
+    // performance change; the override paths use the completed_at / (workspace_id, completed_at)
+    // indexes and only run when overrides exist.
+    let overrides = JOB_RETENTION_SECS_OVERRIDES.load_full();
+    let overrides_active = !overrides.is_empty()
+        && JOB_RETENTION_SECS_OVERRIDES_LOADED.load(std::sync::atomic::Ordering::Relaxed);
+
+    // `true_oldest` is the real table minimum across every workspace — reported verbatim in the
+    // public `oldest_completed_at` field so the UI's "Oldest job" label stays honest. `global_oldest`
+    // excludes override workspaces and drives only the global health ratio (override workspaces are
+    // judged against their own window below).
+    type OptTs = Option<chrono::DateTime<chrono::Utc>>;
+    let (true_oldest, global_oldest, total): (OptTs, OptTs, i64) = if !overrides_active {
+        let r = sqlx::query!(
+            "SELECT MIN(completed_at) as oldest, COUNT(*) as total FROM v2_job_completed"
+        )
+        .fetch_one(db)
+        .await?;
+        (r.oldest, r.oldest, r.total.unwrap_or(0))
+    } else {
+        // `MIN(...) WHERE workspace_id <> ALL(...)` is still driven by the completed_at index
+        // (ascending scan, early-stop at the first non-override row); the plain `MIN(...)` is an
+        // index-only scan. Both are cheap.
+        let override_ids: Vec<String> = overrides.keys().cloned().collect();
+        let r = sqlx::query!(
+            "SELECT
+                (SELECT MIN(completed_at) FROM v2_job_completed) as true_oldest,
+                (SELECT MIN(completed_at) FROM v2_job_completed
+                 WHERE workspace_id <> ALL($1::text[])) as global_oldest,
+                (SELECT COUNT(*) FROM v2_job_completed) as total",
+            &override_ids,
+        )
+        .fetch_one(db)
+        .await?;
+        (r.true_oldest, r.global_oldest, r.total.unwrap_or(0))
+    };
 
     let retention_row =
         sqlx::query!("SELECT value FROM global_settings WHERE name = 'retention_period_secs'")
@@ -304,48 +345,103 @@ async fn fetch_job_retention(db: &DB) -> windmill_common::error::Result<JobReten
     let retention_period_secs: Option<i64> =
         retention_row.map(|r| r.value).and_then(|v| v.as_i64());
 
-    let oldest = job_row.oldest;
-    let total = job_row.total.unwrap_or(0);
+    // Oldest job per positive-window override workspace (one grouped seek on the
+    // `(workspace_id, completed_at)` index; only workspaces that actually have rows come back).
+    let positive_override_ids: Vec<String> = if overrides_active {
+        overrides
+            .iter()
+            .filter(|(_, &secs)| secs > 0)
+            .map(|(ws, _)| ws.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let mut per_workspace_oldest: Vec<(String, chrono::DateTime<chrono::Utc>)> = Vec::new();
+    if !positive_override_ids.is_empty() {
+        let rows = sqlx::query!(
+            "SELECT workspace_id as \"workspace_id!\", MIN(completed_at) as oldest
+             FROM v2_job_completed
+             WHERE workspace_id = ANY($1::text[])
+             GROUP BY workspace_id",
+            &positive_override_ids,
+        )
+        .fetch_all(db)
+        .await?;
+        for r in rows {
+            if let Some(oldest) = r.oldest {
+                per_workspace_oldest.push((r.workspace_id, oldest));
+            }
+        }
+    }
 
-    let (status, message) = if let (Some(oldest_ts), Some(retention_secs)) =
-        (oldest, retention_period_secs)
-    {
-        let age_secs: i64 = (chrono::Utc::now() - oldest_ts).num_seconds();
-        let ratio = if retention_secs > 0 {
-            age_secs as f64 / retention_secs as f64
-        } else {
-            0.0
-        };
+    // Evaluate each scope independently and report the WORST. Each scope contributes a candidate
+    // (severity, level, message); the max-severity candidate wins. This keeps the global scope's
+    // "no retention configured" warning visible even when a healthy override would otherwise mask it.
+    let now = chrono::Utc::now();
+    let ratio_status = |scope: String, ratio: f64| -> (u8, HealthLevel, String) {
         if ratio <= 2.0 {
             (
+                0,
                 HealthLevel::Green,
-                format!(
-                    "Oldest job is {:.1}x the retention period. Cleanup is keeping up.",
-                    ratio
-                ),
+                format!("{scope} is {ratio:.1}x the retention period. Cleanup is keeping up."),
             )
         } else if ratio <= 5.0 {
             (
+                1,
                 HealthLevel::Yellow,
                 format!(
-                    "Oldest job is {:.1}x the retention period. Cleanup may be falling behind.",
-                    ratio
+                    "{scope} is {ratio:.1}x the retention period. Cleanup may be falling behind."
                 ),
             )
         } else {
-            (HealthLevel::Red, format!("Oldest job is {:.1}x the retention period. Consider reducing retention or investigating cleanup.", ratio))
+            (2, HealthLevel::Red, format!("{scope} is {ratio:.1}x the retention period. Consider reducing retention or investigating cleanup."))
         }
-    } else if oldest.is_some() && retention_period_secs.is_none() {
-        (
+    };
+
+    let mut candidates: Vec<(u8, HealthLevel, String)> = Vec::new();
+    // Global scope: judged against the instance retention, or flagged when non-override jobs exist
+    // (`global_oldest` is `Some`) but no positive instance retention is configured. A `0` instance
+    // retention means keep-forever globally, so it contributes no candidate.
+    match (global_oldest, retention_period_secs) {
+        (Some(oldest_ts), Some(retention_secs)) if retention_secs > 0 => {
+            let ratio = (now - oldest_ts).num_seconds() as f64 / retention_secs as f64;
+            candidates.push(ratio_status("Oldest job".to_string(), ratio));
+        }
+        (Some(_), None) => candidates.push((
+            1,
             HealthLevel::Yellow,
             "No retention_period_secs configured. Old jobs will accumulate.".to_string(),
+        )),
+        _ => {}
+    }
+    // Each positive-window override, judged against its own window.
+    for (ws, oldest_ts) in &per_workspace_oldest {
+        if let Some(&window) = overrides.get(ws) {
+            if window > 0 {
+                let ratio = (now - *oldest_ts).num_seconds() as f64 / window as f64;
+                candidates.push(ratio_status(format!("Workspace {ws} oldest job"), ratio));
+            }
+        }
+    }
+
+    let (status, message) = if let Some((_, level, message)) = candidates
+        .into_iter()
+        .max_by_key(|(severity, _, _)| *severity)
+    {
+        (level, message)
+    } else if total > 0 {
+        // Jobs exist but none produced a candidate: every completed job lives in a keep-forever
+        // scope (instance or override), so it is retained by design rather than overdue.
+        (
+            HealthLevel::Green,
+            "Completed jobs are within their configured retention windows.".to_string(),
         )
     } else {
         (HealthLevel::Green, "No completed jobs found.".to_string())
     };
 
     Ok(JobRetentionInfo {
-        oldest_completed_at: oldest,
+        oldest_completed_at: true_oldest,
         total_completed_jobs: total,
         retention_period_secs,
         status,
