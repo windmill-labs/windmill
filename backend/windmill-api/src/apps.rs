@@ -3861,23 +3861,16 @@ async fn check_if_allowed_to_access_s3_file_from_app(
             "Internal error: signature validation is not supported in open source mode".to_string(),
         ));
     } else if matches!(policy.execution_mode, ExecutionMode::Viewer) && !is_app_embed {
-        // Viewer execution mode: the on-behalf identity resolved for this app IS
-        // the viewer themselves, so the file read is already bounded by the
-        // viewer's own S3 permissions in the downstream
-        // `get_workspace_s3_resource_and_check_paths`. No app-provenance gate is
-        // needed (nor wanted — it would over-restrict a viewer-mode app to only
-        // its own outputs). Excludes app embed tokens: those carry the viewer
-        // identity but represent untrusted app JS and must stay confined to the
-        // provenance allowlist below.
+        // Viewer mode: the on-behalf identity IS the viewer, so the downstream
+        // get_workspace_s3_resource_and_check_paths already bounds the read by
+        // their own perms — no provenance gate (it would over-restrict). Embed
+        // tokens are excluded (untrusted app JS stays confined below).
         Ok(())
     } else {
-        // On-behalf of the AUTHOR (Anonymous/Publisher execution), or an app embed
-        // token. Confine to the app's declared S3 keys, or files produced by THIS
-        // app's own component runs — anonymous AND logged-in viewers alike. Routing
-        // a logged-in viewer here (deployed app view) without this gate would be a
-        // confused-deputy: the viewer could launder the author's broad S3
-        // permissions by passing an arbitrary file_key. The producing identity is
-        // the caller's username (embed viewer / logged-in viewer), else `anonymous`.
+        // Author-mode (Anonymous/Publisher) or embed token: confine to the app's
+        // declared keys or files it recently produced. Without this gate a
+        // logged-in viewer could launder the author's S3 perms via an arbitrary
+        // file_key (confused deputy). Producing identity = caller else `anonymous`.
         let creator = opt_authed
             .as_ref()
             .map(|authed| authed.username.clone())
@@ -4013,13 +4006,10 @@ fn app_s3_file_query(s3: String, storage: Option<String>) -> AppS3FileQuery {
     }
 }
 
-/// Resolve the app's on-behalf identity and run the app-provenance gate ONCE for
-/// every app-scoped (`apps_u/*`) S3 display op. This is the single security
-/// chokepoint the display endpoints share: scope-confine an app embed token to
-/// its own app, resolve the on-behalf identity per `execution_mode`, then gate
-/// the requested `file_key` on `check_if_allowed_to_access_s3_file_from_app`
-/// (author-mode reads are confined to app provenance; viewer-mode falls through
-/// to the viewer's own perms downstream).
+/// Shared entry for every app-scoped (`apps_u/*`) S3 display op: scope-confine an
+/// app embed token, resolve the on-behalf identity per `execution_mode`, then run
+/// the provenance gate (`check_if_allowed_to_access_s3_file_from_app`) once before
+/// dispatching to the S3 helpers.
 #[cfg(feature = "parquet")]
 async fn app_s3_on_behalf_and_provenance(
     db: &DB,
