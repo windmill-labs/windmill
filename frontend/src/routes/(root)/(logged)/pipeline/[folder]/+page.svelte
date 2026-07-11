@@ -73,6 +73,7 @@
 	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 	import { createPipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
+	import { capturePipelineAssetSample } from '$lib/components/recording/pipelineAssetSample'
 	import type { PipelineRecording } from '$lib/components/recording/types'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
@@ -1441,6 +1442,18 @@
 						// best-effort — a job we can't fetch just replays from its stream
 					}
 				})
+			)
+			// Sample each ducklake/datatable asset so the player can show what the
+			// tables held after the run, offline. Reuses the live preview query
+			// path (getRows); errors are captured, not thrown, per asset.
+			await Promise.all(
+				(rec.graph.assets ?? [])
+					.filter((a) => a.kind === 'ducklake' || a.kind === 'datatable')
+					.map(async (a) => {
+						const sample = await capturePipelineAssetSample(ws, a.kind, a.path)
+						// Mutates the same assetSamples object `rec.assetSamples` references.
+						pipelineRecording.recordAssetSample(sample)
+					})
 			)
 		}
 		return rec

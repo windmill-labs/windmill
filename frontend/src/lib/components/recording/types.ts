@@ -1,4 +1,4 @@
-import type { Job, OpenFlow } from '$lib/gen'
+import type { AssetKind, Job, OpenFlow } from '$lib/gen'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
 
 export type RecordedEvent = {
@@ -51,6 +51,24 @@ export type PipelineTimelineFrame = {
 	statuses: Record<string, RecordedNodeState>
 }
 
+/** A captured data-sample of a pipeline asset (ducklake table / datatable),
+ * so the player can show what an asset held after the run — offline, without
+ * re-querying the backend. Keyed in `assetSamples` by `${kind}:${path}`. */
+export type PipelineAssetSample = {
+	kind: AssetKind
+	path: string
+	/** Full asset URI, e.g. `ducklake://main/orders`. */
+	uri: string
+	/** Column names (in order) of the sampled table. */
+	columns: { field: string; datatype?: string }[]
+	/** Sampled rows (capped), each a record keyed by column field. */
+	rows: unknown[]
+	/** Total row count if it could be fetched. */
+	rowCount?: number
+	/** Set when the sample couldn't be captured (table missing, unsupported…). */
+	error?: string
+}
+
 export type PipelineRecording = {
 	version: 1
 	type: 'pipeline'
@@ -64,6 +82,9 @@ export type PipelineRecording = {
 	/** Per-node job streams (initial job + SSE events), keyed by job id, so the
 	 * player can replay each node's logs/result/args offline via JobLoader. */
 	jobs: Record<string, RecordedJob>
+	/** Per-asset data samples captured after the run, keyed by `${kind}:${path}`,
+	 * so asset nodes are inspectable offline in the player. */
+	assetSamples?: Record<string, PipelineAssetSample>
 }
 
 /** Minimal interface that both flow and script recording stores implement */

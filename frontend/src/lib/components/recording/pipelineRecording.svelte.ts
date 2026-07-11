@@ -3,6 +3,7 @@ import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types
 import { truncateUuids } from './flowRecording.svelte'
 import type {
 	ActiveReplayData,
+	PipelineAssetSample,
 	PipelineRecording,
 	PipelineTimelineFrame,
 	RecordedJob,
@@ -31,6 +32,7 @@ export function createPipelineRecording(): PipelineRecordingStore {
 	let graph: AssetGraphResponse | undefined = undefined
 	let timeline: PipelineTimelineFrame[] = []
 	let jobs: Record<string, RecordedJob> = {}
+	let assetSamples: Record<string, PipelineAssetSample> = {}
 	let watchedJobs = new Set<string>()
 	let jobSources: EventSource[] = []
 
@@ -53,6 +55,7 @@ export function createPipelineRecording(): PipelineRecordingStore {
 			graph = JSON.parse(JSON.stringify(g)) as AssetGraphResponse
 			timeline = []
 			jobs = {}
+			assetSamples = {}
 		},
 		/** Push a cascade status snapshot. Deep-cloned so a later mutation of the
 		 * orchestrator's map can't rewrite an already-captured frame. */
@@ -144,6 +147,13 @@ export function createPipelineRecording(): PipelineRecordingStore {
 				})
 			}
 		},
+		/** Attach a captured asset data-sample (called during finalize, after
+		 * the run, for each ducklake/datatable asset). Keyed by `${kind}:${path}`.
+		 * Callable after stop() so late captures still attach to the returned
+		 * recording (which references the same `assetSamples` object). */
+		recordAssetSample(sample: PipelineAssetSample) {
+			assetSamples[`${sample.kind}:${sample.path}`] = sample
+		},
 		stop(): PipelineRecording {
 			active = false
 			closeSources()
@@ -155,7 +165,8 @@ export function createPipelineRecording(): PipelineRecordingStore {
 				total_duration_ms: Date.now() - startTime,
 				graph: graph ?? ({ assets: [], runnables: [], edges: [], triggers: [] } as any),
 				timeline,
-				jobs
+				jobs,
+				assetSamples
 			}
 		},
 		/** Convert to the ActiveReplayData shape JobLoader replay consumes. */
@@ -182,6 +193,7 @@ export type PipelineRecordingStore = {
 	recordStatuses(statuses: Map<string, RecordedNodeState>): void
 	watchJob(jobId: string, workspace: string): void
 	addCompletedJob(jobId: string, completedJob: Job): void
+	recordAssetSample(sample: PipelineAssetSample): void
 	stop(): PipelineRecording
 	toReplayData(recording: PipelineRecording): ActiveReplayData
 	download(recording: PipelineRecording): void

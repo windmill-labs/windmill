@@ -11,7 +11,16 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { CheckCircle2, InfoIcon, Loader2, LogOut, Play, Square, XCircle } from 'lucide-svelte'
+	import {
+		CheckCircle2,
+		Database,
+		InfoIcon,
+		Loader2,
+		LogOut,
+		Play,
+		Square,
+		XCircle
+	} from 'lucide-svelte'
 	import { onDestroy, tick, untrack } from 'svelte'
 
 	type ReplayState = 'loaded' | 'playing' | 'done'
@@ -173,6 +182,19 @@
 		return (shownStatuses[selection.path] ?? finalStatuses[selection.path])?.status
 	})
 
+	// Recorded data-sample for a selected asset node (ducklake/datatable).
+	let selectedAssetSample = $derived.by(() => {
+		if (selection?.kind !== 'asset') return undefined
+		return recording.assetSamples?.[`${selection.asset_kind}:${selection.path}`]
+	})
+
+	// Render a cell value: primitives as-is, objects/arrays as compact JSON.
+	function fmtCell(v: unknown): string {
+		if (v === null || v === undefined) return ''
+		if (typeof v === 'object') return JSON.stringify(v)
+		return String(v)
+	}
+
 	onDestroy(() => {
 		clearTimeouts()
 		setActiveReplay(undefined)
@@ -276,11 +298,69 @@
 				<p class="text-xs text-secondary">This node did not run in the recorded session.</p>
 			{/if}
 		</div>
+	{:else if selection?.kind === 'asset'}
+		<div class="flex flex-col gap-2 rounded-md border bg-surface p-3 min-h-0">
+			<div class="flex items-center gap-2">
+				<Database size={16} class="text-tertiary" />
+				<span class="text-xs font-mono text-emphasis break-all"
+					>{selectedAssetSample?.uri ?? `${selection.asset_kind}://${selection.path}`}</span
+				>
+				{#if selectedAssetSample && !selectedAssetSample.error}
+					<span class="text-2xs text-tertiary">
+						{selectedAssetSample.rowCount != undefined
+							? `${selectedAssetSample.rowCount} row${selectedAssetSample.rowCount === 1 ? '' : 's'}`
+							: `${selectedAssetSample.rows.length} sampled`}
+						· {selectedAssetSample.columns.length} column{selectedAssetSample.columns.length === 1
+							? ''
+							: 's'}
+					</span>
+				{/if}
+			</div>
+
+			{#if !selectedAssetSample}
+				<p class="text-xs text-secondary">
+					No data sample was captured for this asset in the recorded session.
+				</p>
+			{:else if selectedAssetSample.error}
+				<p class="text-xs text-secondary">
+					Could not capture a sample of this table: {selectedAssetSample.error}
+				</p>
+			{:else if selectedAssetSample.rows.length === 0}
+				<p class="text-xs text-secondary">This table was empty when the recording was taken.</p>
+			{:else}
+				<div class="overflow-auto rounded-md border bg-surface-tertiary" style="max-height: 320px;">
+					<table class="text-2xs w-full border-collapse">
+						<thead class="sticky top-0 bg-surface-secondary">
+							<tr>
+								{#each selectedAssetSample.columns as c}
+									<th class="text-left px-2 py-1 font-semibold border-b whitespace-nowrap">
+										{c.field}
+										{#if c.datatype}<span class="text-tertiary font-normal">· {c.datatype}</span
+											>{/if}
+									</th>
+								{/each}
+							</tr>
+						</thead>
+						<tbody>
+							{#each selectedAssetSample.rows as row}
+								<tr class="border-b last:border-b-0">
+									{#each selectedAssetSample.columns as c}
+										<td class="px-2 py-1 font-mono whitespace-nowrap max-w-xs truncate">
+											{fmtCell((row as any)?.[c.field])}
+										</td>
+									{/each}
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
 	{:else}
 		<p class="text-2xs text-tertiary">
 			{replayState === 'playing'
-				? 'Replaying the recorded run — click a node to inspect its logs and result.'
-				: 'Click a node to inspect its recorded logs and result.'}
+				? 'Replaying the recorded run — click a node to inspect its logs, result or data sample.'
+				: 'Click a script node for its logs/result, or an asset node for its recorded data sample.'}
 		</p>
 	{/if}
 </div>
