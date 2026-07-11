@@ -166,7 +166,7 @@ jobs:
 
       - name: Install Codex CLI
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        run: npm install --global @openai/codex@0.128.0
+        run: npm install --global @openai/codex@0.144.1
 
       - name: Configure Codex auth
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
@@ -280,7 +280,7 @@ jobs:
           cat REVIEW.md .github/codex/pr-review.prompt.md > /tmp/codex-prompt.md
           codex exec \
             -C "$GITHUB_WORKSPACE" \
-            -m gpt-5.5 \
+            -m gpt-5.6-sol \
             -c 'model_reasoning_effort="xhigh"' \
             -s danger-full-access \
             -o codex-final-message.md \
