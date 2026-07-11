@@ -696,6 +696,7 @@
 					{jobId}
 					{nodeId}
 					{workspaceId}
+					{appPath}
 					forceJson={globalForceJson}
 					hideAsJson={true}
 				/>
@@ -1283,6 +1284,7 @@
 					{jobId}
 					{nodeId}
 					{workspaceId}
+					{appPath}
 					{hideAsJson}
 					{forceJson}
 					disableExpand={true}

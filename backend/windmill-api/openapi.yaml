@@ -12179,10 +12179,12 @@ paths:
             type: boolean
         - name: read_bytes_from
           in: query
+          required: true
           schema:
             type: integer
         - name: read_bytes_length
           in: query
+          required: true
           schema:
             type: integer
         - name: storage

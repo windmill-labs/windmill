@@ -1,17 +1,10 @@
-//! Deployed-app S3 reads authorize on-behalf of the app author, gated by app
-//! provenance — for a logged-in viewer just as for an anonymous one. A viewer
-//! must not be able to launder the author's (often privileged) S3 permissions
-//! by passing an arbitrary `file_key` to the app's on-behalf endpoint. That is a
-//! confused-deputy: before this change a logged-in, non-embed session hit an
-//! unconditional `Ok(())` bypass in `check_if_allowed_to_access_s3_file_from_app`
-//! and could read ANY key the author could reach.
+//! Deployed-app S3 reads authorize on-behalf of the app author and are confined
+//! to app provenance (declared keys or recent job outputs): a viewer cannot read
+//! an arbitrary `file_key` as the author. Requires the `parquet` feature — the
+//! real `apps_u/*` S3 handlers are gated on it.
 //!
-//! Requires the `parquet` feature — the real `apps_u/*` S3 handlers are gated on
-//! it (without it the route returns a "requires parquet" stub).
-//!
-//! Users from the `base` fixture:
-//!   test-user   (admin,     token SECRET_TOKEN)
-//!   test-user-2 (non-admin, token SECRET_TOKEN_2) — no S3 folder permissions
+//! `base` fixture: test-user (admin, SECRET_TOKEN); test-user-2 (non-admin,
+//! SECRET_TOKEN_2, no S3 folder permission).
 #![cfg(feature = "parquet")]
 
 use serde_json::json;
@@ -20,6 +13,9 @@ use windmill_test_utils::*;
 
 const ADMIN_TOKEN: &str = "SECRET_TOKEN";
 const USER_TOKEN: &str = "SECRET_TOKEN_2";
+const APP: &str = "u/test-user/s3onbehalf";
+const DECLARED: &str = "provenance/allowed.csv";
+const NON_PROVENANCE: &str = "evil/secret.csv";
 
 fn client() -> reqwest::Client {
     reqwest::Client::new()
@@ -37,51 +33,112 @@ async fn test_deployed_app_s3_onbehalf_provenance(db: Pool<Postgres>) -> anyhow:
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    // Admin deploys an `anonymous` execution-mode app that declares exactly one
-    // provenance key in its policy allowlist. `on_behalf_of` is auto-set to the
-    // creator (the admin) by the create handler, so the app reads S3 as that
-    // author — the whole point of the on-behalf path.
-    let provenance_key = "provenance/allowed.parquet";
+    // `on_behalf_of` is auto-set to the creator (admin) for an anonymous app, so
+    // the app reads S3 as that author; `DECLARED` is the only allowlisted key.
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&json!({
-            "path": "u/test-user/s3onbehalf",
+            "path": APP,
             "summary": "s3 onbehalf test",
             "value": {},
             "policy": {
                 "execution_mode": "anonymous",
                 "triggerables": {},
-                "allowed_s3_keys": [{ "s3_path": provenance_key }]
+                "allowed_s3_keys": [{ "s3_path": DECLARED }]
             }
         }))
         .send()
         .await?;
     assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
 
-    let download = |key: &'static str, token: &'static str| {
-        let url = format!("{ws}/apps_u/download_s3_file/u/test-user/s3onbehalf?s3={key}");
+    // GET an app-scoped S3 route as `token`. No workspace storage is configured,
+    // so a request that clears the provenance gate fails later at the storage
+    // lookup (or the CE OSS stub), never with "File restricted" — which is what
+    // lets these assertions distinguish "gate passed" from "gate denied".
+    let get = |route: &str, token: &'static str| {
+        let url = format!("{ws}/apps_u/{route}");
         authed(client().get(url), token).send()
     };
+    let denied = |body: &str| body.contains("File restricted");
 
-    // A logged-in NON-admin viewer requesting the app's DECLARED key clears the
-    // provenance gate: the request fails only later at the workspace S3-storage
-    // lookup (none is configured in the test workspace), NOT with "File
-    // restricted". Getting that far proves the read authorized on-behalf of the
-    // author rather than against the viewer's own (absent) S3 permissions.
-    let body = download(provenance_key, USER_TOKEN).await?.text().await?;
+    // download_s3_file: author-on-behalf allowed for the declared key, denied for
+    // a key the app never declared (the confused-deputy guard).
+    let body = get(&format!("download_s3_file/{APP}?s3={DECLARED}"), USER_TOKEN)
+        .await?
+        .text()
+        .await?;
+    assert!(!denied(&body), "declared key must clear the gate: {body}");
+    let body = get(
+        &format!("download_s3_file/{APP}?s3={NON_PROVENANCE}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(denied(&body), "non-provenance key must be denied: {body}");
+
+    // load_table_count and load_csv_preview enforce the same gate. The preview's
+    // numeric `limit`/`offset` must deserialize (regression: a flattened query
+    // struct 400s on them under serde_urlencoded).
+    let body = get(
+        &format!("load_table_count/{APP}?file_key={DECLARED}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
     assert!(
-        !body.contains("File restricted"),
-        "declared provenance key must pass the app provenance gate for a logged-in viewer, got: {body}"
+        !denied(&body),
+        "table_count declared key must clear the gate: {body}"
+    );
+    let body = get(
+        &format!("load_table_count/{APP}?file_key={NON_PROVENANCE}"),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(
+        denied(&body),
+        "table_count non-provenance key must be denied: {body}"
     );
 
-    // The same viewer requesting a key the app never declared nor produced is
-    // denied — this is the confused-deputy guard. Without the fix the logged-in
-    // bypass would have let this through and read the key as the admin author.
-    let resp = download("evil/secret.parquet", USER_TOKEN).await?;
+    let resp = get(
+        &format!("load_csv_preview/{APP}?file_key={DECLARED}&limit=5&offset=0"),
+        USER_TOKEN,
+    )
+    .await?;
     let status = resp.status();
     let body = resp.text().await?;
+    assert_ne!(status, 400, "numeric limit/offset must deserialize: {body}");
     assert!(
-        body.contains("File restricted"),
-        "non-provenance key must be denied for a logged-in deployed viewer (confused-deputy guard), got {status}: {body}"
+        !denied(&body),
+        "csv_preview declared key must clear the gate: {body}"
+    );
+
+    // load_file_preview: `read_bytes_from` / `read_bytes_length` are required.
+    let resp = get(
+        &format!("load_file_preview/{APP}?file_key={DECLARED}"),
+        USER_TOKEN,
+    )
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "file_preview without byte range must 400: {}",
+        resp.text().await?
+    );
+    let body = get(
+        &format!(
+            "load_file_preview/{APP}?file_key={DECLARED}&read_bytes_from=0&read_bytes_length=4096"
+        ),
+        USER_TOKEN,
+    )
+    .await?
+    .text()
+    .await?;
+    assert!(
+        !denied(&body),
+        "file_preview declared key must clear the gate: {body}"
     );
 
     Ok(())

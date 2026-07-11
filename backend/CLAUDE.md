@@ -44,8 +44,8 @@ kills every sibling worktree's backend):
    ```
 3. Wait for `health check completed` in the pane before hitting the API.
 
-cargo-watch only re-runs on a file change, so after an idle/failed run `touch backend/README.md`
-is a cheap retrigger (touching a `.rs` forces a full rebuild).
+cargo-watch only re-runs on a file change, so after an idle/failed run `touch README.md` (from
+`backend/`, where the watch runs) is a cheap retrigger (touching a `.rs` forces a full rebuild).
 
 ### What each feature gate does (the ones you'll actually toggle)
 

@@ -236,11 +236,19 @@ mod app_s3_display_stubs {
     #[derive(Serialize)]
     pub struct LoadFileMetadataResponse {}
 
+    // Mirror the EE query's required/optional fields so the CE build enforces the
+    // same query contract (e.g. the mandatory byte range) at the extraction layer.
     #[derive(Deserialize)]
     #[allow(dead_code)]
     pub struct LoadFilePreviewQuery {
-        pub file_key: String,
         pub storage: Option<String>,
+        pub file_key: String,
+        pub file_size_in_bytes: Option<u64>,
+        pub file_mime_type: Option<String>,
+        pub csv_separator: Option<String>,
+        pub csv_has_header: Option<bool>,
+        pub read_bytes_from: u64,
+        pub read_bytes_length: u64,
     }
 
     #[derive(Serialize)]
