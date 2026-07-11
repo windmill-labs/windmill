@@ -15,7 +15,6 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import { userStore } from '$lib/stores'
 
 	interface Props {
 		id: string
@@ -37,13 +36,16 @@
 	}: Props = $props()
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
-	const { app, worldStore, componentControl, workspace, appPath } =
+	const { app, worldStore, componentControl, workspace, appPath, isEditor } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let result: any = $state(undefined)
 
 	const resolvedConfig = $state(
-		initConfig(components['displaycomponent'].initialData.configuration, untrack(() => configuration))
+		initConfig(
+			components['displaycomponent'].initialData.configuration,
+			untrack(() => configuration)
+		)
 	)
 
 	$componentControl[untrack(() => id)] = {
@@ -52,12 +54,21 @@
 		}
 	}
 
-	const outputs = initOutput($worldStore, untrack(() => id), {
-		result: undefined,
-		loading: false
-	})
+	const outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			result: undefined,
+			loading: false
+		}
+	)
 
-	let css = $state(initCss($app.css?.displaycomponent, untrack(() => customCss)))
+	let css = $state(
+		initCss(
+			$app.css?.displaycomponent,
+			untrack(() => customCss)
+		)
+	)
 	let loading = $state(false)
 </script>
 
@@ -119,7 +130,7 @@
 				{result_stream}
 				{requireHtmlApproval}
 				disableExpand={resolvedConfig?.hideDetails}
-				appPath={$userStore ? undefined : $appPath}
+				appPath={isEditor ? undefined : $appPath}
 				forceJson={resolvedConfig?.forceJson}
 			/>
 		</div>
