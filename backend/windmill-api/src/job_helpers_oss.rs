@@ -260,7 +260,14 @@ mod app_s3_display_stubs {
     #[derive(Deserialize)]
     #[allow(dead_code)]
     pub struct LoadPreviewQuery {
+        pub limit: Option<u32>,
+        pub offset: Option<i64>,
+        pub sort_col: Option<String>,
+        pub sort_desc: Option<bool>,
+        pub search_col: Option<String>,
+        pub search_term: Option<String>,
         pub storage: Option<String>,
+        pub csv_separator: Option<String>,
     }
 
     pub async fn load_file_metadata_internal(

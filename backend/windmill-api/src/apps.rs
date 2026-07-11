@@ -4041,21 +4041,65 @@ async fn app_s3_on_behalf_and_provenance(
 // The app-scoped display ops carry the app path in the URL and everything else
 // (file_key + op args) in the query, so they avoid a second `{*path}` wildcard.
 // `LoadCountQuery` / `LoadPreviewQuery` don't include the file key (it's a path
-// param on the raw `job_helpers/*` route), so wrap them to add it here.
+// param on the raw `job_helpers/*` route), so restate their fields here with the
+// file key added. Do NOT `#[serde(flatten)]` the inner struct: axum's `Query`
+// uses `serde_urlencoded`, which cannot deserialize a flattened field's typed
+// (numeric/bool) values and 400s on `limit`/`offset` — the fields must be
+// declared directly on the outer struct.
 #[cfg(feature = "parquet")]
 #[derive(Deserialize)]
 struct AppLoadCountQuery {
     file_key: String,
-    #[serde(flatten)]
-    inner: LoadCountQuery,
+    search_col: Option<String>,
+    search_term: Option<String>,
+    storage: Option<String>,
+}
+
+#[cfg(feature = "parquet")]
+impl AppLoadCountQuery {
+    fn into_inner(self) -> (String, LoadCountQuery) {
+        (
+            self.file_key,
+            LoadCountQuery {
+                search_col: self.search_col,
+                search_term: self.search_term,
+                storage: self.storage,
+            },
+        )
+    }
 }
 
 #[cfg(feature = "parquet")]
 #[derive(Deserialize)]
 struct AppLoadPreviewQuery {
     file_key: String,
-    #[serde(flatten)]
-    inner: LoadPreviewQuery,
+    limit: Option<u32>,
+    offset: Option<i64>,
+    sort_col: Option<String>,
+    sort_desc: Option<bool>,
+    search_col: Option<String>,
+    search_term: Option<String>,
+    storage: Option<String>,
+    csv_separator: Option<String>,
+}
+
+#[cfg(feature = "parquet")]
+impl AppLoadPreviewQuery {
+    fn into_inner(self) -> (String, LoadPreviewQuery) {
+        (
+            self.file_key,
+            LoadPreviewQuery {
+                limit: self.limit,
+                offset: self.offset,
+                sort_col: self.sort_col,
+                sort_desc: self.sort_desc,
+                search_col: self.search_col,
+                search_term: self.search_term,
+                storage: self.storage,
+                csv_separator: self.csv_separator,
+            },
+        )
+    }
 }
 
 #[cfg(feature = "parquet")]
@@ -4123,17 +4167,13 @@ async fn app_load_table_count(
     Query(query): Query<AppLoadCountQuery>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.inner.storage.clone());
+    let (file_key, inner) = query.into_inner();
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
-    let resp = crate::job_helpers_oss::load_table_count_internal(
-        job_authed,
-        &db,
-        &w_id,
-        query.file_key,
-        query.inner,
-    )
-    .await?;
+    let resp =
+        crate::job_helpers_oss::load_table_count_internal(job_authed, &db, &w_id, file_key, inner)
+            .await?;
     Ok(Json(resp).into_response())
 }
 
@@ -4145,16 +4185,12 @@ async fn app_load_parquet_preview(
     Query(query): Query<AppLoadPreviewQuery>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.inner.storage.clone());
+    let (file_key, inner) = query.into_inner();
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(
-        job_authed,
-        &db,
-        &w_id,
-        query.file_key,
-        query.inner,
-        true,
+        job_authed, &db, &w_id, file_key, inner, true,
     )
     .await?;
     Ok(Json(resp).into_response())
@@ -4168,16 +4204,12 @@ async fn app_load_csv_preview(
     Query(query): Query<AppLoadPreviewQuery>,
 ) -> Result<Response> {
     let path = path.to_path();
-    let file_query = app_s3_file_query(query.file_key.clone(), query.inner.storage.clone());
+    let (file_key, inner) = query.into_inner();
+    let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone());
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(
-        job_authed,
-        &db,
-        &w_id,
-        query.file_key,
-        query.inner,
-        false,
+        job_authed, &db, &w_id, file_key, inner, false,
     )
     .await?;
     Ok(Json(resp).into_response())
