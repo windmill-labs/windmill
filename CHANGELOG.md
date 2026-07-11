@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.755.0](https://github.com/windmill-labs/windmill/compare/v1.754.0...v1.755.0) (2026-07-11)
+
+
+### Features
+
+* add per-workspace job-retention override ([#10050](https://github.com/windmill-labs/windmill/issues/10050)) ([ff774c4](https://github.com/windmill-labs/windmill/commit/ff774c46bff4bff1c532e512b163225aa7c41c11))
+* **apps:** authorize deployed-app S3 reads on-behalf of the author for logged-in viewers ([#10048](https://github.com/windmill-labs/windmill/issues/10048)) ([1e192f2](https://github.com/windmill-labs/windmill/commit/1e192f2d864b8a4671e900726972737406bc388a))
+* **mcp:** add multi-workspace MCP tokens via the gateway endpoint ([#10043](https://github.com/windmill-labs/windmill/issues/10043)) ([8343203](https://github.com/windmill-labs/windmill/commit/8343203ec2cea28a2ffd5b4ac636497e861fa3ce))
+
+
+### Bug Fixes
+
+* clearer errors on auto-draft save failure (WIN-2157) ([#10053](https://github.com/windmill-labs/windmill/issues/10053)) ([04eb7dd](https://github.com/windmill-labs/windmill/commit/04eb7ddd3906c28bec1711e276473a87c7b9500f))
+* **docker:** pin ansible tool interpreter to a persistent path ([#10054](https://github.com/windmill-labs/windmill/issues/10054)) ([6f49a1f](https://github.com/windmill-labs/windmill/commit/6f49a1f6a904442fcae9bb703f095b0a3ef61268))
+* enforce read authorization when signing S3 objects ([#10049](https://github.com/windmill-labs/windmill/issues/10049)) ([5844c32](https://github.com/windmill-labs/windmill/commit/5844c32ac5d08081b3de7f3d11b8b98eb1e1ad9a))
+* **frontend:** don't re-seed empty editor on stale ?new_draft after draft exists ([#10044](https://github.com/windmill-labs/windmill/issues/10044)) ([e668193](https://github.com/windmill-labs/windmill/commit/e668193a93b4a7df50459b31f2dc5f9a9b23d0fe))
+* **frontend:** keep draft autosave alive after AI-session round-trip ([#10052](https://github.com/windmill-labs/windmill/issues/10052)) ([7d02d9a](https://github.com/windmill-labs/windmill/commit/7d02d9a1e47760f287a71f6e09cd6fe45efb5635))
+* **frontend:** mint draft path for new SDK builder items so autosave attaches ([#10056](https://github.com/windmill-labs/windmill/issues/10056)) ([a89b896](https://github.com/windmill-labs/windmill/commit/a89b896ce5638f42f334055f9ffe6971b047aa84))
+* **frontend:** show nested restart button for subflows nested in containers ([#10042](https://github.com/windmill-labs/windmill/issues/10042)) ([3b07817](https://github.com/windmill-labs/windmill/commit/3b0781761b70667c5961bcb15d41c907716fa9e7))
+* **frontend:** show optimistic user message and fork-creation label before beforeSend ([#10037](https://github.com/windmill-labs/windmill/issues/10037)) ([1c88242](https://github.com/windmill-labs/windmill/commit/1c88242849a02b927f59e0a67c4b4707371b784f))
+* keep agent-worker server job-completed processor alive & self-healing ([#10033](https://github.com/windmill-labs/windmill/issues/10033)) ([ab38e14](https://github.com/windmill-labs/windmill/commit/ab38e1418e67be8bcc37391bb21d2f86d1ca3fc6))
+
 ## [1.754.0](https://github.com/windmill-labs/windmill/compare/v1.753.0...v1.754.0) (2026-07-10)
 
 
