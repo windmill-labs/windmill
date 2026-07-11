@@ -82,35 +82,19 @@ type DraftEntry = {
 	 */
 	seedNextWrite: boolean
 	/**
-	 * Tears down the entry's CURRENT mirror `$effect.root` scope. Re-pointed by
-	 * `acquireEntry` when the mirror is re-homed to a new holder (see below);
-	 * called at refcount 0. In vitest the root callback is a no-op, so this is
-	 * a no-op cleanup rather than undefined.
+	 * Tears down the entry's autosave-mirror `$effect.root`; called once at
+	 * refcount 0. The mirror is created detached from any component (see
+	 * `acquireEntry`), so this is the ONLY thing that disposes it. Also flips
+	 * `mirrorDisposed` to defuse the deferred creation if the entry is released
+	 * before the mirror is even set up. In vitest the deferred callback never
+	 * runs, so no root is created and this stays a no-op.
 	 */
 	destroyRoot?: () => void
 	/**
-	 * (Re)starts the entry's autosave mirror in the CURRENT reactive context and
-	 * returns its teardown. An entry is shared by refcount across the components
-	 * that edit the same draft (notably an AI-session preview and the nav editor
-	 * on either side of a mode switch). A `$effect.root` created inside one
-	 * component's context stops firing when THAT component unmounts — even while
-	 * another holder keeps the entry alive — which silently kills autosave in the
-	 * survivor. So `acquireEntry` re-homes the mirror to each new acquirer; since
-	 * SvelteKit mounts the arriving editor before unmounting the leaving one, the
-	 * owner is always a live component. `isRehome=true` preserves the sync
-	 * baseline (see `mirrorBaseline`) and does NOT re-arm the first-write skip,
-	 * so a value the outgoing mirror never observed (e.g. a session edit still
-	 * pending at handoff) is POSTed by the replacement rather than swallowed.
+	 * Set by `destroyRoot` so the microtask-deferred mirror creation aborts when
+	 * the entry was released (refcount 0) before the mirror was established.
 	 */
-	startMirror?: (isRehome: boolean) => () => void
-	/**
-	 * The last cell serialization the mirror observed, persisted on the entry so
-	 * it survives a mirror re-home. A fresh (re-homed) mirror seeds its dedup
-	 * baseline from this instead of `undefined`, so it only skips writes that
-	 * truly match the last-observed value — a pending, never-observed edit still
-	 * syncs. `undefined` until the first observation.
-	 */
-	mirrorBaseline?: string
+	mirrorDisposed?: boolean
 }
 
 export type UserDraftEntry<V = unknown> = {
@@ -760,50 +744,63 @@ function acquireEntry(
 	const existing = entries.get(mk)
 	if (existing) {
 		existing.count++
-		// Re-home the mirror to this (live) acquirer. The previous owner may be
-		// unmounting — e.g. an AI-session preview handing the same draft back to
-		// the nav editor — and its `$effect.root` stops firing on unmount even
-		// though this new holder keeps the entry alive. Re-creating the mirror
-		// here rebinds autosave to a component that is still mounted. See
-		// `startMirror`'s doc.
-		if (existing.startMirror) {
-			existing.destroyRoot?.()
-			existing.destroyRoot = existing.startMirror(true)
-		}
 		return
 	}
 	// Seed the cell with `defaultValue` (deep-cloned). Swallowed by
-	// `skipNextWrite` below — it never POSTs. The cell lives OUTSIDE the mirror
-	// root so it (and the handles bound to it) survive a mirror re-home.
+	// `skipNextWrite` below — it never POSTs.
 	const seed = defaultValue !== undefined ? snapshotDraftValue(defaultValue) : undefined
 	const cell = $state<{ val: unknown }>({ val: seed })
 	const stateRef = cell as DraftState<unknown>
-	// (Re)start the autosave mirror in the CURRENT reactive context. `$effect.root`
-	// detaches it from `useMany`'s reconcile effect (which would otherwise take it
-	// down on the next reconcile); re-homing on each acquire keeps it owned by a
-	// live component across draft handoffs (see `startMirror` doc + reuse branch).
-	const startMirror = (isRehome: boolean): (() => void) =>
-		$effect.root(() => {
+	// The autosave mirror must be owned by the ENTRY, not by the component that
+	// happened to acquire it first. The same entry is shared by refcount across
+	// every editor of one draft — an AI-session preview and the nav editor across
+	// the mode toggle, or several warm session previews mounted at once. A
+	// `$effect.root` created inline here would parent to the acquiring component's
+	// reactive context and STOP FIRING when that component unmounts, even while
+	// other holders keep the entry alive — silently killing autosave in the
+	// survivors. Deferring creation to a microtask runs it with NO active
+	// component/effect, so the root is truly top-level: it lives until `destroyRoot`
+	// at refcount 0 and is immune to any single holder unmounting. (In vitest the
+	// microtask still runs but `$effect.root`'s callback is inert, so no mirror is
+	// created — handles bind to the cell directly, consistent with the old
+	// test-runtime fallback.)
+	const entry: DraftEntry = {
+		count: 1,
+		workspace,
+		itemKind,
+		path,
+		state: stateRef,
+		skipNextSync: false,
+		syncSuspended: pendingSuspensions.delete(mk),
+		seedNextWrite: false,
+		mirrorDisposed: false,
+		// Placeholder until the deferred `createMirror` swaps in the real teardown;
+		// flips `mirrorDisposed` so a release before then aborts the creation.
+		destroyRoot: () => {
+			entry.mirrorDisposed = true
+		}
+	}
+	entries.set(mk, entry)
+	const createMirror = (): void => {
+		// Bail if this entry was released before the microtask ran, or if the key
+		// was released and re-acquired (a different entry now owns `mk` — its own
+		// `createMirror` will run).
+		if (entry.mirrorDisposed || entries.get(mk) !== entry) return
+		entry.destroyRoot = $effect.root(() => {
 			// Mirror every observable change of `cell.val` to the syncer.
 			// `readFieldsRecursively` walks the value so deep mutations
 			// (`handle.draft.content = '...'`) re-fire the effect — reading
 			// `cell.val` alone only subscribes to the proxy root.
 			//
 			// `lastSerialized` + `skipNextWrite` dedup no-op updates and treat
-			// the FIRST change after start as the seed/restore (no POST), so
-			// landing on `?new_draft` doesn't sync until the user's next edit.
-			// A RE-HOME instead inherits the entry's persisted baseline and does
-			// NOT skip: the value is already established, so only a real change
-			// from the last-observed value should POST — and a pending edit the
-			// outgoing mirror never observed still reaches the syncer.
+			// the FIRST change after mount as the seed/restore (no POST), so
+			// landing on `?new_draft` doesn't sync until the user edits.
 			//
 			// `cell.val === undefined` is the delete signal (`value: null`).
 			// `skipNextSync` lets callers that already POSTed (`discard`,
 			// `remove`) suppress the duplicate fire from their own write.
-			let lastSerialized: string | undefined = isRehome
-				? entries.get(mk)?.mirrorBaseline
-				: undefined
-			let skipNextWrite = !isRehome
+			let lastSerialized: string | undefined = undefined
+			let skipNextWrite = true
 			$effect(() => {
 				const val = cell.val
 				if (val !== undefined) readFieldsRecursively(val)
@@ -814,38 +811,31 @@ function acquireEntry(
 					// it lingers and swallows the user's NEXT edit. (`skipNextWrite`
 					// stays armed: an undefined-seeded cell's initial run lands
 					// here, and page editors rely on it to swallow their load write.)
-					const e = entries.get(mk)
-					if (e?.seedNextWrite) e.seedNextWrite = false
+					if (entry.seedNextWrite) entry.seedNextWrite = false
 					return
 				}
 				lastSerialized = next
-				// Persist the baseline so a future re-home continues from the last
-				// value THIS mirror observed, not `undefined`.
-				const based = entries.get(mk)
-				if (based) based.mirrorBaseline = next
 				if (skipNextWrite) {
 					skipNextWrite = false
 					// One write consumes BOTH one-shot guards: a `seed` on a fresh
 					// entry (still armed with the first-write skip) must not leave
 					// `seedNextWrite` behind to swallow the user's first edit.
-					const fresh = entries.get(mk)
-					if (fresh?.seedNextWrite) fresh.seedNextWrite = false
+					if (entry.seedNextWrite) entry.seedNextWrite = false
 					return
 				}
-				const entry = entries.get(mk)
 				// `seed` write: baseline already advanced above; don't POST.
-				if (entry?.seedNextWrite) {
+				if (entry.seedNextWrite) {
 					entry.seedNextWrite = false
 					return
 				}
-				if (entry?.skipNextSync) {
+				if (entry.skipNextSync) {
 					entry.skipNextSync = false
 					return
 				}
 				// `syncSuspended` swallows the POST but `lastSerialized` advanced
 				// above, so only writes made during suspension are dropped — the
 				// first change after resume is still detected.
-				if (entry?.syncSuspended) return
+				if (entry.syncSuspended) return
 				// At the deployed baseline → sync a delete, not a baseline-equal
 				// copy. `untrack` so reactive reads in the predicate (the editor's
 				// post-deploy baseline) don't re-fire the mirror.
@@ -862,36 +852,18 @@ function acquireEntry(
 				})
 			})
 		})
-	entries.set(mk, {
-		count: 1,
-		workspace,
-		itemKind,
-		path,
-		state: stateRef,
-		skipNextSync: false,
-		syncSuspended: pendingSuspensions.delete(mk),
-		seedNextWrite: false,
-		mirrorBaseline: undefined,
-		destroyRoot: startMirror(false),
-		startMirror
-	})
+	}
+	queueMicrotask(createMirror)
 }
 
 function releaseEntry(mk: string): void {
 	const entry = entries.get(mk)
 	if (!entry) return
 	entry.count--
-	// INVARIANT (see `startMirror`): the mirror is owned by the LAST component
-	// to acquire the key, and this release does NOT re-home it — a leaving
-	// component's `onDestroy` context is itself dying, so a root created here
-	// would die too. Autosave stays alive for surviving holders only while the
-	// owner (last acquirer) is also the last to leave. Every supported handoff
-	// satisfies this because SvelteKit mounts the arriving editor (the new
-	// owner) before unmounting the leaving one. A holder that can release while
-	// a non-owner survives — e.g. an AI-session preview opened as an OVERLAY on
-	// top of a still-mounted nav editor, then closed — would silently kill the
-	// survivor's autosave until its next acquire. Don't add such a topology
-	// without moving the mirror to a persistent, component-independent scope.
+	// The mirror is owned by the ENTRY (created detached — see `acquireEntry`),
+	// not by any holder, so releasing one holder never touches it; it is disposed
+	// only here, once, at refcount 0. This is what lets multiple holders (warm
+	// session previews + the nav editor) share the entry and drop in any order.
 	if (entry.count <= 0) {
 		// The live entry was authoritative while mounted; once gone, drop any
 		// cached write for this key so a later read falls back to the server
