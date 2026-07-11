@@ -745,11 +745,9 @@ async fn require_can_write_path(
             return Ok(());
         }
     }
-    // Nothing granted write access. Give the caller an actionable reason: a
-    // path that doesn't start with a recognized namespace prefix can never be
-    // writable (no namespace rule and no deployed row can apply), so surface it
-    // as a malformed path rather than a bare "no permission" — this is the most
-    // common cause of an autosave failure and the vague message hid it.
+    // A path without a recognized namespace prefix (u/, f/, g/) can never be
+    // writable — no namespace rule and no deployed row can apply — so report it
+    // as malformed rather than as a plain permission denial.
     if !(path.starts_with("u/") || path.starts_with("f/") || path.starts_with("g/")) {
         return Err(Error::BadRequest(format!(
             "Invalid path '{path}': a valid path starts with 'u/<user>/', 'f/<folder>/' or 'g/<group>/'"
