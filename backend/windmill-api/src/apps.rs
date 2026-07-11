@@ -3279,6 +3279,7 @@ struct S3TokenRequestBody {
 }
 #[cfg(feature = "parquet")]
 async fn sign_s3_objects(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(body): Json<S3TokenRequestBody>,
@@ -3286,6 +3287,22 @@ async fn sign_s3_objects(
     let workspace_key = get_workspace_key(&w_id, &db).await?;
 
     let futures = body.s3_objects.into_iter().map(|s3_object| async {
+        // The signature this mints is a transferable bearer capability: `validate_s3_signature`
+        // only checks the HMAC and expiry, so anyone who obtains the string can read this key.
+        // Authorize the CALLER's own read permission before signing — otherwise any workspace
+        // member (operators included) could mint a signature for any key and bypass the advanced
+        // S3 permission rules. This is the fix; do NOT move the check to validation time.
+        let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
+        get_workspace_s3_resource_and_check_paths(
+            &db_with_opt_authed,
+            Some(&authed),
+            &w_id,
+            s3_object.storage.clone(),
+            &[(&s3_object.s3, S3Permission::READ)],
+            None,
+        )
+        .await?;
+
         let exp = (chrono::Utc::now() + chrono::Duration::hours(12)).timestamp();
         let mut message = format!("file_key={}&exp={}", s3_object.s3.clone(), exp);
         if let Some(ref storage) = s3_object.storage {
