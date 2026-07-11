@@ -97,9 +97,20 @@ type DraftEntry = {
 	 * another holder keeps the entry alive — which silently kills autosave in the
 	 * survivor. So `acquireEntry` re-homes the mirror to each new acquirer; since
 	 * SvelteKit mounts the arriving editor before unmounting the leaving one, the
-	 * owner is always a live component.
+	 * owner is always a live component. `isRehome=true` preserves the sync
+	 * baseline (see `mirrorBaseline`) and does NOT re-arm the first-write skip,
+	 * so a value the outgoing mirror never observed (e.g. a session edit still
+	 * pending at handoff) is POSTed by the replacement rather than swallowed.
 	 */
-	startMirror?: () => () => void
+	startMirror?: (isRehome: boolean) => () => void
+	/**
+	 * The last cell serialization the mirror observed, persisted on the entry so
+	 * it survives a mirror re-home. A fresh (re-homed) mirror seeds its dedup
+	 * baseline from this instead of `undefined`, so it only skips writes that
+	 * truly match the last-observed value — a pending, never-observed edit still
+	 * syncs. `undefined` until the first observation.
+	 */
+	mirrorBaseline?: string
 }
 
 export type UserDraftEntry<V = unknown> = {
@@ -757,7 +768,7 @@ function acquireEntry(
 		// `startMirror`'s doc.
 		if (existing.startMirror) {
 			existing.destroyRoot?.()
-			existing.destroyRoot = existing.startMirror()
+			existing.destroyRoot = existing.startMirror(true)
 		}
 		return
 	}
@@ -771,7 +782,7 @@ function acquireEntry(
 	// detaches it from `useMany`'s reconcile effect (which would otherwise take it
 	// down on the next reconcile); re-homing on each acquire keeps it owned by a
 	// live component across draft handoffs (see `startMirror` doc + reuse branch).
-	const startMirror = (): (() => void) =>
+	const startMirror = (isRehome: boolean): (() => void) =>
 		$effect.root(() => {
 			// Mirror every observable change of `cell.val` to the syncer.
 			// `readFieldsRecursively` walks the value so deep mutations
@@ -779,15 +790,20 @@ function acquireEntry(
 			// `cell.val` alone only subscribes to the proxy root.
 			//
 			// `lastSerialized` + `skipNextWrite` dedup no-op updates and treat
-			// the FIRST change after (re)start as the seed/restore (no POST), so
-			// landing on `?new_draft` — or inheriting the live value on a re-home
-			// — doesn't sync until the user's next edit.
+			// the FIRST change after start as the seed/restore (no POST), so
+			// landing on `?new_draft` doesn't sync until the user's next edit.
+			// A RE-HOME instead inherits the entry's persisted baseline and does
+			// NOT skip: the value is already established, so only a real change
+			// from the last-observed value should POST — and a pending edit the
+			// outgoing mirror never observed still reaches the syncer.
 			//
 			// `cell.val === undefined` is the delete signal (`value: null`).
 			// `skipNextSync` lets callers that already POSTed (`discard`,
 			// `remove`) suppress the duplicate fire from their own write.
-			let lastSerialized: string | undefined = undefined
-			let skipNextWrite = true
+			let lastSerialized: string | undefined = isRehome
+				? entries.get(mk)?.mirrorBaseline
+				: undefined
+			let skipNextWrite = !isRehome
 			$effect(() => {
 				const val = cell.val
 				if (val !== undefined) readFieldsRecursively(val)
@@ -803,6 +819,10 @@ function acquireEntry(
 					return
 				}
 				lastSerialized = next
+				// Persist the baseline so a future re-home continues from the last
+				// value THIS mirror observed, not `undefined`.
+				const based = entries.get(mk)
+				if (based) based.mirrorBaseline = next
 				if (skipNextWrite) {
 					skipNextWrite = false
 					// One write consumes BOTH one-shot guards: a `seed` on a fresh
@@ -851,7 +871,8 @@ function acquireEntry(
 		skipNextSync: false,
 		syncSuspended: pendingSuspensions.delete(mk),
 		seedNextWrite: false,
-		destroyRoot: startMirror(),
+		mirrorBaseline: undefined,
+		destroyRoot: startMirror(false),
 		startMirror
 	})
 }
