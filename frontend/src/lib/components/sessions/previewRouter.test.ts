@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parsePreviewItemRoute, previewTabLabel, resolvePreviewTab } from './previewRouter'
+import { draftFriendlyLeaf, parsePreviewItemRoute, resolvePreviewTab } from './previewRouter'
 
 describe('parsePreviewItemRoute', () => {
 	it('maps edit/get routes to item kinds', () => {
@@ -32,35 +32,24 @@ describe('parsePreviewItemRoute', () => {
 	})
 })
 
-describe('previewTabLabel', () => {
-	it('labels a new raw app by its pending friendly path, not the draft uuid', () => {
-		const rawApp = { path: 'u/admin/draft_abc123', draft_path: 'u/admin/my_pretty_app' }
-		expect(previewTabLabel('/apps_raw/edit/u/admin/draft_abc123', rawApp)).toBe('my_pretty_app')
+describe('draftFriendlyLeaf', () => {
+	it('returns the friendly leaf for a new item parked at a draft uuid', () => {
+		expect(draftFriendlyLeaf('u/admin/draft_abc123', 'u/admin/valuable_script')).toBe(
+			'valuable_script'
+		)
+		expect(draftFriendlyLeaf('u/admin/draft_abc123', 'u/admin/my_flow')).toBe('my_flow')
 	})
 
-	it('falls back to the uuid leaf when no friendly draft_path is pending', () => {
-		const rawApp = { path: 'u/admin/draft_abc123' }
-		expect(previewTabLabel('/apps_raw/edit/u/admin/draft_abc123', rawApp)).toBe('draft_abc123')
+	it('returns undefined when no friendly path is available', () => {
+		expect(draftFriendlyLeaf('u/admin/draft_abc123', undefined)).toBeUndefined()
 	})
 
-	it('keeps the real leaf for a raw app already at a named (non-draft) path', () => {
-		const rawApp = { path: 'u/admin/my_app', draft_path: 'u/admin/renamed' }
-		expect(previewTabLabel('/apps_raw/edit/u/admin/my_app', rawApp)).toBe('my_app')
+	it('returns undefined when the friendly path is itself a draft placeholder', () => {
+		expect(draftFriendlyLeaf('u/admin/draft_abc123', 'u/admin/draft_xyz')).toBeUndefined()
 	})
 
-	it('ignores a draft_path that belongs to a different raw app than the tab shows', () => {
-		const rawApp = { path: 'u/admin/draft_other', draft_path: 'u/admin/friendly' }
-		expect(previewTabLabel('/apps_raw/edit/u/admin/draft_abc123', rawApp)).toBe('draft_abc123')
-	})
-
-	it('does not touch non-raw-app tabs', () => {
-		const rawApp = { path: 'u/admin/draft_abc123', draft_path: 'u/admin/friendly' }
-		expect(previewTabLabel('/scripts/edit/f/foo/bar', rawApp)).toBe('bar')
-		expect(previewTabLabel('/runs', rawApp)).toBe('Runs')
-	})
-
-	it('falls back to the plain location label when no raw app is loaded', () => {
-		expect(previewTabLabel('/apps_raw/edit/u/admin/draft_abc123', undefined)).toBe('draft_abc123')
+	it('returns undefined for an item already at a named (non-draft) storage path', () => {
+		expect(draftFriendlyLeaf('u/admin/my_app', 'u/admin/renamed')).toBeUndefined()
 	})
 })
 

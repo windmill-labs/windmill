@@ -16,7 +16,7 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
 	import { onDestroy, untrack } from 'svelte'
-	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { page } from '$app/state'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -133,7 +133,11 @@
 		// `initPath` calls `reset()`, generating the friendly `<adj>_<kind>` name;
 		// any non-empty value is parsed verbatim. Empty `initialPath` also opens the
 		// metadata drawer. The flag is stripped only once the first save lands.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// Once the draft is persisted this session (autosave or "Open in AI
+		// session"'s forcePersist), a stale `?new_draft` — e.g. carried back by
+		// exiting a session to the remembered nav route — falls through to the
+		// normal load instead of re-seeding empty over the saved draft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'script', draftPath)) {
 			// Suspend autosave across the bootstrap: both the seed and
 			// ScriptBuilder's `initContent` are programmatic writes that must not
 			// post as the user's first edit. ScriptBuilder lifts it in
@@ -275,6 +279,10 @@
 			renderEditor = true
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		if (hash) {
 			const scriptByHash = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,

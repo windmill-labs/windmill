@@ -39,8 +39,7 @@
 	import {
 		getOrCreateRuntime,
 		getRuntime,
-		listRuntimes,
-		type SessionRuntime
+		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
@@ -50,7 +49,7 @@
 		matchPreviewPage,
 		pageKey,
 		parsePreviewItemRoute,
-		previewTabLabel,
+		previewLocationLabel,
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
@@ -249,7 +248,7 @@
 	// Adapt the session tab model to DraggableTabs items (labels derived from the
 	// observed location; every tab closable, none pinned).
 	const previewTabItems = $derived<TabItem[]>(
-		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(activeRuntime, t.loc) }))
+		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(t) }))
 	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -272,19 +271,43 @@
 	// null = let Splitpanes auto-distribute (initial even split).
 	let previewPaneSize = $state<number | null>(null)
 	let chatPaneSize = $state<number | null>(null)
-	let lastExpandedPreviewSize = 50
+	// Even split for a session with no saved width. Effect A's seed and effect B's
+	// write-back-skip guard must share this exact value, or B persists the default
+	// and breaks the never-resized (undefined) invariant.
+	const DEFAULT_SPLIT = 50
+	let lastExpandedPreviewSize = DEFAULT_SPLIT
+	// Which owner previewPaneSize is currently seeded for. The Pane is shared across
+	// warm sessions, so we reseed the expanded width when the active session changes.
+	let seededOwner: SessionPreviewTabs | undefined = undefined
+
+	// Effect A — layout: reseed on session switch, then apply collapse/fullscreen.
 	$effect(() => {
+		const o = owner
 		const collapsed = previewCollapsed
 		const full = fullscreen
 		untrack(() => {
+			const switched = o !== seededOwner
+			if (switched) {
+				seededOwner = o
+				// Read the saved size UNTRACKED: this must not re-run when effect B
+				// writes it back, or the two effects loop.
+				lastExpandedPreviewSize = o?.previewSize ?? DEFAULT_SPLIT
+				// Seed the pane for the incoming session on the switch frame. The
+				// collapsed case seeds 0, so the capture below never captures the
+				// outgoing session's leftover width as this session's.
+				previewPaneSize = collapsed ? 0 : lastExpandedPreviewSize
+			}
+			// effect A doesn't track previewPaneSize, so a drag never re-runs it: this is
+			// the only place the live width is saved before a sentinel (collapse→0 /
+			// fullscreen→100) overwrites it. The switch-frame value is the seed, not a drag.
+			if (!switched && previewPaneSize && previewPaneSize > 0 && previewPaneSize < 100) {
+				lastExpandedPreviewSize = previewPaneSize
+			}
 			if (full) {
 				// Chat pane is unmounted: the preview is the only pane and must own
 				// the full width, not its remembered split share.
 				previewPaneSize = 100
 			} else if (collapsed) {
-				if (previewPaneSize && previewPaneSize > 0 && previewPaneSize < 100) {
-					lastExpandedPreviewSize = previewPaneSize
-				}
 				previewPaneSize = 0
 				chatPaneSize = 100
 			} else {
@@ -292,6 +315,27 @@
 					previewPaneSize = lastExpandedPreviewSize
 				}
 				chatPaneSize = 100 - previewPaneSize
+			}
+		})
+	})
+
+	// Effect B — write-back: persist a genuine user-dragged width to the model.
+	$effect(() => {
+		const size = previewPaneSize
+		untrack(() => {
+			// Skip when size still matches the model's saved width, or the 50 default
+			// for a never-resized session (owner.previewSize === undefined): effect A's
+			// reseed sets previewPaneSize to exactly that, and persisting it would
+			// materialize the default and lose the "never resized" (undefined) state.
+			if (
+				!previewCollapsed &&
+				!fullscreen &&
+				size != null &&
+				size > 0 &&
+				size < 100 &&
+				size !== (owner?.previewSize ?? DEFAULT_SPLIT)
+			) {
+				owner?.setPreviewSize(size)
 			}
 		})
 	})
@@ -422,13 +466,12 @@
 		owner?.navigate(target)
 	}
 
-	// Short tab label. For a raw-app tab, feed its own per-path cell so the tab is
-	// labelled by that app's pending draft path (a rename parked at `draft_<uuid>`),
-	// scoped to the tab's own runtime rather than another session's.
-	function tabLabelFor(rt: SessionRuntime | undefined, url: string): string {
-		const route = parsePreviewItemRoute(url)
-		const rawAppDraft = rt && route?.raw_app ? rt.rawAppCell(route.itemPath).store.val : undefined
-		return previewTabLabel(url, rawAppDraft)
+	// Short tab label. A never-deployed item parked at `…/draft_<uuid>` carries a
+	// `friendlyLabel` its live editor stamped (the page can't read the runtime cell
+	// reactively; the editor mirrors the typed/auto name onto the tab model). Falls
+	// back to the plain location label for deployed items and non-item pages.
+	function tabLabelFor(tab: SessionPreviewTab): string {
+		return tab.friendlyLabel ?? previewLocationLabel(tab.loc)
 	}
 
 	// A link click inside a live editor (e.g. a subflow reference) re-points the
@@ -716,7 +759,7 @@
 											runtime={rt}
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
-											label={tabLabelFor(rt, tab.loc)}
+											label={tabLabelFor(tab)}
 											darkMode={isDarkMode.val}
 											onNavigate={navigateEditorTo}
 											onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}

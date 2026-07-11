@@ -117,11 +117,17 @@ export type Session = {
 	// Whether the user collapsed the preview panel for this session (to give the
 	// chat full width). Per-session so each session restores its own layout.
 	previewCollapsed?: boolean
+	// Preview split size (preview pane %, 0-100) the user dragged for this session.
+	// Per-session so each session restores its own layout.
+	previewSize?: number
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
 // last observed location (see the sessions page for the url/loc split).
-export type SessionPreviewTab = { id: string; url: string; loc: string }
+// `friendlyLabel` is a transient display override the live editor stamps for a
+// never-deployed item parked at `…/draft_<uuid>` (its typed/auto name); not
+// persisted (hydrate rebuilds tabs field-by-field), recomputed on next mount.
+export type SessionPreviewTab = { id: string; url: string; loc: string; friendlyLabel?: string }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
 // `sessions` store keyed by `id`. IndexedDB is the sole store — no localStorage
@@ -810,6 +816,15 @@ export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !!s.previewCollapsed === collapsed) return
 	s.previewCollapsed = collapsed
+	void putSession(s)
+}
+
+// Persist the preview split size the user dragged for this session. Fire-and-forget
+// write-behind (transient sessions land in the localStorage draft slot).
+export function setSessionPreviewSize(id: string, size: number): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || s.previewSize === size) return
+	s.previewSize = size
 	void putSession(s)
 }
 

@@ -110,27 +110,20 @@ export function previewLocationLabel(url: string): string {
 	return stripBase(url)
 }
 
-/** Tab label for a preview location, preferring the friendly path a raw-app
- * editor was renamed to while still parked at its throwaway `…/draft_<uuid>`
- * storage path. `rawAppDraft` is the session's live raw app (its storage `path`
- * plus the pending `draft_path` the user typed in the editor). When the tab
- * shows that app at a draft placeholder path, it's labelled by the friendly
- * leaf rather than the uuid. Display-only — the tab's URL keeps the storage
- * path. Falls back to `previewLocationLabel` for every other tab. */
-export function previewTabLabel(
-	url: string,
-	rawAppDraft?: { path: string; draft_path?: string }
-): string {
-	const route = parsePreviewItemRoute(url)
-	if (
-		route?.raw_app &&
-		rawAppDraft?.draft_path &&
-		rawAppDraft.path === route.itemPath &&
-		route.itemPath.split('/').pop()?.startsWith('draft_')
-	) {
-		return rawAppDraft.draft_path.split('/').pop() ?? rawAppDraft.draft_path
-	}
-	return previewLocationLabel(url)
+/** The friendly display leaf for a preview tab, or `undefined` to fall back to
+ * `previewLocationLabel`. A never-deployed script / flow / raw app is parked at a
+ * throwaway `…/draft_<uuid>` storage path while its editor shows a friendly name
+ * (auto-generated or typed); pass that `friendlyPath` — the live cell's
+ * `draft_path`/`path` — to label the tab by its leaf instead of the uuid. Returns
+ * `undefined` for a deployed item (real storage path) or when the friendly path
+ * is itself a placeholder. Display-only: the tab's URL keeps the storage path. */
+export function draftFriendlyLeaf(
+	storagePath: string,
+	friendlyPath: string | undefined
+): string | undefined {
+	if (!storagePath.split('/').pop()?.startsWith('draft_')) return undefined
+	const leaf = friendlyPath?.split('/').pop()
+	return leaf && !leaf.startsWith('draft_') ? leaf : undefined
 }
 
 export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }

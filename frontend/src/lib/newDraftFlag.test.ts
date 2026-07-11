@@ -11,10 +11,15 @@ vi.mock('./gen', () => ({
 	DraftService: { updateDraft: (...a: unknown[]) => updateDraft(...(a as [])) }
 }))
 vi.mock('./gen/core/OpenAPI', () => ({ OpenAPI: { BASE: '' } }))
-vi.mock('./localDraftHints.svelte', () => ({ setLocalDraftHint: vi.fn() }))
+// `getLocalDraftHint` gates the seed branch; drive it per-test via `hints.value`.
+const hints = vi.hoisted(() => ({ value: undefined as boolean | undefined }))
+vi.mock('./localDraftHints.svelte', () => ({
+	setLocalDraftHint: vi.fn(),
+	getLocalDraftHint: () => hints.value
+}))
 
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
-import { stripNewDraftFlagOnSave } from './newDraftFlag'
+import { stripNewDraftFlagOnSave, shouldSeedNewDraft } from './newDraftFlag'
 
 /** Minimal `window` stand-in: `history.replaceState` rewrites `location.href`,
  * mirroring what jsdom does, so the helper's strip is observable. */
@@ -36,7 +41,30 @@ function stubWindow(href: string): { current: () => string } {
 afterEach(() => {
 	vi.unstubAllGlobals()
 	vi.clearAllMocks()
+	hints.value = undefined
 	updateDraft.mockResolvedValue({ status: 'saved', current_timestamp: '2020-01-01T00:00:00Z' })
+})
+
+describe('shouldSeedNewDraft', () => {
+	const q = { workspace: 'w', itemKind: 'script' as const, path: 'u/me/draft_a' }
+
+	it('is false without the flag', () => {
+		expect(shouldSeedNewDraft(new URLSearchParams(''), q.workspace, q.itemKind, q.path)).toBe(false)
+	})
+
+	it('is true for a fresh, never-persisted new draft', () => {
+		hints.value = undefined
+		expect(
+			shouldSeedNewDraft(new URLSearchParams('new_draft=true'), q.workspace, q.itemKind, q.path)
+		).toBe(true)
+	})
+
+	it('is false once the draft is persisted this session (stale flag → load, not re-seed)', () => {
+		hints.value = true
+		expect(
+			shouldSeedNewDraft(new URLSearchParams('new_draft=true'), q.workspace, q.itemKind, q.path)
+		).toBe(false)
+	})
 })
 
 describe('UserDraftDbSyncer.onSaved', () => {

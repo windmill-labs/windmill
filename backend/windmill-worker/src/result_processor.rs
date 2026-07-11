@@ -300,6 +300,12 @@ pub fn start_background_processor(
     worker_name: String,
     killpill_tx: KillpillSender,
     is_dedicated_worker: bool,
+    // True when this processor runs inside the agent-worker API server, relaying
+    // completions on behalf of many remote agent workers. Such a processor must
+    // never kill itself: dropping its receiver would disconnect the shared
+    // job-completed channel and make every future /send_result fail until the
+    // whole server is restarted.
+    is_agent_server: bool,
     stats_map: JobStatsMap,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -376,6 +382,7 @@ pub fn start_background_processor(
                         jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
                     );
+                    let jc_id = jc.job.id;
                     #[cfg(feature = "benchmark")]
                     let bench_job_id = jc.job.id;
                     #[cfg(feature = "benchmark")]
@@ -403,9 +410,20 @@ pub fn start_background_processor(
                     .await;
 
                     if is_init_script && !final_success {
-                        tracing::error!("init script errored, exiting");
-                        killpill_tx.send();
-                        break;
+                        if is_agent_server {
+                            // The failed init script belongs to a remote agent
+                            // worker, not to this server. That worker handles its
+                            // own restart; killing the server relay here would
+                            // strand every other agent worker's completions.
+                            tracing::error!(
+                                job_id = %jc_id,
+                                "agent worker init script errored; failure recorded, keeping server bg processor alive"
+                            );
+                        } else {
+                            tracing::error!("init script errored, exiting");
+                            killpill_tx.send();
+                            break;
+                        }
                     }
                     if is_dependency_job && is_dedicated_worker {
                         tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");

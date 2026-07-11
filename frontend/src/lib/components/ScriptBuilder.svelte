@@ -756,6 +756,17 @@
 		})
 	}
 
+	// Materialize a brand-new script's draft before the session preview loads it by
+	// path — an untouched new script never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && userDraftPath && savedScript?.no_deployed === true) {
+			await UserDraft.forcePersist('script', userDraftPath, { workspace: opWorkspace })
+		}
+	}
+
 	// Inside an AI session pane (which injects an aiChatManager via context) the
 	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
 	// fork, Exit & See details, Export — don't make sense: the session always
@@ -2098,13 +2109,13 @@
 		<ScriptEditor
 			{disableAi}
 			workspaceOverride={opWorkspace}
-			sessionOpen={script.path
+			sessionOpen={userDraftPath
 				? {
-						target: { kind: 'script', path: script.path },
+						// URL draft path the editor loads/saves by, not the friendly
+						// `script.path` (a new script's has no row → "not found").
+						target: { kind: 'script', path: userDraftPath },
 						workspaceId: opWorkspace ?? undefined,
-						// Flush the per-user draft so the session preview opens the script
-						// exactly as it is in the editor right now.
-						beforeOpen: saveDraft
+						beforeOpen: persistDraftForSession
 					}
 				: undefined}
 			bind:selectedTab={selectedInputTab}

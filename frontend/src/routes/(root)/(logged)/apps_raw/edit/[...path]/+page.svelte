@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 	import { onDestroy } from 'svelte'
-	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -174,7 +174,10 @@
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed every
 		// piece of state RawAppEditor needs — rendering gates on `files`, so an
 		// unset `files` blanks the page. `path = ''` for the friendly auto-name.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// Skip the seed branch once the draft is persisted this session so a stale
+		// `?new_draft` loads the saved draft instead of blanking it — see
+		// shouldSeedNewDraft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'raw_app', path)) {
 			isNewApp = true
 			// Page reused across same-route nav: clear the previous path's
 			// draft-presence state so it doesn't bleed onto the fresh draft.
@@ -273,6 +276,10 @@
 			templatePicker = true
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		const backendApp = (await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,

@@ -23,6 +23,7 @@ export type PreviewTabsSnapshot = {
 	tabs: SessionPreviewTab[]
 	activeId: string
 	collapsed: boolean
+	previewSize?: number
 }
 
 export type PreviewTabsAdapter = {
@@ -45,6 +46,15 @@ function isEditorTabFor(url: string, target: SessionTarget): boolean {
 // URL a tab should load for a destination: a page's href, or an item's edit route.
 function targetUrl(target: PreviewTarget): string {
 	return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
+}
+
+// Point a tab at a new destination. Clears `friendlyLabel` (bound to the previous
+// editor's item): a new editor re-stamps it, and navigating to a plain page must
+// drop the stale name so the tab falls back to the location label.
+function retargetTab(tab: SessionPreviewTab, url: string): void {
+	tab.url = url
+	tab.loc = url
+	tab.friendlyLabel = undefined
 }
 
 // Strip the query params the sessions preview injects into iframe URLs
@@ -99,6 +109,7 @@ export function hydratePreviewTabs(session: {
 	previewTabs?: SessionPreviewTab[]
 	activePreviewTabId?: string
 	previewCollapsed?: boolean
+	previewSize?: number
 }): PreviewTabsSnapshot {
 	// Saved tabs come straight from IndexedDB — drop malformed records (missing
 	// id/url) and duplicate ids, which would break the page's keyed {#each}.
@@ -114,9 +125,19 @@ export function hydratePreviewTabs(session: {
 	if (tabs.length > 0) {
 		const wantActive = session.activePreviewTabId
 		const activeId = wantActive && tabs.some((t) => t.id === wantActive) ? wantActive : tabs[0].id
-		return { tabs, activeId, collapsed: session.previewCollapsed ?? false }
+		return {
+			tabs,
+			activeId,
+			collapsed: session.previewCollapsed ?? false,
+			previewSize: session.previewSize
+		}
 	}
-	return { tabs: [], activeId: '', collapsed: session.previewCollapsed ?? true }
+	return {
+		tabs: [],
+		activeId: '',
+		collapsed: session.previewCollapsed ?? true,
+		previewSize: session.previewSize
+	}
 }
 
 const FLUSH_DELAY_MS = 400
@@ -129,6 +150,7 @@ export class SessionPreviewTabs {
 	#tabs = $state<SessionPreviewTab[]>([])
 	#activeId = $state('')
 	#collapsed = $state(false)
+	#previewSize = $state<number | undefined>(undefined)
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -141,6 +163,7 @@ export class SessionPreviewTabs {
 		this.#tabs = initial.tabs.map((t) => ({ ...t }))
 		this.#activeId = initial.activeId
 		this.#collapsed = initial.collapsed
+		this.#previewSize = initial.previewSize
 		this.#adapter = adapter
 		this.#flushDelay = flushDelay
 	}
@@ -156,6 +179,17 @@ export class SessionPreviewTabs {
 	}
 	get collapsed(): boolean {
 		return this.#collapsed
+	}
+	get previewSize(): number | undefined {
+		return this.#previewSize
+	}
+
+	setPreviewSize(size: number): void {
+		if (this.#previewSize === size) return
+		this.#previewSize = size
+		// A size change never touches the tab set, so skip the editor-cell prune
+		// (onTabsChanged) and only schedule the debounced persist.
+		this.#schedulePersist()
 	}
 
 	// Open — or focus, if already shown — a tab for a destination, and reveal the
@@ -186,8 +220,7 @@ export class SessionPreviewTabs {
 			const existing = this.#tabs.find((t) => parsePipelineRoute(t.url) !== null)
 			if (existing) {
 				const same = existing.url === url
-				existing.url = url
-				existing.loc = url
+				retargetTab(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
 				return { status: same ? 'focused' : 'opened' }
@@ -235,15 +268,13 @@ export class SessionPreviewTabs {
 		if (pipelineFolder) {
 			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) !== null)
 			if (existing && existing.id !== t.id) {
-				existing.url = url
-				existing.loc = url
+				retargetTab(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
 				return
 			}
 		}
-		t.url = url
-		t.loc = url
+		retargetTab(t, url)
 		this.#flush()
 	}
 
@@ -310,6 +341,17 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	// Stamp the friendly display label for the editor tab hosting `target` (the
+	// live editor knows the item's typed/auto name once its cell loads, which the
+	// page can't read reactively from the runtime cell). Matched on the tab's
+	// commanded `url` — the stable per-(kind,path) editor identity. Transient, so
+	// no persist/flush: it's recomputed when the tab remounts.
+	setEditorFriendlyLabel(target: SessionTarget, label: string | undefined): void {
+		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
+		if (!t || t.friendlyLabel === label) return
+		t.friendlyLabel = label
+	}
+
 	// Persist a pending write immediately, cancelling the debounce. Called on
 	// page hide — a mutation inside the debounce window would otherwise be lost
 	// to a reload/navigation. No-op when nothing is pending.
@@ -324,6 +366,10 @@ export class SessionPreviewTabs {
 		// Prune cells promptly (cheap, synchronous) even though the durable persist
 		// stays debounced — a closed tab's editor cell should be reclaimable now.
 		this.#adapter.onTabsChanged?.()
+		this.#schedulePersist()
+	}
+
+	#schedulePersist(): void {
 		clearTimeout(this.#flushHandle)
 		this.#flushHandle = setTimeout(() => {
 			this.#flushHandle = undefined
@@ -335,7 +381,8 @@ export class SessionPreviewTabs {
 		this.#adapter.persist({
 			tabs: this.#tabs.map((t) => ({ ...t })),
 			activeId: this.#activeId,
-			collapsed: this.#collapsed
+			collapsed: this.#collapsed,
+			previewSize: this.#previewSize
 		})
 	}
 }

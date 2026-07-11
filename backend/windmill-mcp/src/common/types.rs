@@ -15,6 +15,27 @@ use sqlx::FromRow;
 #[derive(Clone, Debug)]
 pub struct WorkspaceId(pub String);
 
+/// Marker extension inserted by the gateway middleware when an MCP token has no
+/// bound workspace (`workspace_id IS NULL`). Signals the runner to operate in
+/// multi-workspace mode: tools take an explicit `workspace_id` argument and the
+/// per-workspace auth is resolved on demand from the raw token.
+#[derive(Clone, Debug)]
+pub struct MultiWorkspaceMcp;
+
+/// Raw bearer token wrapper for Axum extensions. In multi-workspace mode the
+/// runner needs the raw token to re-resolve auth for each requested workspace.
+#[derive(Clone, Debug)]
+pub struct McpToken(pub String);
+
+/// Summary of a workspace the caller can access, returned by the
+/// `list_workspaces` tool in multi-workspace mode.
+#[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "server", derive(FromRow))]
+pub struct WorkspaceInfo {
+    pub id: String,
+    pub name: String,
+}
+
 /// Hub API response structure
 #[derive(Serialize, Deserialize, Debug)]
 pub struct HubResponse {
