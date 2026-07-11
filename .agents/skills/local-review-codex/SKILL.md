@@ -27,9 +27,14 @@ before the PR exists. Use this before `git push` on a non-trivial change.
 ## Run
 
 ```bash
-sh .agents/skills/local-review-codex/run.sh          # review vs main (default)
-sh .agents/skills/local-review-codex/run.sh <base>   # review vs a different base ref
+bash .agents/skills/local-review-codex/run.sh          # review vs main (default)
+bash .agents/skills/local-review-codex/run.sh <base>   # review vs a different base ref
 ```
+
+Invoke with `bash` (or run the executable directly) — the script needs Bash for
+`set -o pipefail`; `sh` is Dash on Debian/Ubuntu and would fail. If `main` isn't a
+local branch (e.g. a fresh single-branch checkout), the runner falls back to
+`origin/main` automatically.
 
 The script computes `BASE_SHA = git merge-base HEAD <base>`, feeds Codex `REVIEW.md` plus a
 diff context pointing at `git diff <BASE_SHA>` (which folds in uncommitted edits), and prints

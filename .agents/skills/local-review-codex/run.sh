@@ -12,12 +12,19 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 if ! command -v codex >/dev/null 2>&1; then
-  echo "codex CLI not found. Install with: npm install --global @openai/codex" >&2
+  echo "codex CLI not found. Install with: npm install --global @openai/codex@0.144.1" >&2
   exit 1
 fi
 
-if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
-  echo "Base ref '$BASE_REF' not found locally. Try: git fetch origin $BASE_REF" >&2
+# Resolve the base to a concrete commit, preferring a local ref but falling back to
+# the remote-tracking ref — checkouts (CI, single-branch clones) often have only
+# origin/main, not a local main.
+if git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
+  BASE_COMMITISH="$BASE_REF"
+elif git rev-parse --verify --quiet "origin/${BASE_REF}^{commit}" >/dev/null; then
+  BASE_COMMITISH="origin/${BASE_REF}"
+else
+  echo "Base ref '$BASE_REF' not found as '$BASE_REF' or 'origin/$BASE_REF'. Try: git fetch origin $BASE_REF" >&2
   exit 1
 fi
 
@@ -25,7 +32,7 @@ fi
 # base SHA with a single-ref `git diff` also folds in uncommitted working-tree edits,
 # but `git diff` never sees untracked files — those are gathered separately below so
 # brand-new files (a whole new module, a new skill dir) are not silently skipped.
-BASE_SHA="$(git merge-base HEAD "$BASE_REF")"
+BASE_SHA="$(git merge-base HEAD "$BASE_COMMITISH")"
 HEAD_SHA="$(git rev-parse HEAD)"
 UNTRACKED="$(git ls-files --others --exclude-standard)"
 
