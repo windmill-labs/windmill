@@ -1155,9 +1155,9 @@ mod tests {
                 "expected BadRequest for '{path}', got {err:?}"
             );
         }
-        // A well-formed foreign path still returns the owner error (unchanged).
+        // A well-formed foreign path returns the owner error, not a malformed one.
         assert!(require_owner_of_path(&alice, "u/bob/script").is_err());
-        // The user's own namespace still resolves.
+        // The user's own namespace resolves.
         assert!(require_owner_of_path(&alice, "u/alice/script").is_ok());
     }
 

@@ -120,7 +120,12 @@ async fn list_drafts(
                     .await
                 {
                     Ok(()) => true,
-                    Err(Error::NotAuthorized(_)) => false,
+                    // A stored draft can sit at an unwritable path: unauthorized,
+                    // or malformed (`BadRequest` — the `draft` table has no path
+                    // constraint, so legacy/admin-authored rows may be malformed).
+                    // Either way it's just not writable; one bad row must not 400
+                    // the whole listing.
+                    Err(Error::NotAuthorized(_)) | Err(Error::BadRequest(_)) => false,
                     Err(e) => return Err(e),
                 };
             out.push(row);
