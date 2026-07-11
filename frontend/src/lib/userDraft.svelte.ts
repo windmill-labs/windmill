@@ -737,8 +737,8 @@ function acquireEntry(
 		existing.count++
 		return
 	}
-	// Seed the cell with `defaultValue` (deep-cloned). Swallowed by
-	// `skipNextWrite` below — it never POSTs.
+	// Seed the cell with `defaultValue` (deep-cloned). The sync effect below
+	// anchors its baseline to this seed so it never POSTs the template.
 	const seed = defaultValue !== undefined ? snapshotDraftValue(defaultValue) : undefined
 	// `$effect.root` gives the entry its own scope, disposed only by
 	// `releaseEntry`. Without it the sync `$effect` would parent to
@@ -753,14 +753,27 @@ function acquireEntry(
 		// `cell.val` alone only subscribes to the proxy root.
 		//
 		// `lastSerialized` + `skipNextWrite` dedup no-op updates and treat
-		// the FIRST change after mount as the seed/restore (no POST), so
-		// landing on `?new_draft` doesn't sync until the user edits.
+		// the seed/restore as no-POST, so landing on `?new_draft` doesn't
+		// sync until the user edits.
+		//
+		// The swallow is anchored to the seed VALUE, not "first change after
+		// mount": when a `defaultValue` seeded the cell, `lastSerialized`
+		// starts at its serialization so a first mirror run that still equals
+		// the seed is a genuine no-op, while a first run that already DIFFERS
+		// is the user's edit and must POST. That closes a create-path race —
+		// the handle re-keys detached→acquired as the workspace resolves, so
+		// the seed and the user's first edit can coalesce into one effect run;
+		// a blind "swallow the first change" would eat that edit.
+		//
+		// With no in-hand seed (page editors load & assign the value AFTER
+		// mount), arm the blind first-write swallow so that post-load
+		// assignment doesn't POST.
 		//
 		// `cell.val === undefined` is the delete signal (`value: null`).
 		// `skipNextSync` lets callers that already POSTed (`discard`,
 		// `remove`) suppress the duplicate fire from their own write.
-		let lastSerialized: string | undefined = undefined
-		let skipNextWrite = true
+		let lastSerialized: string | undefined = seed === undefined ? undefined : JSON.stringify(seed)
+		let skipNextWrite = seed === undefined
 		$effect(() => {
 			const val = cell.val
 			if (val !== undefined) readFieldsRecursively(val)
