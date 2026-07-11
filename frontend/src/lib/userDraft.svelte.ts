@@ -751,19 +751,6 @@ function acquireEntry(
 	const seed = defaultValue !== undefined ? snapshotDraftValue(defaultValue) : undefined
 	const cell = $state<{ val: unknown }>({ val: seed })
 	const stateRef = cell as DraftState<unknown>
-	// The autosave mirror must be owned by the ENTRY, not by the component that
-	// happened to acquire it first. The same entry is shared by refcount across
-	// every editor of one draft — an AI-session preview and the nav editor across
-	// the mode toggle, or several warm session previews mounted at once. A
-	// `$effect.root` created inline here would parent to the acquiring component's
-	// reactive context and STOP FIRING when that component unmounts, even while
-	// other holders keep the entry alive — silently killing autosave in the
-	// survivors. Deferring creation to a microtask runs it with NO active
-	// component/effect, so the root is truly top-level: it lives until `destroyRoot`
-	// at refcount 0 and is immune to any single holder unmounting. (In vitest the
-	// microtask still runs but `$effect.root`'s callback is inert, so no mirror is
-	// created — handles bind to the cell directly, consistent with the old
-	// test-runtime fallback.)
 	const entry: DraftEntry = {
 		count: 1,
 		workspace,
@@ -853,6 +840,10 @@ function acquireEntry(
 			})
 		})
 	}
+	// Defer so the root is created with no active component/effect — a top-level
+	// scope owned by the entry, not by the acquiring component. An inline
+	// `$effect.root` would die when that component unmounts while other holders
+	// still edit the same draft (see `destroyRoot`).
 	queueMicrotask(createMirror)
 }
 
