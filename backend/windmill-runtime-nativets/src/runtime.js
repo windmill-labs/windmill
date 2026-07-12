@@ -49,6 +49,18 @@ Object.assign(globalThis, {
   setTimeout: timers.setTimeout,
 });
 
+// Build the positional argument list for the user's entrypoint from the static
+// args captured on the Rust side (op_get_static_args). Each slot is either:
+//   - `null`:   the argument was not provided. Pass `undefined` (not `null`) so
+//               the parameter's default value applies, matching normal JS call
+//               semantics and the bun runner.
+//   - a string: the JSON text of the provided value; parse it. An explicitly
+//               provided JSON `null` arrives as the string "null", so it stays `null`.
+globalThis.__getMainArgs = () =>
+  globalThis.Deno.core.ops.op_get_static_args().map((arg) =>
+    arg === null ? undefined : JSON.parse(arg)
+  );
+
 // Expose bootstrapOtel globally so it can be called from Rust after runtime creation.
 // We use dynamic import so deno_telemetry isn't loaded during snapshot creation.
 // Config: [tracingEnabled, metricsEnabled, consoleConfig, deterministic]
