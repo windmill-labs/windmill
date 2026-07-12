@@ -4701,15 +4701,10 @@ async fn clone_variables(
     .execute(&mut **tx)
     .await?;
 
-    // With an external secret backend (Vault / Azure KV / AWS SM), every secret
-    // read is dispatched through the backend regardless of the DB `value`, and
-    // the actual secret lives in the external store under a key derived from
-    // (workspace_id, path). The row copy above therefore leaves the fork's
-    // secrets pointing at keys that don't exist. The DB `value` is not a reliable
-    // signal for which secrets live externally — migration to an external backend
-    // writes to the store without rewriting `value` to a `$vault:`/`$azure_kv:`/
-    // `$aws_sm:` marker — so replicate every secret variable under the fork's
-    // workspace id.
+    // With an external backend the secret lives in the store under (workspace_id,
+    // path), so the row copy above leaves the fork pointing at keys that don't
+    // exist. Replicate every secret, not just marker-valued ones: migration writes
+    // to the store without rewriting `value` to a `$...:` marker.
     if is_vault_backend_configured(db).await? {
         let secret_variables = sqlx::query!(
             "SELECT path FROM variable
