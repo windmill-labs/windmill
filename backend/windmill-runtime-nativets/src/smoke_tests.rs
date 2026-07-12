@@ -144,6 +144,101 @@ export async function main(): Promise<{ b64: string; round_trip: string; size: n
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_text_encoder_decoder() {
+    // deno_web Encoding API: TextEncoder/TextDecoder must be exposed on the
+    // global scope. Uses a multi-byte char to exercise real UTF-8 handling.
+    let ts = r#"
+export async function main(): Promise<{ bytes: number[]; round_trip: string; label: string }> {
+    const bytes = new TextEncoder().encode("héllo");
+    const dec = new TextDecoder();
+    return { bytes: Array.from(bytes), round_trip: dec.decode(bytes), label: dec.encoding };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({
+            // "héllo" -> h, é (0xC3 0xA9), l, l, o
+            "bytes": [104, 195, 169, 108, 108, 111],
+            "round_trip": "héllo",
+            "label": "utf-8",
+        }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_web_globals_are_wired() {
+    // Standard deno_web / deno_url globals that must be exposed on the global
+    // scope. A wrong export name would leave one `undefined` and fail here.
+    let ts = r#"
+export async function main(): Promise<Record<string, string>> {
+    const names = ["TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream",
+        "File", "Event", "EventTarget", "CustomEvent", "ReadableStream", "WritableStream",
+        "TransformStream", "ByteLengthQueuingStrategy", "CountQueuingStrategy", "URLPattern",
+        "structuredClone", "performance", "CompressionStream", "DecompressionStream",
+        "MessageChannel", "MessagePort"];
+    const out: Record<string, string> = {};
+    for (const n of names) out[n] = typeof (globalThis as any)[n];
+    return out;
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    let v = unwrap_value(&r);
+    let obj = v.as_object().expect("object result");
+    let missing: Vec<&str> = obj
+        .iter()
+        .filter(|(_, t)| t.as_str() == Some("undefined"))
+        .map(|(k, _)| k.as_str())
+        .collect();
+    assert!(missing.is_empty(), "globals not wired (undefined): {missing:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_structured_clone_is_spec_version() {
+    // structuredClone must be the spec global (from the message-port module),
+    // which validates its arguments — calling it with none throws
+    // "Failed to execute 'structuredClone'". The internal 02_structured_clone.js
+    // helper takes a single positional value and would silently clone `undefined`.
+    let ts = r#"
+export async function main(): Promise<{ threw: boolean; is_spec_error: boolean; cloned: number }> {
+    const cloned = (structuredClone({ n: 41 }) as { n: number }).n + 1;
+    try {
+        (structuredClone as unknown as () => unknown)();
+        return { threw: false, is_spec_error: false, cloned };
+    } catch (e) {
+        return { threw: true, is_spec_error: String((e as Error).message).includes("structuredClone"), cloned };
+    }
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({ "threw": true, "is_spec_error": true, "cloned": 42 }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_performance_now() {
+    // `performance` is the singleton Performance instance; performance.now()
+    // must actually work (it relies on the core op_now op being available).
+    let ts = r#"
+export async function main(): Promise<{ has_now: boolean; is_number: boolean; nonneg: boolean }> {
+    const t = performance.now();
+    return { has_now: typeof performance.now === "function", is_number: typeof t === "number", nonneg: t >= 0 };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({ "has_now": true, "is_number": true, "nonneg": true }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_large_payload_roundtrip() {
     // ~512 KB string in and out — exercises arg encoding + result
     // serialization through the deno_core <-> host op boundary at sizes

@@ -19,9 +19,9 @@ import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import "ext:deno_web/02_structured_clone.js";
 import "ext:deno_web/04_global_interfaces.js";
-import "ext:deno_web/13_message_port.js";
-import "ext:deno_web/14_compression.js";
-import "ext:deno_web/15_performance.js";
+import * as messagePort from "ext:deno_web/13_message_port.js";
+import * as compression from "ext:deno_web/14_compression.js";
+import * as performanceMod from "ext:deno_web/15_performance.js";
 import "ext:deno_web/16_image_data.js";
 import "ext:deno_fetch/27_eventsource.js";
 
@@ -36,6 +36,28 @@ globalThis.FormData = formData.FormData;
 globalThis.URLSearchParams = url.URLSearchParams;
 globalThis.Headers = headers.Headers;
 globalThis.FileReader = fileReader.FileReader;
+globalThis.TextEncoder = encoding.TextEncoder;
+globalThis.TextDecoder = encoding.TextDecoder;
+globalThis.TextEncoderStream = encoding.TextEncoderStream;
+globalThis.TextDecoderStream = encoding.TextDecoderStream;
+globalThis.File = file.File;
+globalThis.Event = event.Event;
+globalThis.EventTarget = event.EventTarget;
+globalThis.CustomEvent = event.CustomEvent;
+globalThis.ReadableStream = streams.ReadableStream;
+globalThis.WritableStream = streams.WritableStream;
+globalThis.TransformStream = streams.TransformStream;
+globalThis.ByteLengthQueuingStrategy = streams.ByteLengthQueuingStrategy;
+globalThis.CountQueuingStrategy = streams.CountQueuingStrategy;
+globalThis.URLPattern = urlPattern.URLPattern;
+// The spec-compliant structuredClone (with transferables) lives in the
+// message-port module; 02_structured_clone.js only has an internal helper.
+globalThis.structuredClone = messagePort.structuredClone;
+globalThis.performance = performanceMod.performance;
+globalThis.CompressionStream = compression.CompressionStream;
+globalThis.DecompressionStream = compression.DecompressionStream;
+globalThis.MessageChannel = messagePort.MessageChannel;
+globalThis.MessagePort = messagePort.MessagePort;
 globalThis.console = new console.Console((msg, level) =>
   globalThis.Deno.core.ops.op_log(msg)
 );
