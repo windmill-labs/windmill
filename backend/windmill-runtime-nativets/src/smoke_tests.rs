@@ -144,6 +144,40 @@ export async function main(): Promise<{ b64: string; round_trip: string; size: n
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "deno_core upgrade smoke; run with --ignored"]
+async fn smoke_web_crypto() {
+    // deno_crypto: the `crypto` global with getRandomValues, randomUUID and
+    // subtle.digest. SHA-256 of "abc" (bytes 97,98,99) is a known constant.
+    let ts = r#"
+export async function main(): Promise<{ uuid_ok: boolean; rand_changed: boolean; ctors_ok: boolean; sha256: string }> {
+    const uuid = crypto.randomUUID();
+    const uuid_ok = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid);
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    // 16 zero bytes from a working RNG has probability 2^-128, so this reliably
+    // proves getRandomValues actually mutated the buffer.
+    const rand_changed = arr.some((b) => b !== 0);
+    const ctors_ok = typeof Crypto === "function"
+        && typeof CryptoKey === "function"
+        && typeof SubtleCrypto === "function";
+    const digest = await crypto.subtle.digest("SHA-256", new Uint8Array([97, 98, 99]));
+    const sha256 = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    return { uuid_ok, rand_changed, ctors_ok, sha256 };
+}
+"#;
+    let r = run_ts(ts, &[], serde_json::json!({})).await;
+    assert_eq!(
+        unwrap_value(&r),
+        serde_json::json!({
+            "uuid_ok": true,
+            "rand_changed": true,
+            "ctors_ok": true,
+            "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        }),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "deno_core upgrade smoke; run with --ignored"]
 async fn smoke_large_payload_roundtrip() {
     // ~512 KB string in and out — exercises arg encoding + result
     // serialization through the deno_core <-> host op boundary at sizes

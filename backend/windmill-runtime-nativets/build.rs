@@ -187,6 +187,7 @@ fn main() {
         deno_url::deno_url::init(),
         deno_console::deno_console::init(),
         deno_web::deno_web::init::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
+        deno_crypto::deno_crypto::init(None),
         deno_fetch::deno_fetch::init::<PermissionsContainer>(Default::default()),
         deno_net::deno_net::init::<PermissionsContainer>(None, None),
         fetch::init(),

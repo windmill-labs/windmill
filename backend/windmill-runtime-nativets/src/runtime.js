@@ -15,6 +15,7 @@ import * as net from "ext:deno_net/01_net.js";
 import * as tls from "ext:deno_net/02_tls.js";
 import * as urlPattern from "ext:deno_url/01_urlpattern.js";
 import * as webidl from "ext:deno_webidl/00_webidl.js";
+import * as cryptoMod from "ext:deno_crypto/00_crypto.js";
 import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import "ext:deno_web/02_structured_clone.js";
@@ -41,6 +42,10 @@ globalThis.console = new console.Console((msg, level) =>
 );
 globalThis.AbortController = abortSignal.AbortController;
 globalThis.AbortSignal = abortSignal.AbortSignal;
+globalThis.crypto = cryptoMod.crypto;
+globalThis.Crypto = cryptoMod.Crypto;
+globalThis.CryptoKey = cryptoMod.CryptoKey;
+globalThis.SubtleCrypto = cryptoMod.SubtleCrypto;
 
 Object.assign(globalThis, {
   clearInterval: timers.clearInterval,
