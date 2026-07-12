@@ -88,6 +88,19 @@
 		}
 	})
 
+	// The runtime cell (store + `loadedPath`) outlives this component, so a draft
+	// changed while unmounted (workspace edit, other device) would be masked by
+	// `triggerLoad`'s early-return on the stale `loadedPath`. Invalidate it on
+	// teardown so the next mount re-fetches as a clean first load.
+	$effect(() => {
+		const c = cell
+		const p = path
+		const w = workspaceId
+		return () => {
+			if (c.slot.loadedPath === p && c.slot.loadedWorkspace === w) c.slot.loadedPath = undefined
+		}
+	})
+
 	// Mark this editor as the live editor draft for the session's workspace so
 	// the chat's `isLiveDraft` hint / `discard_local_draft` tool resolve to this
 	// path — same registration the regular edit pages do. Only the visible tab of
