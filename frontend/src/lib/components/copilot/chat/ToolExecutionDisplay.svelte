@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Loader2, ChevronRight, XCircle, Play } from 'lucide-svelte'
+	import { Loader2, ChevronRight, XCircle, Play, ClipboardList, Check } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getAiChatManager } from './aiChatManagerContext'
 
@@ -7,6 +7,8 @@
 	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
+	import Markdown from 'svelte-exmarkdown'
+	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
@@ -16,6 +18,18 @@
 	}
 
 	let { message }: Props = $props()
+
+	const isPlanReview = $derived(message.toolName === 'exit_plan_mode')
+	const planText = $derived(
+		typeof message.parameters?.summary === 'string' ? message.parameters.summary : ''
+	)
+	const planApproved = $derived(
+		isPlanReview &&
+			!message.needsConfirmation &&
+			!message.error &&
+			!message.isLoading &&
+			!message.isStreamingArguments
+	)
 
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
@@ -52,6 +66,63 @@
 
 {#if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
+{:else if isPlanReview}
+	<div class="my-1 rounded-md border border-border-light bg-surface overflow-hidden">
+		<div
+			class="flex items-center gap-2 px-3 py-2 border-b border-border-light bg-surface-secondary/30"
+		>
+			{#if message.isLoading && !message.needsConfirmation}
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
+			{:else if planApproved}
+				<Check class="w-3.5 h-3.5 text-green-600" />
+			{:else}
+				<ClipboardList class="w-3.5 h-3.5 text-secondary" />
+			{/if}
+			<span class="text-primary font-medium text-xs">
+				{planApproved ? 'Plan approved' : message.error ? 'Kept planning' : 'Proposed plan'}
+			</span>
+		</div>
+		{#if planText}
+			<div
+				class="px-3 py-2 prose prose-sm dark:prose-invert w-full max-w-full leading-snug space-y-2 prose-ul:!pl-6
+					prose-p:text-xs prose-li:text-xs prose-code:text-xs prose-pre:text-xs
+					prose-code:break-words prose-a:break-words
+					prose-headings:font-medium prose-headings:text-emphasis prose-headings:mt-3 prose-headings:mb-1
+					prose-h1:text-sm prose-h2:text-xs prose-h3:text-xs prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs"
+			>
+				<Markdown md={planText} plugins={[gfmPlugin()]} />
+			</div>
+		{/if}
+		{#if message.needsConfirmation}
+			<div
+				class="flex flex-row items-center justify-end gap-2 px-3 py-2 border-t border-border-light"
+			>
+				<Button
+					variant="default"
+					size="xs"
+					on:click={() => {
+						if (message.tool_call_id) {
+							aiChatManager.handleToolConfirmation(message.tool_call_id, false)
+						}
+					}}
+				>
+					Keep planning
+				</Button>
+				<Button
+					variant="accent"
+					size="xs"
+					on:click={() => {
+						if (message.tool_call_id) {
+							aiChatManager.handleToolConfirmation(message.tool_call_id, true)
+						}
+					}}
+					startIcon={{ icon: Play }}
+				>
+					Approve & run
+				</Button>
+			</div>
+		{/if}
+	</div>
 {:else}
 	<div class="font-mono text-xs">
 		<!-- Collapsible Header -->
