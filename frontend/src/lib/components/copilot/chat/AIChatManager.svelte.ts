@@ -41,7 +41,7 @@ import {
 import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
-import { prepareScriptUserMessage } from './script/core'
+import { prepareScriptUserMessage, type ScriptDebugHelpers } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
@@ -78,6 +78,19 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
+import {
+	type DebugController,
+	resetDebugBudget,
+	onAgentTurnEnd,
+	agentDebugGetState,
+	agentDebugStart,
+	agentDebugContinue,
+	agentDebugStep,
+	agentDebugWait,
+	agentDebugEvaluate,
+	agentDebugSetBreakpoints,
+	agentDebugStop
+} from '$lib/components/debug'
 import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { normalizeContextUsage } from './tokenUsage'
@@ -380,6 +393,7 @@ export class AIChatManager {
 	>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
+	scriptEditorDebugController = $state<DebugController | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
 	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
@@ -1357,6 +1371,30 @@ export class AIChatManager {
 		}
 	}
 
+	// Late-bound so the debug tools work whether the editor registered its controller
+	// before or after this mode switch.
+	private buildDebugHelpers(): ScriptDebugHelpers {
+		const controllerOr = <T>(onMissing: T, use: (c: DebugController) => T): T => {
+			const controller = this.scriptEditorDebugController
+			return controller ? use(controller) : onMissing
+		}
+		const unavailableMsg = 'The step debugger is not available here (no editor debug session).'
+		const unavailable = Promise.resolve(unavailableMsg)
+		return {
+			getState: () => controllerOr(unavailableMsg, () => agentDebugGetState()),
+			start: (args, timeoutMs) =>
+				controllerOr(unavailable, (c) => agentDebugStart(c, args, timeoutMs)),
+			continue: (timeoutMs) => controllerOr(unavailable, () => agentDebugContinue(timeoutMs)),
+			step: (kind, timeoutMs) => controllerOr(unavailable, () => agentDebugStep(kind, timeoutMs)),
+			wait: (timeoutMs) => controllerOr(unavailable, () => agentDebugWait(timeoutMs)),
+			evaluate: (expression, frameId) =>
+				controllerOr(unavailable, (c) => agentDebugEvaluate(c, expression, frameId)),
+			setBreakpoints: (lines) =>
+				controllerOr(unavailable, (c) => agentDebugSetBreakpoints(c, lines)),
+			stop: () => controllerOr(unavailable, (c) => agentDebugStop(c))
+		}
+	}
+
 	changeMode(
 		mode: AIMode,
 		pendingPrompt?: string,
@@ -1379,14 +1417,15 @@ export class AIChatManager {
 				options?.workflowAsCode ??
 				(options?.lang ? false : (this.scriptEditorOptions?.workflowAsCode ?? false))
 			const context = this.contextManager.getSelectedContext()
+			const debugAvailable = !!this.scriptEditorDebugController
 			this.systemMessage = prepareScriptSystemMessage(
 				currentModel,
 				lang,
-				{ isPreprocessor: options?.isPreprocessor, workflowAsCode },
+				{ isPreprocessor: options?.isPreprocessor, workflowAsCode, debugAvailable },
 				customPrompt
 			)
 			this.systemMessage.content = this.systemMessage.content
-			this.tools = [...prepareScriptTools(currentModel, lang, context)]
+			this.tools = [...prepareScriptTools(currentModel, lang, context, { debugAvailable })]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -1405,7 +1444,8 @@ export class AIChatManager {
 						return this.scriptEditorGetLintErrors()
 					}
 					return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
-				}
+				},
+				debug: this.buildDebugHelpers()
 			}
 			if (options?.closeScriptSettings) {
 				const closeComponent = triggerablesByAi['close-script-builder-settings']
@@ -1981,6 +2021,7 @@ export class AIChatManager {
 		const pastes = options.pastes ?? []
 		const optimisticIndex = this.displayMessages.length
 		this.loading = true
+		resetDebugBudget()
 		// Create the abort controller before the (possibly slow) beforeSend pre-flight,
 		// not after: the loading indicator below exposes Stop/Escape during "Creating
 		// workspace fork...", and those call cancel() → abortController.abort(). Without a
@@ -2454,6 +2495,8 @@ export class AIChatManager {
 			// releases the loop; it never discards uncommitted text.
 			this.replyReveal.reset()
 			this.reasoningReveal.reset()
+			// Settle any pending debug wait and hand debugger control back to the human.
+			onAgentTurnEnd()
 		}
 		// Flush the queued message. Send it after a cleanly committed turn OR a
 		// deliberate user cancel (Esc / Stop) — in both cases the user is ready
@@ -2503,6 +2546,7 @@ export class AIChatManager {
 		})
 		this.abortController?.abort(cancelReason)
 		this.cancelLoadingTools()
+		onAgentTurnEnd()
 	}
 
 	cancelInlineRequest = (reason?: string) => {
