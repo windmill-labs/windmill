@@ -88,17 +88,10 @@
 		}
 	})
 
-	// The runtime cell (content store + `loadedPath`) outlives this component: it
-	// survives leaving the sessions page and MRU tab eviction. But the shared
-	// per-user draft can change while we're gone — most visibly by editing the
-	// same item in the workspace, or from another device. On the next mount
-	// `triggerLoad` early-returns on the still-`loadedPath` cell and the preview
-	// would show the pre-unmount content. So on unmount, invalidate the cell's
-	// `loadedPath` — the next mount then re-fetches the draft as a clean first
-	// load (loading overlay, no editor mounted, so no Monaco remount race), and
-	// the outbound draft-sync can't post the stale store back (`ready()` is false
-	// until the reload lands). The editor is fully disposed on unmount here, so
-	// the fresh mount hits no lingering Monaco model.
+	// The runtime cell (store + `loadedPath`) outlives this component, so a draft
+	// changed while unmounted (workspace edit, other device) would be masked by
+	// `triggerLoad`'s early-return on the stale `loadedPath`. Invalidate it on
+	// teardown so the next mount re-fetches as a clean first load.
 	$effect(() => {
 		const c = cell
 		const p = path
