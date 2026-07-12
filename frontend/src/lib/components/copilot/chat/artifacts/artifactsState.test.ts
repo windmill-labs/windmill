@@ -89,9 +89,20 @@ describe('SessionArtifactsStore', () => {
 
 		expect(created.kind).toBe('md')
 		expect(store.artifacts.map((a) => a.id)).toEqual([created.id])
-		// Survives a reload from the DB.
+		// Persisted: switching away and back reloads it from the DB.
+		await store.setSession('other')
 		await store.setSession('s1')
 		expect(store.artifacts.map((a) => a.name)).toEqual(['Plan'])
+	})
+
+	it('a same-session resync keeps an artifact whose persist failed', async () => {
+		await store.setSession('s1')
+		const created = await store.create('s1', { name: 'A', content: 'x' })
+		// Simulate a persist that never landed: drop it from the DB, keep it in memory.
+		await dbMod.deleteArtifact(created.id)
+		// A routine resync (chat rotation / global-mode reconfig) must not reload it away.
+		await store.setSession('s1')
+		expect(store.artifacts.map((a) => a.id)).toEqual([created.id])
 	})
 
 	it('create stamps the provenance chatId when supplied', async () => {

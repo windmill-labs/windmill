@@ -34,8 +34,11 @@ export class SessionArtifactsStore {
 	// A later load always wins, even if an earlier DB read resolves after it.
 	#seq = 0
 
-	/** Load (or reload) the given session's artifacts into the reactive list. */
+	/** Load the given session's artifacts into the reactive list, if it changed. */
 	async setSession(sessionId: string | undefined): Promise<void> {
+		// Skip same-id resyncs: in-memory owns the loaded session, so a DB reload would
+		// drop artifacts whose best-effort persist failed.
+		if (sessionId === this.#sessionId) return
 		this.#sessionId = sessionId
 		await this.#load()
 	}
