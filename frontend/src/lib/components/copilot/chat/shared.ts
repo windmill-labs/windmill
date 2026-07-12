@@ -701,6 +701,34 @@ export async function processToolCall<T>({
 			}
 		}
 
+		// Fails closed: an untagged tool is mutating, so plan mode blocks it. Only
+		// read-only tools and exit_plan_mode may run while the posture is active.
+		if (
+			toolCallbacks.isPlanModeActive?.() &&
+			tool &&
+			tool.readonly !== true &&
+			toolCall.function.name !== 'exit_plan_mode'
+		) {
+			const blocked =
+				'Blocked: plan mode is active. Put this change in your plan; call exit_plan_mode when ready for approval.'
+			toolCallbacks.onToolBlockedByPlanMode?.()
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: blocked,
+				parameters: args,
+				isLoading: false,
+				isStreamingArguments: false,
+				error: blocked,
+				needsConfirmation: false,
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: blocked
+			}
+		}
+
 		// Check if tool requires confirmation
 		const requiresConfirmation = tool?.requiresConfirmation === true
 		const autoAcceptConfirmation =
@@ -738,7 +766,7 @@ export async function processToolCall<T>({
 				return {
 					role: 'tool' as const,
 					tool_call_id: toolCall.id,
-					content: 'Tool execution was cancelled by user'
+					content: tool?.cancellationMessage ?? 'Tool execution was cancelled by user'
 				}
 			}
 
@@ -812,10 +840,17 @@ export interface Tool<T> {
 		helpers: T
 	}) => MaybePromise<string | undefined>
 	setSchema?: (helpers: any) => Promise<void>
+	/** Safe to run while plan mode is active. Absent ⇒ mutating: the plan-mode gate
+	 * blocks anything not explicitly `true`. Distinct from `requiresConfirmation` —
+	 * unconfirmed mutating tools exist, so one must not be derived from the other. */
+	readonly?: boolean
 	requiresConfirmation?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** Model-facing result returned when the user rejects the confirmation; defaults
+	 * to a generic cancellation. */
+	cancellationMessage?: string
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
@@ -926,6 +961,8 @@ export interface ToolCallbacks {
 	onReasoningStart?: () => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
+	isPlanModeActive?: () => boolean
+	onToolBlockedByPlanMode?: () => void
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
@@ -1027,6 +1064,7 @@ const searchHubScriptsToolDef = createToolDef(
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
+	readonly: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching for hub scripts related to "' + args.query + '"...'
@@ -1856,6 +1894,7 @@ export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,
+	readonly: true,
 	fn: async ({
 		args,
 		workspace,
@@ -1906,6 +1945,7 @@ const getRunnableDetailsToolDef = createToolDef(
 
 export const createGetRunnableDetailsTool = () => ({
 	def: getRunnableDetailsToolDef,
+	readonly: true,
 	fn: async ({
 		args,
 		workspace,

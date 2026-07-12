@@ -112,6 +112,7 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
+import { appendPlanModeInstructions } from './planMode'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
 function prefersInstantReveal(): boolean {
@@ -181,6 +182,7 @@ export enum AIMode {
 }
 
 export enum AIAutonomyMode {
+	PLAN = 'plan',
 	DEFAULT = 'default',
 	ACCEPT_EDIT = 'acceptedit',
 	YOLO = 'yolo'
@@ -194,6 +196,13 @@ const AUTO_ACCEPT_TOOL_CONFIRMATION_MODES = new Set<AIMode>([
 	AIMode.FLOW,
 	AIMode.APP,
 	AIMode.GLOBAL
+])
+const PLAN_MODES = new Set<AIMode>([
+	AIMode.SCRIPT,
+	AIMode.FLOW,
+	AIMode.APP,
+	AIMode.GLOBAL,
+	AIMode.API
 ])
 
 export function isAIMode(mode: unknown): mode is AIMode {
@@ -210,6 +219,10 @@ export function supportsAutoAcceptEdits(mode: AIMode): boolean {
 
 export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
 	return AUTO_ACCEPT_TOOL_CONFIRMATION_MODES.has(mode)
+}
+
+export function supportsPlanMode(mode: AIMode): boolean {
+	return PLAN_MODES.has(mode)
 }
 
 export function isAIModeVisible(mode: AIMode): boolean {
@@ -236,7 +249,7 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
 	const persistedMode = getLocalSetting(key)
-	if (isAIAutonomyMode(persistedMode)) {
+	if (isAIAutonomyMode(persistedMode) && persistedMode !== AIAutonomyMode.PLAN) {
 		return persistedMode
 	}
 	// No stored preference: default to auto-accepting edits (tool calls still
@@ -249,6 +262,11 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
+	// Plan is session-only: persisting it would re-block a later session where the
+	// picker never offered Plan. The stored pre-plan baseline is what a reload restores.
+	if (mode === AIAutonomyMode.PLAN) {
+		return
+	}
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (!BROWSER || !key) {
 		return
@@ -390,6 +408,7 @@ export class AIChatManager {
 	// summary round-trip is skipped in favor of drop-oldest. Reset on any
 	// successful summarization. Not persisted — a fresh load gets a fresh chance.
 	private consecutiveCompactionFailures = 0
+	private planBlocksThisTurn = $state(0)
 	// True while the summarization round-trip is in flight, so the UI can show a
 	// "Compacting conversation" label on the processing indicator.
 	compacting = $state(false)
@@ -409,6 +428,9 @@ export class AIChatManager {
 	autoAcceptToolConfirmationsActive = $derived(
 		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
 	)
+	planModeAvailable = $derived(supportsPlanMode(this.mode))
+	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
+	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
 	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
@@ -1250,6 +1272,12 @@ export class AIChatManager {
 	}
 
 	setAutonomyMode = (mode: AIAutonomyMode) => {
+		if (mode === AIAutonomyMode.PLAN && this.autonomyMode !== AIAutonomyMode.PLAN) {
+			this.prePlanAutonomyMode = this.autonomyMode
+		} else if (mode !== AIAutonomyMode.PLAN) {
+			this.prePlanAutonomyMode = undefined
+			this.planBlocksThisTurn = 0
+		}
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
 
@@ -1274,6 +1302,7 @@ export class AIChatManager {
 	hydrateUserScopedAutonomy = () => {
 		migrateLegacyAutonomyKeys()
 		this.autonomyMode = getPersistedAutonomyMode()
+		this.prePlanAutonomyMode = undefined
 	}
 
 	applyScriptEditorCode = async (code: string, opts?: ReviewChangesOpts) => {
@@ -1643,6 +1672,41 @@ export class AIChatManager {
 		}
 	}
 
+	exitPlanModeTool: Tool<any> = {
+		def: {
+			type: 'function' as const,
+			function: {
+				name: 'exit_plan_mode',
+				description:
+					'Call once your plan is ready and you want to start executing it. Shows the plan to the user for approval; only on approval are mutating tools unblocked. Do not call it to ask a question — use it only to hand over a complete plan.',
+				parameters: {
+					type: 'object',
+					properties: {
+						summary: {
+							type: 'string',
+							description:
+								'The plan to execute, as concise well-structured markdown. Shown verbatim to the user for approval.'
+						}
+					},
+					required: ['summary']
+				}
+			}
+		},
+		readonly: true,
+		requiresConfirmation: true,
+		confirmationMessage: (args) => args.summary ?? 'Ready to execute this plan?',
+		cancellationMessage:
+			'The user chose to keep planning instead of executing. Revise the plan if needed, then call exit_plan_mode again when ready.',
+		showDetails: true,
+		fn: async () => {
+			// No-op if the user already left plan mode while the card was pending.
+			if (this.planModeActive) {
+				this.setAutonomyMode(this.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
+			}
+			return 'Plan approved. You may now execute it.'
+		}
+	}
+
 	openChat = () => {
 		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
@@ -1796,16 +1860,19 @@ export class AIChatManager {
 				messages,
 				addedMessages,
 				get systemMessage() {
-					const base = systemMessageOverride ?? self.systemMessage
+					let base = systemMessageOverride ?? self.systemMessage
 					// Inject the attached-files roster at request time (re-read each iteration)
 					// so it always reflects the live file list without reactive bookkeeping.
 					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
-						return appendAttachedFilesRoster(base, self.attachedFiles)
+						base = appendAttachedFilesRoster(base, self.attachedFiles)
+					}
+					if (self.planModeActive) {
+						base = appendPlanModeInstructions(base, self.planBlocksThisTurn)
 					}
 					return base
 				},
 				get tools() {
-					return self.tools
+					return self.planModeActive ? [...self.tools, self.exitPlanModeTool] : self.tools
 				},
 				get helpers() {
 					return self.helpers
@@ -2004,6 +2071,7 @@ export class AIChatManager {
 		if (!this.instructions.trim()) {
 			return false
 		}
+		this.planBlocksThisTurn = 0
 		// Built-in session commands run locally instead of becoming a chat turn.
 		// Intercepted here — before the beforeSend workspace commit, file regrants,
 		// and skill expansion. Scoped to session chat GLOBAL mode, where the
@@ -2373,6 +2441,10 @@ export class AIChatManager {
 					},
 					requestConfirmation: this.requestConfirmation,
 					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
+					isPlanModeActive: () => this.planModeActive,
+					onToolBlockedByPlanMode: () => {
+						this.planBlocksThisTurn++
+					},
 					requestUserQuestion: this.requestUserQuestion,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),

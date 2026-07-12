@@ -673,6 +673,132 @@ describe('processToolCall', () => {
 	})
 })
 
+describe('processToolCall plan-mode gate', () => {
+	async function run(
+		tool: Partial<import('./shared').Tool<any>> & {
+			def: import('./shared').Tool<any>['def']
+			fn: import('./shared').Tool<any>['fn']
+		},
+		toolCallbacks: Partial<import('./shared').ToolCallbacks>
+	) {
+		const { processToolCall } = await import('./shared')
+		return processToolCall({
+			tools: [tool as import('./shared').Tool<any>],
+			toolCall: {
+				id: 'call_plan',
+				type: 'function',
+				function: { name: tool.def.function.name, arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				...toolCallbacks
+			}
+		})
+	}
+
+	it('blocks a non-readonly tool while plan mode is active', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const onToolBlockedByPlanMode = vi.fn()
+
+		const result = await run(
+			{ def: createToolDef(z.object({}), 'write_script', 'Write script'), fn },
+			{ isPlanModeActive: () => true, onToolBlockedByPlanMode }
+		)
+
+		expect(fn).not.toHaveBeenCalled()
+		expect(onToolBlockedByPlanMode).toHaveBeenCalledOnce()
+		expect(result.content).toContain('plan mode is active')
+	})
+
+	it('allows a readonly-tagged tool while plan mode is active', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ok')
+
+		const result = await run(
+			{ def: createToolDef(z.object({}), 'read_file', 'Read file'), readonly: true, fn },
+			{ isPlanModeActive: () => true }
+		)
+
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ok')
+	})
+
+	it('exempts exit_plan_mode from the block even without a readonly tag', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('Plan approved. You may now execute it.')
+		const requestConfirmation = vi.fn().mockResolvedValue(true)
+
+		const result = await run(
+			{
+				def: createToolDef(z.object({ summary: z.string() }), 'exit_plan_mode', 'Exit plan mode'),
+				requiresConfirmation: true,
+				fn
+			},
+			{ isPlanModeActive: () => true, requestConfirmation }
+		)
+
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('Plan approved. You may now execute it.')
+	})
+
+	it('runs a non-readonly tool normally when plan mode is inactive', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+
+		const result = await run(
+			{ def: createToolDef(z.object({}), 'write_script', 'Write script'), fn },
+			{ isPlanModeActive: () => false }
+		)
+
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ran')
+	})
+
+	it('does not block an unknown tool name — falls through to the unknown-tool error', async () => {
+		const { processToolCall } = await import('./shared')
+		const result = await processToolCall({
+			tools: [],
+			toolCall: {
+				id: 'call_unknown',
+				type: 'function',
+				function: { name: 'made_up_tool', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				isPlanModeActive: () => true
+			}
+		})
+
+		expect(result.content).not.toContain('plan mode is active')
+		expect(result.content).toContain('Unknown tool call')
+	})
+
+	it('returns the tool cancellationMessage when the user rejects the confirmation', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn()
+
+		const result = await run(
+			{
+				def: createToolDef(z.object({ summary: z.string() }), 'exit_plan_mode', 'Exit plan mode'),
+				requiresConfirmation: true,
+				cancellationMessage: 'keep planning',
+				fn
+			},
+			{ isPlanModeActive: () => true, requestConfirmation: vi.fn().mockResolvedValue(false) }
+		)
+
+		expect(fn).not.toHaveBeenCalled()
+		expect(result.content).toBe('keep planning')
+	})
+})
+
 describe('isActiveUserQuestion', () => {
 	function toolMessage(overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage {
 		return {

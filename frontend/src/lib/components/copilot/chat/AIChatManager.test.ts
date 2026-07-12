@@ -383,6 +383,55 @@ describe('AIChatManager autonomy mode', () => {
 		expect(applied).toBe(true)
 	})
 
+	it('activates plan mode only in modes with mutating tools', () => {
+		const manager = new AIChatManager()
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		manager.mode = AIMode.SCRIPT
+		expect(manager.planModeActive).toBe(true)
+
+		manager.mode = AIMode.API
+		expect(manager.planModeActive).toBe(true)
+
+		manager.mode = AIMode.NAVIGATOR
+		expect(manager.planModeActive).toBe(false)
+	})
+
+	it('captures the prior posture on entering plan mode and restores it on exit', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.SCRIPT
+		manager.setAutonomyMode(AIAutonomyMode.ACCEPT_EDIT)
+
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.PLAN)
+		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+
+		manager.setAutonomyMode(manager.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+		expect(manager.prePlanAutonomyMode).toBeUndefined()
+	})
+
+	it('exit_plan_mode restores the pre-plan posture', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.SCRIPT
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		await manager.exitPlanModeTool.fn({
+			args: { summary: 'do the thing' },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn()
+			},
+			toolId: 'call_exit'
+		})
+
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+		expect(manager.planModeActive).toBe(false)
+	})
+
 	it('does not pass the AI session id as a flow test conversation id in global mode', async () => {
 		const manager = new AIChatManager()
 		const testFlow = vi.fn(async () => 'job-flow-preview')
