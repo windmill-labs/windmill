@@ -797,6 +797,31 @@ describe('processToolCall plan-mode gate', () => {
 		expect(fn).not.toHaveBeenCalled()
 		expect(result.content).toBe('keep planning')
 	})
+
+	it('blocks a mutating tool if plan mode is entered while its confirmation is pending', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		let planActive = false
+		// The user switches into plan mode while the confirmation card is open, then
+		// approves it: requestConfirmation flips the posture, then resolves true.
+		const requestConfirmation = vi.fn().mockImplementation(async () => {
+			planActive = true
+			return true
+		})
+
+		const result = await run(
+			{
+				def: createToolDef(z.object({}), 'write_script', 'Write script'),
+				requiresConfirmation: true,
+				fn
+			},
+			{ isPlanModeActive: () => planActive, requestConfirmation }
+		)
+
+		expect(requestConfirmation).toHaveBeenCalled()
+		expect(fn).not.toHaveBeenCalled()
+		expect(result.content).toContain('plan mode is active')
+	})
 })
 
 describe('isActiveUserQuestion', () => {

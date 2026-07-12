@@ -701,14 +701,18 @@ export async function processToolCall<T>({
 			}
 		}
 
-		// Fails closed: an untagged tool is mutating, so plan mode blocks it. Only
-		// read-only tools and exit_plan_mode may run while the posture is active.
-		if (
-			toolCallbacks.isPlanModeActive?.() &&
-			tool &&
-			tool.readonly !== true &&
-			toolCall.function.name !== 'exit_plan_mode'
-		) {
+		// Fails closed: untagged ⇒ mutating ⇒ blocked. Re-run after the confirmation
+		// wait too — plan mode can be entered while a mutating tool's card is pending,
+		// and that approval must not slip past.
+		const planModeBlock = (): ChatCompletionMessageParam | undefined => {
+			if (
+				!toolCallbacks.isPlanModeActive?.() ||
+				!tool ||
+				tool.readonly === true ||
+				toolCall.function.name === 'exit_plan_mode'
+			) {
+				return undefined
+			}
 			const blocked =
 				'Blocked: plan mode is active. Put this change in your plan; call exit_plan_mode when ready for approval.'
 			toolCallbacks.onToolBlockedByPlanMode?.()
@@ -727,6 +731,11 @@ export async function processToolCall<T>({
 				tool_call_id: toolCall.id,
 				content: blocked
 			}
+		}
+
+		const preConfirmationBlock = planModeBlock()
+		if (preConfirmationBlock) {
+			return preConfirmationBlock
 		}
 
 		// Check if tool requires confirmation
@@ -768,6 +777,11 @@ export async function processToolCall<T>({
 					tool_call_id: toolCall.id,
 					content: tool?.cancellationMessage ?? 'Tool execution was cancelled by user'
 				}
+			}
+
+			const postConfirmationBlock = planModeBlock()
+			if (postConfirmationBlock) {
+				return postConfirmationBlock
 			}
 
 			// Update status to executing after confirmation
