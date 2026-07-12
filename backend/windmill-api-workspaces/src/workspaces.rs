@@ -71,9 +71,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::secret_backend::{
-    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
-};
+use windmill_common::secret_backend::{get_secret_backend, is_vault_backend_configured};
 use windmill_common::utils::not_found_if_none;
 
 lazy_static::lazy_static! {
@@ -4703,15 +4701,13 @@ async fn clone_variables(
     .execute(&mut **tx)
     .await?;
 
-    // With an external secret backend (Vault / Azure KV / AWS SM), the copied
-    // `value` is only a `$vault:`/`$azure_kv:`/`$aws_sm:` marker: the actual
-    // secret lives in the external store under a key derived from
-    // (workspace_id, path). The row copy above therefore leaves the fork's
-    // markers pointing at keys that don't exist — replicate each secret under
-    // the fork's workspace id.
+    // With an external backend the secret lives in the store under (workspace_id,
+    // path), so the row copy above leaves the fork pointing at keys that don't
+    // exist. Replicate every secret, not just marker-valued ones: migration writes
+    // to the store without rewriting `value` to a `$...:` marker.
     if is_vault_backend_configured(db).await? {
         let secret_variables = sqlx::query!(
-            "SELECT path, value FROM variable
+            "SELECT path FROM variable
              WHERE workspace_id = $1 AND is_secret = true AND value != ''",
             target_workspace_id,
         )
@@ -4719,10 +4715,7 @@ async fn clone_variables(
         .await?;
 
         let backend = get_secret_backend(db).await?;
-        for variable in secret_variables
-            .into_iter()
-            .filter(|v| is_external_stored_value(&v.value))
-        {
+        for variable in secret_variables {
             match backend
                 .get_secret(source_workspace_id, &variable.path)
                 .await
@@ -5810,8 +5803,14 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) =
-        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed.email).await
+    if let Err(e) = clone_workspace_data(
+        &mut tx,
+        &db,
+        &parent_workspace_id,
+        &forked_id,
+        &authed.email,
+    )
+    .await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
