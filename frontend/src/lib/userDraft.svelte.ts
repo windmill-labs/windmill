@@ -202,7 +202,10 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  * comparing them would mask a true baseline match:
  * `draft_saved_at` (the draft's own save time), `edited_at` (deploy time),
  * `edited_by` (deploy author), `workspace_id`, `version_id` (deployed version),
- * and `is_draft` (backend presence flag).
+ * `is_draft` (backend presence flag), and `assets` (server-derived on deploy
+ * from the content — the editor's draft value never carries it, so a deployed
+ * baseline's `assets: []` would otherwise never equal the assets-less draft and
+ * every untouched load would autosave a phantom draft).
  */
 const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'permissioned_as',
@@ -214,7 +217,8 @@ const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'workspace_id',
 	'version_id',
 	'parent_version',
-	'is_draft'
+	'is_draft',
+	'assets'
 ] as const
 
 /**
