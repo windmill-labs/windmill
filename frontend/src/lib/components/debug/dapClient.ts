@@ -90,9 +90,30 @@ export class DAPClient {
 		{ resolve: (value: DAPMessage) => void; reject: (error: Error) => void }
 	> = new Map()
 	private url: string
+	private eventListeners = new Set<(event: DAPMessage) => void>()
 
 	constructor(url: string = 'ws://localhost:3003') {
 		this.url = url
+	}
+
+	/**
+	 * Subscribe to raw DAP events. A synthetic `{ event: 'closed' }` is emitted on
+	 * socket teardown. The store diff cannot substitute: two consecutive `stopped`
+	 * events produce an identical store, so a transition can only be observed here.
+	 */
+	onEvent(listener: (event: DAPMessage) => void): () => void {
+		this.eventListeners.add(listener)
+		return () => this.eventListeners.delete(listener)
+	}
+
+	private emitEvent(event: DAPMessage): void {
+		for (const listener of this.eventListeners) {
+			try {
+				listener(event)
+			} catch (error) {
+				console.error('[DAP] event listener threw:', error)
+			}
+		}
 	}
 
 	/**
@@ -121,6 +142,7 @@ export class DAPClient {
 						output: s.output
 					}))
 					this.pendingRequests.clear()
+					this.emitEvent({ seq: 0, type: 'event', event: 'closed' })
 				}
 
 				this.ws.onerror = (error) => {
@@ -280,6 +302,8 @@ export class DAPClient {
 			default:
 				console.log('Unhandled DAP event:', event.event)
 		}
+
+		this.emitEvent(event)
 	}
 
 	/**
@@ -538,6 +562,15 @@ export class DAPClient {
 // Singleton instance
 let dapClientInstance: DAPClient | null = null
 
+const resetHooks = new Set<() => void>()
+
+// Registered via a hook set rather than a direct import so dapClient keeps no upward
+// dependency on the agent layer that teardown must settle.
+export function onDAPReset(hook: () => void): () => void {
+	resetHooks.add(hook)
+	return () => resetHooks.delete(hook)
+}
+
 export function getDAPClient(url?: string): DAPClient {
 	if (!dapClientInstance) {
 		dapClientInstance = new DAPClient(url)
@@ -545,7 +578,19 @@ export function getDAPClient(url?: string): DAPClient {
 	return dapClientInstance
 }
 
+// Returns the current singleton without creating one.
+export function peekDAPClient(): DAPClient | null {
+	return dapClientInstance
+}
+
 export function resetDAPClient(): void {
+	for (const hook of resetHooks) {
+		try {
+			hook()
+		} catch (error) {
+			console.error('[DAP] reset hook threw:', error)
+		}
+	}
 	if (dapClientInstance) {
 		dapClientInstance.disconnect()
 		dapClientInstance = null
