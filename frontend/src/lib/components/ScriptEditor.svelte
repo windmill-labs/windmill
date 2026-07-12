@@ -73,8 +73,11 @@
 		fetchContextualVariables,
 		signDebugRequest,
 		signMultiplayerRequest,
-		getDebugErrorMessage
+		getDebugErrorMessage,
+		preemptToHuman,
+		type DebugController
 	} from '$lib/components/debug'
+	import type { DAPClient } from '$lib/components/debug'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
@@ -1205,48 +1208,93 @@
 		monacoEditor.revealLineInCenter(line)
 	}
 
+	// `onClientReady` fires after connect+initialize but before launch, so the agent can
+	// attach its transition listener in time to catch the first breakpoint stop. Rethrows
+	// so the agent path can report a signing/connection failure to the model.
+	async function runDebugSession(opts?: {
+		agentArgs?: Record<string, unknown>
+		agentOriginated?: boolean
+		onClientReady?: (client: DAPClient) => void
+	}): Promise<void> {
+		showDebugConsole = true
+		selectedDebugFrameId = null
+
+		if (!debugMode) {
+			debugMode = true
+			if (testPanelSize === 0) {
+				expandTestPanel()
+			}
+		}
+
+		resetDAPClient()
+		dapClient = getDAPClient(dapServerUrl)
+
+		const env = await fetchContextualVariables(opWs ?? '')
+
+		const signedPayload = await signDebugRequest(
+			opWs ?? '',
+			code ?? '',
+			lang ?? 'python3',
+			opts?.agentOriginated
+		)
+		debugSessionJobId = signedPayload.job_id
+
+		await dapClient.connect()
+		await dapClient.initialize()
+		opts?.onClientReady?.(dapClient)
+		await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
+		await dapClient.configurationDone()
+		await dapClient.launch({
+			code,
+			cwd: '/tmp',
+			args: opts?.agentArgs ?? args ?? {},
+			callMain: true,
+			env,
+			token: signedPayload.token
+		})
+	}
+
 	async function startDebugging(): Promise<void> {
 		try {
-			// Show console when starting a debug session
-			showDebugConsole = true
-			// Reset selected frame when starting new session
-			selectedDebugFrameId = null
-
-			// Always reset and create a fresh DAP client with the correct URL for the current language
-			// This ensures we connect to the correct endpoint even if language changed
-			resetDAPClient()
-			dapClient = getDAPClient(dapServerUrl)
-
-			// Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) from backend
-			const env = await fetchContextualVariables(opWs ?? '')
-
-			// Sign the debug request (creates audit log entry)
-			let signedPayload
-			try {
-				signedPayload = await signDebugRequest(opWs ?? '', code ?? '', lang ?? 'python3')
-				debugSessionJobId = signedPayload.job_id
-			} catch (signError) {
-				sendUserToast(getDebugErrorMessage(signError), true)
-				return
-			}
-
-			await dapClient.connect()
-			await dapClient.initialize()
-			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
-			await dapClient.configurationDone()
-			// Pass the signed token along with other launch parameters
-			await dapClient.launch({
-				code,
-				cwd: '/tmp',
-				args: args ?? {},
-				callMain: true,
-				env,
-				// JWT token for verification by the debugger
-				token: signedPayload.token
-			})
+			// Claim after the reset (runDebugSession's resetDAPClient clears the owner);
+			// claiming before it would be wiped, leaving the session seizable by the agent.
+			await runDebugSession({ onClientReady: () => preemptToHuman() })
 		} catch (error) {
 			console.error('Failed to start debugging:', error)
 			sendUserToast(getDebugErrorMessage(error), true)
+		}
+	}
+
+	const agentDebugController: DebugController = {
+		language: () => lang ?? 'python3',
+		start: async (agentArgs, onClientReady) => {
+			await runDebugSession({ agentArgs, agentOriginated: true, onClientReady })
+		},
+		stop: () => stopDebugging(),
+		signExpression: (expression) => signAgentExpression(expression),
+		setBreakpoints: async (lines) => {
+			debugBreakpoints.clear()
+			for (const line of lines) {
+				debugBreakpoints.add(line)
+			}
+			updateBreakpointDecorations()
+			await syncBreakpointsWithServer()
+		}
+	}
+
+	async function signAgentExpression(expression: string): Promise<string | undefined> {
+		if (!opWs || !debugSessionJobId) return undefined
+		try {
+			const response = await fetch(`/api/w/${opWs}/debug/sign_expression`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ expression, job_id: debugSessionJobId, agent_originated: true })
+			})
+			if (!response.ok) return undefined
+			const result = await response.json()
+			return result.token
+		} catch {
+			return undefined
 		}
 	}
 
@@ -1264,21 +1312,25 @@
 	}
 
 	async function continueExecution(): Promise<void> {
+		preemptToHuman()
 		if (!dapClient) return
 		await dapClient.continue_()
 	}
 
 	async function stepOver(): Promise<void> {
+		preemptToHuman()
 		if (!dapClient) return
 		await dapClient.stepOver()
 	}
 
 	async function stepIn(): Promise<void> {
+		preemptToHuman()
 		if (!dapClient) return
 		await dapClient.stepIn()
 	}
 
 	async function stepOut(): Promise<void> {
+		preemptToHuman()
 		if (!dapClient) return
 		await dapClient.stepOut()
 	}
@@ -1437,6 +1489,10 @@
 			await inferSchema(code, { applyInitialArgs: true })
 		}
 		aiChatManager.saveAndClear()
+		// Register before changeMode so the debug tools are gated in on first SCRIPT setup.
+		aiChatManager.scriptEditorDebugController = isDebuggableScript
+			? agentDebugController
+			: undefined
 		aiChatManager.changeMode(AIMode.SCRIPT)
 		if (customUi?.previewPanel?.loadLastRunOnMount) {
 			void loadLastRunIntoTestPanel()
@@ -1551,6 +1607,7 @@
 		aiChatManager.scriptEditorApplyCode = undefined
 		aiChatManager.scriptEditorShowDiffMode = undefined
 		aiChatManager.scriptEditorGetLintErrors = undefined
+		aiChatManager.scriptEditorDebugController = undefined
 		aiChatManager.scriptEditorOptions = undefined
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
@@ -1742,6 +1799,9 @@
 					editor?.getLintErrors() ?? { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 				)
 			}
+			aiChatManager.scriptEditorDebugController = isDebuggableScript
+				? agentDebugController
+				: undefined
 		})
 	})
 </script>
