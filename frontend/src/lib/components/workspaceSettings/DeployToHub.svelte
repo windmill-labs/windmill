@@ -2491,7 +2491,7 @@
 					</div>
 				{:else if migrationDrafts.length === 0}
 					<span class="text-[11px] text-hint">
-						No data table usage detected in this project's scripts, flows, or apps.
+						No data table usage detected in this project's scripts, flows, or raw apps.
 					</span>
 				{:else}
 					<span class="text-[11px] text-hint">

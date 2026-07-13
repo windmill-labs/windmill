@@ -92,36 +92,6 @@ describe('detectDatatableTables', () => {
 		// public-schema ref keeps the bare name; non-public keeps schema.table.
 		expect([...(usage.get('main') ?? [])].sort()).toEqual(['app1.orders', 'customers'])
 	})
-
-	it('reads the DB-table component config of a low-code app', async () => {
-		const appValue = {
-			grid: [
-				{
-					data: {
-						type: 'dbexplorermulticomponent',
-						configuration: {
-							type: {
-								type: 'oneOf',
-								selected: 'datatable',
-								configuration: {
-									postgresql: {
-										resource: { type: 'static', value: '' },
-										table: { type: 'static', value: undefined }
-									},
-									datatable: {
-										datatable: { type: 'static', value: 'datatable://main' },
-										table: { type: 'static', value: 'customers' }
-									}
-								}
-							}
-						}
-					}
-				}
-			]
-		}
-		const usage = await detectDatatableTables([{ kind: 'app', path: 'f/p/app', value: appValue }])
-		expect([...(usage.get('main') ?? [])]).toEqual(['customers'])
-	})
 })
 
 describe('generateDatatableMigrations', () => {
