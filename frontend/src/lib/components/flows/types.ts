@@ -98,10 +98,18 @@ export type FlowEditorContext = {
 	// locally-edited workspace scripts, passed as temp_script_refs on preview
 	// runs so relative imports resolve from local (not-yet-deployed) content
 	devTempScriptRefs?: () => Record<string, string> | undefined
+	// The workspace this editor operates on (deploy/save target). Differs from
+	// $workspaceStore inside a fork-scoped session; worker-tag pickers read it so
+	// their tag list and availability match the deploy target. Getter for reactivity.
+	opWorkspace?: () => string | undefined
 }
 
 export type FlowGraphAssetContext = StateStore<{
 	selectedAsset: Asset | undefined
+	// The workspace asset explore controls (DB manager, S3/volume picker, resource
+	// editor) act on — the flow's acting workspace in an AI session, else the nav
+	// workspace. Set by FlowAssetsHandler.
+	workspace: string | undefined
 	s3FilePicker: S3FilePicker | undefined
 	resourceEditorDrawer: ResourceEditorDrawer | undefined
 	// Maps resource paths to their metadata. undefined is for error

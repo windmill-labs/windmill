@@ -42,6 +42,10 @@
 		loading?: boolean
 		// Called when the user clicks Stop. Defaults to `aiChatManager.cancel()`.
 		onCancel?: () => void
+		// Observe the composer draft as it changes (the text is local state —
+		// `aiChatManager.instructions` only carries programmatic prompts). Used by
+		// sessions to persist the typed-but-unsent prompt with the session draft.
+		onDraftChange?: (text: string) => void
 	}
 
 	let {
@@ -61,7 +65,8 @@
 		bottomRightSnippet,
 		onKeyDown = undefined,
 		loading,
-		onCancel
+		onCancel,
+		onDraftChange = undefined
 	}: Props = $props()
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
@@ -118,6 +123,10 @@
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
 	let instructions = $state(untrack(() => initialInstructions))
+	$effect(() => {
+		const text = instructions
+		untrack(() => onDraftChange?.(text))
+	})
 	// Collapsed big-paste blobs referenced by tokens in `instructions`.
 	let pastes = $state<PasteAttachment[]>(untrack(() => initialPastes ?? []))
 

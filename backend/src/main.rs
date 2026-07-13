@@ -56,11 +56,11 @@ use windmill_common::{
         PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
         PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
-        SANDBOX_IMAGE_CACHE_MAX_MB_SETTING, SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
-        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING,
-        SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
+        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
+        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
+        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
         UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
@@ -124,7 +124,7 @@ use windmill_worker::{
 use crate::monitor::{
     initial_load, load_disable_password_login, load_fork_workspace_tag_append_fork_suffix,
     load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
-    load_require_preexisting_user, load_tag_per_workspace_enabled,
+    load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
     load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
     load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
     load_workspace_fairness_min_total, monitor_db, reload_app_workspaced_route_setting,
@@ -1881,6 +1881,11 @@ async fn process_notify_event(
                 }
                 TIMEOUT_WAIT_RESULT_SETTING => reload_timeout_wait_result_setting(conn).await,
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
+                RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
+                    if let Err(e) = load_retention_period_overrides(db).await {
+                        tracing::error!("Error loading per-workspace retention overrides: {e:#}");
+                    }
+                }
                 AUDIT_LOG_RETENTION_DAYS_SETTING => {
                     reload_audit_log_retention_days_setting(conn).await
                 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
@@ -7,16 +7,20 @@
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { FlowService, type Flow, type TriggersCount } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import { writable } from 'svelte/store'
 
 	interface Props {
-		path: string;
-		noSide?: boolean;
-		fillAvailableHeight?: boolean;
+		path: string
+		noSide?: boolean
+		fillAvailableHeight?: boolean
 	}
 
-	let { path, noSide = false, fillAvailableHeight = false }: Props = $props();
+	let { path, noSide = false, fillAvailableHeight = false }: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	let flow: Flow | undefined = $state(undefined)
 
@@ -29,15 +33,13 @@
 	})
 
 	async function loadFlow(path: string) {
-		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
-		triggersCount.set(
-			await FlowService.getTriggersCountOfFlow({ workspace: $workspaceStore!, path })
-		)
+		flow = await FlowService.getFlowByPath({ workspace: opWs!, path })
+		triggersCount.set(await FlowService.getTriggersCountOfFlow({ workspace: opWs!, path }))
 	}
 
 	run(() => {
 		path && loadFlow(path)
-	});
+	})
 </script>
 
 <div class="flex flex-col flex-1 h-full overflow-auto">

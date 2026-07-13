@@ -28,7 +28,7 @@
 	}
 
 	let { module, tag }: Props = $props()
-	const { scriptEditorDrawer, flowEditorDrawer } =
+	const { scriptEditorDrawer, flowEditorDrawer, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
@@ -112,7 +112,9 @@
 				variant="subtle"
 				onClick={async () => {
 					if (module.value.type == 'script') {
-						const hash = module.value.hash ?? (await getLatestHashForScript(module.value.path))
+						const hash =
+							module.value.hash ??
+							(await getLatestHashForScript(module.value.path, opWorkspace?.()))
 						$scriptEditorDrawer?.openDrawer(hash, () => {
 							dispatch('reload')
 							sendUserToast('Script has been updated')

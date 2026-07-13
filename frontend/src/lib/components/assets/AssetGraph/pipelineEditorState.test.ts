@@ -68,3 +68,39 @@ describe('PipelineEditorState.handleDraftPersist', () => {
 		expect(pe.drafts).toBe(before)
 	})
 })
+
+describe('PipelineEditorState.handleDraftPersist — read capture', () => {
+	it('records an authoritative empty capture on an uncaptured entry (undefined → [])', async () => {
+		const pe = new PipelineEditorState()
+		pe.drafts = new Map([['f/x/n', draft('SELECT 1', undefined)]])
+		const before = pe.drafts
+		pe.handleDraftPersist('f/x/n', { content: 'SELECT 1', writes: [], reads: [] })
+		await flushMicrotasks()
+		// Must rewrite: undefined means "fall back to the session cache", [] means
+		// "reads nothing" — staying undefined would keep stale cached read edges
+		// alive after the pane closes.
+		expect(pe.drafts).not.toBe(before)
+		expect(pe.drafts.get('f/x/n')?.inputAssets).toEqual([])
+	})
+
+	it('is idempotent once the capture matches ([] vs reads: [])', async () => {
+		const pe = new PipelineEditorState()
+		const d = draft('SELECT 1', undefined)
+		d.inputAssets = []
+		pe.drafts = new Map([['f/x/n', d]])
+		const before = pe.drafts
+		pe.handleDraftPersist('f/x/n', { content: 'SELECT 1', writes: [], reads: [] })
+		await flushMicrotasks()
+		expect(pe.drafts).toBe(before)
+	})
+
+	it('is idempotent when a legacy caller omits reads', async () => {
+		const pe = new PipelineEditorState()
+		pe.drafts = new Map([['f/x/n', draft('SELECT 1', undefined)]])
+		const before = pe.drafts
+		pe.handleDraftPersist('f/x/n', { content: 'SELECT 1', writes: [] })
+		await flushMicrotasks()
+		expect(pe.drafts).toBe(before)
+		expect(pe.drafts.get('f/x/n')?.inputAssets).toBeUndefined()
+	})
+})

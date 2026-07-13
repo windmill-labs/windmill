@@ -4,7 +4,6 @@
 	import { Loader2, Workflow } from 'lucide-svelte'
 	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
-	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { useActiveRunnableIds } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
 	import type {
@@ -21,7 +20,8 @@
 		runtime,
 		path,
 		workspaceId,
-		isActiveSession = true
+		isActiveSession = true,
+		active = true
 	}: {
 		/** Per-session runtime; owns the pipeline editor state so it survives the
 		 * editor pane unmounting on hide/show. */
@@ -31,10 +31,22 @@
 		workspaceId: string
 		/** Only the visible session registers the pipeline tools on its manager. */
 		isActiveSession?: boolean
+		/** Whether this is the foreground preview tab. */
+		active?: boolean
 	} = $props()
 
-	// The session's scoped chat manager (falls back to the singleton off-session).
-	const aiChatManager = getAiChatManager()
+	// This session's own chat manager — used directly rather than via
+	// getAiChatManager()'s context lookup: PreviewTabHost mounts this view in the
+	// preview panel, outside the SessionWrapper subtree that provides the scoped
+	// manager context, so a lookup would fall back to the app-wide singleton and
+	// register the pipeline tools (build_pipeline_node / edit_pipeline_node) on the
+	// wrong chat — leaving this session's chat unable to build canvas nodes.
+	const aiChatManager = runtime.manager
+
+	// Only the foreground tab of the foreground session owns the chat's pipeline
+	// tools and runs the live-badge poll — a background tab (another preview tab is
+	// showing, or another session is active) must not shadow that context or poll.
+	const engaged = $derived(isActiveSession && active)
 
 	// Externalized editor state — lives on the runtime so the drafts persist across
 	// hide/show of the preview pane (the pane unmounts on hide).
@@ -55,10 +67,10 @@
 					activeRunnableJobId = undefined
 					// Re-scope the Global pipeline prompt to the new folder (the helper
 					// methods already read the reactive path, but the system message
-					// string was built for the old one). Only when this session is the
-					// active one — its helpers are the registered set; a hidden session
-					// reconfigures when it next becomes active.
-					if (isActiveSession) aiChatManager.rebuildGlobalSystemMessage()
+					// string was built for the old one). Only when this tab is engaged —
+					// its helpers are the registered set; a background tab reconfigures
+					// when it next becomes the foreground one.
+					if (engaged) aiChatManager.rebuildGlobalSystemMessage()
 				}
 				pe.folder = folder
 			}
@@ -210,9 +222,9 @@
 	let activeRunnableJobId = $state<string | undefined>(undefined)
 	$effect(() => {
 		pathPrefix // re-scope the poll when the folder changes
-		// Only the visible session needs live badges/event-log; hidden warm panes
-		// (up to MAX_WARM_EDITORS) shouldn't poll in the background.
-		activeRunnables.setObserving(isActiveSession)
+		// Only the engaged (foreground) tab needs live badges/event-log; a
+		// background tab or a hidden session shouldn't poll.
+		activeRunnables.setObserving(engaged)
 		return () => activeRunnables.dispose()
 	})
 	$effect(() => {
@@ -270,11 +282,12 @@
 		}
 	}
 
-	// Register the pipeline tools on this session's manager while the view is the
-	// active one. setPipelineHelpers rebuilds the global tool set to include the
-	// pipeline tools and tears them down on cleanup.
+	// Register the pipeline tools on this session's manager while this tab is the
+	// engaged (foreground) one. setPipelineHelpers rebuilds the global tool set to
+	// include the pipeline tools and tears them down on cleanup — so switching to
+	// another preview tab or session releases them.
 	$effect(() => {
-		if (!isActiveSession) return
+		if (!engaged) return
 		return aiChatManager.setPipelineHelpers(helpers)
 	})
 </script>
@@ -379,11 +392,12 @@
 
 <!-- Native trigger editor drawers (schedule/kafka/webhook/…), shared with the
      route page; opened imperatively from the canvas via the handlers above.
-     NOTE: these operate on the global `$workspaceStore`, not the `workspaceId`
-     prop. That's correct only because activating a session syncs the store to
-     the session's workspace (SessionPicker), and triggers are only opened from
-     the visible/active session — so for a forked-workspace session the store is
-     already pointed at the right workspace by the time a drawer opens. -->
+     KNOWN LIMITATION: the whole native-trigger editor subsystem reads the global
+     `$workspaceStore` and exposes no workspace override, so trigger create/edit/
+     delete here targets the nav workspace — NOT this view's `workspaceId`.
+     SessionPicker intentionally does not switch `$workspaceStore` on activation,
+     so for a forked-workspace session these writes go to the wrong workspace.
+     Fixing it means threading a workspace override through the trigger editors. -->
 <PipelineTriggerEditors
 	bind:this={triggerEditors}
 	mountTriggerEditors

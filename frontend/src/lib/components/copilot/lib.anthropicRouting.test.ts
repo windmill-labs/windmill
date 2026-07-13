@@ -79,6 +79,7 @@ const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: 'hi' }]
 let anthropicCreate: ReturnType<typeof vi.fn>
 let anthropicStream: ReturnType<typeof vi.fn>
 let openaiCreate: ReturnType<typeof vi.fn>
+let openaiResponsesCreate: ReturnType<typeof vi.fn>
 
 async function setupClients() {
 	const { workspaceAIClients } = await import('./lib')
@@ -102,12 +103,14 @@ async function setupClients() {
 			])
 		)
 	openaiCreate = vi.fn().mockResolvedValue({ choices: [{ message: { content: 'openai text' } }] })
+	openaiResponsesCreate = vi.fn().mockResolvedValue({ output_text: 'responses text' })
 
 	vi.spyOn(workspaceAIClients, 'getAnthropicClient').mockReturnValue({
 		messages: { create: anthropicCreate, stream: anthropicStream }
 	} as any)
 	vi.spyOn(workspaceAIClients, 'getOpenaiClient').mockReturnValue({
-		chat: { completions: { create: openaiCreate } }
+		chat: { completions: { create: openaiCreate } },
+		responses: { create: openaiResponsesCreate }
 	} as any)
 }
 
@@ -193,6 +196,39 @@ describe('Anthropic Messages API routing', () => {
 		const headers = anthropicCreate.mock.calls[0][1].headers
 		expect(headers['X-Provider']).toBe('azure_foundry')
 		expect(headers['X-Resource-Path']).toBe('u/admin/foundry')
+	})
+
+	it('caps max_tokens for metadata completions so the Anthropic SDK stays non-streaming', async () => {
+		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
+			await import('./lib')
+		// claude-sonnet defaults to 64000 max_tokens; the Anthropic SDK refuses a
+		// non-streaming request that large (>10min worst case), which silently broke
+		// session auto-rename and the other metadata generators.
+		h.currentModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+
+		await getNonStreamingCompletion(messages, new AbortController())
+		expect(anthropicCreate.mock.calls[0][0].max_tokens).toBe(64000)
+
+		anthropicCreate.mockClear()
+		await getNonStreamingMetadataCompletion(messages, new AbortController())
+		expect(anthropicCreate.mock.calls[0][0].max_tokens).toBe(METADATA_MAX_TOKENS)
+		expect(METADATA_MAX_TOKENS).toBeLessThanOrEqual(21333)
+	})
+
+	it('caps max_output_tokens for metadata completions on the OpenAI Responses path', async () => {
+		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
+			await import('./lib')
+		// OpenAI/Azure non-streaming routes through the Responses API; the cap must
+		// reach it too, not just the Anthropic and chat.completions paths.
+		h.currentModel = { provider: 'openai', model: 'gpt-4o' }
+
+		await getNonStreamingCompletion(messages, new AbortController())
+		expect(openaiResponsesCreate).toHaveBeenCalledTimes(1)
+		expect(openaiResponsesCreate.mock.calls[0][0].max_output_tokens).toBe(16384)
+
+		openaiResponsesCreate.mockClear()
+		await getNonStreamingMetadataCompletion(messages, new AbortController())
+		expect(openaiResponsesCreate.mock.calls[0][0].max_output_tokens).toBe(METADATA_MAX_TOKENS)
 	})
 
 	it('getFimCompletion no-ops for Anthropic Messages API models', async () => {

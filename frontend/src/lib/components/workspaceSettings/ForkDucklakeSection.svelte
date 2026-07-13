@@ -6,9 +6,15 @@
 	import Label from '../Label.svelte'
 	import { TriangleAlert } from 'lucide-svelte'
 
-	// Keyed on the store so a direct page load (store hydrates after mount) still fetches.
+	// The workspace the fork is created from (matches ForkDatatableSection): a
+	// fork-of-fork bases off the selected base, not the navigation workspace, so
+	// the lakes listed here must match the ones the create-fork call submits to.
+	let { sourceWorkspace }: { sourceWorkspace?: string } = $props()
+	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
+
+	// Keyed on the source so a direct page load (store hydrates after mount) still fetches.
 	let allDucklakes = resource(
-		() => $workspaceStore,
+		() => effectiveSource,
 		async (ws) => (ws ? WorkspaceService.listDucklakes({ workspace: ws }) : undefined)
 	)
 
