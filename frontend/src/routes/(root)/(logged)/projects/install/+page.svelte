@@ -119,6 +119,13 @@
 		const reqWorkspace = workspace
 		loading = true
 		loadError = undefined
+		// New slug/workspace = a fresh import session: drop the previous project's
+		// outcome, otherwise project B stays disabled as "Imported" with A's
+		// results, and keeps A's folder.
+		data = undefined
+		done = false
+		results = []
+		folderName = ''
 		try {
 			const res = await fetch(
 				`/api/w/${reqWorkspace}/hub/projects/${encodeURIComponent(reqSlug)}/export`,
