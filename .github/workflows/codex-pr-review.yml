@@ -314,6 +314,8 @@ jobs:
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -323,9 +325,38 @@ jobs:
               core.info('Codex did not produce a final message; skipping PR comment.');
               return;
             }
-            const body = fs.readFileSync(path, 'utf8').trim();
+            let body = fs.readFileSync(path, 'utf8').trim();
             if (!body) {
               core.info('Codex final message was empty; skipping PR comment.');
+              return;
+            }
+            // Defense-in-depth for fork reviews: the model call needs the provider
+            // credential in the environment, and the posted comment is an
+            // exfiltration channel that bypasses GitHub Actions log masking. Strip
+            // any credential value (the API key, the raw auth JSON, and the tokens
+            // nested inside it) that leaked into the review text before posting.
+            const secrets = [];
+            const addSecret = (v, min) => {
+              if (typeof v === 'string' && v.length >= min) secrets.push(v);
+            };
+            addSecret(process.env.OPENAI_API_KEY, 8);
+            addSecret(process.env.CODEX_AUTH_JSON, 8);
+            if (process.env.CODEX_AUTH_JSON) {
+              try {
+                const collect = (o) => {
+                  if (typeof o === 'string') addSecret(o, 20);
+                  else if (Array.isArray(o)) o.forEach(collect);
+                  else if (o && typeof o === 'object') Object.values(o).forEach(collect);
+                };
+                collect(JSON.parse(process.env.CODEX_AUTH_JSON));
+              } catch (_) {}
+            }
+            for (const s of [...new Set(secrets)].sort((a, b) => b.length - a.length)) {
+              body = body.split(s).join('[REDACTED]');
+            }
+            body = body.trim();
+            if (!body) {
+              core.info('Codex final message was empty after redaction; skipping PR comment.');
               return;
             }
             await github.rest.issues.createComment({

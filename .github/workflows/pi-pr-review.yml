@@ -317,6 +317,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -326,9 +327,21 @@ jobs:
               core.info('Pi did not produce a final message; skipping PR comment.');
               return;
             }
-            const body = fs.readFileSync(path, 'utf8').trim();
+            let body = fs.readFileSync(path, 'utf8').trim();
             if (!body) {
               core.info('Pi final message was empty; skipping PR comment.');
+              return;
+            }
+            // Defense-in-depth for fork reviews: the model call needs the provider
+            // credential in the environment (readable via /proc/self/environ), and
+            // the posted comment is an exfiltration channel that bypasses GitHub
+            // Actions log masking. Strip the credential if it leaked into the text.
+            const apiKey = process.env.DEEPSEEK_API_KEY;
+            if (typeof apiKey === 'string' && apiKey.length >= 8) {
+              body = body.split(apiKey).join('[REDACTED]').trim();
+            }
+            if (!body) {
+              core.info('Pi final message was empty after redaction; skipping PR comment.');
               return;
             }
             await github.rest.issues.createComment({
