@@ -172,14 +172,26 @@ export function generateMigrationSql(
 		const pkLine = pkCols.length > 0 ? `,\n  PRIMARY KEY (${pkCols.join(', ')})` : ''
 		const qualifiedName = `"${change.schemaName}"."${change.tableName}"`
 		const createKeyword = options?.ifNotExists ? 'CREATE TABLE IF NOT EXISTS' : 'CREATE TABLE'
-		let sql = `BEGIN;\n${createKeyword} ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
+		// The target may not have the schema at all (fresh data table import).
+		const schemaDdl =
+			change.schemaName !== 'public' ? `CREATE SCHEMA IF NOT EXISTS "${change.schemaName}";\n` : ''
+		let sql = `BEGIN;\n${schemaDdl}${createKeyword} ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
 		for (const fk of table.foreignKeys ?? []) {
 			const fkSql = renderForeignKey(fk, {
 				useSchema: true,
 				dbType: 'postgresql',
 				tableName: change.tableName
 			})
-			sql += `\nALTER TABLE ${qualifiedName} ADD ${fkSql};`
+			// With IF NOT EXISTS the table may pre-exist with this FK already in
+			// place; an unconditional ADD would then abort the whole transaction.
+			// The constraint name is emitted unquoted, so Postgres folds it to
+			// lowercase — compare against the folded form.
+			const fkName = options?.ifNotExists
+				? fkSql.match(/^CONSTRAINT\s+(\S+)/)?.[1]?.toLowerCase()
+				: undefined
+			sql += fkName
+				? `\nDO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1 FROM pg_constraint\n    WHERE conname = '${fkName}' AND conrelid = '${qualifiedName}'::regclass\n  ) THEN\n    ALTER TABLE ${qualifiedName} ADD ${fkSql};\n  END IF;\nEND $$;`
+				: `\nALTER TABLE ${qualifiedName} ADD ${fkSql};`
 		}
 		sql += '\nCOMMIT;'
 		return sql

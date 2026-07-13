@@ -160,6 +160,40 @@ describe('generateDatatableMigrations', () => {
 		expect(migrations[0].sql).toContain('"public"."customers"')
 	})
 
+	it('guards FK creation so re-running on an existing table does not abort', async () => {
+		getDatatableFullSchemaMock.mockResolvedValue(schema)
+		const usage = new Map([['main', new Set(['orders'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		const sql = migrations[0].sql
+		// The ADD CONSTRAINT must be wrapped in a pg_constraint existence check.
+		expect(sql).toContain('DO $$')
+		expect(sql).toContain('SELECT 1 FROM pg_constraint')
+		expect(sql).toContain(`conrelid = '"public"."orders"'::regclass`)
+		// No unguarded ALTER TABLE ... ADD at the start of a line.
+		expect(/^ALTER TABLE .* ADD CONSTRAINT/m.test(sql)).toBe(false)
+	})
+
+	it('creates non-public schemas before their tables', async () => {
+		const appSchema = {
+			app: {
+				customers: {
+					name: 'customers',
+					columns: [{ name: 'id', datatype: 'integer', primary_key: true, nullable: false }],
+					foreign_keys: []
+				}
+			}
+		}
+		getDatatableFullSchemaMock.mockResolvedValue(appSchema)
+		const usage = new Map([['main', new Set(['app.customers'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		const sql = migrations[0].sql
+		expect(sql).toContain('CREATE SCHEMA IF NOT EXISTS "app";')
+		expect(sql.indexOf('CREATE SCHEMA IF NOT EXISTS "app";')).toBeLessThan(
+			sql.indexOf('CREATE TABLE IF NOT EXISTS "app"."customers"')
+		)
+		expect(sql).not.toContain('CREATE SCHEMA IF NOT EXISTS "public"')
+	})
+
 	it('keeps same-named tables from different schemas both created', async () => {
 		const twoSchemas = {
 			public: {
