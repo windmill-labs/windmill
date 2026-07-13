@@ -97,8 +97,13 @@ jobs:
             IS_FORK="$EVENT_FORK"
             PR_AUTHOR="$EVENT_AUTHOR"
           fi
-          if [ "$IS_FORK" = "true" ]; then
-            echo "Skipping Pi review for fork PR."
+          # Fork PRs run untrusted code with secrets present, so the automatic
+          # pull_request trigger never reviews them. A non-empty INPUT_PR_NUMBER
+          # means we arrived via workflow_call, which only happens after an
+          # authorized maintainer opted in (e.g. a /pi comment gated by
+          # check-write-access), so allow forks on that path.
+          if [ "$IS_FORK" = "true" ] && [ -z "$INPUT_PR_NUMBER" ]; then
+            echo "Skipping Pi review for fork PR (automatic trigger)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
