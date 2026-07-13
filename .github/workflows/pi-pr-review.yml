@@ -109,6 +109,7 @@ jobs:
           fi
           {
             echo "skip=false"
+            echo "is_fork=$IS_FORK"
             echo "pr_number=$PR_NUMBER"
             echo "base_ref=$BASE_REF"
             echo "base_sha=$BASE_SHA"
@@ -129,8 +130,11 @@ jobs:
           ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
           fetch-depth: 1
 
+      # Never expose the EE private-repo token to untrusted fork code. Skipping
+      # this step leaves steps.ee.outputs.available empty, so the EE checkout and
+      # substitution steps below are skipped too.
       - name: Check EE access
-        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true' && steps.pr.outputs.is_fork != 'true'
         id: ee
         env:
           EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
@@ -256,13 +260,26 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PI_SKIP_VERSION_CHECK: '1'
+          PR_IS_FORK: ${{ steps.pr.outputs.is_fork }}
+          PR_BASE_REF: ${{ steps.pr.outputs.base_ref }}
         run: |
           set -o pipefail
-          cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
+          if [ "$PR_IS_FORK" = "true" ]; then
+            # Fork code is untrusted. Read the review policy/prompt from the base
+            # ref (git show) rather than the attacker-controlled merge checkout,
+            # so a malicious fork can't rewrite the reviewer's own instructions,
+            # and drop the bash tool so the agent has no shell to exfiltrate with.
+            git show "origin/$PR_BASE_REF:REVIEW.md" > /tmp/pi-prompt.md
+            git show "origin/$PR_BASE_REF:.github/pi/pr-review.prompt.md" >> /tmp/pi-prompt.md
+            PI_TOOLS=read,grep,find,ls
+          else
+            cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
+            PI_TOOLS=read,grep,find,ls,bash
+          fi
           pi -p \
             --provider deepseek \
             --model deepseek-v4-pro \
-            --tools read,grep,find,ls,bash \
+            --tools "$PI_TOOLS" \
             --mode json \
             < /tmp/pi-prompt.md \
             | tee pi-events.jsonl \

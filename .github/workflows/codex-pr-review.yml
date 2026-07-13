@@ -116,6 +116,7 @@ jobs:
           fi
           {
             echo "skip=false"
+            echo "is_fork=$IS_FORK"
             echo "pr_number=$PR_NUMBER"
             echo "base_ref=$BASE_REF"
             echo "base_sha=$BASE_SHA"
@@ -136,8 +137,11 @@ jobs:
           ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
           fetch-depth: 1
 
+      # Never expose the EE private-repo token to untrusted fork code. Skipping
+      # this step leaves steps.ee.outputs.available empty, so the EE checkout and
+      # substitution steps below are skipped too.
       - name: Check EE access
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true' && steps.pr.outputs.is_fork != 'true'
         id: ee
         env:
           EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
@@ -281,13 +285,27 @@ jobs:
 
       - name: Run Codex review
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        env:
+          PR_IS_FORK: ${{ steps.pr.outputs.is_fork }}
+          PR_BASE_REF: ${{ steps.pr.outputs.base_ref }}
         run: |
-          cat REVIEW.md .github/codex/pr-review.prompt.md > /tmp/codex-prompt.md
+          if [ "$PR_IS_FORK" = "true" ]; then
+            # Fork code is untrusted. Read the review policy/prompt from the base
+            # ref (git show) rather than the attacker-controlled merge checkout,
+            # so a malicious fork can't rewrite the reviewer's own instructions,
+            # and run in a network-disabled sandbox to block secret exfiltration.
+            git show "origin/$PR_BASE_REF:REVIEW.md" > /tmp/codex-prompt.md
+            git show "origin/$PR_BASE_REF:.github/codex/pr-review.prompt.md" >> /tmp/codex-prompt.md
+            SANDBOX_MODE=workspace-write
+          else
+            cat REVIEW.md .github/codex/pr-review.prompt.md > /tmp/codex-prompt.md
+            SANDBOX_MODE=danger-full-access
+          fi
           codex exec \
             -C "$GITHUB_WORKSPACE" \
             -m gpt-5.6-sol \
             -c 'model_reasoning_effort="xhigh"' \
-            -s danger-full-access \
+            -s "$SANDBOX_MODE" \
             -o codex-final-message.md \
             - < /tmp/codex-prompt.md
 
