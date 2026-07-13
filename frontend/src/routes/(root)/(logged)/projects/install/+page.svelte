@@ -29,7 +29,8 @@
 		rewriteAppValue,
 		rewriteContent,
 		rewriteFlowValue,
-		rewriteRawAppContent
+		rewriteRawAppContent,
+		rewriteTriggerConfig
 	} from '$lib/components/workspaceSettings/projectBundle'
 	import { updatePolicy } from '$lib/components/apps/editor/appPolicy'
 	import { updateRawAppPolicy } from '$lib/sharedUtils'
@@ -275,8 +276,9 @@
 				...t,
 				path: remap(t.path),
 				runnable_path: remap(t.runnable_path),
-				// `$res:` refs can live in trigger args/config.
-				config: t.config ? JSON.parse(rewriteContent(JSON.stringify(t.config), map)) : t.config
+				// Configs hold both `$res:` tokens and plain resource paths
+				// (kafka_resource_path etc.) — rewrite both.
+				config: t.config ? rewriteTriggerConfig(t.config, map) : t.config
 			}))
 		}
 	}

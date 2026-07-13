@@ -155,6 +155,24 @@ export function rewriteContent(content: string, map: Map<string, string>): strin
 	})
 }
 
+/**
+ * Trigger configs reference resources as plain path strings (e.g.
+ * `kafka_resource_path: "f/slug/db"`), not `$res:` tokens, so token rewriting
+ * misses them. Deep-walk the config and remap any string that exact-matches a
+ * map key (map keys are full bundle paths, so an exact match is a reference),
+ * falling back to `$res:` token rewriting for embedded refs.
+ */
+export function rewriteTriggerConfig(config: any, map: Map<string, string>): any {
+	if (typeof config === 'string') return map.get(config) ?? rewriteContent(config, map)
+	if (Array.isArray(config)) return config.map((v) => rewriteTriggerConfig(v, map))
+	if (config && typeof config === 'object') {
+		return Object.fromEntries(
+			Object.entries(config).map(([k, v]) => [k, rewriteTriggerConfig(v, map)])
+		)
+	}
+	return config
+}
+
 export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 	const cloned = JSON.parse(JSON.stringify(value ?? {}))
 	for (const mod of getAllModules(cloned?.modules ?? [], cloned?.failure_module)) {

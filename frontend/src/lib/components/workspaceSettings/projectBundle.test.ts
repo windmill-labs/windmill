@@ -6,6 +6,7 @@ import {
 	extractAppRefs,
 	buildPathMap,
 	rewriteContent,
+	rewriteTriggerConfig,
 	rewriteFlowValue,
 	rewriteAppValue,
 	extractRawAppRefs,
@@ -139,6 +140,38 @@ describe('rewriteContent', () => {
 		const map = new Map([['u/admin/db', 'f/proj/db']])
 		// u/admin/db2 must not be rewritten by the u/admin/db entry
 		expect(rewriteContent('x = "$res:u/admin/db2"', map)).toBe('x = "$res:u/admin/db2"')
+	})
+})
+
+describe('rewriteTriggerConfig', () => {
+	const map = new Map([
+		['f/proj/kafka', 'f/target/kafka'],
+		['f/proj/script', 'f/target/script']
+	])
+	it('remaps plain resource path fields', () => {
+		expect(
+			rewriteTriggerConfig({ kafka_resource_path: 'f/proj/kafka', group_id: 'g1' }, map)
+		).toEqual({ kafka_resource_path: 'f/target/kafka', group_id: 'g1' })
+	})
+	it('remaps nested objects, arrays, and $res: tokens', () => {
+		expect(
+			rewriteTriggerConfig(
+				{
+					nested: { path: 'f/proj/script' },
+					list: ['f/proj/kafka', 'unrelated'],
+					code: 'x = "$res:f/proj/kafka"'
+				},
+				map
+			)
+		).toEqual({
+			nested: { path: 'f/target/script' },
+			list: ['f/target/kafka', 'unrelated'],
+			code: 'x = "$res:f/target/kafka"'
+		})
+	})
+	it('leaves non-matching strings and non-string values untouched', () => {
+		const config = { url: 'wss://example.com', port: 9092, enabled: true, extra: null }
+		expect(rewriteTriggerConfig(config, map)).toEqual(config)
 	})
 })
 
