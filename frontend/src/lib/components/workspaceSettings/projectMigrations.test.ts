@@ -190,6 +190,55 @@ describe('generateDatatableMigrations', () => {
 		expect(migrations[0].sql).toContain('"public"."customers"')
 	})
 
+	it('emits all CREATE TABLEs before any FK constraint so circular FKs work', async () => {
+		const cyclicSchema = {
+			public: {
+				a: {
+					name: 'a',
+					columns: [
+						{ name: 'id', datatype: 'integer', primary_key: true, nullable: false },
+						{ name: 'b_id', datatype: 'integer', nullable: true }
+					],
+					foreign_keys: [
+						{
+							target_table: 'public.b',
+							columns: [{ source_column: 'b_id', target_column: 'id' }],
+							on_delete: 'NO ACTION',
+							on_update: 'NO ACTION'
+						}
+					]
+				},
+				b: {
+					name: 'b',
+					columns: [
+						{ name: 'id', datatype: 'integer', primary_key: true, nullable: false },
+						{ name: 'a_id', datatype: 'integer', nullable: true }
+					],
+					foreign_keys: [
+						{
+							target_table: 'public.a',
+							columns: [{ source_column: 'a_id', target_column: 'id' }],
+							on_delete: 'NO ACTION',
+							on_update: 'NO ACTION'
+						}
+					]
+				}
+			}
+		}
+		getDatatableFullSchemaMock.mockResolvedValue(cyclicSchema)
+		const usage = new Map([['main', new Set(['a', 'b'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		const sql = migrations[0].sql
+		expect(sql).toContain('"public"."a"')
+		expect(sql).toContain('"public"."b"')
+		// Both FK constraints present, and every CREATE TABLE precedes the first one.
+		expect(sql.match(/ADD CONSTRAINT/g)?.length).toBe(2)
+		const lastCreate = sql.lastIndexOf('CREATE TABLE IF NOT EXISTS')
+		const firstConstraint = sql.indexOf('DO $$')
+		expect(lastCreate).toBeGreaterThan(-1)
+		expect(firstConstraint).toBeGreaterThan(lastCreate)
+	})
+
 	it('guards FK creation so re-running on an existing table does not abort', async () => {
 		getDatatableFullSchemaMock.mockResolvedValue(schema)
 		const usage = new Map([['main', new Set(['orders'])]])

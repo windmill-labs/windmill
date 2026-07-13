@@ -146,6 +146,58 @@ function resolveColumnType(c: TableEditorValuesColumn): {
 	return { datatype: c.datatype, defaultValue: c.defaultValue }
 }
 
+/**
+ * SQL for an added table, with the CREATE TABLE and the FK constraints split so
+ * callers creating several tables can emit every CREATE before any constraint —
+ * required for circular FKs, where no creation order satisfies inline FKs.
+ */
+export function generateAddedTableSql(
+	change: TableDiff,
+	sourceSchema: DatabaseSchema,
+	options?: { ifNotExists?: boolean }
+): { create: string; constraints: string[] } | undefined {
+	const table = sourceSchema[change.schemaName]?.[change.tableName]
+	if (!table) return undefined
+	const colDefs = table.columns
+		.map((c) => {
+			const { datatype, defaultValue } = resolveColumnType(c)
+			let def = `"${c.name}" ${datatype}`
+			if (c.nullable === false) def += ' NOT NULL'
+			if (defaultValue) def += ` DEFAULT ${defaultValue}`
+			return def
+		})
+		.join(',\n  ')
+	const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => `"${c.name}"`)
+	const pkLine = pkCols.length > 0 ? `,\n  PRIMARY KEY (${pkCols.join(', ')})` : ''
+	const qualifiedName = `"${change.schemaName}"."${change.tableName}"`
+	const createKeyword = options?.ifNotExists ? 'CREATE TABLE IF NOT EXISTS' : 'CREATE TABLE'
+	// The target may not have the schema at all (fresh data table import).
+	const schemaDdl =
+		change.schemaName !== 'public' ? `CREATE SCHEMA IF NOT EXISTS "${change.schemaName}";\n` : ''
+	const create = `${schemaDdl}${createKeyword} ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
+	const constraints: string[] = []
+	for (const fk of table.foreignKeys ?? []) {
+		const fkSql = renderForeignKey(fk, {
+			useSchema: true,
+			dbType: 'postgresql',
+			tableName: change.tableName
+		})
+		// With IF NOT EXISTS the table may pre-exist with this FK already in
+		// place; an unconditional ADD would then abort the whole transaction.
+		// The constraint name is emitted unquoted, so Postgres folds it to
+		// lowercase — compare against the folded form.
+		const fkName = options?.ifNotExists
+			? fkSql.match(/^CONSTRAINT\s+(\S+)/)?.[1]?.toLowerCase()
+			: undefined
+		constraints.push(
+			fkName
+				? `DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1 FROM pg_constraint\n    WHERE conname = '${fkName}' AND conrelid = '${qualifiedName}'::regclass\n  ) THEN\n    ALTER TABLE ${qualifiedName} ADD ${fkSql};\n  END IF;\nEND $$;`
+				: `ALTER TABLE ${qualifiedName} ADD ${fkSql};`
+		)
+	}
+	return { create, constraints }
+}
+
 export function generateMigrationSql(
 	change: TableDiff,
 	sourceSchema: DatabaseSchema,
@@ -157,44 +209,9 @@ export function generateMigrationSql(
 		return 'BEGIN;\n' + queries.join('\n') + '\nCOMMIT;'
 	}
 	if (change.kind === 'added') {
-		const table = sourceSchema[change.schemaName]?.[change.tableName]
-		if (!table) return ''
-		const colDefs = table.columns
-			.map((c) => {
-				const { datatype, defaultValue } = resolveColumnType(c)
-				let def = `"${c.name}" ${datatype}`
-				if (c.nullable === false) def += ' NOT NULL'
-				if (defaultValue) def += ` DEFAULT ${defaultValue}`
-				return def
-			})
-			.join(',\n  ')
-		const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => `"${c.name}"`)
-		const pkLine = pkCols.length > 0 ? `,\n  PRIMARY KEY (${pkCols.join(', ')})` : ''
-		const qualifiedName = `"${change.schemaName}"."${change.tableName}"`
-		const createKeyword = options?.ifNotExists ? 'CREATE TABLE IF NOT EXISTS' : 'CREATE TABLE'
-		// The target may not have the schema at all (fresh data table import).
-		const schemaDdl =
-			change.schemaName !== 'public' ? `CREATE SCHEMA IF NOT EXISTS "${change.schemaName}";\n` : ''
-		let sql = `BEGIN;\n${schemaDdl}${createKeyword} ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
-		for (const fk of table.foreignKeys ?? []) {
-			const fkSql = renderForeignKey(fk, {
-				useSchema: true,
-				dbType: 'postgresql',
-				tableName: change.tableName
-			})
-			// With IF NOT EXISTS the table may pre-exist with this FK already in
-			// place; an unconditional ADD would then abort the whole transaction.
-			// The constraint name is emitted unquoted, so Postgres folds it to
-			// lowercase — compare against the folded form.
-			const fkName = options?.ifNotExists
-				? fkSql.match(/^CONSTRAINT\s+(\S+)/)?.[1]?.toLowerCase()
-				: undefined
-			sql += fkName
-				? `\nDO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1 FROM pg_constraint\n    WHERE conname = '${fkName}' AND conrelid = '${qualifiedName}'::regclass\n  ) THEN\n    ALTER TABLE ${qualifiedName} ADD ${fkSql};\n  END IF;\nEND $$;`
-				: `\nALTER TABLE ${qualifiedName} ADD ${fkSql};`
-		}
-		sql += '\nCOMMIT;'
-		return sql
+		const gen = generateAddedTableSql(change, sourceSchema, options)
+		if (!gen) return ''
+		return `BEGIN;\n${[gen.create, ...gen.constraints].join('\n')}\nCOMMIT;`
 	}
 	if (change.kind === 'removed') {
 		return `BEGIN;\nDROP TABLE IF EXISTS "${change.schemaName}"."${change.tableName}";\nCOMMIT;`

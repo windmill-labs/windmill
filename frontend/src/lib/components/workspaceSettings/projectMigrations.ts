@@ -15,7 +15,7 @@ import { getFlowModuleAssets } from '$lib/components/assets/lib'
 import { extractDataConfig, parseDataTableRef } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	apiSchemaToEditorSchema,
-	generateMigrationSql,
+	generateAddedTableSql,
 	type DatabaseSchema
 } from '$lib/components/datatableSchemaSql'
 import { WorkspaceService } from '$lib/gen'
@@ -199,7 +199,7 @@ function expandFkClosure(schema: DatabaseSchema, seed: ResolvedTable[]): Resolve
 }
 
 // A copy of the schema restricted to `tables`, with each table's foreign keys
-// filtered to targets that are also in `tables`. generateMigrationSql emits every
+// filtered to targets that are also in `tables`. generateAddedTableSql emits every
 // FK it finds on a table, so pruning here keeps a stray FK (to a table outside the
 // migration) from making the generated SQL fail.
 function pruneSchemaForTables(schema: DatabaseSchema, tables: ResolvedTable[]): DatabaseSchema {
@@ -267,15 +267,6 @@ function errorText(e: any): string {
 	return String(raw).replace(/\s+/g, ' ').trim()
 }
 
-// Strip the per-table `BEGIN;`/`COMMIT;` wrapper that generateMigrationSql adds,
-// so several tables can share one transaction.
-function unwrapTransaction(sql: string): string {
-	return sql
-		.replace(/^\s*BEGIN;\s*\n?/, '')
-		.replace(/\n?\s*COMMIT;\s*$/, '')
-		.trim()
-}
-
 /**
  * Generate one best-effort migration per used data table. Resolved tables (plus
  * the tables they depend on via foreign key, in FK-dependency order) become a
@@ -334,22 +325,26 @@ export async function generateDatatableMigrations(
 		const closure = expandFkClosure(schema, resolved)
 		const ordered = orderByFkDependency(schema, closure)
 		const prunedSchema = pruneSchemaForTables(schema, ordered)
-		const statements = ordered
-			.map((t) =>
-				unwrapTransaction(
-					// IF NOT EXISTS: FK closure pulls in shared parent tables (e.g. a
-					// referenced `orders` drags in `customers`) that often already exist in
-					// the target, so a plain CREATE would abort the whole transaction. The
-					// caveat — an existing differently-shaped table is silently left as-is —
-					// is acceptable for a best-effort, editable migration.
-					generateMigrationSql(
-						{ schemaName: t.schemaName, tableName: t.tableName, kind: 'added' },
-						prunedSchema,
-						{ ifNotExists: true }
-					)
-				)
+		// Every CREATE TABLE is emitted before any FK constraint: circular FKs have
+		// no valid creation order, so constraints can only run once all tables exist.
+		const creates: string[] = []
+		const constraints: string[] = []
+		for (const t of ordered) {
+			// IF NOT EXISTS: FK closure pulls in shared parent tables (e.g. a
+			// referenced `orders` drags in `customers`) that often already exist in
+			// the target, so a plain CREATE would abort the whole transaction. The
+			// caveat — an existing differently-shaped table is silently left as-is —
+			// is acceptable for a best-effort, editable migration.
+			const gen = generateAddedTableSql(
+				{ schemaName: t.schemaName, tableName: t.tableName, kind: 'added' },
+				prunedSchema,
+				{ ifNotExists: true }
 			)
-			.filter((s) => s.length > 0)
+			if (!gen) continue
+			creates.push(gen.create)
+			constraints.push(...gen.constraints)
+		}
+		const statements = [...creates, ...constraints]
 		// Comments (the errors) go on top; the CREATE TABLE transaction, if any,
 		// follows. Enabled only when there's something to run.
 		const parts: string[] = []
