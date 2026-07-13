@@ -478,8 +478,15 @@
 			// from the previous workspace don't linger.
 			recordDrawer?.closeDrawer()
 			publishDrawer?.closeDrawer()
+			bundleDrawer?.closeDrawer()
 			recordTarget = undefined
 			publishTarget = undefined
+			// Drop migration drafts and invalidate any in-flight generation so the
+			// previous project's table SQL can't publish under the new one. The
+			// orphaned generation's `finally` is seq-guarded, so reset the spinner here.
+			migrationDrafts = []
+			migrationsSeq++
+			migrationsGenerating = false
 			loadWorkspace($workspaceStore, seq)
 			loadTriggers($workspaceStore, seq)
 			// Resume the folder's project if one exists.
