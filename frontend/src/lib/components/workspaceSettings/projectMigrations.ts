@@ -59,6 +59,32 @@ function addUsage(map: Map<string, Set<string>>, path: string): void {
 	addDatatableTable(map, datatable, table)
 }
 
+// Low-code apps declare data table usage explicitly on the DB-table component:
+// a `oneOf` `type` config with `selected === 'datatable'` holding the data table
+// (as `datatable://<name>`) and the table. Walk the app value for those instead
+// of parsing assets (low-code inline scripts don't carry a persisted asset list).
+function collectAppDatatableConfigs(node: any, map: Map<string, Set<string>>): void {
+	if (node == null || typeof node !== 'object') return
+	if (Array.isArray(node)) {
+		for (const v of node) collectAppDatatableConfigs(v, map)
+		return
+	}
+	if (node.selected === 'datatable' && node.configuration?.datatable) {
+		const dtRaw = node.configuration.datatable.datatable?.value
+		const tableRaw = node.configuration.datatable.table?.value
+		if (typeof dtRaw === 'string' && dtRaw.trim() !== '') {
+			const datatable = dtRaw
+				.trim()
+				.replace(/^\$res:/, '')
+				.replace(/^datatable:\/\//, '')
+			const table =
+				typeof tableRaw === 'string' && tableRaw.trim() !== '' ? tableRaw.trim() : undefined
+			addDatatableTable(map, datatable, table)
+		}
+	}
+	for (const k of Object.keys(node)) collectAppDatatableConfigs(node[k], map)
+}
+
 /**
  * Scan a project's fetched items for data table usage and return
  * `datatable -> set of table refs` (a table ref is `table` or `schema.table`).
@@ -66,6 +92,7 @@ function addUsage(map: Map<string, Set<string>>, path: string): void {
  *  - flows: read each module's stored `assets`
  *  - full-code (raw) apps: read the explicit `data.tables` declaration; fall back
  *    to `runnables[key].inlineScript.assets` for older apps
+ *  - low-code apps: read the DB-table component's explicit datatable/table config
  */
 export async function detectDatatableTables(
 	items: FetchedItem[]
@@ -116,6 +143,8 @@ export async function detectDatatableTables(
 					for (const a of assets)
 						if (a?.kind === 'datatable' && typeof a.path === 'string') addUsage(map, a.path)
 			}
+		} else if (item.kind === 'app') {
+			collectAppDatatableConfigs(item.value, map)
 		}
 	}
 	return map
