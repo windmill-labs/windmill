@@ -115,7 +115,8 @@
 		http: {
 			badge: 'HTTP',
 			route: 'routes',
-			note: 'Webhook URL regenerates on import — re-register with the external service.'
+			note: 'Webhook URL regenerates on import — re-register with the external service.',
+			resourceField: 'authentication_resource_path'
 		},
 		websocket: {
 			badge: 'WebSocket',
@@ -1192,9 +1193,13 @@
 	async function deployAll(workspace: string) {
 		const slug = hubSlug
 		// Snapshot the selection up-front so a workspace switch mid-deploy can't
-		// write stale state into the new workspace.
+		// write stale state into the new workspace. Migration drafts are global
+		// mutable state cleared by the workspace/folder reset effect — pin them too,
+		// so the deploy publishes the drafts the user confirmed.
+		const folder = folderProp
 		const itemsSnapshot = selectedItems.slice()
 		const triggersSnapshot = relevantTriggers.slice()
+		const migrationsSnapshot = migrationDrafts.slice()
 		hubItemIds = {}
 		deploying = true
 		let failures = 0
@@ -1221,6 +1226,10 @@
 					true
 				)
 			}
+
+			// Bundle building is slow — bail before the first Hub write if the user
+			// switched workspace or folder in the meantime.
+			if ($workspaceStore !== workspace || folderProp !== folder) return
 
 			// Types come from $res: stubs AND schema inputs (resource-<type>).
 			const inputTypes = bundle.items
@@ -1258,9 +1267,10 @@
 			}
 
 			for (const it of bundle.items) {
-				// Stop writing item status / Hub IDs into a workspace the user has
-				// switched away from mid-publish.
-				if ($workspaceStore !== workspace) return
+				// Stop writing item status / Hub IDs into a workspace or folder the
+				// user has switched away from mid-publish (postHub targets the live
+				// folderProp, so continuing would publish into the wrong project).
+				if ($workspaceStore !== workspace || folderProp !== folder) return
 				const key = `${it.kind}:${it.path}`
 				deploymentStatus = { ...deploymentStatus, [key]: { status: 'loading' } }
 				try {
@@ -1292,6 +1302,7 @@
 						}
 					})
 			)
+			if ($workspaceStore !== workspace || folderProp !== folder) return
 			try {
 				await pushTriggers(workspace, slug, resourcePathMap, triggersSnapshot)
 			} catch (e: any) {
@@ -1304,7 +1315,7 @@
 			// don't persist.
 			try {
 				await postHub(workspace, '/hub/migrations', {
-					migrations: migrationDrafts.map((m) => ({
+					migrations: migrationsSnapshot.map((m) => ({
 						datatable_name: m.datatable_name,
 						sql: m.sql,
 						sql_down: m.sql_down,
@@ -1318,7 +1329,7 @@
 			}
 
 			await sleep(150)
-			if ($workspaceStore !== workspace) return
+			if ($workspaceStore !== workspace || folderProp !== folder) return
 			deploymentStatus = {}
 			recordings = {}
 			// Deterministic baseline so a transient Hub read failure can't leave the
@@ -2507,7 +2518,9 @@
 			<Button
 				variant="accent"
 				loading={deploying}
-				disabled={!hubName.trim() || (!effectiveSlug && !isValidSlug(sanitizeSlug(hubName)))}
+				disabled={!hubName.trim() ||
+					(!effectiveSlug && !isValidSlug(sanitizeSlug(hubName))) ||
+					migrationsGenerating}
 				startIcon={{ icon: Cloud }}
 				onclick={confirmBundle}
 			>
