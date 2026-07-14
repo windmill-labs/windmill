@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT repo_url, check_run_id, github_workspace_id, conclusion,\n                  created_at, concluded, github_posted\n           FROM git_sync_ci_test_check\n           WHERE workspace_id = $1 AND head_sha = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repo_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "check_run_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "github_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "conclusion",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "concluded",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "github_posted",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ff294ecae7d308fe50e93e144137024285eaa4c9bb5b959c6054ab617eed74bb"
+}

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_ci_test_check\n            SET concluded = true, conclusion = $3, concluded_at = now()\n          WHERE workspace_id = $1 AND head_sha = $2 AND NOT concluded\n        RETURNING check_run_id, github_workspace_id, repo_url",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "check_run_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "github_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "repo_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "48cab7f9b303c906ad8c0819816f38e0dc11be5e1b50ac72b00bf7e6e0dfcfa4"
+}

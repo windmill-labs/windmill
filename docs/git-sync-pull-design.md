@@ -618,6 +618,53 @@ repo's **Environments** timeline ("Production → Deployed"). Needs
 opt-in / later. The check-run version is the cheap default and matches the visual
 Cloudflare parity without a new permission.
 
+### Phase 7 — CI test results check (WIN-2051) — implemented
+
+Surfaces Windmill's own CI tests (the `// test: script/...` annotation) as a
+**"Windmill CI tests"** check run on **any PR** against the tracked branch, so a customer
+can mark it a **required status check** and have Windmill CI results gate the PR —
+replacing the documented GitHub Action that polls `ci_test_results_batch`. App-backed
+only; reuses the Phase 4 `Checks: write` grant, so no new permission. Token repos keep the
+Action.
+
+Driven by the **`pull_request` webhook** — the same event Phase 4 already reacts to —
+rather than the deploy push/pull, so it's uniform across how the PR's commit came to exist
+(a fork deploy that pushes `wm-fork/**` and opens the PR, or an external push that gets
+pulled in). CI tests run as separate async `ci_test` jobs in the **fork workspace** the PR
+corresponds to; the check reflects that fork's current results on the PR head.
+
+- **State** — `git_sync_ci_test_check(workspace_id, head_sha)` (new table). `workspace_id`
+  is the **fork** whose `ci_test` jobs the check reflects; `github_workspace_id` is the
+  **parent** whose GitHub-App installation posts the run (a fork inherits no
+  installations, so it can't mint the token). Plus `repo_url`, `check_run_id` (NULL if the
+  create failed), `created_at`, `concluded`, `conclusion`, `concluded_at`, `github_posted`.
+  Partial index `(workspace_id) WHERE NOT concluded OR NOT github_posted` (the live set the
+  hook + poller scan).
+- **Open** — in the `pull_request` handler (opened/synchronize/reopened, base = tracked):
+  resolve the fork workspace from the head ref (reusing the fork-branch routing;
+  `resolve_pr_head_workspace`), supersede the fork's previous open check (`neutral` — a
+  synchronize advanced the head), `create_check_run` in_progress on `head_sha` via the
+  parent's installation, persist the intent row (even on create failure), then evaluate.
+- **Conclude** — verdict from the fork's **current** CI test status: the newest `ci_test`
+  job per `(trigger, runnable_path)` (tested item × test script) in a recent window. The
+  job's `trigger` is the concrete tested item, so wildcard/multi-target tests are covered
+  without touching `ci_test_reference`, and no file-path→item reconstruction is needed.
+  Fail-fast on any failed/canceled; `success` once all settle (or "No CI tests" when none
+  ran); `skipped` (debounce-superseded) ignored. No time-scope is needed — the tests ran
+  before the PR event, so the fork's live status is authoritative.
+- **Drivers** — a per-`ci_test`-job completion hook (low latency) and the git-sync poller
+  (the backstop: retries the GitHub create/deliver, times stuck checks out after 30 min,
+  prunes old rows). Both call one idempotent `evaluate_and_conclude`, which claims the
+  decision with a guarded `UPDATE ... WHERE NOT concluded RETURNING` (exactly-once) and
+  decouples GitHub delivery via `github_posted` so a failed PATCH is retried, not hung.
+
+Invariants: supersession concludes a stale head's check on synchronize so one PR shows one
+live check; the parent posts because forks can't mint the token; the timeout stops a hung
+test job from blocking a required check forever. Known limits (accepted for v1): a plain
+feature-branch or contributor-fork PR resolves to no fork workspace and gets no check; the
+fork's status is workspace-wide (all its tested items), which for the one-fork-per-PR model
+equals the PR's scope.
+
 ## 16. Alternatives considered
 
 **Portal as webhook proxy (the rejected "option 2").** Subscribe the managed app

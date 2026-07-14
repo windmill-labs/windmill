@@ -1461,6 +1461,16 @@ pub async fn process_completed_job(
             maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
             maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id, result.get()).await;
         }
+        // WIN-2051: a CI test job just finished → advance any open "Windmill CI tests"
+        // PR check for its workspace (idempotent; races safely with the poller).
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if matches!(
+            job.trigger_kind,
+            Some(windmill_common::jobs::JobTriggerKind::CiTest)
+        ) {
+            windmill_common::git_sync_ee::evaluate_and_conclude_ci_test_checks(db, &workspace_id)
+                .await;
+        }
 
         // Asset-trigger fan-out: best-effort, never propagates errors.
         // Internal eligibility checks gate to top-level Script/Preview runs;
@@ -1572,6 +1582,18 @@ pub async fn process_completed_job(
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job.id, &job.workspace_id, false, result.get()).await;
             maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false).await;
+        }
+        // WIN-2051: a failed CI test job also settles its check — advance it now.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if matches!(
+            job.trigger_kind,
+            Some(windmill_common::jobs::JobTriggerKind::CiTest)
+        ) {
+            windmill_common::git_sync_ee::evaluate_and_conclude_ci_test_checks(
+                db,
+                &job.workspace_id,
+            )
+            .await;
         }
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {
