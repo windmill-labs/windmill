@@ -62,8 +62,9 @@ use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
-        JobPayload, RawCode,
+        JobPayload, JobTriggerKind, RawCode,
     },
+    triggers::TriggerMetadata,
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
@@ -3209,7 +3210,14 @@ async fn execute_component(
         None,
         false,
         end_user_email,
-        None,
+        // Mark the job as app-originated (trigger = the app path). This is the
+        // authoritative provenance signal the deployed-app S3 gate relies on to tell
+        // files an app produced from files a viewer forged by running a declared
+        // runnable directly; a direct `/jobs/run` cannot set trigger_kind = 'app'.
+        Some(TriggerMetadata::new(
+            Some(path.to_string()),
+            JobTriggerKind::App,
+        )),
         None,
     )
     .await?;
@@ -3872,40 +3880,15 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // logged-in viewer could launder the author's S3 perms via an arbitrary
         // file_key (confused deputy).
         //
-        // Provenance is keyed on the *producing job's* `permissioned_as` matching the
-        // on-behalf identity THIS download reads as (the author, in author-mode). It
-        // must NOT be keyed on `created_by`: a viewer who can run a declared runnable
-        // directly runs it AS THEMSELVES (permissioned_as = viewer) with inputs the
-        // app never pinned, so they could otherwise craft a result `{"s3": <author
-        // key>}` and read it back through the app. Only an app-launched author-mode
-        // execution carries `permissioned_as = on_behalf_of`.
-        let (_, on_behalf_permissioned_as, _) =
-            get_on_behalf_details_from_policy_and_authed(policy, opt_authed).await?;
-        // Script and flow paths this app is wired to trigger, derived from the
-        // policy triggerables. Keys look like `flow/<path>`, `script/<path>`,
-        // `rawscript/<sha>`, optionally prefixed with `<component>:`. rawscript
-        // inline jobs are already covered by the `appscript`/`preview` prefix match
-        // below. Script and flow are kept separate because their job `runnable_path`
-        // shapes differ: a script/flow job carries the bare path, but a flow *step*
-        // job carries `<flow_path>/<step_id>`, so flow paths need a prefix match.
-        let mut script_paths: Vec<String> = Vec::new();
-        let mut flow_paths: Vec<String> = Vec::new();
-        for key in policy
-            .triggerables
-            .iter()
-            .flat_map(|m| m.keys())
-            .chain(policy.triggerables_v2.iter().flat_map(|m| m.keys()))
-        {
-            let rest = match key.split_once(':') {
-                Some((prefix, rest)) if !prefix.contains('/') => rest,
-                _ => key.as_str(),
-            };
-            if let Some(p) = rest.strip_prefix("flow/") {
-                flow_paths.push(p.to_string());
-            } else if let Some(p) = rest.strip_prefix("script/") {
-                script_paths.push(p.to_string());
-            }
-        }
+        // "Recently produced" is keyed on the app-origination marker
+        // (`trigger_kind = 'app'` + `trigger = <this app path>`) that
+        // `execute_component` stamps on every job it launches — NOT on
+        // `created_by`/`permissioned_as`/`runnable_path`. Those are all forgeable: a
+        // viewer who can run a declared script/flow directly runs it with un-pinned
+        // inputs, and if the runnable carries its own `on_behalf_of` even
+        // `permissioned_as` resolves to the author. Only a genuine app-launched run
+        // carries the trigger marker (a direct `/jobs/run` cannot set it), so its
+        // outputs are the only ones this gate trusts.
         let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
             keys.iter()
                 .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
@@ -3916,29 +3899,12 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 WHERE j.workspace_id = $2
                     AND c.started_at > now() - interval '3 hours'
                     AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
-                    -- produced by a job running AS the identity this download reads as
-                    AND j.permissioned_as = $4
-                    AND (
-                        -- inline app scripts / editor previews produced directly by this app
-                        ((j.kind = 'appscript' OR j.kind = 'preview') AND j.runnable_path LIKE $3 || '/%')
-                        OR
-                        -- deployed script components wired into this app
-                        (j.kind = 'script' AND j.runnable_path = ANY($5))
-                        OR
-                        -- deployed flow components: the flow's own job (bare path) and
-                        -- its step jobs (`<flow_path>/<step_id>`), bounded to declared flows
-                        (j.kind IN ('flow', 'flowscript', 'flownode') AND EXISTS (
-                            SELECT 1 FROM unnest($6::text[]) fp
-                            WHERE j.runnable_path = fp OR j.runnable_path LIKE fp || '/%'
-                        ))
-                    )
+                    AND j.trigger_kind = 'app'
+                    AND j.trigger = $3
             )"#,
                 file_query.s3,
                 w_id,
                 path,
-                on_behalf_permissioned_as,
-                &script_paths,
-                &flow_paths,
             )
             .fetch_one(db)
             .await?
