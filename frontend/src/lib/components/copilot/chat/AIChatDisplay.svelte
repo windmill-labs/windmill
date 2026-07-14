@@ -469,7 +469,12 @@
 			.filter((tool) => tool.requiresConfirmation === true)
 			.map((tool) => ({
 				name: tool.def.function.name,
-				label: tool.confirmationMessage ?? tool.def.function.name
+				// confirmationMessage may be a function of the call args, which we don't
+				// have here — fall back to the tool name rather than render its source.
+				label:
+					typeof tool.confirmationMessage === 'string'
+						? tool.confirmationMessage
+						: tool.def.function.name
 			}))
 	})
 	const visibleYoloBypassedTools = $derived(yoloBypassedTools.slice(0, MAX_YOLO_TOOLTIP_TOOLS))
@@ -669,13 +674,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{:else}
 								<ChatTypingIndicator
 									loading={aiChatManager.loading}
-									label={aiChatManager.compacting
-										? 'Compacting conversation'
-										: aiChatManager.currentReasoningActive &&
-											  !aiChatManager.currentReply &&
-											  !aiChatManager.currentReasoning
-											? 'Thinking'
-											: undefined}
+									label={aiChatManager.loadingLabel
+										? aiChatManager.loadingLabel
+										: aiChatManager.compacting
+											? 'Compacting conversation'
+											: aiChatManager.currentReasoningActive &&
+												  !aiChatManager.currentReply &&
+												  !aiChatManager.currentReasoning
+												? 'Thinking'
+												: undefined}
 								/>
 							{/if}
 						</div>

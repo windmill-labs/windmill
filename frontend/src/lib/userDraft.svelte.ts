@@ -82,10 +82,19 @@ type DraftEntry = {
 	 */
 	seedNextWrite: boolean
 	/**
-	 * Tears down the entry's `$effect.root` scope; called at refcount 0.
-	 * `undefined` only on the test-runtime fallback path (see `acquireEntry`).
+	 * Tears down the entry's autosave-mirror `$effect.root`; called once at
+	 * refcount 0. The mirror is created detached from any component (see
+	 * `acquireEntry`), so this is the ONLY thing that disposes it. Also flips
+	 * `mirrorDisposed` to defuse the deferred creation if the entry is released
+	 * before the mirror is even set up. In vitest the deferred callback never
+	 * runs, so no root is created and this stays a no-op.
 	 */
 	destroyRoot?: () => void
+	/**
+	 * Set by `destroyRoot` so the microtask-deferred mirror creation aborts when
+	 * the entry was released (refcount 0) before the mirror was established.
+	 */
+	mirrorDisposed?: boolean
 }
 
 export type UserDraftEntry<V = unknown> = {
@@ -193,7 +202,10 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  * comparing them would mask a true baseline match:
  * `draft_saved_at` (the draft's own save time), `edited_at` (deploy time),
  * `edited_by` (deploy author), `workspace_id`, `version_id` (deployed version),
- * and `is_draft` (backend presence flag).
+ * `is_draft` (backend presence flag), and `assets` (server-derived on deploy
+ * from the content — the editor's draft value never carries it, so a deployed
+ * baseline's `assets: []` would otherwise never equal the assets-less draft and
+ * every untouched load would autosave a phantom draft).
  */
 const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'permissioned_as',
@@ -205,7 +217,8 @@ const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'workspace_id',
 	'version_id',
 	'parent_version',
-	'is_draft'
+	'is_draft',
+	'assets'
 ] as const
 
 /**
@@ -257,6 +270,38 @@ export const UserDraft = {
 			rememberWrite(ws, itemKind, path, value)
 			void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value })
 		}
+	},
+
+	/**
+	 * Persist this key's CURRENT in-memory value to the server immediately,
+	 * bypassing autosave's change-detection. For "Open in AI session" on a
+	 * never-deployed item: it may have no draft row yet (an untouched new
+	 * script's template seed never triggers autosave), and the session preview
+	 * loads it via get-by-path, which 404s without a persisted draft. No-op
+	 * when no value is held for this key. Resolves once the POST lands.
+	 *
+	 * MUST NOT be a general save path: it skips the handle's `discardIf`
+	 * baseline check, so a value back at the deployed baseline would persist a
+	 * no-op draft instead of the delete autosave sends. Only safe for
+	 * never-deployed items, which have no baseline.
+	 */
+	async forcePersist(
+		itemKind: UserDraftItemKind,
+		path: string,
+		opts?: UserDraftOptions
+	): Promise<void> {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		const val = entry ? entry.state.val : writtenCache.get(mk)?.val
+		if (val === undefined) return
+		await UserDraftDbSyncer.save({
+			workspace: ws,
+			itemKind,
+			path,
+			value: snapshotDraftValue(val),
+			immediate: true
+		})
 	},
 
 	/**
@@ -705,118 +750,130 @@ function acquireEntry(
 		existing.count++
 		return
 	}
-	// Seed the cell with `defaultValue` (deep-cloned). Swallowed by
-	// `skipNextWrite` below — it never POSTs.
+	// Seed the cell with `defaultValue` (deep-cloned). The mirror below anchors
+	// its baseline to this seed so it never POSTs the template.
 	const seed = defaultValue !== undefined ? snapshotDraftValue(defaultValue) : undefined
-	// `$effect.root` gives the entry its own scope, disposed only by
-	// `releaseEntry`. Without it the sync `$effect` would parent to
-	// `useMany`'s reconcile effect and die on the next reconcile.
-	let stateRef: DraftState<unknown> | undefined
-	const destroyRoot = $effect.root(() => {
-		const cell = $state<{ val: unknown }>({ val: seed })
-		stateRef = cell as DraftState<unknown>
-		// Mirror every observable change of `cell.val` to the syncer.
-		// `readFieldsRecursively` walks the value so deep mutations
-		// (`handle.draft.content = '...'`) re-fire the effect — reading
-		// `cell.val` alone only subscribes to the proxy root.
-		//
-		// `lastSerialized` + `skipNextWrite` dedup no-op updates and treat
-		// the FIRST change after mount as the seed/restore (no POST), so
-		// landing on `?new_draft` doesn't sync until the user edits.
-		//
-		// `cell.val === undefined` is the delete signal (`value: null`).
-		// `skipNextSync` lets callers that already POSTed (`discard`,
-		// `remove`) suppress the duplicate fire from their own write.
-		let lastSerialized: string | undefined = undefined
-		let skipNextWrite = true
-		$effect(() => {
-			const val = cell.val
-			if (val !== undefined) readFieldsRecursively(val)
-			const next = val === undefined ? undefined : JSON.stringify(val)
-			if (next === lastSerialized) {
-				// No-op write. If a `seed` re-seeded the value already in the
-				// cell, its one-shot flag consumed nothing — defuse it here or
-				// it lingers and swallows the user's NEXT edit. (`skipNextWrite`
-				// stays armed: an undefined-seeded cell's initial run lands
-				// here, and page editors rely on it to swallow their load write.)
-				const e = entries.get(mk)
-				if (e?.seedNextWrite) e.seedNextWrite = false
-				return
-			}
-			lastSerialized = next
-			if (skipNextWrite) {
-				skipNextWrite = false
-				// One write consumes BOTH one-shot guards: a `seed` on a fresh
-				// entry (still armed with the first-write skip) must not leave
-				// `seedNextWrite` behind to swallow the user's first edit.
-				const fresh = entries.get(mk)
-				if (fresh?.seedNextWrite) fresh.seedNextWrite = false
-				return
-			}
-			const entry = entries.get(mk)
-			// `seed` write: baseline already advanced above; don't POST.
-			if (entry?.seedNextWrite) {
-				entry.seedNextWrite = false
-				return
-			}
-			if (entry?.skipNextSync) {
-				entry.skipNextSync = false
-				return
-			}
-			// `syncSuspended` swallows the POST but `lastSerialized` advanced
-			// above, so only writes made during suspension are dropped — the
-			// first change after resume is still detected.
-			if (entry?.syncSuspended) return
-			// At the deployed baseline → sync a delete, not a baseline-equal
-			// copy. `untrack` so reactive reads in the predicate (the editor's
-			// post-deploy baseline) don't re-fire the mirror.
-			const atBaseline = untrack(() => val !== undefined && (discardIf?.(val) ?? false))
-			void UserDraftDbSyncer.save({
-				workspace,
-				itemKind,
-				path,
-				value: val === undefined || atBaseline ? null : val,
-				// Reactive keystroke mirror — `auto`, so suppressed while the
-				// auto-save toggle is off (for `canBeDisabled` handles).
-				auto: true,
-				canBeDisabled
-			})
-		})
-	})
-	if (stateRef) {
-		entries.set(mk, {
-			count: 1,
-			workspace,
-			itemKind,
-			path,
-			state: stateRef,
-			skipNextSync: false,
-			syncSuspended: pendingSuspensions.delete(mk),
-			seedNextWrite: false,
-			destroyRoot
-		})
-		return
-	}
-	// Fallback for the vitest runtime where `$effect.root`'s callback isn't
-	// invoked (unreachable in production). No sync effect — writes in tests
-	// stay in-memory.
-	const fallback = $state<{ val: unknown }>({ val: seed })
-	entries.set(mk, {
+	const cell = $state<{ val: unknown }>({ val: seed })
+	const stateRef = cell as DraftState<unknown>
+	const entry: DraftEntry = {
 		count: 1,
 		workspace,
 		itemKind,
 		path,
-		state: fallback as DraftState<unknown>,
+		state: stateRef,
 		skipNextSync: false,
 		syncSuspended: pendingSuspensions.delete(mk),
-		seedNextWrite: false
-	})
+		seedNextWrite: false,
+		mirrorDisposed: false,
+		// Placeholder until the deferred `createMirror` swaps in the real teardown;
+		// flips `mirrorDisposed` so a release before then aborts the creation.
+		destroyRoot: () => {
+			entry.mirrorDisposed = true
+		}
+	}
+	entries.set(mk, entry)
+	const createMirror = (): void => {
+		// Bail if this entry was released before the microtask ran, or if the key
+		// was released and re-acquired (a different entry now owns `mk` — its own
+		// `createMirror` will run).
+		if (entry.mirrorDisposed || entries.get(mk) !== entry) return
+		entry.destroyRoot = $effect.root(() => {
+			// Mirror every observable change of `cell.val` to the syncer.
+			// `readFieldsRecursively` walks the value so deep mutations
+			// (`handle.draft.content = '...'`) re-fire the effect — reading
+			// `cell.val` alone only subscribes to the proxy root.
+			//
+			// `lastSerialized` + `skipNextWrite` dedup no-op updates and treat
+			// the seed/restore as no-POST, so landing on `?new_draft` doesn't
+			// sync until the user edits.
+			//
+			// The swallow is anchored to the seed VALUE, not "first change after
+			// mount": when a `defaultValue` seeded the cell, `lastSerialized`
+			// starts at its serialization so a first mirror run that still equals
+			// the seed is a genuine no-op, while a first run that already DIFFERS
+			// is the user's edit and must POST. That closes a create-path race —
+			// the mirror is created in a deferred microtask (see below) and the
+			// handle re-keys detached→acquired as the workspace resolves, so the
+			// seed and the user's first edit can land before the mirror's first
+			// run and coalesce into it; a blind "swallow the first change" would
+			// eat that edit.
+			//
+			// With no in-hand seed (page editors load & assign the value AFTER
+			// mount), arm the blind first-write swallow so that post-load
+			// assignment doesn't POST.
+			//
+			// `cell.val === undefined` is the delete signal (`value: null`).
+			// `skipNextSync` lets callers that already POSTed (`discard`,
+			// `remove`) suppress the duplicate fire from their own write.
+			let lastSerialized: string | undefined = seed === undefined ? undefined : JSON.stringify(seed)
+			let skipNextWrite = seed === undefined
+			$effect(() => {
+				const val = cell.val
+				if (val !== undefined) readFieldsRecursively(val)
+				const next = val === undefined ? undefined : JSON.stringify(val)
+				if (next === lastSerialized) {
+					// No-op write. If a `seed` re-seeded the value already in the
+					// cell, its one-shot flag consumed nothing — defuse it here or
+					// it lingers and swallows the user's NEXT edit. (`skipNextWrite`
+					// stays armed: an undefined-seeded cell's initial run lands
+					// here, and page editors rely on it to swallow their load write.)
+					if (entry.seedNextWrite) entry.seedNextWrite = false
+					return
+				}
+				lastSerialized = next
+				if (skipNextWrite) {
+					skipNextWrite = false
+					// One write consumes BOTH one-shot guards: a `seed` on a fresh
+					// entry (still armed with the first-write skip) must not leave
+					// `seedNextWrite` behind to swallow the user's first edit.
+					if (entry.seedNextWrite) entry.seedNextWrite = false
+					return
+				}
+				// `seed` write: baseline already advanced above; don't POST.
+				if (entry.seedNextWrite) {
+					entry.seedNextWrite = false
+					return
+				}
+				if (entry.skipNextSync) {
+					entry.skipNextSync = false
+					return
+				}
+				// `syncSuspended` swallows the POST but `lastSerialized` advanced
+				// above, so only writes made during suspension are dropped — the
+				// first change after resume is still detected.
+				if (entry.syncSuspended) return
+				// At the deployed baseline → sync a delete, not a baseline-equal
+				// copy. `untrack` so reactive reads in the predicate (the editor's
+				// post-deploy baseline) don't re-fire the mirror.
+				const atBaseline = untrack(() => val !== undefined && (discardIf?.(val) ?? false))
+				void UserDraftDbSyncer.save({
+					workspace,
+					itemKind,
+					path,
+					value: val === undefined || atBaseline ? null : val,
+					// Reactive keystroke mirror — `auto`, so suppressed while the
+					// auto-save toggle is off (for `canBeDisabled` handles).
+					auto: true,
+					canBeDisabled
+				})
+			})
+		})
+	}
+	// Defer so the root is created with no active component/effect — a top-level
+	// scope owned by the entry, not by the acquiring component. An inline
+	// `$effect.root` would die when that component unmounts while other holders
+	// still edit the same draft (see `destroyRoot`).
+	queueMicrotask(createMirror)
 }
 
 function releaseEntry(mk: string): void {
 	const entry = entries.get(mk)
 	if (!entry) return
 	entry.count--
+	// The mirror is owned by the ENTRY (created detached — see `acquireEntry`),
+	// not by any holder, so releasing one holder never touches it; it is disposed
+	// only here, once, at refcount 0. This is what lets multiple holders (warm
+	// session previews + the nav editor) share the entry and drop in any order.
 	if (entry.count <= 0) {
 		// The live entry was authoritative while mounted; once gone, drop any
 		// cached write for this key so a later read falls back to the server

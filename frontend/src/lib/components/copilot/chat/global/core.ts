@@ -363,7 +363,14 @@ const writeFlowSchema = z.object({
 		.optional()
 		.nullable()
 		.describe(
-			'JSON string containing the optional array of semantic flow groups. Pass null to clear groups.'
+			'JSON string, array of semantic flow groups (call get_instructions subject:"flow" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear groups.'
+		),
+	notes: z
+		.string()
+		.optional()
+		.nullable()
+		.describe(
+			'JSON string, array of free-floating sticky notes (type must be "free"; call get_instructions subject:"flow" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear notes.'
 		),
 	override: draftOverrideField
 })
@@ -386,7 +393,8 @@ function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
 		modules: editable.modules,
 		preprocessor_module: editable.preprocessor_module ?? undefined,
 		failure_module: editable.failure_module ?? undefined,
-		groups: editable.groups ?? undefined
+		groups: editable.groups ?? undefined,
+		notes: editable.notes ?? undefined
 	}
 	return {
 		value,
@@ -1620,20 +1628,34 @@ function getFlowInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
-- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
-- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
 
+## Organizing flows: groups and notes
+
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional, but **strongly recommended** — proactively segment any non-trivial flow into groups so it reads clearly; don't wait to be asked). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`notes\`: Array of free-floating sticky notes shown in the editor (optional). Each note has \`id\` (unique string), \`text\` (markdown content), \`color\` (same palette as groups: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — never hex codes), and optional \`position\` {x, y} / \`size\` {width, height} (omit both — the editor auto-places and sizes the note). Always set \`type\` to \`free\`. The \`group\` note type is **deprecated** — do not create group notes; use the \`groups\` field to segment a flow instead. Notes are documentation only and do not affect execution. Pass \`null\` to clear existing notes.
+
+### When to use notes vs groups
+
+**Strongly prefer \`groups\` to organize flows.** Groups are the primary way to make a flow readable: whenever a flow has more than a couple of steps, or any time consecutive steps form a logical stage (e.g. "fetch", "transform", "notify"), segment them into \`groups\`. Each group spans a range of steps (\`start_id\`..\`end_id\`), carries its own \`summary\`, \`note\` (markdown under the group header), and \`color\`, and can be collapsed. Proactively add or update groups when building or restructuring a flow — do not wait to be asked. Aim for every meaningful step to belong to a semantic group.
+
+- **\`groups\` (default, use liberally):** segment a flow into labelled semantic sections. This is the main organizational tool — reach for it on essentially any non-trivial flow, not just "complex" ones.
+- **\`notes\` (free sticky notes, use sparingly):** reserve for important flow-wide information that does not belong to a specific span of steps — overall purpose, key assumptions, warnings, or TODOs. Usually a single note is enough; do not use notes to label sequences of steps (that is what \`groups\` are for).
+- Do **not** use \`group\`-type notes (deprecated) — \`groups\` is the supported way to group steps.
+- With \`patch_flow_json\`, edit \`groups\` and \`notes\` the same way as any other field — they appear as top-level keys in the compact flow value.
+
 ## Compact view: how rawscript bodies surface in tool I/O
 
-- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
+- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, notes, preprocessor_module and failure_module are all shown in this view.
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
-- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
+- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups/notes. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
 # Windmill flow authoring reference
@@ -2376,7 +2398,8 @@ export const globalTools: Tool<{}>[] = [
 					'preprocessor_module'
 				),
 				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
-				groups: parseOptionalJsonArg(parsed.groups, 'groups')
+				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
+				notes: parseOptionalJsonArg(parsed.notes, 'notes')
 			})
 			return writeFlowDraft(
 				{
@@ -2454,7 +2477,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunScriptByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run script test',
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2465,7 +2488,7 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow test',
+		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2476,7 +2499,8 @@ export const globalTools: Tool<{}>[] = [
 			return testRunFlowStepByPath(parsed, ctx)
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow step test',
+		confirmationMessage: (args) =>
+			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -3728,6 +3752,13 @@ async function loadDraftFlowPreviewValue(
 	}
 	const nestedFlow = await loadFlowDraftValue(path, workspace)
 	return flowDraftValueForPreview(nestedFlow.flow)
+}
+
+// Leaf of a workspace path (last segment), for human-readable confirmation
+// prompts. Falls back to the full path, then a generic noun.
+function pathLeaf(path: unknown, fallback: string): string {
+	const p = typeof path === 'string' ? path : ''
+	return p.split('/').filter(Boolean).pop() || p || fallback
 }
 
 async function testRunScriptByPath(

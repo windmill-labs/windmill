@@ -96,7 +96,11 @@ and continue once they confirm it's done.
 1. Run `git status` to check for uncommitted changes
 2. Run `git log main..HEAD --oneline` to see all commits in this branch
 3. Run `git diff main...HEAD` to see the full diff against main
-4. **Invoke the `local-review` skill** before creating the PR (`/local-review` in Claude Code, `$local-review` in Codex, `pi --skill local-review` / `/skill:local-review` in Pi). If issues are found, fix them and commit before proceeding. Do not skip this step.
+4. **Review the diff before creating the PR — run both reviews, do not skip:**
+   - **`local-review`** — Claude-native branch-diff-reviewer (`/local-review` in Claude Code, `$local-review` in Codex, `pi --skill local-review` / `/skill:local-review` in Pi).
+   - **`local-review-codex`** — cold Codex pass, the same review CI runs, for an independent perspective the Claude pass misses (`/local-review-codex` in Claude Code, or `bash .agents/skills/local-review-codex/run.sh`). If the `codex` CLI is missing or older than the version pinned in that skill, note it in your summary and continue — never block the PR on codex being unavailable.
+
+   Run both — they catch different things. If either surfaces issues, fix them and commit before proceeding.
 5. **Screenshots for frontend changes**: if `git diff main...HEAD --name-only` matches `^frontend/`, capture and embed screenshots of the affected UI per "Screenshots" above before writing the PR body (skip only if there is no visible UI effect).
 6. Check if remote branch exists and is up to date:
    ```bash

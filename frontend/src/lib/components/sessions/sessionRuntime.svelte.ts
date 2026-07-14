@@ -38,6 +38,7 @@ import {
 	setGeneratedSessionSummary,
 	setSessionChatId,
 	setSessionPreviewCollapsed,
+	setSessionPreviewSize,
 	setSessionTabs,
 	type Session
 } from './sessionState.svelte'
@@ -321,7 +322,11 @@ function createRuntime(session: Session): SessionRuntime {
 		materializeTransient(session.id)
 		// Session is now persisted → flush any linked files buffered while it was transient.
 		await manager.attachedFiles.flushPending()
+		// Fork creation is the slow part of the pre-flight; label the loading
+		// indicator so the user knows why the send is taking a moment.
+		manager.loadingLabel = 'Creating workspace fork...'
 		const committed = await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
+		manager.loadingLabel = undefined
 		// commitSessionWorkspace returns undefined only when the session did NOT
 		// commit to a workspace — most importantly when a staged fork failed to
 		// materialise (materializeFork is built to toast + return undefined rather
@@ -398,12 +403,13 @@ function createRuntime(session: Session): SessionRuntime {
 	// Hydrate the preview-tab owner from the session record (the durable backing);
 	// from here on the owner is the single live copy and writes back through the
 	// adapter. setSessionTabs / setSessionPreviewCollapsed stay the low-level record
-	// writers (a transient session's writes land in the localStorage draft slot
-	// until it materialises).
+	// writers (opening/moving a tab is a touch that persists an in-memory draft).
 	const previewTabs = new SessionPreviewTabs(hydratePreviewTabs(session), {
 		persist: (snap) => {
 			setSessionTabs(session.id, snap.tabs, snap.activeId)
 			setSessionPreviewCollapsed(session.id, snap.collapsed)
+			// Only persist a real width; undefined means "never resized" (defaults to 50).
+			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
 		onTabsChanged: pruneEditorCells
 	})
@@ -472,7 +478,7 @@ function createRuntime(session: Session): SessionRuntime {
 					} catch {
 						saved.val = undefined
 					}
-					await initFlow(aiDraft, store, stateStore)
+					await initFlow(aiDraft, store, stateStore, workspace)
 					if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
 					slot.loadedPath = path
 					slot.loadedWorkspace = workspace
@@ -494,7 +500,7 @@ function createRuntime(session: Session): SessionRuntime {
 					(result as SavedFlow).draft_saved_at
 				)
 				UserDraft.save('flow', path, flow, { workspace })
-				await initFlow(flow, store, stateStore)
+				await initFlow(flow, store, stateStore, workspace)
 				if (deployedVersionId != null && store.val) store.val.version_id = deployedVersionId
 				slot.loadedPath = path
 				slot.loadedWorkspace = workspace

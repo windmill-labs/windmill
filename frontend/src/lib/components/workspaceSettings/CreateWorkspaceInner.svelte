@@ -14,12 +14,13 @@
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
-	import { usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		workspaceIsFork,
 		findWorkspaceRoot,
 		findWorkspaceDescendants
 	} from '$lib/utils/workspaceHierarchy'
+	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { resource } from 'runed'
 	import { Badge, Button } from '$lib/components/common'
 	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
@@ -83,10 +84,19 @@
 	// a fork here (rather than the root) yields a fork of a fork.
 	let baseWorkspaceId = $state<string | undefined>(undefined)
 
+	// Base list for forking, folding in a superadmin-visited workspace (see useForkableWorkspaces).
+	const forkable = useForkableWorkspaces({
+		workspaces: () => $userWorkspaces,
+		currentWorkspaceId: () => $workspaceStore,
+		isSuperadmin: () => !!$superadmin,
+		enabled: () => isFork
+	})
+	let forkableWorkspaces = $derived(forkable.current)
+
 	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
-	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, $userWorkspaces))
+	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
-		familyRoot ? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, $userWorkspaces)] : []
+		familyRoot ? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)] : []
 	)
 	let baseItems = $derived(
 		baseCandidates.map((w) => ({
@@ -112,13 +122,13 @@
 
 	// The dev-workspace option is only offered when forking a root workspace that doesn't already
 	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
-	let baseWorkspaceEntry = $derived($userWorkspaces.find((w) => w.id === baseWorkspaceId))
+	let baseWorkspaceEntry = $derived(forkableWorkspaces.find((w) => w.id === baseWorkspaceId))
 	// Require the base workspace to be loaded before treating it as a root: a missing entry must
 	// not read as root (it would offer invalid dev creation while the workspace list is still loading).
 	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
 	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
 	let currentIsRoot = $derived(
-		!!baseWorkspaceEntry && !workspaceIsFork(baseWorkspaceId, $userWorkspaces)
+		!!baseWorkspaceEntry && !workspaceIsFork(baseWorkspaceId, forkableWorkspaces)
 	)
 	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
 	// so the client workspace list can't see it and would offer an invalid "create dev" action.

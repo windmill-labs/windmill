@@ -207,7 +207,7 @@
 	async function reload(flowModule: FlowModule) {
 		reloadError = undefined
 		try {
-			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			const { input_transforms, schema } = await loadSchemaFromModule(flowModule, opWs)
 			validCode = true
 
 			if (inputTransformSchemaForm) {

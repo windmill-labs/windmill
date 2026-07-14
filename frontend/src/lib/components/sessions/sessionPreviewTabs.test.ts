@@ -93,6 +93,16 @@ describe('hydratePreviewTabs', () => {
 		expect(hydratePreviewTabs({ previewCollapsed: false }).collapsed).toBe(false)
 	})
 
+	it('restores the saved previewSize (with tabs and empty)', () => {
+		const withTabs = hydratePreviewTabs({
+			previewTabs: [{ id: 'a', url: '/x', loc: '/x' }],
+			previewSize: 70
+		})
+		expect(withTabs.previewSize).toBe(70)
+		expect(hydratePreviewTabs({ previewSize: 40 }).previewSize).toBe(40)
+		expect(hydratePreviewTabs({}).previewSize).toBeUndefined()
+	})
+
 	it('drops malformed saved tabs, duplicate ids and stray fields, defaulting loc to url', () => {
 		const snap = hydratePreviewTabs({
 			previewTabs: [
@@ -280,6 +290,16 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.activeId).toBe(tabId)
 		expect(o.tabs[0].url).toBe(`${base}/pipeline/sales`)
 	})
+
+	it('drops a stale friendly label when the tab is retargeted', () => {
+		const o = owner()
+		o.open(flowTarget)
+		o.setEditorFriendlyLabel({ kind: 'flow', path: 'u/me/bar' }, 'luminous_flow')
+		expect(o.tabs[0].friendlyLabel).toBe('luminous_flow')
+		// Navigating the same tab to a plain page must clear the flow's name.
+		o.navigate(pageTarget)
+		expect(o.tabs[0].friendlyLabel).toBeUndefined()
+	})
 })
 
 describe('SessionPreviewTabs.select / close / setCollapsed', () => {
@@ -324,6 +344,39 @@ describe('SessionPreviewTabs.select / close / setCollapsed', () => {
 		const o = owner({ collapsed: false })
 		o.setCollapsed(true)
 		expect(o.collapsed).toBe(true)
+	})
+
+	it('sets previewSize and flushes it into the snapshot', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({ previewSize: 50 }, adapter)
+		o.setPreviewSize(70)
+		expect(o.previewSize).toBe(70)
+		vi.runAllTimers()
+		expect(persisted.at(-1)?.previewSize).toBe(70)
+	})
+
+	it('setPreviewSize dedupes an unchanged value (no persist)', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({ previewSize: 70 }, adapter)
+		o.setPreviewSize(70)
+		vi.runAllTimers()
+		expect(persisted).toHaveLength(0)
+	})
+
+	it('a never-resized owner persists previewSize as undefined, never a default', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({}, adapter) // no previewSize
+		o.open(scriptTarget) // any tab mutation triggers a flush
+		vi.runAllTimers()
+		expect(persisted.at(-1)?.previewSize).toBeUndefined()
+	})
+
+	it('setPreviewSize skips the tab-cell prune (onTabsChanged)', () => {
+		const onTabsChanged = vi.fn()
+		const o = owner({ previewSize: 50 }, { persist: () => {}, onTabsChanged })
+		o.setPreviewSize(70)
+		vi.runAllTimers()
+		expect(onTabsChanged).not.toHaveBeenCalled()
 	})
 
 	it('reset replaces the whole model and reveals the panel', () => {
