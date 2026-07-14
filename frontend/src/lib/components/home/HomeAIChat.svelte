@@ -48,6 +48,12 @@
 	// (unloaded) state doesn't flash the overlay while a provider is configured.
 	let disabled = $derived($copilotWorkspace === $workspaceStore && !$copilotInfo.enabled)
 
+	// Applied to the AI-specific parts only (title, input, example tags). The CLI/MCP and
+	// Hub buttons are unrelated to AI and must stay sharp and clickable on hover.
+	let blurClass = $derived(
+		disabled ? 'transition-[filter] group-hover:blur-sm pointer-events-none select-none' : ''
+	)
+
 	// Disabled because the user spent their free Windmill AI grant, not because AI was never
 	// set up — the two look identical otherwise, and the "configure AI" copy would be a lie.
 	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
@@ -116,11 +122,7 @@
 
 <div class="w-full flex justify-center">
 	<div class="max-w-[40rem] grow relative group">
-		<div
-			class={disabled
-				? 'transition-[filter] group-hover:blur-sm pointer-events-none select-none'
-				: ''}
-		>
+		<div class={blurClass}>
 			<p class="text-center font-regular text-3xl mb-4">Build with AI</p>
 			<!-- anchors the send button / model settings to the input, not to the whole
 			     block — the row below would otherwise push them down -->
@@ -144,45 +146,47 @@
 					<AIChatModelSettings />
 				</div>
 			</div>
+		</div>
 
-			<div class="flex items-center justify-between gap-2">
-				<div class="flex flex-row flex-wrap items-center gap-1.5">
-					{#each homeAIExamples as example (example.label)}
-						<Button
-							variant="default"
-							unifiedSize="xs"
-							btnClasses="!rounded-full !text-2xs !text-hint"
-							onClick={() => (value = example.prompt)}
-						>
-							{example.label}
-						</Button>
-					{/each}
-				</div>
+		<div class="flex items-center justify-between gap-2">
+			<div class="flex flex-row flex-wrap items-center gap-1.5 {blurClass}">
+				{#each homeAIExamples as example (example.label)}
+					<Button
+						variant="default"
+						unifiedSize="xs"
+						btnClasses="!rounded-full !text-2xs !text-hint"
+						onClick={() => (value = example.prompt)}
+					>
+						{example.label}
+					</Button>
+				{/each}
+			</div>
 
-				<div class="flex flex-row items-center gap-1">
+			<!-- Not AI-related: kept out of the blurred subtree and above the hover overlay so
+			     it stays sharp and clickable while the chat is disabled. -->
+			<div class="relative z-20 flex flex-row items-center gap-1">
+				<Button
+					variant="subtle"
+					unifiedSize="xs"
+					btnClasses="!text-2xs !text-hint"
+					startIcon={{ icon: PlugZap }}
+					onClick={() => homeConnectDrawer?.openDrawer?.()}
+				>
+					CLI / MCP
+				</Button>
+				{#if !$userStore?.operator && HOME_SHOW_HUB}
 					<Button
 						variant="subtle"
 						unifiedSize="xs"
 						btnClasses="!text-2xs !text-hint"
-						startIcon={{ icon: PlugZap }}
-						onClick={() => homeConnectDrawer?.openDrawer?.()}
+						startIcon={{ icon: Globe2 }}
+						endIcon={{ icon: ExternalLink }}
+						href={$hubBaseUrlStore}
+						target="_blank"
 					>
-						CLI / MCP
+						Hub
 					</Button>
-					{#if !$userStore?.operator && HOME_SHOW_HUB}
-						<Button
-							variant="subtle"
-							unifiedSize="xs"
-							btnClasses="!text-2xs !text-hint"
-							startIcon={{ icon: Globe2 }}
-							endIcon={{ icon: ExternalLink }}
-							href={$hubBaseUrlStore}
-							target="_blank"
-						>
-							Hub
-						</Button>
-					{/if}
-				</div>
+				{/if}
 			</div>
 		</div>
 		{#if disabled}
