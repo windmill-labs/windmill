@@ -134,7 +134,7 @@
 			Reset
 		</Button>
 	{/if}
-	<Popover enableFlyTransition bind:isOpen>
+	<Popover enableFlyTransition placement="bottom-end" bind:isOpen>
 		{#snippet trigger()}
 			<Button
 				unifiedSize="md"
@@ -152,8 +152,10 @@
 					value.type === 'manual' && value.minTs ? new Date(value.minTs) : undefined
 				)
 			}}
-			<div class="flex divide-x">
-				<div class="flex flex-col p-2">
+			<div
+				class="flex flex-col sm:flex-row divide-y sm:divide-y-0 sm:divide-x max-w-[calc(100vw-2rem)] max-h-[80vh] overflow-auto"
+			>
+				<div class="flex flex-row flex-wrap sm:flex-col gap-1 sm:gap-0 p-2">
 					{#each items as item}
 						<Button
 							onClick={() => (value = { ...item })}
@@ -166,26 +168,28 @@
 						</Button>
 					{/each}
 				</div>
-				<InlineCalendarInput
-					class="p-4 max-w-[18rem]"
-					infiniteRange
-					mode="range"
-					onClickBehavior="set-start"
-					bind:value={
-						() => range,
-						(v) => onManualInput({ minTs: fromCalendarDate(v.start)?.toISOString() ?? null })
-					}
-				/>
-				<InlineCalendarInput
-					class="p-4 max-w-[18rem]"
-					infiniteRange
-					mode="range"
-					onClickBehavior="set-end"
-					bind:value={
-						() => range,
-						(v) => onManualInput({ maxTs: fromCalendarDate(v.end)?.toISOString() ?? null })
-					}
-				/>
+				<div class="flex flex-col sm:flex-row divide-y sm:divide-y-0 sm:divide-x">
+					<InlineCalendarInput
+						class="p-4 w-full sm:max-w-[18rem]"
+						infiniteRange
+						mode="range"
+						onClickBehavior="set-start"
+						bind:value={
+							() => range,
+							(v) => onManualInput({ minTs: fromCalendarDate(v.start)?.toISOString() ?? null })
+						}
+					/>
+					<InlineCalendarInput
+						class="p-4 w-full sm:max-w-[18rem]"
+						infiniteRange
+						mode="range"
+						onClickBehavior="set-end"
+						bind:value={
+							() => range,
+							(v) => onManualInput({ maxTs: fromCalendarDate(v.end)?.toISOString() ?? null })
+						}
+					/>
+				</div>
 			</div>
 		{/snippet}
 	</Popover>
