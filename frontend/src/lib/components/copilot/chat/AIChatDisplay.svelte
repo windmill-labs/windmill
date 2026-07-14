@@ -15,6 +15,7 @@
 		Hand,
 		HistoryIcon,
 		Hourglass,
+		KeyRound,
 		MousePointer2,
 		Plus,
 		TextSelect,
@@ -52,9 +53,16 @@
 		readDroppedEntries
 	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { copilotInfo } from '$lib/aiStore'
+	import { base } from '$lib/base'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
+
+	// The user spent their one-time free Windmill AI grant: there is no model left to send
+	// to, so say so in the thread itself rather than only failing on send.
+	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
 	// `label` is shown in the dropdown; `shortLabel` (when set) is shown in the
 	// compact trigger pill to save horizontal space.
 	type AutonomyModeOption = { label: string; shortLabel?: string; mode: AIAutonomyMode }
@@ -479,6 +487,27 @@
 	)
 </script>
 
+{#snippet freeTierExhaustedBanner()}
+	<div class="my-2">
+		<Alert type="error" size="xs" title="Free Windmill AI used up">
+			<div class="flex flex-col items-start gap-2">
+				<span>
+					You have used all of your free Windmill AI tokens. Add your own API key to keep using AI.
+				</span>
+				<Button
+					size="xs2"
+					variant="default"
+					color="red"
+					startIcon={{ icon: KeyRound }}
+					href="{base}/workspace_settings?tab=ai"
+				>
+					Add your own API key
+				</Button>
+			</div>
+		</Alert>
+	</div>
+{/snippet}
+
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
@@ -588,6 +617,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				script editor to modify selected lines.</span
 			>
 		{/if}
+		{#if freeTierExhausted}
+			<div class={wideLayout ? 'w-full max-w-3xl mx-auto px-7' : 'w-full max-w-2xl mx-auto px-3'}>
+				{@render freeTierExhaustedBanner()}
+			</div>
+		{/if}
 	{/if}
 
 	{#if messages.length > 0}
@@ -613,6 +647,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							isLast={messageIndex === messages.length - 1}
 						/>
 					{/each}
+					{#if freeTierExhausted}
+						{@render freeTierExhaustedBanner()}
+					{/if}
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(

@@ -365,6 +365,19 @@ impl ExpiringProviderCredentials {
     }
 }
 
+/// Set on the copilot config when the workspace has no AI provider of its own and is
+/// running on Windmill's free tier, so the client can label the lent model as free, warn
+/// before the grant runs out, and tell the user to add their own key once it has — rather
+/// than showing the same "no provider configured" state a never-configured workspace gets.
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct FreeTierInfo {
+    /// The grant is spent: no provider is served and the user must bring their own key.
+    pub exhausted: bool,
+    /// Fraction of the grant consumed, 0.0..=1.0. A ratio, not a dollar amount — the
+    /// pricing model stays server-side.
+    pub used_ratio: f64,
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AIConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -379,6 +392,11 @@ pub struct AIConfig {
     pub custom_prompts: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens_per_model: Option<HashMap<String, i32>>,
+    /// Response-only: this same struct is the request body for saving a workspace's AI
+    /// config, and `skip_deserializing` is what stops a client from storing a forged
+    /// free-tier marker. Only the server sets it, per-request.
+    #[serde(skip_serializing_if = "Option::is_none", skip_deserializing)]
+    pub free_tier: Option<FreeTierInfo>,
 }
 
 impl AIConfig {

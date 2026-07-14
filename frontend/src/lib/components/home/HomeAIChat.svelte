@@ -20,7 +20,7 @@
 
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ArrowUp, ExternalLink, Globe2, PlugZap, Settings } from 'lucide-svelte'
+	import { ArrowUp, ExternalLink, Globe2, KeyRound, PlugZap, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace, loadCopilot } from '$lib/aiStore'
@@ -47,6 +47,10 @@
 	// Gate on the config having actually loaded for this workspace so the initial
 	// (unloaded) state doesn't flash the overlay while a provider is configured.
 	let disabled = $derived($copilotWorkspace === $workspaceStore && !$copilotInfo.enabled)
+
+	// Disabled because the user spent their free Windmill AI grant, not because AI was never
+	// set up — the two look identical otherwise, and the "configure AI" copy would be a lie.
+	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
 
 	let starting = $state(false)
 	async function start() {
@@ -112,12 +116,12 @@
 
 <div class="w-full flex justify-center">
 	<div class="max-w-[40rem] grow relative group">
-		<p class="text-center font-regular text-3xl mb-4">Build with AI</p>
 		<div
 			class={disabled
 				? 'transition-[filter] group-hover:blur-sm pointer-events-none select-none'
 				: ''}
 		>
+			<p class="text-center font-regular text-3xl mb-4">Build with AI</p>
 			<!-- anchors the send button / model settings to the input, not to the whole
 			     block — the row below would otherwise push them down -->
 			<div class="relative">
@@ -185,14 +189,18 @@
 			<div
 				class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/70 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
 			>
-				<p class="text-sm text-secondary">No AI provider is configured</p>
+				<p class="text-sm text-secondary">
+					{freeTierExhausted
+						? 'You have used all of your free Windmill AI tokens'
+						: 'No AI provider is configured'}
+				</p>
 				<Button
 					unifiedSize="sm"
 					variant="accent"
-					startIcon={{ icon: Settings }}
+					startIcon={{ icon: freeTierExhausted ? KeyRound : Settings }}
 					href="{base}/workspace_settings?tab=ai"
 				>
-					Configure AI
+					{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
 				</Button>
 			</div>
 		{/if}

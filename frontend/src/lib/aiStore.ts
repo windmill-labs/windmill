@@ -1,6 +1,12 @@
 import { writable, get } from 'svelte/store'
 import { workspaceAIClients } from './components/copilot/lib'
-import { type AIProviderModel, type AIProvider, WorkspaceService, type AIConfig } from './gen'
+import {
+	type AIProviderModel,
+	type AIProvider,
+	WorkspaceService,
+	type AIConfig,
+	type FreeTierInfo
+} from './gen'
 import {
 	aiUserDisabled,
 	COPILOT_SESSION_MODEL_SETTING_NAME,
@@ -39,6 +45,10 @@ export const copilotInfo = writable<{
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
 	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
+	// Set only when the workspace has no AI provider of its own and is running on
+	// Windmill's free tier. `exhausted` means the grant is spent: there is no model, but
+	// that is a different state from "never configured" and the UI must say so.
+	freeTier?: FreeTierInfo
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
@@ -142,7 +152,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
-			webSearchEnabledProviders
+			webSearchEnabledProviders,
+			freeTier: aiConfig.free_tier
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -155,7 +166,10 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: [],
 			customPrompts: {},
 			maxTokensPerModel: {},
-			webSearchEnabledProviders: {}
+			webSearchEnabledProviders: {},
+			// An exhausted free grant lands here — no providers, but the reason AI is off
+			// is "you used it up", not "you never set it up".
+			freeTier: aiConfig.free_tier
 		})
 	}
 }

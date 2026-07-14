@@ -23524,6 +23524,24 @@ components:
             type: integer
             minimum: 1
             maximum: 2000000
+        free_tier:
+          $ref: "#/components/schemas/FreeTierInfo"
+
+    FreeTierInfo:
+      type: object
+      description: >-
+        Read-only. Present when the workspace has no AI provider of its own and is running
+        on Windmill's free tier. Ignored on write.
+      properties:
+        exhausted:
+          type: boolean
+          description: The one-time grant is spent; no provider is served and the user must add their own API key.
+        used_ratio:
+          type: number
+          description: Fraction of the grant consumed, 0 to 1.
+      required:
+        - exhausted
+        - used_ratio
 
     InstanceAIProviderSummary:
       type: object

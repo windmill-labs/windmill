@@ -64,6 +64,7 @@ import { untrack } from 'svelte'
 import { get } from 'svelte/store'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
+import { copilotInfo, loadCopilot } from '$lib/aiStore'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
 import { TypewriterReveal } from './typewriterReveal'
@@ -265,6 +266,29 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 		? `Failed to send request: ${errorMessage}`
 		: 'Failed to send request'
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
+}
+
+/**
+ * A free-tier user can exhaust their grant mid-session: the request that spends the last
+ * of it succeeds, and the NEXT one is refused by the proxy. copilotInfo is only fetched on
+ * workspace load, so without this the client would keep believing it has budget until a
+ * page reload — the user would see only a toast, never the banner. Re-fetching the config
+ * after a failed send lets the server tell us the grant is gone, which flips
+ * `freeTier.exhausted` and reveals the banner.
+ *
+ * Scoped to users actually on the free tier and not already flagged, so an ordinary AI
+ * error (rate limit, network) costs no extra request. Deliberately keyed on that state
+ * rather than on matching the error text, which would break the moment the copy changes.
+ */
+async function refreshFreeTierStateAfterError(workspace: string | undefined) {
+	if (!workspace) return
+	const info = get(copilotInfo)
+	if (!info.freeTier || info.freeTier.exhausted) return
+	try {
+		await loadCopilot(workspace)
+	} catch (err) {
+		console.error('Failed to refresh copilot info after AI error', err)
+	}
 }
 
 export class AIChatManager {
@@ -2395,6 +2419,7 @@ export class AIChatManager {
 				this.flagLastMessageAsError()
 			}
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
+			await refreshFreeTierStateAfterError(this.operatingWorkspace)
 		} finally {
 			this.loading = false
 			// Turn teardown: cancel any in-flight reveal frame and drop leftover

@@ -45,6 +45,13 @@
 	)
 	let models = $derived($copilotInfo.aiModels)
 
+	// Free tier: the workspace has no key of its own and is spending Windmill's one-time
+	// grant. Label it so the user knows whose budget this is, and warn before it runs out
+	// rather than letting the grant die mid-task.
+	let freeTier = $derived($copilotInfo.freeTier)
+	let freeUsedPct = $derived(Math.min(100, Math.round((freeTier?.used_ratio ?? 0) * 100)))
+	let freeRunningLow = $derived(!!freeTier && !freeTier.exhausted && freeUsedPct >= 80)
+
 	let capability = $derived(
 		getReasoningCapability(providerModel.provider as AIProvider, providerModel.model)
 	)
@@ -311,6 +318,13 @@
 					{#if effortLabel}
 						<span class="shrink-0 text-tertiary">· {effortLabel}</span>
 					{/if}
+					{#if freeTier && !freeTier.exhausted}
+						<span
+							class="shrink-0 rounded-full px-1.5 text-2xs {freeRunningLow
+								? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/40'
+								: 'bg-surface-secondary text-tertiary'}">Free</span
+						>
+					{/if}
 				</span>
 			</Button>
 		</div>
@@ -375,6 +389,42 @@
 				<div class="px-3 pt-1 pb-1.5 opacity-60 cursor-default" aria-disabled="true">
 					<div class="text-2xs uppercase tracking-wide text-secondary">Thinking</div>
 					<div class="text-2xs text-tertiary mt-0.5">Not supported by this model</div>
+				</div>
+			{/if}
+
+			{#if freeTier}
+				<div class="my-1 border-t border-border-light"></div>
+				<!-- Not a melt item: informational, so keyboard navigation skips it. -->
+				<div class="px-3 pt-1 pb-1.5">
+					<div class="flex items-center justify-between">
+						<span class="text-2xs uppercase tracking-wide text-secondary">Free Windmill AI</span>
+						<span
+							class="text-2xs tabular-nums {freeRunningLow ? 'text-yellow-600' : 'text-secondary'}"
+							>{freeUsedPct}% used</span
+						>
+					</div>
+					<div class="mt-1.5 h-1 w-full rounded-full bg-surface-secondary overflow-hidden">
+						<div
+							class="h-full rounded-full {freeRunningLow
+								? 'bg-yellow-500'
+								: 'bg-surface-accent-primary'}"
+							style="width: {freeUsedPct}%"
+						></div>
+					</div>
+					<div class="mt-1 text-2xs text-tertiary">
+						{freeTier.exhausted
+							? 'Your free tokens are used up. Add your own API key to keep using AI.'
+							: 'One-time allowance. Add your own API key for unlimited use.'}
+					</div>
+					{#if isAdmin}
+						<a
+							href={AI_SETTINGS_HREF}
+							target="_blank"
+							class="mt-1 inline-block text-2xs text-secondary hover:underline"
+						>
+							Add your own API key
+						</a>
+					{/if}
 				</div>
 			{/if}
 		</div>

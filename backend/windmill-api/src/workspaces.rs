@@ -205,8 +205,9 @@ async fn get_copilot_info(
     } else if let Some(free_config) =
         crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
     {
-        // Nothing configured: surface the free Claude Opus tier (EE-only) when it is
-        // available to this user.
+        // Nothing configured: fall back to Windmill's free tier (EE-only). The config
+        // carries a `free_tier` marker even once the user's grant is spent — with no
+        // providers, but telling the client *why* AI is off.
         Ok(Json(free_config))
     } else {
         Ok(Json(AIConfig::default()))
