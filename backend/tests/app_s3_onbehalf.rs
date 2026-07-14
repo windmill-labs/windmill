@@ -294,3 +294,104 @@ async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
 
     Ok(())
 }
+
+/// Seed a minimal deployed script so `execute_component` can resolve `script/<path>`.
+async fn seed_script(db: &Pool<Postgres>, path: &str, content: &str) -> anyhow::Result<()> {
+    let mut h = 0i64;
+    for b in path.bytes().chain(content.bytes()) {
+        h = h.wrapping_mul(31).wrapping_add(b as i64);
+    }
+    sqlx::query(
+        r#"INSERT INTO script (workspace_id, hash, path, summary, description, content,
+                                created_by, language, tag, lock)
+           VALUES ('test-workspace', $1, $2, '', '', $3, 'test-user', 'deno'::script_lang, 'deno', '')
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(h)
+    .bind(path)
+    .bind(content)
+    .execute(db)
+    .await?;
+    // #[sqlx::test] isolated DBs share one workspace id and reuse script paths; the
+    // process-global deployed-script cache is keyed by (workspace, path), so disable
+    // it here so `execute_component` resolves against this test's own DB.
+    windmill_common::DEPLOYED_SCRIPT_CACHE_DISABLED
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// End-to-end: `execute_component` must stamp the job it enqueues with
+/// `trigger_kind = 'app'` + `trigger = <app path>`. This is the marker the S3
+/// provenance gate relies on; the gate tests seed it directly, so this test proves
+/// the runtime actually produces it. `execute_component` commits the job row and
+/// returns its id, so we assert on the row without needing a worker to run it.
+#[sqlx::test(fixtures("base"))]
+async fn test_execute_component_stamps_app_trigger(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    const APP_PATH: &str = "u/test-user/trigger_marker_app";
+    const SCRIPT_PATH: &str = "u/test-user/query_to_s3";
+
+    seed_script(&db, SCRIPT_PATH, "export function main() { return 1 }").await?;
+
+    // Anonymous app wired to run the deployed script; keys use the production
+    // component-prefixed triggerable form.
+    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
+        .json(&json!({
+            "path": APP_PATH,
+            "summary": "trigger marker test",
+            "value": {},
+            "policy": {
+                "execution_mode": "anonymous",
+                "triggerables_v2": {
+                    format!("comp1:script/{SCRIPT_PATH}"): { "static_inputs": {}, "one_of_inputs": {} }
+                }
+            }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "app create: {}", resp.text().await?);
+
+    // Run the script component through the app runtime.
+    let resp = authed(
+        client().post(format!("{ws}/apps_u/execute_component/{APP_PATH}")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({
+        "component": "comp1",
+        "path": format!("script/{SCRIPT_PATH}"),
+        "args": {}
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let job_id = resp.text().await?;
+    assert_eq!(status, 200, "execute_component: {job_id}");
+    let job_id = job_id.trim().trim_matches('"');
+
+    // The enqueued job must carry the app-origination marker: trigger_kind = 'app'
+    // and trigger = the app path (NOT the runnable path).
+    let (trigger_kind, trigger): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT trigger_kind::text, trigger FROM v2_job WHERE id = $1::uuid AND workspace_id = 'test-workspace'",
+    )
+    .bind(job_id)
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(
+        trigger_kind.as_deref(),
+        Some("app"),
+        "execute_component must stamp trigger_kind = 'app' (got {trigger_kind:?})"
+    );
+    assert_eq!(
+        trigger.as_deref(),
+        Some(APP_PATH),
+        "trigger must be the app path, not the runnable path (got {trigger:?})"
+    );
+
+    Ok(())
+}
