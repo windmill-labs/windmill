@@ -395,3 +395,38 @@ async fn test_execute_component_stamps_app_trigger(db: Pool<Postgres>) -> anyhow
 
     Ok(())
 }
+
+/// `JobTriggerKind::App` (added for the app-origination S3 marker) is now a valid
+/// value for the suspended-trigger reassignment routes, but there is no
+/// `app_trigger` table. The handler must reject it with a clean 400 rather than
+/// failing on a missing-relation database error (500).
+#[sqlx::test(fixtures("base"))]
+async fn test_app_trigger_kind_rejected_for_reassignment(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(
+        client().post(format!(
+            "{ws}/trigger/app/resume_suspended_trigger_jobs/u/test-user/x"
+        )),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({}))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "app reassignment must be a clean 400, not 500: {body}"
+    );
+    assert!(
+        body.contains("do not support job reassignment"),
+        "expected reassignment-unsupported message, got: {body}"
+    );
+
+    Ok(())
+}
