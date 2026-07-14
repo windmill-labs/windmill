@@ -527,10 +527,9 @@ export async function reconcileAfterWorkspaceChange(): Promise<void> {
 	await reconcileSessionsLifecycle()
 }
 
-// Count non-transient sessions bound to a workspace — warns the user how many AI
-// sessions an archive/delete takes with it. Matches on `workspace_id ??
-// pending_workspace_id` so persisted unsent drafts count too, mirroring
-// reconcileSessionsLifecycle which tears them down alongside committed sessions.
+// Matches on `workspace_id ?? pending_workspace_id` so persisted unsent drafts
+// count too; reconcileSessionsLifecycle tears them down with committed sessions on
+// archive/delete, so this pre-teardown confirmation count must match.
 export async function countSessionsForWorkspace(workspaceId: string): Promise<number> {
 	if (!BROWSER) return 0
 	const db = await sessionsDb.whenReady()

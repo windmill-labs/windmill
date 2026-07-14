@@ -417,11 +417,10 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 	})
 
 	it('stops reusing a draft the instant it is typed into, before the debounce flush', () => {
-		// Exercises the real transition (not a hand-built untouched-flag session): a
-		// keystroke sets draftPrompt while the write is still debounced. The draft
-		// stays transient (in-memory only, so it survives hydration) but is no longer
-		// a reusable blank — pressing `+` within the window spawns a second pending
-		// session AND must not discard the typed draft.
+		// The real transition (not a hand-built flag): a keystroke sets draftPrompt
+		// while the write is debounced. The draft stays transient (survives hydration)
+		// but is no longer a reusable blank, so `+` within the window spawns a second
+		// session and must not discard the typed draft.
 		vi.useFakeTimers()
 		const restore = withTwoFamilies('rootA')
 		const prevCurrent = sessionState.currentSessionId
