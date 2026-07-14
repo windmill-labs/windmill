@@ -1010,7 +1010,10 @@ function processStreamIterative(res) {{
 
 {otel_context_inject}
 
-let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
+// A slot is `null` only when the arg was not provided: pass `undefined` so the
+// parameter default applies (JS defaults ignore `null`), matching the bun runner.
+// A provided JSON `null` arrives as the string "null" and stays `null`.
+let args = Deno.core.ops.op_get_static_args().map((arg) => arg === null ? undefined : JSON.parse(arg))
 import("file:///eval.ts").then((module) => module.{main_fn}(...args))
     .then(res => {{
         if (isAsyncIterable(res)) {{
