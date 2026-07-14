@@ -62,8 +62,9 @@ use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
-        JobPayload, RawCode,
+        JobPayload, JobTriggerKind, RawCode,
     },
+    triggers::TriggerMetadata,
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
@@ -3134,23 +3135,26 @@ async fn execute_component(
         }
         .filter(|t| !t.is_empty())
     };
-    let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
-        // flow or script:
-        (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
-        // inline script: "preview" mode, or run mode without an entry in the
-        // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
-        (None, Some(raw_code), None) => {
-            let tag = resolved_inline_tag(raw_code.tag.clone());
-            (JobPayload::Code(raw_code), tag, None)
-        }
-        // inline script: run mode (deployed app) with an entry in `app_script`.
-        (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
-            JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            resolved_inline_tag(tag),
-            None,
-        ),
-        _ => unreachable!(),
-    };
+    let (job_payload, tag, _runnable_on_behalf_of) =
+        match (payload.path, payload.raw_code, payload.id) {
+            // flow or script:
+            (Some(path), None, None) => {
+                get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?
+            }
+            // inline script: "preview" mode, or run mode without an entry in the
+            // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
+            (None, Some(raw_code), None) => {
+                let tag = resolved_inline_tag(raw_code.tag.clone());
+                (JobPayload::Code(raw_code), tag, None)
+            }
+            // inline script: run mode (deployed app) with an entry in `app_script`.
+            (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
+                JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+                resolved_inline_tag(tag),
+                None,
+            ),
+            _ => unreachable!(),
+        };
     // Preview honors the client-supplied inline tag (`resolved_inline_tag`), so
     // — like `/jobs/run/preview` — confine it to worker tags the caller may use
     // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
@@ -3167,17 +3171,21 @@ async fn execute_component(
     // and would add unnecessary breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
-    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
-        (
-            on_behalf_of.email.as_str(),
-            on_behalf_of.permissioned_as.clone(),
-        )
-    } else {
-        (email.as_str(), permissioned_as)
-    };
+    // An app component runs on-behalf of the APP identity (resolved above), never
+    // the referenced runnable's own `on_behalf_of` — else a Viewer-mode app could
+    // execute as that identity and a preview would run as it, not the caller.
+    // (Direct `/jobs/run` still honors a runnable's `on_behalf_of`.)
+    let (email, permissioned_as) = (email.as_str(), permissioned_as);
 
     let end_user_email =
         get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
+
+    // Stamp app-origination (trigger_kind='app' + trigger=<app path>), the signal
+    // the deployed-app S3 provenance gate trusts (unforgeable via `/jobs/run`).
+    // Deployed runs only: a preview runs as the caller and is read back as the caller
+    // (viewer-scoped), so it must never be app-provenanced (else it could forge one).
+    let app_trigger =
+        (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
     let (uuid, mut tx) = push(
         &db,
@@ -3209,7 +3217,7 @@ async fn execute_component(
         None,
         false,
         end_user_email,
-        None,
+        app_trigger,
         None,
     )
     .await?;
@@ -3867,10 +3875,12 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // tokens are excluded (untrusted app JS stays confined below).
         Ok(())
     } else {
-        // Author-mode (Anonymous/Publisher) or embed token: confine to the app's
-        // declared keys or files it recently produced. Without this gate a
-        // logged-in viewer could launder the author's S3 perms via an arbitrary
-        // file_key (confused deputy). Producing identity = caller else `anonymous`.
+        // Author-mode/embed: confine reads to the app's declared keys or files THIS
+        // app produced, else a viewer could launder the author's S3 perms via an
+        // arbitrary file_key (confused deputy). Provenance is the un-forgeable
+        // app-origination marker (`trigger_kind='app'` + `trigger=<this app>`);
+        // `created_by=<caller>` is ANDed only as a per-viewer isolation filter (it
+        // can narrow — one viewer can't read another's result — never forge).
         let creator = opt_authed
             .as_ref()
             .map(|authed| authed.username.clone())
@@ -3883,11 +3893,11 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 r#"SELECT EXISTS (
                 SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $2
-                    AND (j.kind = 'appscript' OR j.kind = 'preview')
-                    AND j.created_by = $4
                     AND c.started_at > now() - interval '3 hours'
-                    AND j.runnable_path LIKE $3 || '/%'
                     AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
+                    AND j.trigger_kind = 'app'
+                    AND j.trigger = $3
+                    AND j.created_by = $4
             )"#,
                 file_query.s3,
                 w_id,
