@@ -3135,23 +3135,26 @@ async fn execute_component(
         }
         .filter(|t| !t.is_empty())
     };
-    let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
-        // flow or script:
-        (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
-        // inline script: "preview" mode, or run mode without an entry in the
-        // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
-        (None, Some(raw_code), None) => {
-            let tag = resolved_inline_tag(raw_code.tag.clone());
-            (JobPayload::Code(raw_code), tag, None)
-        }
-        // inline script: run mode (deployed app) with an entry in `app_script`.
-        (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
-            JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            resolved_inline_tag(tag),
-            None,
-        ),
-        _ => unreachable!(),
-    };
+    let (job_payload, tag, _runnable_on_behalf_of) =
+        match (payload.path, payload.raw_code, payload.id) {
+            // flow or script:
+            (Some(path), None, None) => {
+                get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?
+            }
+            // inline script: "preview" mode, or run mode without an entry in the
+            // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
+            (None, Some(raw_code), None) => {
+                let tag = resolved_inline_tag(raw_code.tag.clone());
+                (JobPayload::Code(raw_code), tag, None)
+            }
+            // inline script: run mode (deployed app) with an entry in `app_script`.
+            (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
+                JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+                resolved_inline_tag(tag),
+                None,
+            ),
+            _ => unreachable!(),
+        };
     // Preview honors the client-supplied inline tag (`resolved_inline_tag`), so
     // — like `/jobs/run/preview` — confine it to worker tags the caller may use
     // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
@@ -3168,14 +3171,14 @@ async fn execute_component(
     // and would add unnecessary breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
-    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
-        (
-            on_behalf_of.email.as_str(),
-            on_behalf_of.permissioned_as.clone(),
-        )
-    } else {
-        (email.as_str(), permissioned_as)
-    };
+    // An app component always runs on-behalf of the APP's identity (resolved from
+    // the app policy / execution mode above), NOT the referenced script/flow's own
+    // `on_behalf_of`. A referenced runnable's configured identity must not override
+    // the app's: otherwise a Viewer-mode app could execute a component as that
+    // runnable's identity (privilege confusion), and a preview would run as it
+    // rather than as the caller. Direct `/jobs/run` still honors a runnable's own
+    // `on_behalf_of`.
+    let (email, permissioned_as) = (email.as_str(), permissioned_as);
 
     let end_user_email =
         get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;

@@ -108,8 +108,9 @@ export async function getS3File({
 	workspace: string
 	token: string | undefined
 	isEditor: boolean
-	// Still accepted (callers pass it) but no longer used: editor reads go through
-	// the viewer-scoped endpoint regardless of the component configuration.
+	// Optional; not read here. Editor reads go through the viewer-scoped endpoint
+	// and deployed reads through the app-scoped one, independent of the component
+	// configuration.
 	configuration?: RichConfigurations
 }) {
 	if (!source) return ''

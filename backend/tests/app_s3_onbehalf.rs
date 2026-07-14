@@ -296,6 +296,9 @@ async fn test_deployed_app_s3_onbehalf_flow_script_provenance(
 }
 
 /// Seed a minimal deployed script so `execute_component` can resolve `script/<path>`.
+/// The script is given its OWN `on_behalf_of` (created_by test-user-2), distinct from
+/// any app author, so a test can assert an app component runs as the app's identity,
+/// not the referenced script's on_behalf.
 async fn seed_script(db: &Pool<Postgres>, path: &str, content: &str) -> anyhow::Result<()> {
     let mut h = 0i64;
     for b in path.bytes().chain(content.bytes()) {
@@ -303,8 +306,9 @@ async fn seed_script(db: &Pool<Postgres>, path: &str, content: &str) -> anyhow::
     }
     sqlx::query(
         r#"INSERT INTO script (workspace_id, hash, path, summary, description, content,
-                                created_by, language, tag, lock)
-           VALUES ('test-workspace', $1, $2, '', '', $3, 'test-user', 'deno'::script_lang, 'deno', '')
+                                created_by, on_behalf_of_email, language, tag, lock)
+           VALUES ('test-workspace', $1, $2, '', '', $3, 'test-user-2', 'test2@windmill.dev',
+                   'deno'::script_lang, 'deno', '')
            ON CONFLICT DO NOTHING"#,
     )
     .bind(h)
@@ -373,14 +377,18 @@ async fn test_execute_component_stamps_app_trigger(db: Pool<Postgres>) -> anyhow
     assert_eq!(status, 200, "execute_component: {job_id}");
     let job_id = job_id.trim().trim_matches('"');
 
-    // The enqueued job must carry the app-origination marker: trigger_kind = 'app'
-    // and trigger = the app path (NOT the runnable path).
-    let (trigger_kind, trigger): (Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT trigger_kind::text, trigger FROM v2_job WHERE id = $1::uuid AND workspace_id = 'test-workspace'",
-    )
-    .bind(job_id)
-    .fetch_one(&db)
-    .await?;
+    // The enqueued job must carry the app-origination marker (trigger_kind = 'app',
+    // trigger = the app path, NOT the runnable path) and must run on-behalf of the
+    // APP's identity (u/test-user, the anonymous app's author), NOT the referenced
+    // script's own on_behalf (u/test-user-2).
+    let (trigger_kind, trigger, permissioned_as): (Option<String>, Option<String>, String) =
+        sqlx::query_as(
+            "SELECT trigger_kind::text, trigger, permissioned_as FROM v2_job \
+             WHERE id = $1::uuid AND workspace_id = 'test-workspace'",
+        )
+        .bind(job_id)
+        .fetch_one(&db)
+        .await?;
 
     assert_eq!(
         trigger_kind.as_deref(),
@@ -391,6 +399,10 @@ async fn test_execute_component_stamps_app_trigger(db: Pool<Postgres>) -> anyhow
         trigger.as_deref(),
         Some(APP_PATH),
         "trigger must be the app path, not the runnable path (got {trigger:?})"
+    );
+    assert_eq!(
+        permissioned_as, "u/test-user",
+        "component must run on-behalf of the APP identity, not the referenced script's on_behalf (got {permissioned_as})"
     );
 
     Ok(())
