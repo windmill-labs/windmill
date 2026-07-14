@@ -520,7 +520,7 @@
 
 {#snippet freeTierUsageBanner()}
 	<div
-		class="mb-1 flex items-center justify-between gap-2 rounded-md border bg-surface-secondary px-2 py-1"
+		class="my-1 flex items-center justify-between gap-2 rounded-md border bg-surface-secondary px-2 py-1"
 	>
 		<span class="text-xs text-secondary tabular-nums">
 			{freeTierUsedPct}% of your free Windmill AI used
