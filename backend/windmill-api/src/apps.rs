@@ -3171,30 +3171,19 @@ async fn execute_component(
     // and would add unnecessary breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
-    // An app component always runs on-behalf of the APP's identity (resolved from
-    // the app policy / execution mode above), NOT the referenced script/flow's own
-    // `on_behalf_of`. A referenced runnable's configured identity must not override
-    // the app's: otherwise a Viewer-mode app could execute a component as that
-    // runnable's identity (privilege confusion), and a preview would run as it
-    // rather than as the caller. Direct `/jobs/run` still honors a runnable's own
-    // `on_behalf_of`.
+    // An app component runs on-behalf of the APP identity (resolved above), never
+    // the referenced runnable's own `on_behalf_of` — else a Viewer-mode app could
+    // execute as that identity and a preview would run as it, not the caller.
+    // (Direct `/jobs/run` still honors a runnable's `on_behalf_of`.)
     let (email, permissioned_as) = (email.as_str(), permissioned_as);
 
     let end_user_email =
         get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
 
-    // Mark the job as app-originated (trigger = the app path) — the provenance
-    // signal the deployed-app S3 gate trusts to distinguish files an app produced
-    // from files a viewer forged by running a declared runnable directly (a direct
-    // `/jobs/run` cannot set trigger_kind = 'app').
-    //
-    // ONLY deployed, policy-checked runs are marked. A preview executes as the
-    // *caller* (Viewer mode), not as the author, so its results are read back as the
-    // caller via the viewer-scoped `job_helpers` endpoint — never author-mode — and
-    // must never be app-provenanced. Marking a preview would let any `jobs:run`
-    // caller supply arbitrary `raw_code` against a victim app path and forge the
-    // marker; and it is never needed, since the caller already reads a preview's
-    // output as themselves.
+    // Stamp app-origination (trigger_kind='app' + trigger=<app path>), the signal
+    // the deployed-app S3 provenance gate trusts (unforgeable via `/jobs/run`).
+    // Deployed runs only: a preview runs as the caller and is read back as the caller
+    // (viewer-scoped), so it must never be app-provenanced (else it could forge one).
     let app_trigger =
         (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
@@ -3886,24 +3875,12 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         // tokens are excluded (untrusted app JS stays confined below).
         Ok(())
     } else {
-        // Author-mode (Anonymous/Publisher) or embed token: confine to the app's
-        // declared keys or files it recently produced. Without this gate a
-        // logged-in viewer could launder the author's S3 perms via an arbitrary
-        // file_key (confused deputy).
-        //
-        // "Recently produced" is keyed on the app-origination marker
-        // (`trigger_kind = 'app'` + `trigger = <this app path>`) that
-        // `execute_component` stamps on every job it launches — NOT on
-        // `created_by`/`permissioned_as`/`runnable_path` as the security boundary:
-        // those are forgeable (a viewer running a declared runnable directly, with
-        // un-pinned inputs, and — if the runnable carries its own `on_behalf_of` —
-        // even `permissioned_as` resolving to the author). Only a genuine
-        // app-launched run carries the marker (a direct `/jobs/run` cannot set it).
-        //
-        // `created_by = <this caller>` is then an additional *isolation* filter, not
-        // the boundary: it confines a viewer to keys their OWN app runs produced, so
-        // one viewer can't pull another viewer's result. It can only narrow (it is
-        // ANDed under the un-forgeable marker), so it re-introduces no forgery.
+        // Author-mode/embed: confine reads to the app's declared keys or files THIS
+        // app produced, else a viewer could launder the author's S3 perms via an
+        // arbitrary file_key (confused deputy). Provenance is the un-forgeable
+        // app-origination marker (`trigger_kind='app'` + `trigger=<this app>`);
+        // `created_by=<caller>` is ANDed only as a per-viewer isolation filter (it
+        // can narrow — one viewer can't read another's result — never forge).
         let creator = opt_authed
             .as_ref()
             .map(|authed| authed.username.clone())
