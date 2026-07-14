@@ -306,6 +306,10 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	// mount-time onDraftChange('') as a non-touch (draftPrompt is undefined),
 	// so merely opening an untouched draft never persists it.
 	if ((s.draftPrompt ?? '') === text) return
+	// Keep `transient` (means "in-memory only") set until the flush persists the
+	// draft, so hydrateSessions preserves it across a reconcile inside this window;
+	// isReusableBlank, not `transient`, is what stops createSession reusing a typed
+	// draft. Only the IndexedDB write is debounced.
 	s.draftPrompt = text
 	clearTimeout(draftPromptFlushHandles.get(sessionId))
 	draftPromptFlushHandles.set(
@@ -523,15 +527,18 @@ export async function reconcileAfterWorkspaceChange(): Promise<void> {
 	await reconcileSessionsLifecycle()
 }
 
-// Count non-transient sessions committed to a given workspace — used to warn the
-// user, before archiving/deleting a workspace, how many AI sessions go with it.
+// Matches on `workspace_id ?? pending_workspace_id` so persisted unsent drafts
+// count too; reconcileSessionsLifecycle tears them down with committed sessions on
+// archive/delete, so this pre-teardown confirmation count must match.
 export async function countSessionsForWorkspace(workspaceId: string): Promise<number> {
 	if (!BROWSER) return 0
 	const db = await sessionsDb.whenReady()
 	if (!db) return 0
 	try {
 		const all = await db.getAll('sessions')
-		return all.filter((s) => s.workspace_id === workspaceId && !s.transient).length
+		return all.filter(
+			(s) => (s.workspace_id ?? s.pending_workspace_id) === workspaceId && !s.transient
+		).length
 	} catch {
 		return 0
 	}
@@ -627,15 +634,22 @@ export function requestComposerFocus(): void {
 	composerFocusRequest.nonce++
 }
 
+// An untouched in-memory blank that `+` may reuse/discard. `draftPrompt ===
+// undefined` (never edited), not falsiness: a draft typed then erased to '' still
+// has a pending flush and is a real session, so it must survive both. Every other
+// touch clears `transient` synchronously, so only the draft prompt needs checking.
+function isReusableBlank(s: Session): boolean {
+	return !!s.transient && s.draftPrompt === undefined
+}
+
 export function createSession(): Session {
 	// Reuse an existing untouched draft from the active family rather than pile a
-	// blank entry on every `+`. "Untouched" is exactly `transient`: a pending
-	// session leaves the in-memory-only state the moment the user touches it
-	// (types a prompt, picks a workspace, opens the panel, renames), at which
-	// point it persists and is its own session — so several pending sessions can
-	// still be built up in parallel, one touch at a time. A cross-family leftover
-	// draft is dropped instead of reused (reusing it would act on that family).
-	const reusable = sessionState.sessions.find((s) => s.transient && sessionInCurrentFamily(s))
+	// blank entry on every `+`, so several pending sessions can still be built up
+	// in parallel, one touch at a time. A cross-family leftover blank is dropped
+	// instead of reused (reusing it would act on that family).
+	const reusable = sessionState.sessions.find(
+		(s) => isReusableBlank(s) && sessionInCurrentFamily(s)
+	)
 	if (reusable) {
 		sessionState.currentSessionId = reusable.id
 		// Reusing an already-active draft doesn't change currentSessionId, so ask
@@ -643,7 +657,7 @@ export function createSession(): Session {
 		requestComposerFocus()
 		return reusable
 	}
-	sessionState.sessions = sessionState.sessions.filter((s) => !s.transient)
+	sessionState.sessions = sessionState.sessions.filter((s) => !isReusableBlank(s))
 	const existingNumbers = sessionState.sessions
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
@@ -942,6 +956,11 @@ export function setSessionArchived(id: string, archived: boolean) {
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
+	// Cancel any pending draft-prompt flush: left running, its persistTouched
+	// would write the record back to IndexedDB after we delete it, resurrecting
+	// a draft deleted inside the debounce window.
+	clearTimeout(draftPromptFlushHandles.get(id))
+	draftPromptFlushHandles.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id

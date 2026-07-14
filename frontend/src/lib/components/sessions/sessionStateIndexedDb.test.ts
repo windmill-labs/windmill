@@ -37,6 +37,7 @@ import {
 	deleteSessionRecord,
 	archiveSessionsForWorkspace,
 	deleteSessionsForWorkspace,
+	countSessionsForWorkspace,
 	materializeTransient,
 	getSessionDraftPrompt,
 	setSessionDraftPrompt,
@@ -213,6 +214,24 @@ describe('sessionState IndexedDB persistence', () => {
 		sessionState.sessions = [s]
 		deleteSession('t4')
 		expect(sessionState.sessions).toEqual([])
+
+		await rehydrate(user)
+		await flush()
+		expect(sessionState.sessions).toEqual([])
+	})
+
+	it('deleting a draft inside the debounce window does not resurrect it', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		const s = session({ id: 't4b', transient: true, pending_workspace_id: 'wsA' })
+		sessionState.sessions = [s]
+		// Schedule a flush, then delete before the 400ms timer fires. The cancelled
+		// timer must not write the record back to IndexedDB.
+		setSessionDraftPrompt('t4b', 'typed then deleted')
+		deleteSession('t4b')
+		await new Promise((r) => setTimeout(r, 500))
 
 		await rehydrate(user)
 		await flush()
@@ -492,6 +511,20 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(rec).toBeUndefined()
 	})
 
+	it('counts persisted pending drafts alongside committed sessions for a workspace', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+		// One committed session and one still-unsent draft, both bound to wsCount —
+		// reconcile removes both on teardown, so the confirmation count must see both.
+		await putSession(session({ id: 'committed', createdAt: 1, workspace_id: 'wsCount' }))
+		await putSession(session({ id: 'pending', createdAt: 2, pending_workspace_id: 'wsCount' }))
+		// A committed session in a different workspace must not be counted.
+		await putSession(session({ id: 'other', createdAt: 3, workspace_id: 'wsOther' }))
+
+		expect(await countSessionsForWorkspace('wsCount')).toBe(2)
+	})
+
 	it('archives a persisted pending draft (tagged) when its pending workspace is archived', async () => {
 		const user = freshUser()
 		usersWorkspaceStore.set({
@@ -512,6 +545,38 @@ describe('sessionState IndexedDB persistence', () => {
 		db.close()
 		expect(rec.archived).toBe(true)
 		expect(rec.archivedByWorkspace).toBe(true)
+	})
+
+	it('keeps a just-typed draft in memory when reconcile hydrates before its flush fires', async () => {
+		const user = freshUser()
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [{ id: 'wsRec', name: 'rec', disabled: false }] as never
+		})
+		userStore.set(user)
+		await flush()
+		// A committed session gives reconcile a workspace to query, so it proceeds to
+		// hydrateSessions (which rebuilds the list as in-memory-transients + DB rows).
+		await putSession(session({ id: 'committed', createdAt: 1, workspace_id: 'wsRec' }))
+		// A fresh draft the user just started typing into: transient (not yet written)
+		// with a debounced flush pending. hydrate must preserve it — clearing transient
+		// early would leave it in neither bucket and drop it, dangling currentSessionId.
+		sessionState.sessions.push(
+			session({ id: 'draftRec', pending_workspace_id: 'wsRec', transient: true })
+		)
+		sessionState.currentSessionId = 'draftRec'
+		setSessionDraftPrompt('draftRec', 'typing')
+
+		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
+			wsRec: 'active'
+		} as never)
+		await reconcileSessionsLifecycle()
+
+		expect(sessionState.sessions.some((s) => s.id === 'draftRec')).toBe(true)
+		expect(sessionState.currentSessionId).toBe('draftRec')
+
+		// Cancel the still-pending flush so it can't write to a torn-down DB later.
+		deleteSession('draftRec')
 	})
 
 	it('clears the in-memory list on logout', async () => {
