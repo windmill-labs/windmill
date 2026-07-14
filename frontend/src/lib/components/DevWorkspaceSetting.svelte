@@ -73,10 +73,20 @@
 	let alreadyBlocksForking = $derived(
 		isRuleActiveInRulesets(rootProtectionRules.current ?? [], 'DisableWorkspaceForking')
 	)
-	// Sent to the backend: an already-enforced restriction stays on regardless of the (locked) toggle's
-	// raw state, keeping the request consistent with what the locked toggle shows.
-	let effectiveLockProdDeploy = $derived(alreadyBlocksDeploy || lockProdDeploy)
-	let effectiveLockProdForking = $derived(alreadyBlocksForking || lockProdForking)
+	// Until the fetch resolves the workspace's rules are unknown (current === undefined also covers the
+	// first frame before loading flips). Treat each lock as engaged during that window so the toggle is
+	// locked on and the effective value stays true: otherwise a user could turn a lock off and attach
+	// before an existing rule is detected, sending false and omitting the reserved rule — leaving prod
+	// unprotected if that existing rule is later removed.
+	let rulesUnknown = $derived(
+		rootProtectionRules.loading || rootProtectionRules.current === undefined
+	)
+	let deployLocked = $derived(alreadyBlocksDeploy || rulesUnknown)
+	let forkingLocked = $derived(alreadyBlocksForking || rulesUnknown)
+	// Sent to the backend: a locked restriction (enforced or not-yet-known) stays on regardless of the
+	// toggle's raw state, keeping the request consistent with what the locked toggle shows.
+	let effectiveLockProdDeploy = $derived(deployLocked || lockProdDeploy)
+	let effectiveLockProdForking = $derived(forkingLocked || lockProdForking)
 
 	// A standalone root workspace, or an existing fork of this prod (same family), can be attached.
 	// A fork parented to a different workspace can't (the backend rejects a parent that isn't this
@@ -240,7 +250,7 @@
 				Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
 			</button>
 		</div>
-		{#if alreadyBlocksDeploy}
+		{#if deployLocked}
 			<div class="flex flex-col gap-0.5">
 				<Toggle
 					checked
@@ -249,9 +259,11 @@
 						right: 'Block direct edits in this workspace (deploy via the dev workspace)'
 					}}
 				/>
-				<span class="text-2xs text-secondary ml-8"
-					>Already enforced by an existing protection rule</span
-				>
+				{#if alreadyBlocksDeploy}
+					<span class="text-2xs text-secondary ml-8"
+						>Already enforced by an existing protection rule</span
+					>
+				{/if}
 			</div>
 		{:else}
 			<Toggle
@@ -261,12 +273,14 @@
 				}}
 			/>
 		{/if}
-		{#if alreadyBlocksForking}
+		{#if forkingLocked}
 			<div class="flex flex-col gap-0.5">
 				<Toggle checked disabled options={{ right: 'Prevent forking this workspace' }} />
-				<span class="text-2xs text-secondary ml-8"
-					>Already enforced by an existing protection rule</span
-				>
+				{#if alreadyBlocksForking}
+					<span class="text-2xs text-secondary ml-8"
+						>Already enforced by an existing protection rule</span
+					>
+				{/if}
 			</div>
 		{:else}
 			<Toggle
