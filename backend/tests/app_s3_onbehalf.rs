@@ -702,3 +702,71 @@ async fn test_deployed_app_s3_read_scopes(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// A read-scope glob must honor path-segment boundaries: `*` matches within a single
+/// segment, `**` across segments. Otherwise `f/public/*` would silently also cover
+/// `f/public/sub/secret.csv`, granting more of the publisher's S3 authority than declared.
+#[sqlx::test(fixtures("base"))]
+async fn test_deployed_app_s3_read_scope_segment_boundary(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    const STAR_APP: &str = "u/test-user/s3star";
+    const DOUBLESTAR_APP: &str = "u/test-user/s3doublestar";
+    const DIRECT_CHILD: &str = "f/public/report.csv";
+    const NESTED: &str = "f/public/sub/secret.csv";
+
+    let create = |path: &str, glob: &str| {
+        authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN).json(&json!({
+            "path": path,
+            "summary": "s3 read-scope segment boundary test",
+            "value": {},
+            "policy": {
+                "execution_mode": "anonymous",
+                "triggerables": {},
+                "s3_read_scopes": [{ "path_glob": glob }]
+            }
+        }))
+    };
+    assert_eq!(create(STAR_APP, "f/public/*").send().await?.status(), 201);
+    assert_eq!(
+        create(DOUBLESTAR_APP, "f/public/**").send().await?.status(),
+        201
+    );
+
+    let get = |app: &str, key: &str| {
+        let url = format!("{ws}/apps_u/download_s3_file/{app}?s3={key}");
+        authed(client().get(url), USER_TOKEN).send()
+    };
+    let denied = |body: &str| body.contains("File restricted");
+    let body_of = |app: &'static str, key: &'static str| async move {
+        get(app, key).await.unwrap().text().await.unwrap()
+    };
+
+    // `f/public/*` covers a direct child but NOT a nested key.
+    assert!(
+        !denied(&body_of(STAR_APP, DIRECT_CHILD).await),
+        "`*` scope must cover a direct child"
+    );
+    assert!(
+        denied(&body_of(STAR_APP, NESTED).await),
+        "`*` scope must NOT cross a path segment (nested key stays denied)"
+    );
+
+    // `f/public/**` covers both.
+    assert!(
+        !denied(&body_of(DOUBLESTAR_APP, DIRECT_CHILD).await),
+        "`**` scope must cover a direct child"
+    );
+    assert!(
+        !denied(&body_of(DOUBLESTAR_APP, NESTED).await),
+        "`**` scope must cross path segments (nested key clears)"
+    );
+
+    Ok(())
+}

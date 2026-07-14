@@ -3924,8 +3924,14 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                 .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
         }) || policy.s3_read_scopes.as_ref().is_some_and(|scopes| {
             scopes.iter().any(|scope| {
+                // `literal_separator(true)`: `*` matches within a path segment and `**`
+                // across segments (the documented semantics). Without it globset lets `*`
+                // cross `/`, so `f/public/*` would also match `f/public/sub/secret.csv` —
+                // widening the scope beyond what the author declared.
                 scope.storage == file_query.storage
-                    && globset::Glob::new(&scope.path_glob)
+                    && globset::GlobBuilder::new(&scope.path_glob)
+                        .literal_separator(true)
+                        .build()
                         .map_err(|e| {
                             tracing::error!("Invalid s3_read_scope glob {}: {e}", scope.path_glob)
                         })
