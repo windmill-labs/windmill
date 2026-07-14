@@ -20,21 +20,19 @@
 
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ArrowUp, Settings } from 'lucide-svelte'
+	import { ArrowUp, ExternalLink, Globe2, PlugZap, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace, loadCopilot } from '$lib/aiStore'
-	import { workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { base } from '$lib/base'
 	import AIChatModelSettings from '../copilot/chat/AIChatModelSettings.svelte'
+	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
 
-	interface Props {
-		/** bindable so the example tags rendered by the page can fill the prompt */
-		value?: string
-	}
-
-	let { value = $bindable('') }: Props = $props()
+	let value = $state('')
 	let placeholder = $state('')
+	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
 	// In global-AI mode the layout's chat panel is disabled and never loads the copilot
 	// config, so the home chat loads it for the current workspace itself.
@@ -120,23 +118,67 @@
 				? 'transition-[filter] group-hover:blur-sm pointer-events-none select-none'
 				: ''}
 		>
-			<TextInput
-				bind:value
-				class="resize-none px-4 py-3 pb-9 shadow-sm border-accent"
-				underlyingInputEl="textarea"
-				inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
-			/>
-			<Button
-				endIcon={starting ? {} : { icon: ArrowUp }}
-				wrapperClasses="absolute right-2 bottom-3.5"
-				variant={value.trim() ? 'accent' : 'subtle'}
-				iconOnly
-				loading={starting}
-				disabled={!value.trim() || starting || disabled}
-				onclick={start}
-			></Button>
-			<div class="absolute left-3 bottom-4 flex items-center px-0.5">
-				<AIChatModelSettings />
+			<!-- anchors the send button / model settings to the input, not to the whole
+			     block — the row below would otherwise push them down -->
+			<div class="relative">
+				<TextInput
+					bind:value
+					class="resize-none px-4 py-3 pb-9 shadow-sm border-accent"
+					underlyingInputEl="textarea"
+					inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
+				/>
+				<Button
+					endIcon={starting ? {} : { icon: ArrowUp }}
+					wrapperClasses="absolute right-2 bottom-3.5"
+					variant={value.trim() ? 'accent' : 'subtle'}
+					iconOnly
+					loading={starting}
+					disabled={!value.trim() || starting || disabled}
+					onclick={start}
+				></Button>
+				<div class="absolute left-3 bottom-4 flex items-center px-0.5">
+					<AIChatModelSettings />
+				</div>
+			</div>
+
+			<div class="flex items-center justify-between gap-2">
+				<div class="flex flex-row flex-wrap items-center gap-1.5">
+					{#each homeAIExamples as example (example.label)}
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							btnClasses="!rounded-full !text-2xs !text-hint"
+							onClick={() => (value = example.prompt)}
+						>
+							{example.label}
+						</Button>
+					{/each}
+				</div>
+
+				<div class="flex flex-row items-center gap-1">
+					<Button
+						variant="subtle"
+						unifiedSize="xs"
+						btnClasses="!text-2xs !text-hint"
+						startIcon={{ icon: PlugZap }}
+						onClick={() => homeConnectDrawer?.openDrawer?.()}
+					>
+						CLI / MCP
+					</Button>
+					{#if !$userStore?.operator && HOME_SHOW_HUB}
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							btnClasses="!text-2xs !text-hint"
+							startIcon={{ icon: Globe2 }}
+							endIcon={{ icon: ExternalLink }}
+							href={$hubBaseUrlStore}
+							target="_blank"
+						>
+							Hub
+						</Button>
+					{/if}
+				</div>
 			</div>
 		</div>
 		{#if disabled}
@@ -156,3 +198,5 @@
 		{/if}
 	</div>
 </div>
+
+<HomeConnectDrawer bind:this={homeConnectDrawer} />

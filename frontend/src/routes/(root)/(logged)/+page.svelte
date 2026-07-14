@@ -10,15 +10,13 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import HomeConnectDrawer from '$lib/components/home/HomeConnectDrawer.svelte'
 	import {
 		ExternalLink,
 		GitFork,
 		Globe2,
 		Loader2,
 		Code,
-		LayoutDashboard,
-		PlugZap
+		LayoutDashboard
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -27,7 +25,6 @@
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
@@ -41,7 +38,7 @@
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
-	import HomeAIChat, { homeAIExamples } from '$lib/components/home/HomeAIChat.svelte'
+	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -97,7 +94,6 @@
 	}
 
 	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
-	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
 	// Provide workspaceTutorials to child components via a reactive wrapper
 	let workspaceTutorialsContext = $derived(workspaceTutorials)
@@ -108,9 +104,6 @@
 	})
 
 	let showCreateButtons = $state(false)
-
-	// prompt of the home AI chat, filled in by the example tags below it
-	let aiPrompt = $state('')
 
 	onMount(() => {
 		// Check if there's a tutorial parameter in the URL
@@ -280,47 +273,7 @@
 		</div>
 
 		<div class="w-full mb-12 mt-2">
-			<HomeAIChat bind:value={aiPrompt} />
-
-			<div class="max-w-[40rem] mx-auto flex items-center justify-between gap-2">
-				<div class="flex flex-row flex-wrap items-center gap-1.5">
-					{#each homeAIExamples as example (example.label)}
-						<Button
-							variant="default"
-							unifiedSize="xs"
-							btnClasses="!rounded-full !text-2xs !text-hint"
-							onClick={() => (aiPrompt = example.prompt)}
-						>
-							{example.label}
-						</Button>
-					{/each}
-				</div>
-
-				<div class="flex flex-row items-center gap-1">
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						btnClasses="!text-2xs !text-hint"
-						startIcon={{ icon: PlugZap }}
-						onClick={() => homeConnectDrawer?.openDrawer?.()}
-					>
-						CLI / MCP
-					</Button>
-					{#if !$userStore?.operator && HOME_SHOW_HUB}
-						<Button
-							variant="subtle"
-							unifiedSize="xs"
-							btnClasses="!text-2xs !text-hint"
-							startIcon={{ icon: Globe2 }}
-							endIcon={{ icon: ExternalLink }}
-							href={$hubBaseUrlStore}
-							target="_blank"
-						>
-							Hub
-						</Button>
-					{/if}
-				</div>
-			</div>
+			<HomeAIChat />
 		</div>
 
 		{#if $workspaceStore == 'admins'}
@@ -416,4 +369,3 @@
 </div>
 
 <WorkspaceTutorials bind:this={workspaceTutorials} />
-<HomeConnectDrawer bind:this={homeConnectDrawer} />
